@@ -162,6 +162,7 @@ Cloning from the cache took 0.28 s versus 4.40 s from upstream[^bench-clone].
 | [0002](0002-implementation-language.md) | Write the tools in Go | Accepted |
 | [0003](0003-use-git-cli.md) | Shell out to the git binary | Accepted |
 | [0004](0004-single-binary-with-subcommands.md) | One `ws` binary with subcommands | Accepted |
+| [0005](0005-cli-framework.md) | Use cobra for command parsing | Accepted |
 
 [^aws-process]: AWS Prescriptive Guidance, "ADR process." <https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html> (accessed 2026-10-17). "When the team accepts an ADR, it becomes immutable. If new insights require a different decision, the team proposes a new ADR." On rejection: "the ADR owner adds a reason for the rejection to prevent future discussions on the same topic."
 [^aws-blog]: C. Kappey, D. Goby, D. Kunce, "Master architecture decision records (ADRs): Best practices for effective decision-making," AWS Architecture Blog, 2025-03-20. <https://aws.amazon.com/blogs/architecture/master-architecture-decision-records-adrs-best-practices-for-effective-decision-making/> (accessed 2026-10-17). "Keep ADRs concise by focusing on a single decision."
