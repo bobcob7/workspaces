@@ -1,6 +1,6 @@
 # 0013. Remove workspaces a grace period after their last session ends, whatever their git state
 
-- Status: Accepted (2026-10-17)
+- Status: Superseded by [0015](0015-workspace-lifetime-follows-session.md) (2026-10-18)
 - Date: 2026-10-17
 - Supersedes: [0006](0006-session-based-cleanup.md)
 

@@ -1,6 +1,6 @@
 # 0012. Workspace names, state kept outside the workspace, and deletion guard
 
-- Status: Accepted (2026-10-17)
+- Status: Accepted (2026-10-17); state files amended by [0015](0015-workspace-lifetime-follows-session.md) (2026-10-18)
 - Date: 2026-10-17
 
 ## Context

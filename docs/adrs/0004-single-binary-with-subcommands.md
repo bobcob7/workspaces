@@ -1,6 +1,6 @@
 # 0004. One `ws` binary with subcommands
 
-- Status: Accepted (2026-10-17)
+- Status: Superseded by [0014](0014-command-set.md) (2026-10-18)
 - Date: 2026-10-17
 
 ## Context
