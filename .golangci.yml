@@ -1,0 +1,210 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    # Bugs and correctness
+    - asasalint # []any passed as a single variadic any
+    - bidichk # no dangerous unicode bidi sequences
+    - contextcheck # functions receive the caller's context, not a fresh one
+    - durationcheck # no multiplying two time.Durations
+    - errchkjson # json.Marshal errors are checked where they can occur
+    - errorlint # errors.Is/As instead of == and type assertions; %w in Errorf
+    - exhaustive # switch statements on enums cover every case
+    - fatcontext # no context growth inside loops
+    - forcetypeassert # type assertions use the comma-ok form
+    - gosec # common security problems
+    - makezero # no append to a slice made with a non-zero length
+    - nilerr # no returning nil after checking err != nil
+    - nilnesserr # no returning a different, nil error after checking err
+    - nilnil # no returning (nil, nil)
+    - noctx # exec and network calls carry a context
+    - reassign # no reassigning package variables of other packages
+    - unparam # unused function parameters and always-constant results
+    # Idiom and style
+    - copyloopvar # no redundant loop variable copies (Go 1.22+)
+    - errname # sentinel errors are errFoo/ErrFoo, error types are fooError
+    - gocritic # broad collection of idiom and performance checks
+    - godot # comments end in a period
+    - intrange # for i := range n
+    - misspell
+    - modernize # suggests newer stdlib/language features
+    - nakedret # no naked returns in long functions
+    - perfsprint # cheaper alternatives to fmt.Sprintf
+    - predeclared # no shadowing of builtins like len, new, error
+    - revive # golint successor
+    - sloglint # consistent slog usage
+    - tagliatelle # JSON fields are snake_case (ADR 0016)
+    - unconvert # no unnecessary type conversions
+    - usestdlibvars # stdlib constants instead of literals
+    - whitespace # no leading/trailing blank lines in blocks
+    # Project conventions
+    - depguard # ADR 0003 and 0005 import rules, see settings below
+    - forbidigo # see settings below
+    - gochecknoglobals # no package-level mutable state
+    - gochecknoinits # no init()
+    - nolintlint # //nolint directives are specific and explained
+    # Complexity
+    - cyclop
+    - funlen
+    - gocognit
+    - nestif
+    # Tests
+    - testifylint # correct testify usage, require vs assert
+    - thelper # helpers call t.Helper()
+    - usetesting # t.Context(), t.TempDir(), etc. instead of stdlib equivalents
+
+  settings:
+    cyclop:
+      max-complexity: 15
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: github.com/go-git/go-git
+              desc: run the git binary through internal/git (ADR 0003)
+            - pkg: github.com/libgit2/git2go
+              desc: run the git binary through internal/git (ADR 0003)
+            - pkg: github.com/pkg/errors
+              desc: use the standard errors package
+            - pkg: github.com/sirupsen/logrus
+              desc: use log/slog
+            - pkg: go.uber.org/zap
+              desc: use log/slog
+            - pkg: math/rand$
+              desc: use math/rand/v2
+        cobra:
+          files:
+            - $all
+            - "!**/internal/cli/**"
+            - "!**/cmd/ws/**"
+          deny:
+            - pkg: github.com/spf13/cobra
+              desc: cobra is imported only by internal/cli and cmd/ws (ADR 0005)
+    errcheck:
+      check-type-assertions: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^(fmt\.Print.*|print|println)$
+          msg: write to an injected io.Writer, or log with an injected *slog.Logger
+        - pattern: ^log\.
+          msg: use an injected *slog.Logger
+        - pattern: ^os\.(Stdout|Stderr|Stdin)$
+          msg: take streams from main through the constructor
+        - pattern: ^os\.Exit$
+          msg: return an exit code to main
+    funlen:
+      lines: 60
+      statements: 40
+      ignore-comments: true
+    gocognit:
+      min-complexity: 20
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - unnamedResult
+        - sloppyReassign # conflicts with govet shadow, which wants `err =` reused
+        - whyNoLint # covered by nolintlint
+    gosec:
+      excludes:
+        - G104 # duplicate of errcheck
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # readability over struct packing in a CLI
+    nestif:
+      min-complexity: 4
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: early-return
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: unused-receiver
+        - name: use-any
+        - name: var-declaration
+        - name: var-naming
+    sloglint:
+      no-global: all # use an injected *slog.Logger
+      no-mixed-args: true
+      context: scope
+      static-msg: true
+      key-naming-case: snake
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+    testifylint:
+      enable-all: true
+
+  exclusions:
+    generated: lax # skips files with a "Code generated ... DO NOT EDIT." header (moq)
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - cyclop
+          - funlen
+          - gocognit
+          - forcetypeassert
+          - gochecknoglobals
+          - gosec
+      # Tests use slog.NewJSONHandler(io.Discard, nil) by convention.
+      - path: _test\.go
+        linters:
+          - sloglint
+        text: use slog.DiscardHandler instead
+      # main is where the real streams and the exit code belong.
+      - path: ^cmd/ws/
+        linters:
+          - forbidigo
+        text: os\.(Stdout|Stderr|Stdin|Exit)
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+    goimports:
+      local-prefixes:
+        - github.com/bobcob7/workspaces
+  exclusions:
+    generated: lax
