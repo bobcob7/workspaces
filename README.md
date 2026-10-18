@@ -127,6 +127,16 @@ owners = ["bobcob7"]
 ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md)). See
 [0011](docs/adrs/0011-config-dir.md) for the config directory.
 
+`ws` clones over HTTPS (`https://<host>/<owner>/<name>.git`) and has no
+protocol setting. To use SSH, tell git, as for `go get`
+([0019](docs/adrs/0019-https-upstream-urls.md)):
+
+```console
+$ git config --global url."git@github.com:".insteadOf https://github.com/
+# or SSH for pushes only
+$ git config --global url."git@github.com:".pushInsteadOf https://github.com/
+```
+
 ## Requirements
 
 - `git` 2.23 or newer on `PATH`; `ws` shells out to it

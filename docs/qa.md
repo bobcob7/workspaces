@@ -12,6 +12,7 @@
   - [When is a workspace deleted?](#when-is-a-workspace-deleted)
   - [Will `ws` delete uncommitted or unpushed work?](#will-ws-delete-uncommitted-or-unpushed-work)
   - [Where do I push from a workspace?](#where-do-i-push-from-a-workspace)
+  - [How do I make `ws` use SSH instead of HTTPS?](#how-do-i-make-ws-use-ssh-instead-of-https)
   - [Are workspace repos git worktrees?](#are-workspace-repos-git-worktrees)
 - [Agents](#agents)
   - [How do I see, follow, or talk to my agents?](#how-do-i-see-follow-or-talk-to-my-agents)
@@ -142,6 +143,21 @@ anything worth keeping before you delete the session or exit the shell.
 To `origin`, as usual. In every workspace repo, `origin` is the upstream
 repository, and a second remote, `cache`, points at the local cache for fast
 fetches ([0009](adrs/0009-workspace-repository-remotes.md)).
+
+### How do I make `ws` use SSH instead of HTTPS?
+
+Configure git, not `ws`. `ws` builds HTTPS URLs for specs that aren't URLs,
+and git rewrites them with `url.<base>.insteadOf`, the same recipe Go gives
+for `go get` ([0019](adrs/0019-https-upstream-urls.md)):
+
+```console
+$ git config --global url."git@github.com:".insteadOf https://github.com/
+```
+
+To fetch over HTTPS but push over SSH, use `pushInsteadOf` instead. The
+rewrite happens whenever git connects, so it also applies to caches and
+workspaces created before you set it. A repo's URL is fixed when it's first
+cached; a spec that is itself an SSH URL is used as given.
 
 ### Are workspace repos git worktrees?
 
