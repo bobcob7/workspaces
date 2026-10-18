@@ -51,20 +51,29 @@ PR description or issue.
 **Title.** Name the decision, not the topic. "Clone workspaces from a
 hard-linked local cache", not "Cloning".
 
-**Context.** The problem and the forces at play: requirements, constraints,
-and the facts that make the choice non-obvious. This is where most of the
-evidence goes. Write it neutrally, as if you hadn't decided yet. A few
-paragraphs, or a table of measurements if the decision turns on numbers.
+**Context.** Write it as if you hadn't decided yet: a reader should be able
+to reach their own conclusion from it. Cover three things, using
+sub-headings when they help:
 
-**Decision.** Start with "We will…". Be specific enough that someone could
-implement it without guessing: commands, formats, names, defaults. Leave out
-justification; that belongs in Context and Alternatives.
+- *Problem:* what forces a decision, stated as a question.
+- *What a solution needs:* the criteria the options will be judged on, in
+  priority order.
+- *Relevant facts:* measurements and citations. State facts without saying
+  which option they favor. Leave out "so option X fails"; that judgment
+  belongs in Decision.
 
-**Alternatives.** One short paragraph per serious option that wasn't chosen,
-each ending with the concrete reason it lost, backed by a citation or a
-measurement where one exists. "Worse" isn't a reason; "corrupts the
-workspace after `git gc`", with a footnote saying how that was reproduced, is. Two or three options is
-typical.
+**Decision.** Start with the recommendation ("We will…" or "We recommend…").
+Be specific enough that someone could implement it without guessing:
+commands, formats, names, defaults. Then explain *why this option*: walk
+through the criteria from Context, and say where the chosen option is weak
+as well as where it's strong.
+
+**Alternatives.** Give each serious option a fair hearing, the way its
+strongest advocate would make the case. List its **pros** and **cons**, back
+both with citations or measurements where possible, and say whether it
+could complement the decision later. "Worse" isn't a con; "corrupts the
+workspace after `git gc`", with a footnote saying how that was reproduced,
+is.
 
 **Consequences.** The trade-offs you're accepting, negatives included. Also
 include:
