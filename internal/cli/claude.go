@@ -26,12 +26,13 @@ func (a *App) newClaudeCmd() *cobra.Command {
 	return cmd
 }
 
-// specsBeforeDash requires at least one repo spec before "--".
+// specsBeforeDash requires at least one valid repo spec before "--".
 func specsBeforeDash(cmd *cobra.Command, args []string) error {
-	if specs, _ := splitAtDash(cmd, args); len(specs) == 0 {
+	specs, _ := splitAtDash(cmd, args)
+	if len(specs) == 0 {
 		return usageErrorf("%s needs at least one repo spec before --", commandName(cmd))
 	}
-	return nil
+	return validSpecs(cmd, specs)
 }
 
 // splitAtDash separates the arguments before "--" from those after it.

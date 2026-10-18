@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCommandName(t *testing.T) {
@@ -57,5 +58,46 @@ func TestExactArgs(t *testing.T) {
 	})
 	t.Run("rejects more", func(t *testing.T) {
 		requireUsageError(t, validate(cmd, []string{"a", "b"}))
+	})
+}
+
+func TestAllArgs(t *testing.T) {
+	cmd := newTestTree()
+	pass := func(*cobra.Command, []string) error { return nil }
+	fail := func(*cobra.Command, []string) error { return usageErrorf("first") }
+	never := func(*cobra.Command, []string) error {
+		t.Fatal("ran a validator after a failure")
+		return nil
+	}
+	t.Run("passes when all pass", func(t *testing.T) {
+		var calls int
+		count := func(*cobra.Command, []string) error {
+			calls++
+			return nil
+		}
+		require.NoError(t, allArgs(pass, count)(cmd, nil))
+		assert.Equal(t, 1, calls)
+	})
+	t.Run("stops at the first failure", func(t *testing.T) {
+		err := allArgs(pass, fail, never)(cmd, nil)
+		assert.EqualError(t, err, "first")
+	})
+	t.Run("passes with none", func(t *testing.T) {
+		assert.NoError(t, allArgs()(cmd, nil))
+	})
+}
+
+func TestValidSpecs(t *testing.T) {
+	cmd := newTestTree()
+	t.Run("accepts valid specs", func(t *testing.T) {
+		assert.NoError(t, validSpecs(cmd, []string{"buff-bear@main", "git@github.com:o/n.git"}))
+	})
+	t.Run("accepts none", func(t *testing.T) {
+		assert.NoError(t, validSpecs(cmd, nil))
+	})
+	t.Run("rejects an invalid spec", func(t *testing.T) {
+		err := validSpecs(cmd, []string{"buff-bear", "a//b"})
+		requireCode(t, codeSpecInvalid, err)
+		assert.ErrorContains(t, err, `"a//b"`)
 	})
 }

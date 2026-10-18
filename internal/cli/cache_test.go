@@ -29,6 +29,9 @@ func TestApp_newCacheAddCmd(t *testing.T) {
 	t.Run("needs a spec", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, nil))
 	})
+	t.Run("rejects an invalid spec", func(t *testing.T) {
+		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
+	})
 	t.Run("runs", func(t *testing.T) {
 		requireNotImplemented(t, cmd.RunE(cmd, []string{"buff-bear"}))
 	})
@@ -57,6 +60,10 @@ func TestApp_newCacheUpdateCmd(t *testing.T) {
 	t.Run("rejects both", func(t *testing.T) {
 		cmd, args := parse(t, "--all", "buff-bear")
 		requireUsageError(t, cmd.Args(cmd, args))
+	})
+	t.Run("rejects an invalid spec", func(t *testing.T) {
+		cmd, args := parse(t, "a//b")
+		requireCode(t, codeSpecInvalid, cmd.Args(cmd, args))
 	})
 	t.Run("runs", func(t *testing.T) {
 		cmd, args := parse(t, "--all")
@@ -112,6 +119,9 @@ func TestApp_newCacheResolveCmd(t *testing.T) {
 	t.Run("needs a spec", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, nil))
 	})
+	t.Run("rejects an invalid spec", func(t *testing.T) {
+		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
+	})
 	t.Run("runs", func(t *testing.T) {
 		requireNotImplemented(t, cmd.RunE(cmd, []string{"buff-bear"}))
 	})
@@ -123,6 +133,9 @@ func TestApp_newCachePathCmd(t *testing.T) {
 	t.Run("needs exactly one spec", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"a", "b"}))
 	})
+	t.Run("rejects an invalid spec", func(t *testing.T) {
+		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
+	})
 	t.Run("runs", func(t *testing.T) {
 		requireNotImplemented(t, cmd.RunE(cmd, []string{"buff-bear"}))
 	})
@@ -133,6 +146,9 @@ func TestApp_newCacheRemoveCmd(t *testing.T) {
 	cmd := app.newCacheRemoveCmd()
 	t.Run("needs a spec", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, nil))
+	})
+	t.Run("rejects an invalid spec", func(t *testing.T) {
+		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
 	})
 	t.Run("runs", func(t *testing.T) {
 		requireNotImplemented(t, cmd.RunE(cmd, []string{"buff-bear"}))

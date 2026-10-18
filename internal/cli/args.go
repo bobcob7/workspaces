@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/bobcob7/workspaces/internal/spec"
 )
 
 // Positional-argument validators that report usage errors (exit 2).
@@ -28,6 +30,29 @@ func atLeastOneArg(what string) cobra.PositionalArgs {
 		}
 		return nil
 	}
+}
+
+// allArgs runs each validator in order and returns the first error.
+func allArgs(validators ...cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		for _, validate := range validators {
+			if err := validate(cmd, args); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// validSpecs requires every argument to parse as a repo spec (ADR 0007).
+// It reports spec_invalid, also exit 2.
+func validSpecs(_ *cobra.Command, args []string) error {
+	for _, arg := range args {
+		if _, err := spec.Parse(arg); err != nil {
+			return newError(codeSpecInvalid, err)
+		}
+	}
+	return nil
 }
 
 func exactArgs(n int, what string) cobra.PositionalArgs {

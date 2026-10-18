@@ -14,6 +14,9 @@ func TestApp_newShellCmd(t *testing.T) {
 	t.Run("needs a spec", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, nil))
 	})
+	t.Run("rejects an invalid spec", func(t *testing.T) {
+		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
+	})
 	t.Run("refuses --json", func(t *testing.T) {
 		app.global.json = true
 		t.Cleanup(func() { app.global.json = false })

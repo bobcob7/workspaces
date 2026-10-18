@@ -27,7 +27,7 @@ func (a *App) newCacheAddCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "add <SPEC>...",
 		Short: "Clone repos into the cache if missing",
-		Args:  atLeastOneArg("a repo spec"),
+		Args:  allArgs(atLeastOneArg("a repo spec"), validSpecs),
 		RunE:  runE(a.withConfig(notImplemented)),
 	}
 }
@@ -41,7 +41,7 @@ func (a *App) newCacheUpdateCmd() *cobra.Command {
 			if all == (len(args) > 0) {
 				return usageErrorf("%s needs repo specs or --all, not both", commandName(cmd))
 			}
-			return nil
+			return validSpecs(cmd, args)
 		},
 		RunE: runE(a.withConfig(notImplemented)),
 	}
@@ -83,7 +83,7 @@ func (a *App) newCacheResolveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "resolve <SPEC>...",
 		Short: "Resolve specs to canonical ids without cloning",
-		Args:  atLeastOneArg("a repo spec"),
+		Args:  allArgs(atLeastOneArg("a repo spec"), validSpecs),
 		RunE:  runE(a.withConfig(notImplemented)),
 	}
 }
@@ -92,7 +92,7 @@ func (a *App) newCachePathCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "path <SPEC>",
 		Short: "Print the cache directory for a spec",
-		Args:  exactArgs(1, "repo spec"),
+		Args:  allArgs(exactArgs(1, "repo spec"), validSpecs),
 		RunE:  runE(a.withConfig(notImplemented)),
 	}
 }
@@ -101,7 +101,7 @@ func (a *App) newCacheRemoveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove <SPEC>...",
 		Short: "Delete cache entries",
-		Args:  atLeastOneArg("a repo spec"),
+		Args:  allArgs(atLeastOneArg("a repo spec"), validSpecs),
 		RunE:  runE(a.withConfig(notImplemented)),
 	}
 }

@@ -142,7 +142,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **Git runner** `internal/git`: the only place git runs, with
   `GIT_TERMINAL_PROMPT=0` and the 2.23 version check
   ([0003](docs/adrs/0003-use-git-cli.md))
-- [ ] **Repo specs**: parse `repo@ref`, canonical ids, upstream HTTPS URLs
+- [x] **Repo specs**: parse `repo@ref`, canonical ids, upstream HTTPS URLs
   ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
   [0019](docs/adrs/0019-https-upstream-urls.md))
 - [ ] **Cache**: bare clones, refspecs, fetch with prune, locking; short-name
@@ -186,6 +186,7 @@ internal/
   cli/                        # cobra commands and the output contract (0005, 0016)
   config/                     # CONFIG_DIR and config.toml (0011)
   git/                        # the only place git is executed (0003)
+  spec/                       # repo@ref parsing, canonical ids, upstream URLs (0007, 0019)
 docs/
   adrs/                       # architecture decision records
   tools/                      # command reference

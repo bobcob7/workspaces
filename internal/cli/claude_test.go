@@ -52,6 +52,14 @@ func TestSpecsBeforeDash(t *testing.T) {
 		cmd, args := parse(t)
 		requireUsageError(t, specsBeforeDash(cmd, args))
 	})
+	t.Run("rejects an invalid spec", func(t *testing.T) {
+		cmd, args := parse(t, "buff-bear@", "--", "prompt")
+		requireCode(t, codeSpecInvalid, specsBeforeDash(cmd, args))
+	})
+	t.Run("checks only specs before --", func(t *testing.T) {
+		cmd, args := parse(t, "buff-bear", "--", "not a spec: @{")
+		assert.NoError(t, specsBeforeDash(cmd, args))
+	})
 	t.Run("rejects only claude args", func(t *testing.T) {
 		cmd, args := parse(t, "--", "prompt")
 		err := specsBeforeDash(cmd, args)

@@ -1,0 +1,109 @@
+package spec
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestNewID(t *testing.T) {
+	t.Run("lowercases", func(t *testing.T) {
+		id, err := NewID("GitHub.com", "BobCob7", "Buff-Bear")
+		require.NoError(t, err)
+		assert.Equal(t, ID{Host: "github.com", Owner: "bobcob7", Name: "buff-bear"}, id)
+	})
+	t.Run("accepts nested owner groups", func(t *testing.T) {
+		id, err := NewID("gitlab.com", "gitlab-org/api", "client-go")
+		require.NoError(t, err)
+		assert.Equal(t, "gitlab-org/api", id.Owner)
+	})
+	t.Run("rejects a bad host", func(t *testing.T) {
+		_, err := NewID("git hub.com", "o", "n")
+		assert.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("rejects a bad owner", func(t *testing.T) {
+		_, err := NewID("github.com", "a//b", "n")
+		assert.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("rejects a bad name", func(t *testing.T) {
+		_, err := NewID("github.com", "o", "n@x")
+		assert.ErrorIs(t, err, ErrInvalid)
+	})
+}
+
+func TestID_String(t *testing.T) {
+	id := ID{Host: "gitlab.com", Owner: "a/b", Name: "c"}
+	assert.Equal(t, "gitlab.com/a/b/c", id.String())
+}
+
+func TestID_UpstreamURL(t *testing.T) {
+	id := ID{Host: "github.com", Owner: "bobcob7", Name: "buff-bear"}
+	assert.Equal(t, "https://github.com/bobcob7/buff-bear.git", id.UpstreamURL())
+}
+
+func TestValidateHost(t *testing.T) {
+	t.Run("accepts a host name", func(t *testing.T) {
+		assert.NoError(t, validateHost("gitlab.example-1.com"))
+	})
+	t.Run("rejects empty", func(t *testing.T) {
+		assert.Error(t, validateHost(""))
+	})
+	t.Run("rejects a port", func(t *testing.T) {
+		assert.Error(t, validateHost("host:22"))
+	})
+	t.Run("rejects underscores", func(t *testing.T) {
+		assert.Error(t, validateHost("my_host.com"))
+	})
+}
+
+func TestValidatePath(t *testing.T) {
+	t.Run("accepts one segment", func(t *testing.T) {
+		assert.NoError(t, validatePath("bobcob7"))
+	})
+	t.Run("accepts nested groups", func(t *testing.T) {
+		assert.NoError(t, validatePath("a/b/c"))
+	})
+	t.Run("rejects an empty segment", func(t *testing.T) {
+		assert.Error(t, validatePath("a//b"))
+	})
+	t.Run("rejects empty", func(t *testing.T) {
+		assert.Error(t, validatePath(""))
+	})
+}
+
+func TestValidateSegment(t *testing.T) {
+	t.Run("accepts forge characters", func(t *testing.T) {
+		assert.NoError(t, validateSegment("Buff_bear.rs-2"))
+	})
+	t.Run("rejects empty", func(t *testing.T) {
+		assert.Error(t, validateSegment(""))
+	})
+	t.Run("rejects dot", func(t *testing.T) {
+		assert.Error(t, validateSegment("."))
+	})
+	t.Run("rejects dot-dot", func(t *testing.T) {
+		assert.Error(t, validateSegment(".."))
+	})
+	t.Run("rejects @", func(t *testing.T) {
+		assert.Error(t, validateSegment("a@b"))
+	})
+	t.Run("rejects non-ASCII", func(t *testing.T) {
+		assert.Error(t, validateSegment("café"))
+	})
+}
+
+func TestOnlyChars(t *testing.T) {
+	t.Run("letters and digits", func(t *testing.T) {
+		assert.True(t, onlyChars("aZ09", ""))
+	})
+	t.Run("allowed extras", func(t *testing.T) {
+		assert.True(t, onlyChars("a-b.c", ".-"))
+	})
+	t.Run("other characters", func(t *testing.T) {
+		assert.False(t, onlyChars("a/b", ".-"))
+	})
+	t.Run("empty", func(t *testing.T) {
+		assert.True(t, onlyChars("", ""))
+	})
+}
