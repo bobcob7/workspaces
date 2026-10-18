@@ -3,17 +3,36 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bobcob7/workspaces/internal/config"
 )
 
+// testPaths and testConfig are what newTestApp's config loader returns.
+func testPaths() config.Paths {
+	return config.NewPaths("/cfg")
+}
+
+func testConfig() config.Config {
+	return config.Config{Defaults: config.Defaults{Host: "github.com", Owners: []string{"bobcob7"}}}
+}
+
+// newTestApp returns an App whose config loader succeeds without touching
+// the filesystem.
 func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 	stdout, stderr = &bytes.Buffer{}, &bytes.Buffer{}
-	return New("test", stdout, stderr), stdout, stderr
+	configs := &configLoaderMock{
+		LoadFunc: func(string) (config.Paths, config.Config, error) {
+			return testPaths(), testConfig(), nil
+		},
+	}
+	return New("test", stdout, stderr, configs), stdout, stderr
 }
 
 // newTestTree returns the "list" command of a minimal "ws cache list" tree,
@@ -60,6 +79,7 @@ func TestNew(t *testing.T) {
 	assert.Same(t, stdout, app.stdout)
 	assert.Same(t, stderr, app.stderr)
 	assert.False(t, app.indentJSON, "a buffer isn't a terminal")
+	assert.NotNil(t, app.configs)
 	t.Run("logging starts off", func(t *testing.T) {
 		assert.False(t, app.log.Enabled(t.Context(), slog.LevelError))
 	})
@@ -167,6 +187,70 @@ func TestRunE(t *testing.T) {
 		fn := runE(func(*cobra.Command, []string) error { return newError(codeRefNotFound, errTest) })
 		requireCode(t, codeRefNotFound, fn(nil, nil))
 	})
+}
+
+func TestApp_withConfig(t *testing.T) {
+	newApp := func(err error) (*App, *configLoaderMock) {
+		configs := &configLoaderMock{
+			LoadFunc: func(string) (config.Paths, config.Config, error) {
+				if err != nil {
+					return config.Paths{}, config.Config{}, err
+				}
+				return testPaths(), testConfig(), nil
+			},
+		}
+		app, _, _ := newTestApp()
+		app.configs = configs
+		return app, configs
+	}
+	t.Run("loads the config before running", func(t *testing.T) {
+		app, _ := newApp(nil)
+		var ran bool
+		fn := app.withConfig(func(*cobra.Command, []string) error {
+			ran = true
+			assert.Equal(t, testPaths(), app.paths)
+			assert.Equal(t, testConfig(), app.config)
+			return nil
+		})
+		require.NoError(t, fn(nil, nil))
+		assert.True(t, ran)
+	})
+	t.Run("passes --config-dir", func(t *testing.T) {
+		app, configs := newApp(nil)
+		app.global.configDir = "/elsewhere"
+		require.NoError(t, app.withConfig(succeed)(nil, nil))
+		require.Len(t, configs.LoadCalls(), 1)
+		assert.Equal(t, "/elsewhere", configs.LoadCalls()[0].ConfigDir)
+	})
+	t.Run("returns the command's error", func(t *testing.T) {
+		app, _ := newApp(nil)
+		assert.ErrorIs(t, app.withConfig(notImplemented)(nil, nil), errNotImplemented)
+	})
+	t.Run("invalid config is config_invalid", func(t *testing.T) {
+		app, _ := newApp(fmt.Errorf("bad: %w", config.ErrInvalid))
+		requireCode(t, codeConfigInvalid, app.withConfig(succeed)(nil, nil))
+	})
+	t.Run("other errors are wrapped without a code", func(t *testing.T) {
+		app, _ := newApp(errTest)
+		err := app.withConfig(succeed)(nil, nil)
+		require.ErrorIs(t, err, errTest)
+		_, ok := errors.AsType[*cliError](err)
+		assert.False(t, ok)
+	})
+	t.Run("doesn't run the command when loading fails", func(t *testing.T) {
+		app, _ := newApp(errTest)
+		var ran bool
+		_ = app.withConfig(func(*cobra.Command, []string) error {
+			ran = true
+			return nil
+		})(nil, nil)
+		assert.False(t, ran)
+	})
+}
+
+// succeed is a command body that returns no error.
+func succeed(*cobra.Command, []string) error {
+	return nil
 }
 
 func TestApp_noJSON(t *testing.T) {

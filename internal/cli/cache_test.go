@@ -44,19 +44,23 @@ func TestApp_newCacheUpdateCmd(t *testing.T) {
 	}
 	t.Run("accepts specs", func(t *testing.T) {
 		cmd, args := parse(t, "buff-bear")
-		requireNotImplemented(t, cmd.RunE(cmd, args))
+		assert.NoError(t, cmd.Args(cmd, args))
 	})
 	t.Run("accepts --all", func(t *testing.T) {
 		cmd, args := parse(t, "--all")
-		requireNotImplemented(t, cmd.RunE(cmd, args))
+		assert.NoError(t, cmd.Args(cmd, args))
 	})
 	t.Run("rejects neither", func(t *testing.T) {
 		cmd, args := parse(t)
-		requireUsageError(t, cmd.RunE(cmd, args))
+		requireUsageError(t, cmd.Args(cmd, args))
 	})
 	t.Run("rejects both", func(t *testing.T) {
 		cmd, args := parse(t, "--all", "buff-bear")
-		requireUsageError(t, cmd.RunE(cmd, args))
+		requireUsageError(t, cmd.Args(cmd, args))
+	})
+	t.Run("runs", func(t *testing.T) {
+		cmd, args := parse(t, "--all")
+		requireNotImplemented(t, cmd.RunE(cmd, args))
 	})
 }
 
@@ -90,7 +94,11 @@ func TestApp_newCacheSearchCmd(t *testing.T) {
 	})
 	t.Run("rejects a limit below 1", func(t *testing.T) {
 		cmd, args := parse(t, "--limit", "0", "bear")
-		requireUsageError(t, cmd.RunE(cmd, args))
+		requireUsageError(t, cmd.Args(cmd, args))
+	})
+	t.Run("accepts one query", func(t *testing.T) {
+		cmd, args := parse(t, "bear")
+		assert.NoError(t, cmd.Args(cmd, args))
 	})
 	t.Run("runs", func(t *testing.T) {
 		cmd, args := parse(t, "bear")

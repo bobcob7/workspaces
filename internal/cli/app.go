@@ -5,10 +5,13 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 
 	"github.com/spf13/cobra"
+
+	"github.com/bobcob7/workspaces/internal/config"
 )
 
 // App is one ws process: its streams, logger, and parsed global flags.
@@ -19,6 +22,9 @@ type App struct {
 	log     *slog.Logger
 	level   *slog.LevelVar
 	global  globalOptions
+	configs configLoader
+	paths   config.Paths
+	config  config.Config
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 }
@@ -34,8 +40,9 @@ type globalOptions struct {
 const logOff = slog.LevelError + 4
 
 // New returns an App that writes results to stdout, and errors and
-// --verbose logging to stderr.
-func New(version string, stdout, stderr io.Writer) *App {
+// --verbose logging to stderr. configs supplies the config for commands
+// that need it.
+func New(version string, stdout, stderr io.Writer, configs configLoader) *App {
 	level := new(slog.LevelVar)
 	level.Set(logOff)
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
@@ -43,6 +50,7 @@ func New(version string, stdout, stderr io.Writer) *App {
 		version:    version,
 		stdout:     stdout,
 		stderr:     stderr,
+		configs:    configs,
 		log:        log,
 		level:      level,
 		indentJSON: isTerminal(stdout),
@@ -116,6 +124,23 @@ func runE(fn func(cmd *cobra.Command, args []string) error) func(*cobra.Command,
 			return asCLIError(err)
 		}
 		return nil
+	}
+}
+
+// withConfig loads CONFIG_DIR and config.toml before running fn. Commands
+// that touch the cache, workspaces, or state use it; ws llm doesn't.
+func (a *App) withConfig(fn func(cmd *cobra.Command, args []string) error) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		paths, cfg, err := a.configs.Load(a.global.configDir)
+		if errors.Is(err, config.ErrInvalid) {
+			return newError(codeConfigInvalid, err)
+		}
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+		a.paths, a.config = paths, cfg
+		a.log.Debug("config loaded", slog.String("root", paths.Root))
+		return fn(cmd, args)
 	}
 }
 

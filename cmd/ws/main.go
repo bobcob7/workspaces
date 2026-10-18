@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/bobcob7/workspaces/internal/cli"
+	"github.com/bobcob7/workspaces/internal/config"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -21,5 +22,6 @@ func main() {
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return cli.New(version, stdout, stderr).Run(ctx, args)
+	configs := config.NewLoader(os.Getenv, os.UserConfigDir)
+	return cli.New(version, stdout, stderr, configs).Run(ctx, args)
 }

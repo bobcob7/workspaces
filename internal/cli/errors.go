@@ -27,6 +27,7 @@ const (
 	codeClaudeUntrusted   errorCode = "claude_untrusted"
 	codeClaudeFailed      errorCode = "claude_failed"
 	codeInternal          errorCode = "internal"
+	codeConfigInvalid     errorCode = "config_invalid"
 	codeUsage             errorCode = "usage"
 	codeSpecInvalid       errorCode = "spec_invalid"
 	codeNameInvalid       errorCode = "name_invalid"
@@ -65,7 +66,7 @@ func (e *cliError) exitCode() int {
 func (c errorCode) exitCode() int {
 	switch c {
 	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing,
-		codeClaudeUntrusted, codeClaudeFailed, codeInternal:
+		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid:
 		return exitUsage

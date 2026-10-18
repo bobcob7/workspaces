@@ -110,32 +110,15 @@ stderr, and take `--json` for machine-readable output
 
 | What           | Where                                                     |
 | -------------- | --------------------------------------------------------- |
-| `CONFIG_DIR`   | `$WS_CONFIG_DIR`, else `os.UserConfigDir()/workspaces` (`~/.config/workspaces` on Linux, `~/Library/Application Support/workspaces` on macOS) |
-| Config file    | `$CONFIG_DIR/config.toml`, generated with comments on first run |
+| `CONFIG_DIR`   | `--config-dir`, else `$WS_CONFIG_DIR`, else `os.UserConfigDir()/workspaces` (`~/.config/workspaces` on Linux, `~/Library/Application Support/workspaces` on macOS) |
+| Config file    | `$CONFIG_DIR/config.toml`, generated with comments on first run; [schema](docs/config.md#schema) |
 | Repo cache     | `$CONFIG_DIR/cache/`                                      |
 | Workspaces     | `$CONFIG_DIR/workspaces/`; each removed when its session is gone ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md)). Trust it once in Claude Code |
 | Workspace state | `$CONFIG_DIR/state/<id>/`: metadata and the session record |
 | Agent pointer  | `$CONFIG_DIR/workspaces/CLAUDE.md`: tells agents to run `ws llm` |
 
-```toml
-[defaults]
-host = "github.com"
-owners = ["bobcob7"]
-```
-
-`defaults.host` and `defaults.owners` drive short-name resolution
-([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md)). See
-[0011](docs/adrs/0011-config-dir.md) for the config directory.
-
-`ws` clones over HTTPS (`https://<host>/<owner>/<name>.git`) and has no
-protocol setting. To use SSH, tell git, as for `go get`
-([0019](docs/adrs/0019-https-upstream-urls.md)):
-
-```console
-$ git config --global url."git@github.com:".insteadOf https://github.com/
-# or SSH for pushes only
-$ git config --global url."git@github.com:".pushInsteadOf https://github.com/
-```
+See [Configuration](docs/config.md) for how `CONFIG_DIR` is chosen, the
+`config.toml` schema, and how to use SSH instead of HTTPS.
 
 ## Requirements
 
@@ -153,7 +136,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **CLI skeleton**: every command and flag as a stub; error codes, exit
   codes, and JSON output; golangci-lint and the Makefile
   ([0005](docs/adrs/0005-cli-framework.md), [0016](docs/adrs/0016-output-contract.md))
-- [ ] **Config**: resolve `CONFIG_DIR`; read `config.toml`, writing a
+- [x] **Config**: resolve `CONFIG_DIR`; read `config.toml`, writing a
   commented default when it's missing; `--config-dir` and `WS_CONFIG_DIR`
   ([0011](docs/adrs/0011-config-dir.md))
 - [ ] **Git runner** `internal/git`: the only place git runs, with
@@ -163,11 +146,13 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
   [0019](docs/adrs/0019-https-upstream-urls.md))
 - [ ] **Cache**: bare clones, refspecs, fetch with prune, locking; short-name
-  and ref resolution; `ws cache`
+  and ref resolution; `ws cache`; Time Machine exclusion for `cache/`
+  ([0011](docs/adrs/0011-config-dir.md))
   ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
   [0008](docs/adrs/0008-repository-cache.md))
 - [ ] **Workspaces**: ids and `--name`, `state/<id>/workspace.toml`,
-  hard-linked clones with `origin` and `cache` remotes, the deletion guard
+  hard-linked clones with `origin` and `cache` remotes, the deletion guard;
+  Time Machine exclusion for `workspaces/`
   ([0009](docs/adrs/0009-workspace-repository-remotes.md),
   [0012](docs/adrs/0012-workspace-layout.md),
   [0017](docs/adrs/0017-clones-not-worktrees.md))
@@ -199,6 +184,7 @@ $ make lint       # golangci-lint; `make fmt` applies its formatters
 cmd/ws/                       # main: streams, signals, exit code
 internal/
   cli/                        # cobra commands and the output contract (0005, 0016)
+  config/                     # CONFIG_DIR and config.toml (0011)
   git/                        # the only place git is executed (0003), planned
 docs/
   adrs/                       # architecture decision records

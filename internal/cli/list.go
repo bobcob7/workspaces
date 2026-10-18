@@ -9,15 +9,13 @@ type listOptions struct {
 	repo    string
 }
 
-func (*App) newListCmd() *cobra.Command {
+func (a *App) newListCmd() *cobra.Command {
 	var opts listOptions
 	cmd := &cobra.Command{
 		Use:   "list [OPTIONS]",
 		Short: "List workspaces and their sessions",
 		Args:  noArgs,
-		RunE: runE(func(*cobra.Command, []string) error {
-			return errNotImplemented
-		}),
+		RunE:  runE(a.withConfig(notImplemented)),
 	}
 	cmd.Flags().BoolVarP(&opts.idsOnly, "ids", "q", false, "print only workspace IDs")
 	cmd.Flags().StringVar(&opts.repo, "repo", "", "only workspaces containing this repo")

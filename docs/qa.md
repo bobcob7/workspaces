@@ -103,9 +103,10 @@ command again.
 
 ### Where does `ws` keep its files?
 
-Everything is under one config directory, `CONFIG_DIR`: `$WS_CONFIG_DIR` if
-set, otherwise `~/Library/Application Support/workspaces` on macOS and
-`~/.config/workspaces` on Linux ([0011](adrs/0011-config-dir.md)).
+Everything is under one config directory, `CONFIG_DIR`: `--config-dir` or
+`$WS_CONFIG_DIR` if set, otherwise `~/Library/Application Support/workspaces`
+on macOS and `~/.config/workspaces` on Linux
+([Configuration](config.md), [0011](adrs/0011-config-dir.md)).
 
 | Path                      | Contents                                        |
 | ------------------------- | ----------------------------------------------- |

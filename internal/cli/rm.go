@@ -9,16 +9,16 @@ type rmOptions struct {
 	workspaces []string
 }
 
-func (*App) newRmCmd() *cobra.Command {
+func (a *App) newRmCmd() *cobra.Command {
 	var opts rmOptions
 	cmd := &cobra.Command{
 		Use:   "rm [OPTIONS] <WORKSPACE>...",
 		Short: "Remove workspaces and their sessions now",
 		Args:  atLeastOneArg("a workspace"),
-		RunE: runE(func(_ *cobra.Command, args []string) error {
+		RunE: runE(a.withConfig(func(_ *cobra.Command, args []string) error {
 			opts.workspaces = args
 			return errNotImplemented
-		}),
+		})),
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print what would be removed, change nothing")
 	return cmd

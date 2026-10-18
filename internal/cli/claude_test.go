@@ -21,17 +21,42 @@ func TestApp_newClaudeCmd(t *testing.T) {
 		assertFlag(t, cmd, "name", "")
 		assertFlag(t, cmd, "offline", "false")
 	})
-	t.Run("rejects no spec", func(t *testing.T) {
-		cmd, args := newCmd(t)
-		requireUsageError(t, cmd.RunE(cmd, args))
-	})
-	t.Run("rejects only claude args", func(t *testing.T) {
+	t.Run("needs a spec before --", func(t *testing.T) {
 		cmd, args := newCmd(t, "--", "a prompt")
-		requireUsageError(t, cmd.RunE(cmd, args))
+		requireUsageError(t, cmd.Args(cmd, args))
 	})
-	t.Run("accepts specs with claude args", func(t *testing.T) {
+	t.Run("runs", func(t *testing.T) {
 		cmd, args := newCmd(t, "buff-bear", "--", "a prompt")
 		requireNotImplemented(t, cmd.RunE(cmd, args))
+	})
+}
+
+func TestSpecsBeforeDash(t *testing.T) {
+	parse := func(t *testing.T, args ...string) (*cobra.Command, []string) {
+		t.Helper()
+		root := &cobra.Command{Use: "ws"}
+		cmd := &cobra.Command{Use: "claude"}
+		root.AddCommand(cmd)
+		require.NoError(t, cmd.ParseFlags(args))
+		return cmd, cmd.Flags().Args()
+	}
+	t.Run("accepts a spec", func(t *testing.T) {
+		cmd, args := parse(t, "buff-bear")
+		assert.NoError(t, specsBeforeDash(cmd, args))
+	})
+	t.Run("accepts a spec and claude args", func(t *testing.T) {
+		cmd, args := parse(t, "buff-bear", "--", "prompt")
+		assert.NoError(t, specsBeforeDash(cmd, args))
+	})
+	t.Run("rejects nothing", func(t *testing.T) {
+		cmd, args := parse(t)
+		requireUsageError(t, specsBeforeDash(cmd, args))
+	})
+	t.Run("rejects only claude args", func(t *testing.T) {
+		cmd, args := parse(t, "--", "prompt")
+		err := specsBeforeDash(cmd, args)
+		requireUsageError(t, err)
+		assert.EqualError(t, err, "claude needs at least one repo spec before --")
 	})
 }
 

@@ -17,10 +17,10 @@ func (a *App) newShellCmd() *cobra.Command {
 		Short:   "New workspace with an interactive shell",
 		Args:    atLeastOneArg("a repo spec"),
 		PreRunE: a.noJSON,
-		RunE: runE(func(_ *cobra.Command, args []string) error {
+		RunE: runE(a.withConfig(func(_ *cobra.Command, args []string) error {
 			opts.specs = args
 			return errNotImplemented
-		}),
+		})),
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
 	return cmd

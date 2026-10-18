@@ -11,21 +11,27 @@ type claudeOptions struct {
 	claudeArgs []string
 }
 
-func (*App) newClaudeCmd() *cobra.Command {
+func (a *App) newClaudeCmd() *cobra.Command {
 	var opts claudeOptions
 	cmd := &cobra.Command{
 		Use:   "claude [OPTIONS] <SPEC>... [-- <CLAUDE ARGS>...]",
 		Short: "New workspace with a Claude Code background agent",
-		RunE: runE(func(cmd *cobra.Command, args []string) error {
+		Args:  specsBeforeDash,
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			opts.specs, opts.claudeArgs = splitAtDash(cmd, args)
-			if len(opts.specs) == 0 {
-				return usageErrorf("claude needs at least one repo spec before --")
-			}
 			return errNotImplemented
-		}),
+		})),
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
 	return cmd
+}
+
+// specsBeforeDash requires at least one repo spec before "--".
+func specsBeforeDash(cmd *cobra.Command, args []string) error {
+	if specs, _ := splitAtDash(cmd, args); len(specs) == 0 {
+		return usageErrorf("%s needs at least one repo spec before --", commandName(cmd))
+	}
+	return nil
 }
 
 // splitAtDash separates the arguments before "--" from those after it.
