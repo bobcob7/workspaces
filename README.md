@@ -139,7 +139,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **Config**: resolve `CONFIG_DIR`; read `config.toml`, writing a
   commented default when it's missing; `--config-dir` and `WS_CONFIG_DIR`
   ([0011](docs/adrs/0011-config-dir.md))
-- [ ] **Git runner** `internal/git`: the only place git runs, with
+- [x] **Git runner** `internal/git`: the only place git runs, with
   `GIT_TERMINAL_PROMPT=0` and the 2.23 version check
   ([0003](docs/adrs/0003-use-git-cli.md))
 - [ ] **Repo specs**: parse `repo@ref`, canonical ids, upstream HTTPS URLs
@@ -185,7 +185,7 @@ cmd/ws/                       # main: streams, signals, exit code
 internal/
   cli/                        # cobra commands and the output contract (0005, 0016)
   config/                     # CONFIG_DIR and config.toml (0011)
-  git/                        # the only place git is executed (0003), planned
+  git/                        # the only place git is executed (0003)
 docs/
   adrs/                       # architecture decision records
   tools/                      # command reference

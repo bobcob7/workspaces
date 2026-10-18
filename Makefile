@@ -13,6 +13,8 @@ test:
 
 lint:
 	go tool golangci-lint run ./...
+	@# ADR 0003: git runs only through internal/git.
+	@! grep -rnE 'exec\.Command(Context)?\([^)]*"git"' --include='*.go' . | grep -v '^\./internal/git/'
 
 fmt:
 	go tool golangci-lint fmt ./...
