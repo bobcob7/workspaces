@@ -133,13 +133,13 @@ with a forge's.
 
 ## Consequences
 
-- `internal/repo` rejects local paths and `file://` URLs, and ids may
+- Spec parsing rejects local paths and `file://` URLs, and ids may
   contain a port.
 - Integration tests for the cache and workspaces need a helper that creates
   local bare repos and a temporary `GIT_CONFIG_GLOBAL` with the `insteadOf`
   rule, and run git with it. Tests that touch the real network aren't
   needed.
-- Conformance: unit tests in `internal/repo` for each rule above, including
+- Conformance: unit tests of spec parsing for each rule above, including
   that a spec error never contains the password.
 
 ## References
