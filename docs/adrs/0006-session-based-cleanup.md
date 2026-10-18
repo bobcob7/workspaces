@@ -1,6 +1,6 @@
 # 0006. Remove workspaces a grace period after their last session ends
 
-- Status: Accepted
+- Status: Superseded by [0013](0013-cleanup-ignores-git-state.md) (2026-10-17)
 - Date: 2026-10-17
 
 ## Context

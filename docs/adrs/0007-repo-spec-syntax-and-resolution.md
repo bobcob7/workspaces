@@ -1,6 +1,6 @@
 # 0007. `repo@ref` spec syntax and cache-first resolution
 
-- Status: Accepted
+- Status: Accepted (2026-10-17)
 - Date: 2026-10-17
 
 ## Context
