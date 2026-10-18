@@ -1,4 +1,4 @@
-package spec
+package repo
 
 import (
 	"errors"
@@ -21,13 +21,13 @@ type ID struct {
 func NewID(host, owner, name string) (ID, error) {
 	id := ID{Host: strings.ToLower(host), Owner: strings.ToLower(owner), Name: strings.ToLower(name)}
 	if err := validateHostPort(id.Host); err != nil {
-		return ID{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+		return ID{}, fmt.Errorf("%w: %w", ErrInvalidSpec, err)
 	}
 	if err := validatePath(id.Owner); err != nil {
-		return ID{}, fmt.Errorf("%w: owner: %w", ErrInvalid, err)
+		return ID{}, fmt.Errorf("%w: owner: %w", ErrInvalidSpec, err)
 	}
 	if err := validateSegment(id.Name); err != nil {
-		return ID{}, fmt.Errorf("%w: name: %w", ErrInvalid, err)
+		return ID{}, fmt.Errorf("%w: name: %w", ErrInvalidSpec, err)
 	}
 	return id, nil
 }

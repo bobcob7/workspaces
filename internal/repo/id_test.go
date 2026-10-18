@@ -1,4 +1,4 @@
-package spec
+package repo
 
 import (
 	"testing"
@@ -25,15 +25,15 @@ func TestNewID(t *testing.T) {
 	})
 	t.Run("rejects a bad host", func(t *testing.T) {
 		_, err := NewID("git hub.com", "o", "n")
-		assert.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorIs(t, err, ErrInvalidSpec)
 	})
 	t.Run("rejects a bad owner", func(t *testing.T) {
 		_, err := NewID("github.com", "a//b", "n")
-		assert.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorIs(t, err, ErrInvalidSpec)
 	})
 	t.Run("rejects a bad name", func(t *testing.T) {
 		_, err := NewID("github.com", "o", "n@x")
-		assert.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorIs(t, err, ErrInvalidSpec)
 	})
 }
 

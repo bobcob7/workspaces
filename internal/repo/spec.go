@@ -1,6 +1,7 @@
-// Package spec parses repo specs, repo[@ref] (ADR 0007). It doesn't
-// resolve short names; that needs the cache and config.
-package spec
+// Package repo parses repo specs, repo[@ref] (ADR 0007), into canonical
+// ids and upstream URLs. It doesn't resolve short names; that needs the
+// cache and config.
+package repo
 
 import (
 	"errors"
@@ -9,8 +10,8 @@ import (
 	"strings"
 )
 
-// ErrInvalid marks a spec or id that can't be parsed.
-var ErrInvalid = errors.New("invalid repo spec")
+// ErrInvalidSpec marks a spec or id that can't be parsed.
+var ErrInvalidSpec = errors.New("invalid repo spec")
 
 // Kind is the form a spec's repo part takes.
 type Kind int
@@ -53,18 +54,18 @@ type Spec struct {
 	Ref string
 }
 
-// Parse parses a spec. The ref separator is the first "@" after the repo
+// ParseSpec parses a spec. The ref separator is the first "@" after the repo
 // part, so a URL's user@ stays in the URL and a ref may contain "@".
-func Parse(s string) (Spec, error) {
+func ParseSpec(s string) (Spec, error) {
 	repo, ref, hasRef := split(s)
 	if hasRef {
 		if err := validateRef(ref); err != nil {
-			return Spec{}, fmt.Errorf("%w %q: %w", ErrInvalid, redact(s), err)
+			return Spec{}, fmt.Errorf("%w %q: %w", ErrInvalidSpec, redact(s), err)
 		}
 	}
 	sp, err := parseRepo(repo)
 	if err != nil {
-		return Spec{}, fmt.Errorf("%w %q: %w", ErrInvalid, redact(s), err)
+		return Spec{}, fmt.Errorf("%w %q: %w", ErrInvalidSpec, redact(s), err)
 	}
 	sp.Raw, sp.Ref = s, ref
 	return sp, nil

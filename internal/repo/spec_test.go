@@ -1,4 +1,4 @@
-package spec
+package repo
 
 import (
 	"testing"
@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func mustParse(t *testing.T, s string) Spec {
+func mustParseSpec(t *testing.T, s string) Spec {
 	t.Helper()
-	sp, err := Parse(s)
+	sp, err := ParseSpec(s)
 	require.NoError(t, err)
 	return sp
 }
@@ -32,127 +32,127 @@ func TestKind_String(t *testing.T) {
 	})
 }
 
-func TestParse(t *testing.T) {
+func TestParseSpec(t *testing.T) {
 	t.Run("never repeats a password", func(t *testing.T) {
-		_, err := Parse("https://me:secret@h.com/o/n")
-		require.ErrorIs(t, err, ErrInvalid)
+		_, err := ParseSpec("https://me:secret@h.com/o/n")
+		require.ErrorIs(t, err, ErrInvalidSpec)
 		assert.NotContains(t, err.Error(), "secret")
 	})
 	t.Run("rejects a local path", func(t *testing.T) {
-		_, err := Parse("/srv/repos/x.git@main")
-		require.ErrorIs(t, err, ErrInvalid)
+		_, err := ParseSpec("/srv/repos/x.git@main")
+		require.ErrorIs(t, err, ErrInvalidSpec)
 		assert.ErrorIs(t, err, errLocal)
 	})
 	t.Run("name", func(t *testing.T) {
-		assert.Equal(t, Spec{Raw: "buff-bear", Kind: KindName, Name: "buff-bear"}, mustParse(t, "buff-bear"))
+		assert.Equal(t, Spec{Raw: "buff-bear", Kind: KindName, Name: "buff-bear"}, mustParseSpec(t, "buff-bear"))
 	})
 	t.Run("owner/name", func(t *testing.T) {
-		sp := mustParse(t, "bobcob7/buff-bear")
+		sp := mustParseSpec(t, "bobcob7/buff-bear")
 		assert.Equal(t, KindOwnerName, sp.Kind)
 		assert.Equal(t, "bobcob7", sp.Owner)
 		assert.Equal(t, "buff-bear", sp.Name)
 	})
 	t.Run("host/owner/name", func(t *testing.T) {
-		sp := mustParse(t, "github.com/bobcob7/buff-bear")
+		sp := mustParseSpec(t, "github.com/bobcob7/buff-bear")
 		assert.Equal(t, KindQualified, sp.Kind)
 		assert.Equal(t, "github.com", sp.Host)
 	})
 	t.Run("scp URL", func(t *testing.T) {
-		sp := mustParse(t, "git@github.com:bobcob7/buff-bear.git")
+		sp := mustParseSpec(t, "git@github.com:bobcob7/buff-bear.git")
 		assert.Equal(t, KindURL, sp.Kind)
 		assert.Equal(t, "git@github.com:bobcob7/buff-bear.git", sp.URL)
 		assert.Equal(t, "buff-bear", sp.Name)
 	})
 	t.Run("branch with slash", func(t *testing.T) {
-		assert.Equal(t, "feat/new-thing", mustParse(t, "buff-bear@feat/new-thing").Ref)
+		assert.Equal(t, "feat/new-thing", mustParseSpec(t, "buff-bear@feat/new-thing").Ref)
 	})
 	t.Run("tag with dots", func(t *testing.T) {
-		assert.Equal(t, "v1.2.0", mustParse(t, "buff-bear@v1.2.0").Ref)
+		assert.Equal(t, "v1.2.0", mustParseSpec(t, "buff-bear@v1.2.0").Ref)
 	})
 	t.Run("commit", func(t *testing.T) {
-		assert.Equal(t, "3f2a9c1", mustParse(t, "buff-bear@3f2a9c1").Ref)
+		assert.Equal(t, "3f2a9c1", mustParseSpec(t, "buff-bear@3f2a9c1").Ref)
 	})
 	t.Run("ref containing @", func(t *testing.T) {
-		sp := mustParse(t, "bobcob7/buff-bear@user@fix")
+		sp := mustParseSpec(t, "bobcob7/buff-bear@user@fix")
 		assert.Equal(t, "buff-bear", sp.Name)
 		assert.Equal(t, "user@fix", sp.Ref)
 	})
 	t.Run("scp URL with ref", func(t *testing.T) {
-		sp := mustParse(t, "git@github.com:bobcob7/buff-bear@feat/x")
+		sp := mustParseSpec(t, "git@github.com:bobcob7/buff-bear@feat/x")
 		assert.Equal(t, "git@github.com:bobcob7/buff-bear", sp.URL)
 		assert.Equal(t, "feat/x", sp.Ref)
 	})
 	t.Run("scheme URL with user and ref", func(t *testing.T) {
-		sp := mustParse(t, "ssh://git@github.com/bobcob7/buff-bear.git@main")
+		sp := mustParseSpec(t, "ssh://git@github.com/bobcob7/buff-bear.git@main")
 		assert.Equal(t, "ssh://git@github.com/bobcob7/buff-bear.git", sp.URL)
 		assert.Equal(t, "main", sp.Ref)
 	})
 	t.Run("keeps the raw spec", func(t *testing.T) {
-		assert.Equal(t, "Buff-Bear@Main", mustParse(t, "Buff-Bear@Main").Raw)
+		assert.Equal(t, "Buff-Bear@Main", mustParseSpec(t, "Buff-Bear@Main").Raw)
 	})
 	t.Run("lowercases names but not refs", func(t *testing.T) {
-		sp := mustParse(t, "BobCob7/Buff-Bear@Feat/X")
+		sp := mustParseSpec(t, "BobCob7/Buff-Bear@Feat/X")
 		assert.Equal(t, "bobcob7", sp.Owner)
 		assert.Equal(t, "buff-bear", sp.Name)
 		assert.Equal(t, "Feat/X", sp.Ref)
 	})
 	t.Run("rejects an empty spec", func(t *testing.T) {
-		_, err := Parse("")
-		assert.ErrorIs(t, err, ErrInvalid)
+		_, err := ParseSpec("")
+		assert.ErrorIs(t, err, ErrInvalidSpec)
 	})
 	t.Run("rejects an empty ref", func(t *testing.T) {
-		_, err := Parse("buff-bear@")
-		assert.ErrorIs(t, err, ErrInvalid)
+		_, err := ParseSpec("buff-bear@")
+		assert.ErrorIs(t, err, ErrInvalidSpec)
 	})
 	t.Run("rejects a bad repo", func(t *testing.T) {
-		_, err := Parse("a//b")
-		assert.ErrorIs(t, err, ErrInvalid)
+		_, err := ParseSpec("a//b")
+		assert.ErrorIs(t, err, ErrInvalidSpec)
 	})
 	t.Run("rejects name@ref:branch, reserved by ADR 0007", func(t *testing.T) {
-		_, err := Parse("buff-bear@main:feat/new")
-		require.ErrorIs(t, err, ErrInvalid)
+		_, err := ParseSpec("buff-bear@main:feat/new")
+		require.ErrorIs(t, err, ErrInvalidSpec)
 		assert.ErrorContains(t, err, `can't contain ":"`)
 	})
 	t.Run("rejects an insteadOf shorthand", func(t *testing.T) {
-		_, err := Parse("gh:bobcob7/buff-bear")
-		assert.ErrorIs(t, err, ErrInvalid)
+		_, err := ParseSpec("gh:bobcob7/buff-bear")
+		assert.ErrorIs(t, err, ErrInvalidSpec)
 	})
 	t.Run("rejects a ref starting with -", func(t *testing.T) {
-		_, err := Parse("buff-bear@--upload-pack=x")
-		assert.ErrorIs(t, err, ErrInvalid)
+		_, err := ParseSpec("buff-bear@--upload-pack=x")
+		assert.ErrorIs(t, err, ErrInvalidSpec)
 	})
 	t.Run("error names the spec", func(t *testing.T) {
-		_, err := Parse("buff-bear@a:b")
+		_, err := ParseSpec("buff-bear@a:b")
 		assert.ErrorContains(t, err, `"buff-bear@a:b"`)
 	})
 }
 
 func TestSpec_ID(t *testing.T) {
 	t.Run("qualified", func(t *testing.T) {
-		sp := mustParse(t, "gitlab.com/a/b/c")
+		sp := mustParseSpec(t, "gitlab.com/a/b/c")
 		id, ok := sp.ID()
 		require.True(t, ok)
 		assert.Equal(t, ID{Host: "gitlab.com", Owner: "a/b", Name: "c"}, id)
 	})
 	t.Run("URL", func(t *testing.T) {
-		sp := mustParse(t, "https://GitHub.com/BobCob7/Buff-Bear.git")
+		sp := mustParseSpec(t, "https://GitHub.com/BobCob7/Buff-Bear.git")
 		id, ok := sp.ID()
 		require.True(t, ok)
 		assert.Equal(t, "github.com/bobcob7/buff-bear", id.String())
 	})
 	t.Run("URL with a port", func(t *testing.T) {
-		sp := mustParse(t, "ssh://git@h.com:2222/o/n")
+		sp := mustParseSpec(t, "ssh://git@h.com:2222/o/n")
 		id, ok := sp.ID()
 		require.True(t, ok)
 		assert.Equal(t, "h.com:2222/o/n", id.String())
 	})
 	t.Run("owner/name has none", func(t *testing.T) {
-		sp := mustParse(t, "bobcob7/buff-bear")
+		sp := mustParseSpec(t, "bobcob7/buff-bear")
 		_, ok := sp.ID()
 		assert.False(t, ok)
 	})
 	t.Run("name has none", func(t *testing.T) {
-		sp := mustParse(t, "buff-bear")
+		sp := mustParseSpec(t, "buff-bear")
 		_, ok := sp.ID()
 		assert.False(t, ok)
 	})
@@ -160,19 +160,19 @@ func TestSpec_ID(t *testing.T) {
 
 func TestSpec_Upstream(t *testing.T) {
 	t.Run("URL as given", func(t *testing.T) {
-		sp := mustParse(t, "git@github.com:BobCob7/buff-bear.git@main")
+		sp := mustParseSpec(t, "git@github.com:BobCob7/buff-bear.git@main")
 		got, ok := sp.Upstream()
 		require.True(t, ok)
 		assert.Equal(t, "git@github.com:BobCob7/buff-bear.git", got)
 	})
 	t.Run("qualified builds HTTPS", func(t *testing.T) {
-		sp := mustParse(t, "github.com/bobcob7/buff-bear")
+		sp := mustParseSpec(t, "github.com/bobcob7/buff-bear")
 		got, ok := sp.Upstream()
 		require.True(t, ok)
 		assert.Equal(t, "https://github.com/bobcob7/buff-bear.git", got)
 	})
 	t.Run("short spec has none", func(t *testing.T) {
-		sp := mustParse(t, "bobcob7/buff-bear")
+		sp := mustParseSpec(t, "bobcob7/buff-bear")
 		_, ok := sp.Upstream()
 		assert.False(t, ok)
 	})

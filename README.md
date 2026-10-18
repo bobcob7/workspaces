@@ -186,7 +186,7 @@ internal/
   cli/                        # cobra commands and the output contract (0005, 0016)
   config/                     # CONFIG_DIR and config.toml (0011)
   git/                        # the only place git is executed (0003)
-  spec/                       # repo@ref parsing, canonical ids, upstream URLs (0007, 0019)
+  repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
 docs/
   adrs/                       # architecture decision records
   tools/                      # command reference
