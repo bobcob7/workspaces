@@ -31,8 +31,8 @@ code until then, and a shell's workspace is removed when the shell exits.
 Agents learn the tool by running `ws llm`. Common questions, including how to
 set up Claude Code's folder trust, are in the [Q&A](docs/qa.md).
 
-> **Status:** designed, not implemented yet. The commands described here are
-> decided in the [ADRs](docs/adrs/README.md).
+> **Status:** in progress; see the [roadmap](#roadmap). The commands
+> described here are decided in the [ADRs](docs/adrs/README.md).
 
 ## Concepts
 
@@ -145,13 +145,61 @@ $ git config --global url."git@github.com:".pushInsteadOf https://github.com/
   tested with 2.1.302
 - Go 1.27+ to build ([0002](docs/adrs/0002-implementation-language.md))
 
-## Repository layout (proposed)
+## Roadmap
+
+Each step builds on the ones before it. A command is done when it matches
+its page in [`docs/tools`](docs/tools/README.md), with unit tests.
+
+- [x] **CLI skeleton**: every command and flag as a stub; error codes, exit
+  codes, and JSON output; golangci-lint and the Makefile
+  ([0005](docs/adrs/0005-cli-framework.md), [0016](docs/adrs/0016-output-contract.md))
+- [ ] **Config**: resolve `CONFIG_DIR`; read `config.toml`, writing a
+  commented default when it's missing; `--config-dir` and `WS_CONFIG_DIR`
+  ([0011](docs/adrs/0011-config-dir.md))
+- [ ] **Git runner** `internal/git`: the only place git runs, with
+  `GIT_TERMINAL_PROMPT=0` and the 2.23 version check
+  ([0003](docs/adrs/0003-use-git-cli.md))
+- [ ] **Repo specs**: parse `repo@ref`, canonical ids, upstream HTTPS URLs
+  ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
+  [0019](docs/adrs/0019-https-upstream-urls.md))
+- [ ] **Cache**: bare clones, refspecs, fetch with prune, locking; short-name
+  and ref resolution; `ws cache`
+  ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
+  [0008](docs/adrs/0008-repository-cache.md))
+- [ ] **Workspaces**: ids and `--name`, `state/<id>/workspace.toml`,
+  hard-linked clones with `origin` and `cache` remotes, the deletion guard
+  ([0009](docs/adrs/0009-workspace-repository-remotes.md),
+  [0012](docs/adrs/0012-workspace-layout.md),
+  [0017](docs/adrs/0017-clones-not-worktrees.md))
+- [ ] **`ws shell`**: run the shell under the session lock, remove the
+  workspace when it exits
+  ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
+- [ ] **Claude Code client**: `claude --bg`, `agents --json`, `stop`, `rm`,
+  `respawn`, `daemon` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
+- [ ] **`ws claude`**, including the trust error and attaching without a
+  prompt ([0014](docs/adrs/0014-command-set.md))
+- [ ] **Lifetime**: remove workspaces whose session is gone; `ws list`,
+  `ws rm` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
+- [ ] **`ws restore`** ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
+- [ ] **`ws restart`** ([0018](docs/adrs/0018-restart-claude-daemon.md))
+- [ ] **`ws llm`**: embedded guides with the coverage test, and
+  `workspaces/CLAUDE.md` ([0014](docs/adrs/0014-command-set.md))
+- [ ] **Release**: `make dist` binaries for darwin and linux, amd64 and
+  arm64 ([0002](docs/adrs/0002-implementation-language.md))
+
+## Development
+
+```console
+$ make build      # bin/ws
+$ make test
+$ make lint       # golangci-lint; `make fmt` applies its formatters
+```
 
 ```
-cmd/ws/                       # main: wiring only
+cmd/ws/                       # main: streams, signals, exit code
 internal/
-  cli/                        # cobra commands (0005)
-  git/                        # the only place git is executed (0003)
+  cli/                        # cobra commands and the output contract (0005, 0016)
+  git/                        # the only place git is executed (0003), planned
 docs/
   adrs/                       # architecture decision records
   tools/                      # command reference
