@@ -173,6 +173,8 @@ Cloning from the cache took 0.28 s versus 4.40 s from upstream[^bench-clone].
 | [0013](0013-cleanup-ignores-git-state.md) | Remove workspaces a grace period after their last session ends, whatever their git state | Superseded by [0015](0015-workspace-lifetime-follows-session.md) |
 | [0014](0014-command-set.md) | `ws` command set: one command per use case, and an agent guide | Accepted |
 | [0015](0015-workspace-lifetime-follows-session.md) | A workspace lives exactly as long as its one session | Accepted |
+| [0016](0016-output-contract.md) | Output contract: one JSON object on stdout, errors as JSON on stderr, five exit codes | Accepted |
+| [0017](0017-clones-not-worktrees.md) | Workspace repos are clones of the cache, not git worktrees | Accepted |
 
 [^aws-process]: AWS Prescriptive Guidance, "ADR process." <https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html> (accessed 2026-10-17). "When the team accepts an ADR, it becomes immutable. If new insights require a different decision, the team proposes a new ADR." On rejection: "the ADR owner adds a reason for the rejection to prevent future discussions on the same topic."
 [^aws-blog]: C. Kappey, D. Goby, D. Kunce, "Master architecture decision records (ADRs): Best practices for effective decision-making," AWS Architecture Blog, 2025-03-20. <https://aws.amazon.com/blogs/architecture/master-architecture-decision-records-adrs-best-practices-for-effective-decision-making/> (accessed 2026-10-17). "Keep ADRs concise by focusing on a single decision."
