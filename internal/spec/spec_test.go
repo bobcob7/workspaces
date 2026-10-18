@@ -33,6 +33,16 @@ func TestKind_String(t *testing.T) {
 }
 
 func TestParse(t *testing.T) {
+	t.Run("never repeats a password", func(t *testing.T) {
+		_, err := Parse("https://me:secret@h.com/o/n")
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.NotContains(t, err.Error(), "secret")
+	})
+	t.Run("rejects a local path", func(t *testing.T) {
+		_, err := Parse("/srv/repos/x.git@main")
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorIs(t, err, errLocal)
+	})
 	t.Run("name", func(t *testing.T) {
 		assert.Equal(t, Spec{Raw: "buff-bear", Kind: KindName, Name: "buff-bear"}, mustParse(t, "buff-bear"))
 	})
@@ -129,6 +139,12 @@ func TestSpec_ID(t *testing.T) {
 		id, ok := sp.ID()
 		require.True(t, ok)
 		assert.Equal(t, "github.com/bobcob7/buff-bear", id.String())
+	})
+	t.Run("URL with a port", func(t *testing.T) {
+		sp := mustParse(t, "ssh://git@h.com:2222/o/n")
+		id, ok := sp.ID()
+		require.True(t, ok)
+		assert.Equal(t, "h.com:2222/o/n", id.String())
 	})
 	t.Run("owner/name has none", func(t *testing.T) {
 		sp := mustParse(t, "bobcob7/buff-bear")
@@ -306,6 +322,10 @@ func TestParseRepo(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, KindURL, sp.Kind)
 	})
+	t.Run("rejects a local path", func(t *testing.T) {
+		_, err := parseRepo("/srv/o/n.git")
+		assert.ErrorIs(t, err, errLocal)
+	})
 	t.Run("path", func(t *testing.T) {
 		sp, err := parseRepo("o/n")
 		require.NoError(t, err)
@@ -313,8 +333,8 @@ func TestParseRepo(t *testing.T) {
 	})
 }
 
-func TestSchemes(t *testing.T) {
-	assert.ElementsMatch(t, []string{"https", "http", "ssh", "git"}, schemes())
+func TestDefaultPorts(t *testing.T) {
+	assert.Equal(t, map[string]string{"https": "443", "http": "80", "ssh": "22", "git": "9418"}, defaultPorts())
 }
 
 func TestParseSchemeURL(t *testing.T) {
@@ -326,16 +346,39 @@ func TestParseSchemeURL(t *testing.T) {
 	t.Run("ssh with user and port", func(t *testing.T) {
 		sp, err := parseSchemeURL("ssh://git@h.com:2222/a/b/c")
 		require.NoError(t, err)
-		assert.Equal(t, "h.com", sp.Host)
+		assert.Equal(t, "h.com:2222", sp.Host)
 		assert.Equal(t, "a/b", sp.Owner)
 		assert.Equal(t, "c", sp.Name)
+	})
+	t.Run("drops the scheme's default port", func(t *testing.T) {
+		sp, err := parseSchemeURL("ssh://git@h.com:22/o/n")
+		require.NoError(t, err)
+		assert.Equal(t, "h.com", sp.Host)
+	})
+	t.Run("keeps a port that isn't the scheme's default", func(t *testing.T) {
+		sp, err := parseSchemeURL("https://h.com:22/o/n")
+		require.NoError(t, err)
+		assert.Equal(t, "h.com:22", sp.Host)
+	})
+	t.Run("rejects a password", func(t *testing.T) {
+		_, err := parseSchemeURL("https://me:secret@h.com/o/n")
+		assert.ErrorContains(t, err, "credential helper")
+	})
+	t.Run("allows a user without a password", func(t *testing.T) {
+		sp, err := parseSchemeURL("https://me@h.com/o/n")
+		require.NoError(t, err)
+		assert.Equal(t, "https://me@h.com/o/n", sp.URL)
 	})
 	t.Run("uppercase scheme", func(t *testing.T) {
 		_, err := parseSchemeURL("HTTPS://h.com/o/n")
 		assert.NoError(t, err)
 	})
-	t.Run("rejects file URLs", func(t *testing.T) {
+	t.Run("rejects a file URL", func(t *testing.T) {
 		_, err := parseSchemeURL("file:///srv/git/o/n.git")
+		assert.ErrorIs(t, err, errLocal)
+	})
+	t.Run("rejects other schemes", func(t *testing.T) {
+		_, err := parseSchemeURL("ftp://h.com/o/n")
 		assert.ErrorContains(t, err, "unsupported URL scheme")
 	})
 	t.Run("rejects a query", func(t *testing.T) {
@@ -418,10 +461,6 @@ func TestParsePath(t *testing.T) {
 		_, err := parsePath("a/b/c")
 		assert.ErrorContains(t, err, `"a" isn't a host name`)
 	})
-	t.Run("rejects a leading slash", func(t *testing.T) {
-		_, err := parsePath("/o/n")
-		assert.Error(t, err)
-	})
 	t.Run("rejects a trailing slash", func(t *testing.T) {
 		_, err := parsePath("o/n/")
 		assert.Error(t, err)
@@ -464,5 +503,44 @@ func TestSegments(t *testing.T) {
 	t.Run("rejects a bad segment", func(t *testing.T) {
 		_, err := segments("o/../n")
 		assert.Error(t, err)
+	})
+}
+
+func TestRedact(t *testing.T) {
+	t.Run("masks a URL password", func(t *testing.T) {
+		assert.Equal(t, "https://me:xxxxx@h.com/o/n", redact("https://me:secret@h.com/o/n"))
+	})
+	t.Run("leaves other specs alone", func(t *testing.T) {
+		assert.Equal(t, "git@h.com:o/n", redact("git@h.com:o/n"))
+	})
+	t.Run("leaves unparsable URLs alone", func(t *testing.T) {
+		assert.Equal(t, "https://h.com/%zz", redact("https://h.com/%zz"))
+	})
+}
+
+func TestIsLocalPath(t *testing.T) {
+	t.Run("absolute path", func(t *testing.T) {
+		assert.True(t, isLocalPath("/srv/o/n"))
+	})
+	t.Run("relative path", func(t *testing.T) {
+		assert.True(t, isLocalPath("./o/n"))
+	})
+	t.Run("parent-relative path", func(t *testing.T) {
+		assert.True(t, isLocalPath("../o/n"))
+	})
+	t.Run("home-relative path", func(t *testing.T) {
+		assert.True(t, isLocalPath("~/o/n"))
+	})
+	t.Run("dot", func(t *testing.T) {
+		assert.True(t, isLocalPath("."))
+	})
+	t.Run("dot-dot", func(t *testing.T) {
+		assert.True(t, isLocalPath(".."))
+	})
+	t.Run("owner/name", func(t *testing.T) {
+		assert.False(t, isLocalPath("o/n"))
+	})
+	t.Run("dotted name", func(t *testing.T) {
+		assert.False(t, isLocalPath(".github"))
 	})
 }

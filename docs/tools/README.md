@@ -151,7 +151,9 @@ and messages aren't ([0016](../adrs/0016-output-contract.md)).
 ```
 
 See [0007](../adrs/0007-repo-spec-syntax-and-resolution.md) for the grammar
-and resolution order.
+and resolution order. Local paths and `file://` URLs aren't specs; a URL's
+non-default port stays in its id (`h.com:2222/o/r`); and URLs with a
+password are rejected ([0020](../adrs/0020-repo-spec-edge-cases.md)).
 
 ## Workspace arguments
 

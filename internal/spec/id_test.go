@@ -18,6 +18,11 @@ func TestNewID(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "gitlab-org/api", id.Owner)
 	})
+	t.Run("accepts a port", func(t *testing.T) {
+		id, err := NewID("h.com:2222", "o", "n")
+		require.NoError(t, err)
+		assert.Equal(t, "h.com:2222", id.Host)
+	})
 	t.Run("rejects a bad host", func(t *testing.T) {
 		_, err := NewID("git hub.com", "o", "n")
 		assert.ErrorIs(t, err, ErrInvalid)
@@ -40,6 +45,30 @@ func TestID_String(t *testing.T) {
 func TestID_UpstreamURL(t *testing.T) {
 	id := ID{Host: "github.com", Owner: "bobcob7", Name: "buff-bear"}
 	assert.Equal(t, "https://github.com/bobcob7/buff-bear.git", id.UpstreamURL())
+}
+
+func TestValidateHostPort(t *testing.T) {
+	t.Run("host only", func(t *testing.T) {
+		assert.NoError(t, validateHostPort("h.com"))
+	})
+	t.Run("host and port", func(t *testing.T) {
+		assert.NoError(t, validateHostPort("h.com:2222"))
+	})
+	t.Run("rejects a bad host", func(t *testing.T) {
+		assert.Error(t, validateHostPort("h_x.com:22"))
+	})
+	t.Run("rejects a non-numeric port", func(t *testing.T) {
+		assert.ErrorContains(t, validateHostPort("h.com:ssh"), "1 to 65535")
+	})
+	t.Run("rejects port 0", func(t *testing.T) {
+		assert.Error(t, validateHostPort("h.com:0"))
+	})
+	t.Run("rejects a port above 65535", func(t *testing.T) {
+		assert.Error(t, validateHostPort("h.com:65536"))
+	})
+	t.Run("rejects a leading zero", func(t *testing.T) {
+		assert.Error(t, validateHostPort("h.com:022"))
+	})
 }
 
 func TestValidateHost(t *testing.T) {

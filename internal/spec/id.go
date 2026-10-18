@@ -3,21 +3,24 @@ package spec
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 // ID is a canonical repo id, host/owner/name, in lowercase (ADR 0007). Owner
-// may hold nested groups separated by "/".
+// may hold nested groups separated by "/". Host includes a non-default port,
+// as in "git.example.com:2222" (ADR 0020).
 type ID struct {
 	Host  string
 	Owner string
 	Name  string
 }
 
-// NewID validates and lowercases the parts of a repo id.
+// NewID validates and lowercases the parts of a repo id. host may include a
+// port.
 func NewID(host, owner, name string) (ID, error) {
 	id := ID{Host: strings.ToLower(host), Owner: strings.ToLower(owner), Name: strings.ToLower(name)}
-	if err := validateHost(id.Host); err != nil {
+	if err := validateHostPort(id.Host); err != nil {
 		return ID{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if err := validatePath(id.Owner); err != nil {
@@ -34,9 +37,27 @@ func (id ID) String() string {
 	return id.Host + "/" + id.Owner + "/" + id.Name
 }
 
-// UpstreamURL is the HTTPS clone URL ws builds for an id (ADR 0019).
+// UpstreamURL is the HTTPS clone URL ws builds for an id (ADR 0019). It's
+// only meaningful for ids from host/owner/name specs; a repo cached from a
+// URL keeps the URL it was cloned from.
 func (id ID) UpstreamURL() string {
 	return "https://" + id.String() + ".git"
+}
+
+// validateHostPort accepts a host name with an optional ":port".
+func validateHostPort(hostPort string) error {
+	host, port, hasPort := strings.Cut(hostPort, ":")
+	if err := validateHost(host); err != nil {
+		return err
+	}
+	if !hasPort {
+		return nil
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port {
+		return fmt.Errorf("port %q must be a number from 1 to 65535", port)
+	}
+	return nil
 }
 
 // validateHost accepts a bare host name: letters, digits, ".", and "-".

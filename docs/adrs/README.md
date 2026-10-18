@@ -186,6 +186,7 @@ Cloning from the cache took 0.28 s versus 4.40 s from upstream[^bench-clone].
 | [0017](0017-clones-not-worktrees.md) | Workspace repos are clones of the cache, not git worktrees | Accepted |
 | [0018](0018-restart-claude-daemon.md) | `ws restart` swaps Claude Code's background service and respawns each session once it's idle | Accepted |
 | [0019](0019-https-upstream-urls.md) | Build HTTPS upstream URLs; SSH through git's `insteadOf` | Accepted |
+| [0020](0020-repo-spec-edge-cases.md) | Repo specs: no local paths, ports stay in ids, passwords are rejected | Accepted |
 
 [^aws-process]: AWS Prescriptive Guidance, "ADR process." <https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html> (accessed 2026-10-17). "When the team accepts an ADR, it becomes immutable. If new insights require a different decision, the team proposes a new ADR." On rejection: "the ADR owner adds a reason for the rejection to prevent future discussions on the same topic."
 [^aws-blog]: C. Kappey, D. Goby, D. Kunce, "Master architecture decision records (ADRs): Best practices for effective decision-making," AWS Architecture Blog, 2025-03-20. <https://aws.amazon.com/blogs/architecture/master-architecture-decision-records-adrs-best-practices-for-effective-decision-making/> (accessed 2026-10-17). "Keep ADRs concise by focusing on a single decision."

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"slices"
 	"strings"
 )
 
@@ -60,12 +59,12 @@ func Parse(s string) (Spec, error) {
 	repo, ref, hasRef := split(s)
 	if hasRef {
 		if err := validateRef(ref); err != nil {
-			return Spec{}, fmt.Errorf("%w %q: %w", ErrInvalid, s, err)
+			return Spec{}, fmt.Errorf("%w %q: %w", ErrInvalid, redact(s), err)
 		}
 	}
 	sp, err := parseRepo(repo)
 	if err != nil {
-		return Spec{}, fmt.Errorf("%w %q: %w", ErrInvalid, s, err)
+		return Spec{}, fmt.Errorf("%w %q: %w", ErrInvalid, redact(s), err)
 	}
 	sp.Raw, sp.Ref = s, ref
 	return sp, nil
@@ -178,8 +177,37 @@ func validateRef(ref string) error {
 	return nil
 }
 
+// errLocal rejects local repos: ws clones from forges only (ADR 0020).
+var errLocal = errors.New("local paths and file:// URLs aren't repo specs; use a URL or host/owner/name")
+
+// isLocalPath reports whether repo looks like a filesystem path rather than
+// a forge repo.
+func isLocalPath(repo string) bool {
+	for _, prefix := range []string{"/", "./", "../", "~"} {
+		if strings.HasPrefix(repo, prefix) {
+			return true
+		}
+	}
+	return repo == "." || repo == ".."
+}
+
+// redact masks a password in a URL spec, so errors never repeat it.
+func redact(s string) string {
+	if _, ok := schemeEnd(s); !ok {
+		return s
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return s
+	}
+	return u.Redacted()
+}
+
 // parseRepo parses the repo part of a spec.
 func parseRepo(repo string) (Spec, error) {
+	if isLocalPath(repo) {
+		return Spec{}, errLocal
+	}
 	if _, ok := schemeEnd(repo); ok {
 		return parseSchemeURL(repo)
 	}
@@ -189,9 +217,10 @@ func parseRepo(repo string) (Spec, error) {
 	return parsePath(repo)
 }
 
-// schemes are the URL schemes git can clone from a forge with.
-func schemes() []string {
-	return []string{"https", "http", "ssh", "git"}
+// defaultPorts are the URL schemes git can clone from a forge with, and the
+// port each uses when a URL names none.
+func defaultPorts() map[string]string {
+	return map[string]string{"https": "443", "http": "80", "ssh": "22", "git": "9418"}
 }
 
 // parseSchemeURL parses a URL such as https://host/owner/name.git or
@@ -201,13 +230,28 @@ func parseSchemeURL(repo string) (Spec, error) {
 	if err != nil {
 		return Spec{}, fmt.Errorf("parsing URL: %w", err)
 	}
-	if !slices.Contains(schemes(), strings.ToLower(u.Scheme)) {
+	scheme := strings.ToLower(u.Scheme)
+	if scheme == "file" {
+		return Spec{}, errLocal
+	}
+	defaultPort, ok := defaultPorts()[scheme]
+	if !ok {
 		return Spec{}, fmt.Errorf("unsupported URL scheme %q", u.Scheme)
+	}
+	if _, has := u.User.Password(); has {
+		return Spec{}, errors.New("URL can't contain a password; use a git credential helper")
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
 		return Spec{}, errors.New("URL can't have a query or fragment")
 	}
-	return urlSpec(repo, u.Hostname(), u.Path)
+	sp, err := urlSpec(repo, u.Hostname(), u.Path)
+	if err != nil {
+		return Spec{}, err
+	}
+	if port := u.Port(); port != "" && port != defaultPort {
+		sp.Host += ":" + port
+	}
+	return sp, nil
 }
 
 // parseSCP parses an scp-style URL, [user@]host:owner/name.
@@ -242,8 +286,8 @@ func urlSpec(repo, host, path string) (Spec, error) {
 // segments, the first must contain "." to be the host, and the segments
 // between host and name are nested owner groups.
 func parsePath(repo string) (Spec, error) {
-	if strings.HasPrefix(repo, "/") || strings.HasSuffix(repo, "/") {
-		return Spec{}, errors.New(`repo can't start or end with "/"`)
+	if strings.HasSuffix(repo, "/") {
+		return Spec{}, errors.New(`repo can't end with "/"`)
 	}
 	segs, err := segments(repo)
 	if err != nil {
