@@ -1,6 +1,6 @@
 # 0024. Read Claude Code sessions by `kind`, `pid`, `status`, and exit status, through one client that requires Claude Code 2.1.302
 
-- Status: Accepted (2026-10-19)
+- Status: Accepted (2026-10-19); `claude attach` and `--bg` process group amended by [0025](0025-ws-claude-session-hand-off.md) (2026-10-19)
 - Date: 2026-10-19
 
 ## Context

@@ -1,6 +1,6 @@
 # 0014. `ws` command set: one command per use case, and an agent guide
 
-- Status: Accepted (2026-10-18); `ws restart` added by [0018](0018-restart-claude-daemon.md) (2026-10-18)
+- Status: Accepted (2026-10-18); `ws restart` added by [0018](0018-restart-claude-daemon.md) (2026-10-18); `ws claude` attach conditions and session name amended by [0025](0025-ws-claude-session-hand-off.md) (2026-10-19)
 - Date: 2026-10-18
 - Supersedes: [0004](0004-single-binary-with-subcommands.md)
 
