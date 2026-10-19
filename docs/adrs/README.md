@@ -178,7 +178,7 @@ Cloning from the cache took 0.28 s versus 4.40 s from upstream[^bench-clone].
 | [0009](0009-workspace-repository-remotes.md) | Hard-linked workspace clones with upstream as `origin` | Accepted |
 | [0010](0010-unsaved-work-detection.md) | Detect unsaved git work with three porcelain checks against `origin` | Rejected |
 | [0011](0011-config-dir.md) | Keep config, cache, and workspaces under one overridable config dir | Accepted |
-| [0012](0012-workspace-layout.md) | Workspace names, state kept outside the workspace, and deletion guard | Accepted; state files amended by [0015](0015-workspace-lifetime-follows-session.md) |
+| [0012](0012-workspace-layout.md) | Workspace names, state kept outside the workspace, and deletion guard | Accepted; state files amended by [0015](0015-workspace-lifetime-follows-session.md), creation order by [0022](0022-workspace-record-before-rename.md) |
 | [0013](0013-cleanup-ignores-git-state.md) | Remove workspaces a grace period after their last session ends, whatever their git state | Superseded by [0015](0015-workspace-lifetime-follows-session.md) |
 | [0014](0014-command-set.md) | `ws` command set: one command per use case, and an agent guide | Accepted; `ws restart` added by [0018](0018-restart-claude-daemon.md) |
 | [0015](0015-workspace-lifetime-follows-session.md) | A workspace lives exactly as long as its one session | Accepted |
@@ -188,6 +188,7 @@ Cloning from the cache took 0.28 s versus 4.40 s from upstream[^bench-clone].
 | [0019](0019-https-upstream-urls.md) | Build HTTPS upstream URLs; SSH through git's `insteadOf` | Accepted |
 | [0020](0020-repo-spec-edge-cases.md) | Repo specs: no local paths, ports stay in ids, passwords are rejected | Accepted |
 | [0021](0021-cache-default-branch.md) | The cache follows upstream's default branch through `ls-remote --symref` | Accepted |
+| [0022](0022-workspace-record-before-rename.md) | Build workspaces in state, write the record, then move them into place | Accepted |
 
 [^aws-process]: AWS Prescriptive Guidance, "ADR process." <https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html> (accessed 2026-10-17). "When the team accepts an ADR, it becomes immutable. If new insights require a different decision, the team proposes a new ADR." On rejection: "the ADR owner adds a reason for the rejection to prevent future discussions on the same topic."
 [^aws-blog]: C. Kappey, D. Goby, D. Kunce, "Master architecture decision records (ADRs): Best practices for effective decision-making," AWS Architecture Blog, 2025-03-20. <https://aws.amazon.com/blogs/architecture/master-architecture-decision-records-adrs-best-practices-for-effective-decision-making/> (accessed 2026-10-17). "Keep ADRs concise by focusing on a single decision."
