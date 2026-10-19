@@ -23,5 +23,5 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	configs := config.NewLoader(os.Getenv, os.UserConfigDir)
-	return cli.New(version, stdout, stderr, configs, os.Environ()).Run(ctx, args)
+	return cli.New(version, os.Stdin, stdout, stderr, configs, os.Environ()).Run(ctx, args)
 }

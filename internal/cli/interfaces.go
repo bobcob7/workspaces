@@ -5,10 +5,13 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/shell"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore shellRunner
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -33,4 +36,14 @@ type repoCache interface {
 // workspaceStore is the set of workspaces.
 type workspaceStore interface {
 	UsesCommit(id, commit string) (bool, error)
+	Create(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error)
+	RecordSession(id string, kind workspace.SessionKind, claudeSessionID string) error
+	Remove(id string, opts workspace.RemoveOptions) error
+	Warnings() []string
+}
+
+// shellRunner runs an interactive shell in the foreground and returns its
+// exit status.
+type shellRunner interface {
+	Run(ctx context.Context, sess shell.Session) (int, error)
 }

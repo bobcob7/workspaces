@@ -29,12 +29,42 @@ func assertNothingCreated(t *testing.T, s *Store) {
 	}
 }
 
+// createUnlocked runs Create and unlocks the lock it returns, for tests
+// that don't hand it to a session.
+func createUnlocked(t *testing.T, s *Store, opts CreateOptions) (Workspace, error) {
+	t.Helper()
+	ws, lock, err := s.Create(t.Context(), opts)
+	if lock != nil {
+		lock.Unlock()
+	}
+	return ws, err
+}
+
 func TestStore_Create(t *testing.T) {
 	t.Parallel()
+	t.Run("returns the workspace's lock still held", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		ws, lock, err := e.store.Create(t.Context(), CreateOptions{Name: "held", Specs: mustSpecs(t, "n")})
+		require.NoError(t, err)
+		require.NotNil(t, lock)
+		defer lock.Unlock()
+		assert.Equal(t, e.store.lockPath(ws.ID), lock.File().Name())
+		_, ok, err := lockfile.TryExclusive(e.store.lockPath(ws.ID))
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+	t.Run("a failure returns no lock", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		_, lock, err := e.store.Create(t.Context(), CreateOptions{Specs: mustSpecs(t, "n@nope")})
+		require.Error(t, err)
+		assert.Nil(t, lock)
+	})
 	t.Run("default branch, generated id", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		ws, err := e.store.Create(t.Context(), CreateOptions{Specs: mustSpecs(t, "n")})
+		ws, err := createUnlocked(t, e.store, CreateOptions{Specs: mustSpecs(t, "n")})
 		require.NoError(t, err)
 		assert.Equal(t, "ws-20261018-k3f9qa", ws.ID)
 		assert.Equal(t, filepath.Join(e.store.root, ws.ID), ws.Path)
@@ -52,7 +82,7 @@ func TestStore_Create(t *testing.T) {
 	t.Run("--name becomes the id", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		ws, err := e.store.Create(t.Context(), CreateOptions{Name: "Fix Login", Specs: mustSpecs(t, "o/n")})
+		ws, err := createUnlocked(t, e.store, CreateOptions{Name: "Fix Login", Specs: mustSpecs(t, "o/n")})
 		require.NoError(t, err)
 		assert.Equal(t, "fix-login", ws.ID)
 		assert.Equal(t, "Fix Login", ws.Name)
@@ -61,7 +91,7 @@ func TestStore_Create(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
 		e.up.Repo(t, "o", "api")
-		ws, err := e.store.Create(t.Context(), CreateOptions{Specs: mustSpecs(t, "n@feat", "o/api@main")})
+		ws, err := createUnlocked(t, e.store, CreateOptions{Specs: mustSpecs(t, "n@feat", "o/api@main")})
 		require.NoError(t, err)
 		require.Len(t, ws.Repos, 2)
 		assert.DirExists(t, filepath.Join(ws.Path, "n", ".git"))
@@ -70,10 +100,10 @@ func TestStore_Create(t *testing.T) {
 	t.Run("offline uses the cache as it is", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Name: "first", Specs: mustSpecs(t, "n")})
+		_, err := createUnlocked(t, e.store, CreateOptions{Name: "first", Specs: mustSpecs(t, "n")})
 		require.NoError(t, err)
 		newer := e.up.Commit(t, "o", "n", "refs/heads/main")
-		ws, err := e.store.Create(t.Context(), CreateOptions{Name: "second", Specs: mustSpecs(t, "n"), Offline: true})
+		ws, err := createUnlocked(t, e.store, CreateOptions{Name: "second", Specs: mustSpecs(t, "n"), Offline: true})
 		require.NoError(t, err)
 		assert.Equal(t, e.main, ws.Repos[0].Commit)
 		assert.NotEqual(t, newer, ws.Repos[0].Commit)
@@ -81,61 +111,61 @@ func TestStore_Create(t *testing.T) {
 	t.Run("online fetches a cached repo first", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Name: "first", Specs: mustSpecs(t, "n")})
+		_, err := createUnlocked(t, e.store, CreateOptions{Name: "first", Specs: mustSpecs(t, "n")})
 		require.NoError(t, err)
 		newer := e.up.Commit(t, "o", "n", "refs/heads/main")
-		ws, err := e.store.Create(t.Context(), CreateOptions{Name: "second", Specs: mustSpecs(t, "n")})
+		ws, err := createUnlocked(t, e.store, CreateOptions{Name: "second", Specs: mustSpecs(t, "n")})
 		require.NoError(t, err)
 		assert.Equal(t, newer, ws.Repos[0].Commit)
 	})
 	t.Run("offline with an uncached repo", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Specs: mustSpecs(t, "n"), Offline: true})
+		_, err := createUnlocked(t, e.store, CreateOptions{Specs: mustSpecs(t, "n"), Offline: true})
 		require.ErrorIs(t, err, cache.ErrRepoNotFound)
 		assertNothingCreated(t, e.store)
 	})
 	t.Run("a taken name", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Name: "x", Specs: mustSpecs(t, "n")})
+		_, err := createUnlocked(t, e.store, CreateOptions{Name: "x", Specs: mustSpecs(t, "n")})
 		require.NoError(t, err)
-		_, err = e.store.Create(t.Context(), CreateOptions{Name: "X", Specs: mustSpecs(t, "n")})
+		_, err = createUnlocked(t, e.store, CreateOptions{Name: "X", Specs: mustSpecs(t, "n")})
 		assert.ErrorIs(t, err, ErrExists)
 	})
 	t.Run("a name with nothing usable", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Name: "日本語", Specs: mustSpecs(t, "n")})
+		_, err := createUnlocked(t, e.store, CreateOptions{Name: "日本語", Specs: mustSpecs(t, "n")})
 		require.ErrorIs(t, err, ErrNameInvalid)
 		assertNothingCreated(t, e.store)
 	})
 	t.Run("a missing ref removes everything", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Specs: mustSpecs(t, "n@nope")})
+		_, err := createUnlocked(t, e.store, CreateOptions{Specs: mustSpecs(t, "n@nope")})
 		require.ErrorIs(t, err, cache.ErrRefNotFound)
 		assertNothingCreated(t, e.store)
 	})
 	t.Run("the same repo twice", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Specs: mustSpecs(t, "o/n", "example.test/o/n@feat")})
+		_, err := createUnlocked(t, e.store, CreateOptions{Specs: mustSpecs(t, "o/n", "example.test/o/n@feat")})
 		require.ErrorIs(t, err, ErrSpecConflict)
 		assertNothingCreated(t, e.store)
 	})
 	t.Run("two repos with one name", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Specs: mustSpecs(t, "o/n", "p/n")})
+		_, err := createUnlocked(t, e.store, CreateOptions{Specs: mustSpecs(t, "o/n", "p/n")})
 		assert.ErrorIs(t, err, ErrSpecConflict)
 	})
 	t.Run("never runs git worktree", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := e.store.Create(t.Context(), CreateOptions{Name: "a", Specs: mustSpecs(t, "n@feat")})
+		_, err := createUnlocked(t, e.store, CreateOptions{Name: "a", Specs: mustSpecs(t, "n@feat")})
 		require.NoError(t, err)
-		_, err = e.store.Create(t.Context(), CreateOptions{Name: "b", Specs: mustSpecs(t, "n@v1")})
+		_, err = createUnlocked(t, e.store, CreateOptions{Name: "b", Specs: mustSpecs(t, "n@v1")})
 		require.NoError(t, err)
 		require.NotEmpty(t, e.git.calls)
 		for _, args := range e.git.calls {
@@ -146,7 +176,7 @@ func TestStore_Create(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
 		for _, name := range []string{"a", "b"} {
-			ws, err := e.store.Create(t.Context(), CreateOptions{Name: name, Specs: mustSpecs(t, "n@feat")})
+			ws, err := createUnlocked(t, e.store, CreateOptions{Name: name, Specs: mustSpecs(t, "n@feat")})
 			require.NoError(t, err)
 			e.gitOut(t, filepath.Join(ws.Path, "n"), "commit", "-q", "--allow-empty", "-m", "work in "+name)
 		}
@@ -238,9 +268,9 @@ func TestStore_claim(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
 		require.NoError(t, s.ensureRoots())
-		id, unlock, err := s.claim("Fix Login")
+		id, lock, err := s.claim("Fix Login")
 		require.NoError(t, err)
-		defer unlock()
+		defer lock.Unlock()
 		assert.Equal(t, "fix-login", id)
 	})
 	t.Run("retries a taken generated id", func(t *testing.T) {
@@ -254,9 +284,9 @@ func TestStore_claim(t *testing.T) {
 			return next, nil
 		}
 		require.NoError(t, os.Mkdir(s.stateOf("ws-20261018-aaaaaa"), 0o750))
-		id, unlock, err := s.claim("")
+		id, lock, err := s.claim("")
 		require.NoError(t, err)
-		defer unlock()
+		defer lock.Unlock()
 		assert.Equal(t, "ws-20261018-bbbbbb", id)
 	})
 	t.Run("gives up after repeated collisions", func(t *testing.T) {
@@ -282,9 +312,9 @@ func TestStore_claimID(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
 		require.NoError(t, s.ensureRoots())
-		_, unlock, err := s.claimID("x")
+		_, lock, err := s.claimID("x")
 		require.NoError(t, err)
-		defer unlock()
+		defer lock.Unlock()
 		assert.DirExists(t, s.stateOf("x"))
 		_, ok, err := lockfile.TryExclusive(s.lockPath("x"))
 		require.NoError(t, err)

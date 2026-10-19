@@ -41,6 +41,17 @@ const (
 
 var errNotImplemented = errors.New("not implemented yet")
 
+// shellExitError is ws shell's result once its shell has exited with a non-zero
+// status: ws exits with that status, not an exit code from ADR 0016's
+// table, and prints nothing more.
+type shellExitError struct {
+	status int
+}
+
+func (e *shellExitError) Error() string {
+	return fmt.Sprintf("the shell exited with status %d", e.status)
+}
+
 // cliError is a failure that carries its error code and optional details
 // for --json output.
 type cliError struct {

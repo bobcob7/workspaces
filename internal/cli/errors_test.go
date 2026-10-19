@@ -87,3 +87,7 @@ func TestAsCLIError(t *testing.T) {
 		assert.ErrorIs(t, got, errTest)
 	})
 }
+
+func TestShellExitError_Error(t *testing.T) {
+	assert.Equal(t, "the shell exited with status 3", (&shellExitError{status: 3}).Error())
+}

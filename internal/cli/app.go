@@ -14,6 +14,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/git"
+	"github.com/bobcob7/workspaces/internal/shell"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -33,6 +34,8 @@ type App struct {
 	newStores  func(paths config.Paths, cfg config.Config) (repoCache, workspaceStore)
 	cache      repoCache
 	workspaces workspaceStore
+	// shell runs ws shell's interactive shell on ws's own streams.
+	shell shellRunner
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 }
@@ -48,10 +51,11 @@ type globalOptions struct {
 const logOff = slog.LevelError + 4
 
 // New returns an App that writes results to stdout, and errors and
-// --verbose logging to stderr. configs supplies the config for commands
-// that need it, and environ, normally os.Environ(), is the environment git
-// runs with.
-func New(version string, stdout, stderr io.Writer, configs configLoader, environ []string) *App {
+// --verbose logging to stderr. ws shell's shell runs on stdin, stdout, and
+// stderr. configs supplies the config for commands that need it, and
+// environ, normally os.Environ(), is the environment git and the shell run
+// with.
+func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs configLoader, environ []string) *App {
 	level := new(slog.LevelVar)
 	level.Set(logOff)
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
@@ -62,6 +66,7 @@ func New(version string, stdout, stderr io.Writer, configs configLoader, environ
 	}
 	return &App{
 		newStores:  newStores,
+		shell:      shell.New(log, environ, stdin, stdout, stderr),
 		version:    version,
 		stdout:     stdout,
 		stderr:     stderr,
@@ -79,13 +84,17 @@ func (a *App) Run(ctx context.Context, args []string) int {
 }
 
 // execute runs root with args and turns its error into output on stderr and
-// an exit code. Errors without a code come from cobra rejecting the command
-// line, so they are usage errors.
+// an exit code. A shell's exit status from ws shell is the exit code as it
+// is. Errors without a code come from cobra rejecting the command line, so
+// they are usage errors.
 func (a *App) execute(ctx context.Context, root *cobra.Command, args []string) int {
 	root.SetArgs(args)
 	err := root.ExecuteContext(ctx)
 	if err == nil {
 		return exitOK
+	}
+	if se, ok := errors.AsType[*shellExitError](err); ok {
+		return se.status
 	}
 	ce, ok := errors.AsType[*cliError](err)
 	if !ok {

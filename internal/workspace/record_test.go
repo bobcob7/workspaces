@@ -114,3 +114,27 @@ func TestWriteRecord(t *testing.T) {
 		assert.Error(t, writeRecord(path, new(sampleRecord("/w", "x"))))
 	})
 }
+
+func TestWriteTOML(t *testing.T) {
+	t.Parallel()
+	t.Run("writes the value and leaves only the file", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "x")
+		require.NoError(t, writeTOML(path, map[string]string{"a": "b"}))
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "a = \"b\"\n", string(data))
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Len(t, entries, 1)
+	})
+	t.Run("an unencodable value leaves nothing", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		require.Error(t, writeTOML(filepath.Join(dir, "x"), make(chan int)))
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries)
+	})
+}

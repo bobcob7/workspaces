@@ -84,20 +84,26 @@ func readRecord(path string) (Workspace, error) {
 // writeRecord writes a workspace.toml through a temp file and a rename, so
 // a reader never sees part of one.
 func writeRecord(path string, ws *Workspace) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".workspace-*.toml")
-	if err != nil {
-		return fmt.Errorf("writing workspace record: %w", err)
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if err := toml.NewEncoder(tmp).Encode(ws); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("writing workspace record: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("writing workspace record: %w", err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	if err := writeTOML(path, ws); err != nil {
 		return fmt.Errorf("writing workspace record: %w", err)
 	}
 	return nil
+}
+
+// writeTOML writes v to path as TOML through a temp file in the same
+// directory and a rename.
+func writeTOML(path string, v any) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if err := toml.NewEncoder(tmp).Encode(v); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }

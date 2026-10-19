@@ -7,7 +7,10 @@ import (
 	"context"
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/shell"
+	"github.com/bobcob7/workspaces/internal/workspace"
 	"sync"
 )
 
@@ -645,8 +648,20 @@ var _ workspaceStore = &workspaceStoreMock{}
 //
 //		// make and configure a mocked workspaceStore
 //		mockedworkspaceStore := &workspaceStoreMock{
+//			CreateFunc: func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
+//				panic("mock out the Create method")
+//			},
+//			RecordSessionFunc: func(id string, kind workspace.SessionKind, claudeSessionID string) error {
+//				panic("mock out the RecordSession method")
+//			},
+//			RemoveFunc: func(id string, opts workspace.RemoveOptions) error {
+//				panic("mock out the Remove method")
+//			},
 //			UsesCommitFunc: func(id string, commit string) (bool, error) {
 //				panic("mock out the UsesCommit method")
+//			},
+//			WarningsFunc: func() []string {
+//				panic("mock out the Warnings method")
 //			},
 //		}
 //
@@ -655,11 +670,46 @@ var _ workspaceStore = &workspaceStoreMock{}
 //
 //	}
 type workspaceStoreMock struct {
+	// CreateFunc mocks the Create method.
+	CreateFunc func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error)
+
+	// RecordSessionFunc mocks the RecordSession method.
+	RecordSessionFunc func(id string, kind workspace.SessionKind, claudeSessionID string) error
+
+	// RemoveFunc mocks the Remove method.
+	RemoveFunc func(id string, opts workspace.RemoveOptions) error
+
 	// UsesCommitFunc mocks the UsesCommit method.
 	UsesCommitFunc func(id string, commit string) (bool, error)
 
+	// WarningsFunc mocks the Warnings method.
+	WarningsFunc func() []string
+
 	// calls tracks calls to the methods.
 	calls struct {
+		// Create holds details about calls to the Create method.
+		Create []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Opts is the opts argument value.
+			Opts workspace.CreateOptions
+		}
+		// RecordSession holds details about calls to the RecordSession method.
+		RecordSession []struct {
+			// ID is the id argument value.
+			ID string
+			// Kind is the kind argument value.
+			Kind workspace.SessionKind
+			// ClaudeSessionID is the claudeSessionID argument value.
+			ClaudeSessionID string
+		}
+		// Remove holds details about calls to the Remove method.
+		Remove []struct {
+			// ID is the id argument value.
+			ID string
+			// Opts is the opts argument value.
+			Opts workspace.RemoveOptions
+		}
 		// UsesCommit holds details about calls to the UsesCommit method.
 		UsesCommit []struct {
 			// ID is the id argument value.
@@ -667,8 +717,127 @@ type workspaceStoreMock struct {
 			// Commit is the commit argument value.
 			Commit string
 		}
+		// Warnings holds details about calls to the Warnings method.
+		Warnings []struct {
+		}
 	}
-	lockUsesCommit sync.RWMutex
+	lockCreate        sync.RWMutex
+	lockRecordSession sync.RWMutex
+	lockRemove        sync.RWMutex
+	lockUsesCommit    sync.RWMutex
+	lockWarnings      sync.RWMutex
+}
+
+// Create calls CreateFunc.
+func (mock *workspaceStoreMock) Create(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
+	if mock.CreateFunc == nil {
+		panic("workspaceStoreMock.CreateFunc: method is nil but workspaceStore.Create was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Opts workspace.CreateOptions
+	}{
+		Ctx:  ctx,
+		Opts: opts,
+	}
+	mock.lockCreate.Lock()
+	mock.calls.Create = append(mock.calls.Create, callInfo)
+	mock.lockCreate.Unlock()
+	return mock.CreateFunc(ctx, opts)
+}
+
+// CreateCalls gets all the calls that were made to Create.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.CreateCalls())
+func (mock *workspaceStoreMock) CreateCalls() []struct {
+	Ctx  context.Context
+	Opts workspace.CreateOptions
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Opts workspace.CreateOptions
+	}
+	mock.lockCreate.RLock()
+	calls = mock.calls.Create
+	mock.lockCreate.RUnlock()
+	return calls
+}
+
+// RecordSession calls RecordSessionFunc.
+func (mock *workspaceStoreMock) RecordSession(id string, kind workspace.SessionKind, claudeSessionID string) error {
+	if mock.RecordSessionFunc == nil {
+		panic("workspaceStoreMock.RecordSessionFunc: method is nil but workspaceStore.RecordSession was just called")
+	}
+	callInfo := struct {
+		ID              string
+		Kind            workspace.SessionKind
+		ClaudeSessionID string
+	}{
+		ID:              id,
+		Kind:            kind,
+		ClaudeSessionID: claudeSessionID,
+	}
+	mock.lockRecordSession.Lock()
+	mock.calls.RecordSession = append(mock.calls.RecordSession, callInfo)
+	mock.lockRecordSession.Unlock()
+	return mock.RecordSessionFunc(id, kind, claudeSessionID)
+}
+
+// RecordSessionCalls gets all the calls that were made to RecordSession.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.RecordSessionCalls())
+func (mock *workspaceStoreMock) RecordSessionCalls() []struct {
+	ID              string
+	Kind            workspace.SessionKind
+	ClaudeSessionID string
+} {
+	var calls []struct {
+		ID              string
+		Kind            workspace.SessionKind
+		ClaudeSessionID string
+	}
+	mock.lockRecordSession.RLock()
+	calls = mock.calls.RecordSession
+	mock.lockRecordSession.RUnlock()
+	return calls
+}
+
+// Remove calls RemoveFunc.
+func (mock *workspaceStoreMock) Remove(id string, opts workspace.RemoveOptions) error {
+	if mock.RemoveFunc == nil {
+		panic("workspaceStoreMock.RemoveFunc: method is nil but workspaceStore.Remove was just called")
+	}
+	callInfo := struct {
+		ID   string
+		Opts workspace.RemoveOptions
+	}{
+		ID:   id,
+		Opts: opts,
+	}
+	mock.lockRemove.Lock()
+	mock.calls.Remove = append(mock.calls.Remove, callInfo)
+	mock.lockRemove.Unlock()
+	return mock.RemoveFunc(id, opts)
+}
+
+// RemoveCalls gets all the calls that were made to Remove.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.RemoveCalls())
+func (mock *workspaceStoreMock) RemoveCalls() []struct {
+	ID   string
+	Opts workspace.RemoveOptions
+} {
+	var calls []struct {
+		ID   string
+		Opts workspace.RemoveOptions
+	}
+	mock.lockRemove.RLock()
+	calls = mock.calls.Remove
+	mock.lockRemove.RUnlock()
+	return calls
 }
 
 // UsesCommit calls UsesCommitFunc.
@@ -704,5 +873,104 @@ func (mock *workspaceStoreMock) UsesCommitCalls() []struct {
 	mock.lockUsesCommit.RLock()
 	calls = mock.calls.UsesCommit
 	mock.lockUsesCommit.RUnlock()
+	return calls
+}
+
+// Warnings calls WarningsFunc.
+func (mock *workspaceStoreMock) Warnings() []string {
+	if mock.WarningsFunc == nil {
+		panic("workspaceStoreMock.WarningsFunc: method is nil but workspaceStore.Warnings was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockWarnings.Lock()
+	mock.calls.Warnings = append(mock.calls.Warnings, callInfo)
+	mock.lockWarnings.Unlock()
+	return mock.WarningsFunc()
+}
+
+// WarningsCalls gets all the calls that were made to Warnings.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.WarningsCalls())
+func (mock *workspaceStoreMock) WarningsCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockWarnings.RLock()
+	calls = mock.calls.Warnings
+	mock.lockWarnings.RUnlock()
+	return calls
+}
+
+// Ensure, that shellRunnerMock does implement shellRunner.
+// If this is not the case, regenerate this file with moq.
+var _ shellRunner = &shellRunnerMock{}
+
+// shellRunnerMock is a mock implementation of shellRunner.
+//
+//	func TestSomethingThatUsesshellRunner(t *testing.T) {
+//
+//		// make and configure a mocked shellRunner
+//		mockedshellRunner := &shellRunnerMock{
+//			RunFunc: func(ctx context.Context, sess shell.Session) (int, error) {
+//				panic("mock out the Run method")
+//			},
+//		}
+//
+//		// use mockedshellRunner in code that requires shellRunner
+//		// and then make assertions.
+//
+//	}
+type shellRunnerMock struct {
+	// RunFunc mocks the Run method.
+	RunFunc func(ctx context.Context, sess shell.Session) (int, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Run holds details about calls to the Run method.
+		Run []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Sess is the sess argument value.
+			Sess shell.Session
+		}
+	}
+	lockRun sync.RWMutex
+}
+
+// Run calls RunFunc.
+func (mock *shellRunnerMock) Run(ctx context.Context, sess shell.Session) (int, error) {
+	if mock.RunFunc == nil {
+		panic("shellRunnerMock.RunFunc: method is nil but shellRunner.Run was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Sess shell.Session
+	}{
+		Ctx:  ctx,
+		Sess: sess,
+	}
+	mock.lockRun.Lock()
+	mock.calls.Run = append(mock.calls.Run, callInfo)
+	mock.lockRun.Unlock()
+	return mock.RunFunc(ctx, sess)
+}
+
+// RunCalls gets all the calls that were made to Run.
+// Check the length with:
+//
+//	len(mockedshellRunner.RunCalls())
+func (mock *shellRunnerMock) RunCalls() []struct {
+	Ctx  context.Context
+	Sess shell.Session
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Sess shell.Session
+	}
+	mock.lockRun.RLock()
+	calls = mock.calls.Run
+	mock.lockRun.RUnlock()
 	return calls
 }

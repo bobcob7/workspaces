@@ -37,28 +37,33 @@ type target struct {
 // first, the repos cloned from the cache, workspace.toml, and finally the
 // workspace directory moved into place (ADR 0022). If any step fails,
 // everything it made is removed.
-func (s *Store) Create(ctx context.Context, opts CreateOptions) (Workspace, error) {
+//
+// The workspace's lock, taken first, is returned still held, so the
+// session can take it over without a moment when the workspace looks
+// abandoned (ADR 0015). The caller unlocks it once the session no longer
+// needs it.
+func (s *Store) Create(ctx context.Context, opts CreateOptions) (Workspace, *lockfile.Lock, error) {
 	if opts.Name != "" && sanitizeName(opts.Name) == "" {
-		return Workspace{}, fmt.Errorf("%w: %q has no letters or digits to make an id from", ErrNameInvalid, opts.Name)
+		return Workspace{}, nil, fmt.Errorf("%w: %q has no letters or digits to make an id from", ErrNameInvalid, opts.Name)
 	}
 	targets, err := s.resolveAll(ctx, opts.Specs, opts.Offline)
 	if err != nil {
-		return Workspace{}, err
+		return Workspace{}, nil, err
 	}
 	if err = s.ensureRoots(); err != nil {
-		return Workspace{}, err
+		return Workspace{}, nil, err
 	}
-	id, unlock, err := s.claim(opts.Name)
+	id, lock, err := s.claim(opts.Name)
 	if err != nil {
-		return Workspace{}, err
+		return Workspace{}, nil, err
 	}
-	defer unlock()
 	ws, err := s.build(ctx, id, opts, targets)
 	if err != nil {
 		s.discard(id)
-		return Workspace{}, err
+		lock.Unlock()
+		return Workspace{}, nil, err
 	}
-	return ws, nil
+	return ws, lock, nil
 }
 
 // resolveAll resolves every spec before anything is created. Two specs for
@@ -96,7 +101,7 @@ func (s *Store) resolve(ctx context.Context, sp *repo.Spec, offline bool) (cache
 // takes its lock so a concurrent ws doesn't take the unfinished state for
 // a leftover. A --name that's taken is ErrExists; a generated id that's
 // taken is retried.
-func (s *Store) claim(name string) (string, func(), error) {
+func (s *Store) claim(name string) (string, *lockfile.Lock, error) {
 	if name != "" {
 		return s.claimID(sanitizeName(name))
 	}
@@ -105,15 +110,15 @@ func (s *Store) claim(name string) (string, func(), error) {
 		if err != nil {
 			return "", nil, err
 		}
-		id, unlock, err := s.claimID(generateID(s.now(), suffix))
+		id, lock, err := s.claimID(generateID(s.now(), suffix))
 		if !errors.Is(err, ErrExists) {
-			return id, unlock, err
+			return id, lock, err
 		}
 	}
 	return "", nil, fmt.Errorf("%w: no free id after %d tries", ErrExists, generatedIDAttempts)
 }
 
-func (s *Store) claimID(id string) (string, func(), error) {
+func (s *Store) claimID(id string) (string, *lockfile.Lock, error) {
 	if _, err := os.Lstat(s.dir(id)); err == nil {
 		return "", nil, fmt.Errorf("%w: %s", ErrExists, s.dir(id))
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -124,7 +129,7 @@ func (s *Store) claimID(id string) (string, func(), error) {
 	} else if err != nil {
 		return "", nil, fmt.Errorf("creating state for %s: %w", id, err)
 	}
-	unlock, ok, err := lockfile.TryExclusive(s.lockPath(id))
+	lock, ok, err := lockfile.TryExclusiveLock(s.lockPath(id))
 	if err == nil && !ok {
 		err = fmt.Errorf("%w: %s is locked", ErrExists, id)
 	}
@@ -132,7 +137,7 @@ func (s *Store) claimID(id string) (string, func(), error) {
 		_ = os.RemoveAll(s.stateOf(id))
 		return "", nil, err
 	}
-	return id, unlock, nil
+	return id, lock, nil
 }
 
 // build clones the repos into state/<id>/building, writes workspace.toml,

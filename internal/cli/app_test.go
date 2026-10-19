@@ -37,7 +37,7 @@ func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 			return testPaths(), testConfig(), nil
 		},
 	}
-	app = New("test", stdout, stderr, configs, nil)
+	app = New("test", nil, stdout, stderr, configs, nil)
 	stub, workspaces := stubCache(), stubWorkspaces()
 	app.newStores = func(config.Paths, config.Config) (repoCache, workspaceStore) { return stub, workspaces }
 	return app, stdout, stderr
@@ -125,6 +125,7 @@ func TestNew(t *testing.T) {
 	assert.Same(t, stderr, app.stderr)
 	assert.False(t, app.indentJSON, "a buffer isn't a terminal")
 	assert.NotNil(t, app.configs)
+	assert.NotNil(t, app.shell)
 	t.Run("logging starts off", func(t *testing.T) {
 		assert.False(t, app.log.Enabled(t.Context(), slog.LevelError))
 	})
@@ -133,7 +134,7 @@ func TestNew(t *testing.T) {
 		assert.True(t, app.log.Enabled(t.Context(), slog.LevelDebug))
 	})
 	t.Run("builds a real cache and workspace store", func(t *testing.T) {
-		app := New("test", io.Discard, io.Discard, &configLoaderMock{}, nil)
+		app := New("test", nil, io.Discard, io.Discard, &configLoaderMock{}, nil)
 		c, ws := app.newStores(testPaths(), testConfig())
 		_, ok := c.(*cache.Cache)
 		assert.True(t, ok)
@@ -177,6 +178,13 @@ func TestApp_execute(t *testing.T) {
 		ce.reported = true
 		code := app.execute(t.Context(), newRoot(ce), nil)
 		assert.Equal(t, exitFailed, code)
+		assert.Empty(t, stderr.String())
+	})
+	t.Run("a shell's exit status is the exit code, with nothing printed", func(t *testing.T) {
+		app, stdout, stderr := newTestApp()
+		code := app.execute(t.Context(), newRoot(asCLIError(&shellExitError{status: 130})), nil)
+		assert.Equal(t, 130, code)
+		assert.Empty(t, stdout.String())
 		assert.Empty(t, stderr.String())
 	})
 	t.Run("uncoded error is a usage error", func(t *testing.T) {

@@ -3,6 +3,7 @@ package lockfile
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -125,5 +126,81 @@ func TestTryExclusive(t *testing.T) {
 		require.NoError(t, os.MkdirAll(path, 0o750))
 		_, _, err := TryExclusive(path)
 		assert.Error(t, err)
+	})
+}
+
+func TestTryExclusiveLock(t *testing.T) {
+	t.Parallel()
+	t.Run("free lock", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		l, ok, err := TryExclusiveLock(path)
+		require.NoError(t, err)
+		require.True(t, ok)
+		defer l.Unlock()
+		assert.Equal(t, path, l.File().Name())
+		_, ok, err = TryExclusive(path)
+		require.NoError(t, err)
+		assert.False(t, ok, "held")
+	})
+	t.Run("held lock", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		unlock, err := Shared(t.Context(), path)
+		require.NoError(t, err)
+		defer unlock()
+		l, ok, err := TryExclusiveLock(path)
+		require.NoError(t, err)
+		assert.False(t, ok)
+		assert.Nil(t, l)
+	})
+	t.Run("unopenable file", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		require.NoError(t, os.MkdirAll(path, 0o750))
+		_, _, err := TryExclusiveLock(path)
+		assert.Error(t, err)
+	})
+}
+
+func TestLock_File(t *testing.T) {
+	t.Parallel()
+	t.Run("a child given it holds the lock after the parent lets go", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		l, ok, err := TryExclusiveLock(path)
+		require.NoError(t, err)
+		require.True(t, ok)
+		child := exec.CommandContext(t.Context(), "/bin/cat")
+		child.ExtraFiles = []*os.File{l.File()}
+		stdin, err := child.StdinPipe()
+		require.NoError(t, err)
+		require.NoError(t, child.Start())
+		l.Unlock()
+		_, ok, err = TryExclusive(path)
+		require.NoError(t, err)
+		assert.False(t, ok, "held by the child")
+		require.NoError(t, stdin.Close())
+		require.NoError(t, child.Wait())
+		unlock, ok, err := TryExclusive(path)
+		require.NoError(t, err)
+		require.True(t, ok, "free once the child exited")
+		unlock()
+	})
+}
+
+func TestLock_Unlock(t *testing.T) {
+	t.Parallel()
+	t.Run("frees the lock", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		l, ok, err := TryExclusiveLock(path)
+		require.NoError(t, err)
+		require.True(t, ok)
+		l.Unlock()
+		unlock, ok, err := TryExclusive(path)
+		require.NoError(t, err)
+		require.True(t, ok)
+		unlock()
 	})
 }

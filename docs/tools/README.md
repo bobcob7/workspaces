@@ -11,8 +11,9 @@
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |
 | [`ws llm`](ws-llm.md)         | Print guidance for AI agents                             |
 
-> These commands aren't implemented yet; this reference describes the
-> decided behavior: the command set in [0014](../adrs/0014-command-set.md),
+> Not every command is implemented yet; the
+> [roadmap](../../README.md#roadmap) says which are. This reference
+> describes the decided behavior: the command set in [0014](../adrs/0014-command-set.md),
 > workspace lifetime in [0015](../adrs/0015-workspace-lifetime-follows-session.md),
 > output in [0016](../adrs/0016-output-contract.md), and `ws restart` in
 > [0018](../adrs/0018-restart-claude-daemon.md).
@@ -145,7 +146,8 @@ and messages aren't ([0016](../adrs/0016-output-contract.md)).
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found` |
 | 4    | Refused, to protect something | `workspace_exists`, `shell_running` |
 
-`ws shell` exits with the shell's exit code once the shell has started.
+`ws shell` exits with the shell's exit code once the shell has started,
+or 128+N when signal N killed it.
 
 ## Repo specs
 

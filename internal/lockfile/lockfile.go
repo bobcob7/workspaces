@@ -31,19 +31,47 @@ func Shared(ctx context.Context, path string) (func(), error) {
 // TryExclusive takes path's lock exclusively without waiting. ok is false
 // when someone else holds it.
 func TryExclusive(path string) (unlock func(), ok bool, err error) {
+	l, ok, err := TryExclusiveLock(path)
+	if !ok || err != nil {
+		return nil, ok, err
+	}
+	return l.Unlock, true, nil
+}
+
+// Lock is a held lock and the open file it's held through.
+type Lock struct {
+	f *os.File
+}
+
+// TryExclusiveLock is TryExclusive, returning the held Lock so it can be
+// handed to a child process.
+func TryExclusiveLock(path string) (lock *Lock, ok bool, err error) {
 	f, err := open(path)
 	if err != nil {
 		return nil, false, err
 	}
 	err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 	if err == nil {
-		return func() { _ = f.Close() }, true, nil
+		return &Lock{f: f}, true, nil
 	}
 	_ = f.Close()
 	if errors.Is(err, unix.EWOULDBLOCK) {
 		return nil, false, nil
 	}
 	return nil, false, fmt.Errorf("locking %s: %w", path, err)
+}
+
+// File is the open file the lock is held through. A flock belongs to the
+// open file, so a child process given File, for example in
+// exec.Cmd.ExtraFiles, holds the same lock: it stays held until this
+// process and every such child have closed their descriptors.
+func (l *Lock) File() *os.File {
+	return l.f
+}
+
+// Unlock closes this process's descriptor for the lock.
+func (l *Lock) Unlock() {
+	_ = l.f.Close()
 }
 
 func acquire(ctx context.Context, path string, how int) (func(), error) {

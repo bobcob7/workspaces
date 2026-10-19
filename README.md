@@ -155,15 +155,19 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   ([0009](docs/adrs/0009-workspace-repository-remotes.md),
   [0012](docs/adrs/0012-workspace-layout.md),
   [0017](docs/adrs/0017-clones-not-worktrees.md))
-- [ ] **`ws shell`**: run the shell under the session lock, remove the
+- [x] **`ws shell`**: run the shell under the session lock, remove the
   workspace when it exits
-  ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
+  ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md),
+  [0023](docs/adrs/0023-shell-session-keeps-creation-lock.md))
 - [ ] **Claude Code client**: `claude --bg`, `agents --json`, `stop`, `rm`,
   `respawn`, `daemon` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
 - [ ] **`ws claude`**, including the trust error and attaching without a
   prompt ([0014](docs/adrs/0014-command-set.md))
 - [ ] **Lifetime**: remove workspaces whose session is gone; `ws list`,
-  `ws rm` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
+  `ws rm` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md)).
+  A workspace that is unlocked, has no session record, and is over a
+  minute old counts as abandoned
+  ([0023](docs/adrs/0023-shell-session-keeps-creation-lock.md))
 - [ ] **`ws restore`** ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
 - [ ] **`ws restart`** ([0018](docs/adrs/0018-restart-claude-daemon.md))
 - [ ] **`ws llm`**: embedded guides with the coverage test, and
@@ -188,6 +192,7 @@ internal/
   repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
   cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
   workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)
+  shell/                      # ws shell's interactive shell: lock, signals, exit status (0015, 0023)
   lockfile/                   # flock locks, exclusive and shared (0008)
   backup/                     # Time Machine exclusion (0011)
   gittest/                    # local upstreams for tests, via insteadOf (0020)
