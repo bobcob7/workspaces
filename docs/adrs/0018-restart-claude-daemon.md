@@ -1,6 +1,6 @@
 # 0018. `ws restart` swaps Claude Code's background service and respawns each session once it's idle
 
-- Status: Accepted (2026-10-18)
+- Status: Accepted (2026-10-18); "working" amended by [0024](0024-claude-code-client.md) (2026-10-19)
 - Date: 2026-10-18
 
 ## Context

@@ -1,6 +1,6 @@
 # 0015. A workspace lives exactly as long as its one session
 
-- Status: Accepted (2026-10-18)
+- Status: Accepted (2026-10-18); session reading amended by [0024](0024-claude-code-client.md) (2026-10-19)
 - Date: 2026-10-18
 - Supersedes: [0013](0013-cleanup-ignores-git-state.md)
 
