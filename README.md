@@ -145,14 +145,13 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **Repo specs**: parse `repo@ref`, canonical ids, upstream HTTPS URLs
   ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
   [0019](docs/adrs/0019-https-upstream-urls.md))
-- [ ] **Cache**: bare clones, refspecs, fetch with prune, locking; short-name
-  and ref resolution; `ws cache`; Time Machine exclusion for `cache/`
-  ([0011](docs/adrs/0011-config-dir.md))
-  ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
-  [0008](docs/adrs/0008-repository-cache.md))
+- [x] **Cache**: bare clones, refspecs, fetch with prune, locking; short-name
+  and ref resolution; `ws cache` except `prune`; Time Machine exclusion for
+  `cache/` ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
+  [0008](docs/adrs/0008-repository-cache.md), [0011](docs/adrs/0011-config-dir.md))
 - [ ] **Workspaces**: ids and `--name`, `state/<id>/workspace.toml`,
   hard-linked clones with `origin` and `cache` remotes, the deletion guard;
-  Time Machine exclusion for `workspaces/`
+  Time Machine exclusion for `workspaces/`; `ws cache prune`
   ([0009](docs/adrs/0009-workspace-repository-remotes.md),
   [0012](docs/adrs/0012-workspace-layout.md),
   [0017](docs/adrs/0017-clones-not-worktrees.md))
@@ -187,6 +186,8 @@ internal/
   config/                     # CONFIG_DIR and config.toml (0011)
   git/                        # the only place git is executed (0003)
   repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
+  cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
+  gittest/                    # local upstreams for tests, via insteadOf (0020)
 docs/
   adrs/                       # architecture decision records
   tools/                      # command reference

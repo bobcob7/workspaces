@@ -4,7 +4,10 @@
 package cli
 
 import (
+	"context"
+	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/repo"
 	"sync"
 )
 
@@ -71,5 +74,507 @@ func (mock *configLoaderMock) LoadCalls() []struct {
 	mock.lockLoad.RLock()
 	calls = mock.calls.Load
 	mock.lockLoad.RUnlock()
+	return calls
+}
+
+// Ensure, that repoCacheMock does implement repoCache.
+// If this is not the case, regenerate this file with moq.
+var _ repoCache = &repoCacheMock{}
+
+// repoCacheMock is a mock implementation of repoCache.
+//
+//	func TestSomethingThatUsesrepoCache(t *testing.T) {
+//
+//		// make and configure a mocked repoCache
+//		mockedrepoCache := &repoCacheMock{
+//			AddFunc: func(ctx context.Context, id repo.ID, upstream string) (bool, error) {
+//				panic("mock out the Add method")
+//			},
+//			FetchEachFunc: func(ctx context.Context, ids []repo.ID) []error {
+//				panic("mock out the FetchEach method")
+//			},
+//			IDsFunc: func() ([]repo.ID, error) {
+//				panic("mock out the IDs method")
+//			},
+//			ListFunc: func(ctx context.Context) ([]cache.Entry, error) {
+//				panic("mock out the List method")
+//			},
+//			LookupFunc: func(ctx context.Context, sp *repo.Spec) (cache.Resolution, error) {
+//				panic("mock out the Lookup method")
+//			},
+//			PathFunc: func(id repo.ID) string {
+//				panic("mock out the Path method")
+//			},
+//			RemoveFunc: func(ctx context.Context, id repo.ID) error {
+//				panic("mock out the Remove method")
+//			},
+//			ResolveFunc: func(ctx context.Context, sp *repo.Spec) (cache.Resolution, error) {
+//				panic("mock out the Resolve method")
+//			},
+//			SearchFunc: func(ctx context.Context, query string, limit int, refs bool) ([]cache.Match, error) {
+//				panic("mock out the Search method")
+//			},
+//			WarningsFunc: func() []string {
+//				panic("mock out the Warnings method")
+//			},
+//		}
+//
+//		// use mockedrepoCache in code that requires repoCache
+//		// and then make assertions.
+//
+//	}
+type repoCacheMock struct {
+	// AddFunc mocks the Add method.
+	AddFunc func(ctx context.Context, id repo.ID, upstream string) (bool, error)
+
+	// FetchEachFunc mocks the FetchEach method.
+	FetchEachFunc func(ctx context.Context, ids []repo.ID) []error
+
+	// IDsFunc mocks the IDs method.
+	IDsFunc func() ([]repo.ID, error)
+
+	// ListFunc mocks the List method.
+	ListFunc func(ctx context.Context) ([]cache.Entry, error)
+
+	// LookupFunc mocks the Lookup method.
+	LookupFunc func(ctx context.Context, sp *repo.Spec) (cache.Resolution, error)
+
+	// PathFunc mocks the Path method.
+	PathFunc func(id repo.ID) string
+
+	// RemoveFunc mocks the Remove method.
+	RemoveFunc func(ctx context.Context, id repo.ID) error
+
+	// ResolveFunc mocks the Resolve method.
+	ResolveFunc func(ctx context.Context, sp *repo.Spec) (cache.Resolution, error)
+
+	// SearchFunc mocks the Search method.
+	SearchFunc func(ctx context.Context, query string, limit int, refs bool) ([]cache.Match, error)
+
+	// WarningsFunc mocks the Warnings method.
+	WarningsFunc func() []string
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Add holds details about calls to the Add method.
+		Add []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID repo.ID
+			// Upstream is the upstream argument value.
+			Upstream string
+		}
+		// FetchEach holds details about calls to the FetchEach method.
+		FetchEach []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Ids is the ids argument value.
+			Ids []repo.ID
+		}
+		// IDs holds details about calls to the IDs method.
+		IDs []struct {
+		}
+		// List holds details about calls to the List method.
+		List []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// Lookup holds details about calls to the Lookup method.
+		Lookup []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Sp is the sp argument value.
+			Sp *repo.Spec
+		}
+		// Path holds details about calls to the Path method.
+		Path []struct {
+			// ID is the id argument value.
+			ID repo.ID
+		}
+		// Remove holds details about calls to the Remove method.
+		Remove []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID repo.ID
+		}
+		// Resolve holds details about calls to the Resolve method.
+		Resolve []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Sp is the sp argument value.
+			Sp *repo.Spec
+		}
+		// Search holds details about calls to the Search method.
+		Search []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Query is the query argument value.
+			Query string
+			// Limit is the limit argument value.
+			Limit int
+			// Refs is the refs argument value.
+			Refs bool
+		}
+		// Warnings holds details about calls to the Warnings method.
+		Warnings []struct {
+		}
+	}
+	lockAdd       sync.RWMutex
+	lockFetchEach sync.RWMutex
+	lockIDs       sync.RWMutex
+	lockList      sync.RWMutex
+	lockLookup    sync.RWMutex
+	lockPath      sync.RWMutex
+	lockRemove    sync.RWMutex
+	lockResolve   sync.RWMutex
+	lockSearch    sync.RWMutex
+	lockWarnings  sync.RWMutex
+}
+
+// Add calls AddFunc.
+func (mock *repoCacheMock) Add(ctx context.Context, id repo.ID, upstream string) (bool, error) {
+	if mock.AddFunc == nil {
+		panic("repoCacheMock.AddFunc: method is nil but repoCache.Add was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		ID       repo.ID
+		Upstream string
+	}{
+		Ctx:      ctx,
+		ID:       id,
+		Upstream: upstream,
+	}
+	mock.lockAdd.Lock()
+	mock.calls.Add = append(mock.calls.Add, callInfo)
+	mock.lockAdd.Unlock()
+	return mock.AddFunc(ctx, id, upstream)
+}
+
+// AddCalls gets all the calls that were made to Add.
+// Check the length with:
+//
+//	len(mockedrepoCache.AddCalls())
+func (mock *repoCacheMock) AddCalls() []struct {
+	Ctx      context.Context
+	ID       repo.ID
+	Upstream string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		ID       repo.ID
+		Upstream string
+	}
+	mock.lockAdd.RLock()
+	calls = mock.calls.Add
+	mock.lockAdd.RUnlock()
+	return calls
+}
+
+// FetchEach calls FetchEachFunc.
+func (mock *repoCacheMock) FetchEach(ctx context.Context, ids []repo.ID) []error {
+	if mock.FetchEachFunc == nil {
+		panic("repoCacheMock.FetchEachFunc: method is nil but repoCache.FetchEach was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Ids []repo.ID
+	}{
+		Ctx: ctx,
+		Ids: ids,
+	}
+	mock.lockFetchEach.Lock()
+	mock.calls.FetchEach = append(mock.calls.FetchEach, callInfo)
+	mock.lockFetchEach.Unlock()
+	return mock.FetchEachFunc(ctx, ids)
+}
+
+// FetchEachCalls gets all the calls that were made to FetchEach.
+// Check the length with:
+//
+//	len(mockedrepoCache.FetchEachCalls())
+func (mock *repoCacheMock) FetchEachCalls() []struct {
+	Ctx context.Context
+	Ids []repo.ID
+} {
+	var calls []struct {
+		Ctx context.Context
+		Ids []repo.ID
+	}
+	mock.lockFetchEach.RLock()
+	calls = mock.calls.FetchEach
+	mock.lockFetchEach.RUnlock()
+	return calls
+}
+
+// IDs calls IDsFunc.
+func (mock *repoCacheMock) IDs() ([]repo.ID, error) {
+	if mock.IDsFunc == nil {
+		panic("repoCacheMock.IDsFunc: method is nil but repoCache.IDs was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockIDs.Lock()
+	mock.calls.IDs = append(mock.calls.IDs, callInfo)
+	mock.lockIDs.Unlock()
+	return mock.IDsFunc()
+}
+
+// IDsCalls gets all the calls that were made to IDs.
+// Check the length with:
+//
+//	len(mockedrepoCache.IDsCalls())
+func (mock *repoCacheMock) IDsCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockIDs.RLock()
+	calls = mock.calls.IDs
+	mock.lockIDs.RUnlock()
+	return calls
+}
+
+// List calls ListFunc.
+func (mock *repoCacheMock) List(ctx context.Context) ([]cache.Entry, error) {
+	if mock.ListFunc == nil {
+		panic("repoCacheMock.ListFunc: method is nil but repoCache.List was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockList.Lock()
+	mock.calls.List = append(mock.calls.List, callInfo)
+	mock.lockList.Unlock()
+	return mock.ListFunc(ctx)
+}
+
+// ListCalls gets all the calls that were made to List.
+// Check the length with:
+//
+//	len(mockedrepoCache.ListCalls())
+func (mock *repoCacheMock) ListCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockList.RLock()
+	calls = mock.calls.List
+	mock.lockList.RUnlock()
+	return calls
+}
+
+// Lookup calls LookupFunc.
+func (mock *repoCacheMock) Lookup(ctx context.Context, sp *repo.Spec) (cache.Resolution, error) {
+	if mock.LookupFunc == nil {
+		panic("repoCacheMock.LookupFunc: method is nil but repoCache.Lookup was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Sp  *repo.Spec
+	}{
+		Ctx: ctx,
+		Sp:  sp,
+	}
+	mock.lockLookup.Lock()
+	mock.calls.Lookup = append(mock.calls.Lookup, callInfo)
+	mock.lockLookup.Unlock()
+	return mock.LookupFunc(ctx, sp)
+}
+
+// LookupCalls gets all the calls that were made to Lookup.
+// Check the length with:
+//
+//	len(mockedrepoCache.LookupCalls())
+func (mock *repoCacheMock) LookupCalls() []struct {
+	Ctx context.Context
+	Sp  *repo.Spec
+} {
+	var calls []struct {
+		Ctx context.Context
+		Sp  *repo.Spec
+	}
+	mock.lockLookup.RLock()
+	calls = mock.calls.Lookup
+	mock.lockLookup.RUnlock()
+	return calls
+}
+
+// Path calls PathFunc.
+func (mock *repoCacheMock) Path(id repo.ID) string {
+	if mock.PathFunc == nil {
+		panic("repoCacheMock.PathFunc: method is nil but repoCache.Path was just called")
+	}
+	callInfo := struct {
+		ID repo.ID
+	}{
+		ID: id,
+	}
+	mock.lockPath.Lock()
+	mock.calls.Path = append(mock.calls.Path, callInfo)
+	mock.lockPath.Unlock()
+	return mock.PathFunc(id)
+}
+
+// PathCalls gets all the calls that were made to Path.
+// Check the length with:
+//
+//	len(mockedrepoCache.PathCalls())
+func (mock *repoCacheMock) PathCalls() []struct {
+	ID repo.ID
+} {
+	var calls []struct {
+		ID repo.ID
+	}
+	mock.lockPath.RLock()
+	calls = mock.calls.Path
+	mock.lockPath.RUnlock()
+	return calls
+}
+
+// Remove calls RemoveFunc.
+func (mock *repoCacheMock) Remove(ctx context.Context, id repo.ID) error {
+	if mock.RemoveFunc == nil {
+		panic("repoCacheMock.RemoveFunc: method is nil but repoCache.Remove was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  repo.ID
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockRemove.Lock()
+	mock.calls.Remove = append(mock.calls.Remove, callInfo)
+	mock.lockRemove.Unlock()
+	return mock.RemoveFunc(ctx, id)
+}
+
+// RemoveCalls gets all the calls that were made to Remove.
+// Check the length with:
+//
+//	len(mockedrepoCache.RemoveCalls())
+func (mock *repoCacheMock) RemoveCalls() []struct {
+	Ctx context.Context
+	ID  repo.ID
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  repo.ID
+	}
+	mock.lockRemove.RLock()
+	calls = mock.calls.Remove
+	mock.lockRemove.RUnlock()
+	return calls
+}
+
+// Resolve calls ResolveFunc.
+func (mock *repoCacheMock) Resolve(ctx context.Context, sp *repo.Spec) (cache.Resolution, error) {
+	if mock.ResolveFunc == nil {
+		panic("repoCacheMock.ResolveFunc: method is nil but repoCache.Resolve was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Sp  *repo.Spec
+	}{
+		Ctx: ctx,
+		Sp:  sp,
+	}
+	mock.lockResolve.Lock()
+	mock.calls.Resolve = append(mock.calls.Resolve, callInfo)
+	mock.lockResolve.Unlock()
+	return mock.ResolveFunc(ctx, sp)
+}
+
+// ResolveCalls gets all the calls that were made to Resolve.
+// Check the length with:
+//
+//	len(mockedrepoCache.ResolveCalls())
+func (mock *repoCacheMock) ResolveCalls() []struct {
+	Ctx context.Context
+	Sp  *repo.Spec
+} {
+	var calls []struct {
+		Ctx context.Context
+		Sp  *repo.Spec
+	}
+	mock.lockResolve.RLock()
+	calls = mock.calls.Resolve
+	mock.lockResolve.RUnlock()
+	return calls
+}
+
+// Search calls SearchFunc.
+func (mock *repoCacheMock) Search(ctx context.Context, query string, limit int, refs bool) ([]cache.Match, error) {
+	if mock.SearchFunc == nil {
+		panic("repoCacheMock.SearchFunc: method is nil but repoCache.Search was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Query string
+		Limit int
+		Refs  bool
+	}{
+		Ctx:   ctx,
+		Query: query,
+		Limit: limit,
+		Refs:  refs,
+	}
+	mock.lockSearch.Lock()
+	mock.calls.Search = append(mock.calls.Search, callInfo)
+	mock.lockSearch.Unlock()
+	return mock.SearchFunc(ctx, query, limit, refs)
+}
+
+// SearchCalls gets all the calls that were made to Search.
+// Check the length with:
+//
+//	len(mockedrepoCache.SearchCalls())
+func (mock *repoCacheMock) SearchCalls() []struct {
+	Ctx   context.Context
+	Query string
+	Limit int
+	Refs  bool
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Query string
+		Limit int
+		Refs  bool
+	}
+	mock.lockSearch.RLock()
+	calls = mock.calls.Search
+	mock.lockSearch.RUnlock()
+	return calls
+}
+
+// Warnings calls WarningsFunc.
+func (mock *repoCacheMock) Warnings() []string {
+	if mock.WarningsFunc == nil {
+		panic("repoCacheMock.WarningsFunc: method is nil but repoCache.Warnings was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockWarnings.Lock()
+	mock.calls.Warnings = append(mock.calls.Warnings, callInfo)
+	mock.lockWarnings.Unlock()
+	return mock.WarningsFunc()
+}
+
+// WarningsCalls gets all the calls that were made to Warnings.
+// Check the length with:
+//
+//	len(mockedrepoCache.WarningsCalls())
+func (mock *repoCacheMock) WarningsCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockWarnings.RLock()
+	calls = mock.calls.Warnings
+	mock.lockWarnings.RUnlock()
 	return calls
 }

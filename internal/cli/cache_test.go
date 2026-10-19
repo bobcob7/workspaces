@@ -1,12 +1,43 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bobcob7/workspaces/internal/cache"
+	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/git"
+	"github.com/bobcob7/workspaces/internal/repo"
 )
+
+// newCacheApp returns a test App whose loaded cache is m, as withConfig
+// would leave it.
+func newCacheApp(m *repoCacheMock) (app *App, stdout, stderr *bytes.Buffer) {
+	app, stdout, stderr = newTestApp()
+	app.cache = m
+	app.newCache = func(config.Paths, config.Config) repoCache { return m }
+	return app, stdout, stderr
+}
+
+// parsed parses specs for tests.
+func parsed(t *testing.T, args ...string) []repo.Spec {
+	t.Helper()
+	specs := parseSpecs(args)
+	require.Len(t, specs, len(args))
+	return specs
+}
+
+func otherID() repo.ID {
+	return repo.ID{Host: "github.com", Owner: "bobcob7", Name: "api"}
+}
 
 func TestApp_newCacheCmd(t *testing.T) {
 	app, _, _ := newTestApp()
@@ -24,134 +55,159 @@ func TestApp_newCacheCmd(t *testing.T) {
 }
 
 func TestApp_newCacheAddCmd(t *testing.T) {
-	app, _, _ := newTestApp()
-	cmd := app.newCacheAddCmd()
 	t.Run("needs a spec", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newCacheAddCmd()
 		requireUsageError(t, cmd.Args(cmd, nil))
 	})
-	t.Run("rejects an invalid spec", func(t *testing.T) {
+	t.Run("rejects a bad spec", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newCacheAddCmd()
 		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
 	})
-	t.Run("runs", func(t *testing.T) {
-		requireNotImplemented(t, cmd.RunE(cmd, []string{"buff-bear"}))
+	t.Run("adds", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd := app.newCacheAddCmd()
+		require.NoError(t, cmd.RunE(cmd, []string{"buff-bear"}))
+		assert.Len(t, m.AddCalls(), 1)
 	})
 }
 
 func TestApp_newCacheUpdateCmd(t *testing.T) {
-	app, _, _ := newTestApp()
-	parse := func(t *testing.T, args ...string) (*cobra.Command, []string) {
+	parse := func(t *testing.T, app *App, args ...string) (*cobra.Command, []string) {
 		t.Helper()
 		cmd := app.newCacheUpdateCmd()
 		require.NoError(t, cmd.ParseFlags(args))
 		return cmd, cmd.Flags().Args()
 	}
 	t.Run("accepts specs", func(t *testing.T) {
-		cmd, args := parse(t, "buff-bear")
+		app, _, _ := newTestApp()
+		cmd, args := parse(t, app, "buff-bear")
 		assert.NoError(t, cmd.Args(cmd, args))
 	})
 	t.Run("accepts --all", func(t *testing.T) {
-		cmd, args := parse(t, "--all")
+		app, _, _ := newTestApp()
+		cmd, args := parse(t, app, "--all")
 		assert.NoError(t, cmd.Args(cmd, args))
 	})
 	t.Run("rejects neither", func(t *testing.T) {
-		cmd, args := parse(t)
+		app, _, _ := newTestApp()
+		cmd, args := parse(t, app)
 		requireUsageError(t, cmd.Args(cmd, args))
 	})
 	t.Run("rejects both", func(t *testing.T) {
-		cmd, args := parse(t, "--all", "buff-bear")
+		app, _, _ := newTestApp()
+		cmd, args := parse(t, app, "--all", "buff-bear")
 		requireUsageError(t, cmd.Args(cmd, args))
 	})
-	t.Run("rejects an invalid spec", func(t *testing.T) {
-		cmd, args := parse(t, "a//b")
+	t.Run("rejects a bad spec", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd, args := parse(t, app, "a//b")
 		requireCode(t, codeSpecInvalid, cmd.Args(cmd, args))
 	})
-	t.Run("runs", func(t *testing.T) {
-		cmd, args := parse(t, "--all")
-		requireNotImplemented(t, cmd.RunE(cmd, args))
+	t.Run("updates", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd, args := parse(t, app, "--all")
+		require.NoError(t, cmd.RunE(cmd, args))
+		assert.Len(t, m.FetchEachCalls(), 1)
 	})
 }
 
 func TestApp_newCacheListCmd(t *testing.T) {
-	app, _, _ := newTestApp()
-	cmd := app.newCacheListCmd()
 	t.Run("takes no arguments", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newCacheListCmd()
 		requireUsageError(t, cmd.Args(cmd, []string{"extra"}))
 	})
-	t.Run("runs", func(t *testing.T) {
-		requireNotImplemented(t, cmd.RunE(cmd, nil))
+	t.Run("lists", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd := app.newCacheListCmd()
+		require.NoError(t, cmd.RunE(cmd, nil))
+		assert.Len(t, m.ListCalls(), 1)
 	})
 }
 
 func TestApp_newCacheSearchCmd(t *testing.T) {
-	app, _, _ := newTestApp()
-	parse := func(t *testing.T, args ...string) (*cobra.Command, []string) {
+	parse := func(t *testing.T, app *App, args ...string) (*cobra.Command, []string) {
 		t.Helper()
 		cmd := app.newCacheSearchCmd()
 		require.NoError(t, cmd.ParseFlags(args))
 		return cmd, cmd.Flags().Args()
 	}
 	t.Run("has --limit and --refs", func(t *testing.T) {
+		app, _, _ := newTestApp()
 		cmd := app.newCacheSearchCmd()
 		assertFlag(t, cmd, "limit", "20")
 		assertFlag(t, cmd, "refs", "false")
 	})
 	t.Run("needs exactly one query", func(t *testing.T) {
-		cmd := app.newCacheSearchCmd()
-		requireUsageError(t, cmd.Args(cmd, nil))
-	})
-	t.Run("rejects a limit below 1", func(t *testing.T) {
-		cmd, args := parse(t, "--limit", "0", "bear")
+		app, _, _ := newTestApp()
+		cmd, args := parse(t, app)
 		requireUsageError(t, cmd.Args(cmd, args))
 	})
-	t.Run("accepts one query", func(t *testing.T) {
-		cmd, args := parse(t, "bear")
-		assert.NoError(t, cmd.Args(cmd, args))
+	t.Run("rejects a limit below 1", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd, args := parse(t, app, "--limit", "0", "bear")
+		requireUsageError(t, cmd.Args(cmd, args))
 	})
-	t.Run("runs", func(t *testing.T) {
-		cmd, args := parse(t, "bear")
-		requireNotImplemented(t, cmd.RunE(cmd, args))
+	t.Run("passes the query and flags", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd, args := parse(t, app, "--limit", "5", "--refs", "bear")
+		require.NoError(t, cmd.RunE(cmd, args))
+		require.Len(t, m.SearchCalls(), 1)
+		call := m.SearchCalls()[0]
+		assert.Equal(t, "bear", call.Query)
+		assert.Equal(t, 5, call.Limit)
+		assert.True(t, call.Refs)
 	})
 }
 
 func TestApp_newCacheResolveCmd(t *testing.T) {
-	app, _, _ := newTestApp()
-	cmd := app.newCacheResolveCmd()
 	t.Run("needs a spec", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newCacheResolveCmd()
 		requireUsageError(t, cmd.Args(cmd, nil))
 	})
-	t.Run("rejects an invalid spec", func(t *testing.T) {
-		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
-	})
-	t.Run("runs", func(t *testing.T) {
-		requireNotImplemented(t, cmd.RunE(cmd, []string{"buff-bear"}))
+	t.Run("resolves", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd := app.newCacheResolveCmd()
+		require.NoError(t, cmd.RunE(cmd, []string{"buff-bear", "api"}))
+		assert.Len(t, m.ResolveCalls(), 2)
 	})
 }
 
 func TestApp_newCachePathCmd(t *testing.T) {
-	app, _, _ := newTestApp()
-	cmd := app.newCachePathCmd()
 	t.Run("needs exactly one spec", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newCachePathCmd()
 		requireUsageError(t, cmd.Args(cmd, []string{"a", "b"}))
 	})
-	t.Run("rejects an invalid spec", func(t *testing.T) {
-		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
-	})
-	t.Run("runs", func(t *testing.T) {
-		requireNotImplemented(t, cmd.RunE(cmd, []string{"buff-bear"}))
+	t.Run("looks up", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd := app.newCachePathCmd()
+		require.NoError(t, cmd.RunE(cmd, []string{"buff-bear"}))
+		assert.Len(t, m.LookupCalls(), 1)
 	})
 }
 
 func TestApp_newCacheRemoveCmd(t *testing.T) {
-	app, _, _ := newTestApp()
-	cmd := app.newCacheRemoveCmd()
 	t.Run("needs a spec", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newCacheRemoveCmd()
 		requireUsageError(t, cmd.Args(cmd, nil))
 	})
-	t.Run("rejects an invalid spec", func(t *testing.T) {
-		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))
-	})
-	t.Run("runs", func(t *testing.T) {
-		requireNotImplemented(t, cmd.RunE(cmd, []string{"buff-bear"}))
+	t.Run("removes", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd := app.newCacheRemoveCmd()
+		require.NoError(t, cmd.RunE(cmd, []string{"buff-bear"}))
+		assert.Len(t, m.RemoveCalls(), 1)
 	})
 }
 
@@ -165,11 +221,492 @@ func TestApp_newCachePruneCmd(t *testing.T) {
 	t.Run("takes no arguments", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"extra"}))
 	})
-	t.Run("runs", func(t *testing.T) {
+	t.Run("isn't implemented yet", func(t *testing.T) {
 		requireNotImplemented(t, cmd.RunE(cmd, nil))
 	})
 }
 
 func TestNotImplemented(t *testing.T) {
 	requireNotImplemented(t, notImplemented(nil, nil))
+}
+
+func TestParseSpecs(t *testing.T) {
+	t.Run("parses each argument", func(t *testing.T) {
+		specs := parseSpecs([]string{"buff-bear@main", "bobcob7/api"})
+		require.Len(t, specs, 2)
+		assert.Equal(t, "main", specs[0].Ref)
+		assert.Equal(t, repo.KindOwnerName, specs[1].Kind)
+	})
+	t.Run("skips what doesn't parse", func(t *testing.T) {
+		assert.Empty(t, parseSpecs([]string{"a//b"}))
+	})
+}
+
+func TestApp_cacheAdd(t *testing.T) {
+	t.Run("prints each id", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		require.NoError(t, app.cacheAdd(t.Context(), parsed(t, "buff-bear")))
+		assert.Equal(t, "github.com/bobcob7/buff-bear\n", stdout.String())
+	})
+	t.Run("adds the resolved repo from its upstream", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		require.NoError(t, app.cacheAdd(t.Context(), parsed(t, "buff-bear")))
+		require.Len(t, m.AddCalls(), 1)
+		assert.Equal(t, testID(), m.AddCalls()[0].ID)
+		assert.Equal(t, testID().UpstreamURL(), m.AddCalls()[0].Upstream)
+	})
+	t.Run("json", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		app.global.json = true
+		require.NoError(t, app.cacheAdd(t.Context(), parsed(t, "buff-bear")))
+		assert.JSONEq(t, `{"repos":[{"id":"github.com/bobcob7/buff-bear","path":"/cfg/cache/repos/github.com/bobcob7/buff-bear.git","upstream":"https://github.com/bobcob7/buff-bear.git","added":true,"error":null}],"warnings":[]}`, stdout.String())
+	})
+	t.Run("resolution failure", func(t *testing.T) {
+		m := stubCache()
+		m.ResolveFunc = func(context.Context, *repo.Spec) (cache.Resolution, error) {
+			return cache.Resolution{}, cache.ErrRepoNotFound
+		}
+		app, stdout, _ := newCacheApp(m)
+		requireCode(t, codeRepoNotFound, app.cacheAdd(t.Context(), parsed(t, "nope")))
+		assert.Empty(t, stdout.String())
+	})
+	t.Run("resolves every spec before cloning", func(t *testing.T) {
+		m := stubCache()
+		m.ResolveFunc = func(_ context.Context, sp *repo.Spec) (cache.Resolution, error) {
+			if sp.Name == "nope" {
+				return cache.Resolution{}, cache.ErrRepoNotFound
+			}
+			return cache.Resolution{ID: testID(), Upstream: testID().UpstreamURL()}, nil
+		}
+		app, _, _ := newCacheApp(m)
+		requireCode(t, codeRepoNotFound, app.cacheAdd(t.Context(), parsed(t, "buff-bear", "nope")))
+		assert.Empty(t, m.AddCalls())
+	})
+	t.Run("a failed clone doesn't stop the others", func(t *testing.T) {
+		m := stubCache()
+		m.AddFunc = func(_ context.Context, id repo.ID, _ string) (bool, error) {
+			if id == testID() {
+				return false, cache.ErrCloneFailed
+			}
+			return true, nil
+		}
+		m.ResolveFunc = func(_ context.Context, sp *repo.Spec) (cache.Resolution, error) {
+			if sp.Name == "api" {
+				return cache.Resolution{ID: otherID(), Upstream: otherID().UpstreamURL()}, nil
+			}
+			return cache.Resolution{ID: testID(), Upstream: testID().UpstreamURL()}, nil
+		}
+		app, stdout, stderr := newCacheApp(m)
+		requireCode(t, codeCloneFailed, app.cacheAdd(t.Context(), parsed(t, "buff-bear", "api")))
+		assert.Len(t, m.AddCalls(), 2)
+		assert.Equal(t, "github.com/bobcob7/api\n", stdout.String())
+		assert.Contains(t, stderr.String(), "clone failed")
+	})
+}
+
+func TestApp_cacheUpdate(t *testing.T) {
+	t.Run("fetches every target", func(t *testing.T) {
+		m := stubCache()
+		m.IDsFunc = func() ([]repo.ID, error) { return []repo.ID{testID(), otherID()}, nil }
+		app, stdout, _ := newCacheApp(m)
+		require.NoError(t, app.cacheUpdate(t.Context(), nil, true))
+		require.Len(t, m.FetchEachCalls(), 1)
+		assert.Equal(t, []repo.ID{testID(), otherID()}, m.FetchEachCalls()[0].Ids)
+		assert.Equal(t, "updated  github.com/bobcob7/buff-bear\nupdated  github.com/bobcob7/api\n", stdout.String())
+	})
+	t.Run("keeps going after a failure and exits with the first", func(t *testing.T) {
+		m := stubCache()
+		m.IDsFunc = func() ([]repo.ID, error) { return []repo.ID{testID(), otherID()}, nil }
+		m.FetchEachFunc = func(context.Context, []repo.ID) []error {
+			return []error{fmt.Errorf("%w: offline", cache.ErrFetchFailed), nil}
+		}
+		app, stdout, stderr := newCacheApp(m)
+		err := app.cacheUpdate(t.Context(), nil, true)
+		requireCode(t, codeFetchFailed, err)
+		ce, _ := err.(*cliError) //nolint:errorlint // requireCode checked the type.
+		assert.True(t, ce.reported)
+		assert.Equal(t, "updated  github.com/bobcob7/api\n", stdout.String())
+		assert.Contains(t, stderr.String(), "offline")
+	})
+	t.Run("json reports each repo", func(t *testing.T) {
+		m := stubCache()
+		m.FetchEachFunc = func(context.Context, []repo.ID) []error {
+			return []error{fmt.Errorf("%w: offline", cache.ErrFetchFailed)}
+		}
+		app, stdout, _ := newCacheApp(m)
+		app.global.json = true
+		requireCode(t, codeFetchFailed, app.cacheUpdate(t.Context(), nil, true))
+		assert.JSONEq(t, `{"repos":[{"id":"github.com/bobcob7/buff-bear","error":{"code":"fetch_failed","message":"fetch failed: offline"}}],"warnings":[]}`, stdout.String())
+	})
+	t.Run("target failure", func(t *testing.T) {
+		m := stubCache()
+		m.IDsFunc = func() ([]repo.ID, error) { return nil, errTest }
+		app, _, _ := newCacheApp(m)
+		assert.ErrorIs(t, app.cacheUpdate(t.Context(), nil, true), errTest)
+	})
+}
+
+func TestApp_updateTargets(t *testing.T) {
+	t.Run("all cached repos", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		ids, err := app.updateTargets(t.Context(), nil, true)
+		require.NoError(t, err)
+		assert.Equal(t, []repo.ID{testID()}, ids)
+	})
+	t.Run("looks up specs without probing", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		ids, err := app.updateTargets(t.Context(), parsed(t, "buff-bear"), false)
+		require.NoError(t, err)
+		assert.Equal(t, []repo.ID{testID()}, ids)
+		assert.Len(t, m.LookupCalls(), 1)
+		assert.Empty(t, m.ResolveCalls())
+	})
+	t.Run("uncached spec", func(t *testing.T) {
+		m := stubCache()
+		m.LookupFunc = func(context.Context, *repo.Spec) (cache.Resolution, error) {
+			return cache.Resolution{}, cache.ErrRepoNotFound
+		}
+		app, _, _ := newCacheApp(m)
+		_, err := app.updateTargets(t.Context(), parsed(t, "nope"), false)
+		requireCode(t, codeRepoNotFound, err)
+	})
+	t.Run("listing failure", func(t *testing.T) {
+		m := stubCache()
+		m.IDsFunc = func() ([]repo.ID, error) { return nil, errTest }
+		app, _, _ := newCacheApp(m)
+		_, err := app.updateTargets(t.Context(), nil, true)
+		assert.ErrorIs(t, err, errTest)
+	})
+}
+
+func TestItemResults_add(t *testing.T) {
+	t.Run("success has no error and keeps the text", func(t *testing.T) {
+		var items itemResults
+		assert.Nil(t, items.add("done", nil))
+		assert.Equal(t, []itemLine{{text: "done"}}, items.lines)
+		assert.Nil(t, items.first)
+	})
+	t.Run("failure gets its error code", func(t *testing.T) {
+		var items itemResults
+		got := items.add("done", fmt.Errorf("%w: offline", cache.ErrFetchFailed))
+		assert.Equal(t, &itemErrorJSON{Code: codeFetchFailed, Message: "fetch failed: offline"}, got)
+		requireCode(t, codeFetchFailed, items.first)
+	})
+	t.Run("keeps the first failure", func(t *testing.T) {
+		var items itemResults
+		items.add("a", cache.ErrCloneFailed)
+		items.add("b", cache.ErrFetchFailed)
+		requireCode(t, codeCloneFailed, items.first)
+	})
+}
+
+func TestApp_finishItems(t *testing.T) {
+	newItems := func() *itemResults {
+		var items itemResults
+		items.add("updated  a/b/c", nil)
+		items.add("updated  a/b/d", fmt.Errorf("%w: boom", cache.ErrFetchFailed))
+		return &items
+	}
+	results := []cacheUpdateJSON{{ID: "a/b/c"}}
+	t.Run("text puts failures on stderr", func(t *testing.T) {
+		app, stdout, stderr := newCacheApp(stubCache())
+		requireCode(t, codeFetchFailed, app.finishItems(results, newItems()))
+		assert.Equal(t, "updated  a/b/c\n", stdout.String())
+		assert.Equal(t, "ws: fetch failed: boom\n", stderr.String())
+	})
+	t.Run("json writes the results", func(t *testing.T) {
+		app, stdout, stderr := newCacheApp(stubCache())
+		app.global.json = true
+		requireCode(t, codeFetchFailed, app.finishItems(results, newItems()))
+		assert.JSONEq(t, `{"repos":[{"id":"a/b/c","error":null}],"warnings":[]}`, stdout.String())
+		assert.Empty(t, stderr.String())
+	})
+	t.Run("the returned failure is already reported", func(t *testing.T) {
+		app, _, _ := newCacheApp(stubCache())
+		err := app.finishItems(results, newItems())
+		ce, ok := errors.AsType[*cliError](err)
+		require.True(t, ok)
+		assert.True(t, ce.reported)
+	})
+	t.Run("no failure", func(t *testing.T) {
+		app, _, _ := newCacheApp(stubCache())
+		var items itemResults
+		items.add("x", nil)
+		assert.NoError(t, app.finishItems(results, &items))
+	})
+}
+
+func TestApp_cacheList(t *testing.T) {
+	entry := cache.Entry{
+		ID:            testID(),
+		Path:          "/cfg/cache/repos/github.com/bobcob7/buff-bear.git",
+		Upstream:      "https://github.com/bobcob7/buff-bear.git",
+		DefaultBranch: "main",
+		LastFetchedAt: time.Date(2026, 10, 17, 10, 48, 0, 500, time.FixedZone("CDT", -5*3600)),
+		SizeBytes:     18432000,
+	}
+	listing := func() *repoCacheMock {
+		m := stubCache()
+		m.ListFunc = func(context.Context) ([]cache.Entry, error) { return []cache.Entry{entry}, nil }
+		return m
+	}
+	t.Run("text lists ids", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(listing())
+		require.NoError(t, app.cacheList(t.Context()))
+		assert.Equal(t, "github.com/bobcob7/buff-bear\n", stdout.String())
+	})
+	t.Run("json", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(listing())
+		app.global.json = true
+		require.NoError(t, app.cacheList(t.Context()))
+		assert.JSONEq(t, `{"repos":[{"id":"github.com/bobcob7/buff-bear","path":"/cfg/cache/repos/github.com/bobcob7/buff-bear.git","upstream":"https://github.com/bobcob7/buff-bear.git","default_branch":"main","last_fetched_at":"2026-10-17T15:48:00Z","size_bytes":18432000}],"warnings":[]}`, stdout.String())
+	})
+	t.Run("empty json list", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		app.global.json = true
+		require.NoError(t, app.cacheList(t.Context()))
+		assert.JSONEq(t, `{"repos":[],"warnings":[]}`, stdout.String())
+	})
+	t.Run("failure", func(t *testing.T) {
+		m := stubCache()
+		m.ListFunc = func(context.Context) ([]cache.Entry, error) { return nil, errTest }
+		app, _, _ := newCacheApp(m)
+		assert.ErrorIs(t, app.cacheList(t.Context()), errTest)
+	})
+}
+
+func TestApp_cacheSearch(t *testing.T) {
+	searching := func() *repoCacheMock {
+		m := stubCache()
+		m.SearchFunc = func(context.Context, string, int, bool) ([]cache.Match, error) {
+			return []cache.Match{{ID: testID()}, {ID: testID(), Ref: "feat/new-thing"}}, nil
+		}
+		return m
+	}
+	t.Run("text", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(searching())
+		require.NoError(t, app.cacheSearch(t.Context(), "bear", 20, true))
+		assert.Equal(t, "github.com/bobcob7/buff-bear\ngithub.com/bobcob7/buff-bear@feat/new-thing\n", stdout.String())
+	})
+	t.Run("json", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(searching())
+		app.global.json = true
+		require.NoError(t, app.cacheSearch(t.Context(), "bear", 20, true))
+		assert.JSONEq(t, `{"matches":[{"id":"github.com/bobcob7/buff-bear","ref":null},{"id":"github.com/bobcob7/buff-bear","ref":"feat/new-thing"}],"warnings":[]}`, stdout.String())
+	})
+	t.Run("failure", func(t *testing.T) {
+		m := stubCache()
+		m.SearchFunc = func(context.Context, string, int, bool) ([]cache.Match, error) { return nil, errTest }
+		app, _, _ := newCacheApp(m)
+		assert.ErrorIs(t, app.cacheSearch(t.Context(), "bear", 20, false), errTest)
+	})
+}
+
+func TestApp_cacheResolve(t *testing.T) {
+	t.Run("text keeps the ref", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		require.NoError(t, app.cacheResolve(t.Context(), parsed(t, "buff-bear@feat/new-thing", "api")))
+		assert.Equal(t, "github.com/bobcob7/buff-bear@feat/new-thing\ngithub.com/bobcob7/buff-bear\n", stdout.String())
+	})
+	t.Run("json", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		app.global.json = true
+		require.NoError(t, app.cacheResolve(t.Context(), parsed(t, "buff-bear")))
+		assert.JSONEq(t, `{"repos":[{"id":"github.com/bobcob7/buff-bear","ref":null,"upstream":"https://github.com/bobcob7/buff-bear.git","cached":true,"source":"cache"}],"warnings":[]}`, stdout.String())
+	})
+	t.Run("ambiguous", func(t *testing.T) {
+		m := stubCache()
+		m.ResolveFunc = func(context.Context, *repo.Spec) (cache.Resolution, error) {
+			return cache.Resolution{}, &cache.AmbiguousError{Spec: "bear", Candidates: []repo.ID{testID(), otherID()}}
+		}
+		app, stdout, _ := newCacheApp(m)
+		requireCode(t, codeRepoAmbiguous, app.cacheResolve(t.Context(), parsed(t, "bear")))
+		assert.Empty(t, stdout.String())
+	})
+}
+
+func TestApp_cachePath(t *testing.T) {
+	t.Run("text", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		require.NoError(t, app.cachePath(t.Context(), &parsed(t, "buff-bear")[0]))
+		assert.Equal(t, "/cfg/cache/repos/github.com/bobcob7/buff-bear.git\n", stdout.String())
+	})
+	t.Run("json", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		app.global.json = true
+		require.NoError(t, app.cachePath(t.Context(), &parsed(t, "buff-bear")[0]))
+		assert.JSONEq(t, `{"id":"github.com/bobcob7/buff-bear","path":"/cfg/cache/repos/github.com/bobcob7/buff-bear.git","warnings":[]}`, stdout.String())
+	})
+	t.Run("not cached", func(t *testing.T) {
+		m := stubCache()
+		m.LookupFunc = func(context.Context, *repo.Spec) (cache.Resolution, error) {
+			return cache.Resolution{}, cache.ErrRepoNotFound
+		}
+		app, _, _ := newCacheApp(m)
+		requireCode(t, codeRepoNotFound, app.cachePath(t.Context(), &parsed(t, "nope")[0]))
+	})
+}
+
+func TestApp_cacheRemove(t *testing.T) {
+	t.Run("text", func(t *testing.T) {
+		m := stubCache()
+		app, stdout, _ := newCacheApp(m)
+		require.NoError(t, app.cacheRemove(t.Context(), parsed(t, "buff-bear")))
+		assert.Equal(t, "github.com/bobcob7/buff-bear\n", stdout.String())
+		require.Len(t, m.RemoveCalls(), 1)
+		assert.Equal(t, testID(), m.RemoveCalls()[0].ID)
+	})
+	t.Run("json", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		app.global.json = true
+		require.NoError(t, app.cacheRemove(t.Context(), parsed(t, "buff-bear")))
+		assert.JSONEq(t, `{"repos":[{"id":"github.com/bobcob7/buff-bear","path":"/cfg/cache/repos/github.com/bobcob7/buff-bear.git","error":null}],"warnings":[]}`, stdout.String())
+	})
+	t.Run("not cached", func(t *testing.T) {
+		m := stubCache()
+		m.LookupFunc = func(context.Context, *repo.Spec) (cache.Resolution, error) {
+			return cache.Resolution{}, cache.ErrRepoNotFound
+		}
+		app, _, _ := newCacheApp(m)
+		requireCode(t, codeRepoNotFound, app.cacheRemove(t.Context(), parsed(t, "nope")))
+		assert.Empty(t, m.RemoveCalls())
+	})
+	t.Run("looks up every spec before removing", func(t *testing.T) {
+		m := stubCache()
+		m.LookupFunc = func(_ context.Context, sp *repo.Spec) (cache.Resolution, error) {
+			if sp.Name == "nope" {
+				return cache.Resolution{}, cache.ErrRepoNotFound
+			}
+			return cache.Resolution{ID: testID()}, nil
+		}
+		app, _, _ := newCacheApp(m)
+		requireCode(t, codeRepoNotFound, app.cacheRemove(t.Context(), parsed(t, "buff-bear", "nope")))
+		assert.Empty(t, m.RemoveCalls())
+	})
+	t.Run("a failed removal doesn't stop the others", func(t *testing.T) {
+		m := stubCache()
+		m.LookupFunc = func(_ context.Context, sp *repo.Spec) (cache.Resolution, error) {
+			if sp.Name == "api" {
+				return cache.Resolution{ID: otherID()}, nil
+			}
+			return cache.Resolution{ID: testID()}, nil
+		}
+		m.RemoveFunc = func(_ context.Context, id repo.ID) error {
+			if id == testID() {
+				return errTest
+			}
+			return nil
+		}
+		app, stdout, _ := newCacheApp(m)
+		requireCode(t, codeInternal, app.cacheRemove(t.Context(), parsed(t, "buff-bear", "api")))
+		assert.Len(t, m.RemoveCalls(), 2)
+		assert.Equal(t, "github.com/bobcob7/api\n", stdout.String())
+	})
+}
+
+func TestCacheError(t *testing.T) {
+	t.Run("adds git's stderr to details", func(t *testing.T) {
+		gitErr := &git.CommandError{Args: []string{"ls-remote"}, Stderr: "fatal: unable to access", Err: errTest}
+		err := cacheError(fmt.Errorf("%w: %w", cache.ErrFetchFailed, gitErr))
+		requireCode(t, codeFetchFailed, err)
+		ce, _ := err.(*cliError) //nolint:errorlint // requireCode checked the type.
+		assert.Equal(t, map[string]any{"stderr": "fatal: unable to access"}, ce.details)
+	})
+	t.Run("keeps other details", func(t *testing.T) {
+		err := cacheError(&cache.AmbiguousError{Spec: "bear", Candidates: []repo.ID{testID()}})
+		ce, _ := err.(*cliError) //nolint:errorlint // cacheError returns a *cliError for coded errors.
+		assert.Contains(t, ce.details, "candidates")
+	})
+	t.Run("no details without stderr", func(t *testing.T) {
+		err := cacheError(fmt.Errorf("%w: %w", cache.ErrFetchFailed, &git.CommandError{Err: errTest}))
+		ce, _ := err.(*cliError) //nolint:errorlint // cacheError returns a *cliError for coded errors.
+		assert.Nil(t, ce.details)
+	})
+	t.Run("uncoded errors are unchanged", func(t *testing.T) {
+		assert.Equal(t, errTest, cacheError(errTest))
+	})
+}
+
+func TestCodedCacheError(t *testing.T) {
+	t.Run("ambiguous lists candidates", func(t *testing.T) {
+		err := codedCacheError(&cache.AmbiguousError{Spec: "bear", Candidates: []repo.ID{testID(), otherID()}})
+		require.Equal(t, codeRepoAmbiguous, err.code)
+		assert.Equal(t, map[string]any{"candidates": []string{"github.com/bobcob7/buff-bear", "github.com/bobcob7/api"}}, err.details)
+	})
+	t.Run("git missing", func(t *testing.T) {
+		assert.Equal(t, codeGitFailed, codedCacheError(fmt.Errorf("%w: %w", cache.ErrCloneFailed, git.ErrNotInstalled)).code)
+	})
+	t.Run("git too old", func(t *testing.T) {
+		assert.Equal(t, codeGitFailed, codedCacheError(git.ErrTooOld).code)
+	})
+	t.Run("bad spec", func(t *testing.T) {
+		assert.Equal(t, codeSpecInvalid, codedCacheError(repo.ErrInvalidSpec).code)
+	})
+	t.Run("repo not found", func(t *testing.T) {
+		assert.Equal(t, codeRepoNotFound, codedCacheError(cache.ErrRepoNotFound).code)
+	})
+	t.Run("ref not found", func(t *testing.T) {
+		assert.Equal(t, codeRefNotFound, codedCacheError(cache.ErrRefNotFound).code)
+	})
+	t.Run("clone failed", func(t *testing.T) {
+		assert.Equal(t, codeCloneFailed, codedCacheError(cache.ErrCloneFailed).code)
+	})
+	t.Run("fetch failed", func(t *testing.T) {
+		assert.Equal(t, codeFetchFailed, codedCacheError(cache.ErrFetchFailed).code)
+	})
+	t.Run("other git failure", func(t *testing.T) {
+		assert.Equal(t, codeGitFailed, codedCacheError(&git.CommandError{Args: []string{"config"}, Err: errTest}).code)
+	})
+	t.Run("anything else has no code", func(t *testing.T) {
+		assert.Nil(t, codedCacheError(errTest))
+	})
+}
+
+func TestApp_cacheWarnings(t *testing.T) {
+	t.Run("never nil", func(t *testing.T) {
+		app, _, _ := newCacheApp(stubCache())
+		assert.Equal(t, []string{}, app.cacheWarnings())
+	})
+	t.Run("the cache's warnings", func(t *testing.T) {
+		m := stubCache()
+		m.WarningsFunc = func() []string { return []string{"careful"} }
+		app, _, _ := newCacheApp(m)
+		assert.Equal(t, []string{"careful"}, app.cacheWarnings())
+	})
+}
+
+func TestApp_printWarnings(t *testing.T) {
+	m := stubCache()
+	m.WarningsFunc = func() []string { return []string{"one", "two"} }
+	app, _, stderr := newCacheApp(m)
+	app.printWarnings()
+	assert.Equal(t, "ws: warning: one\nws: warning: two\n", stderr.String())
+}
+
+func TestFormatTime(t *testing.T) {
+	ts := time.Date(2026, 10, 18, 3, 12, 7, 999, time.FixedZone("CDT", -5*3600))
+	assert.Equal(t, "2026-10-18T08:12:07Z", formatTime(ts))
+}
+
+func TestOptional(t *testing.T) {
+	t.Run("empty is nil", func(t *testing.T) {
+		assert.Nil(t, optional(""))
+	})
+	t.Run("value", func(t *testing.T) {
+		got := optional("main")
+		require.NotNil(t, got)
+		assert.Equal(t, "main", *got)
+	})
+}
+
+func TestWithRef(t *testing.T) {
+	t.Run("no ref", func(t *testing.T) {
+		assert.Equal(t, "a/b/c", withRef("a/b/c", ""))
+	})
+	t.Run("ref", func(t *testing.T) {
+		assert.Equal(t, "a/b/c@v1", withRef("a/b/c", "v1"))
+	})
 }

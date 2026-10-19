@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"testing"
 
@@ -11,7 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/repo"
 )
 
 // testPaths and testConfig are what newTestApp's config loader returns.
@@ -23,8 +27,8 @@ func testConfig() config.Config {
 	return config.Config{Defaults: config.Defaults{Host: "github.com", Owners: []string{"bobcob7"}}}
 }
 
-// newTestApp returns an App whose config loader succeeds without touching
-// the filesystem.
+// newTestApp returns an App whose config loader and repo cache succeed
+// without touching the filesystem.
 func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 	stdout, stderr = &bytes.Buffer{}, &bytes.Buffer{}
 	configs := &configLoaderMock{
@@ -32,17 +36,47 @@ func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 			return testPaths(), testConfig(), nil
 		},
 	}
-	return New("test", stdout, stderr, configs), stdout, stderr
+	app = New("test", stdout, stderr, configs, nil)
+	stub := stubCache()
+	app.newCache = func(config.Paths, config.Config) repoCache { return stub }
+	return app, stdout, stderr
+}
+
+// testID is the repo stubCache resolves every spec to.
+func testID() repo.ID {
+	return repo.ID{Host: "github.com", Owner: "bobcob7", Name: "buff-bear"}
+}
+
+// stubCache is a repo cache where everything succeeds: every spec resolves
+// to testID, which is cached.
+func stubCache() *repoCacheMock {
+	resolved := func(context.Context, *repo.Spec) (cache.Resolution, error) {
+		return cache.Resolution{ID: testID(), Upstream: testID().UpstreamURL(), Cached: true, Source: cache.SourceCache}, nil
+	}
+	return &repoCacheMock{
+		ResolveFunc: resolved,
+		LookupFunc:  resolved,
+		AddFunc:     func(context.Context, repo.ID, string) (bool, error) { return true, nil },
+		FetchEachFunc: func(_ context.Context, ids []repo.ID) []error {
+			return make([]error, len(ids))
+		},
+		IDsFunc:      func() ([]repo.ID, error) { return []repo.ID{testID()}, nil },
+		ListFunc:     func(context.Context) ([]cache.Entry, error) { return nil, nil },
+		SearchFunc:   func(context.Context, string, int, bool) ([]cache.Match, error) { return nil, nil },
+		RemoveFunc:   func(context.Context, repo.ID) error { return nil },
+		PathFunc:     func(id repo.ID) string { return "/cfg/cache/repos/" + id.String() + ".git" },
+		WarningsFunc: func() []string { return nil },
+	}
 }
 
 // newTestTree returns the "list" command of a minimal "ws cache list" tree,
 // so command paths look like real ones.
 func newTestTree() *cobra.Command {
 	root := &cobra.Command{Use: "ws"}
-	cache := &cobra.Command{Use: "cache"}
+	cacheCmd := &cobra.Command{Use: "cache"}
 	list := &cobra.Command{Use: "list"}
-	root.AddCommand(cache)
-	cache.AddCommand(list)
+	root.AddCommand(cacheCmd)
+	cacheCmd.AddCommand(list)
 	return list
 }
 
@@ -87,6 +121,11 @@ func TestNew(t *testing.T) {
 		app.level.Set(slog.LevelDebug)
 		assert.True(t, app.log.Enabled(t.Context(), slog.LevelDebug))
 	})
+	t.Run("builds a real cache", func(t *testing.T) {
+		app := New("test", io.Discard, io.Discard, &configLoaderMock{}, nil)
+		_, ok := app.newCache(testPaths(), testConfig()).(*cache.Cache)
+		assert.True(t, ok)
+	})
 }
 
 func TestApp_Run(t *testing.T) {
@@ -117,6 +156,14 @@ func TestApp_execute(t *testing.T) {
 		assert.Equal(t, exitRefused, code)
 		assert.Empty(t, stdout.String())
 		assert.NotEmpty(t, stderr.String())
+	})
+	t.Run("reported error only sets the exit code", func(t *testing.T) {
+		app, _, stderr := newTestApp()
+		ce := newError(codeFetchFailed, errTest)
+		ce.reported = true
+		code := app.execute(t.Context(), newRoot(ce), nil)
+		assert.Equal(t, exitFailed, code)
+		assert.Empty(t, stderr.String())
 	})
 	t.Run("uncoded error is a usage error", func(t *testing.T) {
 		app, _, _ := newTestApp()
@@ -214,6 +261,20 @@ func TestApp_withConfig(t *testing.T) {
 		})
 		require.NoError(t, fn(nil, nil))
 		assert.True(t, ran)
+	})
+	t.Run("builds the cache from the loaded config", func(t *testing.T) {
+		app, _ := newApp(nil)
+		var gotPaths config.Paths
+		var gotConfig config.Config
+		stub := stubCache()
+		app.newCache = func(p config.Paths, c config.Config) repoCache {
+			gotPaths, gotConfig = p, c
+			return stub
+		}
+		require.NoError(t, app.withConfig(succeed)(nil, nil))
+		assert.Equal(t, testPaths(), gotPaths)
+		assert.Equal(t, testConfig(), gotConfig)
+		assert.Same(t, stub, app.cache)
 	})
 	t.Run("passes --config-dir", func(t *testing.T) {
 		app, configs := newApp(nil)

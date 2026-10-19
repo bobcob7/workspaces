@@ -47,6 +47,9 @@ type cliError struct {
 	code    errorCode
 	err     error
 	details map[string]any
+	// reported means the command already reported the failure in its
+	// result, so only the exit code is left to set (ADR 0016).
+	reported bool
 }
 
 func (e *cliError) Error() string {

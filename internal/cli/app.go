@@ -11,7 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/git"
 )
 
 // App is one ws process: its streams, logger, and parsed global flags.
@@ -25,6 +27,9 @@ type App struct {
 	configs configLoader
 	paths   config.Paths
 	config  config.Config
+	// newCache builds the repo cache once the config is loaded.
+	newCache func(paths config.Paths, cfg config.Config) repoCache
+	cache    repoCache
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 }
@@ -41,12 +46,17 @@ const logOff = slog.LevelError + 4
 
 // New returns an App that writes results to stdout, and errors and
 // --verbose logging to stderr. configs supplies the config for commands
-// that need it.
-func New(version string, stdout, stderr io.Writer, configs configLoader) *App {
+// that need it, and environ, normally os.Environ(), is the environment git
+// runs with.
+func New(version string, stdout, stderr io.Writer, configs configLoader, environ []string) *App {
 	level := new(slog.LevelVar)
 	level.Set(logOff)
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
+	newCache := func(paths config.Paths, cfg config.Config) repoCache {
+		return cache.New(log, git.NewRunner(log, "git", environ), paths.Cache, cfg.Defaults)
+	}
 	return &App{
+		newCache:   newCache,
 		version:    version,
 		stdout:     stdout,
 		stderr:     stderr,
@@ -60,7 +70,7 @@ func New(version string, stdout, stderr io.Writer, configs configLoader) *App {
 // Run executes ws with args, excluding the program name, and returns the
 // process exit code.
 func (a *App) Run(ctx context.Context, args []string) int {
-	return a.execute(ctx, a.newRootCmd(), args)
+	return a.execute(ctx, a.newRootCmd(), args) //nolint:contextcheck // commands read ctx from cmd.Context(), set by ExecuteContext.
 }
 
 // execute runs root with args and turns its error into output on stderr and
@@ -76,7 +86,9 @@ func (a *App) execute(ctx context.Context, root *cobra.Command, args []string) i
 	if !ok {
 		ce = newError(codeUsage, err)
 	}
-	a.writeError(ce)
+	if !ce.reported {
+		a.writeError(ce)
+	}
 	return ce.exitCode()
 }
 
@@ -139,6 +151,7 @@ func (a *App) withConfig(fn func(cmd *cobra.Command, args []string) error) func(
 			return fmt.Errorf("loading config: %w", err)
 		}
 		a.paths, a.config = paths, cfg
+		a.cache = a.newCache(paths, cfg)
 		a.log.Debug("config loaded", slog.String("root", paths.Root))
 		return fn(cmd, args)
 	}

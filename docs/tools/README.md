@@ -102,7 +102,7 @@ And can fail with:
 | Repo not found, or short name ambiguous             | `repo_not_found`, `repo_ambiguous` | 3 |
 | Ref not found                                       | `ref_not_found`                | 3    |
 | A workspace with that name already exists           | `workspace_exists`             | 4    |
-| Fetch or clone failed                               | `fetch_failed`, `clone_failed` | 1    |
+| Fetch or clone failed, or upstream unreachable      | `fetch_failed`, `clone_failed` | 1    |
 
 See [0007](../adrs/0007-repo-spec-syntax-and-resolution.md),
 [0008](../adrs/0008-repository-cache.md),
