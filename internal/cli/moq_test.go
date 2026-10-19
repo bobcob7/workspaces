@@ -105,6 +105,9 @@ var _ repoCache = &repoCacheMock{}
 //			PathFunc: func(id repo.ID) string {
 //				panic("mock out the Path method")
 //			},
+//			PruneFunc: func(ctx context.Context, keep func(id repo.ID, commit string) (bool, error), dryRun bool) ([]cache.PrunedRef, error) {
+//				panic("mock out the Prune method")
+//			},
 //			RemoveFunc: func(ctx context.Context, id repo.ID) error {
 //				panic("mock out the Remove method")
 //			},
@@ -141,6 +144,9 @@ type repoCacheMock struct {
 
 	// PathFunc mocks the Path method.
 	PathFunc func(id repo.ID) string
+
+	// PruneFunc mocks the Prune method.
+	PruneFunc func(ctx context.Context, keep func(id repo.ID, commit string) (bool, error), dryRun bool) ([]cache.PrunedRef, error)
 
 	// RemoveFunc mocks the Remove method.
 	RemoveFunc func(ctx context.Context, id repo.ID) error
@@ -192,6 +198,15 @@ type repoCacheMock struct {
 			// ID is the id argument value.
 			ID repo.ID
 		}
+		// Prune holds details about calls to the Prune method.
+		Prune []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Keep is the keep argument value.
+			Keep func(id repo.ID, commit string) (bool, error)
+			// DryRun is the dryRun argument value.
+			DryRun bool
+		}
 		// Remove holds details about calls to the Remove method.
 		Remove []struct {
 			// Ctx is the ctx argument value.
@@ -227,6 +242,7 @@ type repoCacheMock struct {
 	lockList      sync.RWMutex
 	lockLookup    sync.RWMutex
 	lockPath      sync.RWMutex
+	lockPrune     sync.RWMutex
 	lockRemove    sync.RWMutex
 	lockResolve   sync.RWMutex
 	lockSearch    sync.RWMutex
@@ -436,6 +452,46 @@ func (mock *repoCacheMock) PathCalls() []struct {
 	return calls
 }
 
+// Prune calls PruneFunc.
+func (mock *repoCacheMock) Prune(ctx context.Context, keep func(id repo.ID, commit string) (bool, error), dryRun bool) ([]cache.PrunedRef, error) {
+	if mock.PruneFunc == nil {
+		panic("repoCacheMock.PruneFunc: method is nil but repoCache.Prune was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Keep   func(id repo.ID, commit string) (bool, error)
+		DryRun bool
+	}{
+		Ctx:    ctx,
+		Keep:   keep,
+		DryRun: dryRun,
+	}
+	mock.lockPrune.Lock()
+	mock.calls.Prune = append(mock.calls.Prune, callInfo)
+	mock.lockPrune.Unlock()
+	return mock.PruneFunc(ctx, keep, dryRun)
+}
+
+// PruneCalls gets all the calls that were made to Prune.
+// Check the length with:
+//
+//	len(mockedrepoCache.PruneCalls())
+func (mock *repoCacheMock) PruneCalls() []struct {
+	Ctx    context.Context
+	Keep   func(id repo.ID, commit string) (bool, error)
+	DryRun bool
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Keep   func(id repo.ID, commit string) (bool, error)
+		DryRun bool
+	}
+	mock.lockPrune.RLock()
+	calls = mock.calls.Prune
+	mock.lockPrune.RUnlock()
+	return calls
+}
+
 // Remove calls RemoveFunc.
 func (mock *repoCacheMock) Remove(ctx context.Context, id repo.ID) error {
 	if mock.RemoveFunc == nil {
@@ -576,5 +632,77 @@ func (mock *repoCacheMock) WarningsCalls() []struct {
 	mock.lockWarnings.RLock()
 	calls = mock.calls.Warnings
 	mock.lockWarnings.RUnlock()
+	return calls
+}
+
+// Ensure, that workspaceStoreMock does implement workspaceStore.
+// If this is not the case, regenerate this file with moq.
+var _ workspaceStore = &workspaceStoreMock{}
+
+// workspaceStoreMock is a mock implementation of workspaceStore.
+//
+//	func TestSomethingThatUsesworkspaceStore(t *testing.T) {
+//
+//		// make and configure a mocked workspaceStore
+//		mockedworkspaceStore := &workspaceStoreMock{
+//			UsesCommitFunc: func(id string, commit string) (bool, error) {
+//				panic("mock out the UsesCommit method")
+//			},
+//		}
+//
+//		// use mockedworkspaceStore in code that requires workspaceStore
+//		// and then make assertions.
+//
+//	}
+type workspaceStoreMock struct {
+	// UsesCommitFunc mocks the UsesCommit method.
+	UsesCommitFunc func(id string, commit string) (bool, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// UsesCommit holds details about calls to the UsesCommit method.
+		UsesCommit []struct {
+			// ID is the id argument value.
+			ID string
+			// Commit is the commit argument value.
+			Commit string
+		}
+	}
+	lockUsesCommit sync.RWMutex
+}
+
+// UsesCommit calls UsesCommitFunc.
+func (mock *workspaceStoreMock) UsesCommit(id string, commit string) (bool, error) {
+	if mock.UsesCommitFunc == nil {
+		panic("workspaceStoreMock.UsesCommitFunc: method is nil but workspaceStore.UsesCommit was just called")
+	}
+	callInfo := struct {
+		ID     string
+		Commit string
+	}{
+		ID:     id,
+		Commit: commit,
+	}
+	mock.lockUsesCommit.Lock()
+	mock.calls.UsesCommit = append(mock.calls.UsesCommit, callInfo)
+	mock.lockUsesCommit.Unlock()
+	return mock.UsesCommitFunc(id, commit)
+}
+
+// UsesCommitCalls gets all the calls that were made to UsesCommit.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.UsesCommitCalls())
+func (mock *workspaceStoreMock) UsesCommitCalls() []struct {
+	ID     string
+	Commit string
+} {
+	var calls []struct {
+		ID     string
+		Commit string
+	}
+	mock.lockUsesCommit.RLock()
+	calls = mock.calls.UsesCommit
+	mock.lockUsesCommit.RUnlock()
 	return calls
 }

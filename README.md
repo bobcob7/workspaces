@@ -146,10 +146,10 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
   [0019](docs/adrs/0019-https-upstream-urls.md))
 - [x] **Cache**: bare clones, refspecs, fetch with prune, locking; short-name
-  and ref resolution; `ws cache` except `prune`; Time Machine exclusion for
+  and ref resolution; `ws cache`; Time Machine exclusion for
   `cache/` ([0007](docs/adrs/0007-repo-spec-syntax-and-resolution.md),
   [0008](docs/adrs/0008-repository-cache.md), [0011](docs/adrs/0011-config-dir.md))
-- [ ] **Workspaces**: ids and `--name`, `state/<id>/workspace.toml`,
+- [x] **Workspaces**: ids and `--name`, `state/<id>/workspace.toml`,
   hard-linked clones with `origin` and `cache` remotes, the deletion guard;
   Time Machine exclusion for `workspaces/`; `ws cache prune`
   ([0009](docs/adrs/0009-workspace-repository-remotes.md),
@@ -187,6 +187,9 @@ internal/
   git/                        # the only place git is executed (0003)
   repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
   cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
+  workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)
+  lockfile/                   # flock locks, exclusive and shared (0008)
+  backup/                     # Time Machine exclusion (0011)
   gittest/                    # local upstreams for tests, via insteadOf (0020)
 docs/
   adrs/                       # architecture decision records

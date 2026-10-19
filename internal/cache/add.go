@@ -13,7 +13,7 @@ import (
 // reports whether it cloned.
 func (c *Cache) Add(ctx context.Context, id repo.ID, upstream string) (bool, error) {
 	c.startOp()
-	if err := c.ensureRoot(ctx); err != nil {
+	if err := c.ensureRoot(); err != nil {
 		return false, err
 	}
 	unlock, err := c.lock(ctx, id)

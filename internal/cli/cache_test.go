@@ -16,14 +16,16 @@ import (
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // newCacheApp returns a test App whose loaded cache is m, as withConfig
 // would leave it.
 func newCacheApp(m *repoCacheMock) (app *App, stdout, stderr *bytes.Buffer) {
 	app, stdout, stderr = newTestApp()
-	app.cache = m
-	app.newCache = func(config.Paths, config.Config) repoCache { return m }
+	workspaces := stubWorkspaces()
+	app.cache, app.workspaces = m, workspaces
+	app.newStores = func(config.Paths, config.Config) (repoCache, workspaceStore) { return m, workspaces }
 	return app, stdout, stderr
 }
 
@@ -221,8 +223,87 @@ func TestApp_newCachePruneCmd(t *testing.T) {
 	t.Run("takes no arguments", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"extra"}))
 	})
-	t.Run("isn't implemented yet", func(t *testing.T) {
-		requireNotImplemented(t, cmd.RunE(cmd, nil))
+	t.Run("prunes", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd := app.newCachePruneCmd()
+		require.NoError(t, cmd.ParseFlags([]string{"-n"}))
+		require.NoError(t, cmd.RunE(cmd, nil))
+		require.Len(t, m.PruneCalls(), 1)
+		assert.True(t, m.PruneCalls()[0].DryRun)
+	})
+}
+
+// workspacesOf is the workspace store mock newCacheApp installed.
+func workspacesOf(t *testing.T, app *App) *workspaceStoreMock {
+	t.Helper()
+	m, ok := app.workspaces.(*workspaceStoreMock)
+	require.True(t, ok)
+	return m
+}
+
+func TestApp_cachePrune(t *testing.T) {
+	pruned := []cache.PrunedRef{{ID: testID(), Commit: "abc"}}
+	pruning := func() *repoCacheMock {
+		m := stubCache()
+		m.PruneFunc = func(context.Context, func(repo.ID, string) (bool, error), bool) ([]cache.PrunedRef, error) {
+			return pruned, nil
+		}
+		return m
+	}
+	t.Run("asks the workspaces whether a commit is used", func(t *testing.T) {
+		m := pruning()
+		app, _, _ := newCacheApp(m)
+		workspacesOf(t, app).UsesCommitFunc = func(id, commit string) (bool, error) {
+			return id == testID().String() && commit == "used", nil
+		}
+		require.NoError(t, app.cachePrune(t.Context(), false))
+		keep := m.PruneCalls()[0].Keep
+		used, err := keep(testID(), "used")
+		require.NoError(t, err)
+		assert.True(t, used)
+		used, err = keep(testID(), "other")
+		require.NoError(t, err)
+		assert.False(t, used)
+	})
+	t.Run("text", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(pruning())
+		require.NoError(t, app.cachePrune(t.Context(), false))
+		assert.Equal(t, "pruned  github.com/bobcob7/buff-bear  abc\n", stdout.String())
+	})
+	t.Run("text for a dry run", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(pruning())
+		require.NoError(t, app.cachePrune(t.Context(), true))
+		assert.Equal(t, "would prune  github.com/bobcob7/buff-bear  abc\n", stdout.String())
+	})
+	t.Run("JSON", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(pruning())
+		app.global.json = true
+		require.NoError(t, app.cachePrune(t.Context(), false))
+		assert.JSONEq(t, `{"refs":[{"id":"github.com/bobcob7/buff-bear","commit":"abc"}],"warnings":[]}`, stdout.String())
+	})
+	t.Run("nothing to prune is an empty list", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		app.global.json = true
+		require.NoError(t, app.cachePrune(t.Context(), false))
+		assert.JSONEq(t, `{"refs":[],"warnings":[]}`, stdout.String())
+	})
+	t.Run("a workspace check failure stops it", func(t *testing.T) {
+		m := pruning()
+		app, _, _ := newCacheApp(m)
+		workspacesOf(t, app).UsesCommitFunc = func(string, string) (bool, error) { return false, errTest }
+		require.NoError(t, app.cachePrune(t.Context(), false))
+		_, err := m.PruneCalls()[0].Keep(testID(), "abc")
+		require.ErrorIs(t, err, errTest)
+		assert.ErrorContains(t, err, "not pruning")
+	})
+	t.Run("prune failure gets a code", func(t *testing.T) {
+		m := stubCache()
+		m.PruneFunc = func(context.Context, func(repo.ID, string) (bool, error), bool) ([]cache.PrunedRef, error) {
+			return nil, &git.CommandError{Args: []string{"update-ref"}, Err: errTest}
+		}
+		app, _, _ := newCacheApp(m)
+		requireCode(t, codeGitFailed, app.cachePrune(t.Context(), false))
 	})
 }
 
@@ -607,61 +688,73 @@ func TestApp_cacheRemove(t *testing.T) {
 	})
 }
 
-func TestCacheError(t *testing.T) {
+func TestDomainError(t *testing.T) {
 	t.Run("adds git's stderr to details", func(t *testing.T) {
 		gitErr := &git.CommandError{Args: []string{"ls-remote"}, Stderr: "fatal: unable to access", Err: errTest}
-		err := cacheError(fmt.Errorf("%w: %w", cache.ErrFetchFailed, gitErr))
+		err := domainError(fmt.Errorf("%w: %w", cache.ErrFetchFailed, gitErr))
 		requireCode(t, codeFetchFailed, err)
 		ce, _ := err.(*cliError) //nolint:errorlint // requireCode checked the type.
 		assert.Equal(t, map[string]any{"stderr": "fatal: unable to access"}, ce.details)
 	})
 	t.Run("keeps other details", func(t *testing.T) {
-		err := cacheError(&cache.AmbiguousError{Spec: "bear", Candidates: []repo.ID{testID()}})
-		ce, _ := err.(*cliError) //nolint:errorlint // cacheError returns a *cliError for coded errors.
+		err := domainError(&cache.AmbiguousError{Spec: "bear", Candidates: []repo.ID{testID()}})
+		ce, _ := err.(*cliError) //nolint:errorlint // domainError returns a *cliError for coded errors.
 		assert.Contains(t, ce.details, "candidates")
 	})
 	t.Run("no details without stderr", func(t *testing.T) {
-		err := cacheError(fmt.Errorf("%w: %w", cache.ErrFetchFailed, &git.CommandError{Err: errTest}))
-		ce, _ := err.(*cliError) //nolint:errorlint // cacheError returns a *cliError for coded errors.
+		err := domainError(fmt.Errorf("%w: %w", cache.ErrFetchFailed, &git.CommandError{Err: errTest}))
+		ce, _ := err.(*cliError) //nolint:errorlint // domainError returns a *cliError for coded errors.
 		assert.Nil(t, ce.details)
 	})
 	t.Run("uncoded errors are unchanged", func(t *testing.T) {
-		assert.Equal(t, errTest, cacheError(errTest))
+		assert.Equal(t, errTest, domainError(errTest))
 	})
 }
 
-func TestCodedCacheError(t *testing.T) {
+func TestCodedDomainError(t *testing.T) {
 	t.Run("ambiguous lists candidates", func(t *testing.T) {
-		err := codedCacheError(&cache.AmbiguousError{Spec: "bear", Candidates: []repo.ID{testID(), otherID()}})
+		err := codedDomainError(&cache.AmbiguousError{Spec: "bear", Candidates: []repo.ID{testID(), otherID()}})
 		require.Equal(t, codeRepoAmbiguous, err.code)
 		assert.Equal(t, map[string]any{"candidates": []string{"github.com/bobcob7/buff-bear", "github.com/bobcob7/api"}}, err.details)
 	})
 	t.Run("git missing", func(t *testing.T) {
-		assert.Equal(t, codeGitFailed, codedCacheError(fmt.Errorf("%w: %w", cache.ErrCloneFailed, git.ErrNotInstalled)).code)
+		assert.Equal(t, codeGitFailed, codedDomainError(fmt.Errorf("%w: %w", cache.ErrCloneFailed, git.ErrNotInstalled)).code)
 	})
 	t.Run("git too old", func(t *testing.T) {
-		assert.Equal(t, codeGitFailed, codedCacheError(git.ErrTooOld).code)
+		assert.Equal(t, codeGitFailed, codedDomainError(git.ErrTooOld).code)
 	})
 	t.Run("bad spec", func(t *testing.T) {
-		assert.Equal(t, codeSpecInvalid, codedCacheError(repo.ErrInvalidSpec).code)
+		assert.Equal(t, codeSpecInvalid, codedDomainError(repo.ErrInvalidSpec).code)
 	})
 	t.Run("repo not found", func(t *testing.T) {
-		assert.Equal(t, codeRepoNotFound, codedCacheError(cache.ErrRepoNotFound).code)
+		assert.Equal(t, codeRepoNotFound, codedDomainError(cache.ErrRepoNotFound).code)
 	})
 	t.Run("ref not found", func(t *testing.T) {
-		assert.Equal(t, codeRefNotFound, codedCacheError(cache.ErrRefNotFound).code)
+		assert.Equal(t, codeRefNotFound, codedDomainError(cache.ErrRefNotFound).code)
 	})
 	t.Run("clone failed", func(t *testing.T) {
-		assert.Equal(t, codeCloneFailed, codedCacheError(cache.ErrCloneFailed).code)
+		assert.Equal(t, codeCloneFailed, codedDomainError(cache.ErrCloneFailed).code)
 	})
 	t.Run("fetch failed", func(t *testing.T) {
-		assert.Equal(t, codeFetchFailed, codedCacheError(cache.ErrFetchFailed).code)
+		assert.Equal(t, codeFetchFailed, codedDomainError(cache.ErrFetchFailed).code)
 	})
 	t.Run("other git failure", func(t *testing.T) {
-		assert.Equal(t, codeGitFailed, codedCacheError(&git.CommandError{Args: []string{"config"}, Err: errTest}).code)
+		assert.Equal(t, codeGitFailed, codedDomainError(&git.CommandError{Args: []string{"config"}, Err: errTest}).code)
+	})
+	t.Run("workspace name invalid", func(t *testing.T) {
+		assert.Equal(t, codeNameInvalid, codedDomainError(workspace.ErrNameInvalid).code)
+	})
+	t.Run("conflicting specs", func(t *testing.T) {
+		assert.Equal(t, codeSpecInvalid, codedDomainError(workspace.ErrSpecConflict).code)
+	})
+	t.Run("workspace not found", func(t *testing.T) {
+		assert.Equal(t, codeWorkspaceNotFound, codedDomainError(workspace.ErrNotFound).code)
+	})
+	t.Run("workspace exists", func(t *testing.T) {
+		assert.Equal(t, codeWorkspaceExists, codedDomainError(workspace.ErrExists).code)
 	})
 	t.Run("anything else has no code", func(t *testing.T) {
-		assert.Nil(t, codedCacheError(errTest))
+		assert.Nil(t, codedDomainError(errTest))
 	})
 }
 

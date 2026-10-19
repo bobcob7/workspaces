@@ -16,6 +16,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // testPaths and testConfig are what newTestApp's config loader returns.
@@ -37,9 +38,16 @@ func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 		},
 	}
 	app = New("test", stdout, stderr, configs, nil)
-	stub := stubCache()
-	app.newCache = func(config.Paths, config.Config) repoCache { return stub }
+	stub, workspaces := stubCache(), stubWorkspaces()
+	app.newStores = func(config.Paths, config.Config) (repoCache, workspaceStore) { return stub, workspaces }
 	return app, stdout, stderr
+}
+
+// stubWorkspaces is a workspace store with no workspaces.
+func stubWorkspaces() *workspaceStoreMock {
+	return &workspaceStoreMock{
+		UsesCommitFunc: func(string, string) (bool, error) { return false, nil },
+	}
 }
 
 // testID is the repo stubCache resolves every spec to.
@@ -60,10 +68,13 @@ func stubCache() *repoCacheMock {
 		FetchEachFunc: func(_ context.Context, ids []repo.ID) []error {
 			return make([]error, len(ids))
 		},
-		IDsFunc:      func() ([]repo.ID, error) { return []repo.ID{testID()}, nil },
-		ListFunc:     func(context.Context) ([]cache.Entry, error) { return nil, nil },
-		SearchFunc:   func(context.Context, string, int, bool) ([]cache.Match, error) { return nil, nil },
-		RemoveFunc:   func(context.Context, repo.ID) error { return nil },
+		IDsFunc:    func() ([]repo.ID, error) { return []repo.ID{testID()}, nil },
+		ListFunc:   func(context.Context) ([]cache.Entry, error) { return nil, nil },
+		SearchFunc: func(context.Context, string, int, bool) ([]cache.Match, error) { return nil, nil },
+		RemoveFunc: func(context.Context, repo.ID) error { return nil },
+		PruneFunc: func(context.Context, func(repo.ID, string) (bool, error), bool) ([]cache.PrunedRef, error) {
+			return nil, nil
+		},
 		PathFunc:     func(id repo.ID) string { return "/cfg/cache/repos/" + id.String() + ".git" },
 		WarningsFunc: func() []string { return nil },
 	}
@@ -121,9 +132,12 @@ func TestNew(t *testing.T) {
 		app.level.Set(slog.LevelDebug)
 		assert.True(t, app.log.Enabled(t.Context(), slog.LevelDebug))
 	})
-	t.Run("builds a real cache", func(t *testing.T) {
+	t.Run("builds a real cache and workspace store", func(t *testing.T) {
 		app := New("test", io.Discard, io.Discard, &configLoaderMock{}, nil)
-		_, ok := app.newCache(testPaths(), testConfig()).(*cache.Cache)
+		c, ws := app.newStores(testPaths(), testConfig())
+		_, ok := c.(*cache.Cache)
+		assert.True(t, ok)
+		_, ok = ws.(*workspace.Store)
 		assert.True(t, ok)
 	})
 }
@@ -262,19 +276,20 @@ func TestApp_withConfig(t *testing.T) {
 		require.NoError(t, fn(nil, nil))
 		assert.True(t, ran)
 	})
-	t.Run("builds the cache from the loaded config", func(t *testing.T) {
+	t.Run("builds the stores from the loaded config", func(t *testing.T) {
 		app, _ := newApp(nil)
 		var gotPaths config.Paths
 		var gotConfig config.Config
-		stub := stubCache()
-		app.newCache = func(p config.Paths, c config.Config) repoCache {
+		stub, workspaces := stubCache(), stubWorkspaces()
+		app.newStores = func(p config.Paths, c config.Config) (repoCache, workspaceStore) {
 			gotPaths, gotConfig = p, c
-			return stub
+			return stub, workspaces
 		}
 		require.NoError(t, app.withConfig(succeed)(nil, nil))
 		assert.Equal(t, testPaths(), gotPaths)
 		assert.Equal(t, testConfig(), gotConfig)
 		assert.Same(t, stub, app.cache)
+		assert.Same(t, workspaces, app.workspaces)
 	})
 	t.Run("passes --config-dir", func(t *testing.T) {
 		app, configs := newApp(nil)

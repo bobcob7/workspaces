@@ -3,7 +3,6 @@
 package cache
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bobcob7/workspaces/internal/backup"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/repo"
 )
@@ -24,7 +24,7 @@ type Cache struct {
 	git       gitRunner
 	root      string
 	defaults  config.Defaults
-	exclude   func(ctx context.Context, dir string) error
+	exclude   func(dir string)
 	now       func() time.Time
 	cleanOnce sync.Once
 	mu        sync.Mutex
@@ -34,7 +34,8 @@ type Cache struct {
 // New returns the cache rooted at root, normally CONFIG_DIR/cache. defaults
 // drive short-name resolution.
 func New(log *slog.Logger, git gitRunner, root string, defaults config.Defaults) *Cache {
-	return &Cache{log: log, git: git, root: root, defaults: defaults, exclude: excludeFromBackup, now: time.Now}
+	exclude := func(dir string) { backup.Exclude(log, dir) }
+	return &Cache{log: log, git: git, root: root, defaults: defaults, exclude: exclude, now: time.Now}
 }
 
 // Path is where id's bare repo lives: repos/<host>/<owner>/<name>.git.
@@ -79,8 +80,8 @@ func (c *Cache) exists(id repo.ID) bool {
 }
 
 // ensureRoot creates the cache directory if it's missing, and then asks
-// Time Machine to skip it (ADR 0011). A failed exclusion is a warning.
-func (c *Cache) ensureRoot(ctx context.Context) error {
+// Time Machine to skip it, in the background (ADR 0011).
+func (c *Cache) ensureRoot() error {
 	if _, err := os.Stat(c.root); err == nil {
 		return nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -89,8 +90,6 @@ func (c *Cache) ensureRoot(ctx context.Context) error {
 	if err := os.MkdirAll(c.root, 0o750); err != nil {
 		return fmt.Errorf("creating cache directory: %w", err)
 	}
-	if err := c.exclude(ctx, c.root); err != nil {
-		c.warn("couldn't exclude %s from Time Machine backups: %v", c.root, err)
-	}
+	c.exclude(c.root)
 	return nil
 }

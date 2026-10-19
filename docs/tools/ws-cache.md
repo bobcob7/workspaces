@@ -160,12 +160,24 @@ left behind. A failure there is a warning.
 
 ### `prune`
 
-> Not implemented yet: it needs workspace state, which comes with
-> workspaces.
-
 Delete `refs/ws/commits/*` refs that no existing workspace has checked out.
 These are created when a workspace asks for a commit that only upstream has,
 such as a PR commit ([0007](../adrs/0007-repo-spec-syntax-and-resolution.md)).
+A ref is kept if any workspace's record names that repo and commit, and
+every ref is kept while a workspace is being created, since it may be about
+to check one out. If a workspace record can't be read, nothing is pruned,
+since that workspace might use one of the refs.
+
+```console
+$ ws cache prune
+pruned  github.com/bobcob7/buff-bear  9b1d22a0c7e1f3a8b2d4c6e8f0a1b3c5d7e9f1a2
+
+$ ws cache prune --json -n
+{ "refs": [ { "id": "github.com/bobcob7/buff-bear", "commit": "9b1d22a0c7…" } ],
+  "warnings": [] }
+```
+
+With `-n`, text output says `would prune` instead.
 
 | Option            | Description                                  |
 | ----------------- | -------------------------------------------- |

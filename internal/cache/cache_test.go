@@ -28,7 +28,7 @@ func discardLogger() *slog.Logger {
 func newTestCache(t *testing.T, g gitRunner) *Cache {
 	t.Helper()
 	c := New(discardLogger(), g, filepath.Join(t.TempDir(), "cache"), config.Defaults{Host: gittest.Host, Owners: []string{"o"}})
-	c.exclude = func(context.Context, string) error { return nil }
+	c.exclude = func(string) {}
 	return c
 }
 
@@ -161,11 +161,10 @@ func TestCache_ensureRoot(t *testing.T) {
 		t.Parallel()
 		c := newTestCache(t, nil)
 		var excluded []string
-		c.exclude = func(_ context.Context, dir string) error {
+		c.exclude = func(dir string) {
 			excluded = append(excluded, dir)
-			return nil
 		}
-		require.NoError(t, c.ensureRoot(t.Context()))
+		require.NoError(t, c.ensureRoot())
 		assert.DirExists(t, c.root)
 		assert.Equal(t, []string{c.root}, excluded)
 	})
@@ -173,19 +172,10 @@ func TestCache_ensureRoot(t *testing.T) {
 		t.Parallel()
 		c := newTestCache(t, nil)
 		require.NoError(t, os.MkdirAll(c.root, 0o750))
-		c.exclude = func(context.Context, string) error {
+		c.exclude = func(string) {
 			t.Fatal("excluded an existing directory")
-			return nil
 		}
-		assert.NoError(t, c.ensureRoot(t.Context()))
-	})
-	t.Run("failed exclusion is a warning", func(t *testing.T) {
-		t.Parallel()
-		c := newTestCache(t, nil)
-		c.exclude = func(context.Context, string) error { return errTest }
-		require.NoError(t, c.ensureRoot(t.Context()))
-		require.Len(t, c.Warnings(), 1)
-		assert.Contains(t, c.Warnings()[0], "Time Machine")
+		assert.NoError(t, c.ensureRoot())
 	})
 	t.Run("uncreatable directory", func(t *testing.T) {
 		t.Parallel()
@@ -193,6 +183,6 @@ func TestCache_ensureRoot(t *testing.T) {
 		require.NoError(t, os.WriteFile(blocker, nil, 0o600))
 		c := newTestCache(t, nil)
 		c.root = filepath.Join(blocker, "cache")
-		assert.Error(t, c.ensureRoot(t.Context()))
+		assert.Error(t, c.ensureRoot())
 	})
 }

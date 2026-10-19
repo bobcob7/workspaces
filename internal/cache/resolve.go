@@ -132,7 +132,7 @@ func (c *Cache) resolveName(ctx context.Context, ids []repo.ID, sp *repo.Spec, p
 // unreachable host, stops the probe as ErrFetchFailed, so an outage isn't
 // reported as a missing repo.
 func (c *Cache) probe(ctx context.Context, name string) (Resolution, error) {
-	if err := c.ensureRoot(ctx); err != nil {
+	if err := c.ensureRoot(); err != nil {
 		return Resolution{}, err
 	}
 	for _, owner := range c.defaults.Owners {

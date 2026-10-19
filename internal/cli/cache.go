@@ -11,6 +11,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 func (a *App) newCacheCmd() *cobra.Command {
@@ -135,7 +136,9 @@ func (a *App) newCachePruneCmd() *cobra.Command {
 		Use:   "prune",
 		Short: "Delete commit refs no workspace uses",
 		Args:  noArgs,
-		RunE:  runE(a.withConfig(notImplemented)),
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, _ []string) error {
+			return a.cachePrune(cmd.Context(), dryRun)
+		})),
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "list what would be deleted")
 	return cmd
@@ -173,7 +176,7 @@ func (a *App) cacheAdd(ctx context.Context, specs []repo.Spec) error {
 	for i := range specs {
 		r, err := a.cache.Resolve(ctx, &specs[i])
 		if err != nil {
-			return cacheError(err)
+			return domainError(err)
 		}
 		resolved = append(resolved, r)
 	}
@@ -216,7 +219,7 @@ func (r *itemResults) add(text string, err error) *itemErrorJSON {
 		r.lines = append(r.lines, itemLine{text: text})
 		return nil
 	}
-	ce := asCLIError(cacheError(err))
+	ce := asCLIError(domainError(err))
 	if r.first == nil {
 		r.first = ce
 	}
@@ -278,7 +281,7 @@ func (a *App) updateTargets(ctx context.Context, specs []repo.Spec, all bool) ([
 	if all {
 		ids, err := a.cache.IDs()
 		if err != nil {
-			return nil, cacheError(err)
+			return nil, domainError(err)
 		}
 		return ids, nil
 	}
@@ -286,7 +289,7 @@ func (a *App) updateTargets(ctx context.Context, specs []repo.Spec, all bool) ([
 	for i := range specs {
 		r, err := a.cache.Lookup(ctx, &specs[i])
 		if err != nil {
-			return nil, cacheError(err)
+			return nil, domainError(err)
 		}
 		ids = append(ids, r.ID)
 	}
@@ -306,7 +309,7 @@ type cacheListJSON struct {
 func (a *App) cacheList(ctx context.Context) error {
 	entries, err := a.cache.List(ctx)
 	if err != nil {
-		return cacheError(err)
+		return domainError(err)
 	}
 	if a.global.json {
 		repos := make([]cacheListJSON, 0, len(entries))
@@ -340,7 +343,7 @@ type cacheMatchJSON struct {
 func (a *App) cacheSearch(ctx context.Context, query string, limit int, refs bool) error {
 	matches, err := a.cache.Search(ctx, query, limit, refs)
 	if err != nil {
-		return cacheError(err)
+		return domainError(err)
 	}
 	if a.global.json {
 		out := make([]cacheMatchJSON, 0, len(matches))
@@ -370,7 +373,7 @@ func (a *App) cacheResolve(ctx context.Context, specs []repo.Spec) error {
 	for i := range specs {
 		r, err := a.cache.Resolve(ctx, &specs[i])
 		if err != nil {
-			return cacheError(err)
+			return domainError(err)
 		}
 		results = append(results, cacheResolveJSON{
 			ID:       r.ID.String(),
@@ -394,7 +397,7 @@ func (a *App) cacheResolve(ctx context.Context, specs []repo.Spec) error {
 func (a *App) cachePath(ctx context.Context, sp *repo.Spec) error {
 	r, err := a.cache.Lookup(ctx, sp)
 	if err != nil {
-		return cacheError(err)
+		return domainError(err)
 	}
 	path := a.cache.Path(r.ID)
 	if a.global.json {
@@ -419,7 +422,7 @@ func (a *App) cacheRemove(ctx context.Context, specs []repo.Spec) error {
 	for i := range specs {
 		r, err := a.cache.Lookup(ctx, &specs[i])
 		if err != nil {
-			return cacheError(err)
+			return domainError(err)
 		}
 		ids = append(ids, r.ID)
 	}
@@ -433,10 +436,49 @@ func (a *App) cacheRemove(ctx context.Context, specs []repo.Spec) error {
 	return a.finishItems(results, &items)
 }
 
-// cacheError gives a cache or git failure its error code (ADR 0016). When
+type cachePruneJSON struct {
+	ID     string `json:"id"`
+	Commit string `json:"commit"`
+}
+
+// cachePrune deletes refs/ws/commits refs that no workspace's recorded
+// commit uses. The workspaces are checked while each repo is locked, so a
+// workspace being created meanwhile keeps its commit. If a workspace record
+// can't be read, pruning stops, since that workspace might use one.
+func (a *App) cachePrune(ctx context.Context, dryRun bool) error {
+	keep := func(id repo.ID, commit string) (bool, error) {
+		used, err := a.workspaces.UsesCommit(id.String(), commit)
+		if err != nil {
+			return false, fmt.Errorf("not pruning: %w", err)
+		}
+		return used, nil
+	}
+	pruned, err := a.cache.Prune(ctx, keep, dryRun)
+	if err != nil {
+		return domainError(err)
+	}
+	if a.global.json {
+		refs := make([]cachePruneJSON, 0, len(pruned))
+		for _, p := range pruned {
+			refs = append(refs, cachePruneJSON{ID: p.ID.String(), Commit: p.Commit})
+		}
+		return a.writeJSON(map[string]any{"refs": refs, "warnings": a.cacheWarnings()})
+	}
+	verb := "pruned"
+	if dryRun {
+		verb = "would prune"
+	}
+	for _, p := range pruned {
+		fmt.Fprintf(a.stdout, "%s  %s  %s\n", verb, p.ID, p.Commit)
+	}
+	a.printWarnings()
+	return nil
+}
+
+// domainError gives a cache or git failure its error code (ADR 0016). When
 // git failed, its stderr is in details.stderr.
-func cacheError(err error) error {
-	ce := codedCacheError(err)
+func domainError(err error) error {
+	ce := codedDomainError(err)
 	if ce == nil {
 		return err
 	}
@@ -449,8 +491,8 @@ func cacheError(err error) error {
 	return ce
 }
 
-// codedCacheError maps err to its error code, or nil when it has none.
-func codedCacheError(err error) *cliError {
+// codedDomainError maps err to its error code, or nil when it has none.
+func codedDomainError(err error) *cliError {
 	if ae, ok := errors.AsType[*cache.AmbiguousError](err); ok {
 		candidates := make([]string, 0, len(ae.Candidates))
 		for _, id := range ae.Candidates {
@@ -471,6 +513,10 @@ func codedCacheError(err error) *cliError {
 		{cache.ErrRefNotFound, codeRefNotFound},
 		{cache.ErrCloneFailed, codeCloneFailed},
 		{cache.ErrFetchFailed, codeFetchFailed},
+		{workspace.ErrNameInvalid, codeNameInvalid},
+		{workspace.ErrSpecConflict, codeSpecInvalid},
+		{workspace.ErrNotFound, codeWorkspaceNotFound},
+		{workspace.ErrExists, codeWorkspaceExists},
 	} {
 		if errors.Is(err, m.target) {
 			return newError(m.code, err)

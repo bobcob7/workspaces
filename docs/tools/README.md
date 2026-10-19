@@ -69,10 +69,14 @@ spec:
    commit hash missing from the cache, such as a PR-only commit, is fetched
    from upstream; an abbreviated one must already be in the cache.
 
-Then create the workspace directory, clone each repo from the cache, point
-`origin` at upstream and `cache` at the local cache, check out the requested
-ref, and write `$CONFIG_DIR/state/<id>/workspace.toml`. If any step fails,
-the partial workspace is removed.
+Then clone each repo from the cache into a directory named after the repo,
+point `origin` at upstream and `cache` at the local cache, and check out
+the requested ref. The repos are cloned inside
+`$CONFIG_DIR/state/<id>/`; once all are ready, `ws` writes
+`state/<id>/workspace.toml` and moves them into `workspaces/<id>`, so a
+workspace never appears half-made. If any step fails, everything is
+removed, and an interrupted creation leaves only state, which a later `ws`
+command cleans up.
 
 | Spec ref | Checkout                                    |
 | -------- | ------------------------------------------- |
@@ -97,7 +101,7 @@ And can fail with:
 
 | Situation                                           | Error code                     | Exit |
 | --------------------------------------------------- | ------------------------------ | ---- |
-| Unparsable spec, or the same repo listed twice      | `spec_invalid`                 | 2    |
+| Unparsable spec, the same repo listed twice, or two repos with the same name | `spec_invalid` | 2 |
 | `--name` is empty after sanitizing                  | `name_invalid`                 | 2    |
 | Repo not found, or short name ambiguous             | `repo_not_found`, `repo_ambiguous` | 3 |
 | Ref not found                                       | `ref_not_found`                | 3    |

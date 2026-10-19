@@ -40,6 +40,7 @@ func TestUpstream_Repo(t *testing.T) {
 	commit := up.Repo(t, "o", "n")
 	assert.Equal(t, "true", up.Git(t, up.Path("o", "n"), "rev-parse", "--is-bare-repository"))
 	assert.Equal(t, commit, up.Git(t, up.Path("o", "n"), "rev-parse", "HEAD"))
+	up.Git(t, up.Path("o", "n"), "fsck", "--full")
 }
 
 func TestUpstream_Commit(t *testing.T) {

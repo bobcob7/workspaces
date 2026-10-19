@@ -14,6 +14,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/git"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // App is one ws process: its streams, logger, and parsed global flags.
@@ -27,9 +28,11 @@ type App struct {
 	configs configLoader
 	paths   config.Paths
 	config  config.Config
-	// newCache builds the repo cache once the config is loaded.
-	newCache func(paths config.Paths, cfg config.Config) repoCache
-	cache    repoCache
+	// newStores builds the repo cache and the workspace store once the
+	// config is loaded.
+	newStores  func(paths config.Paths, cfg config.Config) (repoCache, workspaceStore)
+	cache      repoCache
+	workspaces workspaceStore
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 }
@@ -52,11 +55,13 @@ func New(version string, stdout, stderr io.Writer, configs configLoader, environ
 	level := new(slog.LevelVar)
 	level.Set(logOff)
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
-	newCache := func(paths config.Paths, cfg config.Config) repoCache {
-		return cache.New(log, git.NewRunner(log, "git", environ), paths.Cache, cfg.Defaults)
+	newStores := func(paths config.Paths, cfg config.Config) (repoCache, workspaceStore) {
+		runner := git.NewRunner(log, "git", environ)
+		c := cache.New(log, runner, paths.Cache, cfg.Defaults)
+		return c, workspace.New(log, runner, c, paths.Workspaces, paths.State)
 	}
 	return &App{
-		newCache:   newCache,
+		newStores:  newStores,
 		version:    version,
 		stdout:     stdout,
 		stderr:     stderr,
@@ -151,7 +156,7 @@ func (a *App) withConfig(fn func(cmd *cobra.Command, args []string) error) func(
 			return fmt.Errorf("loading config: %w", err)
 		}
 		a.paths, a.config = paths, cfg
-		a.cache = a.newCache(paths, cfg)
+		a.cache, a.workspaces = a.newStores(paths, cfg)
 		a.log.Debug("config loaded", slog.String("root", paths.Root))
 		return fn(cmd, args)
 	}

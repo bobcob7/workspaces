@@ -45,7 +45,10 @@ CONFIG_DIR/
 ```
 
 `CONFIG_DIR` and `config.toml` are created by the first command that needs
-them. The other entries are created by the commands that use them. The cache
+them. The other entries are created by the commands that use them. On
+macOS, `cache/` and `workspaces/` are excluded from Time Machine when
+they're created. `tmutil` takes several seconds, so it runs in the
+background; a failure shows only with `-v`. The cache
 and workspaces must share a filesystem so that workspace clones can hard-link
 the cache's objects ([0009](adrs/0009-workspace-repository-remotes.md)),
 which is why they're siblings.

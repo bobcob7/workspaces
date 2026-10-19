@@ -18,7 +18,8 @@ import (
 // Host is the fake forge every Upstream answers for.
 const Host = "example.test"
 
-// emptyTree is git's built-in empty tree, so commits need no work tree.
+// emptyTree is the empty tree's hash. Repo stores it as an object, so
+// commits need no work tree and `git fsck --full` finds every object.
 const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 // Upstream is a directory of bare repos served as https://example.test/.
@@ -62,6 +63,7 @@ func (u *Upstream) Repo(tb testing.TB, owner, name string) string {
 	path := u.Path(owner, name)
 	require.NoError(tb, os.MkdirAll(filepath.Dir(path), 0o750))
 	u.Git(tb, u.Dir, "init", "-q", "--bare", "-b", "main", path)
+	u.Git(tb, path, "hash-object", "-w", "-t", "tree", os.DevNull)
 	return u.Commit(tb, owner, name, "refs/heads/main")
 }
 

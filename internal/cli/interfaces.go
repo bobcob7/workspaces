@@ -8,7 +8,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/repo"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -25,6 +25,12 @@ type repoCache interface {
 	List(ctx context.Context) ([]cache.Entry, error)
 	Search(ctx context.Context, query string, limit int, refs bool) ([]cache.Match, error)
 	Remove(ctx context.Context, id repo.ID) error
+	Prune(ctx context.Context, keep func(id repo.ID, commit string) (bool, error), dryRun bool) ([]cache.PrunedRef, error)
 	Path(id repo.ID) string
 	Warnings() []string
+}
+
+// workspaceStore is the set of workspaces.
+type workspaceStore interface {
+	UsesCommit(id, commit string) (bool, error)
 }

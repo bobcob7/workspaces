@@ -110,7 +110,7 @@ func (c *Cache) fetchCommit(ctx context.Context, id repo.ID, hash string) error 
 		return err
 	}
 	defer unlock()
-	_, err = c.git.Run(ctx, c.Path(id), "fetch", "-q", "origin", hash+":refs/ws/commits/"+hash)
+	_, err = c.git.Run(ctx, c.Path(id), "fetch", "-q", "origin", hash+":"+commitRefPrefix+hash)
 	return err
 }
 
