@@ -1,10 +1,14 @@
 package claude
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,17 +63,17 @@ func TestClient_Start(t *testing.T) {
 	t.Run("returns the printed id", func(t *testing.T) {
 		t.Parallel()
 		c := New(discardLogger(), fakeClaude(t, "printf '%s' '"+backgroundedOutput+"'"), nil)
-		id, err := c.Start(t.Context(), StartOptions{Dir: t.TempDir()})
+		started, err := c.Start(t.Context(), StartOptions{Dir: t.TempDir(), Name: "fix-login"})
 		require.NoError(t, err)
-		assert.Equal(t, "f381de70", id)
+		assert.Equal(t, Started{ID: "f381de70", Idle: true}, started)
 	})
 	t.Run("looks the id up when none is printed", func(t *testing.T) {
 		t.Parallel()
 		dir := resolved(t.TempDir())
 		c := New(discardLogger(), fakeClaude(t, startedIn(dir)), nil)
-		id, err := c.Start(t.Context(), StartOptions{Dir: dir})
+		started, err := c.Start(t.Context(), StartOptions{Dir: dir})
 		require.NoError(t, err)
-		assert.Equal(t, "b2", id)
+		assert.Equal(t, Started{ID: "b2"}, started)
 	})
 	t.Run("refuses the caller's --settings", func(t *testing.T) {
 		t.Parallel()
@@ -78,6 +82,38 @@ func TestClient_Start(t *testing.T) {
 		_, err := c.Start(t.Context(), StartOptions{Dir: t.TempDir(), Args: []string{"--settings", "{}", "fix it"}})
 		require.ErrorIs(t, err, ErrSettingsArg)
 		assert.Zero(t, count(), "claude didn't run")
+	})
+	t.Run("isn't stopped when ctx ends", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(t.Context())
+		dir := t.TempDir()
+		running, cancelled := filepath.Join(dir, "running"), filepath.Join(dir, "cancelled")
+		body := `touch "$RUNNING"; while [ ! -e "$CANCELLED" ]; do sleep 0.01; done; echo "backgrounded · a1 · x"`
+		c := New(discardLogger(), fakeClaude(t, body), []string{"RUNNING=" + running, "CANCELLED=" + cancelled})
+		require.NoError(t, c.Check(ctx))
+		go func() {
+			for {
+				if _, err := os.Stat(running); err == nil {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			cancel()
+			_ = os.WriteFile(cancelled, nil, 0o600)
+		}()
+		started, err := c.Start(ctx, StartOptions{Dir: t.TempDir(), Name: "x"})
+		require.NoError(t, err)
+		require.Error(t, ctx.Err(), "ctx ended while claude ran")
+		assert.Equal(t, "a1", started.ID)
+	})
+	t.Run("runs in a process group of its own", func(t *testing.T) {
+		t.Parallel()
+		environ, args := argsFile(t)
+		body := `ps -o pgid= -p $$ | tr -d ' ' > "$ARGS"; echo "backgrounded · a1 · x"`
+		c := New(discardLogger(), fakeClaude(t, body), environ)
+		_, err := c.Start(t.Context(), StartOptions{Dir: t.TempDir()})
+		require.NoError(t, err)
+		assert.NotEqual(t, strconv.Itoa(syscall.Getpgrp()), args()[0])
 	})
 	t.Run("untrusted directory", func(t *testing.T) {
 		t.Parallel()
@@ -118,45 +154,94 @@ func TestHasSettingsArg(t *testing.T) {
 }
 
 func TestParseBackgrounded(t *testing.T) {
-	t.Run("with hints after it", func(t *testing.T) {
-		id, ok := parseBackgrounded([]byte(backgroundedOutput))
+	t.Run("idle, with hints after it", func(t *testing.T) {
+		started, ok := parseBackgrounded([]byte(backgroundedOutput), "fix-login")
 		require.True(t, ok)
-		assert.Equal(t, "f381de70", id)
+		assert.Equal(t, Started{ID: "f381de70", Idle: true}, started)
 	})
 	t.Run("with a prompt", func(t *testing.T) {
-		id, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c · ws-bgsid\n"))
+		started, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c · ws-bgsid\n"), "ws-bgsid")
 		require.True(t, ok)
-		assert.Equal(t, "5d8d652c", id)
+		assert.Equal(t, Started{ID: "5d8d652c"}, started)
+	})
+	t.Run("a generated workspace id, idle", func(t *testing.T) {
+		started, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c · ws-20261019-k3f9qa (idle — send a prompt to start)\n"), "ws-20261019-k3f9qa")
+		require.True(t, ok)
+		assert.Equal(t, Started{ID: "5d8d652c", Idle: true}, started)
+	})
+	t.Run("a name that looks idle", func(t *testing.T) {
+		started, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c · try (idle) it\n"), "try (idle) it")
+		require.True(t, ok)
+		assert.False(t, started.Idle)
+	})
+	t.Run("a different name isn't read as idle", func(t *testing.T) {
+		started, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c · other (idle — send a prompt to start)\n"), "fix-login")
+		require.True(t, ok)
+		assert.Equal(t, Started{ID: "5d8d652c"}, started)
+	})
+	t.Run("without a name, idle isn't known", func(t *testing.T) {
+		started, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c · quiet-fox (idle — send a prompt to start)\n"), "")
+		require.True(t, ok)
+		assert.Equal(t, Started{ID: "5d8d652c"}, started)
+	})
+	t.Run("a longer name that starts with the session's", func(t *testing.T) {
+		started, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c · fix-login-2 (idle — send a prompt to start)\n"), "fix-login")
+		require.True(t, ok)
+		assert.False(t, started.Idle)
 	})
 	t.Run("id only", func(t *testing.T) {
-		id, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c"))
+		started, ok := parseBackgrounded([]byte("backgrounded · 5d8d652c"), "x")
 		require.True(t, ok)
-		assert.Equal(t, "5d8d652c", id)
+		assert.Equal(t, Started{ID: "5d8d652c"}, started)
 	})
 	t.Run("after a warning", func(t *testing.T) {
-		id, ok := parseBackgrounded([]byte("warning: --bg manages the session id; ignoring --session-id\nbackgrounded · 5d8d652c · x\n"))
+		started, ok := parseBackgrounded([]byte("warning: --bg manages the session id; ignoring --session-id\nbackgrounded · 5d8d652c · x\n"), "x")
 		require.True(t, ok)
-		assert.Equal(t, "5d8d652c", id)
+		assert.Equal(t, "5d8d652c", started.ID)
 	})
 	t.Run("no backgrounded line", func(t *testing.T) {
-		_, ok := parseBackgrounded([]byte("started\n  claude agents  list sessions\n"))
+		_, ok := parseBackgrounded([]byte("started\n  claude agents  list sessions\n"), "x")
 		assert.False(t, ok)
 	})
 	t.Run("ascii dots aren't the separator", func(t *testing.T) {
-		_, ok := parseBackgrounded([]byte("backgrounded . 5d8d652c . x\n"))
+		_, ok := parseBackgrounded([]byte("backgrounded . 5d8d652c . x\n"), "x")
 		assert.False(t, ok)
 	})
 	t.Run("an id that is an option", func(t *testing.T) {
-		_, ok := parseBackgrounded([]byte("backgrounded · --all · x\n"))
+		_, ok := parseBackgrounded([]byte("backgrounded · --all · x\n"), "x")
 		assert.False(t, ok)
 	})
 	t.Run("no id", func(t *testing.T) {
-		_, ok := parseBackgrounded([]byte("backgrounded · · x"))
+		_, ok := parseBackgrounded([]byte("backgrounded · · x"), "x")
 		assert.False(t, ok)
 	})
 	t.Run("empty", func(t *testing.T) {
-		_, ok := parseBackgrounded(nil)
+		_, ok := parseBackgrounded(nil, "x")
 		assert.False(t, ok)
+	})
+}
+
+func TestIdleAfter(t *testing.T) {
+	t.Run("idle marker after the name", func(t *testing.T) {
+		assert.True(t, idleAfter("a1 · n (idle — send a prompt to start)", "a1", "n"))
+	})
+	t.Run("nothing after the name", func(t *testing.T) {
+		assert.False(t, idleAfter("a1 · n", "a1", "n"))
+	})
+	t.Run("no separator after the id", func(t *testing.T) {
+		assert.False(t, idleAfter("a1", "a1", "n"))
+	})
+	t.Run("no name", func(t *testing.T) {
+		assert.False(t, idleAfter("a1 · n (idle — send a prompt to start)", "a1", ""))
+	})
+}
+
+func TestCheckArgs(t *testing.T) {
+	t.Run("refuses --settings", func(t *testing.T) {
+		assert.ErrorIs(t, CheckArgs([]string{"--settings", "{}"}), ErrSettingsArg)
+	})
+	t.Run("accepts other arguments", func(t *testing.T) {
+		assert.NoError(t, CheckArgs([]string{"--model", "opus", "fix it"}))
 	})
 }
 

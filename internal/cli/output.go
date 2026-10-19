@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 )
 
@@ -39,8 +38,9 @@ func (a *App) writeJSON(v any) error {
 	return nil
 }
 
-func isTerminal(w io.Writer) bool {
-	f, ok := w.(*os.File)
+// isTerminal reports whether stream, a reader or writer, is a terminal.
+func isTerminal(stream any) bool {
+	f, ok := stream.(*os.File)
 	if !ok {
 		return false
 	}

@@ -163,13 +163,18 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   `claude --bg`, `agents --json`, `stop`, `rm`, `respawn`, `daemon`, and the
   2.1.302 version check ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md),
   [0024](docs/adrs/0024-claude-code-client.md), proposed)
-- [ ] **`ws claude`**, including the trust error and attaching without a
-  prompt ([0014](docs/adrs/0014-command-set.md))
+- [x] **`ws claude`**, including the trust error and attaching without a
+  prompt ([0014](docs/adrs/0014-command-set.md),
+  [0025](docs/adrs/0025-ws-claude-session-hand-off.md), proposed)
 - [ ] **Lifetime**: remove workspaces whose session is gone; `ws list`,
   `ws rm` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md)).
   A workspace that is unlocked, has no session record, and is over a
   minute old counts as abandoned
-  ([0023](docs/adrs/0023-shell-session-keeps-creation-lock.md))
+  ([0023](docs/adrs/0023-shell-session-keeps-creation-lock.md)); removing
+  one also runs `claude rm` on each session whose working directory is
+  exactly that workspace, left by a `ws claude` killed mid-start or one
+  whose id couldn't be read
+  ([0025](docs/adrs/0025-ws-claude-session-hand-off.md), proposed)
 - [ ] **`ws restore`** ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
 - [ ] **`ws restart`** ([0018](docs/adrs/0018-restart-claude-daemon.md))
 - [ ] **`ws llm`**: embedded guides with the coverage test, and

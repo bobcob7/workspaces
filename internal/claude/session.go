@@ -43,7 +43,7 @@ func (c *Client) sessionCommand(ctx context.Context, command, id string) error {
 	if !validID(id) {
 		return fmt.Errorf("%w: %q", errBadID, id)
 	}
-	_, err := c.run(ctx, "", command, id)
+	_, err := c.run(ctx, command, id)
 	return err
 }
 

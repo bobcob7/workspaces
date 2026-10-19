@@ -68,6 +68,43 @@ func countCalls(t *testing.T) (environ []string, count func() int) {
 	}
 }
 
+// holder is a fakeClaude command whose child keeps claude's output open:
+// it creates holding, waits until the test ends, or a minute has passed,
+// and then creates exited.
+type holder struct {
+	body    string
+	environ []string
+	holding string
+	exited  string
+}
+
+func newHolder(t *testing.T) *holder {
+	t.Helper()
+	dir := t.TempDir()
+	h := &holder{
+		body:    `(touch "$HOLDING"; i=0; while [ ! -e "$RELEASE" ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done; touch "$EXITED")`,
+		holding: filepath.Join(dir, "holding"),
+		exited:  filepath.Join(dir, "exited"),
+	}
+	release := filepath.Join(dir, "release")
+	h.environ = []string{"PATH=/bin:/usr/bin", "HOLDING=" + h.holding, "RELEASE=" + release, "EXITED=" + h.exited}
+	t.Cleanup(func() {
+		_ = os.WriteFile(release, nil, 0o600)
+		waitForFile(h.exited)
+	})
+	return h
+}
+
+// waitForFile waits until path exists, for at most a minute.
+func waitForFile(path string) {
+	for range 1200 {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func TestNew(t *testing.T) {
 	log := discardLogger()
 	t.Run("keeps its arguments", func(t *testing.T) {
@@ -109,14 +146,14 @@ func TestClient_run(t *testing.T) {
 	t.Run("returns stdout", func(t *testing.T) {
 		t.Parallel()
 		c := New(discardLogger(), fakeClaude(t, `echo "out:$*"`), nil)
-		out, err := c.run(t.Context(), "", "agents", "--json")
+		out, err := c.run(t.Context(), "agents", "--json")
 		require.NoError(t, err)
 		assert.Equal(t, "out:agents --json\n", string(out))
 	})
 	t.Run("checks the version before the command", func(t *testing.T) {
 		t.Parallel()
 		c := New(discardLogger(), fakeClaude(t, "echo ran"), []string{"FAKE_VERSION=2.1.200"})
-		out, err := c.run(t.Context(), "", "agents")
+		out, err := c.run(t.Context(), "agents")
 		require.ErrorIs(t, err, ErrTooOld)
 		assert.Nil(t, out)
 	})
@@ -241,20 +278,22 @@ func TestClient_exec(t *testing.T) {
 	})
 	t.Run("output held open by a child after success", func(t *testing.T) {
 		t.Parallel()
-		c := New(discardLogger(), fakeClaude(t, "sleep 5 & echo started"), []string{"PATH=/bin:/usr/bin"})
-		start := time.Now()
+		h := newHolder(t)
+		c := New(discardLogger(), fakeClaude(t, h.body+" & echo started"), h.environ)
 		out, err := c.exec(t.Context(), "", []string{"--bg"})
 		require.NoError(t, err)
 		assert.Equal(t, "started\n", string(out))
-		assert.Less(t, time.Since(start), 4*time.Second)
+		assert.NoFileExists(t, h.exited, "exec returned while the child still held its output")
 	})
 	t.Run("output held open by a child after a failure", func(t *testing.T) {
 		t.Parallel()
-		c := New(discardLogger(), fakeClaude(t, "sleep 5 & exit 2"), []string{"PATH=/bin:/usr/bin"})
+		h := newHolder(t)
+		c := New(discardLogger(), fakeClaude(t, h.body+" & exit 2"), h.environ)
 		_, err := c.exec(t.Context(), "", []string{"--bg"})
 		var cmdErr *CommandError
 		require.ErrorAs(t, err, &cmdErr)
 		assert.Equal(t, 2, cmdErr.ExitCode)
+		assert.NoFileExists(t, h.exited)
 	})
 	t.Run("cancelled context", func(t *testing.T) {
 		t.Parallel()
@@ -266,13 +305,18 @@ func TestClient_exec(t *testing.T) {
 	})
 	t.Run("cancelled context with a child holding the output", func(t *testing.T) {
 		t.Parallel()
-		c := New(discardLogger(), fakeClaude(t, "sleep 10"), []string{"PATH=/bin:/usr/bin"})
-		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		h := newHolder(t)
+		c := New(discardLogger(), fakeClaude(t, h.body+" & wait"), h.environ)
+		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		start := time.Now()
+		go func() {
+			waitForFile(h.holding)
+			cancel()
+		}()
 		_, err := c.exec(ctx, "", []string{"agents"})
-		require.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.Less(t, time.Since(start), 8*time.Second)
+		require.ErrorIs(t, err, context.Canceled)
+		require.FileExists(t, h.holding, "the child held the output when ctx ended")
+		assert.NoFileExists(t, h.exited, "exec returned while the child still held its output")
 	})
 	t.Run("logs the command at debug level", func(t *testing.T) {
 		t.Parallel()
@@ -317,5 +361,27 @@ func TestLookup(t *testing.T) {
 	})
 	t.Run("missing", func(t *testing.T) {
 		assert.Empty(t, lookup([]string{"KEY=a", "noequals"}, "K"))
+	})
+}
+
+func TestClient_Check(t *testing.T) {
+	t.Parallel()
+	t.Run("accepts a new enough claude, once", func(t *testing.T) {
+		t.Parallel()
+		environ, count := countCalls(t)
+		c := New(discardLogger(), fakeClaude(t, "exit 1"), environ)
+		require.NoError(t, c.Check(t.Context()))
+		require.NoError(t, c.Check(t.Context()))
+		assert.Equal(t, 1, count())
+	})
+	t.Run("refuses an old claude", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, "exit 0"), []string{"FAKE_VERSION=2.1.84"})
+		assert.ErrorIs(t, c.Check(t.Context()), ErrTooOld)
+	})
+	t.Run("claude missing", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), filepath.Join(t.TempDir(), "claude"), nil)
+		assert.ErrorIs(t, c.Check(t.Context()), ErrNotInstalled)
 	})
 }

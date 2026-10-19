@@ -148,6 +148,8 @@ and messages aren't ([0016](../adrs/0016-output-contract.md)).
 
 `ws shell` exits with the shell's exit code once the shell has started,
 or 128+N when signal N killed it.
+`ws claude` exits with `claude attach`'s status once it has attached
+([0025](../adrs/0025-ws-claude-session-hand-off.md), proposed).
 
 ## Repo specs
 

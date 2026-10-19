@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -26,13 +27,15 @@ type Client struct {
 	mu       sync.Mutex
 	checked  bool
 	checkErr error
+	// replace is syscall.Exec: Attach replaces ws with claude through it.
+	replace func(argv0 string, argv, envv []string) error
 }
 
 // New returns a Client that runs path, normally "claude", with environ,
 // normally os.Environ(). Claude Code's per-session directories are looked
 // up in jobsDir(environ).
 func New(log *slog.Logger, path string, environ []string) *Client {
-	return &Client{log: log, path: path, environ: environ, jobsDir: jobsDir(environ)}
+	return &Client{log: log, path: path, environ: environ, jobsDir: jobsDir(environ), replace: syscall.Exec}
 }
 
 // jobsDir is where Claude Code keeps a directory per session:
@@ -48,14 +51,19 @@ func jobsDir(environ []string) string {
 	return ""
 }
 
-// run runs `claude args...` in dir, or in ws's working directory when dir
-// is empty, and returns its stdout. The first call checks the claude
-// version.
-func (c *Client) run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+// run runs `claude args...` in ws's working directory and returns its
+// stdout. The first call checks the claude version.
+func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	if err := c.ensureVersion(ctx); err != nil {
 		return nil, err
 	}
-	return c.exec(ctx, dir, args)
+	return c.exec(ctx, "", args)
+}
+
+// Check checks, once per Client, that claude is on PATH and new enough
+// (ADR 0024), so a command can fail before doing work that needs it.
+func (c *Client) Check(ctx context.Context) error {
+	return c.ensureVersion(ctx)
 }
 
 // ensureVersion checks the claude version once per Client. A check cut
@@ -104,9 +112,16 @@ func (c *Client) resolvedPath() string {
 // exec runs claude with args in dir, with no stdin, and logs the command
 // and its duration at debug level.
 func (c *Client) exec(ctx context.Context, dir string, args []string) ([]byte, error) {
+	return c.execWith(ctx, dir, args, nil)
+}
+
+// execWith is exec with the process attributes attrs, such as a process
+// group of its own.
+func (c *Client) execWith(ctx context.Context, dir string, args []string, attrs *syscall.SysProcAttr) ([]byte, error) {
 	//nolint:gosec // G204: running claude with arguments is this package's purpose.
 	cmd := exec.CommandContext(ctx, c.path, args...)
 	cmd.Dir = dir
+	cmd.SysProcAttr = attrs
 	cmd.Env = append([]string{}, c.environ...)
 	cmd.WaitDelay = pipeWait
 	var stdout, stderr bytes.Buffer

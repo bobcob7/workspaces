@@ -989,6 +989,12 @@ var _ claudeClient = &claudeClientMock{}
 //			AgentsFunc: func(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error) {
 //				panic("mock out the Agents method")
 //			},
+//			AttachFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the Attach method")
+//			},
+//			CheckFunc: func(ctx context.Context) error {
+//				panic("mock out the Check method")
+//			},
 //			DaemonStatusFunc: func(ctx context.Context) (claude.DaemonStatus, error) {
 //				panic("mock out the DaemonStatus method")
 //			},
@@ -1004,7 +1010,7 @@ var _ claudeClient = &claudeClientMock{}
 //			RunDaemonFunc: func(ctx context.Context) (int, error) {
 //				panic("mock out the RunDaemon method")
 //			},
-//			StartFunc: func(ctx context.Context, opts claude.StartOptions) (string, error) {
+//			StartFunc: func(ctx context.Context, opts claude.StartOptions) (claude.Started, error) {
 //				panic("mock out the Start method")
 //			},
 //			StopFunc: func(ctx context.Context, id string) error {
@@ -1023,6 +1029,12 @@ type claudeClientMock struct {
 	// AgentsFunc mocks the Agents method.
 	AgentsFunc func(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error)
 
+	// AttachFunc mocks the Attach method.
+	AttachFunc func(ctx context.Context, id string) error
+
+	// CheckFunc mocks the Check method.
+	CheckFunc func(ctx context.Context) error
+
 	// DaemonStatusFunc mocks the DaemonStatus method.
 	DaemonStatusFunc func(ctx context.Context) (claude.DaemonStatus, error)
 
@@ -1039,7 +1051,7 @@ type claudeClientMock struct {
 	RunDaemonFunc func(ctx context.Context) (int, error)
 
 	// StartFunc mocks the Start method.
-	StartFunc func(ctx context.Context, opts claude.StartOptions) (string, error)
+	StartFunc func(ctx context.Context, opts claude.StartOptions) (claude.Started, error)
 
 	// StopFunc mocks the Stop method.
 	StopFunc func(ctx context.Context, id string) error
@@ -1055,6 +1067,18 @@ type claudeClientMock struct {
 			Ctx context.Context
 			// Opts is the opts argument value.
 			Opts claude.ListOptions
+		}
+		// Attach holds details about calls to the Attach method.
+		Attach []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+		// Check holds details about calls to the Check method.
+		Check []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 		}
 		// DaemonStatus holds details about calls to the DaemonStatus method.
 		DaemonStatus []struct {
@@ -1106,6 +1130,8 @@ type claudeClientMock struct {
 		}
 	}
 	lockAgents       sync.RWMutex
+	lockAttach       sync.RWMutex
+	lockCheck        sync.RWMutex
 	lockDaemonStatus sync.RWMutex
 	lockJobExists    sync.RWMutex
 	lockRemove       sync.RWMutex
@@ -1149,6 +1175,74 @@ func (mock *claudeClientMock) AgentsCalls() []struct {
 	mock.lockAgents.RLock()
 	calls = mock.calls.Agents
 	mock.lockAgents.RUnlock()
+	return calls
+}
+
+// Attach calls AttachFunc.
+func (mock *claudeClientMock) Attach(ctx context.Context, id string) error {
+	if mock.AttachFunc == nil {
+		panic("claudeClientMock.AttachFunc: method is nil but claudeClient.Attach was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockAttach.Lock()
+	mock.calls.Attach = append(mock.calls.Attach, callInfo)
+	mock.lockAttach.Unlock()
+	return mock.AttachFunc(ctx, id)
+}
+
+// AttachCalls gets all the calls that were made to Attach.
+// Check the length with:
+//
+//	len(mockedclaudeClient.AttachCalls())
+func (mock *claudeClientMock) AttachCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockAttach.RLock()
+	calls = mock.calls.Attach
+	mock.lockAttach.RUnlock()
+	return calls
+}
+
+// Check calls CheckFunc.
+func (mock *claudeClientMock) Check(ctx context.Context) error {
+	if mock.CheckFunc == nil {
+		panic("claudeClientMock.CheckFunc: method is nil but claudeClient.Check was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockCheck.Lock()
+	mock.calls.Check = append(mock.calls.Check, callInfo)
+	mock.lockCheck.Unlock()
+	return mock.CheckFunc(ctx)
+}
+
+// CheckCalls gets all the calls that were made to Check.
+// Check the length with:
+//
+//	len(mockedclaudeClient.CheckCalls())
+func (mock *claudeClientMock) CheckCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockCheck.RLock()
+	calls = mock.calls.Check
+	mock.lockCheck.RUnlock()
 	return calls
 }
 
@@ -1321,7 +1415,7 @@ func (mock *claudeClientMock) RunDaemonCalls() []struct {
 }
 
 // Start calls StartFunc.
-func (mock *claudeClientMock) Start(ctx context.Context, opts claude.StartOptions) (string, error) {
+func (mock *claudeClientMock) Start(ctx context.Context, opts claude.StartOptions) (claude.Started, error) {
 	if mock.StartFunc == nil {
 		panic("claudeClientMock.StartFunc: method is nil but claudeClient.Start was just called")
 	}

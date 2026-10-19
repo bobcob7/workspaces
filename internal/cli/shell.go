@@ -62,22 +62,23 @@ func (a *App) runShell(ctx context.Context, opts *shellOptions) error {
 // (ADR 0023), or right away when the session can't be recorded.
 func (a *App) shellSession(ctx context.Context, ws *workspace.Workspace, lock *lockfile.Lock) (int, error) {
 	if err := a.workspaces.RecordSession(ws.ID, workspace.SessionShell, ""); err != nil {
-		a.removeAfterShell(ws.ID)
+		a.removeWorkspace(ws.ID)
 		return 0, err
 	}
 	return a.shell.Run(ctx, shell.Session{
 		Dir:       ws.Path,
 		Env:       []string{"WS_ID=" + ws.ID, "WS_WORKSPACE=" + ws.Path},
 		Lock:      lock.File(),
-		AfterExit: func() { a.removeAfterShell(ws.ID) },
+		AfterExit: func() { a.removeWorkspace(ws.ID) },
 	})
 }
 
-// removeAfterShell removes the workspace whose shell has exited, whatever
-// its exit status. A failure is reported but doesn't change ws's exit
-// status, which is the shell's (ADR 0016); the workspace is left, with its
-// lock free, for a later removal (ADR 0015).
-func (a *App) removeAfterShell(id string) {
+// removeWorkspace removes a workspace whose session has ended or never
+// started: after its shell exits, whatever its exit status, or after its
+// agent failed to start. A failure is reported but doesn't change ws's
+// exit status, which is the shell's (ADR 0016) or the start's error; the
+// workspace is left, with its lock free, for a later removal (ADR 0015).
+func (a *App) removeWorkspace(id string) {
 	if err := a.workspaces.Remove(id, workspace.RemoveOptions{}); err != nil {
 		fmt.Fprintf(a.stderr, "ws: couldn't remove workspace %s: %v\n", id, err)
 	}

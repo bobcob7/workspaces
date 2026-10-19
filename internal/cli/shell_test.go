@@ -321,10 +321,10 @@ func TestApp_shellSession(t *testing.T) {
 	})
 }
 
-func TestApp_removeAfterShell(t *testing.T) {
+func TestApp_removeWorkspace(t *testing.T) {
 	t.Run("removes the workspace through the deletion guard", func(t *testing.T) {
 		e := newShellEnv(t)
-		e.app.removeAfterShell("x")
+		e.app.removeWorkspace("x")
 		require.Len(t, e.store.RemoveCalls(), 1)
 		assert.Equal(t, "x", e.store.RemoveCalls()[0].ID)
 		assert.False(t, e.store.RemoveCalls()[0].Opts.AllowOutsideRoot)
@@ -333,7 +333,7 @@ func TestApp_removeAfterShell(t *testing.T) {
 	t.Run("reports a failure", func(t *testing.T) {
 		e := newShellEnv(t)
 		e.store.RemoveFunc = func(string, workspace.RemoveOptions) error { return workspace.ErrUnsafe }
-		e.app.removeAfterShell("x")
+		e.app.removeWorkspace("x")
 		assert.Equal(t, "ws: couldn't remove workspace x: refusing to delete\n", e.stderr.String())
 	})
 }

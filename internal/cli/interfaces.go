@@ -52,7 +52,9 @@ type shellRunner interface {
 // claudeClient runs the Claude Code CLI: background sessions and the
 // background service they run under (ADRs 0015, 0018, 0024).
 type claudeClient interface {
-	Start(ctx context.Context, opts claude.StartOptions) (string, error)
+	Check(ctx context.Context) error
+	Start(ctx context.Context, opts claude.StartOptions) (claude.Started, error)
+	Attach(ctx context.Context, id string) error
 	Agents(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error)
 	Stop(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error

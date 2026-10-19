@@ -17,6 +17,8 @@ lint:
 	@! grep -rnE 'exec\.Command(Context)?\([^)]*"git"' --include='*.go' . | grep -v '^\./internal/git/'
 	@# ADR 0024: claude runs only through internal/claude.
 	@! grep -rnE 'exec\.Command(Context)?\([^)]*"claude"' --include='*.go' . | grep -v '^\./internal/claude/'
+	@# ADR 0025: only the Claude Code client replaces ws, with claude attach.
+	@! grep -rnE '(syscall|unix)\.Exec\b' --include='*.go' . | grep -v '^\./internal/claude/'
 
 fmt:
 	go tool golangci-lint fmt ./...

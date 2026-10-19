@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"os/signal"
 
 	"github.com/spf13/cobra"
 
@@ -41,6 +43,13 @@ type App struct {
 	claude claudeClient
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
+	// interactive is set when stdin and stdout are both terminals, so ws
+	// claude can attach to an idle session (ADR 0025).
+	interactive bool
+	// notify and stopNotify are signal.Notify and signal.Stop: ws claude
+	// catches SIGHUP while it hands a workspace to its session.
+	notify     func(c chan<- os.Signal, sig ...os.Signal)
+	stopNotify func(c chan<- os.Signal)
 }
 
 type globalOptions struct {
@@ -68,16 +77,19 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		return c, workspace.New(log, runner, c, paths.Workspaces, paths.State)
 	}
 	return &App{
-		newStores:  newStores,
-		shell:      shell.New(log, environ, stdin, stdout, stderr),
-		claude:     claude.New(log, "claude", environ),
-		version:    version,
-		stdout:     stdout,
-		stderr:     stderr,
-		configs:    configs,
-		log:        log,
-		level:      level,
-		indentJSON: isTerminal(stdout),
+		newStores:   newStores,
+		shell:       shell.New(log, environ, stdin, stdout, stderr),
+		claude:      claude.New(log, "claude", environ),
+		version:     version,
+		stdout:      stdout,
+		stderr:      stderr,
+		configs:     configs,
+		log:         log,
+		level:       level,
+		indentJSON:  isTerminal(stdout),
+		interactive: isTerminal(stdin) && isTerminal(stdout),
+		notify:      signal.Notify,
+		stopNotify:  signal.Stop,
 	}
 }
 

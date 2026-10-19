@@ -14,7 +14,7 @@ Creates a workspace from the repo specs ([Creating a
 workspace](README.md#creating-a-workspace)), then runs, in the workspace:
 
 ```
-claude --bg -n <workspace name> --settings '{"worktree":{"bgIsolation":"none"}}' <CLAUDE ARGS>...
+claude --bg -n <workspace id> --settings '{"worktree":{"bgIsolation":"none"}}' <CLAUDE ARGS>...
 ```
 
 Everything after `--` goes to `claude` unchanged: the prompt, and options
@@ -29,13 +29,27 @@ settings file, such as `~/.claude/settings.json`, instead
 - **With a prompt**, `ws` waits only until Claude has accepted the session,
   then prints the workspace id, the Claude session id, and the workspace
   path, and exits. The agent keeps running in the background.
-- **Without a prompt**, `ws` attaches this terminal to the new session, as
-  `claude attach` does. Leaving it keeps the session running.
+- **Without a prompt**, when Claude reports the session as idle and stdin
+  and stdout are a terminal, `ws` prints one line on stderr with the
+  workspace id and path (none with `--quiet`), then becomes
+  `claude attach <id>` in this terminal; stdout stays empty. Leaving it
+  (Ctrl+Z) keeps the session running, and `ws` exits with
+  `claude attach`'s status. Without a terminal, with `--json`, or after
+  Ctrl-C or a hangup during the start, `ws` prints the result as it does
+  with a prompt ([0025](../adrs/0025-ws-claude-session-hand-off.md),
+  proposed).
 
 If Claude can't start the session, `ws` removes the workspace and exits
-non-zero, so nothing is left behind.
+non-zero, so nothing is left behind. Once `claude --bg` has started, Ctrl-C
+doesn't stop it, and closing the terminal (SIGHUP) doesn't stop `ws` until
+the session is recorded: `ws` waits for its answer, so it never loses track
+of a session Claude accepted, then prints the result instead of attaching.
+Ctrl-\\ still stops `ws` if `claude --bg` hangs; a session left that way is
+removed with its workspace once the workspace counts as abandoned
+([0025](../adrs/0025-ws-claude-session-hand-off.md)).
 
-The agent shows up in `claude agents` under the workspace's name. Follow it
+The agent shows up in `claude agents` under the workspace id (`--name "Fix
+Login"` lists as `fix-login`). Follow it
 with `claude logs <id>`, talk to it with `claude attach <id>`, and stop it
 with `claude stop <id>`. The workspace stays until the session is deleted
 (`claude rm <id>`, agent view, or [`ws rm`](ws-rm.md)), even after the agent
@@ -51,7 +65,7 @@ workspace.
 
 | Option          | Description                                                 |
 | --------------- | ----------------------------------------------------------- |
-| `--name <name>` | Workspace name; also the session's name in `claude agents`  |
+| `--name <name>` | Workspace name; the id derived from it also names the session |
 | `--offline`     | Don't fetch; use the cache as-is                            |
 | `--json`        | Print `{"id", "session", "path", "repos", "warnings"}`      |
 
@@ -67,7 +81,8 @@ $ cd "$HOME/Library/Application Support/workspaces/workspaces" && claude
 ```
 
 Until then, `ws claude` fails with `claude_untrusted` (exit 1), removes the
-workspace, and prints the directory to trust.
+workspace, and prints the directory to trust, which is also in the error's
+`details.directory` with `--json`.
 
 ## Examples
 
@@ -91,8 +106,9 @@ $ ws claude --json buff-bear@feat/new-thing bobcob7/api@v2.1.0 -- --model opus "
   "warnings": []
 }
 
-# Start a session and work with it interactively
-$ ws claude buff-bear
+# Start a session and work with it interactively; Ctrl+Z leaves it running
+$ ws claude --name try-it buff-bear
+ws: workspace try-it at /Users/me/Library/Application Support/workspaces/workspaces/try-it; attaching to Claude Code session 2af7e501
 
 # Review and remove a finished agent
 $ claude attach e8cdf5d8
@@ -107,6 +123,7 @@ See also the [workspace creation errors](README.md#creating-a-workspace).
 | ------------------------------------------------ | ------------------ | ---- |
 | `--settings` among the arguments after `--`      | `usage`            | 2    |
 | `claude` not on `PATH`                           | `claude_missing`   | 1    |
+| `claude` older than 2.1.302                      | `claude_failed`    | 1    |
 | Workspace root not trusted by Claude Code        | `claude_untrusted` | 1    |
 | `claude --bg` failed for another reason; its output is shown | `claude_failed` | 1 |
 
@@ -115,4 +132,5 @@ See also the [workspace creation errors](README.md#creating-a-workspace).
 [`ws rm`](ws-rm.md), [`ws restore`](ws-restore.md),
 [0014](../adrs/0014-command-set.md),
 [0015](../adrs/0015-workspace-lifetime-follows-session.md),
-[0024](../adrs/0024-claude-code-client.md)
+[0024](../adrs/0024-claude-code-client.md),
+[0025](../adrs/0025-ws-claude-session-hand-off.md)

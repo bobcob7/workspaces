@@ -94,7 +94,7 @@ func (c *Client) Agents(ctx context.Context, opts ListOptions) ([]Session, error
 	if opts.Cwd != "" {
 		args = append(args, "--cwd", opts.Cwd)
 	}
-	out, err := c.run(ctx, "", args...)
+	out, err := c.run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}

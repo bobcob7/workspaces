@@ -35,7 +35,7 @@ type DaemonStatus struct {
 // DaemonStatus runs `claude daemon status`. No running service is a
 // DaemonStatus with Running false, not an error.
 func (c *Client) DaemonStatus(ctx context.Context) (DaemonStatus, error) {
-	out, err := c.run(ctx, "", "daemon", "status")
+	out, err := c.run(ctx, "daemon", "status")
 	if cmdErr, ok := errors.AsType[*CommandError](err); ok && reportsNotRunning([]byte(cmdErr.Stdout)) {
 		return DaemonStatus{}, nil
 	}
@@ -49,7 +49,7 @@ func (c *Client) DaemonStatus(ctx context.Context) (DaemonStatus, error) {
 // stop --any --keep-workers`. Running sessions keep running, and each waits
 // about a minute for a new service to reconnect to it (ADR 0018).
 func (c *Client) StopDaemon(ctx context.Context) error {
-	_, err := c.run(ctx, "", "daemon", "stop", "--any", "--keep-workers")
+	_, err := c.run(ctx, "daemon", "stop", "--any", "--keep-workers")
 	return err
 }
 
