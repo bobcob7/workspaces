@@ -17,7 +17,9 @@ Their conversations are kept.
 
 `ws restore` reads `claude agents --json --all` and runs
 `claude respawn <id>` for each agent workspace whose session has no
-process. The agent comes back with its conversation, waiting for input. To
+process. A session started less than about 10 s ago that has no process yet
+is `starting`, not stopped, and is left alone
+([0024](../adrs/0024-claude-code-client.md)). The agent comes back with its conversation, waiting for input. To
 have it pick up interrupted work, reply to it (`claude attach <id>`).
 
 Without arguments it restores every agent workspace; with `WORKSPACE`
@@ -37,6 +39,7 @@ $ ws restore
 restored  fix-login            e8cdf5d8
 restored  ws-20261018-k3f9qa   5d8d652c
 running   docs-pass            3c11e0f2
+starting  api-bump             9a7e01b4
 ```
 
 ## Errors
@@ -54,4 +57,5 @@ with `ws restore`'s environment.
 
 [`ws claude`](ws-claude.md), [`ws list`](ws-list.md),
 [`ws restart`](ws-restart.md),
-[0015](../adrs/0015-workspace-lifetime-follows-session.md)
+[0015](../adrs/0015-workspace-lifetime-follows-session.md),
+[0024](../adrs/0024-claude-code-client.md)

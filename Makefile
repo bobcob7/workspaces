@@ -15,6 +15,8 @@ lint:
 	go tool golangci-lint run ./...
 	@# ADR 0003: git runs only through internal/git.
 	@! grep -rnE 'exec\.Command(Context)?\([^)]*"git"' --include='*.go' . | grep -v '^\./internal/git/'
+	@# ADR 0024: claude runs only through internal/claude.
+	@! grep -rnE 'exec\.Command(Context)?\([^)]*"claude"' --include='*.go' . | grep -v '^\./internal/claude/'
 
 fmt:
 	go tool golangci-lint fmt ./...

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/cache"
+	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -126,6 +127,10 @@ func TestNew(t *testing.T) {
 	assert.False(t, app.indentJSON, "a buffer isn't a terminal")
 	assert.NotNil(t, app.configs)
 	assert.NotNil(t, app.shell)
+	t.Run("builds a real claude client", func(t *testing.T) {
+		_, ok := app.claude.(*claude.Client)
+		assert.True(t, ok)
+	})
 	t.Run("logging starts off", func(t *testing.T) {
 		assert.False(t, app.log.Enabled(t.Context(), slog.LevelError))
 	})

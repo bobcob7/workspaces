@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/cache"
+	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/repo"
@@ -701,6 +702,13 @@ func TestDomainError(t *testing.T) {
 		ce, _ := err.(*cliError) //nolint:errorlint // domainError returns a *cliError for coded errors.
 		assert.Contains(t, ce.details, "candidates")
 	})
+	t.Run("adds claude's stderr to details", func(t *testing.T) {
+		claudeErr := &claude.CommandError{Args: []string{"--bg"}, Stderr: "error: unknown option", Err: errTest}
+		err := domainError(claudeErr)
+		requireCode(t, codeClaudeFailed, err)
+		ce, _ := err.(*cliError) //nolint:errorlint // requireCode checked the type.
+		assert.Equal(t, map[string]any{"stderr": "error: unknown option"}, ce.details)
+	})
 	t.Run("no details without stderr", func(t *testing.T) {
 		err := domainError(fmt.Errorf("%w: %w", cache.ErrFetchFailed, &git.CommandError{Err: errTest}))
 		ce, _ := err.(*cliError) //nolint:errorlint // domainError returns a *cliError for coded errors.
@@ -753,8 +761,45 @@ func TestCodedDomainError(t *testing.T) {
 	t.Run("workspace exists", func(t *testing.T) {
 		assert.Equal(t, codeWorkspaceExists, codedDomainError(workspace.ErrExists).code)
 	})
+	t.Run("claude --settings from the user", func(t *testing.T) {
+		ce := codedDomainError(claude.ErrSettingsArg)
+		assert.Equal(t, codeUsage, ce.code)
+		assert.Equal(t, exitUsage, ce.exitCode())
+	})
+	t.Run("claude missing", func(t *testing.T) {
+		assert.Equal(t, codeClaudeMissing, codedDomainError(claude.ErrNotInstalled).code)
+	})
+	t.Run("claude untrusted", func(t *testing.T) {
+		err := fmt.Errorf("%w: %w", claude.ErrUntrusted, &claude.CommandError{Args: []string{"--bg"}, Err: errTest})
+		assert.Equal(t, codeClaudeUntrusted, codedDomainError(err).code)
+	})
+	t.Run("claude too old", func(t *testing.T) {
+		assert.Equal(t, codeClaudeFailed, codedDomainError(claude.ErrTooOld).code)
+	})
+	t.Run("claude session missing", func(t *testing.T) {
+		assert.Equal(t, codeClaudeFailed, codedDomainError(claude.ErrNoSession).code)
+	})
+	t.Run("claude output unreadable", func(t *testing.T) {
+		assert.Equal(t, codeClaudeFailed, codedDomainError(claude.ErrUnexpectedOutput).code)
+	})
+	t.Run("other claude failure", func(t *testing.T) {
+		assert.Equal(t, codeClaudeFailed, codedDomainError(&claude.CommandError{Args: []string{"agents"}, Err: errTest}).code)
+	})
 	t.Run("anything else has no code", func(t *testing.T) {
 		assert.Nil(t, codedDomainError(errTest))
+	})
+}
+
+func TestCommandStderr(t *testing.T) {
+	t.Run("git", func(t *testing.T) {
+		assert.Equal(t, "fatal: x", commandStderr(&git.CommandError{Stderr: "fatal: x", Err: errTest}))
+	})
+	t.Run("claude", func(t *testing.T) {
+		err := fmt.Errorf("%w: %w", claude.ErrUntrusted, &claude.CommandError{Stderr: "Workspace not trusted.", Err: errTest})
+		assert.Equal(t, "Workspace not trusted.", commandStderr(err))
+	})
+	t.Run("neither", func(t *testing.T) {
+		assert.Empty(t, commandStderr(errTest))
 	})
 }
 

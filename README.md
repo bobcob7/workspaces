@@ -159,8 +159,10 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   workspace when it exits
   ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md),
   [0023](docs/adrs/0023-shell-session-keeps-creation-lock.md))
-- [ ] **Claude Code client**: `claude --bg`, `agents --json`, `stop`, `rm`,
-  `respawn`, `daemon` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
+- [x] **Claude Code client** `internal/claude`: the only place claude runs;
+  `claude --bg`, `agents --json`, `stop`, `rm`, `respawn`, `daemon`, and the
+  2.1.302 version check ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md),
+  [0024](docs/adrs/0024-claude-code-client.md), proposed)
 - [ ] **`ws claude`**, including the trust error and attaching without a
   prompt ([0014](docs/adrs/0014-command-set.md))
 - [ ] **Lifetime**: remove workspaces whose session is gone; `ws list`,
@@ -189,6 +191,7 @@ internal/
   cli/                        # cobra commands and the output contract (0005, 0016)
   config/                     # CONFIG_DIR and config.toml (0011)
   git/                        # the only place git is executed (0003)
+  claude/                     # the only place claude is executed (0015, 0018, 0024)
   repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
   cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
   workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)

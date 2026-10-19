@@ -21,6 +21,10 @@ Everything after `--` goes to `claude` unchanged: the prompt, and options
 such as `--model` or `--permission-mode`. The `bgIsolation` setting makes
 Claude edit the workspace's repos directly instead of trying to create its
 own worktree ([0015](../adrs/0015-workspace-lifetime-follows-session.md)).
+`--settings` can't be among them: Claude Code keeps only the last
+`--settings`, so yours would silently replace `ws`'s. Put your settings in a
+settings file, such as `~/.claude/settings.json`, instead
+([0024](../adrs/0024-claude-code-client.md)).
 
 - **With a prompt**, `ws` waits only until Claude has accepted the session,
   then prints the workspace id, the Claude session id, and the workspace
@@ -101,6 +105,7 @@ See also the [workspace creation errors](README.md#creating-a-workspace).
 
 | Situation                                        | Error code         | Exit |
 | ------------------------------------------------ | ------------------ | ---- |
+| `--settings` among the arguments after `--`      | `usage`            | 2    |
 | `claude` not on `PATH`                           | `claude_missing`   | 1    |
 | Workspace root not trusted by Claude Code        | `claude_untrusted` | 1    |
 | `claude --bg` failed for another reason; its output is shown | `claude_failed` | 1 |
@@ -109,4 +114,5 @@ See also the [workspace creation errors](README.md#creating-a-workspace).
 
 [`ws rm`](ws-rm.md), [`ws restore`](ws-restore.md),
 [0014](../adrs/0014-command-set.md),
-[0015](../adrs/0015-workspace-lifetime-follows-session.md)
+[0015](../adrs/0015-workspace-lifetime-follows-session.md),
+[0024](../adrs/0024-claude-code-client.md)

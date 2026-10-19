@@ -6,6 +6,7 @@ package cli
 import (
 	"context"
 	"github.com/bobcob7/workspaces/internal/cache"
+	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
@@ -972,5 +973,453 @@ func (mock *shellRunnerMock) RunCalls() []struct {
 	mock.lockRun.RLock()
 	calls = mock.calls.Run
 	mock.lockRun.RUnlock()
+	return calls
+}
+
+// Ensure, that claudeClientMock does implement claudeClient.
+// If this is not the case, regenerate this file with moq.
+var _ claudeClient = &claudeClientMock{}
+
+// claudeClientMock is a mock implementation of claudeClient.
+//
+//	func TestSomethingThatUsesclaudeClient(t *testing.T) {
+//
+//		// make and configure a mocked claudeClient
+//		mockedclaudeClient := &claudeClientMock{
+//			AgentsFunc: func(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error) {
+//				panic("mock out the Agents method")
+//			},
+//			DaemonStatusFunc: func(ctx context.Context) (claude.DaemonStatus, error) {
+//				panic("mock out the DaemonStatus method")
+//			},
+//			JobExistsFunc: func(id string) (bool, error) {
+//				panic("mock out the JobExists method")
+//			},
+//			RemoveFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the Remove method")
+//			},
+//			RespawnFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the Respawn method")
+//			},
+//			RunDaemonFunc: func(ctx context.Context) (int, error) {
+//				panic("mock out the RunDaemon method")
+//			},
+//			StartFunc: func(ctx context.Context, opts claude.StartOptions) (string, error) {
+//				panic("mock out the Start method")
+//			},
+//			StopFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the Stop method")
+//			},
+//			StopDaemonFunc: func(ctx context.Context) error {
+//				panic("mock out the StopDaemon method")
+//			},
+//		}
+//
+//		// use mockedclaudeClient in code that requires claudeClient
+//		// and then make assertions.
+//
+//	}
+type claudeClientMock struct {
+	// AgentsFunc mocks the Agents method.
+	AgentsFunc func(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error)
+
+	// DaemonStatusFunc mocks the DaemonStatus method.
+	DaemonStatusFunc func(ctx context.Context) (claude.DaemonStatus, error)
+
+	// JobExistsFunc mocks the JobExists method.
+	JobExistsFunc func(id string) (bool, error)
+
+	// RemoveFunc mocks the Remove method.
+	RemoveFunc func(ctx context.Context, id string) error
+
+	// RespawnFunc mocks the Respawn method.
+	RespawnFunc func(ctx context.Context, id string) error
+
+	// RunDaemonFunc mocks the RunDaemon method.
+	RunDaemonFunc func(ctx context.Context) (int, error)
+
+	// StartFunc mocks the Start method.
+	StartFunc func(ctx context.Context, opts claude.StartOptions) (string, error)
+
+	// StopFunc mocks the Stop method.
+	StopFunc func(ctx context.Context, id string) error
+
+	// StopDaemonFunc mocks the StopDaemon method.
+	StopDaemonFunc func(ctx context.Context) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Agents holds details about calls to the Agents method.
+		Agents []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Opts is the opts argument value.
+			Opts claude.ListOptions
+		}
+		// DaemonStatus holds details about calls to the DaemonStatus method.
+		DaemonStatus []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// JobExists holds details about calls to the JobExists method.
+		JobExists []struct {
+			// ID is the id argument value.
+			ID string
+		}
+		// Remove holds details about calls to the Remove method.
+		Remove []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+		// Respawn holds details about calls to the Respawn method.
+		Respawn []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+		// RunDaemon holds details about calls to the RunDaemon method.
+		RunDaemon []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// Start holds details about calls to the Start method.
+		Start []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Opts is the opts argument value.
+			Opts claude.StartOptions
+		}
+		// Stop holds details about calls to the Stop method.
+		Stop []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+		// StopDaemon holds details about calls to the StopDaemon method.
+		StopDaemon []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+	}
+	lockAgents       sync.RWMutex
+	lockDaemonStatus sync.RWMutex
+	lockJobExists    sync.RWMutex
+	lockRemove       sync.RWMutex
+	lockRespawn      sync.RWMutex
+	lockRunDaemon    sync.RWMutex
+	lockStart        sync.RWMutex
+	lockStop         sync.RWMutex
+	lockStopDaemon   sync.RWMutex
+}
+
+// Agents calls AgentsFunc.
+func (mock *claudeClientMock) Agents(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error) {
+	if mock.AgentsFunc == nil {
+		panic("claudeClientMock.AgentsFunc: method is nil but claudeClient.Agents was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Opts claude.ListOptions
+	}{
+		Ctx:  ctx,
+		Opts: opts,
+	}
+	mock.lockAgents.Lock()
+	mock.calls.Agents = append(mock.calls.Agents, callInfo)
+	mock.lockAgents.Unlock()
+	return mock.AgentsFunc(ctx, opts)
+}
+
+// AgentsCalls gets all the calls that were made to Agents.
+// Check the length with:
+//
+//	len(mockedclaudeClient.AgentsCalls())
+func (mock *claudeClientMock) AgentsCalls() []struct {
+	Ctx  context.Context
+	Opts claude.ListOptions
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Opts claude.ListOptions
+	}
+	mock.lockAgents.RLock()
+	calls = mock.calls.Agents
+	mock.lockAgents.RUnlock()
+	return calls
+}
+
+// DaemonStatus calls DaemonStatusFunc.
+func (mock *claudeClientMock) DaemonStatus(ctx context.Context) (claude.DaemonStatus, error) {
+	if mock.DaemonStatusFunc == nil {
+		panic("claudeClientMock.DaemonStatusFunc: method is nil but claudeClient.DaemonStatus was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockDaemonStatus.Lock()
+	mock.calls.DaemonStatus = append(mock.calls.DaemonStatus, callInfo)
+	mock.lockDaemonStatus.Unlock()
+	return mock.DaemonStatusFunc(ctx)
+}
+
+// DaemonStatusCalls gets all the calls that were made to DaemonStatus.
+// Check the length with:
+//
+//	len(mockedclaudeClient.DaemonStatusCalls())
+func (mock *claudeClientMock) DaemonStatusCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockDaemonStatus.RLock()
+	calls = mock.calls.DaemonStatus
+	mock.lockDaemonStatus.RUnlock()
+	return calls
+}
+
+// JobExists calls JobExistsFunc.
+func (mock *claudeClientMock) JobExists(id string) (bool, error) {
+	if mock.JobExistsFunc == nil {
+		panic("claudeClientMock.JobExistsFunc: method is nil but claudeClient.JobExists was just called")
+	}
+	callInfo := struct {
+		ID string
+	}{
+		ID: id,
+	}
+	mock.lockJobExists.Lock()
+	mock.calls.JobExists = append(mock.calls.JobExists, callInfo)
+	mock.lockJobExists.Unlock()
+	return mock.JobExistsFunc(id)
+}
+
+// JobExistsCalls gets all the calls that were made to JobExists.
+// Check the length with:
+//
+//	len(mockedclaudeClient.JobExistsCalls())
+func (mock *claudeClientMock) JobExistsCalls() []struct {
+	ID string
+} {
+	var calls []struct {
+		ID string
+	}
+	mock.lockJobExists.RLock()
+	calls = mock.calls.JobExists
+	mock.lockJobExists.RUnlock()
+	return calls
+}
+
+// Remove calls RemoveFunc.
+func (mock *claudeClientMock) Remove(ctx context.Context, id string) error {
+	if mock.RemoveFunc == nil {
+		panic("claudeClientMock.RemoveFunc: method is nil but claudeClient.Remove was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockRemove.Lock()
+	mock.calls.Remove = append(mock.calls.Remove, callInfo)
+	mock.lockRemove.Unlock()
+	return mock.RemoveFunc(ctx, id)
+}
+
+// RemoveCalls gets all the calls that were made to Remove.
+// Check the length with:
+//
+//	len(mockedclaudeClient.RemoveCalls())
+func (mock *claudeClientMock) RemoveCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockRemove.RLock()
+	calls = mock.calls.Remove
+	mock.lockRemove.RUnlock()
+	return calls
+}
+
+// Respawn calls RespawnFunc.
+func (mock *claudeClientMock) Respawn(ctx context.Context, id string) error {
+	if mock.RespawnFunc == nil {
+		panic("claudeClientMock.RespawnFunc: method is nil but claudeClient.Respawn was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockRespawn.Lock()
+	mock.calls.Respawn = append(mock.calls.Respawn, callInfo)
+	mock.lockRespawn.Unlock()
+	return mock.RespawnFunc(ctx, id)
+}
+
+// RespawnCalls gets all the calls that were made to Respawn.
+// Check the length with:
+//
+//	len(mockedclaudeClient.RespawnCalls())
+func (mock *claudeClientMock) RespawnCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockRespawn.RLock()
+	calls = mock.calls.Respawn
+	mock.lockRespawn.RUnlock()
+	return calls
+}
+
+// RunDaemon calls RunDaemonFunc.
+func (mock *claudeClientMock) RunDaemon(ctx context.Context) (int, error) {
+	if mock.RunDaemonFunc == nil {
+		panic("claudeClientMock.RunDaemonFunc: method is nil but claudeClient.RunDaemon was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockRunDaemon.Lock()
+	mock.calls.RunDaemon = append(mock.calls.RunDaemon, callInfo)
+	mock.lockRunDaemon.Unlock()
+	return mock.RunDaemonFunc(ctx)
+}
+
+// RunDaemonCalls gets all the calls that were made to RunDaemon.
+// Check the length with:
+//
+//	len(mockedclaudeClient.RunDaemonCalls())
+func (mock *claudeClientMock) RunDaemonCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockRunDaemon.RLock()
+	calls = mock.calls.RunDaemon
+	mock.lockRunDaemon.RUnlock()
+	return calls
+}
+
+// Start calls StartFunc.
+func (mock *claudeClientMock) Start(ctx context.Context, opts claude.StartOptions) (string, error) {
+	if mock.StartFunc == nil {
+		panic("claudeClientMock.StartFunc: method is nil but claudeClient.Start was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Opts claude.StartOptions
+	}{
+		Ctx:  ctx,
+		Opts: opts,
+	}
+	mock.lockStart.Lock()
+	mock.calls.Start = append(mock.calls.Start, callInfo)
+	mock.lockStart.Unlock()
+	return mock.StartFunc(ctx, opts)
+}
+
+// StartCalls gets all the calls that were made to Start.
+// Check the length with:
+//
+//	len(mockedclaudeClient.StartCalls())
+func (mock *claudeClientMock) StartCalls() []struct {
+	Ctx  context.Context
+	Opts claude.StartOptions
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Opts claude.StartOptions
+	}
+	mock.lockStart.RLock()
+	calls = mock.calls.Start
+	mock.lockStart.RUnlock()
+	return calls
+}
+
+// Stop calls StopFunc.
+func (mock *claudeClientMock) Stop(ctx context.Context, id string) error {
+	if mock.StopFunc == nil {
+		panic("claudeClientMock.StopFunc: method is nil but claudeClient.Stop was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockStop.Lock()
+	mock.calls.Stop = append(mock.calls.Stop, callInfo)
+	mock.lockStop.Unlock()
+	return mock.StopFunc(ctx, id)
+}
+
+// StopCalls gets all the calls that were made to Stop.
+// Check the length with:
+//
+//	len(mockedclaudeClient.StopCalls())
+func (mock *claudeClientMock) StopCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockStop.RLock()
+	calls = mock.calls.Stop
+	mock.lockStop.RUnlock()
+	return calls
+}
+
+// StopDaemon calls StopDaemonFunc.
+func (mock *claudeClientMock) StopDaemon(ctx context.Context) error {
+	if mock.StopDaemonFunc == nil {
+		panic("claudeClientMock.StopDaemonFunc: method is nil but claudeClient.StopDaemon was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockStopDaemon.Lock()
+	mock.calls.StopDaemon = append(mock.calls.StopDaemon, callInfo)
+	mock.lockStopDaemon.Unlock()
+	return mock.StopDaemonFunc(ctx)
+}
+
+// StopDaemonCalls gets all the calls that were made to StopDaemon.
+// Check the length with:
+//
+//	len(mockedclaudeClient.StopDaemonCalls())
+func (mock *claudeClientMock) StopDaemonCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockStopDaemon.RLock()
+	calls = mock.calls.StopDaemon
+	mock.lockStopDaemon.RUnlock()
 	return calls
 }

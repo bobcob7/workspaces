@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/cache"
+	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -475,20 +476,32 @@ func (a *App) cachePrune(ctx context.Context, dryRun bool) error {
 	return nil
 }
 
-// domainError gives a cache or git failure its error code (ADR 0016). When
-// git failed, its stderr is in details.stderr.
+// domainError gives a cache, git, or claude failure its error code (ADR
+// 0016). When git or claude failed, its stderr is in details.stderr.
 func domainError(err error) error {
 	ce := codedDomainError(err)
 	if ce == nil {
 		return err
 	}
-	if cmdErr, isGit := errors.AsType[*git.CommandError](err); isGit && cmdErr.Stderr != "" {
+	if stderr := commandStderr(err); stderr != "" {
 		if ce.details == nil {
 			ce.details = map[string]any{}
 		}
-		ce.details["stderr"] = cmdErr.Stderr
+		ce.details["stderr"] = stderr
 	}
 	return ce
+}
+
+// commandStderr is the stderr of the git or claude command err comes from,
+// if any.
+func commandStderr(err error) string {
+	if cmdErr, ok := errors.AsType[*git.CommandError](err); ok {
+		return cmdErr.Stderr
+	}
+	if cmdErr, ok := errors.AsType[*claude.CommandError](err); ok {
+		return cmdErr.Stderr
+	}
+	return ""
 }
 
 // codedDomainError maps err to its error code, or nil when it has none.
@@ -517,6 +530,12 @@ func codedDomainError(err error) *cliError {
 		{workspace.ErrSpecConflict, codeSpecInvalid},
 		{workspace.ErrNotFound, codeWorkspaceNotFound},
 		{workspace.ErrExists, codeWorkspaceExists},
+		{claude.ErrSettingsArg, codeUsage},
+		{claude.ErrNotInstalled, codeClaudeMissing},
+		{claude.ErrUntrusted, codeClaudeUntrusted},
+		{claude.ErrTooOld, codeClaudeFailed},
+		{claude.ErrNoSession, codeClaudeFailed},
+		{claude.ErrUnexpectedOutput, codeClaudeFailed},
 	} {
 		if errors.Is(err, m.target) {
 			return newError(m.code, err)
@@ -524,6 +543,9 @@ func codedDomainError(err error) *cliError {
 	}
 	if _, ok := errors.AsType[*git.CommandError](err); ok {
 		return newError(codeGitFailed, err)
+	}
+	if _, ok := errors.AsType[*claude.CommandError](err); ok {
+		return newError(codeClaudeFailed, err)
 	}
 	return nil
 }

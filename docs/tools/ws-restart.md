@@ -24,9 +24,11 @@ directory. Editing `~/.zshrc` or updating Claude Code doesn't reach them.
 3. Starts a new service at once (`claude daemon run`, detached), with `ws`'s
    environment. If some other `claude` started one first, `ws` warns that
    it may have that process's environment; run `ws restart` again.
-4. Respawns (`claude respawn`) each recorded session that isn't `working`.
-   A `working` session is respawned as soon as it stops working; `ws` waits
-   and shows which are left.
+4. Respawns (`claude respawn`) each recorded session that isn't `working`,
+   meaning in the middle of a turn: Claude Code reports its `status` as
+   `busy` ([0024](../adrs/0024-claude-code-client.md)). A `working` session
+   is respawned as soon as it stops working; `ws` waits and shows which are
+   left.
 
 Run it from a shell that already has the change: a new terminal, or after
 `source ~/.zshrc`.
@@ -76,4 +78,5 @@ stale      ws-20261018-k3f9qa   5d8d652c   working; run `ws restart` again later
 
 [`ws restore`](ws-restore.md), [`ws list`](ws-list.md),
 [0016](../adrs/0016-output-contract.md),
-[0018](../adrs/0018-restart-claude-daemon.md)
+[0018](../adrs/0018-restart-claude-daemon.md),
+[0024](../adrs/0024-claude-code-client.md)

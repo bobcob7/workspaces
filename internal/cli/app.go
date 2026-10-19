@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/cache"
+	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/shell"
@@ -36,6 +37,8 @@ type App struct {
 	workspaces workspaceStore
 	// shell runs ws shell's interactive shell on ws's own streams.
 	shell shellRunner
+	// claude runs the Claude Code CLI; nothing else in ws does.
+	claude claudeClient
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 }
@@ -53,8 +56,8 @@ const logOff = slog.LevelError + 4
 // New returns an App that writes results to stdout, and errors and
 // --verbose logging to stderr. ws shell's shell runs on stdin, stdout, and
 // stderr. configs supplies the config for commands that need it, and
-// environ, normally os.Environ(), is the environment git and the shell run
-// with.
+// environ, normally os.Environ(), is the environment git, claude, and the
+// shell run with.
 func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs configLoader, environ []string) *App {
 	level := new(slog.LevelVar)
 	level.Set(logOff)
@@ -67,6 +70,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	return &App{
 		newStores:  newStores,
 		shell:      shell.New(log, environ, stdin, stdout, stderr),
+		claude:     claude.New(log, "claude", environ),
 		version:    version,
 		stdout:     stdout,
 		stderr:     stderr,

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/bobcob7/workspaces/internal/cache"
+	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
@@ -11,7 +12,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore shellRunner
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore shellRunner claudeClient
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -46,4 +47,18 @@ type workspaceStore interface {
 // exit status.
 type shellRunner interface {
 	Run(ctx context.Context, sess shell.Session) (int, error)
+}
+
+// claudeClient runs the Claude Code CLI: background sessions and the
+// background service they run under (ADRs 0015, 0018, 0024).
+type claudeClient interface {
+	Start(ctx context.Context, opts claude.StartOptions) (string, error)
+	Agents(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error)
+	Stop(ctx context.Context, id string) error
+	Remove(ctx context.Context, id string) error
+	Respawn(ctx context.Context, id string) error
+	JobExists(id string) (bool, error)
+	DaemonStatus(ctx context.Context) (claude.DaemonStatus, error)
+	StopDaemon(ctx context.Context) error
+	RunDaemon(ctx context.Context) (int, error)
 }
