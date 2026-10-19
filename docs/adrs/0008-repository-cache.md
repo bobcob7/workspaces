@@ -1,6 +1,6 @@
 # 0008. Bare, locked, heads-and-tags repository cache
 
-- Status: Accepted (2026-10-17)
+- Status: Accepted (2026-10-17); default-branch step amended by [0021](0021-cache-default-branch.md) (2026-10-18)
 - Date: 2026-10-17
 
 ## Context
