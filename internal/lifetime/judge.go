@@ -103,20 +103,25 @@ func (r *reader) agent(ctx context.Context, id string) (*Session, verdict) {
 // describe reads a listed session by its pid, status, and start time,
 // never its state (ADR 0024).
 func (r *reader) describe(ctx context.Context, s *claude.Session) *Session {
-	now := r.m.now()
-	out := &Session{Kind: KindAgent, ID: s.ID, State: StateStopped, PID: s.PID}
-	switch {
-	case s.Working():
-		out.State = StateWorking
-	case s.HasProcess():
-		out.State = StateIdle
-	case s.Starting(now):
-		out.State = StateStarting
-	}
+	out := &Session{Kind: KindAgent, ID: s.ID, State: stateOf(s, r.m.now()), PID: s.PID}
 	if r.stale {
 		out.Stale = r.staleness(ctx, s)
 	}
 	return out
+}
+
+// stateOf reads a listed session at now by its pid, status, and start
+// time, never its state (ADR 0024).
+func stateOf(s *claude.Session, now time.Time) State {
+	switch {
+	case s.Working():
+		return StateWorking
+	case s.HasProcess():
+		return StateIdle
+	case s.Starting(now):
+		return StateStarting
+	}
+	return StateStopped
 }
 
 // staleness reports whether a session's process started before the

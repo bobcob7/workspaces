@@ -22,7 +22,7 @@ func TestStore_RecordSession(t *testing.T) {
 		var got Session
 		_, err := toml.DecodeFile(s.sessionPath("x"), &got)
 		require.NoError(t, err)
-		assert.Equal(t, Session{Kind: SessionShell, StartedAt: testNow()}, got)
+		assert.Equal(t, Session{Version: 1, Kind: SessionShell, StartedAt: testNow()}, got)
 	})
 	t.Run("keeps a Claude session id", func(t *testing.T) {
 		t.Parallel()
@@ -52,7 +52,7 @@ func TestStore_Session(t *testing.T) {
 		require.NoError(t, s.RecordSession("x", SessionClaude, "e8cdf5d8"))
 		got, err := s.Session("x")
 		require.NoError(t, err)
-		assert.Equal(t, Session{Kind: SessionClaude, ClaudeSessionID: "e8cdf5d8", StartedAt: testNow()}, got)
+		assert.Equal(t, Session{Version: 1, Kind: SessionClaude, ClaudeSessionID: "e8cdf5d8", StartedAt: testNow()}, got)
 	})
 	t.Run("no record", func(t *testing.T) {
 		t.Parallel()
@@ -60,6 +60,28 @@ func TestStore_Session(t *testing.T) {
 		putWorkspace(t, s, "x", testNow())
 		_, err := s.Session("x")
 		assert.ErrorIs(t, err, ErrNoSession)
+	})
+	t.Run("a record without a version is version 1", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		writeFile(t, s.sessionPath("x"), "kind = \"shell\"\n")
+		got, err := s.Session("x")
+		require.NoError(t, err)
+		assert.Equal(t, Session{Version: 1, Kind: SessionShell}, got)
+	})
+	t.Run("a newer version", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		writeFile(t, s.sessionPath("x"), "version = 2\nkind = \"shell\"\nhost = \"h\"\n")
+		_, err := s.Session("x")
+		assert.ErrorContains(t, err, "written by a newer ws (version 2; this ws reads up to 1); upgrade ws")
+	})
+	t.Run("a negative version", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		writeFile(t, s.sessionPath("x"), "version = -1\nkind = \"shell\"\n")
+		_, err := s.Session("x")
+		assert.ErrorContains(t, err, "unsupported version -1")
 	})
 	t.Run("an invalid id", func(t *testing.T) {
 		t.Parallel()

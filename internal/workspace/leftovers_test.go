@@ -69,7 +69,7 @@ func TestStore_CleanLeftovers(t *testing.T) {
 		require.NoError(t, os.Mkdir(building, 0o750))
 		r, err := e.store.addRepo(t.Context(), building, &targets[0], false)
 		require.NoError(t, err)
-		ws := Workspace{Version: recordVersion, ID: id, Path: e.store.dir(id), CreatedAt: testNow(), Repos: []Repo{r}}
+		ws := Workspace{Version: formatVersion, ID: id, Path: e.store.dir(id), CreatedAt: testNow(), Repos: []Repo{r}}
 		require.NoError(t, writeRecord(e.store.recordPath(id), &ws))
 		lock.Unlock()
 		list, err := e.store.List()

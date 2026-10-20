@@ -118,7 +118,9 @@ stderr, and take `--json` for machine-readable output
 | Agent pointer  | `$CONFIG_DIR/workspaces/CLAUDE.md`: tells agents to run `ws llm` |
 
 See [Configuration](docs/config.md) for how `CONFIG_DIR` is chosen, the
-`config.toml` schema, and how to use SSH instead of HTTPS.
+`config.toml` schema, and how to use SSH instead of HTTPS, and
+[Workspace state](docs/state.md) for what `ws` keeps under it, its locks,
+and when workspaces are removed.
 
 ## Requirements
 
@@ -162,24 +164,23 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **Claude Code client** `internal/claude`: the only place claude runs;
   `claude --bg`, `agents --json`, `stop`, `rm`, `respawn`, `daemon`, and the
   2.1.302 version check ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md),
-  [0024](docs/adrs/0024-claude-code-client.md), proposed)
+  [0024](docs/adrs/0024-claude-code-client.md))
 - [x] **`ws claude`**, including the trust error and attaching without a
   prompt ([0014](docs/adrs/0014-command-set.md),
-  [0025](docs/adrs/0025-ws-claude-session-hand-off.md), proposed)
+  [0025](docs/adrs/0025-ws-claude-session-hand-off.md))
 - [x] **Lifetime**: remove workspaces whose session is gone; `ws list`,
   `ws rm` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md),
-  [0026](docs/adrs/0026-removal-pass-timing.md), proposed).
-  A workspace that is unlocked, has no session record, and is over a
-  minute old counts as abandoned
-  ([0023](docs/adrs/0023-shell-session-keeps-creation-lock.md)); removing
-  one also runs `claude rm` on each session whose working directory is
-  exactly that workspace, left by a `ws claude` killed mid-start or one
-  whose id couldn't be read
-  ([0025](docs/adrs/0025-ws-claude-session-hand-off.md), proposed)
-- [ ] **`ws restore`** ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md))
-- [ ] **`ws restart`** ([0018](docs/adrs/0018-restart-claude-daemon.md))
+  [0026](docs/adrs/0026-removal-pass-timing.md), [state](docs/state.md))
+- [x] **`ws restore`** ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md),
+  [0027](docs/adrs/0027-respawn-lock-and-record-versions.md)):
+  respawns, one at a time, each stopped session that Claude Code lists in
+  its own workspace
+- [ ] **`ws restart`**, under the respawn lock
+  ([0018](docs/adrs/0018-restart-claude-daemon.md),
+  [0027](docs/adrs/0027-respawn-lock-and-record-versions.md))
 - [ ] **`ws llm`**: embedded guides with the coverage test, and
-  `workspaces/CLAUDE.md` ([0014](docs/adrs/0014-command-set.md))
+  `workspaces/CLAUDE.md`, written if missing
+  ([0014](docs/adrs/0014-command-set.md))
 - [ ] **Release**: `make dist` binaries for darwin and linux, amd64 and
   arm64 ([0002](docs/adrs/0002-implementation-language.md))
 
@@ -201,7 +202,7 @@ internal/
   repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
   cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
   workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)
-  lifetime/                   # removing workspaces whose session is gone; ws list and ws rm (0015, 0025)
+  lifetime/                   # removing workspaces whose session is gone; ws list, ws rm, ws restore (0015, 0025, 0027)
   proc/                       # when processes started, from the operating system (0018, 0026)
   shell/                      # ws shell's interactive shell: lock, signals, exit status (0015, 0023)
   lockfile/                   # flock locks, exclusive and shared (0008)

@@ -70,8 +70,11 @@ func stubWorkspaces() *workspaceStoreMock {
 // stubLifetime is a lifetime manager with nothing to remove or list.
 func stubLifetime() *lifetimeManagerMock {
 	return &lifetimeManagerMock{
-		SweepFunc:    func(context.Context) []lifetime.Removed { return nil },
-		ListFunc:     func(context.Context) (lifetime.Listing, error) { return lifetime.Listing{}, nil },
+		SweepFunc: func(context.Context) []lifetime.Removed { return nil },
+		ListFunc:  func(context.Context) (lifetime.Listing, error) { return lifetime.Listing{}, nil },
+		RestoreFunc: func(context.Context, lifetime.RestoreOptions) ([]lifetime.Restored, error) {
+			return nil, nil
+		},
 		WarningsFunc: func() []string { return nil },
 	}
 }
@@ -494,6 +497,13 @@ func (e *lifetimeE2E) run(t *testing.T, args ...string) int {
 	return e.app.Run(t.Context(), args)
 }
 
+// setRespawned sets what `claude agents --json` prints once `claude
+// respawn` has run.
+func (e *lifetimeE2E) setRespawned(t *testing.T, agents string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(e.scratch, "respawned.json"), []byte(agents), 0o600))
+}
+
 // setAgents sets what `claude agents --json` prints.
 func (e *lifetimeE2E) setAgents(t *testing.T, agents string) {
 	t.Helper()
@@ -509,7 +519,7 @@ func (e *lifetimeE2E) start(t *testing.T, name, id string) string {
 	return filepath.Join(e.paths.Workspaces, name)
 }
 
-// calls is the stop and rm commands the fake claude ran.
+// calls is the stop, rm, and respawn commands the fake claude ran.
 func (e *lifetimeE2E) calls(t *testing.T) []string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(e.scratch, "calls"))
@@ -549,10 +559,18 @@ func agentJSON(id, cwd string) string {
 		id, cwd, time.Now().Add(-time.Minute).UnixMilli(), id)
 }
 
+// stoppedAgentJSON is one background session as `claude agents --json`
+// prints it with no process, created an hour ago.
+func stoppedAgentJSON(id, cwd string) string {
+	return fmt.Sprintf(`{"id":%q,"cwd":%q,"kind":"background","startedAt":%d,"sessionId":"uuid-%s","name":"x","state":"stopped"}`,
+		id, cwd, time.Now().Add(-time.Hour).UnixMilli(), id)
+}
+
 // fakeLifetimeClaude writes an executable sh script standing in for
-// claude 2.1.303: `agents` prints dir/agents.json, `stop` and `rm` append
-// "<command> <id>" to dir/calls, and `--bg` starts the session in
-// dir/next-id.
+// claude 2.1.303: `agents` prints dir/agents.json, `stop`, `rm`, and
+// `respawn` append "<command> <id>" to dir/calls, `respawn` then replaces
+// dir/agents.json with dir/respawned.json if there is one, and `--bg`
+// starts the session in dir/next-id.
 func fakeLifetimeClaude(t *testing.T, dir string) string {
 	t.Helper()
 	path := filepath.Join(dir, "claude")
@@ -562,6 +580,7 @@ func fakeLifetimeClaude(t *testing.T, dir string) string {
 		`--version) echo "2.1.303 (Claude Code)" ;;` + "\n" +
 		`agents) cat "$dir/agents.json" ;;` + "\n" +
 		`stop|rm) echo "$1 $2" >> "$dir/calls" ;;` + "\n" +
+		`respawn) echo "$1 $2" >> "$dir/calls"; if [ -f "$dir/respawned.json" ]; then cp "$dir/respawned.json" "$dir/agents.json"; fi ;;` + "\n" +
 		`--bg) printf 'backgrounded · %s · x\n' "$(cat "$dir/next-id")" ;;` + "\n" +
 		`*) exit 1 ;;` + "\n" +
 		"esac\n"

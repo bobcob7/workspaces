@@ -965,6 +965,9 @@ var _ lifetimeManager = &lifetimeManagerMock{}
 //			RemoveFunc: func(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error) {
 //				panic("mock out the Remove method")
 //			},
+//			RestoreFunc: func(ctx context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error) {
+//				panic("mock out the Restore method")
+//			},
 //			SweepFunc: func(ctx context.Context) []lifetime.Removed {
 //				panic("mock out the Sweep method")
 //			},
@@ -983,6 +986,9 @@ type lifetimeManagerMock struct {
 
 	// RemoveFunc mocks the Remove method.
 	RemoveFunc func(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error)
+
+	// RestoreFunc mocks the Restore method.
+	RestoreFunc func(ctx context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error)
 
 	// SweepFunc mocks the Sweep method.
 	SweepFunc func(ctx context.Context) []lifetime.Removed
@@ -1006,6 +1012,13 @@ type lifetimeManagerMock struct {
 			// DryRun is the dryRun argument value.
 			DryRun bool
 		}
+		// Restore holds details about calls to the Restore method.
+		Restore []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Opts is the opts argument value.
+			Opts lifetime.RestoreOptions
+		}
 		// Sweep holds details about calls to the Sweep method.
 		Sweep []struct {
 			// Ctx is the ctx argument value.
@@ -1017,6 +1030,7 @@ type lifetimeManagerMock struct {
 	}
 	lockList     sync.RWMutex
 	lockRemove   sync.RWMutex
+	lockRestore  sync.RWMutex
 	lockSweep    sync.RWMutex
 	lockWarnings sync.RWMutex
 }
@@ -1090,6 +1104,42 @@ func (mock *lifetimeManagerMock) RemoveCalls() []struct {
 	mock.lockRemove.RLock()
 	calls = mock.calls.Remove
 	mock.lockRemove.RUnlock()
+	return calls
+}
+
+// Restore calls RestoreFunc.
+func (mock *lifetimeManagerMock) Restore(ctx context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error) {
+	if mock.RestoreFunc == nil {
+		panic("lifetimeManagerMock.RestoreFunc: method is nil but lifetimeManager.Restore was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Opts lifetime.RestoreOptions
+	}{
+		Ctx:  ctx,
+		Opts: opts,
+	}
+	mock.lockRestore.Lock()
+	mock.calls.Restore = append(mock.calls.Restore, callInfo)
+	mock.lockRestore.Unlock()
+	return mock.RestoreFunc(ctx, opts)
+}
+
+// RestoreCalls gets all the calls that were made to Restore.
+// Check the length with:
+//
+//	len(mockedlifetimeManager.RestoreCalls())
+func (mock *lifetimeManagerMock) RestoreCalls() []struct {
+	Ctx  context.Context
+	Opts lifetime.RestoreOptions
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Opts lifetime.RestoreOptions
+	}
+	mock.lockRestore.RLock()
+	calls = mock.calls.Restore
+	mock.lockRestore.RUnlock()
 	return calls
 }
 

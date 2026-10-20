@@ -40,6 +40,10 @@ type fixture struct {
 	// background service's, which started an hour before testNow.
 	starts   map[int]time.Time
 	stateDir string
+	// clock is the Manager's now, testNow until sleeps advance it.
+	clock time.Time
+	// sleeps is every wait the Manager made, which advance clock.
+	sleeps []time.Duration
 }
 
 // servicePID is the fixture's background service process.
@@ -74,6 +78,10 @@ func newFixture(t *testing.T) *fixture {
 		AgentsFunc: func(context.Context, claude.ListOptions) ([]claude.Session, error) { return f.sessions, nil },
 		StopFunc:   func(context.Context, string) error { return nil },
 		RemoveFunc: func(context.Context, string) error { return nil },
+		RespawnFunc: func(_ context.Context, id string) error {
+			f.giveProcess(id)
+			return nil
+		},
 		JobExistsFunc: func(id string) (bool, error) {
 			return f.jobs[id], nil
 		},
@@ -88,8 +96,24 @@ func newFixture(t *testing.T) *fixture {
 		return time.Time{}, errTest
 	}}
 	f.m = New(slog.New(slog.NewJSONHandler(io.Discard, nil)), f.store, f.claude, f.procs, f.stateDir)
-	f.m.now = testNow
+	f.clock = testNow()
+	f.m.now = func() time.Time { return f.clock }
+	f.m.sleep = func(_ context.Context, d time.Duration) error {
+		f.sleeps = append(f.sleeps, d)
+		f.clock = f.clock.Add(d)
+		return nil
+	}
 	return f
+}
+
+// giveProcess makes Claude Code list session id with a process, as a
+// respawn does.
+func (f *fixture) giveProcess(id string) {
+	for i := range f.sessions {
+		if f.sessions[i].ID == id {
+			f.sessions[i].PID, f.sessions[i].Status = listedPID, "idle"
+		}
+	}
 }
 
 // add adds workspace id under /cfg/workspaces.
@@ -119,6 +143,21 @@ const listedPID = 4242
 func (f *fixture) listed(id, dir string) {
 	f.sessions = append(f.sessions, claude.Session{ID: id, Cwd: dir, PID: listedPID, Status: "idle", StartedAt: testNow().Add(-time.Minute)})
 	f.starts[listedPID] = testNow().Add(-time.Minute)
+}
+
+// stopped makes Claude Code list a session in dir with no process,
+// created long enough ago that it isn't starting.
+func (f *fixture) stopped(id, dir string) {
+	f.sessions = append(f.sessions, claude.Session{ID: id, Cwd: dir, StartedAt: testNow().Add(-time.Hour)})
+}
+
+// respawned is the session ids passed to claude respawn.
+func (f *fixture) respawned() []string {
+	var ids []string
+	for _, c := range f.claude.RespawnCalls() {
+		ids = append(ids, c.ID)
+	}
+	return ids
 }
 
 // removedIDs is the ids of the workspaces removed through the store.
@@ -160,5 +199,16 @@ func TestManager_Warnings(t *testing.T) {
 		got := f.m.Warnings()
 		got[0] = "changed"
 		assert.Equal(t, []string{"one 1", "two"}, f.m.Warnings())
+	})
+}
+
+func TestSleep(t *testing.T) {
+	t.Run("returns after the duration", func(t *testing.T) {
+		assert.NoError(t, sleep(t.Context(), 0))
+	})
+	t.Run("returns when the context is done", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		assert.ErrorIs(t, sleep(ctx, time.Hour), context.Canceled)
 	})
 }

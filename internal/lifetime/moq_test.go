@@ -392,6 +392,9 @@ var _ claudeClient = &claudeClientMock{}
 //			RemoveFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the Remove method")
 //			},
+//			RespawnFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the Respawn method")
+//			},
 //			StopFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the Stop method")
 //			},
@@ -413,6 +416,9 @@ type claudeClientMock struct {
 
 	// RemoveFunc mocks the Remove method.
 	RemoveFunc func(ctx context.Context, id string) error
+
+	// RespawnFunc mocks the Respawn method.
+	RespawnFunc func(ctx context.Context, id string) error
 
 	// StopFunc mocks the Stop method.
 	StopFunc func(ctx context.Context, id string) error
@@ -443,6 +449,13 @@ type claudeClientMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// Respawn holds details about calls to the Respawn method.
+		Respawn []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
 		// Stop holds details about calls to the Stop method.
 		Stop []struct {
 			// Ctx is the ctx argument value.
@@ -455,6 +468,7 @@ type claudeClientMock struct {
 	lockDaemonStatus sync.RWMutex
 	lockJobExists    sync.RWMutex
 	lockRemove       sync.RWMutex
+	lockRespawn      sync.RWMutex
 	lockStop         sync.RWMutex
 }
 
@@ -591,6 +605,42 @@ func (mock *claudeClientMock) RemoveCalls() []struct {
 	mock.lockRemove.RLock()
 	calls = mock.calls.Remove
 	mock.lockRemove.RUnlock()
+	return calls
+}
+
+// Respawn calls RespawnFunc.
+func (mock *claudeClientMock) Respawn(ctx context.Context, id string) error {
+	if mock.RespawnFunc == nil {
+		panic("claudeClientMock.RespawnFunc: method is nil but claudeClient.Respawn was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockRespawn.Lock()
+	mock.calls.Respawn = append(mock.calls.Respawn, callInfo)
+	mock.lockRespawn.Unlock()
+	return mock.RespawnFunc(ctx, id)
+}
+
+// RespawnCalls gets all the calls that were made to Respawn.
+// Check the length with:
+//
+//	len(mockedclaudeClient.RespawnCalls())
+func (mock *claudeClientMock) RespawnCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockRespawn.RLock()
+	calls = mock.calls.Respawn
+	mock.lockRespawn.RUnlock()
 	return calls
 }
 

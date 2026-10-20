@@ -41,8 +41,11 @@ CONFIG_DIR/
   cache/               one bare clone per upstream repo (0008)
   workspaces/          one directory per workspace, your repos only (0012)
     CLAUDE.md          tells agents to run `ws llm` (0014)
-  state/<id>/          ws's metadata and session record per workspace (0012, 0015)
+  state/<id>/          ws's records and locks per workspace
 ```
+
+What `ws` keeps under `state/`, and when, is described in
+[Workspace state](state.md).
 
 `CONFIG_DIR` and `config.toml` are created by the first command that needs
 them. The other entries are created by the commands that use them. On

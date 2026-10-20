@@ -1,10 +1,12 @@
 // Package lifetime keeps each workspace exactly as long as its session:
 // it removes workspaces whose session is gone, reads each workspace's
-// session for ws list, and removes workspaces with their sessions for ws
-// rm (ADRs 0015, 0023, 0024, 0025).
+// session for ws list, removes workspaces with their sessions for ws rm,
+// and respawns agents that aren't running for ws restore (ADRs 0015,
+// 0023, 0024, 0025, 0027).
 package lifetime
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -24,10 +26,14 @@ type Manager struct {
 	procs  processReader
 	// stamp is the file whose modification time is when the removal pass
 	// last ran.
-	stamp    string
-	now      func() time.Time
-	mu       sync.Mutex
-	warnings []string
+	stamp string
+	// respawnLock is the file ws restore and ws restart lock while they
+	// respawn sessions.
+	respawnLock string
+	now         func() time.Time
+	sleep       func(ctx context.Context, d time.Duration) error
+	mu          sync.Mutex
+	warnings    []string
 }
 
 // New returns a Manager for the workspaces in store, whose state is under
@@ -35,18 +41,37 @@ type Manager struct {
 // start times with procs.
 func New(log *slog.Logger, store workspaceStore, c claudeClient, procs processReader, stateDir string) *Manager {
 	return &Manager{
-		log:    log,
-		store:  store,
-		claude: c,
-		procs:  procs,
-		stamp:  filepath.Join(stateDir, stampName),
-		now:    time.Now,
+		log:         log,
+		store:       store,
+		claude:      c,
+		procs:       procs,
+		stamp:       filepath.Join(stateDir, stampName),
+		respawnLock: filepath.Join(stateDir, respawnLockName),
+		now:         time.Now,
+		sleep:       sleep,
+	}
+}
+
+// sleep waits for d, or until ctx is done.
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
 }
 
 // stampName is the removal pass's timestamp file in the state directory.
 // It is hidden, so it's never taken for a workspace's state.
 const stampName = ".removal-pass"
+
+// respawnLockName is the respawn lock's file in the state directory, taken
+// by ws restore and ws restart (ADR 0027). It is hidden, so it's never
+// taken for a workspace's state.
+const respawnLockName = ".respawn.lock"
 
 // Kind is what kind of session a workspace has, as ws list shows it.
 type Kind string

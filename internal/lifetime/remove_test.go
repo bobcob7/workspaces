@@ -210,6 +210,18 @@ func TestManager_checkSessionDir(t *testing.T) {
 	})
 }
 
+func TestSessionElsewhere(t *testing.T) {
+	ws := workspace.Workspace{ID: "x"}
+	t.Run("in the directory", func(t *testing.T) {
+		assert.NoError(t, sessionElsewhere(&ws, &claude.Session{ID: "s1", Cwd: "/cfg/workspaces/x/"}, "/cfg/workspaces/x"))
+	})
+	t.Run("in another directory", func(t *testing.T) {
+		err := sessionElsewhere(&ws, &claude.Session{ID: "s1", Cwd: "/Users/me/project"}, "/cfg/workspaces/x")
+		require.ErrorIs(t, err, ErrSessionElsewhere)
+		assert.EqualError(t, err, "the workspace's Claude Code session is in another directory: session s1 is in /Users/me/project, not in workspace x's directory /cfg/workspaces/x; neither was touched")
+	})
+}
+
 func TestManager_removeUnrecorded(t *testing.T) {
 	t.Run("refused while a creation or hand-off holds the lock", func(t *testing.T) {
 		f := newFixture(t)

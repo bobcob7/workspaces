@@ -84,14 +84,19 @@ func (m *Manager) checkSessionDir(ctx context.Context, ws *workspace.Workspace, 
 	if err != nil {
 		return err
 	}
-	for i := range sessions {
-		if sessions[i].ID != id {
-			continue
-		}
-		if got := resolved(sessions[i].Cwd); got != dir {
-			return fmt.Errorf("%w: session %s is in %s, not in workspace %s's directory %s; neither was touched", ErrSessionElsewhere, id, got, ws.ID, dir)
-		}
+	s := findSession(sessions, id)
+	if s == nil {
 		return nil
+	}
+	return sessionElsewhere(ws, s, dir)
+}
+
+// sessionElsewhere fails with ErrSessionElsewhere when the listed session
+// s doesn't run in dir, workspace ws's directory as the deletion guard
+// resolves it.
+func sessionElsewhere(ws *workspace.Workspace, s *claude.Session, dir string) error {
+	if got := resolved(s.Cwd); got != dir {
+		return fmt.Errorf("%w: session %s is in %s, not in workspace %s's directory %s; neither was touched", ErrSessionElsewhere, s.ID, got, ws.ID, dir)
 	}
 	return nil
 }

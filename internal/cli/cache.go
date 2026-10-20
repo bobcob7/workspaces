@@ -535,6 +535,7 @@ func codedDomainError(err error) *cliError {
 		{lifetime.ErrShellRunning, codeShellRunning},
 		{lifetime.ErrBusy, codeWorkspaceBusy},
 		{lifetime.ErrSessionElsewhere, codeSessionMismatch},
+		{lifetime.ErrNotAgent, codeWorkspaceNotFound},
 		{claude.ErrSettingsArg, codeUsage},
 		{claude.ErrNotInstalled, codeClaudeMissing},
 		{claude.ErrUntrusted, codeClaudeUntrusted},

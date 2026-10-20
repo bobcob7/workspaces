@@ -28,6 +28,7 @@ type claudeClient interface {
 	Agents(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error)
 	Stop(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
+	Respawn(ctx context.Context, id string) error
 	JobExists(id string) (bool, error)
 	DaemonStatus(ctx context.Context) (claude.DaemonStatus, error)
 }

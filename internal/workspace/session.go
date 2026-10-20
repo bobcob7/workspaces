@@ -24,9 +24,12 @@ const (
 	SessionClaude SessionKind = "claude"
 )
 
-// Session is a workspace's state/<id>/session record (ADR 0015).
+// Session is a workspace's state/<id>/session record (ADR 0027).
 type Session struct {
-	Kind SessionKind `toml:"kind"`
+	// Version is the record's format version; a record written without
+	// one is version 1.
+	Version int         `toml:"version"`
+	Kind    SessionKind `toml:"kind"`
 	// ClaudeSessionID is the Claude Code session's id; empty for a shell.
 	ClaudeSessionID string    `toml:"claude_session_id"`
 	StartedAt       time.Time `toml:"started_at"`
@@ -38,7 +41,7 @@ func (s *Store) RecordSession(id string, kind SessionKind, claudeSessionID strin
 	if !validID(id) {
 		return fmt.Errorf("%w: %q", ErrNotFound, id)
 	}
-	sess := Session{Kind: kind, ClaudeSessionID: claudeSessionID, StartedAt: s.now().UTC().Truncate(time.Second)}
+	sess := Session{Version: formatVersion, Kind: kind, ClaudeSessionID: claudeSessionID, StartedAt: s.now().UTC().Truncate(time.Second)}
 	if err := writeTOML(s.sessionPath(id), &sess); err != nil {
 		return fmt.Errorf("writing session record for %s: %w", id, err)
 	}
@@ -62,6 +65,12 @@ func (s *Store) Session(id string) (Session, error) {
 	var sess Session
 	meta, err := toml.Decode(string(data), &sess)
 	if err != nil {
+		return Session{}, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	if sess.Version == 0 {
+		sess.Version = formatVersion
+	}
+	if err := checkVersion(sess.Version); err != nil {
 		return Session{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {

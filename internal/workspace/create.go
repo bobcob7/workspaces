@@ -149,7 +149,7 @@ func (s *Store) build(ctx context.Context, id string, opts CreateOptions, target
 	if err := os.Mkdir(building, 0o750); err != nil {
 		return Workspace{}, fmt.Errorf("creating %s: %w", building, err)
 	}
-	ws := Workspace{Version: recordVersion, ID: id, Name: opts.Name, Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second)}
+	ws := Workspace{Version: formatVersion, ID: id, Name: opts.Name, Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second)}
 	for i := range targets {
 		r, err := s.addRepo(ctx, building, &targets[i], opts.Offline)
 		if err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/git"
+	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -757,6 +758,9 @@ func TestCodedDomainError(t *testing.T) {
 	})
 	t.Run("workspace not found", func(t *testing.T) {
 		assert.Equal(t, codeWorkspaceNotFound, codedDomainError(workspace.ErrNotFound).code)
+	})
+	t.Run("not an agent workspace", func(t *testing.T) {
+		assert.Equal(t, codeWorkspaceNotFound, codedDomainError(lifetime.ErrNotAgent).code)
 	})
 	t.Run("workspace exists", func(t *testing.T) {
 		assert.Equal(t, codeWorkspaceExists, codedDomainError(workspace.ErrExists).code)

@@ -46,11 +46,12 @@ type workspaceStore interface {
 }
 
 // lifetimeManager keeps each workspace as long as its session: the
-// removal pass, ws list, and ws rm (ADR 0015).
+// removal pass, ws list, ws rm, and ws restore (ADRs 0015, 0027).
 type lifetimeManager interface {
 	Sweep(ctx context.Context) []lifetime.Removed
 	List(ctx context.Context) (lifetime.Listing, error)
 	Remove(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error)
+	Restore(ctx context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error)
 	Warnings() []string
 }
 

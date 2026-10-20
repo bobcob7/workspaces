@@ -13,7 +13,7 @@ import (
 // sampleRecord is a valid record for workspace id stored at root.
 func sampleRecord(root, id string) Workspace {
 	return Workspace{
-		Version:   recordVersion,
+		Version:   formatVersion,
 		ID:        id,
 		Name:      "Fix Login",
 		Path:      filepath.Join(root, id),
@@ -74,10 +74,20 @@ func TestReadRecord(t *testing.T) {
 		_, err := readRecord(recordIn(t, "version = 1\nid = \"fix-login\"\npath = \"/w/fix-login\"\nextra = 1\n"))
 		assert.ErrorContains(t, err, "unknown key extra")
 	})
-	t.Run("unsupported version", func(t *testing.T) {
+	t.Run("a newer version", func(t *testing.T) {
 		t.Parallel()
 		_, err := readRecord(recordIn(t, "version = 2\nid = \"fix-login\"\npath = \"/w/fix-login\"\n"))
-		assert.ErrorContains(t, err, "unsupported version 2")
+		assert.ErrorContains(t, err, "written by a newer ws (version 2; this ws reads up to 1); upgrade ws")
+	})
+	t.Run("a newer version with keys this ws doesn't know", func(t *testing.T) {
+		t.Parallel()
+		_, err := readRecord(recordIn(t, "version = 2\nid = \"fix-login\"\npath = \"/w/fix-login\"\nextra = 1\n"))
+		assert.ErrorContains(t, err, "newer ws")
+	})
+	t.Run("no version", func(t *testing.T) {
+		t.Parallel()
+		_, err := readRecord(recordIn(t, "id = \"fix-login\"\npath = \"/w/fix-login\"\n"))
+		assert.ErrorContains(t, err, "unsupported version 0")
 	})
 	t.Run("id that doesn't match the directory", func(t *testing.T) {
 		t.Parallel()
@@ -136,5 +146,17 @@ func TestWriteTOML(t *testing.T) {
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err)
 		assert.Empty(t, entries)
+	})
+}
+
+func TestCheckVersion(t *testing.T) {
+	t.Run("known", func(t *testing.T) {
+		assert.NoError(t, checkVersion(1))
+	})
+	t.Run("newer", func(t *testing.T) {
+		assert.ErrorContains(t, checkVersion(3), "written by a newer ws (version 3; this ws reads up to 1); upgrade ws")
+	})
+	t.Run("not a version", func(t *testing.T) {
+		assert.ErrorContains(t, checkVersion(0), "unsupported version 0")
 	})
 }

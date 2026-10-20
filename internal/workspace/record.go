@@ -11,8 +11,9 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// recordVersion is workspace.toml's format version (ADR 0012).
-const recordVersion = 1
+// formatVersion is the newest format version of workspace.toml and the
+// session record that this ws reads and writes (ADR 0027).
+const formatVersion = 1
 
 // Workspace is a workspace's state/<id>/workspace.toml (ADR 0012).
 type Workspace struct {
@@ -66,11 +67,11 @@ func readRecord(path string) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
+	if err := checkVersion(ws.Version); err != nil {
+		return Workspace{}, fmt.Errorf("parsing %s: %w", path, err)
+	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		return Workspace{}, fmt.Errorf("parsing %s: unknown key %s", path, undecoded[0])
-	}
-	if ws.Version != recordVersion {
-		return Workspace{}, fmt.Errorf("parsing %s: unsupported version %d", path, ws.Version)
 	}
 	if want := filepath.Base(filepath.Dir(path)); ws.ID != want {
 		return Workspace{}, fmt.Errorf("parsing %s: id %q doesn't match its directory %q", path, ws.ID, want)
@@ -79,6 +80,19 @@ func readRecord(path string) (Workspace, error) {
 		return Workspace{}, fmt.Errorf("parsing %s: path %q isn't absolute", path, ws.Path)
 	}
 	return ws, nil
+}
+
+// checkVersion accepts a record's version if this ws knows it. A newer one
+// was written by a newer ws, and the workspace is left alone until ws is
+// upgraded (ADR 0027).
+func checkVersion(version int) error {
+	if version > formatVersion {
+		return fmt.Errorf("written by a newer ws (version %d; this ws reads up to %d); upgrade ws", version, formatVersion)
+	}
+	if version < 1 {
+		return fmt.Errorf("unsupported version %d", version)
+	}
+	return nil
 }
 
 // writeRecord writes a workspace.toml through a temp file and a rename, so

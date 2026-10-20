@@ -157,6 +157,24 @@ func TestReader_describe(t *testing.T) {
 	})
 }
 
+func TestStateOf(t *testing.T) {
+	t.Run("working", func(t *testing.T) {
+		assert.Equal(t, StateWorking, stateOf(&claude.Session{PID: 1, Status: "busy"}, testNow()))
+	})
+	t.Run("idle", func(t *testing.T) {
+		assert.Equal(t, StateIdle, stateOf(&claude.Session{PID: 1, Status: "idle"}, testNow()))
+	})
+	t.Run("starting", func(t *testing.T) {
+		assert.Equal(t, StateStarting, stateOf(&claude.Session{StartedAt: testNow().Add(-time.Second)}, testNow()))
+	})
+	t.Run("stopped", func(t *testing.T) {
+		assert.Equal(t, StateStopped, stateOf(&claude.Session{StartedAt: testNow().Add(-time.Minute)}, testNow()))
+	})
+	t.Run("state isn't consulted", func(t *testing.T) {
+		assert.Equal(t, StateStopped, stateOf(&claude.Session{State: claude.StateWorking, StartedAt: testNow().Add(-time.Minute)}, testNow()))
+	})
+}
+
 func TestReader_staleness(t *testing.T) {
 	staleness := func(t *testing.T, f *fixture, s claude.Session) *bool {
 		t.Helper()
