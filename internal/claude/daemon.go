@@ -32,10 +32,11 @@ type DaemonStatus struct {
 	Origin string
 }
 
-// DaemonStatus runs `claude daemon status`. No running service is a
-// DaemonStatus with Running false, not an error.
+// DaemonStatus runs `claude daemon status`, in a process group of its
+// own, as StopDaemon does. No running service is a DaemonStatus with
+// Running false, not an error.
 func (c *Client) DaemonStatus(ctx context.Context) (DaemonStatus, error) {
-	out, err := c.run(ctx, "daemon", "status")
+	out, err := c.runApart(ctx, "daemon", "status")
 	if cmdErr, ok := errors.AsType[*CommandError](err); ok && reportsNotRunning([]byte(cmdErr.Stdout)) {
 		return DaemonStatus{}, nil
 	}
@@ -47,9 +48,11 @@ func (c *Client) DaemonStatus(ctx context.Context) (DaemonStatus, error) {
 
 // StopDaemon stops Claude Code's background service with `claude daemon
 // stop --any --keep-workers`. Running sessions keep running, and each waits
-// about a minute for a new service to reconnect to it (ADR 0018).
+// about a minute for a new service to reconnect to it (ADR 0018). claude
+// runs in a process group of its own, so a stop that has begun ends only
+// with ctx.
 func (c *Client) StopDaemon(ctx context.Context) error {
-	_, err := c.run(ctx, "daemon", "stop", "--any", "--keep-workers")
+	_, err := c.runApart(ctx, "daemon", "stop", "--any", "--keep-workers")
 	return err
 }
 

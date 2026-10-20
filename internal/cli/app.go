@@ -51,6 +51,9 @@ type App struct {
 	claude claudeClient
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
+	// progress is set when stderr is a terminal, where progress may be
+	// shown unless --quiet is set (ADR 0016).
+	progress bool
 	// interactive is set when stdin and stdout are both terminals, so ws
 	// claude can attach to an idle session (ADR 0025).
 	interactive bool
@@ -90,6 +93,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		level:       level,
 		now:         time.Now,
 		indentJSON:  isTerminal(stdout),
+		progress:    isTerminal(stderr),
 		interactive: isTerminal(stdin) && isTerminal(stdout),
 		notify:      signal.Notify,
 		stopNotify:  signal.Stop,

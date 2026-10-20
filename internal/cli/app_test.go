@@ -75,6 +75,9 @@ func stubLifetime() *lifetimeManagerMock {
 		RestoreFunc: func(context.Context, lifetime.RestoreOptions) ([]lifetime.Restored, error) {
 			return nil, nil
 		},
+		RestartFunc: func(context.Context, lifetime.RestartOptions) ([]lifetime.Restarted, error) {
+			return nil, nil
+		},
 		WarningsFunc: func() []string { return nil },
 	}
 }
@@ -570,7 +573,11 @@ func stoppedAgentJSON(id, cwd string) string {
 // claude 2.1.303: `agents` prints dir/agents.json, `stop`, `rm`, and
 // `respawn` append "<command> <id>" to dir/calls, `respawn` then replaces
 // dir/agents.json with dir/respawned.json if there is one, and `--bg`
-// starts the session in dir/next-id.
+// starts the session in dir/next-id. The background service's pid is in
+// dir/daemon-pid while one runs: `daemon stop` and `daemon run` append
+// their command to dir/calls, `daemon stop` fails if dir/fail-stop exists
+// and otherwise removes the pid, `daemon run` writes its own pid and
+// exits, and `daemon status` prints the pid, or fails without one.
 func fakeLifetimeClaude(t *testing.T, dir string) string {
 	t.Helper()
 	path := filepath.Join(dir, "claude")
@@ -582,6 +589,12 @@ func fakeLifetimeClaude(t *testing.T, dir string) string {
 		`stop|rm) echo "$1 $2" >> "$dir/calls" ;;` + "\n" +
 		`respawn) echo "$1 $2" >> "$dir/calls"; if [ -f "$dir/respawned.json" ]; then cp "$dir/respawned.json" "$dir/agents.json"; fi ;;` + "\n" +
 		`--bg) printf 'backgrounded · %s · x\n' "$(cat "$dir/next-id")" ;;` + "\n" +
+		`daemon) case "$2" in` + "\n" +
+		`  stop) echo "$1 $2" >> "$dir/calls"; if [ -f "$dir/fail-stop" ]; then echo "stop failed" >&2; exit 1; fi; rm -f "$dir/daemon-pid" ;;` + "\n" +
+		`  run) echo "$1 $2" >> "$dir/calls"; echo $$ > "$dir/daemon-pid.tmp"; mv "$dir/daemon-pid.tmp" "$dir/daemon-pid" ;;` + "\n" +
+		`  status) [ -f "$dir/daemon-pid" ] || exit 1; printf 'pid:     %s\nversion: 2.1.303\nuptime:  1s\norigin:  foreground\n' "$(cat "$dir/daemon-pid")" ;;` + "\n" +
+		`  *) exit 1 ;;` + "\n" +
+		`  esac ;;` + "\n" +
 		`*) exit 1 ;;` + "\n" +
 		"esac\n"
 	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))

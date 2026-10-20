@@ -60,6 +60,17 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	return c.exec(ctx, "", args)
 }
 
+// runApart is run with claude in a process group of its own, so that a
+// Ctrl-C at ws's terminal doesn't interrupt it: only ctx ending does. ws
+// restart relies on this to finish replacing the background service and
+// each respawn it began (ADR 0018).
+func (c *Client) runApart(ctx context.Context, args ...string) ([]byte, error) {
+	if err := c.ensureVersion(ctx); err != nil {
+		return nil, err
+	}
+	return c.execWith(ctx, "", args, &syscall.SysProcAttr{Setpgid: true})
+}
+
 // Check checks, once per Client, that claude is on PATH and new enough
 // (ADR 0024), so a command can fail before doing work that needs it.
 func (c *Client) Check(ctx context.Context) error {

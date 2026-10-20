@@ -192,20 +192,21 @@ func (m *Manager) restoreOne(ctx context.Context, r *Restored, sessions []claude
 		r.Err = fmt.Errorf("respawning Claude Code session %s: %w", s.ID, err)
 	default:
 		r.Respawned = true
-		m.awaitProcess(ctx, s.ID)
+		m.awaitProcess(ctx, s.ID, 0)
 	}
 }
 
 // awaitProcess waits, for up to respawnWait, until Claude Code lists the
-// respawned session id with a process, so that a ws restore run right
-// after this one sees it running (ADR 0027). Running out of time is a
-// warning, not a failure.
-func (m *Manager) awaitProcess(ctx context.Context, id string) {
+// respawned session id with a process other than oldPID, the one it had
+// before the respawn (0 for none), so that a ws restore or ws restart run
+// right after this one sees it running (ADR 0027). Running out of time is
+// a warning, not a failure.
+func (m *Manager) awaitProcess(ctx context.Context, id string, oldPID int) {
 	deadline := m.now().Add(respawnWait)
 	var lastErr error
 	for {
 		sessions, err := m.claude.Agents(ctx, claude.ListOptions{All: true})
-		if s := findSession(sessions, id); err == nil && s != nil && s.HasProcess() {
+		if s := findSession(sessions, id); err == nil && s != nil && s.HasProcess() && s.PID != oldPID {
 			return
 		}
 		if err != nil {

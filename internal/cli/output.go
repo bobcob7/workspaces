@@ -47,3 +47,9 @@ func isTerminal(stream any) bool {
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
+
+// showProgress reports whether progress goes to stderr: only when it is a
+// terminal and --quiet isn't set (ADR 0016).
+func (a *App) showProgress() bool {
+	return a.progress && !a.global.quiet
+}

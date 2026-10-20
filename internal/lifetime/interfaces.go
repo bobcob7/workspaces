@@ -31,6 +31,8 @@ type claudeClient interface {
 	Respawn(ctx context.Context, id string) error
 	JobExists(id string) (bool, error)
 	DaemonStatus(ctx context.Context) (claude.DaemonStatus, error)
+	StopDaemon(ctx context.Context) error
+	RunDaemon(ctx context.Context) (int, error)
 }
 
 // processReader reads when a process started from the operating system

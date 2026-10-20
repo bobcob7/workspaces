@@ -41,6 +41,10 @@ func fakeClaude(t *testing.T, body string) string {
 // to $ARGS.
 const recordArgs = `printf '%s\n' "$@" > "$ARGS"`
 
+// recordGroup is a fake claude body that writes its process group to the
+// file argsFile reads.
+const recordGroup = `ps -o pgid= -p $$ | tr -d ' ' > "$ARGS"`
+
 // argsFile returns an environment that makes recordArgs write to a file,
 // and a function that reads the recorded arguments.
 func argsFile(t *testing.T) (environ []string, read func() []string) {

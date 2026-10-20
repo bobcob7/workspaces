@@ -395,8 +395,14 @@ var _ claudeClient = &claudeClientMock{}
 //			RespawnFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the Respawn method")
 //			},
+//			RunDaemonFunc: func(ctx context.Context) (int, error) {
+//				panic("mock out the RunDaemon method")
+//			},
 //			StopFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the Stop method")
+//			},
+//			StopDaemonFunc: func(ctx context.Context) error {
+//				panic("mock out the StopDaemon method")
 //			},
 //		}
 //
@@ -420,8 +426,14 @@ type claudeClientMock struct {
 	// RespawnFunc mocks the Respawn method.
 	RespawnFunc func(ctx context.Context, id string) error
 
+	// RunDaemonFunc mocks the RunDaemon method.
+	RunDaemonFunc func(ctx context.Context) (int, error)
+
 	// StopFunc mocks the Stop method.
 	StopFunc func(ctx context.Context, id string) error
+
+	// StopDaemonFunc mocks the StopDaemon method.
+	StopDaemonFunc func(ctx context.Context) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -456,6 +468,11 @@ type claudeClientMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// RunDaemon holds details about calls to the RunDaemon method.
+		RunDaemon []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// Stop holds details about calls to the Stop method.
 		Stop []struct {
 			// Ctx is the ctx argument value.
@@ -463,13 +480,20 @@ type claudeClientMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// StopDaemon holds details about calls to the StopDaemon method.
+		StopDaemon []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 	}
 	lockAgents       sync.RWMutex
 	lockDaemonStatus sync.RWMutex
 	lockJobExists    sync.RWMutex
 	lockRemove       sync.RWMutex
 	lockRespawn      sync.RWMutex
+	lockRunDaemon    sync.RWMutex
 	lockStop         sync.RWMutex
+	lockStopDaemon   sync.RWMutex
 }
 
 // Agents calls AgentsFunc.
@@ -644,6 +668,38 @@ func (mock *claudeClientMock) RespawnCalls() []struct {
 	return calls
 }
 
+// RunDaemon calls RunDaemonFunc.
+func (mock *claudeClientMock) RunDaemon(ctx context.Context) (int, error) {
+	if mock.RunDaemonFunc == nil {
+		panic("claudeClientMock.RunDaemonFunc: method is nil but claudeClient.RunDaemon was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockRunDaemon.Lock()
+	mock.calls.RunDaemon = append(mock.calls.RunDaemon, callInfo)
+	mock.lockRunDaemon.Unlock()
+	return mock.RunDaemonFunc(ctx)
+}
+
+// RunDaemonCalls gets all the calls that were made to RunDaemon.
+// Check the length with:
+//
+//	len(mockedclaudeClient.RunDaemonCalls())
+func (mock *claudeClientMock) RunDaemonCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockRunDaemon.RLock()
+	calls = mock.calls.RunDaemon
+	mock.lockRunDaemon.RUnlock()
+	return calls
+}
+
 // Stop calls StopFunc.
 func (mock *claudeClientMock) Stop(ctx context.Context, id string) error {
 	if mock.StopFunc == nil {
@@ -677,6 +733,38 @@ func (mock *claudeClientMock) StopCalls() []struct {
 	mock.lockStop.RLock()
 	calls = mock.calls.Stop
 	mock.lockStop.RUnlock()
+	return calls
+}
+
+// StopDaemon calls StopDaemonFunc.
+func (mock *claudeClientMock) StopDaemon(ctx context.Context) error {
+	if mock.StopDaemonFunc == nil {
+		panic("claudeClientMock.StopDaemonFunc: method is nil but claudeClient.StopDaemon was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockStopDaemon.Lock()
+	mock.calls.StopDaemon = append(mock.calls.StopDaemon, callInfo)
+	mock.lockStopDaemon.Unlock()
+	return mock.StopDaemonFunc(ctx)
+}
+
+// StopDaemonCalls gets all the calls that were made to StopDaemon.
+// Check the length with:
+//
+//	len(mockedclaudeClient.StopDaemonCalls())
+func (mock *claudeClientMock) StopDaemonCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockStopDaemon.RLock()
+	calls = mock.calls.StopDaemon
+	mock.lockStopDaemon.RUnlock()
 	return calls
 }
 

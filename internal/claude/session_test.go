@@ -3,6 +3,8 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,10 +33,30 @@ func TestClient_Remove(t *testing.T) {
 
 func TestClient_Respawn(t *testing.T) {
 	t.Parallel()
-	environ, args := argsFile(t)
-	c := New(discardLogger(), fakeClaude(t, recordArgs+`; echo "respawned $2"`), environ)
-	require.NoError(t, c.Respawn(t.Context(), "f381de70"))
-	assert.Equal(t, []string{"respawn", "f381de70"}, args())
+	t.Run("respawns the session", func(t *testing.T) {
+		t.Parallel()
+		environ, args := argsFile(t)
+		c := New(discardLogger(), fakeClaude(t, recordArgs+`; echo "respawned $2"`), environ)
+		require.NoError(t, c.Respawn(t.Context(), "f381de70"))
+		assert.Equal(t, []string{"respawn", "f381de70"}, args())
+	})
+	t.Run("runs in a process group of its own", func(t *testing.T) {
+		t.Parallel()
+		environ, args := argsFile(t)
+		c := New(discardLogger(), fakeClaude(t, recordGroup), environ)
+		require.NoError(t, c.Respawn(t.Context(), "f381de70"))
+		assert.NotEqual(t, strconv.Itoa(syscall.Getpgrp()), args()[0])
+	})
+	t.Run("unknown session", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, noJob), nil)
+		assert.ErrorIs(t, c.Respawn(t.Context(), "f381de70"), ErrNoSession)
+	})
+	t.Run("rejects an id that is an option", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, "exit 0"), nil)
+		assert.ErrorIs(t, c.Respawn(t.Context(), "--all"), errBadID)
+	})
 }
 
 func TestClient_sessionCommand(t *testing.T) {

@@ -1,6 +1,6 @@
 # 0027. `ws restore` and `ws restart` share one respawn lock, and a record from a newer `ws` is left alone
 
-- Status: Accepted (2026-10-20)
+- Status: Accepted (2026-10-20); the no-agent exception applies only to `ws restore`, since `ws restart` always takes the respawn lock (2026-10-20)
 - Date: 2026-10-20
 
 ## Context

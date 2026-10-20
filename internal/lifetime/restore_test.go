@@ -443,7 +443,7 @@ func TestManager_awaitProcess(t *testing.T) {
 	t.Run("returns at once when the session has a process", func(t *testing.T) {
 		f := newFixture(t)
 		f.listed("s1", "/cfg/workspaces/a")
-		f.m.awaitProcess(t.Context(), "s1")
+		f.m.awaitProcess(t.Context(), "s1", 0)
 		assert.Len(t, f.claude.AgentsCalls(), 1)
 		assert.Empty(t, f.sleeps)
 		assert.Empty(t, f.m.Warnings())
@@ -457,35 +457,48 @@ func TestManager_awaitProcess(t *testing.T) {
 			}
 			return f.sessions, nil
 		}
-		f.m.awaitProcess(t.Context(), "s1")
+		f.m.awaitProcess(t.Context(), "s1", 0)
 		assert.Len(t, f.claude.AgentsCalls(), 3)
 		assert.Equal(t, []time.Duration{respawnPoll, respawnPoll}, f.sleeps)
+		assert.Empty(t, f.m.Warnings())
+	})
+	t.Run("waits for a process other than the old one", func(t *testing.T) {
+		f := newFixture(t)
+		f.listed("s1", "/cfg/workspaces/a")
+		f.claude.AgentsFunc = func(context.Context, claude.ListOptions) ([]claude.Session, error) {
+			if len(f.sleeps) == 1 {
+				f.giveProcess("s1")
+			}
+			return f.sessions, nil
+		}
+		f.m.awaitProcess(t.Context(), "s1", listedPID)
+		assert.Len(t, f.claude.AgentsCalls(), 2)
 		assert.Empty(t, f.m.Warnings())
 	})
 	t.Run("warns and moves on when the process never shows", func(t *testing.T) {
 		f := newFixture(t)
 		f.stopped("s1", "/cfg/workspaces/a")
-		f.m.awaitProcess(t.Context(), "s1")
+		f.m.awaitProcess(t.Context(), "s1", 0)
 		assert.Equal(t, testNow().Add(respawnWait), f.clock)
 		assert.Len(t, f.sleeps, int(respawnWait/respawnPoll))
 		assert.Equal(t, []string{"Claude Code didn't list session s1 with a process within 10s of respawning it; another ws restore may respawn it again"}, f.m.Warnings())
 	})
 	t.Run("an unlisted session is waited for too", func(t *testing.T) {
 		f := newFixture(t)
-		f.m.awaitProcess(t.Context(), "s1")
+		f.m.awaitProcess(t.Context(), "s1", 0)
 		assert.Len(t, f.m.Warnings(), 1)
 	})
 	t.Run("a failing listing keeps waiting, and the warning says why", func(t *testing.T) {
 		f := newFixture(t)
 		f.claude.AgentsFunc = func(context.Context, claude.ListOptions) ([]claude.Session, error) { return nil, errTest }
-		f.m.awaitProcess(t.Context(), "s1")
+		f.m.awaitProcess(t.Context(), "s1", 0)
 		assert.Len(t, f.sleeps, int(respawnWait/respawnPoll))
 		assert.Equal(t, []string{"Claude Code didn't list session s1 with a process within 10s of respawning it; another ws restore may respawn it again (last listing failed: boom)"}, f.m.Warnings())
 	})
 	t.Run("stops when the context is done", func(t *testing.T) {
 		f := newFixture(t)
 		f.m.sleep = func(context.Context, time.Duration) error { return context.Canceled }
-		f.m.awaitProcess(t.Context(), "s1")
+		f.m.awaitProcess(t.Context(), "s1", 0)
 		assert.Len(t, f.claude.AgentsCalls(), 1)
 		assert.Empty(t, f.m.Warnings())
 	})

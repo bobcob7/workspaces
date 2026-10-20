@@ -1,8 +1,9 @@
 // Package lifetime keeps each workspace exactly as long as its session:
 // it removes workspaces whose session is gone, reads each workspace's
 // session for ws list, removes workspaces with their sessions for ws rm,
-// and respawns agents that aren't running for ws restore (ADRs 0015,
-// 0023, 0024, 0025, 0027).
+// respawns agents that aren't running for ws restore, and replaces Claude
+// Code's background service and respawns every running session for ws
+// restart (ADRs 0015, 0018, 0023, 0024, 0025, 0027).
 package lifetime
 
 import (

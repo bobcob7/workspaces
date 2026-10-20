@@ -175,7 +175,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   [0027](docs/adrs/0027-respawn-lock-and-record-versions.md)):
   respawns, one at a time, each stopped session that Claude Code lists in
   its own workspace
-- [ ] **`ws restart`**, under the respawn lock
+- [x] **`ws restart`**, under the respawn lock
   ([0018](docs/adrs/0018-restart-claude-daemon.md),
   [0027](docs/adrs/0027-respawn-lock-and-record-versions.md))
 - [ ] **`ws llm`**: embedded guides with the coverage test, and

@@ -32,9 +32,15 @@ func (c *Client) Remove(ctx context.Context, id string) error {
 // Respawn restarts a background session, running or stopped, with `claude
 // respawn`, resuming its conversation in a new process. It starts Claude
 // Code's background service, with this Client's environment, if none is
-// running (ADR 0018). An unknown id fails with ErrNoSession.
+// running (ADR 0018). claude runs in a process group of its own, so a
+// respawn that has begun ends only with ctx. An unknown id fails with
+// ErrNoSession.
 func (c *Client) Respawn(ctx context.Context, id string) error {
-	return c.sessionCommand(ctx, "respawn", id)
+	if !validID(id) {
+		return fmt.Errorf("%w: %q", errBadID, id)
+	}
+	_, err := c.runApart(ctx, "respawn", id)
+	return err
 }
 
 // sessionCommand runs `claude <command> <id>`. Its exit status decides

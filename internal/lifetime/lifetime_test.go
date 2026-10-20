@@ -5,12 +5,16 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -40,6 +44,9 @@ type fixture struct {
 	// background service's, which started an hour before testNow.
 	starts   map[int]time.Time
 	stateDir string
+	// service is the running background service's pid, servicePID until
+	// the fixture's claude stops it, or 0 for none.
+	service int
 	// clock is the Manager's now, testNow until sleeps advance it.
 	clock time.Time
 	// sleeps is every wait the Manager made, which advance clock.
@@ -48,6 +55,9 @@ type fixture struct {
 
 // servicePID is the fixture's background service process.
 const servicePID = 49096
+
+// newServicePID is the service process `claude daemon run` starts.
+const newServicePID = 51515
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
@@ -58,6 +68,7 @@ func newFixture(t *testing.T) *fixture {
 		jobs:      map[string]bool{},
 		starts:    map[int]time.Time{servicePID: testNow().Add(-time.Hour)},
 		stateDir:  t.TempDir(),
+		service:   servicePID,
 	}
 	f.store = &workspaceStoreMock{
 		CleanLeftoversFunc: func() []string { return nil },
@@ -86,7 +97,18 @@ func newFixture(t *testing.T) *fixture {
 			return f.jobs[id], nil
 		},
 		DaemonStatusFunc: func(context.Context) (claude.DaemonStatus, error) {
-			return claude.DaemonStatus{Running: true, PID: servicePID, Uptime: time.Hour}, nil
+			if f.service == 0 {
+				return claude.DaemonStatus{}, nil
+			}
+			return claude.DaemonStatus{Running: true, PID: f.service, Uptime: time.Hour}, nil
+		},
+		StopDaemonFunc: func(context.Context) error {
+			f.service = 0
+			return nil
+		},
+		RunDaemonFunc: func(context.Context) (int, error) {
+			f.service = newServicePID
+			return newServicePID, nil
 		},
 	}
 	f.procs = &processReaderMock{StartTimeFunc: func(pid int) (time.Time, error) {
@@ -106,12 +128,12 @@ func newFixture(t *testing.T) *fixture {
 	return f
 }
 
-// giveProcess makes Claude Code list session id with a process, as a
-// respawn does.
+// giveProcess makes Claude Code list session id with a new process,
+// respawnedPID, idle, as a respawn does.
 func (f *fixture) giveProcess(id string) {
 	for i := range f.sessions {
 		if f.sessions[i].ID == id {
-			f.sessions[i].PID, f.sessions[i].Status = listedPID, "idle"
+			f.sessions[i].PID, f.sessions[i].Status = respawnedPID, "idle"
 		}
 	}
 }
@@ -138,11 +160,46 @@ func (f *fixture) shell(id string) workspace.Workspace {
 // listedPID is the process of every session listed.
 const listedPID = 4242
 
+// respawnedPID is the process a respawn gives a session.
+const respawnedPID = 5151
+
 // listed makes Claude Code list a session with a process in dir, started
 // after the background service.
 func (f *fixture) listed(id, dir string) {
 	f.sessions = append(f.sessions, claude.Session{ID: id, Cwd: dir, PID: listedPID, Status: "idle", StartedAt: testNow().Add(-time.Minute)})
 	f.starts[listedPID] = testNow().Add(-time.Minute)
+}
+
+// working makes Claude Code list a session with a process in dir, in the
+// middle of a turn.
+func (f *fixture) working(id, dir string) {
+	f.listed(id, dir)
+	f.sessions[len(f.sessions)-1].Status = "busy"
+}
+
+// setStatus sets the status of listed session id.
+func (f *fixture) setStatus(id, status string) {
+	for i := range f.sessions {
+		if f.sessions[i].ID == id {
+			f.sessions[i].Status = status
+		}
+	}
+}
+
+// unlist makes Claude Code no longer list session id.
+func (f *fixture) unlist(id string) {
+	f.sessions = slices.DeleteFunc(f.sessions, func(s claude.Session) bool { return s.ID == id })
+}
+
+// respawnLocked reports whether the respawn lock is held.
+func (f *fixture) respawnLocked(t *testing.T) bool {
+	t.Helper()
+	unlock, ok, err := lockfile.TryExclusive(filepath.Join(f.stateDir, respawnLockName))
+	require.NoError(t, err)
+	if ok {
+		unlock()
+	}
+	return !ok
 }
 
 // stopped makes Claude Code list a session in dir with no process,

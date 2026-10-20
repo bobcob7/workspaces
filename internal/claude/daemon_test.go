@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -58,6 +59,14 @@ func TestClient_DaemonStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, st.Running)
 	})
+	t.Run("runs in a process group of its own", func(t *testing.T) {
+		t.Parallel()
+		environ, args := argsFile(t)
+		c := New(discardLogger(), fakeClaude(t, recordGroup+"; printf '%s' '"+daemonStatusOutput+"'"), environ)
+		_, err := c.DaemonStatus(t.Context())
+		require.NoError(t, err)
+		assert.NotEqual(t, strconv.Itoa(syscall.Getpgrp()), args()[0])
+	})
 	t.Run("failure that mentions not running", func(t *testing.T) {
 		t.Parallel()
 		c := New(discardLogger(), fakeClaude(t, "echo 'error: keychain not running' >&2; exit 1"), nil)
@@ -83,6 +92,13 @@ func TestClient_StopDaemon(t *testing.T) {
 		c := New(discardLogger(), fakeClaude(t, recordArgs+"; echo stopped"), environ)
 		require.NoError(t, c.StopDaemon(t.Context()))
 		assert.Equal(t, []string{"daemon", "stop", "--any", "--keep-workers"}, args())
+	})
+	t.Run("runs in a process group of its own", func(t *testing.T) {
+		t.Parallel()
+		environ, args := argsFile(t)
+		c := New(discardLogger(), fakeClaude(t, recordGroup), environ)
+		require.NoError(t, c.StopDaemon(t.Context()))
+		assert.NotEqual(t, strconv.Itoa(syscall.Getpgrp()), args()[0])
 	})
 	t.Run("failure", func(t *testing.T) {
 		t.Parallel()

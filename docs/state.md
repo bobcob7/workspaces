@@ -72,7 +72,9 @@ workspace:
   respawn has shown up. For `ws restart --no-wait`, that's the last idle
   session's respawn.
 - A second run waits for it; Ctrl-C stops the wait.
-- A dry run, or a run that involves no agent workspace, doesn't take it.
+- A `ws restore` dry run, or one that involves no agent workspace, doesn't
+  take it. `ws restart` always takes it, since it replaces the background
+  service even when no session runs.
 
 **Checking a lock** takes a shared lock for a moment, without waiting and
 without creating the file or its directory
@@ -169,9 +171,10 @@ then `state/<id>/`.
   session that Claude Code lists in its own workspace, one at a time,
   waiting up to 10 s for each to show a process ([ws restore](tools/ws-restore.md)).
 - **`ws restart`**: takes the respawn lock, then replaces the background
-  service and respawns sessions
-  ([0018](adrs/0018-restart-claude-daemon.md)). After each respawn it waits
-  as `ws restore` does.
+  service and respawns every background session that has a process, `ws`'s
+  or not ([0018](adrs/0018-restart-claude-daemon.md)). After each respawn it
+  waits as `ws restore` does. It reads session records only to show each
+  session's workspace, and changes no record.
 - **`ws list`**: runs the pass, then shows what remains. An agent is
   `stale` when its process started before the background service's
   ([0026](adrs/0026-removal-pass-timing.md)).

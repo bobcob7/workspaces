@@ -542,6 +542,7 @@ func codedDomainError(err error) *cliError {
 		{claude.ErrTooOld, codeClaudeFailed},
 		{claude.ErrNoSession, codeClaudeFailed},
 		{claude.ErrUnexpectedOutput, codeClaudeFailed},
+		{lifetime.ErrServiceFailed, codeClaudeFailed},
 	} {
 		if errors.Is(err, m.target) {
 			return newError(m.code, err)

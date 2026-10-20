@@ -965,6 +965,9 @@ var _ lifetimeManager = &lifetimeManagerMock{}
 //			RemoveFunc: func(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error) {
 //				panic("mock out the Remove method")
 //			},
+//			RestartFunc: func(ctx context.Context, opts lifetime.RestartOptions) ([]lifetime.Restarted, error) {
+//				panic("mock out the Restart method")
+//			},
 //			RestoreFunc: func(ctx context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error) {
 //				panic("mock out the Restore method")
 //			},
@@ -986,6 +989,9 @@ type lifetimeManagerMock struct {
 
 	// RemoveFunc mocks the Remove method.
 	RemoveFunc func(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error)
+
+	// RestartFunc mocks the Restart method.
+	RestartFunc func(ctx context.Context, opts lifetime.RestartOptions) ([]lifetime.Restarted, error)
 
 	// RestoreFunc mocks the Restore method.
 	RestoreFunc func(ctx context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error)
@@ -1012,6 +1018,13 @@ type lifetimeManagerMock struct {
 			// DryRun is the dryRun argument value.
 			DryRun bool
 		}
+		// Restart holds details about calls to the Restart method.
+		Restart []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Opts is the opts argument value.
+			Opts lifetime.RestartOptions
+		}
 		// Restore holds details about calls to the Restore method.
 		Restore []struct {
 			// Ctx is the ctx argument value.
@@ -1030,6 +1043,7 @@ type lifetimeManagerMock struct {
 	}
 	lockList     sync.RWMutex
 	lockRemove   sync.RWMutex
+	lockRestart  sync.RWMutex
 	lockRestore  sync.RWMutex
 	lockSweep    sync.RWMutex
 	lockWarnings sync.RWMutex
@@ -1104,6 +1118,42 @@ func (mock *lifetimeManagerMock) RemoveCalls() []struct {
 	mock.lockRemove.RLock()
 	calls = mock.calls.Remove
 	mock.lockRemove.RUnlock()
+	return calls
+}
+
+// Restart calls RestartFunc.
+func (mock *lifetimeManagerMock) Restart(ctx context.Context, opts lifetime.RestartOptions) ([]lifetime.Restarted, error) {
+	if mock.RestartFunc == nil {
+		panic("lifetimeManagerMock.RestartFunc: method is nil but lifetimeManager.Restart was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Opts lifetime.RestartOptions
+	}{
+		Ctx:  ctx,
+		Opts: opts,
+	}
+	mock.lockRestart.Lock()
+	mock.calls.Restart = append(mock.calls.Restart, callInfo)
+	mock.lockRestart.Unlock()
+	return mock.RestartFunc(ctx, opts)
+}
+
+// RestartCalls gets all the calls that were made to Restart.
+// Check the length with:
+//
+//	len(mockedlifetimeManager.RestartCalls())
+func (mock *lifetimeManagerMock) RestartCalls() []struct {
+	Ctx  context.Context
+	Opts lifetime.RestartOptions
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Opts lifetime.RestartOptions
+	}
+	mock.lockRestart.RLock()
+	calls = mock.calls.Restart
+	mock.lockRestart.RUnlock()
 	return calls
 }
 
