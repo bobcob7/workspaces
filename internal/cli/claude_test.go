@@ -168,8 +168,12 @@ func TestApp_newClaudeCmd(t *testing.T) {
 		assertFlag(t, cmd, "name", "")
 		assertFlag(t, cmd, "offline", "false")
 	})
-	t.Run("needs a spec before --", func(t *testing.T) {
+	t.Run("accepts no spec before --, for an empty workspace", func(t *testing.T) {
 		cmd, args := newCmd(t, "--", "a prompt")
+		assert.NoError(t, cmd.Args(cmd, args))
+	})
+	t.Run("refuses --settings without a spec", func(t *testing.T) {
+		cmd, args := newCmd(t, "--", "--settings", "{}")
 		requireUsageError(t, cmd.Args(cmd, args))
 	})
 	t.Run("refuses --settings after --", func(t *testing.T) {
@@ -368,6 +372,20 @@ func TestApp_runClaude(t *testing.T) {
 		assert.Contains(t, string(session), `claude_session_id = "e8cdf5d8"`)
 		assert.DirExists(t, filepath.Join(wsPath, "n", ".git"))
 		takeLock(t, filepath.Join(e.paths.State, "try-it", "lock")).Unlock()
+	})
+	t.Run("end to end: no specs starts the session in an empty workspace", func(t *testing.T) {
+		t.Parallel()
+		e := newClaudeE2E(t, `printf 'backgrounded · e8cdf5d8 · notes\n'`)
+		code := e.app.Run(t.Context(), []string{"--json", "claude", "--name", "notes", "--", "draft notes"})
+		require.Equal(t, 0, code, "stderr: %s", e.stderr.String())
+		var res claudeResult
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &res))
+		assert.Equal(t, "e8cdf5d8", res.Session)
+		assert.Empty(t, res.Repos)
+		assert.Contains(t, e.stdout.String(), `"repos":[]`)
+		entries, err := os.ReadDir(filepath.Join(e.paths.Workspaces, "notes"))
+		require.NoError(t, err)
+		assert.Empty(t, entries)
 	})
 	t.Run("end to end: an untrusted workspace leaves nothing", func(t *testing.T) {
 		t.Parallel()
@@ -610,9 +628,9 @@ func TestSpecsBeforeDash(t *testing.T) {
 		cmd, args := parse(t, "buff-bear", "--", "prompt")
 		assert.NoError(t, specsBeforeDash(cmd, args))
 	})
-	t.Run("rejects nothing", func(t *testing.T) {
+	t.Run("accepts nothing, for an empty workspace", func(t *testing.T) {
 		cmd, args := parse(t)
-		requireUsageError(t, specsBeforeDash(cmd, args))
+		assert.NoError(t, specsBeforeDash(cmd, args))
 	})
 	t.Run("rejects an invalid spec", func(t *testing.T) {
 		cmd, args := parse(t, "buff-bear@", "--", "prompt")
@@ -622,11 +640,9 @@ func TestSpecsBeforeDash(t *testing.T) {
 		cmd, args := parse(t, "buff-bear", "--", "not a spec: @{")
 		assert.NoError(t, specsBeforeDash(cmd, args))
 	})
-	t.Run("rejects only claude args", func(t *testing.T) {
+	t.Run("accepts only claude args, for an empty workspace", func(t *testing.T) {
 		cmd, args := parse(t, "--", "prompt")
-		err := specsBeforeDash(cmd, args)
-		requireUsageError(t, err)
-		assert.EqualError(t, err, "claude needs at least one repo spec before --")
+		assert.NoError(t, specsBeforeDash(cmd, args))
 	})
 }
 

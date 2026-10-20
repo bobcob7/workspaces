@@ -20,9 +20,9 @@ type shellOptions struct {
 func (a *App) newShellCmd() *cobra.Command {
 	var opts shellOptions
 	cmd := &cobra.Command{
-		Use:     "shell [OPTIONS] <SPEC>...",
+		Use:     "shell [OPTIONS] [<SPEC>...]",
 		Short:   "New workspace with an interactive shell",
-		Args:    allArgs(atLeastOneArg("a repo spec"), validSpecs),
+		Args:    validSpecs,
 		PreRunE: a.noJSON,
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			opts.specs = args

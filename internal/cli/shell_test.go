@@ -104,8 +104,8 @@ func TestApp_newShellCmd(t *testing.T) {
 		assertFlag(t, cmd, "name", "")
 		assertFlag(t, cmd, "offline", "false")
 	})
-	t.Run("needs a spec", func(t *testing.T) {
-		requireUsageError(t, cmd.Args(cmd, nil))
+	t.Run("accepts no spec, for an empty workspace", func(t *testing.T) {
+		assert.NoError(t, cmd.Args(cmd, nil))
 	})
 	t.Run("rejects an invalid spec", func(t *testing.T) {
 		requireCode(t, codeSpecInvalid, cmd.Args(cmd, []string{"a//b"}))

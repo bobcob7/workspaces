@@ -5,13 +5,14 @@ Create a workspace and start a Claude Code background agent in it.
 ## Synopsis
 
 ```
-ws claude [OPTIONS] <SPEC>... [-- <CLAUDE ARGS>...]
+ws claude [OPTIONS] [<SPEC>...] [-- <CLAUDE ARGS>...]
 ```
 
 ## Description
 
 Creates a workspace from the repo specs ([Creating a
-workspace](README.md#creating-a-workspace)), then runs, in the workspace:
+workspace](README.md#creating-a-workspace)), or an empty one when there are
+none, then runs, in the workspace:
 
 ```
 claude --bg -n <workspace id> --settings '{"worktree":{"bgIsolation":"none"}}' <CLAUDE ARGS>...
@@ -105,6 +106,10 @@ $ ws claude --json buff-bear@feat/new-thing bobcob7/api@v2.1.0 -- --model opus "
   ],
   "warnings": []
 }
+
+# An agent in an empty workspace, for work that needs no repo
+$ ws claude --name notes -- "Draft release notes from the issues I paste in"
+notes  7c41b0e2  /Users/me/Library/Application Support/workspaces/workspaces/notes
 
 # Start a session and work with it interactively; Ctrl+Z leaves it running
 $ ws claude --name try-it buff-bear

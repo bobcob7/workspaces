@@ -5,13 +5,14 @@ Create a workspace and open an interactive shell in it.
 ## Synopsis
 
 ```
-ws shell [OPTIONS] <SPEC>...
+ws shell [OPTIONS] [<SPEC>...]
 ```
 
 ## Description
 
 Creates a workspace from the repo specs ([Creating a
-workspace](README.md#creating-a-workspace)), then runs `$SHELL -i` (or
+workspace](README.md#creating-a-workspace)), or an empty one when there are
+none, then runs `$SHELL -i` (or
 `/bin/sh -i` if `SHELL` is unset or empty) in it, in the foreground.
 
 **When the shell exits, the workspace is removed**, whatever the exit code
@@ -64,6 +65,9 @@ $ exit
 
 # Two repos side by side
 $ ws shell --name api-bump buff-bear bobcob7/api@v2.1.0
+
+# An empty scratch directory
+$ ws shell
 ```
 
 ## Errors

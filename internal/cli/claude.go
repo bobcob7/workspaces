@@ -23,7 +23,7 @@ type claudeOptions struct {
 func (a *App) newClaudeCmd() *cobra.Command {
 	var opts claudeOptions
 	cmd := &cobra.Command{
-		Use:   "claude [OPTIONS] <SPEC>... [-- <CLAUDE ARGS>...]",
+		Use:   "claude [OPTIONS] [<SPEC>...] [-- <CLAUDE ARGS>...]",
 		Short: "New workspace with a Claude Code background agent",
 		Args:  allArgs(specsBeforeDash, claudeArgsAfterDash),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
@@ -182,12 +182,10 @@ func (a *App) printClaudeResult(ws *workspace.Workspace, session string) error {
 	return nil
 }
 
-// specsBeforeDash requires at least one valid repo spec before "--".
+// specsBeforeDash checks the repo specs before "--". There may be none,
+// for an empty workspace.
 func specsBeforeDash(cmd *cobra.Command, args []string) error {
 	specs, _ := splitAtDash(cmd, args)
-	if len(specs) == 0 {
-		return usageErrorf("%s needs at least one repo spec before --", commandName(cmd))
-	}
 	return validSpecs(cmd, specs)
 }
 
