@@ -1,11 +1,12 @@
 # ws shell
 
 ```
-ws shell [--name <name>] [--offline] <spec>...
+ws shell [--name <name>] [--offline] [<spec>...]
 ```
 
-Creates a workspace from the repo specs and runs an interactive shell
-(`$SHELL -i`, or `/bin/sh -i`) in it, in the foreground. When the shell
+Creates a workspace from the repo specs, or an empty one with none, and
+runs an interactive shell (`$SHELL -i`, or `/bin/sh -i`) in it, in the
+foreground. When the shell
 exits, the workspace is removed, whatever its git state.
 
 ## When to use it
@@ -46,4 +47,7 @@ $ exit
 
 # Two repos side by side
 $ ws shell --name api-bump buff-bear bobcob7/api@v2.1.0
+
+# An empty workspace
+$ ws shell
 ```

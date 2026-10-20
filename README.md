@@ -2,8 +2,8 @@
 
 `ws`: a CLI that gives each AI agent, or shell, its own disposable workspace.
 
-A **workspace** is a short-lived directory containing one or more git repositories,
-each checked out at a requested branch, tag, or commit. Repositories are cloned
+A **workspace** is a short-lived directory containing git repositories, each
+checked out at a requested branch, tag, or commit, or nothing at all. Repositories are cloned
 from a **local cache** of upstream repos, so creating a workspace is fast, works
 with short names, and doesn't re-download history every time.
 

@@ -63,8 +63,8 @@ every time, and `ws llm`, which never does
 
 ## Creating a workspace
 
-`ws claude` and `ws shell` create the workspace the same way. For each repo
-spec:
+`ws claude` and `ws shell` create the workspace the same way. With no repo
+specs, the workspace is an empty directory. For each repo spec:
 
 1. Resolve it to a canonical repo id (cache first, then config defaults).
 2. Clone it into the cache if missing; otherwise fetch it.

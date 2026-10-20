@@ -1,11 +1,11 @@
 # ws claude
 
 ```
-ws claude [--name <name>] [--offline] [--json] <spec>... [-- <claude args>...]
+ws claude [--name <name>] [--offline] [--json] [<spec>...] [-- <claude args>...]
 ```
 
-Creates a workspace from the repo specs, then starts a Claude Code
-background session in it. This is how to hand work to another agent.
+Creates a workspace from the repo specs, or an empty one with none, then
+starts a Claude Code background session in it. This is how to hand work to another agent.
 
 ## When to use it
 
@@ -69,7 +69,7 @@ Without `--json`: `<id>  <session>  <path>` on one line.
 
 | Situation                                              | Error code         | Exit |
 | ------------------------------------------------------ | ------------------ | ---- |
-| No spec, an unparsable spec, the same repo twice, or two repos with the same name | `usage`, `spec_invalid` | 2 |
+| An unparsable spec, the same repo twice, or two repos with the same name | `usage`, `spec_invalid` | 2 |
 | `--settings` after `--`                                | `usage`            | 2    |
 | `--name` has no letters or digits                      | `name_invalid`     | 2    |
 | Repo not found, or a short name matches several        | `repo_not_found`, `repo_ambiguous` | 3 |
@@ -89,6 +89,9 @@ it.
 ```console
 # Hand off a task; keep the session id
 $ ws claude --json --name fix-login buff-bear -- "Find why login fails on empty passwords and fix it"
+
+# An agent in an empty workspace, for work that needs no repo
+$ ws claude --json --name notes -- "Draft release notes from these issues: ..."
 
 # Several repos at given refs, with a model choice
 $ ws claude --json buff-bear@feat/new-thing bobcob7/api@v2.1.0 -- --model opus "Update the client for the new API"

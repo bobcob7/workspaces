@@ -1,8 +1,8 @@
 # ws: workspaces for agents
 
 `ws` gives each agent, or shell, its own disposable workspace: a directory
-holding one or more git repos, each checked out at a requested branch, tag,
-or commit. Repos are cloned from a local cache, so creating a workspace is
+holding git repos, each checked out at a requested branch, tag, or commit,
+or nothing at all. Repos are cloned from a local cache, so creating a workspace is
 fast and works with short names. Agents run as Claude Code background
 sessions, so Claude Code's own commands work on them: `claude agents`,
 `claude logs <id>`, `claude attach <id>`, `claude stop <id>`.
@@ -34,7 +34,7 @@ $ ws list --json
 $ ws rm --json fix-login
 ```
 
-A person also uses `ws shell <spec>...` for a throwaway shell, and
+A person also uses `ws shell [<spec>...]` for a throwaway shell, and
 `ws restore` after a reboot.
 
 ## Sessions and lifetime
