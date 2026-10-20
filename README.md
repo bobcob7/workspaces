@@ -124,8 +124,8 @@ See [Configuration](docs/config.md) for how `CONFIG_DIR` is chosen, the
 
 - `git` 2.23 or newer on `PATH`; `ws` shells out to it
   ([0003](docs/adrs/0003-use-git-cli.md))
-- Claude Code with background sessions (`claude --bg`) on `PATH` for `ws claude`;
-  tested with 2.1.302
+- Claude Code 2.1.302 or newer, with background sessions (`claude --bg`),
+  on `PATH` for `ws claude`; the version is enforced. Last tested with 2.1.304
 - Go 1.27+ to build ([0002](docs/adrs/0002-implementation-language.md))
 
 ## Roadmap
@@ -166,8 +166,9 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **`ws claude`**, including the trust error and attaching without a
   prompt ([0014](docs/adrs/0014-command-set.md),
   [0025](docs/adrs/0025-ws-claude-session-hand-off.md), proposed)
-- [ ] **Lifetime**: remove workspaces whose session is gone; `ws list`,
-  `ws rm` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md)).
+- [x] **Lifetime**: remove workspaces whose session is gone; `ws list`,
+  `ws rm` ([0015](docs/adrs/0015-workspace-lifetime-follows-session.md),
+  [0026](docs/adrs/0026-removal-pass-timing.md), proposed).
   A workspace that is unlocked, has no session record, and is over a
   minute old counts as abandoned
   ([0023](docs/adrs/0023-shell-session-keeps-creation-lock.md)); removing
@@ -200,6 +201,8 @@ internal/
   repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
   cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
   workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)
+  lifetime/                   # removing workspaces whose session is gone; ws list and ws rm (0015, 0025)
+  proc/                       # when processes started, from the operating system (0018, 0026)
   shell/                      # ws shell's interactive shell: lock, signals, exit status (0015, 0023)
   lockfile/                   # flock locks, exclusive and shared (0008)
   backup/                     # Time Machine exclusion (0011)

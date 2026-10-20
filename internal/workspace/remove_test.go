@@ -60,6 +60,44 @@ func TestStore_Remove(t *testing.T) {
 	})
 }
 
+func TestStore_GuardedDir(t *testing.T) {
+	t.Parallel()
+	t.Run("the resolved workspaces/<id>", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putWorkspace(t, s, "x", testNow())
+		want, err := filepath.EvalSymlinks(ws.Path)
+		require.NoError(t, err)
+		got, err := s.GuardedDir("x")
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	})
+	t.Run("refused by the guard", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		require.NoError(t, os.MkdirAll(s.root, 0o750))
+		ws := sampleRecord(s.root, "x")
+		ws.Path = t.TempDir()
+		require.NoError(t, os.MkdirAll(s.stateOf("x"), 0o750))
+		require.NoError(t, writeRecord(s.recordPath("x"), &ws))
+		_, err := s.GuardedDir("x")
+		assert.ErrorIs(t, err, ErrUnsafe)
+	})
+	t.Run("directory gone", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putWorkspace(t, s, "x", testNow())
+		require.NoError(t, os.RemoveAll(ws.Path))
+		_, err := s.GuardedDir("x")
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+	t.Run("no record", func(t *testing.T) {
+		t.Parallel()
+		_, err := newTestStore(t, nil, nil).GuardedDir("x")
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
 func TestStore_guard(t *testing.T) {
 	t.Parallel()
 	t.Run("allows workspaces/<id>", func(t *testing.T) {

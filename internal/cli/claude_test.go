@@ -180,7 +180,9 @@ func TestApp_newClaudeCmd(t *testing.T) {
 	})
 	t.Run("runs", func(t *testing.T) {
 		e := newClaudeEnv(t)
-		e.app.newStores = func(config.Paths, config.Config) (repoCache, workspaceStore) { return stubCache(), e.store }
+		e.app.newStores = func(config.Paths, config.Config) stores {
+			return stores{cache: stubCache(), workspaces: e.store, lifetime: stubLifetime()}
+		}
 		cmd := e.app.newClaudeCmd()
 		cmd.SetContext(t.Context())
 		require.NoError(t, cmd.ParseFlags([]string{"--name", "Fix Login", "--offline", "buff-bear", "o/api", "--", "--model", "opus", "fix it"}))
@@ -365,9 +367,7 @@ func TestApp_runClaude(t *testing.T) {
 		assert.Contains(t, string(session), `kind = "claude"`)
 		assert.Contains(t, string(session), `claude_session_id = "e8cdf5d8"`)
 		assert.DirExists(t, filepath.Join(wsPath, "n", ".git"))
-		_, ok, err := lockfile.TryExclusive(filepath.Join(e.paths.State, "try-it", "lock"))
-		require.NoError(t, err)
-		assert.True(t, ok, "the lock is free once the session is recorded")
+		takeLock(t, filepath.Join(e.paths.State, "try-it", "lock")).Unlock()
 	})
 	t.Run("end to end: an untrusted workspace leaves nothing", func(t *testing.T) {
 		t.Parallel()

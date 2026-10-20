@@ -6,13 +6,14 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/shell"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore shellRunner claudeClient
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -38,8 +39,18 @@ type repoCache interface {
 type workspaceStore interface {
 	UsesCommit(id, commit string) (bool, error)
 	Create(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error)
+	Find(arg string) (workspace.Workspace, error)
 	RecordSession(id string, kind workspace.SessionKind, claudeSessionID string) error
 	Remove(id string, opts workspace.RemoveOptions) error
+	Warnings() []string
+}
+
+// lifetimeManager keeps each workspace as long as its session: the
+// removal pass, ws list, and ws rm (ADR 0015).
+type lifetimeManager interface {
+	Sweep(ctx context.Context) []lifetime.Removed
+	List(ctx context.Context) (lifetime.Listing, error)
+	Remove(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error)
 	Warnings() []string
 }
 

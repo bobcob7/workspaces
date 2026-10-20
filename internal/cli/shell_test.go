@@ -117,7 +117,9 @@ func TestApp_newShellCmd(t *testing.T) {
 	})
 	t.Run("runs the shell", func(t *testing.T) {
 		e := newShellEnv(t)
-		e.app.newStores = func(config.Paths, config.Config) (repoCache, workspaceStore) { return stubCache(), e.store }
+		e.app.newStores = func(config.Paths, config.Config) stores {
+			return stores{cache: stubCache(), workspaces: e.store, lifetime: stubLifetime()}
+		}
 		cmd := e.app.newShellCmd()
 		require.NoError(t, cmd.ParseFlags([]string{"--name", "x", "--offline"}))
 		require.NoError(t, cmd.RunE(cmd, []string{"buff-bear"}))
@@ -336,11 +338,4 @@ func TestApp_removeWorkspace(t *testing.T) {
 		e.app.removeWorkspace("x")
 		assert.Equal(t, "ws: couldn't remove workspace x: refusing to delete\n", e.stderr.String())
 	})
-}
-
-func TestApp_printWorkspaceWarnings(t *testing.T) {
-	e := newShellEnv(t)
-	e.store.WarningsFunc = func() []string { return []string{"a", "b"} }
-	e.app.printWorkspaceWarnings()
-	assert.Equal(t, "ws: warning: a\nws: warning: b\n", e.stderr.String())
 }

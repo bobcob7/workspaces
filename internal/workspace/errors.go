@@ -18,4 +18,8 @@ var (
 	ErrNotFound = errors.New("workspace not found")
 	// ErrUnsafe means the deletion guard refused a directory (ADR 0012).
 	ErrUnsafe = errors.New("refusing to delete")
+	// ErrNoSession means a workspace has no session record: its session is
+	// still being handed over, or ws was killed before recording it
+	// (ADRs 0023, 0025).
+	ErrNoSession = errors.New("no session record")
 )

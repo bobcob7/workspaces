@@ -62,15 +62,25 @@ func (s *Store) Unknown() ([]string, error) {
 	return unknown, nil
 }
 
-// Find returns the workspace an argument names: its id, or its path
-// (docs: "Workspace arguments").
+// Find returns the workspace an argument names: its id, its path, or its
+// agent's Claude session id (docs: "Workspace arguments").
 func (s *Store) Find(arg string) (Workspace, error) {
 	if ws, err := s.byID(arg); err == nil {
 		return ws, nil
 	} else if !errors.Is(err, ErrNotFound) {
 		return Workspace{}, err
 	}
-	return s.byPath(arg)
+	list, err := s.List()
+	if err != nil {
+		return Workspace{}, err
+	}
+	if ws, ok := byPath(list, arg); ok {
+		return ws, nil
+	}
+	if ws, ok := s.bySession(list, arg); ok {
+		return ws, nil
+	}
+	return Workspace{}, fmt.Errorf("%w: %q", ErrNotFound, arg)
 }
 
 // byID returns the complete workspace with this id.
@@ -121,21 +131,32 @@ func validID(id string) bool {
 
 // byPath matches a path against every workspace's recorded path, after
 // resolving symlinks in both.
-func (s *Store) byPath(path string) (Workspace, error) {
+func byPath(list []Workspace, path string) (Workspace, bool) {
 	want, err := resolvePath(path)
 	if err != nil {
-		return Workspace{}, fmt.Errorf("%w: %q", ErrNotFound, path)
-	}
-	list, err := s.List()
-	if err != nil {
-		return Workspace{}, err
+		return Workspace{}, false
 	}
 	for _, ws := range list {
 		if got, err := resolvePath(ws.Path); err == nil && got == want {
-			return ws, nil
+			return ws, true
 		}
 	}
-	return Workspace{}, fmt.Errorf("%w: %q", ErrNotFound, path)
+	return Workspace{}, false
+}
+
+// bySession finds the agent workspace whose session record holds this
+// Claude session id.
+func (s *Store) bySession(list []Workspace, id string) (Workspace, bool) {
+	if id == "" {
+		return Workspace{}, false
+	}
+	for _, ws := range list {
+		sess, err := s.Session(ws.ID)
+		if err == nil && sess.Kind == SessionClaude && sess.ClaudeSessionID == id {
+			return ws, true
+		}
+	}
+	return Workspace{}, false
 }
 
 // resolvePath makes path absolute and resolves its symlinks.

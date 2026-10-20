@@ -17,6 +17,21 @@ func lockPath(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "locks", "x.lock")
 }
 
+// requireFree checks that path's lock can be taken. A process another
+// parallel test forks holds copies of this process's descriptors until it
+// execs, so a lock just released can look held for a moment.
+func requireFree(t *testing.T, path string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		unlock, ok, err := TryExclusive(path)
+		if err != nil || !ok {
+			return false
+		}
+		unlock()
+		return true
+	}, 10*time.Second, 10*time.Millisecond, "the lock is still held")
+}
+
 func TestExclusive(t *testing.T) {
 	t.Parallel()
 	t.Run("creates the file and its directory", func(t *testing.T) {
@@ -163,6 +178,91 @@ func TestTryExclusiveLock(t *testing.T) {
 	})
 }
 
+func TestHeldExclusively(t *testing.T) {
+	t.Parallel()
+	t.Run("free lock", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		unlock, ok, err := TryExclusive(path)
+		require.NoError(t, err)
+		require.True(t, ok)
+		unlock()
+		require.Eventually(t, func() bool {
+			held, err := HeldExclusively(path)
+			return err == nil && !held
+		}, 10*time.Second, 10*time.Millisecond)
+	})
+	t.Run("exclusive holder", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		unlock, ok, err := TryExclusive(path)
+		require.NoError(t, err)
+		require.True(t, ok)
+		defer unlock()
+		held, err := HeldExclusively(path)
+		require.NoError(t, err)
+		assert.True(t, held)
+	})
+	t.Run("a shared holder, such as another probe, doesn't count", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		unlock, err := Shared(t.Context(), path)
+		require.NoError(t, err)
+		defer unlock()
+		held, err := HeldExclusively(path)
+		require.NoError(t, err)
+		assert.False(t, held)
+	})
+	t.Run("held by a child process after this one let go", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		l, ok, err := TryExclusiveLock(path)
+		require.NoError(t, err)
+		require.True(t, ok)
+		child := exec.CommandContext(t.Context(), "/bin/cat")
+		child.ExtraFiles = []*os.File{l.File()}
+		stdin, err := child.StdinPipe()
+		require.NoError(t, err)
+		require.NoError(t, child.Start())
+		l.Unlock()
+		held, err := HeldExclusively(path)
+		require.NoError(t, err)
+		assert.True(t, held, "held by the child")
+		require.NoError(t, stdin.Close())
+		require.NoError(t, child.Wait())
+		require.Eventually(t, func() bool {
+			held, err := HeldExclusively(path)
+			return err == nil && !held
+		}, 10*time.Second, 10*time.Millisecond, "free once the child exited")
+	})
+	t.Run("leaves the lock free after probing", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		unlock, ok, err := TryExclusive(path)
+		require.NoError(t, err)
+		require.True(t, ok)
+		unlock()
+		_, err = HeldExclusively(path)
+		require.NoError(t, err)
+		requireFree(t, path)
+	})
+	t.Run("missing file, without creating it or its directory", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		held, err := HeldExclusively(path)
+		require.NoError(t, err)
+		assert.False(t, held)
+		assert.NoDirExists(t, filepath.Dir(path))
+	})
+	t.Run("unopenable file", func(t *testing.T) {
+		t.Parallel()
+		path := lockPath(t)
+		require.NoError(t, os.MkdirAll(path, 0o750))
+		_, err := HeldExclusively(path)
+		assert.Error(t, err)
+	})
+}
+
 func TestLock_File(t *testing.T) {
 	t.Parallel()
 	t.Run("a child given it holds the lock after the parent lets go", func(t *testing.T) {
@@ -182,10 +282,7 @@ func TestLock_File(t *testing.T) {
 		assert.False(t, ok, "held by the child")
 		require.NoError(t, stdin.Close())
 		require.NoError(t, child.Wait())
-		unlock, ok, err := TryExclusive(path)
-		require.NoError(t, err)
-		require.True(t, ok, "free once the child exited")
-		unlock()
+		requireFree(t, path)
 	})
 }
 
@@ -198,9 +295,6 @@ func TestLock_Unlock(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ok)
 		l.Unlock()
-		unlock, ok, err := TryExclusive(path)
-		require.NoError(t, err)
-		require.True(t, ok)
-		unlock()
+		requireFree(t, path)
 	})
 }

@@ -7,7 +7,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +21,9 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/gittest"
+	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -39,16 +47,61 @@ func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 		},
 	}
 	app = New("test", nil, stdout, stderr, configs, nil)
-	stub, workspaces := stubCache(), stubWorkspaces()
-	app.newStores = func(config.Paths, config.Config) (repoCache, workspaceStore) { return stub, workspaces }
+	s := stores{cache: stubCache(), workspaces: stubWorkspaces(), lifetime: stubLifetime()}
+	app.newStores = func(config.Paths, config.Config) stores { return s }
+	app.lifetime = s.lifetime
+	app.now = testNow
 	return app, stdout, stderr
+}
+
+// testNow is newTestApp's clock.
+func testNow() time.Time {
+	return time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 }
 
 // stubWorkspaces is a workspace store with no workspaces.
 func stubWorkspaces() *workspaceStoreMock {
 	return &workspaceStoreMock{
 		UsesCommitFunc: func(string, string) (bool, error) { return false, nil },
+		WarningsFunc:   func() []string { return nil },
 	}
+}
+
+// stubLifetime is a lifetime manager with nothing to remove or list.
+func stubLifetime() *lifetimeManagerMock {
+	return &lifetimeManagerMock{
+		SweepFunc:    func(context.Context) []lifetime.Removed { return nil },
+		ListFunc:     func(context.Context) (lifetime.Listing, error) { return lifetime.Listing{}, nil },
+		WarningsFunc: func() []string { return nil },
+	}
+}
+
+// mockedApp is a test App as withConfig leaves it, with its mocks.
+type mockedApp struct {
+	app      *App
+	stdout   *bytes.Buffer
+	stderr   *bytes.Buffer
+	cache    *repoCacheMock
+	store    *workspaceStoreMock
+	lifetime *lifetimeManagerMock
+}
+
+func newMockedApp() *mockedApp {
+	app, stdout, stderr := newTestApp()
+	e := &mockedApp{app: app, stdout: stdout, stderr: stderr, cache: stubCache(), store: stubWorkspaces(), lifetime: stubLifetime()}
+	app.cache, app.workspaces, app.lifetime = e.cache, e.store, e.lifetime
+	app.newStores = func(config.Paths, config.Config) stores {
+		return stores{cache: e.cache, workspaces: e.store, lifetime: e.lifetime}
+	}
+	return e
+}
+
+// cmdWithContext is a command whose Context is the test's.
+func cmdWithContext(t *testing.T) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{}
+	cmd.SetContext(t.Context())
+	return cmd
 }
 
 // testID is the repo stubCache resolves every spec to.
@@ -138,13 +191,19 @@ func TestNew(t *testing.T) {
 		app.level.Set(slog.LevelDebug)
 		assert.True(t, app.log.Enabled(t.Context(), slog.LevelDebug))
 	})
-	t.Run("builds a real cache and workspace store", func(t *testing.T) {
+	t.Run("builds a real cache, workspace store, and lifetime manager", func(t *testing.T) {
 		app := New("test", nil, io.Discard, io.Discard, &configLoaderMock{}, nil)
-		c, ws := app.newStores(testPaths(), testConfig())
-		_, ok := c.(*cache.Cache)
+		s := app.newStores(testPaths(), testConfig())
+		_, ok := s.cache.(*cache.Cache)
 		assert.True(t, ok)
-		_, ok = ws.(*workspace.Store)
+		_, ok = s.workspaces.(*workspace.Store)
 		assert.True(t, ok)
+		_, ok = s.lifetime.(*lifetime.Manager)
+		assert.True(t, ok)
+	})
+	t.Run("uses the real clock", func(t *testing.T) {
+		app := New("test", nil, io.Discard, io.Discard, &configLoaderMock{}, nil)
+		assert.NotNil(t, app.now)
 	})
 }
 
@@ -286,42 +345,58 @@ func TestApp_withConfig(t *testing.T) {
 			assert.Equal(t, testConfig(), app.config)
 			return nil
 		})
-		require.NoError(t, fn(nil, nil))
+		require.NoError(t, fn(cmdWithContext(t), nil))
 		assert.True(t, ran)
 	})
 	t.Run("builds the stores from the loaded config", func(t *testing.T) {
 		app, _ := newApp(nil)
 		var gotPaths config.Paths
 		var gotConfig config.Config
-		stub, workspaces := stubCache(), stubWorkspaces()
-		app.newStores = func(p config.Paths, c config.Config) (repoCache, workspaceStore) {
+		s := stores{cache: stubCache(), workspaces: stubWorkspaces(), lifetime: stubLifetime()}
+		app.newStores = func(p config.Paths, c config.Config) stores {
 			gotPaths, gotConfig = p, c
-			return stub, workspaces
+			return s
 		}
-		require.NoError(t, app.withConfig(succeed)(nil, nil))
+		require.NoError(t, app.withConfig(succeed)(cmdWithContext(t), nil))
 		assert.Equal(t, testPaths(), gotPaths)
 		assert.Equal(t, testConfig(), gotConfig)
-		assert.Same(t, stub, app.cache)
-		assert.Same(t, workspaces, app.workspaces)
+		assert.Same(t, s.cache, app.cache)
+		assert.Same(t, s.workspaces, app.workspaces)
+		assert.Same(t, s.lifetime, app.lifetime)
+	})
+	t.Run("runs the removal pass before the command", func(t *testing.T) {
+		app, _ := newApp(nil)
+		m := stubLifetime()
+		removed := []lifetime.Removed{{Workspace: workspace.Workspace{ID: "x"}}}
+		m.SweepFunc = func(context.Context) []lifetime.Removed { return removed }
+		app.newStores = func(config.Paths, config.Config) stores {
+			return stores{cache: stubCache(), workspaces: stubWorkspaces(), lifetime: m}
+		}
+		fn := app.withConfig(func(*cobra.Command, []string) error {
+			assert.Len(t, m.SweepCalls(), 1, "before the command")
+			return nil
+		})
+		require.NoError(t, fn(cmdWithContext(t), nil))
+		assert.Equal(t, removed, app.swept)
 	})
 	t.Run("passes --config-dir", func(t *testing.T) {
 		app, configs := newApp(nil)
 		app.global.configDir = "/elsewhere"
-		require.NoError(t, app.withConfig(succeed)(nil, nil))
+		require.NoError(t, app.withConfig(succeed)(cmdWithContext(t), nil))
 		require.Len(t, configs.LoadCalls(), 1)
 		assert.Equal(t, "/elsewhere", configs.LoadCalls()[0].ConfigDir)
 	})
 	t.Run("returns the command's error", func(t *testing.T) {
 		app, _ := newApp(nil)
-		assert.ErrorIs(t, app.withConfig(notImplemented)(nil, nil), errNotImplemented)
+		assert.ErrorIs(t, app.withConfig(notImplemented)(cmdWithContext(t), nil), errNotImplemented)
 	})
 	t.Run("invalid config is config_invalid", func(t *testing.T) {
 		app, _ := newApp(fmt.Errorf("bad: %w", config.ErrInvalid))
-		requireCode(t, codeConfigInvalid, app.withConfig(succeed)(nil, nil))
+		requireCode(t, codeConfigInvalid, app.withConfig(succeed)(cmdWithContext(t), nil))
 	})
 	t.Run("other errors are wrapped without a code", func(t *testing.T) {
 		app, _ := newApp(errTest)
-		err := app.withConfig(succeed)(nil, nil)
+		err := app.withConfig(succeed)(cmdWithContext(t), nil)
 		require.ErrorIs(t, err, errTest)
 		_, ok := errors.AsType[*cliError](err)
 		assert.False(t, ok)
@@ -332,9 +407,26 @@ func TestApp_withConfig(t *testing.T) {
 		_ = app.withConfig(func(*cobra.Command, []string) error {
 			ran = true
 			return nil
-		})(nil, nil)
+		})(cmdWithContext(t), nil)
 		assert.False(t, ran)
 	})
+}
+
+func TestApp_withConfigUnswept(t *testing.T) {
+	app, _, _ := newTestApp()
+	m := stubLifetime()
+	app.newStores = func(config.Paths, config.Config) stores {
+		return stores{cache: stubCache(), workspaces: stubWorkspaces(), lifetime: m}
+	}
+	var ran bool
+	fn := app.withConfigUnswept(func(*cobra.Command, []string) error {
+		ran = true
+		return nil
+	})
+	require.NoError(t, fn(cmdWithContext(t), nil))
+	assert.True(t, ran)
+	assert.Same(t, m, app.lifetime)
+	assert.Empty(t, m.SweepCalls())
 }
 
 // succeed is a command body that returns no error.
@@ -354,4 +446,125 @@ func TestApp_noJSON(t *testing.T) {
 		requireUsageError(t, err)
 		assert.EqualError(t, err, "cache list doesn't support --json")
 	})
+}
+
+// lifetimeE2E is a real App with local upstreams, configured in a temp
+// dir, whose claude is fakeLifetimeClaude and whose Claude Code
+// configuration directory is a temp dir of its own.
+type lifetimeE2E struct {
+	app     *App
+	configs configLoader
+	environ []string
+	paths   config.Paths
+	scratch string
+	jobs    string
+	stdout  *bytes.Buffer
+	stderr  *bytes.Buffer
+}
+
+func newLifetimeE2E(t *testing.T) *lifetimeE2E {
+	t.Helper()
+	up := gittest.NewUpstream(t)
+	up.Repo(t, "o", "n")
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	e := &lifetimeE2E{
+		paths:   config.NewPaths(filepath.Join(root, "cfg")),
+		scratch: filepath.Join(root, "scratch"),
+		jobs:    filepath.Join(root, "claude-config", "jobs"),
+	}
+	require.NoError(t, os.MkdirAll(e.scratch, 0o750))
+	require.NoError(t, os.MkdirAll(e.jobs, 0o750))
+	e.setAgents(t, "[]")
+	e.configs = &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
+		return e.paths, config.Config{Defaults: config.Defaults{Host: gittest.Host, Owners: []string{"o"}}}, nil
+	}}
+	e.environ = append(slices.Clone(up.Environ), "CLAUDE_CONFIG_DIR="+filepath.Dir(e.jobs))
+	fakeLifetimeClaude(t, e.scratch)
+	return e
+}
+
+// run runs ws with args in a new App, as a new ws process would, and
+// returns its exit code.
+func (e *lifetimeE2E) run(t *testing.T, args ...string) int {
+	t.Helper()
+	e.stdout, e.stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	e.app = New("test", nil, e.stdout, e.stderr, e.configs, e.environ)
+	e.app.claude = claude.New(slog.New(slog.NewJSONHandler(io.Discard, nil)), filepath.Join(e.scratch, "claude"), e.environ)
+	return e.app.Run(t.Context(), args)
+}
+
+// setAgents sets what `claude agents --json` prints.
+func (e *lifetimeE2E) setAgents(t *testing.T, agents string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(e.scratch, "agents.json"), []byte(agents), 0o600))
+}
+
+// start creates workspace name with ws claude, as session id, which
+// Claude Code then lists, idle, in the workspace.
+func (e *lifetimeE2E) start(t *testing.T, name, id string) string {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(e.scratch, "next-id"), []byte(id), 0o600))
+	require.Equal(t, exitOK, e.run(t, "claude", "--name", name, "n", "--", "fix it"), "stderr: %s", e.stderr.String())
+	return filepath.Join(e.paths.Workspaces, name)
+}
+
+// calls is the stop and rm commands the fake claude ran.
+func (e *lifetimeE2E) calls(t *testing.T) []string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(e.scratch, "calls"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	require.NoError(t, err)
+	return strings.Fields(strings.ReplaceAll(string(data), " ", "_"))
+}
+
+// takeLock takes the lock at path once it is free. A process that another
+// parallel test forks holds a copy of this process's descriptors until it
+// execs, so a lock this process has just released can look held for a
+// moment.
+func takeLock(t *testing.T, path string) *lockfile.Lock {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	for {
+		l, ok, err := lockfile.TryExclusiveLock(path)
+		require.NoError(t, err)
+		if ok {
+			return l
+		}
+		select {
+		case <-ctx.Done():
+			require.FailNow(t, "the lock is still held", path)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// agentJSON is one background session as `claude agents --json` prints
+// it, idle with a process.
+func agentJSON(id, cwd string) string {
+	return fmt.Sprintf(`{"pid":4242,"id":%q,"cwd":%q,"kind":"background","startedAt":%d,"sessionId":"uuid-%s","name":"x","status":"idle","state":"blocked"}`,
+		id, cwd, time.Now().Add(-time.Minute).UnixMilli(), id)
+}
+
+// fakeLifetimeClaude writes an executable sh script standing in for
+// claude 2.1.303: `agents` prints dir/agents.json, `stop` and `rm` append
+// "<command> <id>" to dir/calls, and `--bg` starts the session in
+// dir/next-id.
+func fakeLifetimeClaude(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\n" +
+		"dir=" + dir + "\n" +
+		`case "$1" in` + "\n" +
+		`--version) echo "2.1.303 (Claude Code)" ;;` + "\n" +
+		`agents) cat "$dir/agents.json" ;;` + "\n" +
+		`stop|rm) echo "$1 $2" >> "$dir/calls" ;;` + "\n" +
+		`--bg) printf 'backgrounded · %s · x\n' "$(cat "$dir/next-id")" ;;` + "\n" +
+		`*) exit 1 ;;` + "\n" +
+		"esac\n"
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	return path
 }

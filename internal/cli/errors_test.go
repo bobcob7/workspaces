@@ -50,7 +50,7 @@ func TestErrorCode_exitCode(t *testing.T) {
 		assertExit(t, exitNotFound, codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound)
 	})
 	t.Run("refusals exit 4", func(t *testing.T) {
-		assertExit(t, exitRefused, codeWorkspaceExists, codeShellRunning)
+		assertExit(t, exitRefused, codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch)
 	})
 	t.Run("unknown code exits 1", func(t *testing.T) {
 		assert.Equal(t, exitFailed, errorCode("made_up").exitCode())

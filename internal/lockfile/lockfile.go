@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -36,6 +37,29 @@ func TryExclusive(path string) (unlock func(), ok bool, err error) {
 		return nil, ok, err
 	}
 	return l.Unlock, true, nil
+}
+
+// HeldExclusively reports whether someone holds path's lock exclusively.
+// It never creates the file or its directory: a missing file is a free
+// lock. It probes with a shared lock, so probes running at the same time
+// don't see each other as holders.
+func HeldExclusively(path string) (bool, error) {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("opening lock %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	err = unix.Flock(int(f.Fd()), unix.LOCK_SH|unix.LOCK_NB)
+	if err == nil {
+		return false, nil
+	}
+	if errors.Is(err, unix.EWOULDBLOCK) {
+		return true, nil
+	}
+	return false, fmt.Errorf("locking %s: %w", path, err)
 }
 
 // Lock is a held lock and the open file it's held through.

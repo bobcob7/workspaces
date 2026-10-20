@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -11,6 +12,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/git"
+	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -193,7 +195,7 @@ func (a *App) cacheAdd(ctx context.Context, specs []repo.Spec) error {
 			Error:    items.add(r.ID.String(), err),
 		})
 	}
-	return a.finishItems(results, &items)
+	return a.finishItems("repos", results, &items)
 }
 
 type itemErrorJSON struct {
@@ -229,12 +231,12 @@ func (r *itemResults) add(text string, err error) *itemErrorJSON {
 	return itemErr
 }
 
-// finishItems writes a multi-repo result, {"repos": results} with --json or
-// a line per item, failures on stderr. It returns the first failure, marked
+// finishItems writes a multi-item result, {key: results} with --json or a
+// line per item, failures on stderr. It returns the first failure, marked
 // reported, so only its exit code is left to set.
-func (a *App) finishItems(results any, items *itemResults) error {
+func (a *App) finishItems(key string, results any, items *itemResults) error {
 	if a.global.json {
-		if err := a.writeJSON(map[string]any{"repos": results, "warnings": a.cacheWarnings()}); err != nil {
+		if err := a.writeJSON(map[string]any{key: results, "warnings": a.warnings()}); err != nil {
 			return err
 		}
 	} else {
@@ -273,7 +275,7 @@ func (a *App) cacheUpdate(ctx context.Context, specs []repo.Spec, all bool) erro
 	for i, id := range ids {
 		results = append(results, cacheUpdateJSON{ID: id.String(), Error: items.add("updated  "+id.String(), errs[i])})
 	}
-	return a.finishItems(results, &items)
+	return a.finishItems("repos", results, &items)
 }
 
 // updateTargets is every cached repo with --all, or the cached repos the
@@ -325,7 +327,7 @@ func (a *App) cacheList(ctx context.Context) error {
 				SizeBytes:     e.SizeBytes,
 			})
 		}
-		return a.writeJSON(map[string]any{"repos": repos, "warnings": a.cacheWarnings()})
+		return a.writeJSON(map[string]any{"repos": repos, "warnings": a.warnings()})
 	}
 	for i := range entries {
 		fmt.Fprintln(a.stdout, entries[i].ID)
@@ -351,7 +353,7 @@ func (a *App) cacheSearch(ctx context.Context, query string, limit int, refs boo
 		for _, m := range matches {
 			out = append(out, cacheMatchJSON{ID: m.ID.String(), Ref: optional(m.Ref)})
 		}
-		return a.writeJSON(map[string]any{"matches": out, "warnings": a.cacheWarnings()})
+		return a.writeJSON(map[string]any{"matches": out, "warnings": a.warnings()})
 	}
 	for _, m := range matches {
 		fmt.Fprintln(a.stdout, withRef(m.ID.String(), m.Ref))
@@ -385,7 +387,7 @@ func (a *App) cacheResolve(ctx context.Context, specs []repo.Spec) error {
 		})
 	}
 	if a.global.json {
-		return a.writeJSON(map[string]any{"repos": results, "warnings": a.cacheWarnings()})
+		return a.writeJSON(map[string]any{"repos": results, "warnings": a.warnings()})
 	}
 	for i, r := range results {
 		fmt.Fprintln(a.stdout, withRef(r.ID, specs[i].Ref))
@@ -402,7 +404,7 @@ func (a *App) cachePath(ctx context.Context, sp *repo.Spec) error {
 	}
 	path := a.cache.Path(r.ID)
 	if a.global.json {
-		return a.writeJSON(map[string]any{"id": r.ID.String(), "path": path, "warnings": a.cacheWarnings()})
+		return a.writeJSON(map[string]any{"id": r.ID.String(), "path": path, "warnings": a.warnings()})
 	}
 	fmt.Fprintln(a.stdout, path)
 	a.printWarnings()
@@ -434,7 +436,7 @@ func (a *App) cacheRemove(ctx context.Context, specs []repo.Spec) error {
 		err := a.cache.Remove(ctx, id)
 		results = append(results, cacheRemoveJSON{ID: id.String(), Path: path, Error: items.add(id.String(), err)})
 	}
-	return a.finishItems(results, &items)
+	return a.finishItems("repos", results, &items)
 }
 
 type cachePruneJSON struct {
@@ -463,7 +465,7 @@ func (a *App) cachePrune(ctx context.Context, dryRun bool) error {
 		for _, p := range pruned {
 			refs = append(refs, cachePruneJSON{ID: p.ID.String(), Commit: p.Commit})
 		}
-		return a.writeJSON(map[string]any{"refs": refs, "warnings": a.cacheWarnings()})
+		return a.writeJSON(map[string]any{"refs": refs, "warnings": a.warnings()})
 	}
 	verb := "pruned"
 	if dryRun {
@@ -530,6 +532,9 @@ func codedDomainError(err error) *cliError {
 		{workspace.ErrSpecConflict, codeSpecInvalid},
 		{workspace.ErrNotFound, codeWorkspaceNotFound},
 		{workspace.ErrExists, codeWorkspaceExists},
+		{lifetime.ErrShellRunning, codeShellRunning},
+		{lifetime.ErrBusy, codeWorkspaceBusy},
+		{lifetime.ErrSessionElsewhere, codeSessionMismatch},
 		{claude.ErrSettingsArg, codeUsage},
 		{claude.ErrNotInstalled, codeClaudeMissing},
 		{claude.ErrUntrusted, codeClaudeUntrusted},
@@ -550,17 +555,19 @@ func codedDomainError(err error) *cliError {
 	return nil
 }
 
-// cacheWarnings is the cache's warnings for JSON output: never null.
-func (a *App) cacheWarnings() []string {
-	if w := a.cache.Warnings(); w != nil {
-		return w
+// warnings is every warning for JSON output: the removal pass's, the
+// cache's, and the workspace store's. Never null.
+func (a *App) warnings() []string {
+	w := slices.Concat(a.lifetime.Warnings(), a.cache.Warnings(), a.workspaces.Warnings())
+	if w == nil {
+		return []string{}
 	}
-	return []string{}
+	return w
 }
 
-// printWarnings writes the cache's warnings to stderr, for text output.
+// printWarnings writes every warning to stderr, for text output.
 func (a *App) printWarnings() {
-	for _, w := range a.cache.Warnings() {
+	for _, w := range a.warnings() {
 		fmt.Fprintf(a.stderr, "ws: warning: %s\n", w)
 	}
 }

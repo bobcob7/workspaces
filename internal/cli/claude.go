@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -67,7 +66,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	}
 	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline})
 	if err != nil {
-		a.printWorkspaceWarnings()
+		a.printWarnings()
 		return domainError(err)
 	}
 	defer lock.Unlock()
@@ -168,10 +167,7 @@ func (a *App) attach(ctx context.Context, ws *workspace.Workspace, id string) bo
 // printClaudeResult prints the workspace id, the session id, and the
 // workspace path, or with --json the result object.
 func (a *App) printClaudeResult(ws *workspace.Workspace, session string) error {
-	warnings := slices.Concat(a.cacheWarnings(), a.workspaces.Warnings())
-	if warnings == nil {
-		warnings = []string{}
-	}
+	warnings := a.warnings()
 	if a.global.json {
 		repos := make([]claudeRepo, 0, len(ws.Repos))
 		for _, r := range ws.Repos {

@@ -21,20 +21,30 @@ Reads `$CONFIG_DIR/state/*/` and prints one row per workspace, like
 | `agent <id>: idle`     | the agent has a process and is waiting: for a prompt, a permission, or review after finishing |
 | `agent <id>: starting` | no process yet, started less than about 10 s ago     |
 | `agent <id>: stopped`  | no process, for example after a reboot; see [`ws restore`](ws-restore.md) |
-| `agent <id>: … stale` | the agent's process predates the current background service, so it has the old environment; see [`ws restart`](ws-restart.md) |
+| `agent <id>: … stale` | the agent's process started before the current background service's process, so it has the old environment; see [`ws restart`](ws-restart.md) |
 | `shell`               | the shell is running                                 |
 
 Workspaces whose session is gone are removed before listing
 ([0015](../adrs/0015-workspace-lifetime-follows-session.md)), so they don't
-appear. Directories under `workspaces/` without state are shown last with
-id `unknown`. `ws` never deletes them ([0012](../adrs/0012-workspace-layout.md)).
+appear; one whose removal fails is still listed, since it is still on
+disk, and the failure is reported in `warnings`. `ws list` runs that check every time, not at most once a minute as
+other commands do ([0026](../adrs/0026-removal-pass-timing.md), proposed).
+A workspace whose session isn't recorded yet, because `ws claude` or
+`ws shell` is still handing it over, shows `-` as its session (`null` in
+JSON); one left that way for over a minute with nothing holding its lock is
+abandoned, and is removed with any Claude Code session started in exactly
+that directory ([0023](../adrs/0023-shell-session-keeps-creation-lock.md),
+[0025](../adrs/0025-ws-claude-session-hand-off.md)).
+Directories under `workspaces/` without state are shown last with
+id `unknown` (in JSON, `id`, `created_at`, and `session` are `null`).
+`ws` never deletes them ([0012](../adrs/0012-workspace-layout.md)).
 
 ## Options
 
 | Option          | Description                                    |
 | --------------- | ---------------------------------------------- |
-| `-q`            | Print only workspace IDs (like `docker ps -q`) |
-| `--repo <SPEC>` | Only workspaces containing this repo           |
+| `-q`            | Print only workspace IDs (like `docker ps -q`); not with `--json` |
+| `--repo <SPEC>` | Only workspaces containing this repo, matched by the parts the spec gives (`api` matches any owner and host, `o/api` any host) and its ref, if any, against the ref checked out; no cache lookup |
 | `--json`        | Print `{"workspaces": [...], "warnings"}`       |
 
 ## Examples
@@ -66,15 +76,23 @@ $ ws list --json
 
 `session.state` is `working`, `idle`, `starting`, `stopped`, `unknown`, or
 `running` for a shell. It is `ws`'s reading, not Claude Code's own `state`
-field, which stays `working` on an idle session. `stale` is `null` for
-shells.
+field, which stays `working` on an idle session. `stale` is `true`
+when the session's process started before the background service's
+process, both start times read from the operating system; the service's
+pid comes from `claude daemon status`. It is `false` for an agent without
+a process, and `null` for shells and for agents when no service is
+running, `claude daemon status` can't be read, or either start time can't
+be read.
 
-If `claude agents` fails, agent sessions show as `agent <id>: unknown`,
-nothing is removed, and the failure is reported in `warnings`.
+If `claude agents` fails, agent sessions show as `agent <id>: unknown`, no
+agent or abandoned workspace is removed, and the failure is reported in
+`warnings`. Shell workspaces don't depend on Claude Code and are still
+removed once their shell has exited.
 
 ## See also
 
 [`ws rm`](ws-rm.md), [`ws restore`](ws-restore.md),
 [`ws restart`](ws-restart.md), [0012](../adrs/0012-workspace-layout.md),
 [0015](../adrs/0015-workspace-lifetime-follows-session.md),
-[0024](../adrs/0024-claude-code-client.md)
+[0024](../adrs/0024-claude-code-client.md),
+[0026](../adrs/0026-removal-pass-timing.md)

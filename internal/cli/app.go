@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/git"
+	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/proc"
 	"github.com/bobcob7/workspaces/internal/shell"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -32,11 +35,16 @@ type App struct {
 	configs configLoader
 	paths   config.Paths
 	config  config.Config
-	// newStores builds the repo cache and the workspace store once the
-	// config is loaded.
-	newStores  func(paths config.Paths, cfg config.Config) (repoCache, workspaceStore)
+	// newStores builds the repo cache, the workspace store, and the
+	// lifetime manager once the config is loaded.
+	newStores  func(paths config.Paths, cfg config.Config) stores
 	cache      repoCache
 	workspaces workspaceStore
+	lifetime   lifetimeManager
+	// swept is what the removal pass removed before the command ran.
+	swept []lifetime.Removed
+	// now is the clock ws list shows ages by.
+	now func() time.Time
 	// shell runs ws shell's interactive shell on ws's own streams.
 	shell shellRunner
 	// claude runs the Claude Code CLI; nothing else in ws does.
@@ -71,13 +79,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	level := new(slog.LevelVar)
 	level.Set(logOff)
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
-	newStores := func(paths config.Paths, cfg config.Config) (repoCache, workspaceStore) {
-		runner := git.NewRunner(log, "git", environ)
-		c := cache.New(log, runner, paths.Cache, cfg.Defaults)
-		return c, workspace.New(log, runner, c, paths.Workspaces, paths.State)
-	}
-	return &App{
-		newStores:   newStores,
+	a := &App{
 		shell:       shell.New(log, environ, stdin, stdout, stderr),
 		claude:      claude.New(log, "claude", environ),
 		version:     version,
@@ -86,11 +88,26 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		configs:     configs,
 		log:         log,
 		level:       level,
+		now:         time.Now,
 		indentJSON:  isTerminal(stdout),
 		interactive: isTerminal(stdin) && isTerminal(stdout),
 		notify:      signal.Notify,
 		stopNotify:  signal.Stop,
 	}
+	a.newStores = func(paths config.Paths, cfg config.Config) stores {
+		runner := git.NewRunner(log, "git", environ)
+		c := cache.New(log, runner, paths.Cache, cfg.Defaults)
+		ws := workspace.New(log, runner, c, paths.Workspaces, paths.State)
+		return stores{cache: c, workspaces: ws, lifetime: lifetime.New(log, ws, a.claude, proc.Reader{}, paths.State)}
+	}
+	return a
+}
+
+// stores are what commands that read CONFIG_DIR work on.
+type stores struct {
+	cache      repoCache
+	workspaces workspaceStore
+	lifetime   lifetimeManager
 }
 
 // Run executes ws with args, excluding the program name, and returns the
@@ -169,9 +186,20 @@ func runE(fn func(cmd *cobra.Command, args []string) error) func(*cobra.Command,
 	}
 }
 
-// withConfig loads CONFIG_DIR and config.toml before running fn. Commands
-// that touch the cache, workspaces, or state use it; ws llm doesn't.
+// withConfig loads CONFIG_DIR and config.toml, then runs the removal pass
+// (ADR 0015), before running fn. Commands that touch the cache,
+// workspaces, or state use it; ws llm doesn't.
 func (a *App) withConfig(fn func(cmd *cobra.Command, args []string) error) func(*cobra.Command, []string) error {
+	return a.configured(true, fn)
+}
+
+// withConfigUnswept is withConfig without the removal pass, for ws list,
+// which runs it as part of listing.
+func (a *App) withConfigUnswept(fn func(cmd *cobra.Command, args []string) error) func(*cobra.Command, []string) error {
+	return a.configured(false, fn)
+}
+
+func (a *App) configured(sweep bool, fn func(cmd *cobra.Command, args []string) error) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		paths, cfg, err := a.configs.Load(a.global.configDir)
 		if errors.Is(err, config.ErrInvalid) {
@@ -181,8 +209,12 @@ func (a *App) withConfig(fn func(cmd *cobra.Command, args []string) error) func(
 			return fmt.Errorf("loading config: %w", err)
 		}
 		a.paths, a.config = paths, cfg
-		a.cache, a.workspaces = a.newStores(paths, cfg)
+		s := a.newStores(paths, cfg)
+		a.cache, a.workspaces, a.lifetime = s.cache, s.workspaces, s.lifetime
 		a.log.Debug("config loaded", slog.String("root", paths.Root))
+		if sweep {
+			a.swept = a.lifetime.Sweep(cmd.Context())
+		}
 		return fn(cmd, args)
 	}
 }

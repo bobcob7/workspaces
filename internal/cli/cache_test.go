@@ -24,9 +24,9 @@ import (
 // would leave it.
 func newCacheApp(m *repoCacheMock) (app *App, stdout, stderr *bytes.Buffer) {
 	app, stdout, stderr = newTestApp()
-	workspaces := stubWorkspaces()
-	app.cache, app.workspaces = m, workspaces
-	app.newStores = func(config.Paths, config.Config) (repoCache, workspaceStore) { return m, workspaces }
+	s := stores{cache: m, workspaces: stubWorkspaces(), lifetime: stubLifetime()}
+	app.cache, app.workspaces, app.lifetime = s.cache, s.workspaces, s.lifetime
+	app.newStores = func(config.Paths, config.Config) stores { return s }
 	return app, stdout, stderr
 }
 
@@ -495,20 +495,20 @@ func TestApp_finishItems(t *testing.T) {
 	results := []cacheUpdateJSON{{ID: "a/b/c"}}
 	t.Run("text puts failures on stderr", func(t *testing.T) {
 		app, stdout, stderr := newCacheApp(stubCache())
-		requireCode(t, codeFetchFailed, app.finishItems(results, newItems()))
+		requireCode(t, codeFetchFailed, app.finishItems("repos", results, newItems()))
 		assert.Equal(t, "updated  a/b/c\n", stdout.String())
 		assert.Equal(t, "ws: fetch failed: boom\n", stderr.String())
 	})
 	t.Run("json writes the results", func(t *testing.T) {
 		app, stdout, stderr := newCacheApp(stubCache())
 		app.global.json = true
-		requireCode(t, codeFetchFailed, app.finishItems(results, newItems()))
+		requireCode(t, codeFetchFailed, app.finishItems("repos", results, newItems()))
 		assert.JSONEq(t, `{"repos":[{"id":"a/b/c","error":null}],"warnings":[]}`, stdout.String())
 		assert.Empty(t, stderr.String())
 	})
 	t.Run("the returned failure is already reported", func(t *testing.T) {
 		app, _, _ := newCacheApp(stubCache())
-		err := app.finishItems(results, newItems())
+		err := app.finishItems("repos", results, newItems())
 		ce, ok := errors.AsType[*cliError](err)
 		require.True(t, ok)
 		assert.True(t, ce.reported)
@@ -517,7 +517,7 @@ func TestApp_finishItems(t *testing.T) {
 		app, _, _ := newCacheApp(stubCache())
 		var items itemResults
 		items.add("x", nil)
-		assert.NoError(t, app.finishItems(results, &items))
+		assert.NoError(t, app.finishItems("repos", results, &items))
 	})
 }
 
@@ -803,25 +803,26 @@ func TestCommandStderr(t *testing.T) {
 	})
 }
 
-func TestApp_cacheWarnings(t *testing.T) {
+func TestApp_warnings(t *testing.T) {
 	t.Run("never nil", func(t *testing.T) {
 		app, _, _ := newCacheApp(stubCache())
-		assert.Equal(t, []string{}, app.cacheWarnings())
+		assert.Equal(t, []string{}, app.warnings())
 	})
-	t.Run("the cache's warnings", func(t *testing.T) {
-		m := stubCache()
-		m.WarningsFunc = func() []string { return []string{"careful"} }
-		app, _, _ := newCacheApp(m)
-		assert.Equal(t, []string{"careful"}, app.cacheWarnings())
+	t.Run("the removal pass's, the cache's, and the workspace store's", func(t *testing.T) {
+		e := newMockedApp()
+		e.cache.WarningsFunc = func() []string { return []string{"cache"} }
+		e.lifetime.WarningsFunc = func() []string { return []string{"pass"} }
+		e.store.WarningsFunc = func() []string { return []string{"store"} }
+		assert.Equal(t, []string{"pass", "cache", "store"}, e.app.warnings())
 	})
 }
 
 func TestApp_printWarnings(t *testing.T) {
-	m := stubCache()
-	m.WarningsFunc = func() []string { return []string{"one", "two"} }
-	app, _, stderr := newCacheApp(m)
-	app.printWarnings()
-	assert.Equal(t, "ws: warning: one\nws: warning: two\n", stderr.String())
+	e := newMockedApp()
+	e.cache.WarningsFunc = func() []string { return []string{"one", "two"} }
+	e.store.WarningsFunc = func() []string { return []string{"three"} }
+	e.app.printWarnings()
+	assert.Equal(t, "ws: warning: one\nws: warning: two\nws: warning: three\n", e.stderr.String())
 }
 
 func TestFormatTime(t *testing.T) {

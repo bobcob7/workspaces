@@ -8,6 +8,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/shell"
@@ -652,6 +653,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			CreateFunc: func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
 //				panic("mock out the Create method")
 //			},
+//			FindFunc: func(arg string) (workspace.Workspace, error) {
+//				panic("mock out the Find method")
+//			},
 //			RecordSessionFunc: func(id string, kind workspace.SessionKind, claudeSessionID string) error {
 //				panic("mock out the RecordSession method")
 //			},
@@ -674,6 +678,9 @@ type workspaceStoreMock struct {
 	// CreateFunc mocks the Create method.
 	CreateFunc func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error)
 
+	// FindFunc mocks the Find method.
+	FindFunc func(arg string) (workspace.Workspace, error)
+
 	// RecordSessionFunc mocks the RecordSession method.
 	RecordSessionFunc func(id string, kind workspace.SessionKind, claudeSessionID string) error
 
@@ -694,6 +701,11 @@ type workspaceStoreMock struct {
 			Ctx context.Context
 			// Opts is the opts argument value.
 			Opts workspace.CreateOptions
+		}
+		// Find holds details about calls to the Find method.
+		Find []struct {
+			// Arg is the arg argument value.
+			Arg string
 		}
 		// RecordSession holds details about calls to the RecordSession method.
 		RecordSession []struct {
@@ -723,6 +735,7 @@ type workspaceStoreMock struct {
 		}
 	}
 	lockCreate        sync.RWMutex
+	lockFind          sync.RWMutex
 	lockRecordSession sync.RWMutex
 	lockRemove        sync.RWMutex
 	lockUsesCommit    sync.RWMutex
@@ -762,6 +775,38 @@ func (mock *workspaceStoreMock) CreateCalls() []struct {
 	mock.lockCreate.RLock()
 	calls = mock.calls.Create
 	mock.lockCreate.RUnlock()
+	return calls
+}
+
+// Find calls FindFunc.
+func (mock *workspaceStoreMock) Find(arg string) (workspace.Workspace, error) {
+	if mock.FindFunc == nil {
+		panic("workspaceStoreMock.FindFunc: method is nil but workspaceStore.Find was just called")
+	}
+	callInfo := struct {
+		Arg string
+	}{
+		Arg: arg,
+	}
+	mock.lockFind.Lock()
+	mock.calls.Find = append(mock.calls.Find, callInfo)
+	mock.lockFind.Unlock()
+	return mock.FindFunc(arg)
+}
+
+// FindCalls gets all the calls that were made to Find.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.FindCalls())
+func (mock *workspaceStoreMock) FindCalls() []struct {
+	Arg string
+} {
+	var calls []struct {
+		Arg string
+	}
+	mock.lockFind.RLock()
+	calls = mock.calls.Find
+	mock.lockFind.RUnlock()
 	return calls
 }
 
@@ -895,6 +940,209 @@ func (mock *workspaceStoreMock) Warnings() []string {
 //
 //	len(mockedworkspaceStore.WarningsCalls())
 func (mock *workspaceStoreMock) WarningsCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockWarnings.RLock()
+	calls = mock.calls.Warnings
+	mock.lockWarnings.RUnlock()
+	return calls
+}
+
+// Ensure, that lifetimeManagerMock does implement lifetimeManager.
+// If this is not the case, regenerate this file with moq.
+var _ lifetimeManager = &lifetimeManagerMock{}
+
+// lifetimeManagerMock is a mock implementation of lifetimeManager.
+//
+//	func TestSomethingThatUseslifetimeManager(t *testing.T) {
+//
+//		// make and configure a mocked lifetimeManager
+//		mockedlifetimeManager := &lifetimeManagerMock{
+//			ListFunc: func(ctx context.Context) (lifetime.Listing, error) {
+//				panic("mock out the List method")
+//			},
+//			RemoveFunc: func(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error) {
+//				panic("mock out the Remove method")
+//			},
+//			SweepFunc: func(ctx context.Context) []lifetime.Removed {
+//				panic("mock out the Sweep method")
+//			},
+//			WarningsFunc: func() []string {
+//				panic("mock out the Warnings method")
+//			},
+//		}
+//
+//		// use mockedlifetimeManager in code that requires lifetimeManager
+//		// and then make assertions.
+//
+//	}
+type lifetimeManagerMock struct {
+	// ListFunc mocks the List method.
+	ListFunc func(ctx context.Context) (lifetime.Listing, error)
+
+	// RemoveFunc mocks the Remove method.
+	RemoveFunc func(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error)
+
+	// SweepFunc mocks the Sweep method.
+	SweepFunc func(ctx context.Context) []lifetime.Removed
+
+	// WarningsFunc mocks the Warnings method.
+	WarningsFunc func() []string
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// List holds details about calls to the List method.
+		List []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// Remove holds details about calls to the Remove method.
+		Remove []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Ws is the ws argument value.
+			Ws *workspace.Workspace
+			// DryRun is the dryRun argument value.
+			DryRun bool
+		}
+		// Sweep holds details about calls to the Sweep method.
+		Sweep []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// Warnings holds details about calls to the Warnings method.
+		Warnings []struct {
+		}
+	}
+	lockList     sync.RWMutex
+	lockRemove   sync.RWMutex
+	lockSweep    sync.RWMutex
+	lockWarnings sync.RWMutex
+}
+
+// List calls ListFunc.
+func (mock *lifetimeManagerMock) List(ctx context.Context) (lifetime.Listing, error) {
+	if mock.ListFunc == nil {
+		panic("lifetimeManagerMock.ListFunc: method is nil but lifetimeManager.List was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockList.Lock()
+	mock.calls.List = append(mock.calls.List, callInfo)
+	mock.lockList.Unlock()
+	return mock.ListFunc(ctx)
+}
+
+// ListCalls gets all the calls that were made to List.
+// Check the length with:
+//
+//	len(mockedlifetimeManager.ListCalls())
+func (mock *lifetimeManagerMock) ListCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockList.RLock()
+	calls = mock.calls.List
+	mock.lockList.RUnlock()
+	return calls
+}
+
+// Remove calls RemoveFunc.
+func (mock *lifetimeManagerMock) Remove(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error) {
+	if mock.RemoveFunc == nil {
+		panic("lifetimeManagerMock.RemoveFunc: method is nil but lifetimeManager.Remove was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Ws     *workspace.Workspace
+		DryRun bool
+	}{
+		Ctx:    ctx,
+		Ws:     ws,
+		DryRun: dryRun,
+	}
+	mock.lockRemove.Lock()
+	mock.calls.Remove = append(mock.calls.Remove, callInfo)
+	mock.lockRemove.Unlock()
+	return mock.RemoveFunc(ctx, ws, dryRun)
+}
+
+// RemoveCalls gets all the calls that were made to Remove.
+// Check the length with:
+//
+//	len(mockedlifetimeManager.RemoveCalls())
+func (mock *lifetimeManagerMock) RemoveCalls() []struct {
+	Ctx    context.Context
+	Ws     *workspace.Workspace
+	DryRun bool
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Ws     *workspace.Workspace
+		DryRun bool
+	}
+	mock.lockRemove.RLock()
+	calls = mock.calls.Remove
+	mock.lockRemove.RUnlock()
+	return calls
+}
+
+// Sweep calls SweepFunc.
+func (mock *lifetimeManagerMock) Sweep(ctx context.Context) []lifetime.Removed {
+	if mock.SweepFunc == nil {
+		panic("lifetimeManagerMock.SweepFunc: method is nil but lifetimeManager.Sweep was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockSweep.Lock()
+	mock.calls.Sweep = append(mock.calls.Sweep, callInfo)
+	mock.lockSweep.Unlock()
+	return mock.SweepFunc(ctx)
+}
+
+// SweepCalls gets all the calls that were made to Sweep.
+// Check the length with:
+//
+//	len(mockedlifetimeManager.SweepCalls())
+func (mock *lifetimeManagerMock) SweepCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockSweep.RLock()
+	calls = mock.calls.Sweep
+	mock.lockSweep.RUnlock()
+	return calls
+}
+
+// Warnings calls WarningsFunc.
+func (mock *lifetimeManagerMock) Warnings() []string {
+	if mock.WarningsFunc == nil {
+		panic("lifetimeManagerMock.WarningsFunc: method is nil but lifetimeManager.Warnings was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockWarnings.Lock()
+	mock.calls.Warnings = append(mock.calls.Warnings, callInfo)
+	mock.lockWarnings.Unlock()
+	return mock.WarningsFunc()
+}
+
+// WarningsCalls gets all the calls that were made to Warnings.
+// Check the length with:
+//
+//	len(mockedlifetimeManager.WarningsCalls())
+func (mock *lifetimeManagerMock) WarningsCalls() []struct {
 } {
 	var calls []struct {
 	}

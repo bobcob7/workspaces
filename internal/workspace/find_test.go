@@ -131,10 +131,37 @@ func TestStore_Find(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, ws, got)
 	})
+	t.Run("by Claude session id", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putWorkspace(t, s, "fix-login", testNow())
+		require.NoError(t, s.RecordSession("fix-login", SessionClaude, "e8cdf5d8"))
+		got, err := s.Find("e8cdf5d8")
+		require.NoError(t, err)
+		assert.Equal(t, ws, got)
+	})
+	t.Run("an id comes before a session id", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		putWorkspace(t, s, "fix-login", testNow())
+		require.NoError(t, s.RecordSession("fix-login", SessionClaude, "e8cdf5d8"))
+		putWorkspace(t, s, "e8cdf5d8", testNow())
+		got, err := s.Find("e8cdf5d8")
+		require.NoError(t, err)
+		assert.Equal(t, "e8cdf5d8", got.ID)
+	})
 	t.Run("no match", func(t *testing.T) {
 		t.Parallel()
 		_, err := newTestStore(t, nil, nil).Find("nope")
 		assert.ErrorIs(t, err, ErrNotFound)
+	})
+	t.Run("unreadable state", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		writeFile(t, s.stateDir, "")
+		_, err := s.Find(t.TempDir())
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, ErrNotFound)
 	})
 	t.Run("broken record", func(t *testing.T) {
 		t.Parallel()
@@ -248,7 +275,7 @@ func TestValidID(t *testing.T) {
 	})
 }
 
-func TestStore_byPath(t *testing.T) {
+func TestByPath(t *testing.T) {
 	t.Parallel()
 	t.Run("through a symlink", func(t *testing.T) {
 		t.Parallel()
@@ -256,29 +283,51 @@ func TestStore_byPath(t *testing.T) {
 		ws := putWorkspace(t, s, "x", testNow())
 		link := filepath.Join(t.TempDir(), "link")
 		require.NoError(t, os.Symlink(ws.Path, link))
-		got, err := s.byPath(link)
-		require.NoError(t, err)
+		got, ok := byPath([]Workspace{ws}, link)
+		require.True(t, ok)
 		assert.Equal(t, "x", got.ID)
 	})
 	t.Run("an existing directory that isn't a workspace", func(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
-		putWorkspace(t, s, "x", testNow())
-		_, err := s.byPath(t.TempDir())
-		assert.ErrorIs(t, err, ErrNotFound)
+		ws := putWorkspace(t, s, "x", testNow())
+		_, ok := byPath([]Workspace{ws}, t.TempDir())
+		assert.False(t, ok)
 	})
 	t.Run("a path that doesn't exist", func(t *testing.T) {
 		t.Parallel()
-		_, err := newTestStore(t, nil, nil).byPath(filepath.Join(t.TempDir(), "missing"))
-		assert.ErrorIs(t, err, ErrNotFound)
+		_, ok := byPath(nil, filepath.Join(t.TempDir(), "missing"))
+		assert.False(t, ok)
 	})
-	t.Run("unreadable state", func(t *testing.T) {
+}
+
+func TestStore_bySession(t *testing.T) {
+	t.Parallel()
+	t.Run("the agent with this Claude session id", func(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
-		writeFile(t, s.stateDir, "")
-		_, err := s.byPath(t.TempDir())
-		require.Error(t, err)
-		assert.NotErrorIs(t, err, ErrNotFound)
+		other := putWorkspace(t, s, "other", testNow())
+		require.NoError(t, s.RecordSession("other", SessionClaude, "5d8d652c"))
+		ws := putWorkspace(t, s, "x", testNow())
+		require.NoError(t, s.RecordSession("x", SessionClaude, "e8cdf5d8"))
+		got, ok := s.bySession([]Workspace{other, ws}, "e8cdf5d8")
+		require.True(t, ok)
+		assert.Equal(t, "x", got.ID)
+	})
+	t.Run("a shell has no session id to match", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putWorkspace(t, s, "x", testNow())
+		require.NoError(t, s.RecordSession("x", SessionShell, ""))
+		_, ok := s.bySession([]Workspace{ws}, "")
+		assert.False(t, ok)
+	})
+	t.Run("no session record", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putWorkspace(t, s, "x", testNow())
+		_, ok := s.bySession([]Workspace{ws}, "e8cdf5d8")
+		assert.False(t, ok)
 	})
 }
 

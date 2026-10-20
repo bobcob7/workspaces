@@ -55,20 +55,14 @@ func (s *Store) isLeftover(id string) bool {
 	return s.abandoned(id)
 }
 
-// abandoned reports whether state without a complete workspace is old
-// enough and unlocked, so no creation is still working on it.
+// abandoned reports whether workspace id's state is old enough and
+// unlocked, so no creation or hand-off is still working on it. A lock that
+// can't be checked counts as held.
 func (s *Store) abandoned(id string) bool {
 	info, err := os.Stat(s.stateOf(id))
 	if err != nil || s.now().Sub(info.ModTime()) < leftoverMinAge {
 		return false
 	}
-	if _, err = os.Stat(s.lockPath(id)); errors.Is(err, fs.ErrNotExist) {
-		return true
-	}
-	unlock, ok, err := lockfile.TryExclusive(s.lockPath(id))
-	if err != nil || !ok {
-		return false
-	}
-	unlock()
-	return true
+	held, err := lockfile.HeldExclusively(s.lockPath(id))
+	return err == nil && !held
 }

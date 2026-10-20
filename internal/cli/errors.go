@@ -37,6 +37,8 @@ const (
 	codeWorkspaceNotFound errorCode = "workspace_not_found"
 	codeWorkspaceExists   errorCode = "workspace_exists"
 	codeShellRunning      errorCode = "shell_running"
+	codeWorkspaceBusy     errorCode = "workspace_busy"
+	codeSessionMismatch   errorCode = "session_mismatch"
 )
 
 var errNotImplemented = errors.New("not implemented yet")
@@ -86,7 +88,7 @@ func (c errorCode) exitCode() int {
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound:
 		return exitNotFound
-	case codeWorkspaceExists, codeShellRunning:
+	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch:
 		return exitRefused
 	}
 	return exitFailed

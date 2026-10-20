@@ -40,6 +40,25 @@ func (s *Store) Remove(id string, opts RemoveOptions) error {
 	return nil
 }
 
+// GuardedDir returns the directory Remove would delete for workspace id:
+// its recorded path with symlinks resolved, once the deletion guard has
+// allowed it (ADR 0012). A workspace whose directory is gone is
+// ErrNotFound.
+func (s *Store) GuardedDir(id string) (string, error) {
+	ws, err := s.recordByID(id)
+	if err != nil {
+		return "", err
+	}
+	target, gone, err := s.guard(&ws, RemoveOptions{})
+	if err != nil {
+		return "", err
+	}
+	if gone {
+		return "", fmt.Errorf("%w: %s doesn't exist", ErrNotFound, ws.Path)
+	}
+	return target, nil
+}
+
 // guard applies ADR 0012's deletion guard to a workspace whose record
 // parsed: the directory to delete is the recorded path, resolved through
 // symlinks, and it must be workspaces/<id>, also resolved, unless

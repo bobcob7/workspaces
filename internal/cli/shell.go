@@ -41,7 +41,7 @@ func (a *App) newShellCmd() *cobra.Command {
 func (a *App) runShell(ctx context.Context, opts *shellOptions) error {
 	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline})
 	if err != nil {
-		a.printWorkspaceWarnings()
+		a.printWarnings()
 		return domainError(err)
 	}
 	defer lock.Unlock()
@@ -81,12 +81,5 @@ func (a *App) shellSession(ctx context.Context, ws *workspace.Workspace, lock *l
 func (a *App) removeWorkspace(id string) {
 	if err := a.workspaces.Remove(id, workspace.RemoveOptions{}); err != nil {
 		fmt.Fprintf(a.stderr, "ws: couldn't remove workspace %s: %v\n", id, err)
-	}
-}
-
-// printWorkspaceWarnings writes the workspace store's warnings to stderr.
-func (a *App) printWorkspaceWarnings() {
-	for _, w := range a.workspaces.Warnings() {
-		fmt.Fprintf(a.stderr, "ws: warning: %s\n", w)
 	}
 }

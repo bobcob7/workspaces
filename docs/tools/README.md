@@ -57,7 +57,9 @@ A finished agent's workspace stays, so its conversation can be reviewed
 next to the code. Removal ignores git state: uncommitted changes and
 unpushed commits go with the workspace. Removal after `claude rm`, or after
 a shell whose `ws` was killed, happens at the start of the next `ws`
-command; `ws` checks at most once a minute.
+command; `ws` checks at most once a minute, except `ws list`, which checks
+every time, and `ws llm`, which never does
+([0026](../adrs/0026-removal-pass-timing.md), proposed).
 
 ## Creating a workspace
 
@@ -144,7 +146,7 @@ and messages aren't ([0016](../adrs/0016-output-contract.md)).
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal` |
 | 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch` |
 
 `ws shell` exits with the shell's exit code once the shell has started,
 or 128+N when signal N killed it.
