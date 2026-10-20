@@ -172,12 +172,6 @@ func assertFlag(t *testing.T, cmd *cobra.Command, name, def string) {
 	assert.Equal(t, def, f.DefValue, "--%s default", name)
 }
 
-// requireNotImplemented checks that a stub command reached its RunE body.
-func requireNotImplemented(t *testing.T, err error) {
-	t.Helper()
-	assert.ErrorIs(t, err, errNotImplemented)
-}
-
 func TestNew(t *testing.T) {
 	app, stdout, stderr := newTestApp()
 	assert.Equal(t, "test", app.version)
@@ -394,7 +388,8 @@ func TestApp_withConfig(t *testing.T) {
 	})
 	t.Run("returns the command's error", func(t *testing.T) {
 		app, _ := newApp(nil)
-		assert.ErrorIs(t, app.withConfig(notImplemented)(cmdWithContext(t), nil), errNotImplemented)
+		fail := func(*cobra.Command, []string) error { return errTest }
+		assert.ErrorIs(t, app.withConfig(fail)(cmdWithContext(t), nil), errTest)
 	})
 	t.Run("invalid config is config_invalid", func(t *testing.T) {
 		app, _ := newApp(fmt.Errorf("bad: %w", config.ErrInvalid))

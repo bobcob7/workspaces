@@ -178,7 +178,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **`ws restart`**, under the respawn lock
   ([0018](docs/adrs/0018-restart-claude-daemon.md),
   [0027](docs/adrs/0027-respawn-lock-and-record-versions.md))
-- [ ] **`ws llm`**: embedded guides with the coverage test, and
+- [x] **`ws llm`**: embedded guides with the coverage test, and
   `workspaces/CLAUDE.md`, written if missing
   ([0014](docs/adrs/0014-command-set.md))
 - [ ] **Release**: `make dist` binaries for darwin and linux, amd64 and
@@ -206,6 +206,7 @@ internal/
   proc/                       # when processes started, from the operating system (0018, 0026)
   shell/                      # ws shell's interactive shell: lock, signals, exit status (0015, 0023)
   lockfile/                   # flock locks, exclusive and shared (0008)
+  writeonce/                  # files written once, never overwritten: config.toml, workspaces/CLAUDE.md
   backup/                     # Time Machine exclusion (0011)
   gittest/                    # local upstreams for tests, via insteadOf (0020)
 docs/

@@ -132,11 +132,13 @@ func TestApp_runList(t *testing.T) {
 		t.Parallel()
 		e := newLifetimeE2E(t)
 		path := e.start(t, "fix-login", "e8cdf5d8")
+		claudeMD := filepath.Join(e.paths.Workspaces, "CLAUDE.md")
+		require.FileExists(t, claudeMD, "written with workspaces/")
 		e.setAgents(t, "["+agentJSON("e8cdf5d8", path)+"]")
 		require.Equal(t, exitOK, e.run(t, "--json", "list"), "stderr: %s", e.stderr.String())
 		var got listJSON
 		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
-		require.Len(t, got.Workspaces, 1)
+		require.Len(t, got.Workspaces, 1, "CLAUDE.md isn't listed")
 		assert.Equal(t, "agent", string(got.Workspaces[0].Session.Kind))
 		assert.Equal(t, "idle", string(got.Workspaces[0].Session.State))
 		e.setAgents(t, "[]")
@@ -148,6 +150,7 @@ func TestApp_runList(t *testing.T) {
 		assert.Empty(t, e.stdout.String())
 		assert.NoDirExists(t, path)
 		assert.NoDirExists(t, filepath.Join(e.paths.State, "fix-login"))
+		assert.FileExists(t, claudeMD, "the removal pass leaves CLAUDE.md")
 		assert.Empty(t, e.calls(t), "a gone session needs no claude rm")
 	})
 	t.Run("end to end: an abandoned workspace goes with only the session started in it", func(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/backup"
+	"github.com/bobcob7/workspaces/internal/writeonce"
 )
 
 // Store keeps workspaces under CONFIG_DIR/workspaces and their state under
@@ -26,10 +27,12 @@ type Store struct {
 	root     string
 	stateDir string
 	exclude  func(dir string)
-	now      func() time.Time
-	suffix   func() (string, error)
-	mu       sync.Mutex
-	warnings []string
+	// writeOnce creates a file unless it exists (writeonce.File).
+	writeOnce func(path string, data []byte) error
+	now       func() time.Time
+	suffix    func() (string, error)
+	mu        sync.Mutex
+	warnings  []string
 }
 
 // New returns the Store for workspaces under root and their state under
@@ -37,14 +40,15 @@ type Store struct {
 // workspace repos from c.
 func New(log *slog.Logger, git gitRunner, c repoCache, root, stateDir string) *Store {
 	return &Store{
-		log:      log,
-		git:      git,
-		cache:    c,
-		root:     root,
-		stateDir: stateDir,
-		exclude:  func(dir string) { backup.Exclude(log, dir) },
-		now:      time.Now,
-		suffix:   randomSuffix,
+		log:       log,
+		git:       git,
+		cache:     c,
+		root:      root,
+		stateDir:  stateDir,
+		exclude:   func(dir string) { backup.Exclude(log, dir) },
+		writeOnce: writeonce.File,
+		now:       time.Now,
+		suffix:    randomSuffix,
 	}
 }
 
@@ -83,7 +87,8 @@ func (s *Store) lockPath(id string) string {
 }
 
 // ensureRoots creates workspaces/ and state/ if they're missing. A new
-// workspaces/ is excluded from Time Machine, in the background (ADR 0011).
+// workspaces/ is excluded from Time Machine, in the background (ADR 0011),
+// and gets a CLAUDE.md pointing agents to ws llm (ADR 0014).
 func (s *Store) ensureRoots() error {
 	if err := os.MkdirAll(s.stateDir, 0o750); err != nil {
 		return fmt.Errorf("creating state directory: %w", err)
@@ -97,5 +102,6 @@ func (s *Store) ensureRoots() error {
 		return fmt.Errorf("creating workspace directory: %w", err)
 	}
 	s.exclude(s.root)
+	s.writeClaudeMD()
 	return nil
 }

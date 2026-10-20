@@ -41,8 +41,6 @@ const (
 	codeSessionMismatch   errorCode = "session_mismatch"
 )
 
-var errNotImplemented = errors.New("not implemented yet")
-
 // shellExitError is ws shell's result once its shell has exited with a non-zero
 // status: ws exits with that status, not an exit code from ADR 0016's
 // table, and prints nothing more.

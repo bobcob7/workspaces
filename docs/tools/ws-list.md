@@ -43,7 +43,7 @@ id `unknown` (in JSON, `id`, `created_at`, and `session` are `null`).
 
 | Option          | Description                                    |
 | --------------- | ---------------------------------------------- |
-| `-q`            | Print only workspace IDs (like `docker ps -q`); not with `--json` |
+| `-q`, `--ids`   | Print only workspace IDs (like `docker ps -q`); not with `--json` |
 | `--repo <SPEC>` | Only workspaces containing this repo, matched by the parts the spec gives (`api` matches any owner and host, `o/api` any host) and its ref, if any, against the ref checked out; no cache lookup |
 | `--json`        | Print `{"workspaces": [...], "warnings"}`       |
 

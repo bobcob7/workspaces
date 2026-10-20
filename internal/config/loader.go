@@ -1,11 +1,11 @@
 package config
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/bobcob7/workspaces/internal/writeonce"
 )
 
 // envConfigDir overrides the default CONFIG_DIR (ADR 0011).
@@ -69,31 +69,13 @@ func (l *Loader) root(configDir string) (string, error) {
 }
 
 // writeDefault creates path with the commented default config unless it
-// exists. It writes a temp file and links it into place, so a concurrent
-// ws never sees a partial file and an existing config is never overwritten.
+// exists, through a temp file linked into place, so a concurrent ws never
+// sees a partial file and an existing config is never overwritten.
 func writeDefault(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("checking config: %w", err)
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".config-*.toml")
-	if err != nil {
-		return fmt.Errorf("writing default config: %w", err)
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.WriteString(defaultFile); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("writing default config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("writing default config: %w", err)
-	}
-	if err := os.Link(tmp.Name(), path); err != nil && !errors.Is(err, fs.ErrExist) {
+	if err := writeonce.File(path, []byte(defaultFile)); err != nil {
 		return fmt.Errorf("writing default config: %w", err)
 	}
 	return nil

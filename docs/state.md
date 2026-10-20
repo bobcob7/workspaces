@@ -12,7 +12,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 | Path | What it is | Written |
 | --- | --- | --- |
 | `workspaces/<id>/` | the workspace: the user's repos and files only | moved into place by creation |
-| `workspaces/CLAUDE.md` | tells agents to run `ws llm` ([0014](adrs/0014-command-set.md)) | when `workspaces/` is first created, if missing; never overwritten |
+| `workspaces/CLAUDE.md` | tells agents to run `ws llm` ([0014](adrs/0014-command-set.md)) | when `workspaces/` is first created, if missing, through a temp file linked into place; never overwritten |
 | `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | once, by creation |
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
 | `state/<id>/lock` | the workspace lock | by creation |

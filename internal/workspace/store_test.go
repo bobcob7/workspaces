@@ -112,6 +112,7 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "/cfg/workspaces", s.root)
 	assert.Equal(t, "/cfg/state", s.stateDir)
 	assert.NotNil(t, s.exclude)
+	assert.NotNil(t, s.writeOnce)
 	assert.NotNil(t, s.now)
 	assert.NotNil(t, s.suffix)
 }
@@ -165,6 +166,14 @@ func TestStore_ensureRoots(t *testing.T) {
 		assert.DirExists(t, s.stateDir)
 		assert.Equal(t, []string{s.root}, excluded)
 	})
+	t.Run("writes CLAUDE.md into a new workspaces/", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		require.NoError(t, s.ensureRoots())
+		data, err := os.ReadFile(filepath.Join(s.root, "CLAUDE.md"))
+		require.NoError(t, err)
+		assert.Equal(t, claudeMD, data)
+	})
 	t.Run("leaves an existing workspaces/ alone", func(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
@@ -172,7 +181,20 @@ func TestStore_ensureRoots(t *testing.T) {
 		s.exclude = func(string) {
 			t.Fatal("excluded an existing directory")
 		}
+		s.writeOnce = func(string, []byte) error {
+			t.Fatal("wrote CLAUDE.md into an existing directory")
+			return nil
+		}
 		require.NoError(t, s.ensureRoots())
+		assert.NoFileExists(t, filepath.Join(s.root, "CLAUDE.md"))
+	})
+	t.Run("an unwritable CLAUDE.md is a warning, not a failure", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		s.writeOnce = func(string, []byte) error { return errTest }
+		require.NoError(t, s.ensureRoots())
+		assert.DirExists(t, s.root)
+		assert.Len(t, s.Warnings(), 1)
 	})
 	t.Run("uncreatable state directory", func(t *testing.T) {
 		t.Parallel()

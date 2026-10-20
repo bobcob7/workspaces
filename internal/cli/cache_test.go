@@ -53,8 +53,18 @@ func TestApp_newCacheCmd(t *testing.T) {
 		}
 		assert.ElementsMatch(t, []string{"add", "update", "list", "search", "resolve", "path", "remove", "prune"}, names)
 	})
-	t.Run("takes no arguments of its own", func(t *testing.T) {
+	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"frobnicate"}))
+	})
+	t.Run("an unknown operation exits 2 with nothing on stdout", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		assert.Equal(t, exitUsage, app.Run(t.Context(), []string{"cache", "frobnicate"}))
+		assert.Empty(t, stdout.String())
+	})
+	t.Run("no operation prints help", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		assert.Equal(t, exitOK, app.Run(t.Context(), []string{"cache"}))
+		assert.Contains(t, stdout.String(), "Available Commands:")
 	})
 }
 
@@ -307,10 +317,6 @@ func TestApp_cachePrune(t *testing.T) {
 		app, _, _ := newCacheApp(m)
 		requireCode(t, codeGitFailed, app.cachePrune(t.Context(), false))
 	})
-}
-
-func TestNotImplemented(t *testing.T) {
-	requireNotImplemented(t, notImplemented(nil, nil))
 }
 
 func TestParseSpecs(t *testing.T) {

@@ -21,7 +21,10 @@ func (a *App) newCacheCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cache <OP>",
 		Short: "Manage, search, and resolve cached repos",
-		Args:  noArgs,
+		Args:  knownOperation,
+		RunE: runE(func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		}),
 	}
 	cmd.AddCommand(
 		a.newCacheAddCmd(),
@@ -145,10 +148,6 @@ func (a *App) newCachePruneCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "list what would be deleted")
 	return cmd
-}
-
-func notImplemented(*cobra.Command, []string) error {
-	return errNotImplemented
 }
 
 // parseSpecs parses arguments that validSpecs has already checked.

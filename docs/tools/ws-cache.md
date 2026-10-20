@@ -187,6 +187,7 @@ With `-n`, text output says `would prune` instead.
 
 | Situation                                   | Error code                         | Exit |
 | ------------------------------------------- | ---------------------------------- | ---- |
+| Unknown operation, or wrong arguments for one | `usage`                          | 2    |
 | Unparsable spec                             | `spec_invalid`                     | 2    |
 | Repo not found, or short name ambiguous     | `repo_not_found`, `repo_ambiguous` | 3    |
 | Upstream doesn't have a full commit hash that was asked for | `ref_not_found` | 3 |

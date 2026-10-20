@@ -23,6 +23,16 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// knownOperation refuses an argument to a command group, such as ws cache:
+// it names no operation the group has, since cobra already ran any that it
+// does. Without it, cobra prints the group's help and exits 0.
+func knownOperation(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		return usageErrorf("unknown %s operation %q; run `ws %s --help`", commandName(cmd), args[0], commandName(cmd))
+	}
+	return nil
+}
+
 func atLeastOneArg(what string) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {

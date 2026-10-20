@@ -16,7 +16,7 @@ import (
 )
 
 // assertNothingCreated checks that a failed Create left no workspace and no
-// state behind.
+// state behind. The workspace root's CLAUDE.md isn't a workspace.
 func assertNothingCreated(t *testing.T, s *Store) {
 	t.Helper()
 	for _, dir := range []string{s.root, s.stateDir} {
@@ -25,7 +25,13 @@ func assertNothingCreated(t *testing.T, s *Store) {
 			continue
 		}
 		require.NoError(t, err)
-		assert.Empty(t, entries, dir)
+		var names []string
+		for _, e := range entries {
+			if dir != s.root || e.Name() != claudeMDName {
+				names = append(names, e.Name())
+			}
+		}
+		assert.Empty(t, names, dir)
 	}
 }
 

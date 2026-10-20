@@ -44,7 +44,9 @@ When `ws` first creates `$CONFIG_DIR/workspaces/`, it also writes
 `$CONFIG_DIR/workspaces/CLAUDE.md`, which tells agents to run `ws llm`
 before using `ws`. Claude Code loads `CLAUDE.md` files from the directories
 above where it starts, so every Claude Code session in a workspace sees it.
-The file is never overwritten, so it can be edited. Other agents need to be
+The file is written through a temporary file linked into place, as
+`config.toml` is, and is never overwritten, so it can be edited. If it
+can't be written, `ws` adds a warning and goes on. Other agents need to be
 told to run `ws llm`, for example from their own instruction files.
 
 ## Examples

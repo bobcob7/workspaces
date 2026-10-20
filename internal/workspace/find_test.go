@@ -155,6 +155,17 @@ func TestStore_Find(t *testing.T) {
 		_, err := newTestStore(t, nil, nil).Find("nope")
 		assert.ErrorIs(t, err, ErrNotFound)
 	})
+	t.Run("CLAUDE.md isn't a workspace", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		putWorkspace(t, s, "x", testNow())
+		path := filepath.Join(s.root, "CLAUDE.md")
+		writeFile(t, path, "")
+		_, err := s.Find("CLAUDE.md")
+		require.ErrorIs(t, err, ErrNotFound)
+		_, err = s.Find(path)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
 	t.Run("unreadable state", func(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)

@@ -29,6 +29,18 @@ func TestNoArgs(t *testing.T) {
 	})
 }
 
+func TestKnownOperation(t *testing.T) {
+	cmd := newTestTree().Parent()
+	t.Run("accepts no operation", func(t *testing.T) {
+		assert.NoError(t, knownOperation(cmd, nil))
+	})
+	t.Run("rejects an unknown operation", func(t *testing.T) {
+		err := knownOperation(cmd, []string{"frobnicate"})
+		requireUsageError(t, err)
+		assert.EqualError(t, err, "unknown cache operation \"frobnicate\"; run `ws cache --help`")
+	})
+}
+
 func TestAtLeastOneArg(t *testing.T) {
 	validate := atLeastOneArg("a repo spec")
 	cmd := newTestTree()

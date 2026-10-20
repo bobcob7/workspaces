@@ -74,6 +74,7 @@ removes is reported as removed, with `removed` `true`.
 | Workspace still being handed to its session   | `workspace_busy`      | 4    |
 | Its session is listed in another directory; nothing is touched | `session_mismatch` | 4 |
 | `claude rm` refused or failed; the workspace is kept | `claude_failed` | 1    |
+| Its recorded directory isn't its own under the workspace root; nothing is deleted ([0012](../adrs/0012-workspace-layout.md)) | `internal` | 1 |
 
 With several workspaces, the others are still removed, each result carries
 its own `error`, and the exit code is that of the first failure.

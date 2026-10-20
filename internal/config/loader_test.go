@@ -159,6 +159,13 @@ func TestWriteDefault(t *testing.T) {
 		require.Len(t, entries, 1)
 		assert.Equal(t, "config.toml", entries[0].Name())
 	})
+	t.Run("read-only directory is an error", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		require.NoError(t, os.Chmod(dir, 0o500))
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		assert.ErrorContains(t, writeDefault(filepath.Join(dir, "config.toml")), "writing default config")
+	})
 	t.Run("unwritable directory is an error", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
