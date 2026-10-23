@@ -21,6 +21,14 @@ A window onto your `ws` workspaces and their Claude Code agents, like
 Everything goes through the `ws` and `claude` CLIs; the app keeps no state
 of its own.
 
+![An agent waiting on a permission prompt, attached in the app](docs/needs-input.png)
+
+| A finished agent, with its result and PRs | Starting an agent |
+| --- | --- |
+| ![](docs/done.png) | ![](docs/new-agent.png) |
+
+The screenshots use sample data.
+
 ## Requirements
 
 - `ws` and Claude Code (2.1.302 or newer) on the PATH your login shell
