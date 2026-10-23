@@ -1,0 +1,39 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  --status-color: var(--status-unknown);
+}
+
+.root[data-status="working"] { --status-color: var(--status-working); }
+.root[data-status="needsInput"] { --status-color: var(--status-needs-input); }
+.root[data-status="idle"] { --status-color: var(--status-idle); }
+.root[data-status="done"] { --status-color: var(--status-done); }
+.root[data-status="starting"] { --status-color: var(--status-starting); }
+.root[data-status="stopped"] { --status-color: var(--status-stopped); }
+.root[data-status="running"] { --status-color: var(--status-running); }
+.root[data-status="pending"] { --status-color: var(--status-pending); }
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--status-color);
+  flex: none;
+}
+
+.root[data-status="working"] .dot,
+.root[data-status="starting"] .dot {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.label {
+  color: var(--status-color);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.35; }
+}

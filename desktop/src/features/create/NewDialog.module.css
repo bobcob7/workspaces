@@ -1,0 +1,17 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px !important;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+}
+
+.hint {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

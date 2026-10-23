@@ -28,7 +28,8 @@ Agents run as Claude Code background sessions, so `claude agents`,
 as its session: an agent's workspace is removed when its session is deleted
 (`claude rm` or `ws rm`), so its conversation can be reviewed next to the
 code until then, and a shell's workspace is removed when the shell exits.
-Agents learn the tool by running `ws llm`. Common questions, including how to
+Agents learn the tool by running `ws llm`. A [desktop app](desktop/README.md)
+shows every agent's status, attaches to them, and starts new ones. Common questions, including how to
 set up Claude Code's folder trust, are in the [Q&A](docs/qa.md).
 
 > **Status:** in progress; see the [roadmap](#roadmap). The commands
@@ -181,6 +182,8 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **`ws llm`**: embedded guides with the coverage test, and
   `workspaces/CLAUDE.md`, written if missing
   ([0014](docs/adrs/0014-command-set.md))
+- [x] **Desktop app** ([0029](docs/adrs/0029-desktop-app.md), proposed):
+  agents grouped by status, attach and reply, new agents and shells
 - [ ] **Release**: `make dist` binaries for darwin and linux, amd64 and
   arm64 ([0002](docs/adrs/0002-implementation-language.md))
 
@@ -190,6 +193,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 $ make build      # bin/ws
 $ make test
 $ make lint       # golangci-lint; `make fmt` applies its formatters
+$ make desktop    # desktop app bundle; `make desktop-dev`, `make desktop-test`
 ```
 
 ```
@@ -209,6 +213,7 @@ internal/
   writeonce/                  # files written once, never overwritten: config.toml, workspaces/CLAUDE.md
   backup/                     # Time Machine exclusion (0011)
   gittest/                    # local upstreams for tests, via insteadOf (0020)
+desktop/                      # Tauri desktop app: Rust backend in src-tauri/, React frontend in src/ (0029)
 docs/
   adrs/                       # architecture decision records
   tools/                      # command reference
