@@ -1,6 +1,6 @@
 # 0025. `ws claude` keeps creation's lock until the session is recorded, lets `claude --bg` finish, and becomes `claude attach` for an idle session on a terminal
 
-- Status: Accepted (2026-10-19)
+- Status: Accepted (2026-10-19); orphaned sessions in a one-repo workspace's repo amended by [0028](0028-single-repo-session-directory.md) (proposed)
 - Date: 2026-10-19
 
 ## Context

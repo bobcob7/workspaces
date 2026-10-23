@@ -12,7 +12,9 @@ ws rm [OPTIONS] <WORKSPACE>...
 
 For an **agent workspace**, first checks that the recorded session is the
 workspace's: if `claude agents --json --all` lists it, its working
-directory must be the workspace's directory, with symlinks resolved.
+directory must be the workspace's directory, or, for a workspace with one
+repo, that repo's directory, with symlinks resolved
+([0028](../adrs/0028-single-repo-session-directory.md)).
 If it's listed in another directory, `ws rm` touches neither the session
 nor the workspace and fails that item with `session_mismatch`. Otherwise
 it runs `claude stop <id>` and `claude rm <id>`, then deletes the workspace
@@ -26,8 +28,13 @@ it, is running. Exit the shell instead; that removes it.
 For a workspace whose session **isn't recorded**, refuses while `ws claude`
 or `ws shell` is still handing it over (its lock is held); otherwise runs
 `claude rm` on each Claude Code session whose working directory is exactly
-the workspace, then deletes it
+the workspace, or its one repo, then deletes it
 ([0025](../adrs/0025-ws-claude-session-hand-off.md)).
+
+If `ws claude` trusted the workspace's repo in Claude Code's config, that
+trust is removed with the workspace; if it can't be, `ws rm` warns and
+removes the workspace anyway
+([0028](../adrs/0028-single-repo-session-directory.md)).
 
 Git state is ignored: uncommitted changes, unpushed commits, and stashes go
 with the workspace ([0015](../adrs/0015-workspace-lifetime-follows-session.md)).

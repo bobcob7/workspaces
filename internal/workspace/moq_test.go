@@ -465,3 +465,75 @@ func (mock *repoCacheMock) SharedLockCalls() []struct {
 	mock.lockSharedLock.RUnlock()
 	return calls
 }
+
+// Ensure, that claudeTrustMock does implement claudeTrust.
+// If this is not the case, regenerate this file with moq.
+var _ claudeTrust = &claudeTrustMock{}
+
+// claudeTrustMock is a mock implementation of claudeTrust.
+//
+//	func TestSomethingThatUsesclaudeTrust(t *testing.T) {
+//
+//		// make and configure a mocked claudeTrust
+//		mockedclaudeTrust := &claudeTrustMock{
+//			UntrustFunc: func(dir string, created bool) error {
+//				panic("mock out the Untrust method")
+//			},
+//		}
+//
+//		// use mockedclaudeTrust in code that requires claudeTrust
+//		// and then make assertions.
+//
+//	}
+type claudeTrustMock struct {
+	// UntrustFunc mocks the Untrust method.
+	UntrustFunc func(dir string, created bool) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Untrust holds details about calls to the Untrust method.
+		Untrust []struct {
+			// Dir is the dir argument value.
+			Dir string
+			// Created is the created argument value.
+			Created bool
+		}
+	}
+	lockUntrust sync.RWMutex
+}
+
+// Untrust calls UntrustFunc.
+func (mock *claudeTrustMock) Untrust(dir string, created bool) error {
+	if mock.UntrustFunc == nil {
+		panic("claudeTrustMock.UntrustFunc: method is nil but claudeTrust.Untrust was just called")
+	}
+	callInfo := struct {
+		Dir     string
+		Created bool
+	}{
+		Dir:     dir,
+		Created: created,
+	}
+	mock.lockUntrust.Lock()
+	mock.calls.Untrust = append(mock.calls.Untrust, callInfo)
+	mock.lockUntrust.Unlock()
+	return mock.UntrustFunc(dir, created)
+}
+
+// UntrustCalls gets all the calls that were made to Untrust.
+// Check the length with:
+//
+//	len(mockedclaudeTrust.UntrustCalls())
+func (mock *claudeTrustMock) UntrustCalls() []struct {
+	Dir     string
+	Created bool
+} {
+	var calls []struct {
+		Dir     string
+		Created bool
+	}
+	mock.lockUntrust.RLock()
+	calls = mock.calls.Untrust
+	mock.lockUntrust.RUnlock()
+	return calls
+}

@@ -53,13 +53,14 @@ type claudeRepo struct {
 }
 
 // runClaude creates the workspace and hands it to a new Claude Code
-// background session (ADRs 0015, 0025). Creation's lock stays held until
-// the session record, with the session's id, is written, so the workspace
-// never looks abandoned while `claude --bg` runs. If the session can't
-// start, or can't be recorded, the workspace is removed. A session started
-// without a prompt is attached to when ws runs on a terminal without
-// --json and wasn't interrupted or hung up on; otherwise ws prints the
-// result and exits.
+// background session, started in the repo's directory when there is
+// exactly one and Claude Code can trust it (ADRs 0015, 0025, 0028).
+// Creation's lock stays held until the session record, with the session's
+// id, is written, so the workspace never looks abandoned while
+// `claude --bg` runs. If the session can't start, or can't be recorded,
+// the workspace is removed. A session started without a prompt is
+// attached to when ws runs on a terminal without --json and wasn't
+// interrupted or hung up on; otherwise ws prints the result and exits.
 func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err := a.claude.Check(ctx); err != nil {
 		return domainError(err)
@@ -103,7 +104,7 @@ func (a *App) startAgent(ctx context.Context, ws *workspace.Workspace, args []st
 		a.removeWorkspace(ws.ID)
 		return claude.Started{}, fmt.Errorf("creating workspace %s: %w", ws.ID, err)
 	}
-	started, err := a.claude.Start(ctx, claude.StartOptions{Dir: ws.Path, Name: ws.ID, Args: args})
+	started, err := a.claude.Start(ctx, claude.StartOptions{Dir: a.agentDir(ctx, ws), Name: ws.ID, Args: args})
 	if err != nil {
 		a.removeWorkspace(ws.ID)
 		return claude.Started{}, a.startError(err)
@@ -114,6 +115,30 @@ func (a *App) startAgent(ctx context.Context, ws *workspace.Workspace, args []st
 		return claude.Started{}, err
 	}
 	return started, nil
+}
+
+// agentDir is the directory the session starts in (ADR 0028): the one
+// repo's directory, once ws has trusted it in Claude Code below the
+// trusted workspace root, else the workspace's. A trust ws adds is
+// recorded first, so removing the workspace, on any path, takes it back. A fresh clone is a new
+// repository to Claude Code, which the root's trust doesn't cover. With
+// the root untrusted, the session starts in the workspace, so the trust
+// error names the root; when trusting fails otherwise, ws warns and does
+// the same.
+func (a *App) agentDir(ctx context.Context, ws *workspace.Workspace) string {
+	if ws.SessionSubdir() == "" {
+		return ws.Path
+	}
+	dir := ws.SessionDir()
+	record := func(dir string, created bool) error { return a.workspaces.RecordTrust(ws.ID, dir, created) }
+	err := a.claude.Trust(ctx, dir, a.paths.Workspaces, record)
+	if err == nil {
+		return dir
+	}
+	if !errors.Is(err, claude.ErrParentUntrusted) {
+		a.warned = append(a.warned, fmt.Sprintf("starting the agent in the workspace, not in its repo: %v", err))
+	}
+	return ws.Path
 }
 
 // startError is the error for a failed `claude --bg`. An untrusted

@@ -57,6 +57,8 @@ created, and lives exactly as long as it:
   checks every time, and `ws llm`, which never does.
 - After a reboot, agents are stopped, not gone; `ws restore` brings them
   back with their conversations.
+- A session starts in the workspace, or in its repo's directory when the
+  workspace has exactly one repo.
 - Each repo in a workspace is a full clone with two remotes: `origin`
   (upstream, for fetch and push) and `cache` (the local cache). Push to
   `origin`.

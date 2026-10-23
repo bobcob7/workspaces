@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -459,8 +460,11 @@ type lifetimeE2E struct {
 	paths   config.Paths
 	scratch string
 	jobs    string
-	stdout  *bytes.Buffer
-	stderr  *bytes.Buffer
+	// claudeJSON is Claude Code's config; ws claude trusts nothing until a
+	// test writes it.
+	claudeJSON string
+	stdout     *bytes.Buffer
+	stderr     *bytes.Buffer
 }
 
 func newLifetimeE2E(t *testing.T) *lifetimeE2E {
@@ -481,6 +485,7 @@ func newLifetimeE2E(t *testing.T) *lifetimeE2E {
 		return e.paths, config.Config{Defaults: config.Defaults{Host: gittest.Host, Owners: []string{"o"}}}, nil
 	}}
 	e.environ = append(slices.Clone(up.Environ), "CLAUDE_CONFIG_DIR="+filepath.Dir(e.jobs))
+	e.claudeJSON = filepath.Join(filepath.Dir(e.jobs), ".claude.json")
 	fakeLifetimeClaude(t, e.scratch)
 	return e
 }
@@ -526,6 +531,36 @@ func (e *lifetimeE2E) calls(t *testing.T) []string {
 	}
 	require.NoError(t, err)
 	return strings.Fields(strings.ReplaceAll(string(data), " ", "_"))
+}
+
+// writeClaudeJSON writes Claude Code's config at path, trusting dirs.
+func writeClaudeJSON(t *testing.T, path string, dirs ...string) {
+	t.Helper()
+	projects := map[string]any{}
+	for _, dir := range dirs {
+		projects[dir] = map[string]any{"hasTrustDialogAccepted": true}
+	}
+	data, err := json.Marshal(map[string]any{"projects": projects})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+}
+
+// trustedDirsIn are the directories Claude Code's config at path trusts,
+// sorted.
+func trustedDirsIn(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var got map[string]map[string]map[string]any
+	require.NoError(t, json.Unmarshal(data, &got))
+	var dirs []string
+	for dir, p := range got["projects"] {
+		if p["hasTrustDialogAccepted"] == true {
+			dirs = append(dirs, dir)
+		}
+	}
+	slices.Sort(dirs)
+	return dirs
 }
 
 // takeLock takes the lock at path once it is free. A process that another

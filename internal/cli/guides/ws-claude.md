@@ -23,7 +23,10 @@ Everything before `--` is a repo spec, so the prompt must come after `--`.
 Everything after `--` goes to `claude` unchanged: the prompt, and options
 such as `--model opus` or `--permission-mode`. `--settings` is refused
 there (`usage`), since `ws` passes its own. The session is named after the
-workspace id, and its working directory is the workspace.
+workspace id, and its working directory is the workspace, or the repo's
+directory when there is exactly one repo. For that, `ws` marks the repo
+trusted in Claude Code's config, if the workspace root is trusted; a
+warning says when it couldn't, and the agent starts in the workspace.
 
 Creating the workspace: each spec is resolved, cloned into the cache or
 fetched, and its ref checked out. If anything fails, including Claude Code

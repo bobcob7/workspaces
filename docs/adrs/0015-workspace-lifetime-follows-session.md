@@ -1,6 +1,6 @@
 # 0015. A workspace lives exactly as long as its one session
 
-- Status: Accepted (2026-10-18); session reading amended by [0024](0024-claude-code-client.md) (2026-10-19); agent lock and orphaned-session removal amended by [0025](0025-ws-claude-session-hand-off.md) (2026-10-19); removal timing and `ws rm` amended by [0026](0026-removal-pass-timing.md) (2026-10-19)
+- Status: Accepted (2026-10-18); session reading amended by [0024](0024-claude-code-client.md) (2026-10-19); agent lock and orphaned-session removal amended by [0025](0025-ws-claude-session-hand-off.md) (2026-10-19); removal timing and `ws rm` amended by [0026](0026-removal-pass-timing.md) (2026-10-19); session directory and repo trust amended by [0028](0028-single-repo-session-directory.md) (proposed)
 - Date: 2026-10-18
 - Supersedes: [0013](0013-cleanup-ignores-git-state.md)
 

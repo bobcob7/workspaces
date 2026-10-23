@@ -33,7 +33,8 @@ func (a *App) newShellCmd() *cobra.Command {
 	return cmd
 }
 
-// runShell creates the workspace, runs the shell in it, and removes the
+// runShell creates the workspace, runs the shell in it, in the repo's
+// directory when there is exactly one (ADR 0028), and removes the
 // workspace when the shell exits (ADR 0015). The lock creation took is the
 // session lock: ws holds it, and passes it to the shell, from creation
 // until the workspace is gone, so the workspace never looks abandoned in
@@ -66,7 +67,7 @@ func (a *App) shellSession(ctx context.Context, ws *workspace.Workspace, lock *l
 		return 0, err
 	}
 	return a.shell.Run(ctx, shell.Session{
-		Dir:       ws.Path,
+		Dir:       ws.SessionDir(),
 		Env:       []string{"WS_ID=" + ws.ID, "WS_WORKSPACE=" + ws.Path},
 		Lock:      lock.File(),
 		AfterExit: func() { a.removeWorkspace(ws.ID) },

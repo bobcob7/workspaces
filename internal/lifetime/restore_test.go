@@ -515,6 +515,12 @@ func TestManager_inWorkspace(t *testing.T) {
 		ws := f.agent("a", "s1")
 		assert.ErrorIs(t, f.m.inWorkspace(&ws, &claude.Session{ID: "s1", Cwd: "/cfg/workspaces/a/repo"}), ErrSessionElsewhere)
 	})
+	t.Run("in a one-repo workspace's repo", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.agent("a", "s1")
+		ws.Repos = []workspace.Repo{{ID: "example.test/o/repo", Path: "repo"}}
+		assert.NoError(t, f.m.inWorkspace(&ws, &claude.Session{ID: "s1", Cwd: "/cfg/workspaces/a/repo"}))
+	})
 	t.Run("the guard refuses the workspace", func(t *testing.T) {
 		f := newFixture(t)
 		ws := f.agent("a", "s1")

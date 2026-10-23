@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -66,6 +67,7 @@ func newClaudeEnv(t *testing.T) *claudeEnv {
 		StartFunc: func(context.Context, claude.StartOptions) (claude.Started, error) {
 			return claude.Started{ID: "e8cdf5d8"}, nil
 		},
+		TrustFunc:  func(context.Context, string, string, func(string, bool) error) error { return nil },
 		AttachFunc: func(context.Context, string) error { return nil },
 		RemoveFunc: func(context.Context, string) error { return nil },
 	}
@@ -135,8 +137,11 @@ type claudeE2E struct {
 	app     *App
 	paths   config.Paths
 	scratch string
-	stdout  *bytes.Buffer
-	stderr  *bytes.Buffer
+	// claudeJSON is Claude Code's global config, in its own temp
+	// CLAUDE_CONFIG_DIR; it trusts the workspace root.
+	claudeJSON string
+	stdout     *bytes.Buffer
+	stderr     *bytes.Buffer
 }
 
 func newClaudeE2E(t *testing.T, bgBody string) *claudeE2E {
@@ -145,14 +150,34 @@ func newClaudeE2E(t *testing.T, bgBody string) *claudeE2E {
 	up.Repo(t, "o", "n")
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	e := &claudeE2E{paths: config.NewPaths(filepath.Join(root, "cfg")), scratch: filepath.Join(root, "scratch"), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
+	e := &claudeE2E{paths: config.NewPaths(filepath.Join(root, "cfg")), scratch: filepath.Join(root, "scratch"), claudeJSON: filepath.Join(root, "claude-config", ".claude.json"), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
 	require.NoError(t, os.MkdirAll(e.scratch, 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Dir(e.claudeJSON), 0o700))
+	e.trustRoot(t, true)
+	environ := append(slices.Clone(up.Environ), "CLAUDE_CONFIG_DIR="+filepath.Dir(e.claudeJSON))
 	configs := &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
 		return e.paths, config.Config{Defaults: config.Defaults{Host: gittest.Host, Owners: []string{"o"}}}, nil
 	}}
-	e.app = New("test", nil, e.stdout, e.stderr, configs, up.Environ)
-	e.app.claude = claude.New(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeClaudeScript(t, e.scratch, bgBody), up.Environ)
+	e.app = New("test", nil, e.stdout, e.stderr, configs, environ)
+	e.app.claude = claude.New(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeClaudeScript(t, e.scratch, bgBody), environ)
 	return e
+}
+
+// trustRoot writes Claude Code's config with the workspace root trusted
+// or not.
+func (e *claudeE2E) trustRoot(t *testing.T, trusted bool) {
+	t.Helper()
+	if trusted {
+		writeClaudeJSON(t, e.claudeJSON, e.paths.Workspaces)
+		return
+	}
+	writeClaudeJSON(t, e.claudeJSON)
+}
+
+// trustedDirs are the directories Claude Code's config trusts.
+func (e *claudeE2E) trustedDirs(t *testing.T) []string {
+	t.Helper()
+	return trustedDirsIn(t, e.claudeJSON)
 }
 
 func TestApp_newClaudeCmd(t *testing.T) {
@@ -354,7 +379,7 @@ func TestApp_runClaude(t *testing.T) {
 		}, got)
 		assert.Empty(t, e.stderr.String())
 	})
-	t.Run("end to end: starts the session in the workspace and records it", func(t *testing.T) {
+	t.Run("end to end: starts the session in the workspace's one repo and records it", func(t *testing.T) {
 		t.Parallel()
 		e := newClaudeE2E(t, `printf 'backgrounded · e8cdf5d8 · try-it\n  claude agents  list sessions\n'`)
 		code := e.app.Run(t.Context(), []string{"claude", "--name", "Try It", "n", "--", "--model", "opus", "fix it"})
@@ -364,8 +389,9 @@ func TestApp_runClaude(t *testing.T) {
 		out, err := os.ReadFile(filepath.Join(e.scratch, "out"))
 		require.NoError(t, err)
 		assert.Equal(t, strings.Join([]string{
-			"--bg", "-n", "try-it", "--settings", `{"worktree":{"bgIsolation":"none"}}`, "--model", "opus", "fix it", "pwd=" + wsPath,
+			"--bg", "-n", "try-it", "--settings", `{"worktree":{"bgIsolation":"none"}}`, "--model", "opus", "fix it", "pwd=" + filepath.Join(wsPath, "n"),
 		}, "\n")+"\n", string(out), "claude ran in the workspace without the lock")
+		assert.Equal(t, []string{e.paths.Workspaces, filepath.Join(wsPath, "n")}, e.trustedDirs(t))
 		session, err := os.ReadFile(filepath.Join(e.paths.State, "try-it", "session"))
 		require.NoError(t, err)
 		assert.Contains(t, string(session), `kind = "claude"`)
@@ -386,6 +412,14 @@ func TestApp_runClaude(t *testing.T) {
 		entries, err := os.ReadDir(filepath.Join(e.paths.Workspaces, "notes"))
 		require.NoError(t, err)
 		assert.Empty(t, entries)
+	})
+	t.Run("end to end: a failed start takes back the trust ws added", func(t *testing.T) {
+		t.Parallel()
+		e := newClaudeE2E(t, "echo 'error: boom' >&2; exit 1")
+		code := e.app.Run(t.Context(), []string{"--json", "claude", "--name", "t", "n", "--", "fix it"})
+		assert.Equal(t, exitFailed, code)
+		assert.NoDirExists(t, filepath.Join(e.paths.Workspaces, "t"))
+		assert.Equal(t, []string{e.paths.Workspaces}, e.trustedDirs(t))
 	})
 	t.Run("end to end: an untrusted workspace leaves nothing", func(t *testing.T) {
 		t.Parallel()
@@ -453,17 +487,74 @@ func TestApp_handOff(t *testing.T) {
 		assert.Equal(t, "e8cdf5d8", started.ID)
 		assert.Len(t, e.store.RecordSessionCalls(), 1)
 	})
+	t.Run("end to end: starts the session in the workspace when Claude Code doesn't trust the root", func(t *testing.T) {
+		t.Parallel()
+		e := newClaudeE2E(t, `printf 'backgrounded · e8cdf5d8 · try-it\n'`)
+		e.trustRoot(t, false)
+		code := e.app.Run(t.Context(), []string{"claude", "--name", "Try It", "n", "--", "fix it"})
+		require.Equal(t, 0, code, "stderr: %s", e.stderr.String())
+		out, err := os.ReadFile(filepath.Join(e.scratch, "out"))
+		require.NoError(t, err)
+		assert.Contains(t, string(out), "pwd="+filepath.Join(e.paths.Workspaces, "try-it")+"\n")
+		assert.Empty(t, e.trustedDirs(t))
+		assert.Empty(t, e.stderr.String())
+	})
 }
 
 func TestApp_startAgent(t *testing.T) {
-	t.Run("starts the session in the workspace under its id", func(t *testing.T) {
+	t.Run("trusts the one repo's directory below the workspace root", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		require.NoError(t, err)
+		require.Len(t, e.claude.TrustCalls(), 1)
+		assert.Equal(t, "/cfg/workspaces/x/buff-bear", e.claude.TrustCalls()[0].Dir)
+		assert.Equal(t, testPaths().Workspaces, e.claude.TrustCalls()[0].Parent)
+	})
+	t.Run("starts in the workspace, quietly, when the root isn't trusted", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.claude.TrustFunc = func(context.Context, string, string, func(string, bool) error) error {
+			return claude.ErrParentUntrusted
+		}
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		require.NoError(t, err)
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Equal(t, "/cfg/workspaces/x", e.claude.StartCalls()[0].Opts.Dir)
+		assert.Empty(t, e.app.warnings())
+	})
+	t.Run("starts in the workspace, with a warning, when trusting fails", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.claude.TrustFunc = func(context.Context, string, string, func(string, bool) error) error { return errTest }
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		require.NoError(t, err)
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Equal(t, "/cfg/workspaces/x", e.claude.StartCalls()[0].Opts.Dir)
+		require.Len(t, e.app.warnings(), 1)
+		assert.Contains(t, e.app.warnings()[0], "starting the agent in the workspace, not in its repo")
+	})
+	t.Run("starts the session in the one repo's directory under the workspace's id", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.ws.Name = "Fix Login"
 		started, err := e.app.startAgent(t.Context(), &e.ws, []string{"fix it"})
 		require.NoError(t, err)
 		assert.Equal(t, "e8cdf5d8", started.ID)
 		require.Len(t, e.claude.StartCalls(), 1)
-		assert.Equal(t, claude.StartOptions{Dir: "/cfg/workspaces/x", Name: "x", Args: []string{"fix it"}}, e.claude.StartCalls()[0].Opts)
+		assert.Equal(t, claude.StartOptions{Dir: "/cfg/workspaces/x/buff-bear", Name: "x", Args: []string{"fix it"}}, e.claude.StartCalls()[0].Opts)
+	})
+	t.Run("starts the session in the workspace with several repos", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.ws.Repos = append(e.ws.Repos, workspace.Repo{ID: "github.com/bobcob7/api", Path: "api"})
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		require.NoError(t, err)
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Equal(t, "/cfg/workspaces/x", e.claude.StartCalls()[0].Opts.Dir)
+	})
+	t.Run("starts the session in an empty workspace", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.ws.Repos = nil
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		require.NoError(t, err)
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Equal(t, "/cfg/workspaces/x", e.claude.StartCalls()[0].Opts.Dir)
 	})
 	t.Run("a failed start removes the workspace and records nothing", func(t *testing.T) {
 		e := newClaudeEnv(t)

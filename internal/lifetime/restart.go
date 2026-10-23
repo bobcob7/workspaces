@@ -232,7 +232,8 @@ func (m *Manager) sessionOwners() map[string]workspace.Workspace {
 }
 
 // owner is the id of the workspace whose recorded session s is, if s runs
-// in that workspace's directory (ADR 0026); empty otherwise.
+// in one of that workspace's session directories (ADRs 0026, 0028); empty
+// otherwise.
 func (m *Manager) owner(owners map[string]workspace.Workspace, s *claude.Session) string {
 	ws, ok := owners[s.ID]
 	if !ok || m.inWorkspace(&ws, s) != nil {

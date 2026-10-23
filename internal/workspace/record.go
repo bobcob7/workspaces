@@ -43,6 +43,27 @@ type Repo struct {
 	Commit  string `toml:"commit"`
 }
 
+// SessionSubdir is the directory, relative to the workspace, that ws shell
+// and ws claude start a session in: the repo's directory when the
+// workspace has exactly one repo, else empty, for the workspace itself
+// (ADR 0028).
+func (ws *Workspace) SessionSubdir() string {
+	if len(ws.Repos) != 1 || !filepath.IsLocal(ws.Repos[0].Path) {
+		return ""
+	}
+	sub := filepath.Clean(ws.Repos[0].Path)
+	if sub == "." {
+		return ""
+	}
+	return sub
+}
+
+// SessionDir is the directory ws shell and ws claude start a session in:
+// the workspace's directory joined with SessionSubdir.
+func (ws *Workspace) SessionDir() string {
+	return filepath.Join(ws.Path, ws.SessionSubdir())
+}
+
 var (
 	// errNoRecord means a state directory has no workspace.toml: a
 	// creation still cloning, or interrupted while it was.

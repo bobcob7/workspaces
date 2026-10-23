@@ -33,7 +33,7 @@ A workspace whose session isn't recorded yet, because `ws claude` or
 `ws shell` is still handing it over, shows `-` as its session (`null` in
 JSON); one left that way for over a minute with nothing holding its lock is
 abandoned, and is removed with any Claude Code session started in exactly
-that directory ([0023](../adrs/0023-shell-session-keeps-creation-lock.md),
+that directory, or in its one repo's directory ([0023](../adrs/0023-shell-session-keeps-creation-lock.md),
 [0025](../adrs/0025-ws-claude-session-hand-off.md)).
 Directories under `workspaces/` without state are shown last with
 id `unknown` (in JSON, `id`, `created_at`, and `session` are `null`).

@@ -15,7 +15,9 @@ It's for people at a terminal. An agent shouldn't use it: it needs an
 interactive terminal, blocks until the shell exits, and everything in the
 workspace is lost then. To give work to an agent, use `ws claude`.
 
-Inside the shell, `WS_ID` is the workspace id and `WS_WORKSPACE` its path.
+The shell starts in the workspace, or in the repo's directory when there is
+exactly one repo. Inside the shell, `WS_ID` is the workspace id and
+`WS_WORKSPACE` its path.
 While the shell, or anything started from it, runs, `ws rm` refuses to
 remove the workspace (`shell_running`). If `ws` is killed, the workspace
 is removed by a later `ws` command once nothing from the shell runs.

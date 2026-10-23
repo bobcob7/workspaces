@@ -38,8 +38,12 @@ trusted[^cc-bg-trust]. Every workspace is a new folder, so without this step
 every `ws claude` would fail. Outside a git repository, trust "covers any
 subdirectory of that directory apart from a git repository nested inside
 it"[^cc-trust-keys]. The workspace root isn't a git repository, and `ws`
-starts each agent at the top of its workspace, so trusting the root once is
-enough[^bench-trust].
+starts an agent at the top of its workspace, so trusting the root once is
+enough[^bench-trust]. An agent on exactly one repo starts in that repo,
+which is a new clone the root's trust doesn't cover, so `ws` marks it
+trusted in `~/.claude.json` first, but only while the root is trusted
+there, and removes that trust again with the workspace
+([0028](adrs/0028-single-repo-session-directory.md)).
 
 **Interactively** (recommended):
 
@@ -83,7 +87,10 @@ back[^cc-trust-allow]. `ws` writes no `.claude/` settings into the
 workspace root, so trusting it grants nothing by itself. The repos inside a
 workspace are nested git repositories, which a parent's trust doesn't cover
 for these rules[^cc-trust-keys]: if you start `claude` interactively inside
-one of them, it asks you separately.
+one of them, it asks you separately. The exception is the repo of a
+one-repo agent workspace, which `ws` trusts for you, so that repo's
+`.claude/settings.json` allow rules apply to its agent. Revoking the root's
+trust stops `ws` from trusting new repos.
 
 Notes:
 
@@ -216,7 +223,8 @@ it continue. Shell workspaces aren't restored.
 Claude Code runs background sessions under its own long-running service, not
 as children of the command that started them, so variables set in your shell
 don't reach them[^bench-env]. Sessions get the environment of whatever
-started that service. The agent's working directory is the workspace. For
+started that service. The agent's working directory is the workspace, or
+its repo when it has exactly one. For
 settings an agent needs, use Claude Code's settings (`env`) or pass them in
 the prompt.
 

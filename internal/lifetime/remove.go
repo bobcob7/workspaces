@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -72,9 +75,9 @@ func (m *Manager) removeAgent(ctx context.Context, ws *workspace.Workspace, id s
 }
 
 // checkSessionDir makes sure the recorded session is this workspace's:
-// if Claude Code lists it, its working directory must be the workspace's
-// directory as the deletion guard resolves it. A session it doesn't list
-// is already gone.
+// if Claude Code lists it, its working directory must be one of the
+// workspace's session directories as the deletion guard resolves them. A
+// session it doesn't list is already gone.
 func (m *Manager) checkSessionDir(ctx context.Context, ws *workspace.Workspace, id string) error {
 	dir, err := m.store.GuardedDir(ws.ID)
 	if err != nil {
@@ -92,13 +95,28 @@ func (m *Manager) checkSessionDir(ctx context.Context, ws *workspace.Workspace, 
 }
 
 // sessionElsewhere fails with ErrSessionElsewhere when the listed session
-// s doesn't run in dir, workspace ws's directory as the deletion guard
-// resolves it.
+// s doesn't run in one of workspace ws's session directories, given dir,
+// its directory as the deletion guard resolves it.
 func sessionElsewhere(ws *workspace.Workspace, s *claude.Session, dir string) error {
-	if got := resolved(s.Cwd); got != dir {
-		return fmt.Errorf("%w: session %s is in %s, not in workspace %s's directory %s; neither was touched", ErrSessionElsewhere, s.ID, got, ws.ID, dir)
+	dirs := sessionDirs(ws, dir)
+	if got := resolved(s.Cwd); !slices.Contains(dirs, got) {
+		return fmt.Errorf("%w: session %s is in %s, not in workspace %s's directory %s; neither was touched", ErrSessionElsewhere, s.ID, got, ws.ID, strings.Join(dirs, " or "))
 	}
 	return nil
+}
+
+// sessionDirs are the directories a session of workspace ws may run in,
+// given dir, its directory as the deletion guard resolves it: dir itself,
+// and, for a workspace with one repo, that repo's directory, where ws
+// claude starts its session (ADR 0028). The repo's directory isn't
+// resolved through symlinks, so a repo replaced by a link to elsewhere
+// never matches.
+func sessionDirs(ws *workspace.Workspace, dir string) []string {
+	sub := ws.SessionSubdir()
+	if sub == "" {
+		return []string{dir}
+	}
+	return []string{dir, filepath.Join(dir, sub)}
 }
 
 // removeUnrecorded removes a workspace with no session record, with any
@@ -119,7 +137,7 @@ func (m *Manager) removeUnrecorded(ctx context.Context, ws *workspace.Workspace,
 	if err != nil {
 		return Removed{}, err
 	}
-	if err := m.removeOrphans(ctx, ws.ID, sessions); err != nil {
+	if err := m.removeOrphans(ctx, ws, sessions); err != nil {
 		return Removed{}, err
 	}
 	return m.removeWorkspace(ws, "", false)

@@ -24,6 +24,7 @@ type Store struct {
 	log      *slog.Logger
 	git      gitRunner
 	cache    repoCache
+	trust    claudeTrust
 	root     string
 	stateDir string
 	exclude  func(dir string)
@@ -37,12 +38,13 @@ type Store struct {
 
 // New returns the Store for workspaces under root and their state under
 // stateDir, normally CONFIG_DIR/workspaces and CONFIG_DIR/state, cloning
-// workspace repos from c.
-func New(log *slog.Logger, git gitRunner, c repoCache, root, stateDir string) *Store {
+// workspace repos from c and taking back their Claude Code trust with t.
+func New(log *slog.Logger, git gitRunner, c repoCache, t claudeTrust, root, stateDir string) *Store {
 	return &Store{
 		log:       log,
 		git:       git,
 		cache:     c,
+		trust:     t,
 		root:      root,
 		stateDir:  stateDir,
 		exclude:   func(dir string) { backup.Exclude(log, dir) },

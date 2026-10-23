@@ -559,7 +559,7 @@ func codedDomainError(err error) *cliError {
 // warnings is every warning for JSON output: the removal pass's, the
 // cache's, and the workspace store's. Never null.
 func (a *App) warnings() []string {
-	w := slices.Concat(a.lifetime.Warnings(), a.cache.Warnings(), a.workspaces.Warnings())
+	w := slices.Concat(a.lifetime.Warnings(), a.cache.Warnings(), a.workspaces.Warnings(), a.warned)
 	if w == nil {
 		return []string{}
 	}

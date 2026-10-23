@@ -16,6 +16,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | once, by creation |
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
 | `state/<id>/lock` | the workspace lock | by creation |
+| `state/<id>/trust` | the Claude Code trust `ws claude` added for a one-repo workspace's repo ([0028](adrs/0028-single-repo-session-directory.md)) | once, before the trust is written; read by every removal, which takes the trust back |
 | `state/<id>/building/` | the workspace while it's being built ([0022](adrs/0022-workspace-record-before-rename.md)) | by creation, then moved |
 | `state/.removal-pass` | its modification time is when the removal pass last started ([0026](adrs/0026-removal-pass-timing.md)) | by the removal pass |
 | `state/.respawn.lock` | the respawn lock ([0027](adrs/0027-respawn-lock-and-record-versions.md)) | by `ws restore` and `ws restart` |
@@ -137,14 +138,17 @@ minute; `ws list` runs it every time
    only if a workspace needs it.
 2. Removes each gone or abandoned workspace. For an abandoned one it first
    runs `claude rm` on each background session whose working directory is
-   exactly that workspace
-   ([0025](adrs/0025-ws-claude-session-hand-off.md)).
+   exactly that workspace, or its one repo
+   ([0025](adrs/0025-ws-claude-session-hand-off.md),
+   [0028](adrs/0028-single-repo-session-directory.md)).
 3. If the listing fails, keeps agent and abandoned workspaces, with a
    warning.
 
 **Every removal** goes through the deletion guard
 ([0012](adrs/0012-workspace-layout.md)), then deletes `workspaces/<id>/`,
-then `state/<id>/`.
+then takes back the Claude Code trust recorded in `state/<id>/trust`, if
+any (a failure is a warning), then deletes `state/<id>/`
+([0028](adrs/0028-single-repo-session-directory.md)).
 - A workspace another command already removed counts as removed.
 - One whose removal fails stays listed, with a warning.
 
@@ -163,7 +167,8 @@ then `state/<id>/`.
 - **`ws rm`**: runs the pass first, then handles each workspace named:
   - **a running shell**: refuses with `shell_running`;
   - **one being handed off**: refuses with `workspace_busy`;
-  - **an agent whose session Claude Code lists in another directory**:
+  - **an agent whose session Claude Code lists in another directory**
+    than the workspace or its one repo:
     refuses with `session_mismatch`;
   - **any other agent**: stops and removes its session, then the
     workspace ([0026](adrs/0026-removal-pass-timing.md)).

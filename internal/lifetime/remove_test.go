@@ -220,6 +220,18 @@ func TestSessionElsewhere(t *testing.T) {
 		require.ErrorIs(t, err, ErrSessionElsewhere)
 		assert.EqualError(t, err, "the workspace's Claude Code session is in another directory: session s1 is in /Users/me/project, not in workspace x's directory /cfg/workspaces/x; neither was touched")
 	})
+	oneRepo := workspace.Workspace{ID: "x", Repos: []workspace.Repo{{ID: "example.test/o/api", Path: "api"}}}
+	t.Run("in a one-repo workspace's repo directory", func(t *testing.T) {
+		assert.NoError(t, sessionElsewhere(&oneRepo, &claude.Session{ID: "s1", Cwd: "/cfg/workspaces/x/api"}, "/cfg/workspaces/x"))
+	})
+	t.Run("in a one-repo workspace's directory", func(t *testing.T) {
+		assert.NoError(t, sessionElsewhere(&oneRepo, &claude.Session{ID: "s1", Cwd: "/cfg/workspaces/x"}, "/cfg/workspaces/x"))
+	})
+	t.Run("elsewhere from a one-repo workspace names both directories", func(t *testing.T) {
+		err := sessionElsewhere(&oneRepo, &claude.Session{ID: "s1", Cwd: "/Users/me/project"}, "/cfg/workspaces/x")
+		require.ErrorIs(t, err, ErrSessionElsewhere)
+		assert.EqualError(t, err, "the workspace's Claude Code session is in another directory: session s1 is in /Users/me/project, not in workspace x's directory /cfg/workspaces/x or /cfg/workspaces/x/api; neither was touched")
+	})
 }
 
 func TestManager_removeUnrecorded(t *testing.T) {
