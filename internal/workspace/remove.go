@@ -16,10 +16,12 @@ type RemoveOptions struct {
 	AllowOutsideRoot bool
 }
 
-// Remove deletes workspace id: its directory first, then its state
-// (ADR 0012). Its git state is ignored (ADR 0015). The directory is
-// deleted only if the deletion guard allows it. A workspace whose
-// directory is already gone has just its state removed.
+// Remove deletes workspace id: its directory first, then the Claude Code
+// trust ws added for its repo, if any, then its state (ADRs 0012, 0028).
+// Its git state is ignored (ADR 0015). The directory is deleted only if
+// the deletion guard allows it. A workspace whose directory is already
+// gone has just its trust and state removed. Trust that can't be removed
+// is a warning.
 func (s *Store) Remove(id string, opts RemoveOptions) error {
 	ws, err := s.recordByID(id)
 	if err != nil {
@@ -34,6 +36,7 @@ func (s *Store) Remove(id string, opts RemoveOptions) error {
 			return fmt.Errorf("removing %s: %w", target, err)
 		}
 	}
+	s.untrust(ws.ID)
 	if err := os.RemoveAll(s.stateOf(ws.ID)); err != nil {
 		return fmt.Errorf("removing state for %s: %w", ws.ID, err)
 	}

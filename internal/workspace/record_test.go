@@ -174,6 +174,7 @@ func TestWorkspace_SessionDir(t *testing.T) {
 		{name: "two repos is the workspace", repos: []Repo{repo("api"), repo("web")}, want: "/cfg/workspaces/x"},
 		{name: "a repo path leaving the workspace is ignored", repos: []Repo{repo("../y")}, want: "/cfg/workspaces/x"},
 		{name: "an absolute repo path is ignored", repos: []Repo{repo("/etc")}, want: "/cfg/workspaces/x"},
+		{name: "a repo path of the workspace itself is ignored", repos: []Repo{repo("./")}, want: "/cfg/workspaces/x"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

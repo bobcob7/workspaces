@@ -37,7 +37,7 @@ func testNow() time.Time {
 func newTestStore(t *testing.T, g gitRunner, c repoCache) *Store {
 	t.Helper()
 	paths := config.NewPaths(t.TempDir())
-	s := New(discardLogger(), g, c, paths.Workspaces, paths.State)
+	s := New(discardLogger(), g, c, &claudeTrustMock{UntrustFunc: func(string, bool) error { return nil }}, paths.Workspaces, paths.State)
 	s.exclude = func(string) {}
 	s.now = testNow
 	s.suffix = func() (string, error) { return "k3f9qa", nil }
@@ -106,9 +106,11 @@ func mustSpecs(t *testing.T, args ...string) []repo.Spec {
 func TestNew(t *testing.T) {
 	g := &gitRunnerMock{}
 	c := &repoCacheMock{}
-	s := New(discardLogger(), g, c, "/cfg/workspaces", "/cfg/state")
+	tr := &claudeTrustMock{}
+	s := New(discardLogger(), g, c, tr, "/cfg/workspaces", "/cfg/state")
 	assert.Same(t, g, s.git)
 	assert.Same(t, c, s.cache)
+	assert.Same(t, tr, s.trust)
 	assert.Equal(t, "/cfg/workspaces", s.root)
 	assert.Equal(t, "/cfg/state", s.stateDir)
 	assert.NotNil(t, s.exclude)
@@ -133,22 +135,22 @@ func TestStore_warn(t *testing.T) {
 }
 
 func TestStore_dir(t *testing.T) {
-	s := New(discardLogger(), nil, nil, "/cfg/workspaces", "/cfg/state")
+	s := New(discardLogger(), nil, nil, nil, "/cfg/workspaces", "/cfg/state")
 	assert.Equal(t, "/cfg/workspaces/fix-login", s.dir("fix-login"))
 }
 
 func TestStore_stateOf(t *testing.T) {
-	s := New(discardLogger(), nil, nil, "/cfg/workspaces", "/cfg/state")
+	s := New(discardLogger(), nil, nil, nil, "/cfg/workspaces", "/cfg/state")
 	assert.Equal(t, "/cfg/state/fix-login", s.stateOf("fix-login"))
 }
 
 func TestStore_recordPath(t *testing.T) {
-	s := New(discardLogger(), nil, nil, "/cfg/workspaces", "/cfg/state")
+	s := New(discardLogger(), nil, nil, nil, "/cfg/workspaces", "/cfg/state")
 	assert.Equal(t, "/cfg/state/fix-login/workspace.toml", s.recordPath("fix-login"))
 }
 
 func TestStore_lockPath(t *testing.T) {
-	s := New(discardLogger(), nil, nil, "/cfg/workspaces", "/cfg/state")
+	s := New(discardLogger(), nil, nil, nil, "/cfg/workspaces", "/cfg/state")
 	assert.Equal(t, "/cfg/state/fix-login/lock", s.lockPath("fix-login"))
 }
 

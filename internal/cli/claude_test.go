@@ -67,7 +67,7 @@ func newClaudeEnv(t *testing.T) *claudeEnv {
 		StartFunc: func(context.Context, claude.StartOptions) (claude.Started, error) {
 			return claude.Started{ID: "e8cdf5d8"}, nil
 		},
-		TrustFunc:  func(context.Context, string, string) error { return nil },
+		TrustFunc:  func(context.Context, string, string, func(string, bool) error) error { return nil },
 		AttachFunc: func(context.Context, string) error { return nil },
 		RemoveFunc: func(context.Context, string) error { return nil },
 	}
@@ -167,26 +167,17 @@ func newClaudeE2E(t *testing.T, bgBody string) *claudeE2E {
 // or not.
 func (e *claudeE2E) trustRoot(t *testing.T, trusted bool) {
 	t.Helper()
-	data, err := json.Marshal(map[string]any{"projects": map[string]any{e.paths.Workspaces: map[string]any{"hasTrustDialogAccepted": trusted}}})
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(e.claudeJSON, data, 0o600))
+	if trusted {
+		writeClaudeJSON(t, e.claudeJSON, e.paths.Workspaces)
+		return
+	}
+	writeClaudeJSON(t, e.claudeJSON)
 }
 
 // trustedDirs are the directories Claude Code's config trusts.
 func (e *claudeE2E) trustedDirs(t *testing.T) []string {
 	t.Helper()
-	data, err := os.ReadFile(e.claudeJSON)
-	require.NoError(t, err)
-	var got map[string]map[string]map[string]any
-	require.NoError(t, json.Unmarshal(data, &got))
-	var dirs []string
-	for dir, p := range got["projects"] {
-		if p["hasTrustDialogAccepted"] == true {
-			dirs = append(dirs, dir)
-		}
-	}
-	slices.Sort(dirs)
-	return dirs
+	return trustedDirsIn(t, e.claudeJSON)
 }
 
 func TestApp_newClaudeCmd(t *testing.T) {
@@ -422,6 +413,14 @@ func TestApp_runClaude(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, entries)
 	})
+	t.Run("end to end: a failed start takes back the trust ws added", func(t *testing.T) {
+		t.Parallel()
+		e := newClaudeE2E(t, "echo 'error: boom' >&2; exit 1")
+		code := e.app.Run(t.Context(), []string{"--json", "claude", "--name", "t", "n", "--", "fix it"})
+		assert.Equal(t, exitFailed, code)
+		assert.NoDirExists(t, filepath.Join(e.paths.Workspaces, "t"))
+		assert.Equal(t, []string{e.paths.Workspaces}, e.trustedDirs(t))
+	})
 	t.Run("end to end: an untrusted workspace leaves nothing", func(t *testing.T) {
 		t.Parallel()
 		e := newClaudeE2E(t, "echo 'Workspace not trusted. Run `claude` in /w once and accept the trust prompt, then retry.' >&2; exit 1")
@@ -513,7 +512,9 @@ func TestApp_startAgent(t *testing.T) {
 	})
 	t.Run("starts in the workspace, quietly, when the root isn't trusted", func(t *testing.T) {
 		e := newClaudeEnv(t)
-		e.claude.TrustFunc = func(context.Context, string, string) error { return claude.ErrParentUntrusted }
+		e.claude.TrustFunc = func(context.Context, string, string, func(string, bool) error) error {
+			return claude.ErrParentUntrusted
+		}
 		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
 		require.NoError(t, err)
 		require.Len(t, e.claude.StartCalls(), 1)
@@ -522,7 +523,7 @@ func TestApp_startAgent(t *testing.T) {
 	})
 	t.Run("starts in the workspace, with a warning, when trusting fails", func(t *testing.T) {
 		e := newClaudeEnv(t)
-		e.claude.TrustFunc = func(context.Context, string, string) error { return errTest }
+		e.claude.TrustFunc = func(context.Context, string, string, func(string, bool) error) error { return errTest }
 		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
 		require.NoError(t, err)
 		require.Len(t, e.claude.StartCalls(), 1)

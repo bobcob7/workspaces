@@ -41,6 +41,7 @@ type workspaceStore interface {
 	Create(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error)
 	Find(arg string) (workspace.Workspace, error)
 	RecordSession(id string, kind workspace.SessionKind, claudeSessionID string) error
+	RecordTrust(id, dir string, createdEntry bool) error
 	Remove(id string, opts workspace.RemoveOptions) error
 	Warnings() []string
 }
@@ -68,7 +69,8 @@ type shellRunner interface {
 type claudeClient interface {
 	Check(ctx context.Context) error
 	Start(ctx context.Context, opts claude.StartOptions) (claude.Started, error)
-	Trust(ctx context.Context, dir, parent string) error
+	Trust(ctx context.Context, dir, parent string, record func(dir string, created bool) error) error
+	Untrust(dir string, created bool) error
 	Attach(ctx context.Context, id string) error
 	Agents(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error)
 	Stop(ctx context.Context, id string) error

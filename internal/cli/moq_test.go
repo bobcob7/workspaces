@@ -659,6 +659,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			RecordSessionFunc: func(id string, kind workspace.SessionKind, claudeSessionID string) error {
 //				panic("mock out the RecordSession method")
 //			},
+//			RecordTrustFunc: func(id string, dir string, createdEntry bool) error {
+//				panic("mock out the RecordTrust method")
+//			},
 //			RemoveFunc: func(id string, opts workspace.RemoveOptions) error {
 //				panic("mock out the Remove method")
 //			},
@@ -683,6 +686,9 @@ type workspaceStoreMock struct {
 
 	// RecordSessionFunc mocks the RecordSession method.
 	RecordSessionFunc func(id string, kind workspace.SessionKind, claudeSessionID string) error
+
+	// RecordTrustFunc mocks the RecordTrust method.
+	RecordTrustFunc func(id string, dir string, createdEntry bool) error
 
 	// RemoveFunc mocks the Remove method.
 	RemoveFunc func(id string, opts workspace.RemoveOptions) error
@@ -716,6 +722,15 @@ type workspaceStoreMock struct {
 			// ClaudeSessionID is the claudeSessionID argument value.
 			ClaudeSessionID string
 		}
+		// RecordTrust holds details about calls to the RecordTrust method.
+		RecordTrust []struct {
+			// ID is the id argument value.
+			ID string
+			// Dir is the dir argument value.
+			Dir string
+			// CreatedEntry is the createdEntry argument value.
+			CreatedEntry bool
+		}
 		// Remove holds details about calls to the Remove method.
 		Remove []struct {
 			// ID is the id argument value.
@@ -737,6 +752,7 @@ type workspaceStoreMock struct {
 	lockCreate        sync.RWMutex
 	lockFind          sync.RWMutex
 	lockRecordSession sync.RWMutex
+	lockRecordTrust   sync.RWMutex
 	lockRemove        sync.RWMutex
 	lockUsesCommit    sync.RWMutex
 	lockWarnings      sync.RWMutex
@@ -847,6 +863,46 @@ func (mock *workspaceStoreMock) RecordSessionCalls() []struct {
 	mock.lockRecordSession.RLock()
 	calls = mock.calls.RecordSession
 	mock.lockRecordSession.RUnlock()
+	return calls
+}
+
+// RecordTrust calls RecordTrustFunc.
+func (mock *workspaceStoreMock) RecordTrust(id string, dir string, createdEntry bool) error {
+	if mock.RecordTrustFunc == nil {
+		panic("workspaceStoreMock.RecordTrustFunc: method is nil but workspaceStore.RecordTrust was just called")
+	}
+	callInfo := struct {
+		ID           string
+		Dir          string
+		CreatedEntry bool
+	}{
+		ID:           id,
+		Dir:          dir,
+		CreatedEntry: createdEntry,
+	}
+	mock.lockRecordTrust.Lock()
+	mock.calls.RecordTrust = append(mock.calls.RecordTrust, callInfo)
+	mock.lockRecordTrust.Unlock()
+	return mock.RecordTrustFunc(id, dir, createdEntry)
+}
+
+// RecordTrustCalls gets all the calls that were made to RecordTrust.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.RecordTrustCalls())
+func (mock *workspaceStoreMock) RecordTrustCalls() []struct {
+	ID           string
+	Dir          string
+	CreatedEntry bool
+} {
+	var calls []struct {
+		ID           string
+		Dir          string
+		CreatedEntry bool
+	}
+	mock.lockRecordTrust.RLock()
+	calls = mock.calls.RecordTrust
+	mock.lockRecordTrust.RUnlock()
 	return calls
 }
 
@@ -1367,8 +1423,11 @@ var _ claudeClient = &claudeClientMock{}
 //			StopDaemonFunc: func(ctx context.Context) error {
 //				panic("mock out the StopDaemon method")
 //			},
-//			TrustFunc: func(ctx context.Context, dir string, parent string) error {
+//			TrustFunc: func(ctx context.Context, dir string, parent string, record func(dir string, created bool) error) error {
 //				panic("mock out the Trust method")
+//			},
+//			UntrustFunc: func(dir string, created bool) error {
+//				panic("mock out the Untrust method")
 //			},
 //		}
 //
@@ -1411,7 +1470,10 @@ type claudeClientMock struct {
 	StopDaemonFunc func(ctx context.Context) error
 
 	// TrustFunc mocks the Trust method.
-	TrustFunc func(ctx context.Context, dir string, parent string) error
+	TrustFunc func(ctx context.Context, dir string, parent string, record func(dir string, created bool) error) error
+
+	// UntrustFunc mocks the Untrust method.
+	UntrustFunc func(dir string, created bool) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1490,6 +1552,15 @@ type claudeClientMock struct {
 			Dir string
 			// Parent is the parent argument value.
 			Parent string
+			// Record is the record argument value.
+			Record func(dir string, created bool) error
+		}
+		// Untrust holds details about calls to the Untrust method.
+		Untrust []struct {
+			// Dir is the dir argument value.
+			Dir string
+			// Created is the created argument value.
+			Created bool
 		}
 	}
 	lockAgents       sync.RWMutex
@@ -1504,6 +1575,7 @@ type claudeClientMock struct {
 	lockStop         sync.RWMutex
 	lockStopDaemon   sync.RWMutex
 	lockTrust        sync.RWMutex
+	lockUntrust      sync.RWMutex
 }
 
 // Agents calls AgentsFunc.
@@ -1883,7 +1955,7 @@ func (mock *claudeClientMock) StopDaemonCalls() []struct {
 }
 
 // Trust calls TrustFunc.
-func (mock *claudeClientMock) Trust(ctx context.Context, dir string, parent string) error {
+func (mock *claudeClientMock) Trust(ctx context.Context, dir string, parent string, record func(dir string, created bool) error) error {
 	if mock.TrustFunc == nil {
 		panic("claudeClientMock.TrustFunc: method is nil but claudeClient.Trust was just called")
 	}
@@ -1891,15 +1963,17 @@ func (mock *claudeClientMock) Trust(ctx context.Context, dir string, parent stri
 		Ctx    context.Context
 		Dir    string
 		Parent string
+		Record func(dir string, created bool) error
 	}{
 		Ctx:    ctx,
 		Dir:    dir,
 		Parent: parent,
+		Record: record,
 	}
 	mock.lockTrust.Lock()
 	mock.calls.Trust = append(mock.calls.Trust, callInfo)
 	mock.lockTrust.Unlock()
-	return mock.TrustFunc(ctx, dir, parent)
+	return mock.TrustFunc(ctx, dir, parent, record)
 }
 
 // TrustCalls gets all the calls that were made to Trust.
@@ -1910,14 +1984,52 @@ func (mock *claudeClientMock) TrustCalls() []struct {
 	Ctx    context.Context
 	Dir    string
 	Parent string
+	Record func(dir string, created bool) error
 } {
 	var calls []struct {
 		Ctx    context.Context
 		Dir    string
 		Parent string
+		Record func(dir string, created bool) error
 	}
 	mock.lockTrust.RLock()
 	calls = mock.calls.Trust
 	mock.lockTrust.RUnlock()
+	return calls
+}
+
+// Untrust calls UntrustFunc.
+func (mock *claudeClientMock) Untrust(dir string, created bool) error {
+	if mock.UntrustFunc == nil {
+		panic("claudeClientMock.UntrustFunc: method is nil but claudeClient.Untrust was just called")
+	}
+	callInfo := struct {
+		Dir     string
+		Created bool
+	}{
+		Dir:     dir,
+		Created: created,
+	}
+	mock.lockUntrust.Lock()
+	mock.calls.Untrust = append(mock.calls.Untrust, callInfo)
+	mock.lockUntrust.Unlock()
+	return mock.UntrustFunc(dir, created)
+}
+
+// UntrustCalls gets all the calls that were made to Untrust.
+// Check the length with:
+//
+//	len(mockedclaudeClient.UntrustCalls())
+func (mock *claudeClientMock) UntrustCalls() []struct {
+	Dir     string
+	Created bool
+} {
+	var calls []struct {
+		Dir     string
+		Created bool
+	}
+	mock.lockUntrust.RLock()
+	calls = mock.calls.Untrust
+	mock.lockUntrust.RUnlock()
 	return calls
 }

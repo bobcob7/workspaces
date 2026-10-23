@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +20,8 @@ type trustFixture struct {
 	config string
 	root   string
 }
+
+var errTrustTest = errors.New("test")
 
 func newTrustFixture(t *testing.T, rootTrusted bool) *trustFixture {
 	t.Helper()
@@ -64,6 +67,9 @@ func (f *trustFixture) project(t *testing.T, dir string) map[string]any {
 	return project
 }
 
+// noRecord is a Trust record callback that keeps nothing.
+func noRecord(string, bool) error { return nil }
+
 func TestConfigFile(t *testing.T) {
 	t.Parallel()
 	t.Run("CLAUDE_CONFIG_DIR wins", func(t *testing.T) {
@@ -86,7 +92,7 @@ func TestClient_Trust(t *testing.T) {
 		t.Parallel()
 		f := newTrustFixture(t, true)
 		dir := filepath.Join(f.root, "x", "api")
-		require.NoError(t, f.client.Trust(t.Context(), dir, f.root))
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, noRecord))
 		assert.Equal(t, map[string]any{"hasTrustDialogAccepted": true}, f.project(t, dir))
 	})
 	t.Run("keeps every other key as it was", func(t *testing.T) {
@@ -94,7 +100,7 @@ func TestClient_Trust(t *testing.T) {
 		f := newTrustFixture(t, true)
 		before := f.read(t)
 		dir := filepath.Join(f.root, "x", "api")
-		require.NoError(t, f.client.Trust(t.Context(), dir, f.root))
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, noRecord))
 		after := f.read(t)
 		projects, ok := after["projects"].(map[string]any)
 		require.True(t, ok)
@@ -108,7 +114,7 @@ func TestClient_Trust(t *testing.T) {
 		require.NoError(t, err)
 		config := `{"oauthAccount":{"emailAddress":"a&b@example.test"},"projects":{` + string(root) + `:{"hasTrustDialogAccepted":true}}}`
 		require.NoError(t, os.WriteFile(f.config, []byte(config), 0o600))
-		require.NoError(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root))
+		require.NoError(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root, noRecord))
 		data, err := os.ReadFile(f.config)
 		require.NoError(t, err)
 		assert.Contains(t, string(data), `"a&b@example.test"`)
@@ -121,7 +127,7 @@ func TestClient_Trust(t *testing.T) {
 			f.root: map[string]any{"hasTrustDialogAccepted": true},
 			dir:    map[string]any{"hasTrustDialogAccepted": false, "lastCost": 1.5},
 		}})
-		require.NoError(t, f.client.Trust(t.Context(), dir, f.root))
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, noRecord))
 		assert.Equal(t, map[string]any{"hasTrustDialogAccepted": true, "lastCost": 1.5}, f.project(t, dir))
 	})
 	t.Run("keys both directories with symlinks resolved", func(t *testing.T) {
@@ -129,13 +135,13 @@ func TestClient_Trust(t *testing.T) {
 		f := newTrustFixture(t, true)
 		link := filepath.Join(filepath.Dir(f.root), "link")
 		require.NoError(t, os.Symlink(f.root, link))
-		require.NoError(t, f.client.Trust(t.Context(), filepath.Join(link, "x", "api"), link))
+		require.NoError(t, f.client.Trust(t.Context(), filepath.Join(link, "x", "api"), link, noRecord))
 		assert.Equal(t, true, f.project(t, filepath.Join(f.root, "x", "api"))["hasTrustDialogAccepted"])
 	})
 	t.Run("keeps the file's permissions", func(t *testing.T) {
 		t.Parallel()
 		f := newTrustFixture(t, true)
-		require.NoError(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root))
+		require.NoError(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root, noRecord))
 		info, err := os.Stat(f.config)
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
@@ -145,7 +151,7 @@ func TestClient_Trust(t *testing.T) {
 		f := newTrustFixture(t, false)
 		before, err := os.ReadFile(f.config)
 		require.NoError(t, err)
-		err = f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root)
+		err = f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root, noRecord)
 		require.ErrorIs(t, err, ErrParentUntrusted)
 		after, err := os.ReadFile(f.config)
 		require.NoError(t, err)
@@ -156,7 +162,7 @@ func TestClient_Trust(t *testing.T) {
 		f := newTrustFixture(t, true)
 		old := time.Now().Add(-time.Hour)
 		require.NoError(t, os.Chtimes(f.config, old, old))
-		require.NoError(t, f.client.Trust(t.Context(), f.root, f.root))
+		require.NoError(t, f.client.Trust(t.Context(), f.root, f.root, noRecord))
 		info, err := os.Stat(f.config)
 		require.NoError(t, err)
 		assert.WithinDuration(t, old, info.ModTime(), time.Second)
@@ -165,20 +171,137 @@ func TestClient_Trust(t *testing.T) {
 		t.Parallel()
 		f := newTrustFixture(t, true)
 		require.NoError(t, os.WriteFile(f.config, []byte("{"), 0o600))
-		assert.Error(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root))
+		assert.Error(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root, noRecord))
 	})
 	t.Run("trusts nothing without a config", func(t *testing.T) {
 		t.Parallel()
 		f := newTrustFixture(t, true)
 		require.NoError(t, os.Remove(f.config))
-		require.ErrorIs(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root), ErrParentUntrusted)
+		require.ErrorIs(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root, noRecord), ErrParentUntrusted)
 		assert.NoFileExists(t, f.config)
 	})
 	t.Run("releases Claude Code's lock", func(t *testing.T) {
 		t.Parallel()
 		f := newTrustFixture(t, true)
-		require.NoError(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root))
+		require.NoError(t, f.client.Trust(t.Context(), filepath.Join(f.root, "x", "api"), f.root, noRecord))
 		assert.NoDirExists(t, f.config+".lock")
+	})
+}
+
+func TestClient_Trust_record(t *testing.T) {
+	t.Parallel()
+	t.Run("records a new entry before writing it", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		dir := filepath.Join(f.root, "x", "api")
+		var gotDir string
+		var gotCreated bool
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, func(d string, created bool) error {
+			gotDir, gotCreated = d, created
+			assert.Nil(t, f.project(t, dir), "not written yet")
+			return nil
+		}))
+		assert.Equal(t, dir, gotDir)
+		assert.True(t, gotCreated)
+	})
+	t.Run("records an existing untrusted entry as not created", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		dir := filepath.Join(f.root, "x", "api")
+		f.write(t, map[string]any{"projects": map[string]any{f.root: map[string]any{"hasTrustDialogAccepted": true}, dir: map[string]any{"lastCost": 1}}})
+		created := true
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, func(_ string, c bool) error { created = c; return nil }))
+		assert.False(t, created)
+	})
+	t.Run("doesn't record a directory already trusted", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		called := false
+		require.NoError(t, f.client.Trust(t.Context(), f.root, f.root, func(string, bool) error { called = true; return nil }))
+		assert.False(t, called)
+	})
+	t.Run("writes nothing when recording fails", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		dir := filepath.Join(f.root, "x", "api")
+		require.ErrorIs(t, f.client.Trust(t.Context(), dir, f.root, func(string, bool) error { return errTrustTest }), errTrustTest)
+		assert.Nil(t, f.project(t, dir))
+	})
+	t.Run("a trusted ancestor of the parent counts", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, false)
+		f.write(t, map[string]any{"projects": map[string]any{filepath.Dir(f.root): map[string]any{"hasTrustDialogAccepted": true}}})
+		dir := filepath.Join(f.root, "x", "api")
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, noRecord))
+		assert.Equal(t, true, f.project(t, dir)["hasTrustDialogAccepted"])
+	})
+	t.Run("follows a symlinked config file", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		target := filepath.Join(filepath.Dir(f.root), "dotfiles", "claude.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o700))
+		require.NoError(t, os.Rename(f.config, target))
+		require.NoError(t, os.Symlink(target, f.config))
+		dir := filepath.Join(f.root, "x", "api")
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, noRecord))
+		info, err := os.Lstat(f.config)
+		require.NoError(t, err)
+		assert.Equal(t, os.ModeSymlink, info.Mode()&os.ModeSymlink, "the link stays a link")
+		assert.Equal(t, true, f.project(t, dir)["hasTrustDialogAccepted"])
+		entries, err := os.ReadDir(filepath.Dir(f.config))
+		require.NoError(t, err)
+		assert.Len(t, entries, 1, "no temp file left next to the link")
+	})
+}
+
+func TestClient_Untrust(t *testing.T) {
+	t.Parallel()
+	t.Run("removes an entry ws created, with what Claude Code added to it", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		dir := filepath.Join(f.root, "x", "api")
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, noRecord))
+		cfg := f.read(t)
+		projects, ok := cfg["projects"].(map[string]any)
+		require.True(t, ok)
+		entry, ok := projects[dir].(map[string]any)
+		require.True(t, ok)
+		entry["lastCost"] = 0.5
+		f.write(t, cfg)
+		require.NoError(t, f.client.Untrust(dir, true))
+		assert.Nil(t, f.project(t, dir))
+		assert.NotNil(t, f.project(t, "/other"), "other entries stay")
+	})
+	t.Run("removes only the trust key from an entry that was there", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		dir := filepath.Join(f.root, "x", "api")
+		f.write(t, map[string]any{"projects": map[string]any{f.root: map[string]any{"hasTrustDialogAccepted": true}, dir: map[string]any{"lastCost": 1}}})
+		require.NoError(t, f.client.Trust(t.Context(), dir, f.root, noRecord))
+		require.NoError(t, f.client.Untrust(dir, false))
+		assert.Equal(t, map[string]any{"lastCost": float64(1)}, f.project(t, dir))
+	})
+	t.Run("an entry already gone is fine", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		before, err := os.ReadFile(f.config)
+		require.NoError(t, err)
+		require.NoError(t, f.client.Untrust(filepath.Join(f.root, "gone"), true))
+		after, err := os.ReadFile(f.config)
+		require.NoError(t, err)
+		assert.Equal(t, before, after)
+	})
+	t.Run("a missing config is fine", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		require.NoError(t, os.Remove(f.config))
+		assert.NoError(t, f.client.Untrust(filepath.Join(f.root, "x", "api"), true))
+	})
+	t.Run("fails on a config that isn't JSON", func(t *testing.T) {
+		t.Parallel()
+		f := newTrustFixture(t, true)
+		require.NoError(t, os.WriteFile(f.config, []byte("{"), 0o600))
+		assert.Error(t, f.client.Untrust(filepath.Join(f.root, "x", "api"), true))
 	})
 }
 
@@ -200,15 +323,19 @@ func TestLockConfig(t *testing.T) {
 		unlock()
 		assert.NoDirExists(t, path+".lock")
 	})
-	t.Run("takes over a stale lock", func(t *testing.T) {
+	t.Run("takes over a stale lock, leaving nothing behind", func(t *testing.T) {
 		t.Parallel()
-		path := filepath.Join(t.TempDir(), ".claude.json")
+		dir := t.TempDir()
+		path := filepath.Join(dir, ".claude.json")
 		require.NoError(t, os.Mkdir(path+".lock", 0o700))
 		old := time.Now().Add(-time.Minute)
 		require.NoError(t, os.Chtimes(path+".lock", old, old))
 		unlock, err := lockConfig(t.Context(), path)
 		require.NoError(t, err)
 		unlock()
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries)
 	})
 	t.Run("gives up when ctx ends", func(t *testing.T) {
 		t.Parallel()

@@ -119,7 +119,8 @@ func (a *App) startAgent(ctx context.Context, ws *workspace.Workspace, args []st
 
 // agentDir is the directory the session starts in (ADR 0028): the one
 // repo's directory, once ws has trusted it in Claude Code below the
-// trusted workspace root, else the workspace's. A fresh clone is a new
+// trusted workspace root, else the workspace's. A trust ws adds is
+// recorded first, so removing the workspace, on any path, takes it back. A fresh clone is a new
 // repository to Claude Code, which the root's trust doesn't cover. With
 // the root untrusted, the session starts in the workspace, so the trust
 // error names the root; when trusting fails otherwise, ws warns and does
@@ -129,7 +130,8 @@ func (a *App) agentDir(ctx context.Context, ws *workspace.Workspace) string {
 		return ws.Path
 	}
 	dir := ws.SessionDir()
-	err := a.claude.Trust(ctx, dir, a.paths.Workspaces)
+	record := func(dir string, created bool) error { return a.workspaces.RecordTrust(ws.ID, dir, created) }
+	err := a.claude.Trust(ctx, dir, a.paths.Workspaces, record)
 	if err == nil {
 		return dir
 	}

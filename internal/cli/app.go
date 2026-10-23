@@ -103,7 +103,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
 		runner := git.NewRunner(log, "git", environ)
 		c := cache.New(log, runner, paths.Cache, cfg.Defaults)
-		ws := workspace.New(log, runner, c, paths.Workspaces, paths.State)
+		ws := workspace.New(log, runner, c, a.claude, paths.Workspaces, paths.State)
 		return stores{cache: c, workspaces: ws, lifetime: lifetime.New(log, ws, a.claude, proc.Reader{}, paths.State)}
 	}
 	return a

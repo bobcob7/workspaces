@@ -42,7 +42,8 @@ starts an agent at the top of its workspace, so trusting the root once is
 enough[^bench-trust]. An agent on exactly one repo starts in that repo,
 which is a new clone the root's trust doesn't cover, so `ws` marks it
 trusted in `~/.claude.json` first, but only while the root is trusted
-there ([0028](adrs/0028-single-repo-session-directory.md)).
+there, and removes that trust again with the workspace
+([0028](adrs/0028-single-repo-session-directory.md)).
 
 **Interactively** (recommended):
 

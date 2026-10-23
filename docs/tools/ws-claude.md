@@ -28,7 +28,9 @@ Claude Code's docs describe doing by hand. It does so only when the
 workspace root is already trusted there, under Claude Code's own lock on
 that file, and changes nothing else in it. Trusting the repo lets its
 `.claude/settings.json` allow rules apply, so start agents only on repos you
-trust. If the root isn't trusted, the agent starts in the workspace and
+trust. `ws` records the trust it adds in `state/<id>/trust`, and takes it
+back when the workspace is removed, however that happens; a repo that was
+already trusted is left alone. If the root isn't trusted, the agent starts in the workspace and
 fails with `claude_untrusted` as before; if the file can't be updated,
 `ws` warns and starts the agent in the workspace
 ([0028](../adrs/0028-single-repo-session-directory.md), proposed).

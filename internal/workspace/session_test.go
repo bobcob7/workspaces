@@ -250,6 +250,6 @@ func TestSession_check(t *testing.T) {
 }
 
 func TestStore_sessionPath(t *testing.T) {
-	s := New(discardLogger(), nil, nil, "/cfg/workspaces", "/cfg/state")
+	s := New(discardLogger(), nil, nil, nil, "/cfg/workspaces", "/cfg/state")
 	assert.Equal(t, "/cfg/state/fix-login/session", s.sessionPath("fix-login"))
 }

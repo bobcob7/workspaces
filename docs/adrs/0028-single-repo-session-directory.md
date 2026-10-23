@@ -1,4 +1,4 @@
-# 0028. A one-repo workspace's session starts in its repo, which `ws claude` first trusts in Claude Code's config
+# 0028. A one-repo workspace's session starts in its repo, which `ws claude` trusts in Claude Code's config for the workspace's lifetime
 
 - Status: Proposed
 - Date: 2026-10-23
@@ -24,6 +24,9 @@ the repo, and if so, how does `ws claude` get Claude Code to start there?
    file, no lost concurrent write.
 4. **Lifetime checks still find the session**, including for workspaces
    created before this change.
+5. **Nothing is left behind**: what `ws` adds to Claude Code's config goes
+   when the workspace does, on every removal path, and nothing the person
+   set is taken away.
 
 ### Relevant facts
 
@@ -52,12 +55,27 @@ before. `WS_WORKSPACE` and printed paths stay the workspace.
 
 Before `claude --bg`, `ws claude` sets
 `projects[<repo dir>].hasTrustDialogAccepted = true` in Claude Code's global
-config, with both paths' symlinks resolved, and only when
-`projects[<workspace root>]` already has it set. It takes Claude Code's
-lock (makes `<file>.lock` with `mkdir`, waits up to 5 s, and takes over a
-lock older than 10 s), re-reads the file, changes only that key, keeping
-every other value's raw JSON, and writes through a temp file and a rename
-with the file's mode. If the root isn't trusted, the session starts in the
+config, with both paths' symlinks resolved, and only when the workspace
+root or one of its parents already has it set. It takes Claude Code's lock
+(makes `<file>.lock` with `mkdir`, waits up to 5 s, and takes over a lock
+older than 10 s by renaming it to a unique name first), re-reads the file,
+changes only that key, keeping every other value's raw JSON (keys come out
+sorted), and writes through a temp file and a rename with the file's mode,
+following a symlinked config to its target. A directory already trusted is
+left alone and nothing is recorded.
+
+When `ws` is about to add the trust, still under the lock and before the
+config is written, it writes `state/<id>/trust`: the directory and whether
+`ws` created its whole project entry. `workspace.Store.Remove`, which every
+removal goes through (`ws rm`, the removal pass for gone and abandoned
+workspaces, unrecorded workspaces, and a `ws claude` whose session failed
+to start or be recorded), takes the trust back after deleting the
+directory and before deleting the state, under the same lock and the same
+write path: it removes the whole project entry if `ws` created it, with
+whatever Claude Code wrote into it while the session ran, since it belongs
+to a directory that no longer exists, and otherwise only the trust key.
+Failing to do so is a warning naming the entry to remove by hand; the
+workspace is removed regardless. If the root isn't trusted, the session starts in the
 workspace, so the trust error names the root as before. If the config can't
 be updated, `ws` adds a warning and starts in the workspace.
 
@@ -70,7 +88,8 @@ directory, without resolving the repo's symlinks.
 
 1. Only the root needs trusting, as before; the repo's trust is derived.
 2. `ws` writes trust only below a root the person trusted, and revoking the
-   root's trust stops it. Weak: the person no longer reviews each repo's
+   root's trust stops it. A repo the person trusted before `ws` did isn't
+   recorded, so its trust is never taken away. Weak: the person no longer reviews each repo's
    `.claude/settings.json` before its allow rules apply. They chose the repo
    by naming it; the docs say so.
 3. The lock, the re-read under it, and the rename match how Claude Code
@@ -79,6 +98,11 @@ directory, without resolving the repo's symlinks.
 4. Accepting both directories keeps workspaces created before this change,
    whose session runs at the top, and makes a session started below the
    repo still count as elsewhere.
+5. Recording before writing means no crash can leave an added trust
+   unrecorded, and one place, `Store.Remove`, covers every removal path.
+   Weak: a recorded trust whose config write then failed is "taken back"
+   by a no-op; and a killed `claude` process may write its project entry
+   again after removal, without the trust key.
 
 ## Alternatives
 
@@ -115,16 +139,21 @@ directory, without resolving the repo's symlinks.
   Claude Code's settings" for this key, and its and
   [0025](0025-ws-claude-session-hand-off.md)'s "exactly the workspace's
   directory" session rules.
-- Trust entries for removed workspaces stay in `~/.claude.json`, as Claude
-  Code's own per-directory entries already do.
+- Trust `ws` added is removed with the workspace. A `ws` older than this
+  change removing such a workspace ignores `state/<id>/trust` and leaves
+  the entry.
 - An older `ws` sees a one-repo session as in another directory, and
   refuses to remove it (`session_mismatch`) rather than removing the wrong
   thing.
-- Conformance: `internal/workspace` tests `SessionDir`;
-  `internal/claude` tests trust writing, key preservation, symlinks, the
-  untrusted parent, and the lock; `internal/lifetime` tests both
+- Conformance: `internal/workspace` tests `SessionDir`, the trust record,
+  and that `Remove` takes it back, warns on failure, and keeps it when the
+  guard refuses; `internal/claude` tests trust writing and removal, key
+  preservation, symlinked directories and config, trusted ancestors, the
+  record callback, and the lock; `internal/lifetime` tests both
   directories; `internal/cli` end-to-end tests check where the shell and
-  agent start and what was trusted.
+  agent start, and that `ws rm`, an unrecorded workspace, the removal
+  pass for gone and abandoned agents, and a failed start each take the
+  trust back, while a repo trusted beforehand keeps it.
 - **Unverified**: that Claude Code honors `.claude.json.lock` on every write
   path. Checked by observation only[^bench-lock].
 

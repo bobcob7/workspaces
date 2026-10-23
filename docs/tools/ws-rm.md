@@ -31,6 +31,11 @@ or `ws shell` is still handing it over (its lock is held); otherwise runs
 the workspace, or its one repo, then deletes it
 ([0025](../adrs/0025-ws-claude-session-hand-off.md)).
 
+If `ws claude` trusted the workspace's repo in Claude Code's config, that
+trust is removed with the workspace; if it can't be, `ws rm` warns and
+removes the workspace anyway
+([0028](../adrs/0028-single-repo-session-directory.md)).
+
 Git state is ignored: uncommitted changes, unpushed commits, and stashes go
 with the workspace ([0015](../adrs/0015-workspace-lifetime-follows-session.md)).
 Only directories recorded in a valid `$CONFIG_DIR/state/<id>/workspace.toml`,

@@ -51,7 +51,11 @@ func (ws *Workspace) SessionSubdir() string {
 	if len(ws.Repos) != 1 || !filepath.IsLocal(ws.Repos[0].Path) {
 		return ""
 	}
-	return ws.Repos[0].Path
+	sub := filepath.Clean(ws.Repos[0].Path)
+	if sub == "." {
+		return ""
+	}
+	return sub
 }
 
 // SessionDir is the directory ws shell and ws claude start a session in:
