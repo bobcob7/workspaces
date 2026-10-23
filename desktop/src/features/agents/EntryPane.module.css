@@ -1,0 +1,109 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+.header {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.path {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: 12px var(--font-mono);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.path:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.detail {
+  margin: 10px 0 0;
+  font-weight: 500;
+}
+
+.intent {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.intent summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.intent p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.result {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--status-done);
+  background: var(--panel-raised);
+  border-radius: 0 6px 6px 0;
+}
+
+.links {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.placeholder {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+}

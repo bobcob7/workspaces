@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
-.PHONY: build test lint fmt generate dist clean
+.PHONY: build test lint fmt generate dist clean desktop desktop-dev desktop-test
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN)/ws ./cmd/ws
@@ -32,6 +32,17 @@ dist:
 		os=$${p%/*}; arch=$${p#*/}; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o dist/ws-$$os-$$arch ./cmd/ws || exit 1; \
 	done
+
+# The desktop app (ADR 0029); needs Rust and Node.js.
+desktop:
+	cd desktop && npm ci && npm run tauri build
+
+desktop-dev:
+	cd desktop && npm install && npm run tauri dev
+
+desktop-test:
+	cd desktop && npm ci && npm run typecheck && npm test
+	cd desktop/src-tauri && cargo test && cargo clippy --all-targets -- -D warnings
 
 clean:
 	rm -rf $(BIN) dist

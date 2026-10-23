@@ -1,0 +1,8 @@
+.root {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
