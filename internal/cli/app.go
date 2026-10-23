@@ -43,6 +43,8 @@ type App struct {
 	lifetime   lifetimeManager
 	// swept is what the removal pass removed before the command ran.
 	swept []lifetime.Removed
+	// warned are the command's own warnings, reported after the stores'.
+	warned []string
 	// now is the clock ws list shows ages by.
 	now func() time.Time
 	// shell runs ws shell's interactive shell on ws's own streams.

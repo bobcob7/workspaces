@@ -137,8 +137,9 @@ minute; `ws list` runs it every time
    only if a workspace needs it.
 2. Removes each gone or abandoned workspace. For an abandoned one it first
    runs `claude rm` on each background session whose working directory is
-   exactly that workspace
-   ([0025](adrs/0025-ws-claude-session-hand-off.md)).
+   exactly that workspace, or its one repo
+   ([0025](adrs/0025-ws-claude-session-hand-off.md),
+   [0028](adrs/0028-single-repo-session-directory.md)).
 3. If the listing fails, keeps agent and abandoned workspaces, with a
    warning.
 
@@ -163,7 +164,8 @@ then `state/<id>/`.
 - **`ws rm`**: runs the pass first, then handles each workspace named:
   - **a running shell**: refuses with `shell_running`;
   - **one being handed off**: refuses with `workspace_busy`;
-  - **an agent whose session Claude Code lists in another directory**:
+  - **an agent whose session Claude Code lists in another directory**
+    than the workspace or its one repo:
     refuses with `session_mismatch`;
   - **any other agent**: stops and removes its session, then the
     workspace ([0026](adrs/0026-removal-pass-timing.md)).

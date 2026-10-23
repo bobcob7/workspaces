@@ -1367,6 +1367,9 @@ var _ claudeClient = &claudeClientMock{}
 //			StopDaemonFunc: func(ctx context.Context) error {
 //				panic("mock out the StopDaemon method")
 //			},
+//			TrustFunc: func(ctx context.Context, dir string, parent string) error {
+//				panic("mock out the Trust method")
+//			},
 //		}
 //
 //		// use mockedclaudeClient in code that requires claudeClient
@@ -1406,6 +1409,9 @@ type claudeClientMock struct {
 
 	// StopDaemonFunc mocks the StopDaemon method.
 	StopDaemonFunc func(ctx context.Context) error
+
+	// TrustFunc mocks the Trust method.
+	TrustFunc func(ctx context.Context, dir string, parent string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1476,6 +1482,15 @@ type claudeClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// Trust holds details about calls to the Trust method.
+		Trust []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Dir is the dir argument value.
+			Dir string
+			// Parent is the parent argument value.
+			Parent string
+		}
 	}
 	lockAgents       sync.RWMutex
 	lockAttach       sync.RWMutex
@@ -1488,6 +1503,7 @@ type claudeClientMock struct {
 	lockStart        sync.RWMutex
 	lockStop         sync.RWMutex
 	lockStopDaemon   sync.RWMutex
+	lockTrust        sync.RWMutex
 }
 
 // Agents calls AgentsFunc.
@@ -1863,5 +1879,45 @@ func (mock *claudeClientMock) StopDaemonCalls() []struct {
 	mock.lockStopDaemon.RLock()
 	calls = mock.calls.StopDaemon
 	mock.lockStopDaemon.RUnlock()
+	return calls
+}
+
+// Trust calls TrustFunc.
+func (mock *claudeClientMock) Trust(ctx context.Context, dir string, parent string) error {
+	if mock.TrustFunc == nil {
+		panic("claudeClientMock.TrustFunc: method is nil but claudeClient.Trust was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Dir    string
+		Parent string
+	}{
+		Ctx:    ctx,
+		Dir:    dir,
+		Parent: parent,
+	}
+	mock.lockTrust.Lock()
+	mock.calls.Trust = append(mock.calls.Trust, callInfo)
+	mock.lockTrust.Unlock()
+	return mock.TrustFunc(ctx, dir, parent)
+}
+
+// TrustCalls gets all the calls that were made to Trust.
+// Check the length with:
+//
+//	len(mockedclaudeClient.TrustCalls())
+func (mock *claudeClientMock) TrustCalls() []struct {
+	Ctx    context.Context
+	Dir    string
+	Parent string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Dir    string
+		Parent string
+	}
+	mock.lockTrust.RLock()
+	calls = mock.calls.Trust
+	mock.lockTrust.RUnlock()
 	return calls
 }

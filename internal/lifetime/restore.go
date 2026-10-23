@@ -230,8 +230,9 @@ func (m *Manager) warnNoProcess(id string, lastErr error) {
 	m.warn("%s", msg)
 }
 
-// inWorkspace checks that the listed session s runs in workspace ws's
-// directory, as the deletion guard resolves it (ADRs 0012, 0026).
+// inWorkspace checks that the listed session s runs in one of workspace
+// ws's session directories, as the deletion guard resolves them (ADRs
+// 0012, 0026, 0028).
 func (m *Manager) inWorkspace(ws *workspace.Workspace, s *claude.Session) error {
 	dir, err := m.store.GuardedDir(ws.ID)
 	if err != nil {

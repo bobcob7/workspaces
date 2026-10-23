@@ -118,7 +118,7 @@ func (m *Manager) reap(ctx context.Context, r *reader, ws *workspace.Workspace, 
 		if err != nil {
 			return false
 		}
-		err = m.removeOrphans(ctx, ws.ID, sessions)
+		err = m.removeOrphans(ctx, ws, sessions)
 		if err != nil && !errors.Is(err, workspace.ErrNotFound) {
 			m.warn("kept abandoned workspace %s: %v", ws.ID, err)
 			return false

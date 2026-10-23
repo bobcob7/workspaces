@@ -13,7 +13,9 @@ ws shell [OPTIONS] [<SPEC>...]
 Creates a workspace from the repo specs ([Creating a
 workspace](README.md#creating-a-workspace)), or an empty one when there are
 none, then runs `$SHELL -i` (or
-`/bin/sh -i` if `SHELL` is unset or empty) in it, in the foreground.
+`/bin/sh -i` if `SHELL` is unset or empty) in it, in the foreground. With
+exactly one repo, the shell starts in that repo's directory; `WS_WORKSPACE`
+is still the workspace ([0028](../adrs/0028-single-repo-session-directory.md), proposed).
 
 **When the shell exits, the workspace is removed**, whatever the exit code
 and whatever state its repos are in. Push, or copy out, anything worth
@@ -63,7 +65,7 @@ $ ws shell buff-bear@feat/new-thing
 $ cargo test
 $ exit
 
-# Two repos side by side
+# Two repos side by side, starting in the workspace
 $ ws shell --name api-bump buff-bear bobcob7/api@v2.1.0
 
 # An empty scratch directory

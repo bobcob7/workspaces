@@ -68,6 +68,7 @@ type shellRunner interface {
 type claudeClient interface {
 	Check(ctx context.Context) error
 	Start(ctx context.Context, opts claude.StartOptions) (claude.Started, error)
+	Trust(ctx context.Context, dir, parent string) error
 	Attach(ctx context.Context, id string) error
 	Agents(ctx context.Context, opts claude.ListOptions) ([]claude.Session, error)
 	Stop(ctx context.Context, id string) error

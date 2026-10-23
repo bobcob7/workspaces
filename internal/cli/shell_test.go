@@ -224,7 +224,7 @@ func TestApp_runShell(t *testing.T) {
 		assert.Len(t, e.store.RemoveCalls(), 1)
 		assert.False(t, e.locked(t))
 	})
-	t.Run("end to end: creates the workspace, runs the shell holding its lock, and removes it", func(t *testing.T) {
+	t.Run("end to end: creates the workspace, runs the shell in its one repo holding its lock, and removes it", func(t *testing.T) {
 		t.Parallel()
 		up := gittest.NewUpstream(t)
 		up.Repo(t, "o", "n")
@@ -262,7 +262,7 @@ func TestApp_runShell(t *testing.T) {
 		wsPath := filepath.Join(paths.Workspaces, "try-it")
 		out, err := os.ReadFile(filepath.Join(scratch, "out"))
 		require.NoError(t, err)
-		assert.Equal(t, "args=-i\npwd="+wsPath+"\nWS_ID=try-it\nWS_WORKSPACE="+wsPath+"\nfd3=open\nrepo=yes\n", string(out))
+		assert.Equal(t, "args=-i\npwd="+filepath.Join(wsPath, "n")+"\nWS_ID=try-it\nWS_WORKSPACE="+wsPath+"\nfd3=open\nrepo=yes\n", string(out))
 		assert.NoDirExists(t, wsPath)
 		assert.NoDirExists(t, filepath.Join(paths.State, "try-it"))
 	})
@@ -280,6 +280,21 @@ func TestApp_runShell(t *testing.T) {
 }
 
 func TestApp_shellSession(t *testing.T) {
+	t.Run("runs the shell in the one repo's directory, with the workspace in WS_WORKSPACE", func(t *testing.T) {
+		e := newShellEnv(t)
+		e.ws.Repos = []workspace.Repo{{ID: "example.test/o/n", Path: "n"}}
+		lock, ok, err := lockfile.TryExclusiveLock(e.lockPath)
+		require.NoError(t, err)
+		require.True(t, ok)
+		defer lock.Unlock()
+		e.shell.RunFunc = func(context.Context, shell.Session) (int, error) { return 0, nil }
+		_, err = e.app.shellSession(t.Context(), &e.ws, lock)
+		require.NoError(t, err)
+		require.Len(t, e.shell.RunCalls(), 1)
+		sess := e.shell.RunCalls()[0].Sess
+		assert.Equal(t, "/cfg/workspaces/x/n", sess.Dir)
+		assert.Equal(t, []string{"WS_ID=x", "WS_WORKSPACE=/cfg/workspaces/x"}, sess.Env)
+	})
 	t.Run("records a shell session and runs the shell in the workspace", func(t *testing.T) {
 		e := newShellEnv(t)
 		lock, ok, err := lockfile.TryExclusiveLock(e.lockPath)

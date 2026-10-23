@@ -43,7 +43,7 @@ then finds the sessions running. A
 another run is restarting.
 
 If Claude Code lists the recorded session in a directory other than the
-workspace's, `ws restore` touches neither and fails that item with
+workspace's, or its one repo's ([0028](../adrs/0028-single-repo-session-directory.md)), `ws restore` touches neither and fails that item with
 `session_mismatch`, as [`ws rm`](ws-rm.md) does. Like other commands, it
 first removes workspaces whose session is gone, at most once a minute
 ([0026](../adrs/0026-removal-pass-timing.md)). See

@@ -1,6 +1,8 @@
 // Package claude runs the Claude Code CLI to start, list, stop, remove, and
 // respawn background sessions, and to manage Claude Code's background
-// service. It is the only package that runs claude (ADRs 0015, 0018, 0024).
+// service. It is the only package that runs claude, and the only one that
+// writes Claude Code's config, to trust a directory (ADRs 0015, 0018, 0024,
+// 0028).
 package claude
 
 import (
@@ -20,22 +22,24 @@ import (
 
 // Client runs claude with a fixed environment.
 type Client struct {
-	log      *slog.Logger
-	path     string
-	environ  []string
-	jobsDir  string
-	mu       sync.Mutex
-	checked  bool
-	checkErr error
+	log     *slog.Logger
+	path    string
+	environ []string
+	jobsDir string
+	// configFile is Claude Code's global config, where Trust writes.
+	configFile string
+	mu         sync.Mutex
+	checked    bool
+	checkErr   error
 	// replace is syscall.Exec: Attach replaces ws with claude through it.
 	replace func(argv0 string, argv, envv []string) error
 }
 
 // New returns a Client that runs path, normally "claude", with environ,
 // normally os.Environ(). Claude Code's per-session directories are looked
-// up in jobsDir(environ).
+// up in jobsDir(environ), and its global config is configFile(environ).
 func New(log *slog.Logger, path string, environ []string) *Client {
-	return &Client{log: log, path: path, environ: environ, jobsDir: jobsDir(environ), replace: syscall.Exec}
+	return &Client{log: log, path: path, environ: environ, jobsDir: jobsDir(environ), configFile: configFile(environ), replace: syscall.Exec}
 }
 
 // jobsDir is where Claude Code keeps a directory per session:

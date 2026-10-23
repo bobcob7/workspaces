@@ -12,11 +12,26 @@ ws claude [OPTIONS] [<SPEC>...] [-- <CLAUDE ARGS>...]
 
 Creates a workspace from the repo specs ([Creating a
 workspace](README.md#creating-a-workspace)), or an empty one when there are
-none, then runs, in the workspace:
+none, then runs, in the workspace, or in its repo's directory when it has
+exactly one repo:
 
 ```
 claude --bg -n <workspace id> --settings '{"worktree":{"bgIsolation":"none"}}' <CLAUDE ARGS>...
 ```
+
+With exactly one repo, the agent starts in that repo, so Claude Code loads
+the repo's own `CLAUDE.md` and `.claude/` settings as a project. Claude Code
+keys trust on a repository's root and doesn't extend a parent's trust into
+a clone, so first `ws` marks the repo's directory trusted in Claude Code's
+global config (`~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`), as
+Claude Code's docs describe doing by hand. It does so only when the
+workspace root is already trusted there, under Claude Code's own lock on
+that file, and changes nothing else in it. Trusting the repo lets its
+`.claude/settings.json` allow rules apply, so start agents only on repos you
+trust. If the root isn't trusted, the agent starts in the workspace and
+fails with `claude_untrusted` as before; if the file can't be updated,
+`ws` warns and starts the agent in the workspace
+([0028](../adrs/0028-single-repo-session-directory.md), proposed).
 
 Everything after `--` goes to `claude` unchanged: the prompt, and options
 such as `--model` or `--permission-mode`. The `bgIsolation` setting makes
@@ -106,6 +121,10 @@ $ ws claude --json buff-bear@feat/new-thing bobcob7/api@v2.1.0 -- --model opus "
   ],
   "warnings": []
 }
+
+# One repo: the agent starts in .../fix-login/buff-bear
+$ ws claude --name fix-login buff-bear -- "Fix the login bug"
+fix-login  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login
 
 # An agent in an empty workspace, for work that needs no repo
 $ ws claude --name notes -- "Draft release notes from the issues I paste in"
