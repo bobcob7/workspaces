@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/gittest"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/shell"
@@ -93,7 +94,7 @@ func fakeShellScript(t *testing.T, dir string) string {
 		`touch "$out/started"` + "\n" +
 		`while [ ! -e "$out/go" ]; do sleep 0.02; done` + "\n" +
 		"exit 9\n"
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	exectest.WriteScript(t, path, script)
 	return path
 }
 
