@@ -1,11 +1,23 @@
-import { Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
+import {
+  Button,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  ToggleButton,
+  ToggleButtonGroup,
+} from "@mui/material";
 import { useEffect, useState, type JSX } from "react";
 import { api, type Entry } from "../../api";
 import { repoLabel } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
+import { ConversationView } from "../conversation/ConversationView";
 import { ReplyBox } from "../terminals/ReplyBox";
 import { TerminalView } from "../terminals/TerminalView";
-import { attachKey, closeTerminal, openTerminal, shellKey } from "../terminals/terminalsSlice";
+import { attachKey, closeTerminal, openTerminal, shellKey, terminalShown } from "../terminals/terminalsSlice";
+import { agentViewChosen, type AgentView } from "../ui/uiSlice";
 import { removeEntry, stopAgent } from "./agentsSlice";
 import { isLive } from "./status";
 import { StatusDot } from "./StatusDot";
@@ -35,6 +47,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const termKey = terminalKeyFor(entry);
   const terminal = useAppSelector((s) => s.terminals.items.find((t) => t.key === termKey));
   const busy = useAppSelector((s) => s.agents.busy.includes(entry.key));
+  const view = useAppSelector((s) => s.ui.agentView);
   const [confirming, setConfirming] = useState(false);
   const attach = (): void => {
     if (entry.sessionId === null) {
@@ -57,6 +70,14 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   }, [entry.key]);
   const attached = terminal !== undefined && terminal.state !== "exited";
   const isAgent = entry.kind === "agent" && entry.sessionId !== null;
+  const showConversation = isAgent && view === "conversation";
+  // The conversation types into the hidden terminal, so it counts as shown
+  // and isn't the one detached to make room for another.
+  useEffect(() => {
+    if (showConversation && termKey !== null && terminal !== undefined) {
+      dispatch(terminalShown(termKey));
+    }
+  }, [showConversation, termKey, terminal?.generation]);
   return (
     <section className={styles.root} aria-label={entry.name}>
       <header className={styles.header}>
@@ -67,6 +88,22 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
           )}
           <span className={styles.spacer} />
+          {isAgent && (
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={view}
+              onChange={(_event, value: AgentView | null) => {
+                if (value !== null) {
+                  dispatch(agentViewChosen(value));
+                }
+              }}
+              aria-label="View"
+            >
+              <ToggleButton value="conversation">Conversation</ToggleButton>
+              <ToggleButton value="terminal">Terminal</ToggleButton>
+            </ToggleButtonGroup>
+          )}
           {isAgent && !attached && (
             <Button size="small" variant="contained" onClick={attach}>
               {isLive(entry.status) ? "Attach" : "Resume"}
@@ -121,7 +158,17 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           </div>
         )}
       </header>
-      {terminal !== undefined && termKey !== null ? (
+      {showConversation && entry.sessionId !== null ? (
+        <>
+          <ConversationView
+            sessionId={entry.sessionId}
+            status={entry.status}
+            detail={entry.detail}
+            onShowTerminal={() => dispatch(agentViewChosen("terminal"))}
+          />
+          {terminal !== undefined && termKey !== null && <ReplyBox terminalKey={termKey} disabled={!attached} />}
+        </>
+      ) : terminal !== undefined && termKey !== null ? (
         <>
           <TerminalView terminalKey={termKey} generation={terminal.generation} />
           {isAgent && <ReplyBox terminalKey={termKey} disabled={!attached} />}

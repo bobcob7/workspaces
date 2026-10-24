@@ -8,6 +8,7 @@ mod jobs;
 mod model;
 mod pty;
 mod runner;
+mod transcript;
 
 use commands::AppState;
 use tauri::Manager;
@@ -29,6 +30,7 @@ pub fn run() {
             commands::stop_agent,
             commands::restore_agents,
             commands::open_external,
+            commands::read_transcript,
             commands::terminal_open,
             commands::terminal_write,
             commands::terminal_resize,

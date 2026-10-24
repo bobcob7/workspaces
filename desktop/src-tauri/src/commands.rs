@@ -4,6 +4,7 @@ use crate::jobs::{self, JobState};
 use crate::model::{self, ClaudeAgent, Listing, WsList};
 use crate::pty::{TermEvent, TermSpec, Terminals};
 use crate::runner::{self, AppError, Runner};
+use crate::transcript::{self, Chunk};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -226,6 +227,41 @@ pub fn open_external(app: tauri::AppHandle, target: String) -> CmdResult<()> {
     result.map_err(|e| AppError::new("open_failed", e.to_string()))
 }
 
+/// Reads a background session's conversation from offset on, so the
+/// frontend can follow it by asking again from the `next` it returns.
+#[tauri::command]
+pub async fn read_transcript(
+    state: State<'_, AppState>,
+    session_id: String,
+    offset: u64,
+) -> CmdResult<Chunk> {
+    let jobs_dir = state
+        .jobs_dir
+        .clone()
+        .ok_or_else(|| AppError::new("transcript_missing", "no Claude Code config directory"))?;
+    tauri::async_runtime::spawn_blocking(move || conversation(&jobs_dir, &session_id, offset))
+        .await
+        .map_err(|e| AppError::new("internal", e.to_string()))?
+}
+
+fn conversation(jobs_dir: &Path, session_id: &str, offset: u64) -> CmdResult<Chunk> {
+    let missing = || {
+        AppError::new(
+            "transcript_missing",
+            "Claude Code has no transcript for this session",
+        )
+    };
+    let job = jobs::read_job(jobs_dir, session_id).ok_or_else(missing)?;
+    let config_dir = jobs_dir.parent().ok_or_else(missing)?;
+    let path = transcript::transcript_path(config_dir, &job).ok_or_else(missing)?;
+    transcript::read_from(&path, offset).map_err(|e| {
+        AppError::new(
+            "transcript_unreadable",
+            format!("reading {}: {e}", path.display()),
+        )
+    })
+}
+
 #[tauri::command]
 pub fn terminal_open(
     state: State<'_, AppState>,
@@ -329,6 +365,31 @@ mod tests {
             );
         }
         println!("warnings: {:?}", listing.warnings);
+    }
+
+    /// Prints the conversation of the session in `WS_DESKTOP_ATTACH`:
+    /// `cargo test -- --ignored`.
+    #[test]
+    #[ignore = "reads a real Claude Code transcript"]
+    fn conversation_live() {
+        let id = std::env::var("WS_DESKTOP_ATTACH").expect("WS_DESKTOP_ATTACH");
+        let chunk = conversation(&jobs::jobs_dir().unwrap(), &id, 0).unwrap();
+        for item in &chunk.items {
+            println!(
+                "{}",
+                serde_json::to_string(item)
+                    .unwrap()
+                    .chars()
+                    .take(160)
+                    .collect::<String>()
+            );
+        }
+        println!(
+            "{} items, {} dropped, next {}",
+            chunk.items.len(),
+            chunk.dropped,
+            chunk.next
+        );
     }
 
     fn request() -> NewAgent {

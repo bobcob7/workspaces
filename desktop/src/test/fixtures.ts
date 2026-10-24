@@ -30,6 +30,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   stopAgent: vi.fn(async () => undefined),
   restoreAgents: vi.fn(async () => []),
   openExternal: vi.fn(async () => undefined),
+  readTranscript: vi.fn(async () => ({ items: [], next: 0, reset: false, dropped: 0, found: true })),
   terminalOpen: vi.fn(async () => 1),
   terminalWrite: vi.fn(async () => undefined),
   terminalResize: vi.fn(async () => undefined),
