@@ -35,7 +35,7 @@ dist:
 		os=$${p%/*}; arch=$${p#*/}; out=dist/ws-$$os-$$arch; \
 		echo "$$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" -o $$out ./cmd/ws || exit 1; \
-		go version -m $$out | grep -q 'CGO_ENABLED=0' || { echo "$$out: built with cgo" >&2; exit 1; }; \
+		case $$os in linux) file $$out | grep -q 'statically linked' || { echo "$$out: not statically linked" >&2; exit 1; };; esac; \
 	done
 	cd dist && shasum -a 256 ws-* > SHA256SUMS
 

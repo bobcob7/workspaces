@@ -135,8 +135,11 @@ $ arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 $ base=https://github.com/bobcob7/workspaces/releases/latest/download
 $ curl -fLO "$base/ws-$os-$arch" -fLO "$base/SHA256SUMS"
 $ shasum -a 256 --check --ignore-missing SHA256SUMS
-$ install -m 755 "ws-$os-$arch" ~/.local/bin/ws
+$ mkdir -p ~/.local/bin && install -m 755 "ws-$os-$arch" ~/.local/bin/ws
 ```
+
+On Linux without `shasum`, check with
+`sha256sum --check --ignore-missing SHA256SUMS`.
 
 Releases have binaries for darwin and linux, on amd64 and arm64, built
 with `CGO_ENABLED=0`, so the linux ones are static
@@ -220,7 +223,8 @@ $ make desktop    # desktop app bundle; `make desktop-dev`, `make desktop-test`
 
 To release, push a tag such as `v0.1.0`. The
 [release workflow](.github/workflows/release.yml) tests, runs `make dist`,
-and publishes the binaries and checksums as a GitHub release.
+and publishes the binaries and checksums as a GitHub release, once CI
+passes. A tag with a `-`, such as `v0.2.0-rc.1`, is a prerelease.
 
 ```
 cmd/ws/                       # main: streams, signals, exit code

@@ -525,7 +525,7 @@ func (e *lifetimeE2E) start(t *testing.T, name, id string) string {
 	require.Eventually(t, func() bool {
 		held, err := lockfile.HeldExclusively(filepath.Join(e.paths.State, name, "lock"))
 		return err == nil && !held
-	}, 5*time.Second, 10*time.Millisecond)
+	}, 5*time.Second, 10*time.Millisecond, "creation lock still held")
 	return filepath.Join(e.paths.Workspaces, name)
 }
 
