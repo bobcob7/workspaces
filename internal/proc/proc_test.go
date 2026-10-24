@@ -19,7 +19,7 @@ func TestReader_StartTime(t *testing.T) {
 		assert.False(t, started.After(time.Now()))
 		assert.True(t, started.After(time.Now().Add(-24*time.Hour)))
 	})
-	t.Run("a child started after its parent", func(t *testing.T) {
+	t.Run("a child didn't start before its parent", func(t *testing.T) {
 		t.Parallel()
 		child := exec.CommandContext(t.Context(), "/bin/cat")
 		stdin, err := child.StdinPipe()
@@ -33,7 +33,7 @@ func TestReader_StartTime(t *testing.T) {
 		require.NoError(t, err)
 		got, err := Reader{}.StartTime(child.Process.Pid)
 		require.NoError(t, err)
-		assert.True(t, got.After(parent))
+		assert.False(t, got.Before(parent), "Linux counts start times in 10ms ticks, so they can be equal")
 	})
 	t.Run("an invalid pid", func(t *testing.T) {
 		t.Parallel()

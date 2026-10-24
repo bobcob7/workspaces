@@ -27,11 +27,17 @@ fmt:
 generate:
 	go generate ./...
 
+# dist builds a release: one static binary per platform (ADR 0002) and
+# their SHA-256 checksums.
 dist:
+	rm -rf dist
 	@for p in $(PLATFORMS); do \
-		os=$${p%/*}; arch=$${p#*/}; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o dist/ws-$$os-$$arch ./cmd/ws || exit 1; \
+		os=$${p%/*}; arch=$${p#*/}; out=dist/ws-$$os-$$arch; \
+		echo "$$out"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" -o $$out ./cmd/ws || exit 1; \
+		go version -m $$out | grep -q 'CGO_ENABLED=0' || { echo "$$out: built with cgo" >&2; exit 1; }; \
 	done
+	cd dist && shasum -a 256 ws-* > SHA256SUMS
 
 # The desktop app (ADR 0029); needs Rust and Node.js.
 desktop:
