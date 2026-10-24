@@ -78,6 +78,32 @@ export type TermEvent =
   | { readonly event: "data"; readonly data: string }
   | { readonly event: "exit"; readonly code: number | null };
 
+interface ItemBase {
+  readonly id: string;
+  readonly at: string | null;
+}
+
+/** One thing shown in an agent's conversation, read from its transcript. */
+export type ConversationItem =
+  | (ItemBase & { readonly kind: "user" | "assistant" | "thinking" | "notice"; readonly text: string })
+  | (ItemBase & {
+      readonly kind: "toolUse";
+      readonly toolUseId: string;
+      readonly name: string;
+      readonly summary: string;
+      readonly input: string;
+    })
+  | (ItemBase & { readonly kind: "toolResult"; readonly toolUseId: string; readonly text: string; readonly isError: boolean });
+
+/** The transcript lines written since an offset. */
+export interface TranscriptChunk {
+  readonly items: readonly ConversationItem[];
+  readonly next: number;
+  readonly reset: boolean;
+  readonly dropped: number;
+  readonly found: boolean;
+}
+
 const isAppError = (value: unknown): value is AppError =>
   typeof value === "object" && value !== null && "code" in value && "message" in value;
 
@@ -109,6 +135,8 @@ export const api = {
   stopAgent: async (sessionId: string): Promise<void> => call<void>("stop_agent", { sessionId }),
   restoreAgents: async (): Promise<readonly string[]> => call<string[]>("restore_agents"),
   openExternal: async (target: string): Promise<void> => call<void>("open_external", { target }),
+  readTranscript: async (sessionId: string, offset: number): Promise<TranscriptChunk> =>
+    call<TranscriptChunk>("read_transcript", { sessionId, offset }),
   terminalOpen: async (
     spec: TermSpec,
     cols: number,

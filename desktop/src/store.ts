@@ -2,6 +2,7 @@ import { combineReducers, configureStore } from "@reduxjs/toolkit";
 import { useDispatch, useSelector } from "react-redux";
 import type { Api } from "./api";
 import { agentsReducer } from "./features/agents/agentsSlice";
+import { conversationsReducer } from "./features/conversation/conversationSlice";
 import type { TerminalHost } from "./features/terminals/host";
 import { terminalsReducer } from "./features/terminals/terminalsSlice";
 import { uiReducer } from "./features/ui/uiSlice";
@@ -13,6 +14,7 @@ export interface ThunkExtra {
 
 export const rootReducer = combineReducers({
   agents: agentsReducer,
+  conversations: conversationsReducer,
   terminals: terminalsReducer,
   ui: uiReducer,
 });

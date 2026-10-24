@@ -21,6 +21,13 @@ pub struct JobState {
     pub children: Option<Vec<JobChild>>,
     #[serde(default)]
     pub updated_at: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// The session's transcript, which Claude Code scans for links.
+    #[serde(default)]
+    pub link_scan_path: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Deserialize, PartialEq)]
