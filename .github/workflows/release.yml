@@ -22,6 +22,8 @@ jobs:
         with:
           go-version: 1.27.x
           check-latest: true
+      # ADR 0002: every target builds with CGO_ENABLED=0; the linux ones
+      # must be static.
       - run: make dist VERSION="$GITHUB_REF_NAME"
       # A tag like v0.2.0-rc.1 is a prerelease, so it never becomes latest.
       - run: |

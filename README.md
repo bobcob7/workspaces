@@ -141,6 +141,12 @@ $ mkdir -p ~/.local/bin && install -m 755 "ws-$os-$arch" ~/.local/bin/ws
 On Linux without `shasum`, check with
 `sha256sum --check --ignore-missing SHA256SUMS`.
 
+The macOS binaries aren't signed with an Apple Developer ID or notarized;
+the arm64 one has only the Go linker's ad-hoc signature. Downloaded with
+`curl` as above, they run. Downloaded with a browser, Gatekeeper blocks
+them; clear the quarantine flag with
+`xattr -d com.apple.quarantine ws-darwin-<arch>` before installing.
+
 Releases have binaries for darwin and linux, on amd64 and arm64, built
 with `CGO_ENABLED=0`, so the linux ones are static
 ([0002](docs/adrs/0002-implementation-language.md)). To build from source
@@ -221,10 +227,11 @@ $ make dist       # dist/: a binary per platform, and SHA256SUMS
 $ make desktop    # desktop app bundle; `make desktop-dev`, `make desktop-test`
 ```
 
-To release, push a tag such as `v0.1.0`. The
-[release workflow](.github/workflows/release.yml) tests, runs `make dist`,
-and publishes the binaries and checksums as a GitHub release, once CI
-passes. A tag with a `-`, such as `v0.2.0-rc.1`, is a prerelease.
+CI lints, tests, and builds every pull request on Linux and macOS. To
+release, push a tag such as `v0.1.0`. The
+[release workflow](.github/workflows/release.yml) runs CI, then `make dist`,
+and attaches the binaries and checksums to a GitHub release for the tag. A
+tag with a `-`, such as `v0.2.0-rc.1`, is a prerelease.
 
 ```
 cmd/ws/                       # main: streams, signals, exit code
