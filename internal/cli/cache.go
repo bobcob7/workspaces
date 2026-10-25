@@ -31,6 +31,7 @@ func (a *App) newCacheCmd() *cobra.Command {
 		a.newCacheUpdateCmd(),
 		a.newCacheListCmd(),
 		a.newCacheSearchCmd(),
+		a.newCacheRefsCmd(),
 		a.newCacheResolveCmd(),
 		a.newCachePathCmd(),
 		a.newCacheRemoveCmd(),
@@ -103,6 +104,17 @@ func (a *App) newCacheSearchCmd() *cobra.Command {
 	return cmd
 }
 
+func (a *App) newCacheRefsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "refs <SPEC>",
+		Short: "List a cached repo's branches and tags",
+		Args:  oneSpec,
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			return a.cacheRefs(cmd.Context(), &parseSpecs(args)[0])
+		})),
+	}
+}
+
 func (a *App) newCacheResolveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "resolve <SPEC>...",
@@ -118,7 +130,7 @@ func (a *App) newCachePathCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "path <SPEC>",
 		Short: "Print the cache directory for a spec",
-		Args:  allArgs(exactArgs(1, "repo spec"), validSpecs),
+		Args:  oneSpec,
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			return a.cachePath(cmd.Context(), &parseSpecs(args)[0])
 		})),
@@ -148,6 +160,11 @@ func (a *App) newCachePruneCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "list what would be deleted")
 	return cmd
+}
+
+// oneSpec accepts exactly one valid repo spec.
+func oneSpec(cmd *cobra.Command, args []string) error {
+	return allArgs(exactArgs(1, "repo spec"), validSpecs)(cmd, args)
 }
 
 // parseSpecs parses arguments that validSpecs has already checked.
@@ -305,6 +322,8 @@ type cacheListJSON struct {
 	DefaultBranch string `json:"default_branch"`
 	LastFetchedAt string `json:"last_fetched_at"`
 	SizeBytes     int64  `json:"size_bytes"`
+	Branches      int    `json:"branches"`
+	Tags          int    `json:"tags"`
 }
 
 // cacheList lists cached repos.
@@ -324,6 +343,8 @@ func (a *App) cacheList(ctx context.Context) error {
 				DefaultBranch: e.DefaultBranch,
 				LastFetchedAt: formatTime(e.LastFetchedAt),
 				SizeBytes:     e.SizeBytes,
+				Branches:      e.Branches,
+				Tags:          e.Tags,
 			})
 		}
 		return a.writeJSON(map[string]any{"repos": repos, "warnings": a.warnings()})
@@ -359,6 +380,57 @@ func (a *App) cacheSearch(ctx context.Context, query string, limit int, refs boo
 	}
 	a.printWarnings()
 	return nil
+}
+
+type cacheRefJSON struct {
+	Name    string        `json:"name"`
+	Kind    cache.RefKind `json:"kind"`
+	Commit  string        `json:"commit"`
+	Subject string        `json:"subject"`
+	Author  string        `json:"author"`
+	Date    *string       `json:"date"`
+}
+
+// cacheRefs lists a cached repo's branches and tags as the cache has them,
+// without fetching.
+func (a *App) cacheRefs(ctx context.Context, sp *repo.Spec) error {
+	r, err := a.cache.Lookup(ctx, sp)
+	if err != nil {
+		return domainError(err)
+	}
+	listing, err := a.cache.Refs(ctx, r.ID)
+	if err != nil {
+		return domainError(err)
+	}
+	if a.global.json {
+		refs := make([]cacheRefJSON, 0, len(listing.Refs))
+		for i := range listing.Refs {
+			ref := &listing.Refs[i]
+			refs = append(refs, cacheRefJSON{Name: ref.Name, Kind: ref.Kind, Commit: ref.Commit, Subject: ref.Subject, Author: ref.Author, Date: optionalTime(ref.Date)})
+		}
+		return a.writeJSON(map[string]any{"id": listing.ID.String(), "default_branch": listing.DefaultBranch, "refs": refs, "warnings": a.warnings()})
+	}
+	for i := range listing.Refs {
+		ref := &listing.Refs[i]
+		fmt.Fprintf(a.stdout, "%-6s  %s  %s  %s\n", ref.Kind, shortCommit(ref.Commit), ref.Name, ref.Subject)
+	}
+	a.printWarnings()
+	return nil
+}
+
+// optionalTime is formatTime, or nil for the zero time.
+func optionalTime(t time.Time) *string {
+	if t.IsZero() {
+		return nil
+	}
+	s := formatTime(t)
+	return &s
+}
+
+// shortCommit is the first 7 characters of a commit hash, as git abbreviates
+// it by default.
+func shortCommit(commit string) string {
+	return commit[:min(7, len(commit))]
 }
 
 type cacheResolveJSON struct {

@@ -2,6 +2,7 @@
 //! agents. It runs `ws` and `claude` for everything it does, and reads
 //! Claude Code's job state for detail they don't print.
 
+mod cache;
 mod commands;
 mod env;
 mod jobs;
@@ -25,6 +26,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_entries,
             commands::cache_repos,
+            cache::cache_list,
+            cache::cache_refs,
+            cache::cache_resolve,
+            cache::cache_fetch,
+            cache::cache_add,
+            cache::cache_remove,
             commands::create_agent,
             commands::remove_entry,
             commands::stop_agent,

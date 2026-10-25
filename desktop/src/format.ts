@@ -26,3 +26,25 @@ export const repoLabel = (id: string, ref: string | null): string => {
   const name = id.split("/").at(-1) ?? id;
   return ref === null ? name : `${name}@${ref}`;
 };
+
+const sizeUnits: readonly string[] = ["KB", "MB", "GB", "TB"];
+
+/** "18.4 MB" style size in decimal units, as Finder shows them. */
+export const formatSize = (bytes: number): string => {
+  if (bytes < 1000) {
+    return `${bytes} B`;
+  }
+  let value = bytes;
+  let unit = "B";
+  for (const next of sizeUnits) {
+    if (value < 1000) {
+      break;
+    }
+    value /= 1000;
+    unit = next;
+  }
+  return `${value < 100 ? value.toFixed(1).replace(/\.0$/, "") : Math.round(value)} ${unit}`;
+};
+
+/** n with its noun, pluralized with an s: "1 branch", "14 branches". */
+export const count = (n: number, noun: string, plural = `${noun}s`): string => `${n} ${n === 1 ? noun : plural}`;

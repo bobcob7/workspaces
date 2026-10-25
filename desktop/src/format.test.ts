@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { age, repoLabel } from "./format";
+import { age, count, formatSize, repoLabel } from "./format";
 
 const now = Date.parse("2026-10-18T12:00:00Z");
 
@@ -24,5 +24,33 @@ describe("age", () => {
 describe("repoLabel", () => {
   it("shows the repo name and ref", () => {
     expect(repoLabel("github.com/bobcob7/buff-bear", "main")).toBe("buff-bear@main");
+  });
+});
+
+describe("formatSize", () => {
+  it("uses decimal units with one decimal under 100", () => {
+    expect(formatSize(18_432_000)).toBe("18.4 MB");
+  });
+
+  it("rounds sizes of 100 or more", () => {
+    expect(formatSize(412_345_678)).toBe("412 MB");
+  });
+
+  it("drops a trailing .0", () => {
+    expect(formatSize(1_000_000_000)).toBe("1 GB");
+  });
+
+  it("shows bytes under a kilobyte", () => {
+    expect(formatSize(512)).toBe("512 B");
+  });
+});
+
+describe("count", () => {
+  it("is singular for one", () => {
+    expect(count(1, "branch", "branches")).toBe("1 branch");
+  });
+
+  it("is plural otherwise", () => {
+    expect(count(0, "workspace")).toBe("0 workspaces");
   });
 });

@@ -5,6 +5,7 @@ ws cache add <spec>...
 ws cache update [<spec>... | --all]
 ws cache list
 ws cache search [--limit <n>] [--refs] <query>
+ws cache refs <spec>
 ws cache resolve <spec>...
 ws cache path <spec>
 ws cache remove <spec>...
@@ -21,6 +22,8 @@ commands to create a workspace.
 
 - `ws cache search` and `ws cache resolve` to find the right spec before
   `ws claude`, especially when a short name is ambiguous.
+- `ws cache refs` to see which branches and tags a repo has, and the
+  last commit on each, before picking one for a spec.
 - `ws cache path` to read a repo's history without a workspace:
   `git -C "$(ws cache path buff-bear)" log main`. Don't commit or
   push in the cache.

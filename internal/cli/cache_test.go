@@ -51,7 +51,7 @@ func TestApp_newCacheCmd(t *testing.T) {
 		for _, sub := range cmd.Commands() {
 			names = append(names, sub.Name())
 		}
-		assert.ElementsMatch(t, []string{"add", "update", "list", "search", "resolve", "path", "remove", "prune"}, names)
+		assert.ElementsMatch(t, []string{"add", "update", "list", "search", "refs", "resolve", "path", "remove", "prune"}, names)
 	})
 	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"frobnicate"}))
@@ -207,6 +207,22 @@ func TestApp_newCachePathCmd(t *testing.T) {
 		cmd := app.newCachePathCmd()
 		require.NoError(t, cmd.RunE(cmd, []string{"buff-bear"}))
 		assert.Len(t, m.LookupCalls(), 1)
+	})
+}
+
+func TestApp_newCacheRefsCmd(t *testing.T) {
+	t.Run("needs exactly one spec", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newCacheRefsCmd()
+		requireUsageError(t, cmd.Args(cmd, []string{"a", "b"}))
+	})
+	t.Run("lists the looked-up repo's refs", func(t *testing.T) {
+		m := stubCache()
+		app, _, _ := newCacheApp(m)
+		cmd := app.newCacheRefsCmd()
+		require.NoError(t, cmd.RunE(cmd, []string{"buff-bear"}))
+		require.Len(t, m.RefsCalls(), 1)
+		assert.Equal(t, testID(), m.RefsCalls()[0].ID)
 	})
 }
 
@@ -536,6 +552,8 @@ func TestApp_cacheList(t *testing.T) {
 		DefaultBranch: "main",
 		LastFetchedAt: time.Date(2026, 10, 17, 10, 48, 0, 500, time.FixedZone("CDT", -5*3600)),
 		SizeBytes:     18432000,
+		Branches:      14,
+		Tags:          6,
 	}
 	listing := func() *repoCacheMock {
 		m := stubCache()
@@ -551,7 +569,7 @@ func TestApp_cacheList(t *testing.T) {
 		app, stdout, _ := newCacheApp(listing())
 		app.global.json = true
 		require.NoError(t, app.cacheList(t.Context()))
-		assert.JSONEq(t, `{"repos":[{"id":"github.com/bobcob7/buff-bear","path":"/cfg/cache/repos/github.com/bobcob7/buff-bear.git","upstream":"https://github.com/bobcob7/buff-bear.git","default_branch":"main","last_fetched_at":"2026-10-17T15:48:00Z","size_bytes":18432000}],"warnings":[]}`, stdout.String())
+		assert.JSONEq(t, `{"repos":[{"id":"github.com/bobcob7/buff-bear","path":"/cfg/cache/repos/github.com/bobcob7/buff-bear.git","upstream":"https://github.com/bobcob7/buff-bear.git","default_branch":"main","last_fetched_at":"2026-10-17T15:48:00Z","size_bytes":18432000,"branches":14,"tags":6}],"warnings":[]}`, stdout.String())
 	})
 	t.Run("empty json list", func(t *testing.T) {
 		app, stdout, _ := newCacheApp(stubCache())
@@ -615,6 +633,57 @@ func TestApp_cacheResolve(t *testing.T) {
 		requireCode(t, codeRepoAmbiguous, app.cacheResolve(t.Context(), parsed(t, "bear")))
 		assert.Empty(t, stdout.String())
 	})
+}
+
+func TestApp_cacheRefs(t *testing.T) {
+	listing := func() *repoCacheMock {
+		m := stubCache()
+		m.RefsFunc = func(_ context.Context, id repo.ID) (cache.RefListing, error) {
+			return cache.RefListing{ID: id, DefaultBranch: "main", Refs: []cache.RefInfo{
+				{Name: "main", Kind: cache.RefBranch, Commit: "9c04e2a7d1", Subject: "Fix it", Author: "ana", Date: time.Date(2026, 10, 24, 4, 12, 0, 0, time.FixedZone("CDT", -5*3600))},
+				{Name: "v1", Kind: cache.RefTag, Commit: "3e8f1a2b", Subject: "Odd", Author: ""},
+			}}, nil
+		}
+		return m
+	}
+	t.Run("text", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(listing())
+		require.NoError(t, app.cacheRefs(t.Context(), &parsed(t, "buff-bear")[0]))
+		assert.Equal(t, "branch  9c04e2a  main  Fix it\ntag     3e8f1a2  v1  Odd\n", stdout.String())
+	})
+	t.Run("json", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(listing())
+		app.global.json = true
+		require.NoError(t, app.cacheRefs(t.Context(), &parsed(t, "buff-bear")[0]))
+		assert.JSONEq(t, `{"id":"github.com/bobcob7/buff-bear","default_branch":"main","refs":[{"name":"main","kind":"branch","commit":"9c04e2a7d1","subject":"Fix it","author":"ana","date":"2026-10-24T09:12:00Z"},{"name":"v1","kind":"tag","commit":"3e8f1a2b","subject":"Odd","author":"","date":null}],"warnings":[]}`, stdout.String())
+	})
+	t.Run("empty json list", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		app.global.json = true
+		require.NoError(t, app.cacheRefs(t.Context(), &parsed(t, "buff-bear")[0]))
+		assert.JSONEq(t, `{"id":"github.com/bobcob7/buff-bear","default_branch":"main","refs":[],"warnings":[]}`, stdout.String())
+	})
+	t.Run("not cached", func(t *testing.T) {
+		m := stubCache()
+		m.LookupFunc = func(context.Context, *repo.Spec) (cache.Resolution, error) {
+			return cache.Resolution{}, cache.ErrRepoNotFound
+		}
+		app, _, _ := newCacheApp(m)
+		requireCode(t, codeRepoNotFound, app.cacheRefs(t.Context(), &parsed(t, "nope")[0]))
+	})
+	t.Run("git failure", func(t *testing.T) {
+		m := stubCache()
+		m.RefsFunc = func(context.Context, repo.ID) (cache.RefListing, error) {
+			return cache.RefListing{}, &git.CommandError{Args: []string{"for-each-ref"}, ExitCode: 128, Stderr: "fatal: bad"}
+		}
+		app, _, _ := newCacheApp(m)
+		requireCode(t, codeGitFailed, app.cacheRefs(t.Context(), &parsed(t, "buff-bear")[0]))
+	})
+}
+
+func TestShortCommit(t *testing.T) {
+	assert.Equal(t, "9c04e2a", shortCommit("9c04e2a7d1"))
+	assert.Equal(t, "abc", shortCommit("abc"))
 }
 
 func TestApp_cachePath(t *testing.T) {

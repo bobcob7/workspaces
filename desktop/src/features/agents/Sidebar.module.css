@@ -59,7 +59,7 @@
 }
 
 .item[aria-current="true"] {
-  background: #233047;
+  background: var(--selected);
 }
 
 .item:focus-visible {

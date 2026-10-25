@@ -151,6 +151,7 @@ everything.
   - `ws llm cache update`: fetch cached repos from upstream
   - `ws llm cache list`: list cached repos
   - `ws llm cache search`: search cached repos, branches, and tags
+  - `ws llm cache refs`: a cached repo's branches and tags, with their last commits
   - `ws llm cache resolve`: resolve specs to canonical repo ids
   - `ws llm cache path`: a cached repo's directory
   - `ws llm cache remove`: delete cached repos

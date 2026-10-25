@@ -113,6 +113,9 @@ var _ repoCache = &repoCacheMock{}
 //			PruneFunc: func(ctx context.Context, keep func(id repo.ID, commit string) (bool, error), dryRun bool) ([]cache.PrunedRef, error) {
 //				panic("mock out the Prune method")
 //			},
+//			RefsFunc: func(ctx context.Context, id repo.ID) (cache.RefListing, error) {
+//				panic("mock out the Refs method")
+//			},
 //			RemoveFunc: func(ctx context.Context, id repo.ID) error {
 //				panic("mock out the Remove method")
 //			},
@@ -152,6 +155,9 @@ type repoCacheMock struct {
 
 	// PruneFunc mocks the Prune method.
 	PruneFunc func(ctx context.Context, keep func(id repo.ID, commit string) (bool, error), dryRun bool) ([]cache.PrunedRef, error)
+
+	// RefsFunc mocks the Refs method.
+	RefsFunc func(ctx context.Context, id repo.ID) (cache.RefListing, error)
 
 	// RemoveFunc mocks the Remove method.
 	RemoveFunc func(ctx context.Context, id repo.ID) error
@@ -212,6 +218,13 @@ type repoCacheMock struct {
 			// DryRun is the dryRun argument value.
 			DryRun bool
 		}
+		// Refs holds details about calls to the Refs method.
+		Refs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID repo.ID
+		}
 		// Remove holds details about calls to the Remove method.
 		Remove []struct {
 			// Ctx is the ctx argument value.
@@ -248,6 +261,7 @@ type repoCacheMock struct {
 	lockLookup    sync.RWMutex
 	lockPath      sync.RWMutex
 	lockPrune     sync.RWMutex
+	lockRefs      sync.RWMutex
 	lockRemove    sync.RWMutex
 	lockResolve   sync.RWMutex
 	lockSearch    sync.RWMutex
@@ -494,6 +508,42 @@ func (mock *repoCacheMock) PruneCalls() []struct {
 	mock.lockPrune.RLock()
 	calls = mock.calls.Prune
 	mock.lockPrune.RUnlock()
+	return calls
+}
+
+// Refs calls RefsFunc.
+func (mock *repoCacheMock) Refs(ctx context.Context, id repo.ID) (cache.RefListing, error) {
+	if mock.RefsFunc == nil {
+		panic("repoCacheMock.RefsFunc: method is nil but repoCache.Refs was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  repo.ID
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockRefs.Lock()
+	mock.calls.Refs = append(mock.calls.Refs, callInfo)
+	mock.lockRefs.Unlock()
+	return mock.RefsFunc(ctx, id)
+}
+
+// RefsCalls gets all the calls that were made to Refs.
+// Check the length with:
+//
+//	len(mockedrepoCache.RefsCalls())
+func (mock *repoCacheMock) RefsCalls() []struct {
+	Ctx context.Context
+	ID  repo.ID
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  repo.ID
+	}
+	mock.lockRefs.RLock()
+	calls = mock.calls.Refs
+	mock.lockRefs.RUnlock()
 	return calls
 }
 

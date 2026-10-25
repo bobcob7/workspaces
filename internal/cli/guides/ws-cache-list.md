@@ -14,11 +14,14 @@ Lists cached repos.
             "upstream": "https://github.com/bobcob7/buff-bear.git",
             "default_branch": "main",
             "last_fetched_at": "2026-10-17T15:48:00Z",
-            "size_bytes": 18432000}],
+            "size_bytes": 18432000,
+            "branches": 14,
+            "tags": 6}],
  "warnings": []}
 ```
 
-Without `--json`, one id per line.
+`branches` and `tags` count the repo's branches and tags as cached. Without
+`--json`, one id per line.
 
 ## Exit codes
 

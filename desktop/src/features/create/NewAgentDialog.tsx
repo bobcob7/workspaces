@@ -16,6 +16,7 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { createAgent, createErrorCleared } from "../agents/agentsSlice";
 import { dialogClosed } from "../ui/uiSlice";
 import { RepoSpecsField } from "./RepoSpecsField";
+import { usePrefilledSpecs } from "./usePrefilledSpecs";
 import styles from "./NewDialog.module.css";
 
 const models = ["", "opus", "sonnet", "haiku", "fable"] as const;
@@ -42,6 +43,7 @@ export const NewAgentDialog = (): JSX.Element => {
   const [model, setModel] = useState("");
   const [permissionMode, setPermissionMode] = useState("");
   const [offline, setOffline] = useState(false);
+  usePrefilledSpecs(open, setSpecs);
   const close = (): void => {
     dispatch(dialogClosed());
     dispatch(createErrorCleared());

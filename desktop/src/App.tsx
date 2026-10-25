@@ -1,14 +1,20 @@
-import { Alert, Button, CircularProgress, Snackbar } from "@mui/material";
+import { Alert, Button, Snackbar } from "@mui/material";
 import { useEffect, type JSX } from "react";
+import { AgentsActions } from "./features/agents/AgentsActions";
 import { EntryPane } from "./features/agents/EntryPane";
-import { fetchEntries, restoreAgents } from "./features/agents/agentsSlice";
+import { fetchEntries } from "./features/agents/agentsSlice";
 import { Sidebar } from "./features/agents/Sidebar";
 import { needsAttention } from "./features/agents/status";
 import { NewAgentDialog } from "./features/create/NewAgentDialog";
 import { NewShellDialog } from "./features/create/NewShellDialog";
+import { Rail } from "./features/rail/Rail";
+import { AddRepoDialog } from "./features/repos/AddRepoDialog";
+import { ReposActions } from "./features/repos/ReposActions";
+import { ReposList } from "./features/repos/ReposList";
+import { ReposPane } from "./features/repos/ReposPane";
 import { TerminalView } from "./features/terminals/TerminalView";
 import { closeTerminal, shellKey } from "./features/terminals/terminalsSlice";
-import { dialogOpened, noticeDismissed, selected } from "./features/ui/uiSlice";
+import { noticeDismissed, selected, type Section } from "./features/ui/uiSlice";
 import { useAppDispatch, useAppSelector } from "./store";
 import styles from "./App.module.css";
 
@@ -67,12 +73,38 @@ const Main = (): JSX.Element => {
   return <div className={styles.empty}>Select a workspace, or start a new agent.</div>;
 };
 
+interface SectionView {
+  readonly actions: () => JSX.Element;
+  readonly list: () => JSX.Element;
+  readonly pane: () => JSX.Element;
+}
+
+const agentsView: SectionView = { actions: AgentsActions, list: Sidebar, pane: Main };
+
+/** Each section's top-bar actions, list, and detail pane (ADR 0031). */
+const sectionViews: Readonly<Partial<Record<Section, SectionView>>> = {
+  agents: agentsView,
+  repos: { actions: ReposActions, list: ReposList, pane: ReposPane },
+};
+
+const Warnings = ({ section }: { readonly section: Section }): JSX.Element | null => {
+  const warnings = useAppSelector((s) => (section === "repos" ? s.repos.warnings : s.agents.warnings));
+  if (warnings.length === 0) {
+    return null;
+  }
+  return (
+    <Alert severity="warning" className={styles.warnings}>
+      {warnings.join(" · ")}
+    </Alert>
+  );
+};
+
 export const App = (): JSX.Element => {
   const dispatch = useAppDispatch();
-  const loading = useAppSelector((s) => s.agents.loading);
-  const warnings = useAppSelector((s) => s.agents.warnings);
+  const section = useAppSelector((s) => s.ui.section);
   const attention = useAppSelector((s) => s.agents.entries.filter(needsAttention).length);
   const notice = useAppSelector((s) => s.ui.notice);
+  const view = sectionViews[section] ?? agentsView;
   useEffect(() => {
     void dispatch(fetchEntries());
     const timer = window.setInterval(() => void dispatch(fetchEntries()), pollInterval);
@@ -87,32 +119,21 @@ export const App = (): JSX.Element => {
         <span className={styles.brand}>Workspaces</span>
         {attention > 0 && <span className={styles.badge}>{attention} waiting for you</span>}
         <span className={styles.spacer} />
-        {loading && <CircularProgress size={14} aria-label="Refreshing" />}
-        <Button size="small" onClick={() => void dispatch(restoreAgents())}>
-          Restore stopped
-        </Button>
-        <Button size="small" variant="outlined" onClick={() => dispatch(dialogOpened("shell"))}>
-          New shell
-        </Button>
-        <Button size="small" variant="contained" onClick={() => dispatch(dialogOpened("agent"))}>
-          New agent
-        </Button>
+        <view.actions />
       </header>
-      {warnings.length > 0 && (
-        <Alert severity="warning" className={styles.warnings}>
-          {warnings.join(" · ")}
-        </Alert>
-      )}
+      <Warnings section={section} />
       <div className={styles.body}>
+        <Rail />
         <aside className={styles.sidebar}>
-          <Sidebar />
+          <view.list />
         </aside>
         <main className={styles.main}>
-          <Main />
+          <view.pane />
         </main>
       </div>
       <NewAgentDialog />
       <NewShellDialog />
+      <AddRepoDialog />
       <Snackbar
         open={notice !== null}
         autoHideDuration={notice?.severity === "error" ? 8000 : 4000}

@@ -35,6 +35,7 @@ func guideTopics() []string {
 		"cache update",
 		"cache list",
 		"cache search",
+		"cache refs",
 		"cache resolve",
 		"cache path",
 		"cache remove",

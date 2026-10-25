@@ -23,6 +23,8 @@ type Entry struct {
 	// LastFetchedAt is the last fetch, or the clone if there's been none.
 	LastFetchedAt time.Time
 	SizeBytes     int64
+	Branches      int
+	Tags          int
 }
 
 // IDs returns every cached repo's id, sorted. The directory tree is the
@@ -111,7 +113,11 @@ func (c *Cache) entry(ctx context.Context, id repo.ID) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	return Entry{ID: id, Path: path, Upstream: upstream, DefaultBranch: branch, LastFetchedAt: fetched, SizeBytes: size}, nil
+	branches, tags, err := c.refCounts(ctx, id)
+	if err != nil {
+		return Entry{}, err
+	}
+	return Entry{ID: id, Path: path, Upstream: upstream, DefaultBranch: branch, LastFetchedAt: fetched, SizeBytes: size, Branches: branches, Tags: tags}, nil
 }
 
 // upstream is the cached repo's remote.origin.url, the repo's upstream URL

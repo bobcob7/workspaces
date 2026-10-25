@@ -132,6 +132,9 @@ func stubCache() *repoCacheMock {
 		IDsFunc:    func() ([]repo.ID, error) { return []repo.ID{testID()}, nil },
 		ListFunc:   func(context.Context) ([]cache.Entry, error) { return nil, nil },
 		SearchFunc: func(context.Context, string, int, bool) ([]cache.Match, error) { return nil, nil },
+		RefsFunc: func(_ context.Context, id repo.ID) (cache.RefListing, error) {
+			return cache.RefListing{ID: id, DefaultBranch: "main", Refs: []cache.RefInfo{}}, nil
+		},
 		RemoveFunc: func(context.Context, repo.ID) error { return nil },
 		PruneFunc: func(context.Context, func(repo.ID, string) (bool, error), bool) ([]cache.PrunedRef, error) {
 			return nil, nil

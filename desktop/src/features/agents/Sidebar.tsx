@@ -1,24 +1,9 @@
 import type { JSX } from "react";
-import type { Entry } from "../../api";
-import { age, repoLabel } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { selected } from "../ui/uiSlice";
+import { EntryRow } from "./EntryRow";
 import { groupEntries } from "./status";
-import { StatusDot } from "./StatusDot";
 import styles from "./Sidebar.module.css";
-
-const summary = (entry: Entry): string => {
-  if (entry.detail !== null) {
-    return entry.detail;
-  }
-  if (entry.intent !== null) {
-    return entry.intent;
-  }
-  if (entry.repos.length > 0) {
-    return entry.repos.map((r) => repoLabel(r.id, r.ref)).join(", ");
-  }
-  return entry.kind === "agent" && entry.workspaceId === null ? "Not in a workspace" : "Empty workspace";
-};
 
 export const Sidebar = (): JSX.Element => {
   const dispatch = useAppDispatch();
@@ -38,19 +23,7 @@ export const Sidebar = (): JSX.Element => {
           <ul className={styles.list}>
             {group.entries.map((entry) => (
               <li key={entry.key}>
-                <button
-                  type="button"
-                  className={styles.item}
-                  aria-current={entry.key === selectedKey ? "true" : undefined}
-                  onClick={() => dispatch(selected(entry.key))}
-                >
-                  <span className={styles.row}>
-                    <StatusDot status={entry.status} />
-                    <span className={styles.name}>{entry.name}</span>
-                    <span className={styles.age}>{age(entry.updatedAt ?? entry.createdAt)}</span>
-                  </span>
-                  <span className={styles.summary}>{summary(entry)}</span>
-                </button>
+                <EntryRow entry={entry} current={entry.key === selectedKey} onClick={() => dispatch(selected(entry.key))} />
               </li>
             ))}
           </ul>
