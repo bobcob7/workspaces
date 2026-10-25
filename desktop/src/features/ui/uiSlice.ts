@@ -2,6 +2,9 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
 export type Dialog = "agent" | "shell";
 
+/** The app's sections, in rail order (ADR 0031). */
+export type Section = "agents" | "repos" | "reviews" | "settings";
+
 /** How an agent is shown: its conversation, or the claude attach terminal. */
 export type AgentView = "conversation" | "terminal";
 
@@ -11,26 +14,45 @@ export interface Notice {
 }
 
 export interface UiState {
+  readonly section: Section;
   readonly selectedKey: string | null;
   readonly dialog: Dialog | null;
+  /** Repo specs to start the open dialog with, such as a repo's from Repos. */
+  readonly dialogSpecs: readonly string[];
   readonly notice: Notice | null;
   readonly agentView: AgentView;
 }
 
-const initialState: UiState = { selectedKey: null, dialog: null, notice: null, agentView: "conversation" };
+const initialState: UiState = {
+  section: "agents",
+  selectedKey: null,
+  dialog: null,
+  dialogSpecs: [],
+  notice: null,
+  agentView: "conversation",
+};
 
 const uiSlice = createSlice({
   name: "ui",
   initialState,
   reducers: {
+    sectionChosen: (state, action: PayloadAction<Section>) => {
+      state.section = action.payload;
+    },
     selected: (state, action: PayloadAction<string | null>) => {
       state.selectedKey = action.payload;
     },
-    dialogOpened: (state, action: PayloadAction<Dialog>) => {
-      state.dialog = action.payload;
+    dialogOpened: {
+      reducer: (state, action: PayloadAction<{ readonly dialog: Dialog; readonly specs: readonly string[] }>): UiState => ({
+        ...state,
+        dialog: action.payload.dialog,
+        dialogSpecs: action.payload.specs,
+      }),
+      prepare: (dialog: Dialog, specs: readonly string[] = []) => ({ payload: { dialog, specs } }),
     },
     dialogClosed: (state) => {
       state.dialog = null;
+      state.dialogSpecs = [];
     },
     noticeShown: (state, action: PayloadAction<Notice>) => {
       state.notice = action.payload;
@@ -44,5 +66,6 @@ const uiSlice = createSlice({
   },
 });
 
-export const { selected, dialogOpened, dialogClosed, noticeShown, noticeDismissed, agentViewChosen } = uiSlice.actions;
+export const { sectionChosen, selected, dialogOpened, dialogClosed, noticeShown, noticeDismissed, agentViewChosen } =
+  uiSlice.actions;
 export const uiReducer = uiSlice.reducer;

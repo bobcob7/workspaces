@@ -104,6 +104,65 @@ export interface TranscriptChunk {
   readonly found: boolean;
 }
 
+/** A cached repo, from ws cache list. */
+export interface CachedRepo {
+  readonly id: string;
+  readonly path: string;
+  readonly upstream: string;
+  readonly defaultBranch: string;
+  readonly lastFetchedAt: string | null;
+  readonly sizeBytes: number;
+  readonly branches: number;
+  readonly tags: number;
+}
+
+export interface CacheListing {
+  readonly repos: readonly CachedRepo[];
+  readonly warnings: readonly string[];
+}
+
+export type RefKind = "branch" | "tag";
+
+/** A branch or tag and the commit it points at, from ws cache refs (ADR 0033). */
+export interface RepoRef {
+  readonly name: string;
+  readonly kind: RefKind;
+  readonly commit: string;
+  readonly subject: string;
+  readonly author: string;
+  readonly date: string | null;
+}
+
+export interface RefListing {
+  readonly id: string;
+  readonly defaultBranch: string;
+  readonly refs: readonly RepoRef[];
+}
+
+/** How ws cache resolve found a repo (ADR 0007). */
+export type ResolveSource = "spec" | "cache" | "default" | "probe";
+
+export interface Resolution {
+  readonly id: string;
+  readonly ref: string | null;
+  readonly upstream: string;
+  readonly cached: boolean;
+  readonly source: ResolveSource;
+}
+
+/** One repo's outcome in ws cache update. */
+export interface RepoResult {
+  readonly id: string;
+  readonly error: AppError | null;
+}
+
+export interface AddedRepo {
+  readonly id: string;
+  readonly path: string;
+  readonly upstream: string;
+  readonly added: boolean;
+}
+
 const isAppError = (value: unknown): value is AppError =>
   typeof value === "object" && value !== null && "code" in value && "message" in value;
 
@@ -129,6 +188,13 @@ const call = async <T>(command: string, args?: Record<string, unknown>): Promise
 export const api = {
   listEntries: async (): Promise<Listing> => call<Listing>("list_entries"),
   cacheRepos: async (): Promise<readonly string[]> => call<string[]>("cache_repos"),
+  cacheList: async (): Promise<CacheListing> => call<CacheListing>("cache_list"),
+  cacheRefs: async (id: string): Promise<RefListing> => call<RefListing>("cache_refs", { id }),
+  cacheResolve: async (spec: string): Promise<Resolution> => call<Resolution>("cache_resolve", { spec }),
+  cacheFetch: async (ids: readonly string[], all: boolean): Promise<readonly RepoResult[]> =>
+    call<RepoResult[]>("cache_fetch", { ids, all }),
+  cacheAdd: async (spec: string): Promise<AddedRepo> => call<AddedRepo>("cache_add", { spec }),
+  cacheRemove: async (id: string): Promise<void> => call<void>("cache_remove", { id }),
   createAgent: async (request: NewAgent): Promise<Created> => call<Created>("create_agent", { request }),
   removeEntry: async (workspaceId: string | null, sessionId: string | null): Promise<void> =>
     call<void>("remove_entry", { workspaceId, sessionId }),

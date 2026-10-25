@@ -7,6 +7,8 @@
   --text: #e3e6ec;
   --text-muted: #8d94a3;
   --accent: #58a6ff;
+  --selected: #233047;
+  --danger: #f85149;
   --status-working: #58a6ff;
   --status-needs-input: #f0a43a;
   --status-idle: #d8b04c;

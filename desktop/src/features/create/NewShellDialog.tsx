@@ -3,8 +3,9 @@ import { useState, type FormEvent, type JSX } from "react";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { randomSuffix, sanitizeName } from "../agents/names";
 import { openTerminal, shellKey } from "../terminals/terminalsSlice";
-import { dialogClosed, selected } from "../ui/uiSlice";
+import { dialogClosed, sectionChosen, selected } from "../ui/uiSlice";
 import { RepoSpecsField } from "./RepoSpecsField";
+import { usePrefilledSpecs } from "./usePrefilledSpecs";
 import styles from "./NewDialog.module.css";
 
 export const NewShellDialog = (): JSX.Element => {
@@ -12,6 +13,7 @@ export const NewShellDialog = (): JSX.Element => {
   const open = useAppSelector((s) => s.ui.dialog === "shell");
   const [name, setName] = useState("");
   const [specs, setSpecs] = useState<readonly string[]>([]);
+  usePrefilledSpecs(open, setSpecs);
   const submit = (event: FormEvent): void => {
     event.preventDefault();
     // The app names the workspace itself so it knows which one the terminal
@@ -19,6 +21,7 @@ export const NewShellDialog = (): JSX.Element => {
     const id = sanitizeName(name) || `shell-${randomSuffix()}`;
     void dispatch(openTerminal({ key: shellKey(id), title: id, spec: { kind: "shell", name: id, specs } }));
     dispatch(selected(id));
+    dispatch(sectionChosen("agents"));
     dispatch(dialogClosed());
     setName("");
     setSpecs([]);

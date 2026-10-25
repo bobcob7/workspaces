@@ -1,0 +1,51 @@
+.root {
+  margin: 10px 12px 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: var(--bg);
+}
+
+.root:focus-within {
+  border-color: var(--accent);
+}
+
+.compact {
+  margin: 0 0 0 auto;
+  width: 220px;
+  padding: 6px 10px;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.compact .input {
+  font-size: 12px;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+.input::-webkit-search-cancel-button {
+  display: none;
+}

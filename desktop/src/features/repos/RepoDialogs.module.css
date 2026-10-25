@@ -1,0 +1,50 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px !important;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.hint {
+  margin-top: -10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.error {
+  color: var(--danger);
+}
+
+.candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.prose {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.prose p {
+  margin: 0 0 8px;
+}
+
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--panel-raised);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.info {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  color: #b9d8ff !important;
+}

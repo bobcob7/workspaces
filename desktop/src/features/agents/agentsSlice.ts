@@ -2,7 +2,7 @@ import { createSlice, isAnyOf } from "@reduxjs/toolkit";
 import { toAppError, type AppError, type Created, type Entry, type Listing, type NewAgent } from "../../api";
 import { createAppThunk } from "../../thunk";
 import { closeTerminal } from "../terminals/terminalsSlice";
-import { dialogClosed, noticeShown, selected } from "../ui/uiSlice";
+import { dialogClosed, noticeShown, sectionChosen, selected } from "../ui/uiSlice";
 
 export interface AgentsState {
   readonly entries: readonly Entry[];
@@ -46,6 +46,7 @@ export const createAgent = createAppThunk<Created, NewAgent>(
       const created = await extra.api.createAgent(request);
       dispatch(dialogClosed());
       dispatch(selected(created.id));
+      dispatch(sectionChosen("agents"));
       dispatch(noticeShown({ severity: "success", message: `Started agent in ${created.id}` }));
       void dispatch(fetchEntries());
       return created;

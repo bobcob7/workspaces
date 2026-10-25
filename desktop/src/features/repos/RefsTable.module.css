@@ -1,0 +1,104 @@
+.table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row:hover td,
+.row:focus-within td {
+  background: var(--panel-raised);
+}
+
+.name {
+  width: 26%;
+}
+
+.subject {
+  width: 34%;
+}
+
+.author {
+  width: 11%;
+}
+
+.updated {
+  width: 9%;
+}
+
+.table .workspaces {
+  width: 20%;
+  text-align: right;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.defaultChip {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #2a303b;
+  color: var(--text);
+  font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.chips {
+  display: inline-flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.chip {
+  height: 20px !important;
+  font-size: 11px !important;
+}
+
+.actions {
+  display: none;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+.row:hover .chips,
+.row:focus-within .chips {
+  display: none;
+}
+
+.row:hover .actions,
+.row:focus-within .actions {
+  display: inline-flex;
+}
+
+/* ADR 0031: the Author column goes first on narrow windows. */
+@media (max-width: 999px) {
+  .author {
+    display: none;
+  }
+}
