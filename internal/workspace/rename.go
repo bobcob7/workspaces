@@ -15,8 +15,8 @@ func (s *Store) Rename(id, name string) (Workspace, error) {
 	if name == "" {
 		return Workspace{}, fmt.Errorf("%w: a name can't be empty", ErrNameInvalid)
 	}
-	if strings.ContainsFunc(name, unicode.IsControl) {
-		return Workspace{}, fmt.Errorf("%w: %q holds a control character", ErrNameInvalid, name)
+	if err := checkName(name); err != nil {
+		return Workspace{}, err
 	}
 	ws, err := s.byID(id)
 	if err != nil {
@@ -27,4 +27,13 @@ func (s *Store) Rename(id, name string) (Workspace, error) {
 		return Workspace{}, err
 	}
 	return ws, nil
+}
+
+// checkName rejects a display name with a control character, which would
+// break ws list's table (ADR 0036).
+func checkName(name string) error {
+	if strings.ContainsFunc(name, unicode.IsControl) {
+		return fmt.Errorf("%w: %q holds a control character", ErrNameInvalid, name)
+	}
+	return nil
 }

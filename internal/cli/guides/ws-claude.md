@@ -74,7 +74,7 @@ Without `--json`: `<id>  <session>  <path>` on one line.
 | ------------------------------------------------------ | ------------------ | ---- |
 | An unparsable spec, the same repo twice, or two repos with the same name | `usage`, `spec_invalid` | 2 |
 | `--settings` after `--`                                | `usage`            | 2    |
-| `--name` has no letters or digits                      | `name_invalid`     | 2    |
+| `--name` has no letters or digits, or a control character | `name_invalid`  | 2    |
 | Repo not found, or a short name matches several        | `repo_not_found`, `repo_ambiguous` | 3 |
 | Ref not found                                          | `ref_not_found`    | 3    |
 | No free id after several random suffixes               | `workspace_exists` | 4    |

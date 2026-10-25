@@ -222,7 +222,7 @@ pub async fn rename_workspace(
 ) -> CmdResult<Renamed> {
     state
         .runner
-        .ws_json(&strings(&["rename", &workspace_id, &name]))
+        .ws_json(&strings(&["rename", "--", &workspace_id, &name]))
         .await
 }
 
@@ -382,16 +382,16 @@ mod tests {
     #[tokio::test]
     async fn rename_workspace_runs_ws_rename() {
         let dir = fake_programs(
-            r#"printf '{"id":"%s","name":"%s","path":"/w","warnings":[]}' "$3" "$4""#,
+            r#"printf '{"id":"%s","name":"%s","path":"/w","warnings":[]}' "$4" "$5""#,
             "exit 0",
         );
         let runner = Runner::new(dir.path().display().to_string());
         let renamed: Renamed = runner
-            .ws_json(&strings(&["rename", "x-d8efb24f", "New name"]))
+            .ws_json(&strings(&["rename", "--", "x-d8efb24f", "-draft"]))
             .await
             .unwrap();
         assert_eq!(renamed.id, "x-d8efb24f");
-        assert_eq!(renamed.name, "New name");
+        assert_eq!(renamed.name, "-draft");
     }
 
     /// Lists the real workspaces and sessions: `cargo test -- --ignored`.

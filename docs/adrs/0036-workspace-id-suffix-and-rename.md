@@ -120,6 +120,11 @@ name, since names needn't be unique.
   shells and reviews no longer predict ids: reviews match their pull
   request by the id's prefix, and the app links a shell's terminal to the
   workspace `ws list` shows for it.
+- [0032](0032-review-agent-per-pr-head.md)'s "starting twice is a no-op"
+  no longer comes from `ws` refusing the second `ws claude`. The app
+  instead treats a review as already started when its latest listing has
+  a workspace made from the review's name, or while its own `ws claude`
+  for that name is still running.
 - `docs/state.md`: `workspace.toml` is written by creation and rewritten
   by `ws rename`.
 - Conformance: tests that `--name` gives `<sanitized>-<8 hex>` within 64

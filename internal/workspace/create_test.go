@@ -169,6 +169,13 @@ func TestStore_Create(t *testing.T) {
 		require.ErrorIs(t, err, ErrNameInvalid)
 		assertNothingCreated(t, e.store)
 	})
+	t.Run("a name with a control character", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		_, err := createUnlocked(t, e.store, CreateOptions{Name: "a\tb", Specs: mustSpecs(t, "n")})
+		require.ErrorIs(t, err, ErrNameInvalid)
+		assertNothingCreated(t, e.store)
+	})
 	t.Run("a missing ref removes everything", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)

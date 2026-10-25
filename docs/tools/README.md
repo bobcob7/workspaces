@@ -106,7 +106,7 @@ And can fail with:
 | Situation                                           | Error code                     | Exit |
 | --------------------------------------------------- | ------------------------------ | ---- |
 | Unparsable spec, the same repo listed twice, or two repos with the same name | `spec_invalid` | 2 |
-| `--name` is empty after sanitizing                  | `name_invalid`                 | 2    |
+| `--name` is empty after sanitizing, or holds a control character | `name_invalid`  | 2    |
 | Repo not found, or short name ambiguous             | `repo_not_found`, `repo_ambiguous` | 3 |
 | Ref not found                                       | `ref_not_found`                | 3    |
 | No free id after several random suffixes            | `workspace_exists`             | 4    |

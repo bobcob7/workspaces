@@ -22,7 +22,9 @@ control characters. A workspace created without `--name` can be given a
 name too.
 
 `WORKSPACE` is its id, path, or agent session id, as for other commands;
-not its name, since names needn't be unique.
+not its name, since names needn't be unique. Put `--` before the
+arguments when the name starts with `-`:
+`ws rename -- fix-login-d8efb24f "-draft"`.
 
 ## Options
 

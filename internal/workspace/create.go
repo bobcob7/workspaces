@@ -47,6 +47,9 @@ func (s *Store) Create(ctx context.Context, opts CreateOptions) (Workspace, *loc
 	if opts.Name != "" && sanitizeName(opts.Name) == "" {
 		return Workspace{}, nil, fmt.Errorf("%w: %q has no letters or digits to make an id from", ErrNameInvalid, opts.Name)
 	}
+	if err := checkName(opts.Name); err != nil {
+		return Workspace{}, nil, err
+	}
 	targets, err := s.resolveAll(ctx, opts.Specs, opts.Offline)
 	if err != nil {
 		return Workspace{}, nil, err

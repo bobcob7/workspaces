@@ -17,7 +17,8 @@ change, so a workspace can be renamed any number of times.
 
 A workspace is named by its id, path, or agent session id. Surrounding
 spaces are trimmed; any characters are kept, unlike `--name`, which also
-makes the id.
+makes the id. Put `--` before the arguments when the name starts with `-`:
+`ws rename -- fix-login-d8efb24f "-draft"`.
 
 ## JSON output
 

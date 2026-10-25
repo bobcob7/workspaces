@@ -6,9 +6,10 @@ use super::plan::{self, ReviewPlan};
 use super::store::{AutoStarted, Store};
 use super::view::{self, CheckState, CompareKey, RepoCheck};
 use crate::commands::{self, Created, NewAgent};
-use crate::model::{Entry, WsList};
+use crate::model::Entry;
 use crate::runner::{AppError, Runner};
 use serde::Deserialize;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -55,6 +56,10 @@ pub struct Deps {
 pub struct Checker {
     state: Mutex<CheckState>,
     entries: Mutex<Vec<Entry>>,
+    /// Names of reviews whose `ws claude` is running, so starting one twice
+    /// at once starts it once: `ws` no longer refuses a name used twice
+    /// (ADR 0036).
+    starting: Mutex<BTreeSet<String>>,
     forced: AtomicBool,
     wake: Notify,
     running: tokio::sync::Mutex<()>,
@@ -79,6 +84,40 @@ impl Checker {
         if let Ok(mut current) = self.entries.lock() {
             *current = entries;
         }
+    }
+
+    /// Starts a review with `ws claude`, unless the latest listing has a
+    /// workspace made from its name, or one is being started.
+    pub async fn start_review(
+        &self,
+        runner: &Runner,
+        plan: &ReviewPlan,
+    ) -> Result<Started, AppError> {
+        if let Some(id) = self.existing(&plan.name) {
+            return Ok(Started { id, already: true });
+        }
+        let Some(_claim) = Claim::take(&self.starting, &plan.name) else {
+            return Ok(Started {
+                id: plan.name.clone(),
+                already: true,
+            });
+        };
+        let args = commands::new_agent_args(&NewAgent::from(plan));
+        let created = runner.ws_json::<Created>(&args).await?;
+        Ok(Started {
+            id: created.id,
+            already: false,
+        })
+    }
+
+    /// The listed workspace `ws` made from `--name name`, if any.
+    fn existing(&self, name: &str) -> Option<String> {
+        let entries = self.entries.lock().ok()?;
+        entries
+            .iter()
+            .filter_map(|e| e.workspace_id.as_deref())
+            .find(|id| super::names::is_named(id, name))
+            .map(str::to_string)
     }
 
     pub fn view(&self, store: &Store) -> view::ReviewsView {
@@ -253,7 +292,8 @@ impl Checker {
         let mut warnings = Vec::new();
         for (repo, pr) in auto::select(&pairs, entries, &state, &logins) {
             let plan = plan::plan(repo, pr, &state.settings.reviews);
-            match start(&deps.runner, &plan).await {
+            match self.start_review(&deps.runner, &plan).await {
+                Ok(started) if started.already => {}
                 Ok(started) => {
                     let record = AutoStarted {
                         repo: repo.to_string(),
@@ -312,28 +352,29 @@ pub struct Started {
     pub already: bool,
 }
 
-/// Runs `ws claude` for a review, unless a workspace made from its name
-/// already exists.
-pub async fn start(runner: &Runner, plan: &ReviewPlan) -> Result<Started, AppError> {
-    if let Some(id) = existing(runner, &plan.name).await {
-        return Ok(Started { id, already: true });
-    }
-    let args = commands::new_agent_args(&NewAgent::from(plan));
-    let created = runner.ws_json::<Created>(&args).await?;
-    Ok(Started {
-        id: created.id,
-        already: false,
-    })
+/// A review name held in `Checker::starting` until dropped.
+struct Claim<'a> {
+    set: &'a Mutex<BTreeSet<String>>,
+    name: String,
 }
 
-/// The workspace `ws` made from `--name name`, if any. A listing that fails
-/// finds none, and the review is started.
-async fn existing(runner: &Runner, name: &str) -> Option<String> {
-    let list: WsList = runner.ws_json(&["list".to_string()]).await.ok()?;
-    list.workspaces
-        .into_iter()
-        .filter_map(|w| w.id)
-        .find(|id| super::names::is_named(id, name))
+impl<'a> Claim<'a> {
+    /// Holds name, or `None` when it's already held.
+    fn take(set: &'a Mutex<BTreeSet<String>>, name: &str) -> Option<Self> {
+        let mut held = set.lock().ok()?;
+        held.insert(name.to_string()).then(|| Claim {
+            set,
+            name: name.to_string(),
+        })
+    }
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut held) = self.set.lock() {
+            held.remove(&self.name);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -367,18 +408,13 @@ mod tests {
     /// A PATH directory with fake `ws`, `claude`, and `gh` scripts. `ws`
     /// logs its arguments to `ws.log`.
     fn fake_programs(gh: &str, ws_claude: &str) -> tempfile::TempDir {
-        fake_programs_listing(gh, ws_claude, r#"{"workspaces":[],"warnings":[]}"#)
-    }
-
-    /// fake_programs whose `ws list` prints list.
-    fn fake_programs_listing(gh: &str, ws_claude: &str, list: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("ws.log");
         let ws = format!(
             r#"echo "$@" >> '{}'
 case "$1" in
   cache) echo '{{"repos":[{{"id":"github.com/bobcob7/buff-bear"}},{{"id":"github.com/bobcob7/api"}}]}}' ;;
-  list) echo '{list}' ;;
+  list) echo '{{"workspaces":[],"warnings":[]}}' ;;
   claude) {ws_claude} ;;
 esac"#,
             log.display()
@@ -502,22 +538,32 @@ esac"#
         );
     }
 
-    #[tokio::test]
-    async fn start_finds_review_already_running() {
-        let dir = fake_programs_listing(
-            "exit 1",
-            "exit 1",
-            r#"{"workspaces":[{"id":"review-buff-bear-42-3f2a9c1-d8efb24f","path":"/w","created_at":null,"session":null,"repos":[]}],"warnings":[]}"#,
-        );
-        let runner = Runner::new(dir.path().display().to_string());
-        let plan = ReviewPlan {
+    fn review_plan() -> ReviewPlan {
+        ReviewPlan {
             name: "review-buff-bear-42-3f2a9c1".to_string(),
             spec: "github.com/bobcob7/buff-bear@3f2a9c1".to_string(),
             prompt: "review".to_string(),
             model: String::new(),
             permission_mode: String::new(),
-        };
-        let started = start(&runner, &plan).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn start_review_finds_listed_review() {
+        let dir = fake_programs("exit 1", "exit 1");
+        let runner = Runner::new(dir.path().display().to_string());
+        let checker = Checker::default();
+        let listed = crate::reviews::view::tests::review(
+            42,
+            crate::reviews::view::tests::HEAD,
+            crate::model::Status::Done,
+            "2026-10-24T10:00:00Z",
+        );
+        checker.set_entries(vec![Entry {
+            workspace_id: Some("review-buff-bear-42-3f2a9c1-d8efb24f".to_string()),
+            ..listed
+        }]);
+        let started = checker.start_review(&runner, &review_plan()).await.unwrap();
         assert_eq!(
             started,
             Started {
@@ -526,6 +572,35 @@ esac"#
             }
         );
         assert!(!ws_log(&dir).contains("claude"));
+    }
+
+    #[tokio::test]
+    async fn start_review_twice_at_once_starts_it_once() {
+        let dir = fake_programs(
+            "exit 1",
+            r#"sleep 1; echo '{"id":"review-buff-bear-42-3f2a9c1-d8efb24f","session":"s","path":"/w"}'"#,
+        );
+        let runner = Runner::new(dir.path().display().to_string());
+        let checker = Checker::default();
+        let plan = review_plan();
+        let (a, b) = tokio::join!(
+            checker.start_review(&runner, &plan),
+            checker.start_review(&runner, &plan)
+        );
+        let mut already = [a.unwrap().already, b.unwrap().already];
+        already.sort_unstable();
+        assert_eq!(already, [false, true]);
+        assert_eq!(ws_log(&dir).matches("claude").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn start_review_can_start_again_after_a_failure() {
+        let dir = fake_programs("exit 1", "echo boom >&2; exit 1");
+        let runner = Runner::new(dir.path().display().to_string());
+        let checker = Checker::default();
+        assert!(checker.start_review(&runner, &review_plan()).await.is_err());
+        assert!(checker.start_review(&runner, &review_plan()).await.is_err());
+        assert_eq!(ws_log(&dir).matches("claude").count(), 2);
     }
 
     #[tokio::test]
