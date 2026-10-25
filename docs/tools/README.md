@@ -8,6 +8,7 @@
 | [`ws restart`](ws-restart.md) | Restart Claude Code's background service and every running agent, to pick up new environment variables, MCP servers, or a Claude Code update |
 | [`ws list`](ws-list.md)       | List workspaces and their sessions                       |
 | [`ws rm`](ws-rm.md)           | Remove workspaces and their sessions now                 |
+| [`ws rename`](ws-rename.md)   | Change a workspace's display name                        |
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |
 | [`ws llm`](ws-llm.md)         | Print guidance for AI agents                             |
 
@@ -23,7 +24,7 @@
 ```console
 # Start an agent in a new workspace; a person or another agent can run this
 $ ws claude --name fix-login buff-bear -- "Fix the login bug"
-fix-login  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login
+fix-login-d8efb24f  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login-d8efb24f
 
 # Start an agent and talk to it right away
 $ ws claude buff-bear@feat/new-thing
@@ -97,7 +98,7 @@ Both commands take these options:
 
 | Option          | Description                                                 |
 | --------------- | ----------------------------------------------------------- |
-| `--name <name>` | Derive the workspace id from this name instead of generating one: lowercased, accents folded, other characters become `-` (`"Fix Login"` → `fix-login`); see [0012](../adrs/0012-workspace-layout.md) |
+| `--name <name>` | Name the workspace, and derive its id from the name instead of generating one: lowercased, accents folded, other characters become `-`, and a random 8-hex-digit suffix added (`"Fix Login"` → `fix-login-d8efb24f`). The name can be changed later with [`ws rename`](ws-rename.md); the id can't. See [0012](../adrs/0012-workspace-layout.md) and [0036](../adrs/0036-workspace-id-suffix-and-rename.md) |
 | `--offline`     | Don't fetch; use the cache as-is (uncached repos/refs fail) |
 
 And can fail with:
@@ -105,10 +106,10 @@ And can fail with:
 | Situation                                           | Error code                     | Exit |
 | --------------------------------------------------- | ------------------------------ | ---- |
 | Unparsable spec, the same repo listed twice, or two repos with the same name | `spec_invalid` | 2 |
-| `--name` is empty after sanitizing                  | `name_invalid`                 | 2    |
+| `--name` is empty after sanitizing, or holds a control character | `name_invalid`  | 2    |
 | Repo not found, or short name ambiguous             | `repo_not_found`, `repo_ambiguous` | 3 |
 | Ref not found                                       | `ref_not_found`                | 3    |
-| A workspace with that name already exists           | `workspace_exists`             | 4    |
+| No free id after several random suffixes            | `workspace_exists`             | 4    |
 | Fetch or clone failed, or upstream unreachable      | `fetch_failed`, `clone_failed` | 1    |
 
 See [0007](../adrs/0007-repo-spec-syntax-and-resolution.md),
@@ -167,6 +168,6 @@ password are rejected ([0020](../adrs/0020-repo-spec-edge-cases.md)).
 
 ## Workspace arguments
 
-Commands that take a `WORKSPACE` accept its id (`fix-login`,
+Commands that take a `WORKSPACE` accept its id (`fix-login-d8efb24f`,
 `ws-20261017-k3f9qa`), its path, or its agent's Claude session id
 (`e8cdf5d8`).

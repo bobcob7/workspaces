@@ -33,7 +33,7 @@ shell's workspace is refused: the shell has to exit, which removes it.
 ```json
 {
   "workspaces": [
-    {"id": "fix-login", "removed": true, "error": null},
+    {"id": "fix-login-d8efb24f", "removed": true, "error": null},
     {"id": "nope", "removed": false, "error": {"code": "workspace_not_found", "message": "…"}}
   ],
   "warnings": []
@@ -64,7 +64,7 @@ another way: tell a person what `ws` said.
 ## Examples
 
 ```console
-$ ws rm --json fix-login
+$ ws rm --json fix-login-d8efb24f
 $ ws rm --json e8cdf5d8            # by session id
-$ ws rm --dry-run --json api-bump
+$ ws rm --dry-run --json api-bump-5c01e7a2
 ```

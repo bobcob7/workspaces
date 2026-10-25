@@ -2,7 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import { entry, fakeApi, fakeHost, testStore } from "../../test/fixtures";
 import { openTerminal } from "../terminals/terminalsSlice";
 import { selected } from "../ui/uiSlice";
-import { agentsReducer, createAgent, fetchEntries, removeEntry, stopAgent, type AgentsState } from "./agentsSlice";
+import {
+  agentsReducer,
+  createAgent,
+  fetchEntries,
+  removeEntry,
+  renameEntry,
+  stopAgent,
+  type AgentsState,
+} from "./agentsSlice";
 
 const initial = (): AgentsState => agentsReducer(undefined, { type: "init" });
 
@@ -33,6 +41,13 @@ describe("agentsReducer", () => {
     expect(agentsReducer(busy, removeEntry.fulfilled(undefined, "req", e)).busy).toEqual([]);
   });
 
+  it("marks an entry busy while it is being renamed", () => {
+    const e = entry();
+    const busy = agentsReducer(initial(), renameEntry.pending("req", { entry: e, name: "x" }));
+    expect(busy.busy).toEqual([e.key]);
+    expect(agentsReducer(busy, renameEntry.fulfilled(undefined, "req", { entry: e, name: "x" })).busy).toEqual([]);
+  });
+
   it("records a creation error", () => {
     const error = { code: "claude_untrusted", message: "not trusted" };
     const request = { name: "", specs: [], prompt: "", model: "", permissionMode: "", offline: false };
@@ -53,6 +68,26 @@ describe("thunks", () => {
     const store = testStore();
     await store.dispatch(createAgent({ name: "x", specs: [], prompt: "go", model: "", permissionMode: "", offline: false }));
     expect(store.getState().ui.selectedKey).toBe("new");
+  });
+
+  it("renames by workspace id and refreshes the list", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(renameEntry({ entry: entry({ workspaceId: "fix-login-d8efb24f" }), name: "Login fix" }));
+    expect(api.renameWorkspace).toHaveBeenCalledWith("fix-login-d8efb24f", "Login fix");
+    expect(api.listEntries).toHaveBeenCalled();
+    expect(store.getState().ui.notice?.severity).toBe("success");
+  });
+
+  it("shows a failed rename as an error", async () => {
+    const api = fakeApi({
+      renameWorkspace: vi.fn(async () => {
+        throw { code: "name_invalid", message: "a name can't be empty" };
+      }),
+    });
+    const store = testStore({ api });
+    await store.dispatch(renameEntry({ entry: entry(), name: " " }));
+    expect(store.getState().ui.notice).toMatchObject({ severity: "error", message: "a name can't be empty" });
   });
 
   it("removes by workspace id and session id", async () => {

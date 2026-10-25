@@ -70,6 +70,12 @@ export interface Created {
   readonly path: string;
 }
 
+/** A workspace's new display name, from ws rename (ADR 0036). */
+export interface Renamed {
+  readonly id: string;
+  readonly name: string;
+}
+
 export type TermSpec =
   | { readonly kind: "attach"; readonly sessionId: string; readonly cwd: string }
   | { readonly kind: "shell"; readonly name: string; readonly specs: readonly string[] };
@@ -296,6 +302,8 @@ export const api = {
   createAgent: async (request: NewAgent): Promise<Created> => call<Created>("create_agent", { request }),
   removeEntry: async (workspaceId: string | null, sessionId: string | null): Promise<void> =>
     call<void>("remove_entry", { workspaceId, sessionId }),
+  renameWorkspace: async (workspaceId: string, name: string): Promise<Renamed> =>
+    call<Renamed>("rename_workspace", { workspaceId, name }),
   stopAgent: async (sessionId: string): Promise<void> => call<void>("stop_agent", { sessionId }),
   restoreAgents: async (): Promise<readonly string[]> => call<string[]>("restore_agents"),
   openExternal: async (target: string): Promise<void> => call<void>("open_external", { target }),

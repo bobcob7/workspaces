@@ -1,7 +1,7 @@
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
 import { useAppDispatch, useAppSelector } from "../../store";
-import { randomSuffix, sanitizeName } from "../agents/names";
+import { randomToken } from "../agents/names";
 import { openTerminal, shellKey } from "../terminals/terminalsSlice";
 import { dialogClosed, sectionChosen, selected } from "../ui/uiSlice";
 import { RepoSpecsField } from "./RepoSpecsField";
@@ -16,11 +16,19 @@ export const NewShellDialog = (): JSX.Element => {
   usePrefilledSpecs(open, setSpecs);
   const submit = (event: FormEvent): void => {
     event.preventDefault();
-    // The app names the workspace itself so it knows which one the terminal
-    // belongs to before ws list shows it.
-    const id = sanitizeName(name) || `shell-${randomSuffix()}`;
-    void dispatch(openTerminal({ key: shellKey(id), title: id, spec: { kind: "shell", name: id, specs } }));
-    dispatch(selected(id));
+    // ws picks the workspace id, so the terminal has a key of its own until
+    // ws list shows its workspace (shellLinks).
+    const key = shellKey(randomToken());
+    const trimmed = name.trim();
+    void dispatch(
+      openTerminal({
+        key,
+        title: trimmed === "" ? "New shell" : trimmed,
+        spec: { kind: "shell", name: trimmed, specs },
+        openedAt: Date.now(),
+      }),
+    );
+    dispatch(selected(key));
     dispatch(sectionChosen("agents"));
     dispatch(dialogClosed());
     setName("");
@@ -35,8 +43,8 @@ export const NewShellDialog = (): JSX.Element => {
             label="Name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="api-bump"
-            helperText={name === "" ? "Leave empty for a generated name." : `Workspace id: ${sanitizeName(name)}`}
+            placeholder="API bump"
+            helperText="Shown in the list, and can be changed later. Leave empty for a generated id."
             autoFocus
           />
           <RepoSpecsField value={specs} onChange={setSpecs} />

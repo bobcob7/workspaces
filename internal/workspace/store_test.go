@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -41,7 +42,21 @@ func newTestStore(t *testing.T, g gitRunner, c repoCache) *Store {
 	s.exclude = func(string) {}
 	s.now = testNow
 	s.suffix = func() (string, error) { return "k3f9qa", nil }
+	s.nameSuffix = sequentialHex()
 	return s
+}
+
+// sequentialHex returns a nameSuffix that gives 00000001, 00000002, and
+// so on, so each named workspace in a test gets its own id.
+func sequentialHex() func() (string, error) {
+	var mu sync.Mutex
+	n := 0
+	return func() (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		n++
+		return fmt.Sprintf("%08x", n), nil
+	}
 }
 
 // recordingGit runs the real git and records every command's arguments.
@@ -117,6 +132,7 @@ func TestNew(t *testing.T) {
 	assert.NotNil(t, s.writeOnce)
 	assert.NotNil(t, s.now)
 	assert.NotNil(t, s.suffix)
+	assert.NotNil(t, s.nameSuffix)
 }
 
 func TestStore_Warnings(t *testing.T) {

@@ -36,7 +36,7 @@ abandoned, and is removed with any Claude Code session started in exactly
 that directory, or in its one repo's directory ([0023](../adrs/0023-shell-session-keeps-creation-lock.md),
 [0025](../adrs/0025-ws-claude-session-hand-off.md)).
 Directories under `workspaces/` without state are shown last with
-id `unknown` (in JSON, `id`, `created_at`, and `session` are `null`).
+id `unknown` (in JSON, `id`, `name`, `created_at`, and `session` are `null`).
 `ws` never deletes them ([0012](../adrs/0012-workspace-layout.md)).
 
 ## Options
@@ -51,17 +51,18 @@ id `unknown` (in JSON, `id`, `created_at`, and `session` are `null`).
 
 ```console
 $ ws list
-ID                   CREATED   SESSION                   REPOS
-fix-login            2h ago    agent e8cdf5d8: stopped   buff-bear@main
-ws-20261018-k3f9qa   20m ago   agent 5d8d652c: working   buff-bear@feat/new-thing, api@v2.1.0
-api-bump             5m ago    shell                     buff-bear@main, api@v2.1.0
+ID                   NAME        CREATED   SESSION                   REPOS
+fix-login-d8efb24f   Fix login   2h ago    agent e8cdf5d8: stopped   buff-bear@main
+ws-20261018-k3f9qa   -           20m ago   agent 5d8d652c: working   buff-bear@feat/new-thing, api@v2.1.0
+api-bump-5c01e7a2    api-bump    5m ago    shell                     buff-bear@main, api@v2.1.0
 
 $ ws list --json
 {
   "workspaces": [
     {
-      "id": "fix-login",
-      "path": "/Users/me/Library/Application Support/workspaces/workspaces/fix-login",
+      "id": "fix-login-d8efb24f",
+      "name": "Fix login",
+      "path": "/Users/me/Library/Application Support/workspaces/workspaces/fix-login-d8efb24f",
       "created_at": "2026-10-18T08:12:00Z",
       "session": { "kind": "agent", "id": "e8cdf5d8", "state": "stopped", "pid": null, "stale": false },
       "repos": [
@@ -73,6 +74,10 @@ $ ws list --json
   "warnings": []
 }
 ```
+
+`name` is the display name, from `--name` or [`ws rename`](ws-rename.md),
+or `null` (`-` in the table) for a workspace created without one
+([0036](../adrs/0036-workspace-id-suffix-and-rename.md)).
 
 `session.state` is `working`, `idle`, `starting`, `stopped`, `unknown`, or
 `running` for a shell. It is `ws`'s reading, not Claude Code's own `state`

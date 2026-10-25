@@ -29,8 +29,9 @@ removes every workspace whose session is gone.
 {
   "workspaces": [
     {
-      "id": "fix-login",
-      "path": "/…/workspaces/fix-login",
+      "id": "fix-login-d8efb24f",
+      "name": "Fix login",
+      "path": "/…/workspaces/fix-login-d8efb24f",
       "created_at": "2026-10-18T08:12:00Z",
       "session": {"kind": "agent", "id": "e8cdf5d8", "state": "idle", "pid": 4242, "stale": false},
       "repos": [{"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch"}]
@@ -40,6 +41,8 @@ removes every workspace whose session is gone.
 }
 ```
 
+- `name`: the display name, from `--name` or `ws rename`; `null` for a
+  workspace created without one.
 - `session.kind`: `agent` or `shell`. `session.id`: the Claude Code session
   id, `null` for a shell.
 - `session.state` for an agent: `working` (in the middle of a turn),

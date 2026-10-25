@@ -39,7 +39,7 @@ old environment and `ws list` marks it `stale`. Only one `ws restore` or
 ```json
 {
   "sessions": [
-    {"id": "e8cdf5d8", "workspace": "fix-login", "outcome": "restarted", "restarted": true, "error": null},
+    {"id": "e8cdf5d8", "workspace": "fix-login-d8efb24f", "outcome": "restarted", "restarted": true, "error": null},
     {"id": "7a40c2d9", "workspace": null, "outcome": "stale", "restarted": false, "error": null}
   ],
   "warnings": []

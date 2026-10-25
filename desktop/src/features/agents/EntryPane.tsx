@@ -6,21 +6,22 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
 } from "@mui/material";
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useState, type FormEvent, type JSX } from "react";
 import { api, type Entry } from "../../api";
 import { repoLabel } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { ConversationView } from "../conversation/ConversationView";
 import { ReplyBox } from "../terminals/ReplyBox";
 import { TerminalView } from "../terminals/TerminalView";
-import { attachKey, closeTerminal, openTerminal, shellKey, terminalShown } from "../terminals/terminalsSlice";
+import { attachKey, closeTerminal, openTerminal, terminalShown, type TerminalInfo } from "../terminals/terminalsSlice";
 import { ownerRepo } from "../reviews/groups";
 import { reviewSelected } from "../reviews/reviewsSlice";
 import { agentViewChosen, sectionChosen, type AgentView } from "../ui/uiSlice";
-import { removeEntry, stopAgent } from "./agentsSlice";
+import { removeEntry, renameEntry, stopAgent } from "./agentsSlice";
 import { isLive } from "./status";
 import { StatusDot } from "./StatusDot";
 import styles from "./EntryPane.module.css";
@@ -29,14 +30,67 @@ export interface EntryPaneProps {
   readonly entry: Entry;
 }
 
-const terminalKeyFor = (entry: Entry): string | null => {
+/** The terminal shown for an entry: its agent's attach terminal, or the shell terminal linked to its workspace. */
+const terminalFor = (items: readonly TerminalInfo[], entry: Entry): TerminalInfo | undefined => {
   if (entry.kind === "agent" && entry.sessionId !== null) {
-    return attachKey(entry.sessionId);
+    const key = attachKey(entry.sessionId);
+    return items.find((t) => t.key === key);
   }
   if (entry.kind === "shell" && entry.workspaceId !== null) {
-    return shellKey(entry.workspaceId);
+    return items.find((t) => t.spec.kind === "shell" && t.workspaceId === entry.workspaceId);
   }
-  return null;
+  return undefined;
+};
+
+interface RenameDialogProps {
+  readonly entry: Entry;
+  readonly open: boolean;
+  readonly onClose: () => void;
+}
+
+/** Changes a workspace's display name with ws rename; its id and directory stay (ADR 0036). */
+const RenameDialog = ({ entry, open, onClose }: RenameDialogProps): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const [name, setName] = useState(entry.name);
+  useEffect(() => {
+    if (open) {
+      setName(entry.name);
+    }
+  }, [open]);
+  const trimmed = name.trim();
+  const submit = (event: FormEvent): void => {
+    event.preventDefault();
+    if (trimmed === "" || trimmed === entry.name) {
+      onClose();
+      return;
+    }
+    void dispatch(renameEntry({ entry, name: trimmed }));
+    onClose();
+  };
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <form onSubmit={submit}>
+        <DialogTitle>Rename workspace</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            helperText={`The directory stays ${entry.workspaceId ?? ""}.`}
+            fullWidth
+            autoFocus
+            margin="dense"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="contained" disabled={trimmed === ""}>
+            Rename
+          </Button>
+        </DialogActions>
+      </form>
+    </Dialog>
+  );
 };
 
 const removeWarning = (entry: Entry): string =>
@@ -46,14 +100,16 @@ const removeWarning = (entry: Entry): string =>
 
 export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const dispatch = useAppDispatch();
-  const termKey = terminalKeyFor(entry);
-  const terminal = useAppSelector((s) => s.terminals.items.find((t) => t.key === termKey));
+  const terminal = useAppSelector((s) => terminalFor(s.terminals.items, entry));
+  const termKey = terminal?.key ?? (entry.kind === "agent" && entry.sessionId !== null ? attachKey(entry.sessionId) : null);
   const busy = useAppSelector((s) => s.agents.busy.includes(entry.key));
   const view = useAppSelector((s) => s.ui.agentView);
   const reviewing = useAppSelector((s) =>
     s.reviews.view?.prs.find((pr) => pr.reviews.some((r) => r.workspaceId === entry.workspaceId)),
   );
   const [confirming, setConfirming] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const renamable = entry.workspaceId !== null && entry.kind !== "unknown";
   const attach = (): void => {
     if (entry.sessionId === null) {
       return;
@@ -122,6 +178,11 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           {isAgent && isLive(entry.status) && (
             <Button size="small" disabled={busy} onClick={() => void dispatch(stopAgent(entry))}>
               Stop
+            </Button>
+          )}
+          {renamable && (
+            <Button size="small" disabled={busy} onClick={() => setRenaming(true)}>
+              Rename
             </Button>
           )}
           {entry.kind !== "shell" && entry.kind !== "unknown" && (
@@ -200,6 +261,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           {isAgent && entry.status === "starting" && "The agent is starting."}
         </div>
       )}
+      {renamable && <RenameDialog entry={entry} open={renaming} onClose={() => setRenaming(false)} />}
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
         <DialogTitle>Remove {entry.name}?</DialogTitle>
         <DialogContent>

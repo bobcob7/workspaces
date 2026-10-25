@@ -10,7 +10,7 @@ with short names, and doesn't re-download history every time.
 ```console
 # Hand a task to a Claude Code agent in a new workspace
 $ ws claude --name fix-login buff-bear -- "Fix the login bug"
-fix-login  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login
+fix-login-d8efb24f  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login-d8efb24f
 
 # Open a shell in a new workspace with two repos
 $ ws shell buff-bear@feat/new-thing bobcob7/other-repo@v1.2.0
@@ -99,6 +99,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws restart`](docs/tools/ws-restart.md) | Restart all agents with a fresh environment          |
 | [`ws list`](docs/tools/ws-list.md)       | List workspaces and their sessions                   |
 | [`ws rm`](docs/tools/ws-rm.md)           | Remove workspaces and their sessions now             |
+| [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |
 | [`ws llm`](docs/tools/ws-llm.md)         | Print guidance for AI agents                         |
 

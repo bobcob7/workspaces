@@ -73,6 +73,9 @@ ws claude --json --name review-<repo>-<number>-<sha7> <host>/<owner>/<repo>@<hea
 - **Starting twice is a no-op.** The same PR at the same commit produces
   the same name; `ws` rejects the second `ws claude`, and the app treats
   that error for a review name as "already started", not as a failure.
+  (Amended by [0036](0036-workspace-id-suffix-and-rename.md): `ws` now
+  adds a random suffix, so the app checks its listing and its own starts
+  in progress instead.)
 - **Results** are the agent's job result and links, read as Agents reads
   them ([0029](0029-desktop-app.md)); the Reviews section shows them under
   the pull request.

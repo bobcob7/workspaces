@@ -54,7 +54,7 @@ killed the shell.
 
 | Option          | Description                       |
 | --------------- | --------------------------------- |
-| `--name <name>` | Workspace name                    |
+| `--name <name>` | Workspace name; the id is derived from it with a random suffix |
 | `--offline`     | Don't fetch; use the cache as-is  |
 
 ## Examples

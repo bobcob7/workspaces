@@ -715,6 +715,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			RemoveFunc: func(id string, opts workspace.RemoveOptions) error {
 //				panic("mock out the Remove method")
 //			},
+//			RenameFunc: func(id string, name string) (workspace.Workspace, error) {
+//				panic("mock out the Rename method")
+//			},
 //			UsesCommitFunc: func(id string, commit string) (bool, error) {
 //				panic("mock out the UsesCommit method")
 //			},
@@ -742,6 +745,9 @@ type workspaceStoreMock struct {
 
 	// RemoveFunc mocks the Remove method.
 	RemoveFunc func(id string, opts workspace.RemoveOptions) error
+
+	// RenameFunc mocks the Rename method.
+	RenameFunc func(id string, name string) (workspace.Workspace, error)
 
 	// UsesCommitFunc mocks the UsesCommit method.
 	UsesCommitFunc func(id string, commit string) (bool, error)
@@ -788,6 +794,13 @@ type workspaceStoreMock struct {
 			// Opts is the opts argument value.
 			Opts workspace.RemoveOptions
 		}
+		// Rename holds details about calls to the Rename method.
+		Rename []struct {
+			// ID is the id argument value.
+			ID string
+			// Name is the name argument value.
+			Name string
+		}
 		// UsesCommit holds details about calls to the UsesCommit method.
 		UsesCommit []struct {
 			// ID is the id argument value.
@@ -804,6 +817,7 @@ type workspaceStoreMock struct {
 	lockRecordSession sync.RWMutex
 	lockRecordTrust   sync.RWMutex
 	lockRemove        sync.RWMutex
+	lockRename        sync.RWMutex
 	lockUsesCommit    sync.RWMutex
 	lockWarnings      sync.RWMutex
 }
@@ -989,6 +1003,42 @@ func (mock *workspaceStoreMock) RemoveCalls() []struct {
 	mock.lockRemove.RLock()
 	calls = mock.calls.Remove
 	mock.lockRemove.RUnlock()
+	return calls
+}
+
+// Rename calls RenameFunc.
+func (mock *workspaceStoreMock) Rename(id string, name string) (workspace.Workspace, error) {
+	if mock.RenameFunc == nil {
+		panic("workspaceStoreMock.RenameFunc: method is nil but workspaceStore.Rename was just called")
+	}
+	callInfo := struct {
+		ID   string
+		Name string
+	}{
+		ID:   id,
+		Name: name,
+	}
+	mock.lockRename.Lock()
+	mock.calls.Rename = append(mock.calls.Rename, callInfo)
+	mock.lockRename.Unlock()
+	return mock.RenameFunc(id, name)
+}
+
+// RenameCalls gets all the calls that were made to Rename.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.RenameCalls())
+func (mock *workspaceStoreMock) RenameCalls() []struct {
+	ID   string
+	Name string
+} {
+	var calls []struct {
+		ID   string
+		Name string
+	}
+	mock.lockRename.RLock()
+	calls = mock.calls.Rename
+	mock.lockRename.RUnlock()
 	return calls
 }
 

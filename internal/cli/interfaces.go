@@ -44,6 +44,7 @@ type workspaceStore interface {
 	RecordSession(id string, kind workspace.SessionKind, claudeSessionID string) error
 	RecordTrust(id, dir string, createdEntry bool) error
 	Remove(id string, opts workspace.RemoveOptions) error
+	Rename(id, name string) (workspace.Workspace, error)
 	Warnings() []string
 }
 

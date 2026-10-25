@@ -41,7 +41,9 @@ type listJSON struct {
 }
 
 type listWorkspaceJSON struct {
-	ID        *string          `json:"id"`
+	ID *string `json:"id"`
+	// Name is the display name: --name, or ws rename's (ADR 0036).
+	Name      *string          `json:"name"`
 	Path      string           `json:"path"`
 	CreatedAt *string          `json:"created_at"`
 	Session   *listSessionJSON `json:"session"`
@@ -164,7 +166,7 @@ func listWorkspace(e *lifetime.Entry) listWorkspaceJSON {
 		repos = append(repos, listRepoJSON{ID: r.ID, Path: r.Path, Ref: r.Ref, RefKind: r.RefKind})
 	}
 	created := formatTime(ws.CreatedAt)
-	return listWorkspaceJSON{ID: &ws.ID, Path: ws.Path, CreatedAt: &created, Session: listSession(e.Session), Repos: repos}
+	return listWorkspaceJSON{ID: &ws.ID, Name: optional(ws.Name), Path: ws.Path, CreatedAt: &created, Session: listSession(e.Session), Repos: repos}
 }
 
 func listSession(s *lifetime.Session) *listSessionJSON {
@@ -181,16 +183,24 @@ func listSession(s *lifetime.Session) *listSessionJSON {
 // printList prints a table like `docker ps`.
 func (a *App) printList(entries []lifetime.Entry, unknown []string) {
 	tw := tabwriter.NewWriter(a.stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "ID\tCREATED\tSESSION\tREPOS")
+	fmt.Fprintln(tw, "ID\tNAME\tCREATED\tSESSION\tREPOS")
 	now := a.now()
 	for i := range entries {
 		ws := &entries[i].Workspace
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", ws.ID, ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", ws.ID, nameText(ws.Name), ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
 	}
 	for _, dir := range unknown {
-		fmt.Fprintf(tw, "unknown\t-\t-\t%s\n", dir)
+		fmt.Fprintf(tw, "unknown\t-\t-\t-\t%s\n", dir)
 	}
 	_ = tw.Flush()
+}
+
+// nameText is the NAME column: the display name, or "-" without one.
+func nameText(name string) string {
+	if name == "" {
+		return "-"
+	}
+	return name
 }
 
 // sessionText is the SESSION column: "agent <id>: <state>", with ",

@@ -8,6 +8,7 @@ import { reviewsListener } from "./features/reviews/reviewsListener";
 import { reviewsReducer } from "./features/reviews/reviewsSlice";
 import { settingsReducer } from "./features/settings/settingsSlice";
 import type { TerminalHost } from "./features/terminals/host";
+import { shellLinkListener } from "./features/terminals/shellLinks";
 import { terminalsReducer } from "./features/terminals/terminalsSlice";
 import { uiReducer } from "./features/ui/uiSlice";
 
@@ -32,7 +33,7 @@ export const createStore = (extra: ThunkExtra, preloadedState?: Partial<RootStat
   configureStore({
     reducer: rootReducer,
     preloadedState,
-    middleware: (getDefault) => getDefault({ thunk: { extraArgument: extra } }).prepend(reviewsListener.middleware),
+    middleware: (getDefault) => getDefault({ thunk: { extraArgument: extra } }).prepend(reviewsListener.middleware, shellLinkListener.middleware),
   });
 
 export type AppStore = ReturnType<typeof createStore>;

@@ -54,6 +54,7 @@ pub fn run() {
             cache::cache_remove,
             commands::create_agent,
             commands::remove_entry,
+            commands::rename_workspace,
             commands::stop_agent,
             commands::restore_agents,
             commands::open_external,

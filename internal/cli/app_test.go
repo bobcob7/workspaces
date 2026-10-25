@@ -292,7 +292,7 @@ func TestApp_newRootCmd(t *testing.T) {
 		for _, cmd := range root.Commands() {
 			names = append(names, cmd.Name())
 		}
-		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "list", "rm", "cache", "llm"}, names)
+		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "list", "rm", "rename", "cache", "llm"}, names)
 	})
 	t.Run("flag errors are usage errors", func(t *testing.T) {
 		requireUsageError(t, root.FlagErrorFunc()(root, errTest))
@@ -517,19 +517,44 @@ func (e *lifetimeE2E) setAgents(t *testing.T, agents string) {
 	require.NoError(t, os.WriteFile(filepath.Join(e.scratch, "agents.json"), []byte(agents), 0o600))
 }
 
-// start creates workspace name with ws claude, as session id, which
-// Claude Code then lists, idle, in the workspace.
+// workspaceID is the id of the one workspace whose state is under
+// stateDir and whose id was made from a --name sanitized to base: base, a
+// dash, and a random suffix (ADR 0036).
+func workspaceID(t *testing.T, stateDir, base string) string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(stateDir, base+"-*"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "workspaces named %s", base)
+	return filepath.Base(matches[0])
+}
+
+// assertNoWorkspace checks that no workspace, and no state, is left with
+// an id made from a --name sanitized to base.
+func assertNoWorkspace(t *testing.T, paths *config.Paths, base string) {
+	t.Helper()
+	for _, dir := range []string{paths.Workspaces, paths.State} {
+		matches, err := filepath.Glob(filepath.Join(dir, base+"-*"))
+		require.NoError(t, err)
+		assert.Empty(t, matches)
+	}
+}
+
+// start creates a workspace named name with ws claude, as session id,
+// which Claude Code then lists, idle, in the workspace, and returns its
+// path.
 func (e *lifetimeE2E) start(t *testing.T, name, id string) string {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(e.scratch, "next-id"), []byte(id), 0o600))
 	require.Equal(t, exitOK, e.run(t, "claude", "--name", name, "n", "--", "fix it"), "stderr: %s", e.stderr.String())
+	id, _, ok := strings.Cut(e.stdout.String(), "  ")
+	require.True(t, ok, "ws claude printed %q", e.stdout.String())
 	// A child that a parallel test forked while creation held the lock
 	// holds it too until that child execs.
 	require.Eventually(t, func() bool {
-		held, err := lockfile.HeldExclusively(filepath.Join(e.paths.State, name, "lock"))
+		held, err := lockfile.HeldExclusively(filepath.Join(e.paths.State, id, "lock"))
 		return err == nil && !held
 	}, 5*time.Second, 10*time.Millisecond, "creation lock still held")
-	return filepath.Join(e.paths.Workspaces, name)
+	return filepath.Join(e.paths.Workspaces, id)
 }
 
 // calls is the stop, rm, and respawn commands the fake claude ran.

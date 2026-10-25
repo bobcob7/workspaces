@@ -67,7 +67,8 @@ removed with its workspace once the workspace counts as abandoned
 ([0025](../adrs/0025-ws-claude-session-hand-off.md)).
 
 The agent shows up in `claude agents` under the workspace id (`--name "Fix
-Login"` lists as `fix-login`). Follow it
+Login"` lists as something like `fix-login-d8efb24f`; renaming the
+workspace with [`ws rename`](ws-rename.md) doesn't change it). Follow it
 with `claude logs <id>`, talk to it with `claude attach <id>`, and stop it
 with `claude stop <id>`. The workspace stays until the session is deleted
 (`claude rm <id>`, agent view, or [`ws rm`](ws-rm.md)), even after the agent
@@ -83,7 +84,7 @@ workspace.
 
 | Option          | Description                                                 |
 | --------------- | ----------------------------------------------------------- |
-| `--name <name>` | Workspace name; the id derived from it also names the session |
+| `--name <name>` | Workspace name, shown by `ws list` and changed with [`ws rename`](ws-rename.md); the id derived from it, with a random suffix, also names the session |
 | `--offline`     | Don't fetch; use the cache as-is                            |
 | `--json`        | Print `{"id", "session", "path", "repos", "warnings"}`      |
 
@@ -107,7 +108,7 @@ workspace, and prints the directory to trust, which is also in the error's
 ```console
 # Hand a task to an agent
 $ ws claude --name fix-login buff-bear -- "Find why login fails on empty passwords and fix it"
-fix-login  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login
+fix-login-d8efb24f  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login-d8efb24f
 
 # Several repos, a model choice, JSON for a calling agent
 $ ws claude --json buff-bear@feat/new-thing bobcob7/api@v2.1.0 -- --model opus "Update the client for the new API"
@@ -124,9 +125,9 @@ $ ws claude --json buff-bear@feat/new-thing bobcob7/api@v2.1.0 -- --model opus "
   "warnings": []
 }
 
-# One repo: the agent starts in .../fix-login/buff-bear
+# One repo: the agent starts in .../fix-login-d8efb24f/buff-bear
 $ ws claude --name fix-login buff-bear -- "Fix the login bug"
-fix-login  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login
+fix-login-d8efb24f  e8cdf5d8  /Users/me/Library/Application Support/workspaces/workspaces/fix-login-d8efb24f
 
 # An agent in an empty workspace, for work that needs no repo
 $ ws claude --name notes -- "Draft release notes from the issues I paste in"
@@ -134,11 +135,11 @@ notes  7c41b0e2  /Users/me/Library/Application Support/workspaces/workspaces/not
 
 # Start a session and work with it interactively; Ctrl+Z leaves it running
 $ ws claude --name try-it buff-bear
-ws: workspace try-it at /Users/me/Library/Application Support/workspaces/workspaces/try-it; attaching to Claude Code session 2af7e501
+ws: workspace try-it-91b3f0c4 at /Users/me/Library/Application Support/workspaces/workspaces/try-it-91b3f0c4; attaching to Claude Code session 2af7e501
 
 # Review and remove a finished agent
 $ claude attach e8cdf5d8
-$ ws rm fix-login
+$ ws rm fix-login-d8efb24f
 ```
 
 ## Errors

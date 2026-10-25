@@ -22,7 +22,7 @@ import { SettingsList } from "./features/settings/SettingsList";
 import { SettingsPane } from "./features/settings/SettingsPane";
 import { fetchSettings } from "./features/settings/settingsSlice";
 import { TerminalView } from "./features/terminals/TerminalView";
-import { closeTerminal, shellKey } from "./features/terminals/terminalsSlice";
+import { closeTerminal } from "./features/terminals/terminalsSlice";
 import { noticeDismissed, selected, type Section } from "./features/ui/uiSlice";
 import { useAppDispatch, useAppSelector } from "./store";
 import styles from "./App.module.css";
@@ -33,16 +33,23 @@ import styles from "./App.module.css";
  */
 export const pollInterval = 4000;
 
-const OrphanShell = ({ id }: { readonly id: string }): JSX.Element => {
+/**
+ * A shell terminal with no workspace in the list: one ws list doesn't show
+ * yet, or whose workspace went when the shell exited. selectedKey is the
+ * terminal's key or, once linked, its workspace's id.
+ */
+const OrphanShell = ({ selectedKey }: { readonly selectedKey: string }): JSX.Element => {
   const dispatch = useAppDispatch();
-  const terminal = useAppSelector((s) => s.terminals.items.find((t) => t.key === shellKey(id)));
+  const terminal = useAppSelector((s) =>
+    s.terminals.items.find((t) => t.key === selectedKey || (t.spec.kind === "shell" && t.workspaceId === selectedKey)),
+  );
   if (terminal === undefined) {
     return <div className={styles.empty}>Select a workspace.</div>;
   }
   return (
-    <section className={styles.orphan} aria-label={id}>
+    <section className={styles.orphan} aria-label={terminal.title}>
       <header className={styles.orphanHeader}>
-        <h1>{id}</h1>
+        <h1>{terminal.title}</h1>
         <span className={styles.muted}>{terminal.state === "exited" ? "shell exited; workspace removed" : "shell"}</span>
         <span className={styles.spacer} />
         {terminal.state === "exited" && (
@@ -70,7 +77,7 @@ const Main = (): JSX.Element => {
     return <EntryPane key={entry.key} entry={entry} />;
   }
   if (selectedKey !== null) {
-    return <OrphanShell id={selectedKey} />;
+    return <OrphanShell selectedKey={selectedKey} />;
   }
   if (error !== null) {
     return (

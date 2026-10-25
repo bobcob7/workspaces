@@ -15,6 +15,13 @@ export interface TerminalInfo {
   readonly lastUsed: number;
   /** Changes each time the terminal is opened again, so views remount it. */
   readonly generation: number;
+  /**
+   * The workspace a shell terminal's ws shell made, once ws list shows it;
+   * ws picks the id, so the app learns it after the fact (ADR 0036).
+   */
+  readonly workspaceId: string | null;
+  /** When the terminal was opened, in ms since the epoch. */
+  readonly openedAt: number;
 }
 
 export interface TerminalsState {
@@ -32,12 +39,19 @@ const initialState: TerminalsState = { items: [], clock: 0 };
 export const maxAttached = 4;
 
 export const attachKey = (sessionId: string): string => `attach:${sessionId}`;
-export const shellKey = (workspaceId: string): string => `shell:${workspaceId}`;
+/** A new shell terminal's key: shell: and a token the app picks. */
+export const shellKey = (token: string): string => `shell:${token}`;
+
+export interface ShellLink {
+  readonly key: string;
+  readonly workspaceId: string;
+}
 
 interface OpenRequest {
   readonly key: string;
   readonly title: string;
   readonly spec: TermSpec;
+  readonly openedAt?: number;
 }
 
 /** Keys of attach terminals to close so at most maxAttached stay open. */
@@ -109,6 +123,14 @@ const terminalsSlice = createSlice({
         term.exitCode = action.payload.code;
       }
     },
+    shellsLinked: (state, action: PayloadAction<readonly ShellLink[]>) => {
+      for (const link of action.payload) {
+        const term = state.items.find((t) => t.key === link.key);
+        if (term !== undefined) {
+          term.workspaceId = link.workspaceId;
+        }
+      }
+    },
     terminalShown: (state, action: PayloadAction<string>) => {
       const term = state.items.find((t) => t.key === action.payload);
       if (term !== undefined) {
@@ -120,7 +142,7 @@ const terminalsSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(openTerminal.pending, (state, action): TerminalsState => {
-        const { key, title, spec } = action.meta.arg;
+        const { key, title, spec, openedAt = 0 } = action.meta.arg;
         const clock = state.clock + 1;
         const info: TerminalInfo = {
           key,
@@ -130,6 +152,8 @@ const terminalsSlice = createSlice({
           exitCode: null,
           lastUsed: clock,
           generation: clock,
+          workspaceId: null,
+          openedAt,
         };
         return { clock, items: [...state.items.filter((t) => t.key !== key), info] };
       })
@@ -139,5 +163,5 @@ const terminalsSlice = createSlice({
   },
 });
 
-export const { terminalOpened, terminalExited, terminalShown } = terminalsSlice.actions;
+export const { terminalOpened, terminalExited, terminalShown, shellsLinked } = terminalsSlice.actions;
 export const terminalsReducer = terminalsSlice.reducer;

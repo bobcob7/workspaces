@@ -20,6 +20,9 @@ pub struct WsList {
 #[derive(Debug, Deserialize)]
 pub struct WsWorkspace {
     pub id: Option<String>,
+    /// The display name, from `--name` or `ws rename` (ADR 0036).
+    #[serde(default)]
+    pub name: Option<String>,
     pub path: String,
     pub created_at: Option<String>,
     pub session: Option<WsSession>,
@@ -161,8 +164,9 @@ fn links(job: Option<&JobState>) -> Vec<Link> {
 
 fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) -> Entry {
     let name = ws
-        .id
+        .name
         .clone()
+        .or_else(|| ws.id.clone())
         .unwrap_or_else(|| ws.path.rsplit('/').next().unwrap_or(&ws.path).to_string());
     let key = ws.id.clone().unwrap_or_else(|| format!("path:{}", ws.path));
     let (kind, status, session_id, stale) = match &ws.session {
@@ -381,6 +385,7 @@ mod tests {
         let list = ws_list(
             r#"{"workspaces":[
             {"id":"sh","path":"/w/sh","created_at":null,"session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null},"repos":[]},
+            {"id":"this-is-a-test-d8efb24f","name":"This is a Test","path":"/w/this-is-a-test-d8efb24f","created_at":null,"session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null},"repos":[]},
             {"id":"new","path":"/w/new","created_at":null,"session":null,"repos":[]},
             {"id":null,"path":"/w/stray","created_at":null,"session":null,"repos":[]}]}"#,
         );
@@ -393,6 +398,12 @@ mod tests {
             got,
             [
                 ("sh", "sh", Kind::Shell, Status::Running),
+                (
+                    "this-is-a-test-d8efb24f",
+                    "This is a Test",
+                    Kind::Shell,
+                    Status::Running
+                ),
                 ("new", "new", Kind::Pending, Status::Pending),
                 ("path:/w/stray", "stray", Kind::Unknown, Status::Unknown),
             ]

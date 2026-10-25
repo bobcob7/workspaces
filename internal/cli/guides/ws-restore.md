@@ -36,7 +36,7 @@ waiting up to 10 s for each to show a process. Only one `ws restore` or
 ```json
 {
   "workspaces": [
-    {"id": "fix-login", "session": "e8cdf5d8", "state": "stopped", "restored": true, "error": null},
+    {"id": "fix-login-d8efb24f", "session": "e8cdf5d8", "state": "stopped", "restored": true, "error": null},
     {"id": "docs-pass", "session": "3c11e0f2", "state": "idle", "restored": false, "error": null}
   ],
   "warnings": []
@@ -65,5 +65,5 @@ waiting up to 10 s for each to show a process. Only one `ws restore` or
 
 ```console
 $ ws restore --dry-run --json
-$ ws restore --json fix-login
+$ ws restore --json fix-login-d8efb24f
 ```

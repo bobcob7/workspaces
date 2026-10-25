@@ -103,7 +103,7 @@ pub fn reviews_plan(
 /// isn't an error.
 #[tauri::command]
 pub async fn reviews_start(state: State<'_, AppState>, plan: ReviewPlan) -> CmdResult<Started> {
-    checker::start(&state.runner, &plan).await
+    state.reviews.start_review(&state.runner, &plan).await
 }
 
 #[tauri::command]

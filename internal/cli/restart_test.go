@@ -224,7 +224,7 @@ func TestApp_runRestart(t *testing.T) {
 		e.setAgents(t, "["+agentJSON("e8cdf5d8", path)+","+agentJSON("7a40c2d9", e.scratch)+","+stoppedAgentJSON("3c11e0f2", e.scratch)+"]")
 		e.setRespawned(t, "["+respawnedAgentJSON("e8cdf5d8", path)+","+respawnedAgentJSON("7a40c2d9", e.scratch)+","+stoppedAgentJSON("3c11e0f2", e.scratch)+"]")
 		require.Equal(t, exitOK, e.run(t, "restart"), "stderr: %s", e.stderr.String())
-		assert.Equal(t, "restarted  fix-login  e8cdf5d8\nrestarted  -          7a40c2d9\n", e.stdout.String())
+		assert.Equal(t, "restarted  "+filepath.Base(path)+"  e8cdf5d8\nrestarted  -"+strings.Repeat(" ", len(filepath.Base(path))+1)+"7a40c2d9\n", e.stdout.String())
 		assert.Empty(t, e.stderr.String())
 		assert.Equal(t, []string{"daemon_stop", "daemon_run", "respawn_e8cdf5d8", "respawn_7a40c2d9"}, e.calls(t))
 		takeLock(t, filepath.Join(e.paths.State, ".respawn.lock")).Unlock()
@@ -238,7 +238,7 @@ func TestApp_runRestart(t *testing.T) {
 		require.Equal(t, exitOK, e.run(t, "--json", "restart", "--no-wait"), "stderr: %s", e.stderr.String())
 		assert.JSONEq(t, `{"sessions":[
 			{"id":"7a40c2d9","workspace":null,"outcome":"restarted","restarted":true,"error":null},
-			{"id":"e8cdf5d8","workspace":"fix-login","outcome":"stale","restarted":false,"error":null}
+			{"id":"e8cdf5d8","workspace":"`+filepath.Base(path)+`","outcome":"stale","restarted":false,"error":null}
 		],"warnings":[]}`, e.stdout.String())
 		assert.Equal(t, []string{"daemon_stop", "daemon_run", "respawn_7a40c2d9"}, e.calls(t))
 	})
