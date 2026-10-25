@@ -3,11 +3,14 @@
 use crate::jobs::{self, JobState};
 use crate::model::{self, ClaudeAgent, Listing, WsList};
 use crate::pty::{TermEvent, TermSpec, Terminals};
+use crate::reviews::checker::Checker;
+use crate::reviews::store::Store;
 use crate::runner::{self, AppError, Runner};
 use crate::transcript::{self, Chunk};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::ipc::Channel;
 use tauri::State;
@@ -17,6 +20,8 @@ pub struct AppState {
     pub runner: Runner,
     pub terminals: Terminals,
     pub jobs_dir: Option<PathBuf>,
+    pub store: Arc<Store>,
+    pub reviews: Arc<Checker>,
 }
 
 type CmdResult<T> = Result<T, AppError>;
@@ -34,12 +39,14 @@ fn now_ms() -> i64 {
 /// Lists workspaces and background sessions.
 #[tauri::command]
 pub async fn list_entries(state: State<'_, AppState>) -> CmdResult<Listing> {
-    list(&state.runner, state.jobs_dir.as_deref()).await
+    let listing = list(&state.runner, state.jobs_dir.as_deref()).await?;
+    state.reviews.set_entries(listing.entries.clone());
+    Ok(listing)
 }
 
 /// Runs `ws list` and `claude agents` together. Either failing becomes a
 /// warning as long as the other one answers.
-async fn list(runner: &Runner, jobs_dir: Option<&Path>) -> CmdResult<Listing> {
+pub async fn list(runner: &Runner, jobs_dir: Option<&Path>) -> CmdResult<Listing> {
     let ws_args = strings(&["list"]);
     let claude_args = strings(&["agents", "--json", "--all"]);
     let (ws, agents) = tokio::join!(
@@ -108,7 +115,7 @@ fn non_empty(value: Option<&String>) -> Option<&str> {
 }
 
 /// The arguments for `ws claude`, without `--json`, which the runner adds.
-fn new_agent_args(req: &NewAgent) -> Vec<String> {
+pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
     let mut args = vec!["claude".to_string()];
     if let Some(name) = non_empty(req.name.as_ref()) {
         args.extend(["--name".to_string(), name.to_string()]);

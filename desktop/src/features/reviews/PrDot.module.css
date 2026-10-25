@@ -1,0 +1,27 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  --status-color: var(--status-unknown);
+}
+
+.root[data-status="toReview"] { --status-color: var(--status-needs-input); }
+.root[data-status="reviewing"] { --status-color: var(--status-working); }
+.root[data-status="reviewed"] { --status-color: var(--status-done); }
+.root[data-status="outOfDate"] { --status-color: var(--status-idle); }
+.root[data-status="dismissed"] { --status-color: var(--status-stopped); }
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--status-color);
+  flex: none;
+}
+
+.label {
+  color: var(--status-color);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}

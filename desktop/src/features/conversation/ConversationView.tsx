@@ -38,7 +38,8 @@ const markdownComponents: Components = {
   ),
 };
 
-const Text = ({ text }: { readonly text: string }): JSX.Element => (
+/** Markdown as the conversation shows it, with links opening in the browser. */
+export const MarkdownText = ({ text }: { readonly text: string }): JSX.Element => (
   <div className={styles.markdown}>
     <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
       {text}
@@ -77,14 +78,14 @@ const RowView = ({ row }: { readonly row: Row }): JSX.Element | null => {
     case "assistant":
       return (
         <div className={styles.assistant}>
-          <Text text={item.text} />
+          <MarkdownText text={item.text} />
         </div>
       );
     case "thinking":
       return (
         <details className={styles.thinking}>
           <summary>Thinking</summary>
-          <Text text={item.text} />
+          <MarkdownText text={item.text} />
         </details>
       );
     case "notice":

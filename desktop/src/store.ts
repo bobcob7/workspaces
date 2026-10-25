@@ -4,6 +4,9 @@ import type { Api } from "./api";
 import { agentsReducer } from "./features/agents/agentsSlice";
 import { conversationsReducer } from "./features/conversation/conversationSlice";
 import { reposReducer } from "./features/repos/reposSlice";
+import { reviewsListener } from "./features/reviews/reviewsListener";
+import { reviewsReducer } from "./features/reviews/reviewsSlice";
+import { settingsReducer } from "./features/settings/settingsSlice";
 import type { TerminalHost } from "./features/terminals/host";
 import { terminalsReducer } from "./features/terminals/terminalsSlice";
 import { uiReducer } from "./features/ui/uiSlice";
@@ -17,6 +20,8 @@ export const rootReducer = combineReducers({
   agents: agentsReducer,
   conversations: conversationsReducer,
   repos: reposReducer,
+  reviews: reviewsReducer,
+  settings: settingsReducer,
   terminals: terminalsReducer,
   ui: uiReducer,
 });
@@ -27,7 +32,7 @@ export const createStore = (extra: ThunkExtra, preloadedState?: Partial<RootStat
   configureStore({
     reducer: rootReducer,
     preloadedState,
-    middleware: (getDefault) => getDefault({ thunk: { extraArgument: extra } }),
+    middleware: (getDefault) => getDefault({ thunk: { extraArgument: extra } }).prepend(reviewsListener.middleware),
   });
 
 export type AppStore = ReturnType<typeof createStore>;

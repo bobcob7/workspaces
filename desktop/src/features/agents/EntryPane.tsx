@@ -17,7 +17,9 @@ import { ConversationView } from "../conversation/ConversationView";
 import { ReplyBox } from "../terminals/ReplyBox";
 import { TerminalView } from "../terminals/TerminalView";
 import { attachKey, closeTerminal, openTerminal, shellKey, terminalShown } from "../terminals/terminalsSlice";
-import { agentViewChosen, type AgentView } from "../ui/uiSlice";
+import { ownerRepo } from "../reviews/groups";
+import { reviewSelected } from "../reviews/reviewsSlice";
+import { agentViewChosen, sectionChosen, type AgentView } from "../ui/uiSlice";
 import { removeEntry, stopAgent } from "./agentsSlice";
 import { isLive } from "./status";
 import { StatusDot } from "./StatusDot";
@@ -48,6 +50,9 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const terminal = useAppSelector((s) => s.terminals.items.find((t) => t.key === termKey));
   const busy = useAppSelector((s) => s.agents.busy.includes(entry.key));
   const view = useAppSelector((s) => s.ui.agentView);
+  const reviewing = useAppSelector((s) =>
+    s.reviews.view?.prs.find((pr) => pr.reviews.some((r) => r.workspaceId === entry.workspaceId)),
+  );
   const [confirming, setConfirming] = useState(false);
   const attach = (): void => {
     if (entry.sessionId === null) {
@@ -133,6 +138,19 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           {entry.repos.map((r) => (
             <Chip key={r.path} size="small" label={repoLabel(r.id, r.ref)} title={r.id} />
           ))}
+          {reviewing !== undefined && (
+            <Chip
+              size="small"
+              color="primary"
+              variant="outlined"
+              clickable
+              label={`Reviewing ${ownerRepo(reviewing.repo)}#${reviewing.number}`}
+              onClick={() => {
+                dispatch(reviewSelected(reviewing.key));
+                dispatch(sectionChosen("reviews"));
+              }}
+            />
+          )}
         </div>
         {entry.detail !== null && <p className={styles.detail}>{entry.detail}</p>}
         {entry.intent !== null && (

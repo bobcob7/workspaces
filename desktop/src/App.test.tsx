@@ -34,4 +34,11 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Repos" }));
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("github.com/bobcob7/buff-bear");
   });
+
+  it("shows the Reviews section's actions and pull requests when Reviews is chosen", async () => {
+    renderWithStore(<App />, testStore());
+    await userEvent.click(screen.getByRole("button", { name: /^Reviews/ }));
+    expect(await screen.findByText("#42 Add rate limiting to login")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Watched repos" })).toBeInTheDocument();
+  });
 });
