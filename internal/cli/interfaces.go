@@ -29,6 +29,7 @@ type repoCache interface {
 	IDs() ([]repo.ID, error)
 	List(ctx context.Context) ([]cache.Entry, error)
 	Search(ctx context.Context, query string, limit int, refs bool) ([]cache.Match, error)
+	Refs(ctx context.Context, id repo.ID) (cache.RefListing, error)
 	Remove(ctx context.Context, id repo.ID) error
 	Prune(ctx context.Context, keep func(id repo.ID, commit string) (bool, error), dryRun bool) ([]cache.PrunedRef, error)
 	Path(id repo.ID) string

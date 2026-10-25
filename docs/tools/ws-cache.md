@@ -9,6 +9,7 @@ ws cache add <SPEC>...
 ws cache update [<SPEC>... | --all]
 ws cache list
 ws cache search <QUERY>
+ws cache refs <SPEC>
 ws cache resolve <SPEC>...
 ws cache path <SPEC>
 ws cache remove <SPEC>...
@@ -71,10 +72,15 @@ $ ws cache list --json
     "upstream": "git@github.com:bobcob7/buff-bear.git",
     "default_branch": "main",
     "last_fetched_at": "2026-10-17T15:48:00Z",
-    "size_bytes": 18432000 }
+    "size_bytes": 18432000,
+    "branches": 14,
+    "tags": 6 }
   ],
   "warnings": [] }
 ```
+
+`branches` and `tags` count the repo's branches and tags as cached
+([0033](../adrs/0033-ws-cache-refs.md)).
 
 ### `search`
 
@@ -99,6 +105,36 @@ github.com/bobcob7/buff-bear@feat/new-thing
 
 With `--json`: `{"matches": [{"id", "ref"}], "warnings"}`, where `ref` is
 `null` for a repo match.
+
+### `refs`
+
+List a cached repo's branches and tags, each with the commit it points at
+and that commit's subject, author, and committer date
+([0033](../adrs/0033-ws-cache-refs.md)). Branches come first, the default
+branch leading and the rest newest first, then tags newest first, ties by
+name. It reads the cache as it is, without fetching or taking the repo's
+lock; a ref in the spec is ignored. The spec must name a cached repo.
+
+```console
+$ ws cache refs buff-bear
+branch  9c04e2a  main  Merge pull request #39 from bobcob7/fix/session-ttl
+branch  41b7c0d  feat/rate-limit  Add a token bucket per client IP
+tag     3e8f1a2  v1.2.0  Release 1.2.0
+
+$ ws cache refs --json buff-bear
+{ "id": "github.com/bobcob7/buff-bear",
+  "default_branch": "main",
+  "refs": [
+    { "name": "main", "kind": "branch",
+      "commit": "9c04e2a7d1…", "subject": "Merge pull request #39 from bobcob7/fix/session-ttl",
+      "author": "bobcob7", "date": "2026-10-24T09:12:00Z" }
+  ],
+  "warnings": [] }
+```
+
+`kind` is `branch` or `tag`. For an annotated tag, `commit`, `subject`,
+`author`, and `date` are those of the commit it tags. `date` is `null` if
+git gives none, such as for a tag of a tag.
 
 ### `resolve`
 
@@ -200,4 +236,5 @@ When git failed, `details.stderr` holds its error output.
 
 [0007](../adrs/0007-repo-spec-syntax-and-resolution.md),
 [0008](../adrs/0008-repository-cache.md),
-[0014](../adrs/0014-command-set.md)
+[0014](../adrs/0014-command-set.md),
+[0033](../adrs/0033-ws-cache-refs.md)

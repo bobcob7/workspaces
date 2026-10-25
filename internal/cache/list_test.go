@@ -118,6 +118,8 @@ func TestCache_List(t *testing.T) {
 		assert.Equal(t, "main", e.DefaultBranch)
 		assert.WithinDuration(t, time.Now(), e.LastFetchedAt, time.Minute)
 		assert.Positive(t, e.SizeBytes)
+		assert.Equal(t, 1, e.Branches)
+		assert.Equal(t, 0, e.Tags)
 	})
 	t.Run("empty cache", func(t *testing.T) {
 		t.Parallel()
