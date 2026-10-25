@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bobcob7/workspaces/internal/exectest"
 )
 
 func discardLogger() *slog.Logger {
@@ -26,7 +28,7 @@ func fakeGit(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "git")
 	script := "#!/bin/sh\n" + body + "\nif [ \"$1\" = --version ]; then echo \"git version ${FAKE_VERSION:-2.50.1}\"; fi\n"
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	exectest.WriteScript(t, path, script)
 	return path
 }
 

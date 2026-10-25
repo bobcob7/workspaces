@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 )
 
@@ -23,7 +24,7 @@ import (
 func fakeShell(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fake-shell")
-	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700))
+	exectest.WriteScript(t, path, "#!/bin/sh\n"+body+"\n")
 	return path
 }
 

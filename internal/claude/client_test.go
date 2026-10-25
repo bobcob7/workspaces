@@ -15,6 +15,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bobcob7/workspaces/internal/exectest"
 )
 
 func discardLogger() *slog.Logger {
@@ -33,7 +35,7 @@ func fakeClaude(t *testing.T, body string) string {
 		"  echo \"${FAKE_VERSION:-2.1.303} (Claude Code)\"\n" +
 		"  exit 0\n" +
 		"fi\n" + body + "\n"
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	exectest.WriteScript(t, path, script)
 	return path
 }
 
