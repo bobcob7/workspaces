@@ -26,7 +26,7 @@ is removed by a later `ws` command once nothing from the shell runs.
 
 | Flag            | Meaning                                                     |
 | --------------- | ----------------------------------------------------------- |
-| `--name <name>` | Make the workspace id from this name, as `ws claude --name` does |
+| `--name <name>` | Name the workspace and make its id from the name, as `ws claude --name` does |
 | `--offline`     | Don't fetch; use the cache as it is                         |
 
 `--json` is refused (`usage`): there is no result to print.

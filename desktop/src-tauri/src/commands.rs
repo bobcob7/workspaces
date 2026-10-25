@@ -206,6 +206,26 @@ pub async fn remove_entry(
         .map(|_| ())
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Renamed {
+    pub id: String,
+    pub name: String,
+}
+
+/// Changes a workspace's display name: `ws rename`. Its id and directory
+/// stay as they are (ADR 0036).
+#[tauri::command]
+pub async fn rename_workspace(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    name: String,
+) -> CmdResult<Renamed> {
+    state
+        .runner
+        .ws_json(&strings(&["rename", &workspace_id, &name]))
+        .await
+}
+
 #[tauri::command]
 pub async fn stop_agent(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
     state
@@ -357,6 +377,21 @@ mod tests {
         let runner = Runner::new(dir.path().display().to_string());
         let err = ws_items(&runner, &["rm", "x"]).await.unwrap_err();
         assert_eq!(err.code, "workspace_not_found");
+    }
+
+    #[tokio::test]
+    async fn rename_workspace_runs_ws_rename() {
+        let dir = fake_programs(
+            r#"printf '{"id":"%s","name":"%s","path":"/w","warnings":[]}' "$3" "$4""#,
+            "exit 0",
+        );
+        let runner = Runner::new(dir.path().display().to_string());
+        let renamed: Renamed = runner
+            .ws_json(&strings(&["rename", "x-d8efb24f", "New name"]))
+            .await
+            .unwrap();
+        assert_eq!(renamed.id, "x-d8efb24f");
+        assert_eq!(renamed.name, "New name");
     }
 
     /// Lists the real workspaces and sessions: `cargo test -- --ignored`.

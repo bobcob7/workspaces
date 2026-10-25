@@ -67,13 +67,13 @@ wasn't found. `restored` is `true` only when `claude respawn` succeeded.
 
 ```console
 $ ws restore
-restored  fix-login           e8cdf5d8
+restored  fix-login-d8efb24f  e8cdf5d8
 restored  ws-20261018-k3f9qa  5d8d652c
-running   docs-pass           3c11e0f2
-starting  api-bump            9a7e01b4
+running   docs-pass-0f7c2a19  3c11e0f2
+starting  api-bump-5c01e7a2   9a7e01b4
 
-$ ws restore --dry-run fix-login
-would restore  fix-login  e8cdf5d8
+$ ws restore --dry-run fix-login-d8efb24f
+would restore  fix-login-d8efb24f  e8cdf5d8
 ```
 
 ## Errors

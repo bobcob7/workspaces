@@ -60,16 +60,18 @@ func TestApp_newListCmd(t *testing.T) {
 }
 
 func TestApp_runList(t *testing.T) {
-	agent := lifetime.Entry{Workspace: listedWorkspace("fix-login"), Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateStopped, Stale: new(false)}}
+	named := listedWorkspace("fix-login")
+	named.Name = "Fix login"
+	agent := lifetime.Entry{Workspace: named, Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateStopped, Stale: new(false)}}
 	shell := lifetime.Entry{Workspace: listedWorkspace("api-bump"), Session: &lifetime.Session{Kind: lifetime.KindShell, State: lifetime.StateRunning}}
 	t.Run("a table, unknown directories last", func(t *testing.T) {
 		e := newListApp([]lifetime.Entry{agent, shell}, []string{"/cfg/workspaces/stray"})
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		assert.Equal(t, ""+
-			"ID          CREATED   SESSION                   REPOS\n"+
-			"fix-login   2h ago    agent e8cdf5d8: stopped   buff-bear@main\n"+
-			"api-bump    2h ago    shell                     buff-bear@main\n"+
-			"unknown     -         -                         /cfg/workspaces/stray\n", e.stdout.String())
+			"ID          NAME        CREATED   SESSION                   REPOS\n"+
+			"fix-login   Fix login   2h ago    agent e8cdf5d8: stopped   buff-bear@main\n"+
+			"api-bump    -           2h ago    shell                     buff-bear@main\n"+
+			"unknown     -           -         -                         /cfg/workspaces/stray\n", e.stdout.String())
 	})
 	t.Run("-q prints only ids", func(t *testing.T) {
 		e := newListApp([]lifetime.Entry{agent, shell}, []string{"/cfg/workspaces/stray"})
@@ -81,13 +83,13 @@ func TestApp_runList(t *testing.T) {
 		e.app.global.json = true
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		assert.JSONEq(t, `{"workspaces":[
-			{"id":"fix-login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
+			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false},
 			 "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}]},
-			{"id":"api-bump","path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
+			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null},
 			 "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}]},
-			{"id":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"repos":[]}
+			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"repos":[]}
 		],"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--json with nothing to list", func(t *testing.T) {
@@ -132,6 +134,7 @@ func TestApp_runList(t *testing.T) {
 		t.Parallel()
 		e := newLifetimeE2E(t)
 		path := e.start(t, "fix-login", "e8cdf5d8")
+		id := filepath.Base(path)
 		claudeMD := filepath.Join(e.paths.Workspaces, "CLAUDE.md")
 		require.FileExists(t, claudeMD, "written with workspaces/")
 		e.setAgents(t, "["+agentJSON("e8cdf5d8", path)+"]")
@@ -144,12 +147,12 @@ func TestApp_runList(t *testing.T) {
 		e.setAgents(t, "[]")
 		require.NoError(t, os.MkdirAll(filepath.Join(e.jobs, "e8cdf5d8"), 0o750))
 		require.Equal(t, exitOK, e.run(t, "list", "-q"))
-		assert.Equal(t, "fix-login\n", e.stdout.String(), "kept while its jobs directory exists")
+		assert.Equal(t, id+"\n", e.stdout.String(), "kept while its jobs directory exists")
 		require.NoError(t, os.RemoveAll(filepath.Join(e.jobs, "e8cdf5d8")))
 		require.Equal(t, exitOK, e.run(t, "list", "-q"))
 		assert.Empty(t, e.stdout.String())
 		assert.NoDirExists(t, path)
-		assert.NoDirExists(t, filepath.Join(e.paths.State, "fix-login"))
+		assert.NoDirExists(t, filepath.Join(e.paths.State, id))
 		assert.FileExists(t, claudeMD, "the removal pass leaves CLAUDE.md")
 		assert.Empty(t, e.calls(t), "a gone session needs no claude rm")
 	})
@@ -157,11 +160,11 @@ func TestApp_runList(t *testing.T) {
 		t.Parallel()
 		e := newLifetimeE2E(t)
 		path := e.start(t, "killed", "e8cdf5d8")
-		state := filepath.Join(e.paths.State, "killed")
+		state := filepath.Join(e.paths.State, filepath.Base(path))
 		require.NoError(t, os.Remove(filepath.Join(state, "session")))
 		e.setAgents(t, "["+agentJSON("e8cdf5d8", path)+","+agentJSON("5d8d652c", path+"-2")+","+agentJSON("9a9a9a9a", filepath.Join(path, "n"))+","+agentJSON("7b7b7b7b", filepath.Join(path, "n", "sub"))+"]")
 		require.Equal(t, exitOK, e.run(t, "list", "-q"))
-		assert.Equal(t, "killed\n", e.stdout.String(), "kept for its first minute")
+		assert.Equal(t, filepath.Base(path)+"\n", e.stdout.String(), "kept for its first minute")
 		old := time.Now().Add(-2 * time.Minute)
 		require.NoError(t, os.Chtimes(state, old, old))
 		require.Equal(t, exitOK, e.run(t, "list", "-q"), "stderr: %s", e.stderr.String())
@@ -184,7 +187,7 @@ func TestApp_runList(t *testing.T) {
 		e := newLifetimeE2E(t)
 		writeClaudeJSON(t, e.claudeJSON, e.paths.Workspaces)
 		path := e.start(t, "killed", "e8cdf5d8")
-		state := filepath.Join(e.paths.State, "killed")
+		state := filepath.Join(e.paths.State, filepath.Base(path))
 		require.NoError(t, os.Remove(filepath.Join(state, "session")))
 		old := time.Now().Add(-2 * time.Minute)
 		require.NoError(t, os.Chtimes(state, old, old))
@@ -198,7 +201,7 @@ func TestApp_runList(t *testing.T) {
 		t.Parallel()
 		e := newLifetimeE2E(t)
 		path := e.start(t, "sh", "e8cdf5d8")
-		state := filepath.Join(e.paths.State, "sh")
+		state := filepath.Join(e.paths.State, filepath.Base(path))
 		require.NoError(t, os.WriteFile(filepath.Join(state, "session"), []byte("kind = \"shell\"\nclaude_session_id = \"\"\n"), 0o600))
 		lock := takeLock(t, filepath.Join(state, "lock"))
 		child := exec.CommandContext(t.Context(), "/bin/cat")
@@ -208,7 +211,7 @@ func TestApp_runList(t *testing.T) {
 		require.NoError(t, child.Start())
 		lock.Unlock()
 		require.Equal(t, exitOK, e.run(t, "list"), "stderr: %s", e.stderr.String())
-		assert.Contains(t, e.stdout.String(), "sh ")
+		assert.Contains(t, e.stdout.String(), filepath.Base(path)+" ")
 		assert.DirExists(t, path)
 		require.NoError(t, stdin.Close())
 		require.NoError(t, child.Wait())
@@ -229,14 +232,14 @@ func TestApp_runList(t *testing.T) {
 		t.Parallel()
 		e := newLifetimeE2E(t)
 		path := e.start(t, "fix-login", "e8cdf5d8")
-		require.NoError(t, os.WriteFile(filepath.Join(e.paths.State, "fix-login", "session"), []byte("kind = "), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(e.paths.State, filepath.Base(path), "session"), []byte("kind = "), 0o600))
 		require.Equal(t, exitOK, e.run(t, "--json", "list"))
 		var got listJSON
 		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
 		require.Len(t, got.Workspaces, 1)
 		assert.Nil(t, got.Workspaces[0].Session)
 		require.Len(t, got.Warnings, 1)
-		assert.Contains(t, got.Warnings[0], "kept workspace fix-login")
+		assert.Contains(t, got.Warnings[0], "kept workspace "+filepath.Base(path))
 		assert.DirExists(t, path)
 		assert.Empty(t, e.calls(t))
 	})
@@ -366,7 +369,7 @@ func TestApp_printList(t *testing.T) {
 	t.Run("just the header with nothing to list", func(t *testing.T) {
 		e := newListApp(nil, nil)
 		e.app.printList(nil, nil)
-		assert.Equal(t, "ID   CREATED   SESSION   REPOS\n", e.stdout.String())
+		assert.Equal(t, "ID   NAME   CREATED   SESSION   REPOS\n", e.stdout.String())
 	})
 }
 

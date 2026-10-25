@@ -109,13 +109,13 @@ failure or an interruption.
 # GH_TOKEN rotated in ~/.zshrc
 $ exec zsh
 $ ws restart
-restarted  fix-login            e8cdf5d8
+restarted  fix-login-d8efb24f   e8cdf5d8
 restarted  -                    7a40c2d9
 waiting    ws-20261018-k3f9qa   5d8d652c   working
 restarted  ws-20261018-k3f9qa   5d8d652c
 
 $ ws restart --no-wait
-restarted  fix-login            e8cdf5d8
+restarted  fix-login-d8efb24f   e8cdf5d8
 stale      ws-20261018-k3f9qa   5d8d652c   working; run `ws restart` again later
 ```
 

@@ -24,14 +24,14 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 ```console
 # Hand a task to a new agent in a new workspace, and keep its ids
 $ ws claude --json --name fix-login buff-bear -- "Fix the login bug"
-{"id":"fix-login","session":"e8cdf5d8","path":"/…/workspaces/fix-login","repos":[…],"warnings":[]}
+{"id":"fix-login-d8efb24f","session":"e8cdf5d8","path":"/…/workspaces/fix-login-d8efb24f","repos":[…],"warnings":[]}
 $ claude logs e8cdf5d8
 
 # See every workspace and its session
 $ ws list --json
 
 # Remove a workspace you created, once its work is pushed
-$ ws rm --json fix-login
+$ ws rm --json fix-login-d8efb24f
 ```
 
 A person also uses `ws shell [<spec>...]` for a throwaway shell, and
@@ -88,9 +88,10 @@ Use `ws cache resolve <spec>` to see what a spec resolves to, and
 
 ## Workspace arguments
 
-Commands that take a workspace accept its id (`fix-login`,
+Commands that take a workspace accept its id (`fix-login-d8efb24f`,
 `ws-20261018-k3f9qa`), its path, or its agent's Claude session id
-(`e8cdf5d8`).
+(`e8cdf5d8`). Not its name: `--name` and `ws rename` set a display name,
+which needn't be unique.
 
 ## Global flags
 
@@ -144,6 +145,7 @@ everything.
 - `ws llm shell`: new workspace with an interactive shell, for people
 - `ws llm list`: list workspaces and their sessions
 - `ws llm rm`: remove workspaces and their sessions now
+- `ws llm rename`: change a workspace's display name
 - `ws llm restore`: restart agents that stopped, after a reboot or crash
 - `ws llm restart`: restart Claude Code's background service and every agent; only when told to
 - `ws llm cache`: the repo cache, and its subcommands:

@@ -28,6 +28,7 @@ func guideTopics() []string {
 		"shell",
 		"list",
 		"rm",
+		"rename",
 		"restore",
 		"restart",
 		"cache",

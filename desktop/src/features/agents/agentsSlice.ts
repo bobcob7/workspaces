@@ -97,6 +97,25 @@ export const removeEntry = createAppThunk<void, Entry>(
   },
 );
 
+export const renameEntry = createAppThunk<void, { readonly entry: Entry; readonly name: string }>(
+  "agents/rename",
+  async ({ entry, name }, { extra, dispatch, rejectWithValue }) => {
+    if (entry.workspaceId === null) {
+      return;
+    }
+    try {
+      const renamed = await extra.api.renameWorkspace(entry.workspaceId, name);
+      dispatch(noticeShown({ severity: "success", message: `Renamed to ${renamed.name}` }));
+    } catch (err: unknown) {
+      const error = toAppError(err);
+      dispatch(noticeShown({ severity: "error", message: error.message }));
+      return rejectWithValue(error);
+    } finally {
+      void dispatch(fetchEntries());
+    }
+  },
+);
+
 export const restoreAgents = createAppThunk<readonly string[], void>(
   "agents/restore",
   async (_arg, { extra, dispatch, rejectWithValue }) => {
@@ -160,7 +179,13 @@ const agentsSlice = createSlice({
         (state, action) => {
           state.busy = state.busy.filter((key) => key !== action.meta.arg.key);
         },
-      );
+      )
+      .addMatcher(isAnyOf(renameEntry.pending), (state, action) => {
+        state.busy = [...state.busy, action.meta.arg.entry.key];
+      })
+      .addMatcher(isAnyOf(renameEntry.fulfilled, renameEntry.rejected), (state, action) => {
+        state.busy = state.busy.filter((key) => key !== action.meta.arg.entry.key);
+      });
   },
 });
 

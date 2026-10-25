@@ -6,6 +6,7 @@ import {
   closeTerminal,
   maxAttached,
   openTerminal,
+  shellsLinked,
   terminalsReducer,
   terminalShown,
   type TerminalInfo,
@@ -21,6 +22,8 @@ const info = (key: string, lastUsed: number, overrides: Partial<TerminalInfo> = 
   exitCode: null,
   lastUsed,
   generation: lastUsed,
+  workspaceId: null,
+  openedAt: 0,
   ...overrides,
 });
 
@@ -51,6 +54,14 @@ describe("terminalsReducer", () => {
     const state = { items: [info("a", 1), info("b", 2)], clock: 2 };
     const next = terminalsReducer(state, terminalShown("a"));
     expect(next.items.find((t) => t.key === "a")?.lastUsed).toBe(3);
+  });
+});
+
+describe("shellsLinked", () => {
+  it("records the workspace of each linked terminal", () => {
+    const state = { items: [info("shell:a", 1), info("shell:b", 2)], clock: 2 };
+    const next = terminalsReducer(state, shellsLinked([{ key: "shell:b", workspaceId: "api-bump-5c01e7a2" }]));
+    expect(next.items.map((t) => t.workspaceId)).toEqual([null, "api-bump-5c01e7a2"]);
   });
 });
 

@@ -67,8 +67,8 @@ export const NewAgentDialog = (): JSX.Element => {
             label="Name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="fix-login"
-            helperText="Names the workspace and the session. Leave empty for a generated id."
+            placeholder="Fix login"
+            helperText="Shown in the list, and can be changed later; the workspace id is made from it. Leave empty for a generated id."
             autoFocus
           />
           <RepoSpecsField value={specs} onChange={setSpecs} />

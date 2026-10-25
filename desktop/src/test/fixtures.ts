@@ -140,6 +140,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   cacheRemove: vi.fn(async () => undefined),
   createAgent: vi.fn(async () => ({ id: "new", session: "abcd1234", path: "/w/new" })),
   removeEntry: vi.fn(async () => undefined),
+  renameWorkspace: vi.fn(async (id: string, name: string) => ({ id, name })),
   stopAgent: vi.fn(async () => undefined),
   restoreAgents: vi.fn(async () => []),
   openExternal: vi.fn(async () => undefined),

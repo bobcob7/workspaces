@@ -42,17 +42,36 @@ func TestSanitizeName(t *testing.T) {
 	t.Run("nothing usable is empty", func(t *testing.T) {
 		assertID(t, "日本語", "")
 	})
-	t.Run("cuts to 64 characters", func(t *testing.T) {
-		assertID(t, strings.Repeat("a", 90), strings.Repeat("a", 64))
+	t.Run("cuts to 55 characters", func(t *testing.T) {
+		assertID(t, strings.Repeat("a", 90), strings.Repeat("a", 55))
 	})
 	t.Run("doesn't end a cut on a dash", func(t *testing.T) {
-		assertID(t, strings.Repeat("a", 63)+" b", strings.Repeat("a", 63))
+		assertID(t, strings.Repeat("a", 54)+" b", strings.Repeat("a", 54))
 	})
 }
 
 func TestGenerateID(t *testing.T) {
 	now := time.Date(2026, 10, 18, 23, 0, 0, 0, time.UTC)
 	assert.Equal(t, "ws-20261018-k3f9qa", generateID(now, "k3f9qa"))
+}
+
+func TestNamedID(t *testing.T) {
+	t.Parallel()
+	t.Run("ends with the suffix", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, "this-is-a-test-d8efb24f", namedID(sanitizeName("This is a Test"), "d8efb24f"))
+	})
+	t.Run("the longest name fits in 64 characters", func(t *testing.T) {
+		t.Parallel()
+		assert.Len(t, namedID(sanitizeName(strings.Repeat("a", 90)), "d8efb24f"), maxIDLen)
+	})
+}
+
+func TestRandomHex(t *testing.T) {
+	t.Parallel()
+	suffix, err := randomHex()
+	require.NoError(t, err)
+	assert.Regexp(t, `^[0-9a-f]{8}$`, suffix)
 }
 
 func TestRandomSuffix(t *testing.T) {

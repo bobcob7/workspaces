@@ -58,13 +58,13 @@ removes a workspace named on the command line, it is reported as removed
 ## Examples
 
 ```console
-$ ws rm fix-login
-removed  fix-login  e8cdf5d8
+$ ws rm fix-login-d8efb24f
+removed  fix-login-d8efb24f  e8cdf5d8
 
 $ ws rm e8cdf5d8          # by Claude session id
 
-$ ws rm --dry-run api-bump
-would remove  api-bump
+$ ws rm --dry-run api-bump-5c01e7a2
+would remove  api-bump-5c01e7a2
 ```
 
 With `--dry-run`, `removed` is `false` for a workspace that would be

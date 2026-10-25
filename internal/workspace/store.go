@@ -31,9 +31,11 @@ type Store struct {
 	// writeOnce creates a file unless it exists (writeonce.File).
 	writeOnce func(path string, data []byte) error
 	now       func() time.Time
-	suffix    func() (string, error)
-	mu        sync.Mutex
-	warnings  []string
+	// suffix ends a generated id, and nameSuffix an id from --name.
+	suffix     func() (string, error)
+	nameSuffix func() (string, error)
+	mu         sync.Mutex
+	warnings   []string
 }
 
 // New returns the Store for workspaces under root and their state under
@@ -41,16 +43,17 @@ type Store struct {
 // workspace repos from c and taking back their Claude Code trust with t.
 func New(log *slog.Logger, git gitRunner, c repoCache, t claudeTrust, root, stateDir string) *Store {
 	return &Store{
-		log:       log,
-		git:       git,
-		cache:     c,
-		trust:     t,
-		root:      root,
-		stateDir:  stateDir,
-		exclude:   func(dir string) { backup.Exclude(log, dir) },
-		writeOnce: writeonce.File,
-		now:       time.Now,
-		suffix:    randomSuffix,
+		log:        log,
+		git:        git,
+		cache:      c,
+		trust:      t,
+		root:       root,
+		stateDir:   stateDir,
+		exclude:    func(dir string) { backup.Exclude(log, dir) },
+		writeOnce:  writeonce.File,
+		now:        time.Now,
+		suffix:     randomSuffix,
+		nameSuffix: randomHex,
 	}
 }
 

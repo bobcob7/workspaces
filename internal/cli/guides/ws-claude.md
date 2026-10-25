@@ -41,7 +41,7 @@ Its workspace stays, even after it finishes, until the session is deleted
 
 | Flag            | Meaning                                                     |
 | --------------- | ----------------------------------------------------------- |
-| `--name <name>` | Make the workspace id from this name: lowercased, accents dropped, other characters become `-` (`"Fix Login"` → `fix-login`). Without it the id is generated, like `ws-20261018-k3f9qa` |
+| `--name <name>` | Name the workspace. The name is shown by `ws list` and can be changed with `ws rename`; the id is made from it once: lowercased, accents dropped, other characters become `-`, and 8 random hex digits added (`"Fix Login"` → `fix-login-d8efb24f`). Without it the id is generated, like `ws-20261018-k3f9qa` |
 | `--offline`     | Don't fetch; use the cache as it is. Uncached repos and refs fail |
 | `--json`        | Print the result as JSON                                    |
 
@@ -49,9 +49,9 @@ Its workspace stays, even after it finishes, until the session is deleted
 
 ```json
 {
-  "id": "fix-login",
+  "id": "fix-login-d8efb24f",
   "session": "e8cdf5d8",
-  "path": "/Users/me/Library/Application Support/workspaces/workspaces/fix-login",
+  "path": "/Users/me/Library/Application Support/workspaces/workspaces/fix-login-d8efb24f",
   "repos": [
     {"id": "github.com/bobcob7/buff-bear", "path": "buff-bear",
      "ref": "main", "ref_kind": "branch", "commit": "3f2a9c1e4b…"}
@@ -77,7 +77,7 @@ Without `--json`: `<id>  <session>  <path>` on one line.
 | `--name` has no letters or digits                      | `name_invalid`     | 2    |
 | Repo not found, or a short name matches several        | `repo_not_found`, `repo_ambiguous` | 3 |
 | Ref not found                                          | `ref_not_found`    | 3    |
-| A workspace with that name exists                      | `workspace_exists` | 4    |
+| No free id after several random suffixes               | `workspace_exists` | 4    |
 | Fetch or clone failed                                  | `fetch_failed`, `clone_failed`, `git_failed` | 1 |
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root; `details.directory` is the directory a person must trust | `claude_untrusted` | 1 |
@@ -101,5 +101,5 @@ $ ws claude --json buff-bear@feat/new-thing bobcob7/api@v2.1.0 -- --model opus "
 
 # Follow it, then remove it once its work is pushed
 $ claude logs e8cdf5d8
-$ ws rm --json fix-login
+$ ws rm --json fix-login-d8efb24f
 ```

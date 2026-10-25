@@ -85,12 +85,20 @@ func TestStore_Create(t *testing.T) {
 		assert.NoDirExists(t, filepath.Join(e.store.stateOf(ws.ID), "building"))
 		assert.Equal(t, "origin/main", e.gitOut(t, filepath.Join(ws.Path, "n"), "rev-parse", "--abbrev-ref", "@{upstream}"))
 	})
-	t.Run("--name becomes the id", func(t *testing.T) {
+	t.Run("--name becomes the id with a random suffix", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		ws, err := createUnlocked(t, e.store, CreateOptions{Name: "Fix Login", Specs: mustSpecs(t, "o/n")})
+		ws, err := createUnlocked(t, e.store, CreateOptions{Name: "This is a Test", Specs: mustSpecs(t, "o/n")})
 		require.NoError(t, err)
-		assert.Equal(t, "fix-login", ws.ID)
+		assert.Equal(t, "this-is-a-test-00000001", ws.ID)
+		assert.Equal(t, "This is a Test", ws.Name)
+		assert.Equal(t, filepath.Join(e.store.root, "this-is-a-test-00000001"), ws.Path)
+	})
+	t.Run("--name is kept without surrounding space", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		ws, err := createUnlocked(t, e.store, CreateOptions{Name: "  Fix Login "})
+		require.NoError(t, err)
 		assert.Equal(t, "Fix Login", ws.Name)
 	})
 	t.Run("no repos makes an empty workspace", func(t *testing.T) {
@@ -102,7 +110,7 @@ func TestStore_Create(t *testing.T) {
 		entries, err := os.ReadDir(ws.Path)
 		require.NoError(t, err)
 		assert.Empty(t, entries)
-		got, err := e.store.Find("scratch")
+		got, err := e.store.Find(ws.ID)
 		require.NoError(t, err)
 		assert.Equal(t, ws.Path, got.Path)
 	})
@@ -144,13 +152,15 @@ func TestStore_Create(t *testing.T) {
 		require.ErrorIs(t, err, cache.ErrRepoNotFound)
 		assertNothingCreated(t, e.store)
 	})
-	t.Run("a taken name", func(t *testing.T) {
+	t.Run("a name used twice makes two workspaces", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
-		_, err := createUnlocked(t, e.store, CreateOptions{Name: "x", Specs: mustSpecs(t, "n")})
+		first, err := createUnlocked(t, e.store, CreateOptions{Name: "x", Specs: mustSpecs(t, "n")})
 		require.NoError(t, err)
-		_, err = createUnlocked(t, e.store, CreateOptions{Name: "X", Specs: mustSpecs(t, "n")})
-		assert.ErrorIs(t, err, ErrExists)
+		second, err := createUnlocked(t, e.store, CreateOptions{Name: "X", Specs: mustSpecs(t, "n")})
+		require.NoError(t, err)
+		assert.NotEqual(t, first.ID, second.ID)
+		assert.Equal(t, "X", second.Name)
 	})
 	t.Run("a name with nothing usable", func(t *testing.T) {
 		t.Parallel()
@@ -194,13 +204,15 @@ func TestStore_Create(t *testing.T) {
 	t.Run("two workspaces on one branch can both commit", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)
+		var paths []string
 		for _, name := range []string{"a", "b"} {
 			ws, err := createUnlocked(t, e.store, CreateOptions{Name: name, Specs: mustSpecs(t, "n@feat")})
 			require.NoError(t, err)
 			e.gitOut(t, filepath.Join(ws.Path, "n"), "commit", "-q", "--allow-empty", "-m", "work in "+name)
+			paths = append(paths, ws.Path)
 		}
-		a := e.gitOut(t, filepath.Join(e.store.dir("a"), "n"), "rev-parse", "HEAD")
-		b := e.gitOut(t, filepath.Join(e.store.dir("b"), "n"), "rev-parse", "HEAD")
+		a := e.gitOut(t, filepath.Join(paths[0], "n"), "rev-parse", "HEAD")
+		b := e.gitOut(t, filepath.Join(paths[1], "n"), "rev-parse", "HEAD")
 		assert.NotEqual(t, a, b, "ADR 0017")
 	})
 }
@@ -290,7 +302,7 @@ func TestStore_claim(t *testing.T) {
 		id, lock, err := s.claim("Fix Login")
 		require.NoError(t, err)
 		defer lock.Unlock()
-		assert.Equal(t, "fix-login", id)
+		assert.Equal(t, "fix-login-00000001", id)
 	})
 	t.Run("retries a taken generated id", func(t *testing.T) {
 		t.Parallel()
@@ -315,6 +327,23 @@ func TestStore_claim(t *testing.T) {
 		require.NoError(t, os.Mkdir(s.stateOf("ws-20261018-k3f9qa"), 0o750))
 		_, _, err := s.claim("")
 		assert.ErrorIs(t, err, ErrExists)
+	})
+	t.Run("retries a taken named id", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		require.NoError(t, s.ensureRoots())
+		require.NoError(t, os.Mkdir(s.stateOf("fix-login-00000001"), 0o750))
+		id, lock, err := s.claim("Fix Login")
+		require.NoError(t, err)
+		defer lock.Unlock()
+		assert.Equal(t, "fix-login-00000002", id)
+	})
+	t.Run("name suffix failure", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		s.nameSuffix = func() (string, error) { return "", errTest }
+		_, _, err := s.claim("x")
+		assert.ErrorIs(t, err, errTest)
 	})
 	t.Run("suffix failure", func(t *testing.T) {
 		t.Parallel()

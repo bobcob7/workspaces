@@ -175,6 +175,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newRestartCmd(),
 		a.newListCmd(),
 		a.newRmCmd(),
+		a.newRenameCmd(),
 		a.newCacheCmd(),
 		a.newLLMCmd(),
 	)

@@ -21,8 +21,11 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   from the cache), a task, a model, and a permission mode. New shell opens
   `ws shell` in a terminal; that workspace is removed when the shell exits
   or the app quits.
-- **Manage**: Stop (`claude stop`), Remove (`ws rm`, after confirming),
-  and Restore stopped (`ws restore`).
+- **Manage**: Rename (`ws rename`: changes the name shown, never the
+  workspace's directory), Stop (`claude stop`), Remove (`ws rm`, after
+  confirming), and Restore stopped (`ws restore`). A workspace's name is
+  the one it was created with until renamed; its id, and directory, end
+  with a random suffix ([ADR 0036](../docs/adrs/0036-workspace-id-suffix-and-rename.md)).
 - **Repos**: the cached repos, grouped by host and owner, with each one's
   branches and tags, the last commit on each, and the workspaces on it
   (`ws cache list`, `ws cache refs`). Fetch one or all (`ws cache update`),

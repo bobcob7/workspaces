@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/cache"
@@ -99,23 +100,37 @@ func (s *Store) resolve(ctx context.Context, sp *repo.Spec, offline bool) (cache
 
 // claim reserves the workspace's id by creating its state directory, and
 // takes its lock so a concurrent ws doesn't take the unfinished state for
-// a leftover. A --name that's taken is ErrExists; a generated id that's
-// taken is retried.
+// a leftover. Every id ends with a random suffix (ADRs 0012, 0036), and
+// one that's taken is retried.
 func (s *Store) claim(name string) (string, *lockfile.Lock, error) {
-	if name != "" {
-		return s.claimID(sanitizeName(name))
-	}
 	for range generatedIDAttempts {
-		suffix, err := s.suffix()
+		id, err := s.newID(name)
 		if err != nil {
 			return "", nil, err
 		}
-		id, lock, err := s.claimID(generateID(s.now(), suffix))
+		id, lock, err := s.claimID(id)
 		if !errors.Is(err, ErrExists) {
 			return id, lock, err
 		}
 	}
 	return "", nil, fmt.Errorf("%w: no free id after %d tries", ErrExists, generatedIDAttempts)
+}
+
+// newID is <sanitized name>-<8 random hex> for a --name, or
+// ws-<YYYYMMDD>-<6 random [a-z0-9]> without one.
+func (s *Store) newID(name string) (string, error) {
+	if name == "" {
+		suffix, err := s.suffix()
+		if err != nil {
+			return "", err
+		}
+		return generateID(s.now(), suffix), nil
+	}
+	suffix, err := s.nameSuffix()
+	if err != nil {
+		return "", err
+	}
+	return namedID(sanitizeName(name), suffix), nil
 }
 
 func (s *Store) claimID(id string) (string, *lockfile.Lock, error) {
@@ -149,7 +164,7 @@ func (s *Store) build(ctx context.Context, id string, opts CreateOptions, target
 	if err := os.Mkdir(building, 0o750); err != nil {
 		return Workspace{}, fmt.Errorf("creating %s: %w", building, err)
 	}
-	ws := Workspace{Version: formatVersion, ID: id, Name: opts.Name, Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second)}
+	ws := Workspace{Version: formatVersion, ID: id, Name: strings.TrimSpace(opts.Name), Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second)}
 	for i := range targets {
 		r, err := s.addRepo(ctx, building, &targets[i], opts.Offline)
 		if err != nil {

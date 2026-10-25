@@ -3,8 +3,9 @@
 
 use crate::model::Repo;
 
-/// `ws` cuts workspace ids to this many characters (ADR 0012).
-const MAX_ID_LEN: usize = 64;
+/// `ws` cuts a `--name` to this many characters before it adds the id's
+/// random suffix (ADRs 0012, 0036).
+const MAX_NAME_LEN: usize = 55;
 const PREFIX: &str = "review-";
 const SHA_LEN: usize = 7;
 
@@ -29,10 +30,10 @@ pub fn repo_name(repo_id: &str) -> &str {
 }
 
 /// The repo's name, sanitized and shortened so the whole review name fits
-/// in 64 characters and `ws` never cuts off the number or commit.
+/// in 55 characters and `ws` never cuts off the number or commit.
 fn short_repo(repo_id: &str, number: u64) -> String {
     let digits = number.to_string().len();
-    let max = MAX_ID_LEN - PREFIX.len() - 2 - digits - SHA_LEN;
+    let max = MAX_NAME_LEN - PREFIX.len() - 2 - digits - SHA_LEN;
     let name = sanitize(repo_name(repo_id));
     if name.len() <= max {
         return name;
@@ -44,7 +45,8 @@ pub fn short_sha(sha: &str) -> &str {
     sha.get(..SHA_LEN).unwrap_or(sha)
 }
 
-/// `review-<repo>-<number>-<sha7>`.
+/// `review-<repo>-<number>-<sha7>`: the `--name` of a review, which `ws`
+/// makes the id from by adding a random suffix (ADR 0036).
 pub fn review_name(repo_id: &str, number: u64, head: &str) -> String {
     format!(
         "{}{}",
@@ -63,6 +65,18 @@ pub fn review_prefix(repo_id: &str, number: u64) -> String {
 pub fn is_review_of(workspace_id: &str, repos: &[Repo], repo_id: &str, number: u64) -> bool {
     workspace_id.starts_with(&review_prefix(repo_id, number))
         && matches!(repos, [only] if only.id == repo_id)
+}
+
+/// Whether `ws` made workspace id from `--name name`: the name, a dash, and
+/// 8 hex digits (ADR 0036), or the name itself, as ids were before that.
+pub fn is_named(id: &str, name: &str) -> bool {
+    let Some(rest) = id.strip_prefix(name) else {
+        return false;
+    };
+    rest.is_empty()
+        || rest
+            .strip_prefix('-')
+            .is_some_and(|s| s.len() == 8 && s.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 /// Whether a checked-out ref is the commit `sha`. `ws` records the ref as
@@ -104,19 +118,19 @@ mod tests {
     }
 
     #[test]
-    fn review_name_shortens_long_repo_to_64_characters() {
+    fn review_name_shortens_long_repo_to_55_characters() {
         let repo_id = format!("github.com/o/{}", "a".repeat(80));
         let name = review_name(&repo_id, 12345, HEAD);
-        assert_eq!(name.len(), 64);
+        assert_eq!(name.len(), 55);
         assert!(name.ends_with("-12345-3f2a9c1"));
     }
 
     #[test]
     fn review_name_drops_dash_left_by_shortening() {
-        let repo_id = format!("github.com/o/{}-b", "a".repeat(46));
+        let repo_id = format!("github.com/o/{}-b", "a".repeat(37));
         assert_eq!(
             review_name(&repo_id, 1, HEAD),
-            format!("review-{}-1-3f2a9c1", "a".repeat(46))
+            format!("review-{}-1-3f2a9c1", "a".repeat(37))
         );
     }
 
@@ -125,6 +139,26 @@ mod tests {
         let id = "github.com/bobcob7/buff-bear";
         assert!(is_review_of(
             "review-buff-bear-42-3f2a9c1",
+            &[repo(id)],
+            id,
+            42
+        ));
+    }
+
+    #[test]
+    fn is_named_matches_name_with_suffix_or_alone() {
+        let name = "review-buff-bear-42-3f2a9c1";
+        assert!(is_named("review-buff-bear-42-3f2a9c1-d8efb24f", name));
+        assert!(is_named(name, name));
+        assert!(!is_named("review-buff-bear-42-3f2a9c1e-d8efb24f", name));
+        assert!(!is_named("review-buff-bear-42-3f2a9c1-d8efb24", name));
+    }
+
+    #[test]
+    fn is_review_of_matches_id_with_random_suffix() {
+        let id = "github.com/bobcob7/buff-bear";
+        assert!(is_review_of(
+            "review-buff-bear-42-3f2a9c1-d8efb24f",
             &[repo(id)],
             id,
             42

@@ -6,7 +6,7 @@ use super::plan::{self, ReviewPlan};
 use super::store::{AutoStarted, Store};
 use super::view::{self, CheckState, CompareKey, RepoCheck};
 use crate::commands::{self, Created, NewAgent};
-use crate::model::Entry;
+use crate::model::{Entry, WsList};
 use crate::runner::{AppError, Runner};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -254,12 +254,12 @@ impl Checker {
         for (repo, pr) in auto::select(&pairs, entries, &state, &logins) {
             let plan = plan::plan(repo, pr, &state.settings.reviews);
             match start(&deps.runner, &plan).await {
-                Ok(_) => {
+                Ok(started) => {
                     let record = AutoStarted {
                         repo: repo.to_string(),
                         number: pr.number,
                         head: pr.head_ref_oid.clone(),
-                        workspace: plan.name.clone(),
+                        workspace: started.id,
                     };
                     if let Err(err) = deps.store.update(|d| d.reviews.auto_started.push(record)) {
                         warnings.push(err.message);
@@ -303,7 +303,8 @@ async fn list_all(
 }
 
 /// Whether a review was started: `true` when it already was, since the same
-/// pull request at the same commit always has the same name (ADR 0032).
+/// pull request at the same commit always has the same name (ADR 0032),
+/// which its workspace's id starts with (ADR 0036).
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Started {
@@ -311,20 +312,28 @@ pub struct Started {
     pub already: bool,
 }
 
-/// Runs `ws claude` for a review. `workspace_exists` means it already ran.
+/// Runs `ws claude` for a review, unless a workspace made from its name
+/// already exists.
 pub async fn start(runner: &Runner, plan: &ReviewPlan) -> Result<Started, AppError> {
-    let args = commands::new_agent_args(&NewAgent::from(plan));
-    match runner.ws_json::<Created>(&args).await {
-        Ok(created) => Ok(Started {
-            id: created.id,
-            already: false,
-        }),
-        Err(err) if err.code == "workspace_exists" => Ok(Started {
-            id: plan.name.clone(),
-            already: true,
-        }),
-        Err(err) => Err(err),
+    if let Some(id) = existing(runner, &plan.name).await {
+        return Ok(Started { id, already: true });
     }
+    let args = commands::new_agent_args(&NewAgent::from(plan));
+    let created = runner.ws_json::<Created>(&args).await?;
+    Ok(Started {
+        id: created.id,
+        already: false,
+    })
+}
+
+/// The workspace `ws` made from `--name name`, if any. A listing that fails
+/// finds none, and the review is started.
+async fn existing(runner: &Runner, name: &str) -> Option<String> {
+    let list: WsList = runner.ws_json(&["list".to_string()]).await.ok()?;
+    list.workspaces
+        .into_iter()
+        .filter_map(|w| w.id)
+        .find(|id| super::names::is_named(id, name))
 }
 
 #[cfg(test)]
@@ -358,13 +367,18 @@ mod tests {
     /// A PATH directory with fake `ws`, `claude`, and `gh` scripts. `ws`
     /// logs its arguments to `ws.log`.
     fn fake_programs(gh: &str, ws_claude: &str) -> tempfile::TempDir {
+        fake_programs_listing(gh, ws_claude, r#"{"workspaces":[],"warnings":[]}"#)
+    }
+
+    /// fake_programs whose `ws list` prints list.
+    fn fake_programs_listing(gh: &str, ws_claude: &str, list: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("ws.log");
         let ws = format!(
             r#"echo "$@" >> '{}'
 case "$1" in
   cache) echo '{{"repos":[{{"id":"github.com/bobcob7/buff-bear"}},{{"id":"github.com/bobcob7/api"}}]}}' ;;
-  list) echo '{{"workspaces":[],"warnings":[]}}' ;;
+  list) echo '{list}' ;;
   claude) {ws_claude} ;;
 esac"#,
             log.display()
@@ -474,7 +488,7 @@ esac"#
     async fn auto_review_starts_review_and_records_it() {
         let dir = fake_programs(
             &gh_script(&format!("echo '{PRS}'")),
-            r#"echo '{"id":"review-buff-bear-42-3f2a9c1","session":"s","path":"/w"}'"#,
+            r#"echo '{"id":"review-buff-bear-42-3f2a9c1-d8efb24f","session":"s","path":"/w"}'"#,
         );
         let deps = deps(&dir, true);
         Checker::default().check(&deps).await;
@@ -484,25 +498,34 @@ esac"#
         let state = deps.store.get();
         assert_eq!(
             state.reviews.auto_started[0].workspace,
-            "review-buff-bear-42-3f2a9c1"
+            "review-buff-bear-42-3f2a9c1-d8efb24f"
         );
     }
 
     #[tokio::test]
-    async fn auto_review_counts_existing_workspace_as_started() {
-        let dir = fake_programs(
-            &gh_script(&format!("echo '{PRS}'")),
-            r#"echo '{"error":{"code":"workspace_exists","message":"exists"}}' >&2; exit 4"#,
+    async fn start_finds_review_already_running() {
+        let dir = fake_programs_listing(
+            "exit 1",
+            "exit 1",
+            r#"{"workspaces":[{"id":"review-buff-bear-42-3f2a9c1-d8efb24f","path":"/w","created_at":null,"session":null,"repos":[]}],"warnings":[]}"#,
         );
-        let deps = deps(&dir, true);
-        let checker = Checker::default();
-        checker.check(&deps).await;
-        assert_eq!(deps.store.get().reviews.auto_started.len(), 1);
-        assert!(checker
-            .view(&deps.store)
-            .warnings
-            .iter()
-            .all(|w| !w.contains("auto-review")));
+        let runner = Runner::new(dir.path().display().to_string());
+        let plan = ReviewPlan {
+            name: "review-buff-bear-42-3f2a9c1".to_string(),
+            spec: "github.com/bobcob7/buff-bear@3f2a9c1".to_string(),
+            prompt: "review".to_string(),
+            model: String::new(),
+            permission_mode: String::new(),
+        };
+        let started = start(&runner, &plan).await.unwrap();
+        assert_eq!(
+            started,
+            Started {
+                id: "review-buff-bear-42-3f2a9c1-d8efb24f".to_string(),
+                already: true
+            }
+        );
+        assert!(!ws_log(&dir).contains("claude"));
     }
 
     #[tokio::test]

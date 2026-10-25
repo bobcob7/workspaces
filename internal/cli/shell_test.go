@@ -247,11 +247,12 @@ func TestApp_runShell(t *testing.T) {
 			_, statErr := os.Stat(filepath.Join(scratch, "started"))
 			return statErr == nil
 		}, 30*time.Second, 20*time.Millisecond, "the shell started")
-		lockPath := filepath.Join(paths.State, "try-it", "lock")
+		id := workspaceID(t, paths.State, "try-it")
+		lockPath := filepath.Join(paths.State, id, "lock")
 		_, ok, err := lockfile.TryExclusive(lockPath)
 		require.NoError(t, err)
 		assert.False(t, ok, "the session lock is held while the shell runs")
-		assert.FileExists(t, filepath.Join(paths.State, "try-it", "session"))
+		assert.FileExists(t, filepath.Join(paths.State, id, "session"))
 		require.NoError(t, os.WriteFile(filepath.Join(scratch, "go"), nil, 0o600))
 		select {
 		case code := <-exit:
@@ -259,12 +260,12 @@ func TestApp_runShell(t *testing.T) {
 		case <-time.After(30 * time.Second):
 			t.Fatal("ws shell didn't return")
 		}
-		wsPath := filepath.Join(paths.Workspaces, "try-it")
+		wsPath := filepath.Join(paths.Workspaces, id)
 		out, err := os.ReadFile(filepath.Join(scratch, "out"))
 		require.NoError(t, err)
-		assert.Equal(t, "args=-i\npwd="+filepath.Join(wsPath, "n")+"\nWS_ID=try-it\nWS_WORKSPACE="+wsPath+"\nfd3=open\nrepo=yes\n", string(out))
+		assert.Equal(t, "args=-i\npwd="+filepath.Join(wsPath, "n")+"\nWS_ID="+id+"\nWS_WORKSPACE="+wsPath+"\nfd3=open\nrepo=yes\n", string(out))
 		assert.NoDirExists(t, wsPath)
-		assert.NoDirExists(t, filepath.Join(paths.State, "try-it"))
+		assert.NoDirExists(t, filepath.Join(paths.State, id))
 	})
 	t.Run("prints the cache's warnings before the shell", func(t *testing.T) {
 		e := newShellEnv(t)

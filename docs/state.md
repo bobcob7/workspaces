@@ -13,7 +13,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 | --- | --- | --- |
 | `workspaces/<id>/` | the workspace: the user's repos and files only | moved into place by creation |
 | `workspaces/CLAUDE.md` | tells agents to run `ws llm` ([0014](adrs/0014-command-set.md)) | when `workspaces/` is first created, if missing, through a temp file linked into place; never overwritten |
-| `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | once, by creation |
+| `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | by creation; its `name` rewritten by `ws rename` ([0036](adrs/0036-workspace-id-suffix-and-rename.md)) |
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
 | `state/<id>/lock` | the workspace lock | by creation |
 | `state/<id>/trust` | the Claude Code trust `ws claude` added for a one-repo workspace's repo ([0028](adrs/0028-single-repo-session-directory.md)) | once, before the trust is written; read by every removal, which takes the trust back |
