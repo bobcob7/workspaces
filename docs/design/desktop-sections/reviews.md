@@ -110,26 +110,49 @@ Body:
 - Watched repos, no open pull requests: "No open pull requests in N
   watched repos. Checked <age>."
 
-## What the PR needs to decide
+## Decisions
 
-For the implementing PR, each lasting one in an ADR:
+Settled by the implementing PR:
 
-1. **Where watch, auto-review, dismissed PRs, and settings are kept.** The
-   app keeps no state today
-   ([0029](../../adrs/0029-desktop-app.md)). Options: a `desktop.json` in
-   `CONFIG_DIR` (next to `ws`'s files, but not `ws`'s format), the Tauri
-   app-data directory, or new keys in `ws`'s `config.toml` with a `ws`
-   command to set them. Dismissals must survive a restart; they're keyed
-   by repo, number, and head commit so a push un-dismisses.
-2. **How `gh` is run**: the login-shell PATH as for `ws`
-   ([desktop/README](../../../desktop/README.md)); which host (`--repo
-   host/owner/name` for GitHub Enterprise); concurrency; backing off on
-   rate-limit errors.
-3. **Where checking runs**: in the Rust backend on a timer (keeps running
-   while the webview is busy) or in the frontend like the agent poll.
-4. **What "done" means for a review agent**: the job result
-   ([0029](../../adrs/0029-desktop-app.md)) is the summary shown; whether
-   the template should ask the agent to end with a fixed format so the
-   app can show a findings count.
-5. **Tests** pinning ADR 0032's name format and matching, auto-review
-   rules, and the cap.
+1. **Where state is kept**: one `desktop.json` in the app's own config
+   directory, written only by the Rust backend
+   ([0034](../../adrs/0034-desktop-state-file.md)). Dismissals and
+   auto-review records are keyed by repo, number, and head commit, and
+   pruned once their pull request closes or moves.
+2. **How `gh` is run**: with the login shell's PATH, `--repo <cache id>`
+   (so the host travels with the id, GitHub Enterprise included), four repos
+   at a time, and the interval doubling, up to an hour, after a rate-limited
+   check ([0035](../../adrs/0035-desktop-review-checker.md)).
+3. **Where checking runs**: a task in the Rust backend, which also starts
+   auto-reviews; the frontend reads the joined result on its 4 s poll
+   ([0035](../../adrs/0035-desktop-review-checker.md)).
+4. **What "done" means**: a review is done when its agent is idle or
+   stopped (Reviewed). The summary shown is Claude Code's job result, as in
+   Agents, and the card adds the agent's last reply from its transcript.
+   The template doesn't ask for a fixed format and the app counts no
+   findings; a "3 findings" summary is whatever the agent's result says.
+   The template is a setting, so this can change without a new ADR.
+5. **Tests**: `cargo test` pins ADR 0032's name format and matching
+   (`reviews::names`), the groups (`reviews::view`), every auto-review rule
+   and the cap (`reviews::auto`), and checking with fake `gh` and `ws`
+   (`reviews::checker`); Vitest covers grouping, filtering, the badge, and
+   each component.
+
+### Where the build differs from the mockups
+
+- **Age** is since the pull request's last update, not its last push:
+  `gh pr list` can't include `commits` for 100 pull requests (GitHub's
+  node limit), so the push time isn't known. The detail meta says "opened
+  …, updated …".
+- **Needs input** puts a review under Reviewing, with the `needs input`
+  summary the table lists, rather than under Reviewed as ADR 0032's
+  idle-is-reviewed would.
+- **The out-of-date strip** says "2 commits pushed after this review: …",
+  not "alice pushed …": the compare API names commit authors, not who
+  pushed.
+- **Settings** lists only the Reviews group, since a group is shown once it
+  has settings.
+- **Repos detail card** ships as `RepoReviewsCard` in
+  `features/reviews/RepoReviewsCard.tsx`, for the Repos section to render;
+  the Add repo dialog's Watch switch is left to the Repos PR, which can
+  call `api.reviewsSetWatch`.

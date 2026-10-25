@@ -200,6 +200,8 @@ Cloning from the cache took 0.28 s versus 4.40 s from upstream[^bench-clone].
 | [0031](0031-desktop-sections-rail.md) | The desktop app is split into sections chosen from a left rail: Agents, Repos, Reviews, and Settings | Proposed |
 | [0032](0032-review-agent-per-pr-head.md) | A pull request review is a `ws claude` agent on the PR's head commit, named after the PR and that commit | Proposed |
 | [0033](0033-ws-cache-refs.md) | `ws cache refs` lists a cached repo's branches and tags with their last commits, and `ws cache list` counts them | Proposed |
+| [0034](0034-desktop-state-file.md) | The desktop app keeps watched repos, dismissals, auto-review records, and settings in one `desktop.json` in its own config directory | Proposed |
+| [0035](0035-desktop-review-checker.md) | The desktop app checks watched repos for pull requests in its Rust backend, with `gh pr list --repo <cache id>`, four at a time, and starts auto-reviews there | Proposed |
 
 [^aws-process]: AWS Prescriptive Guidance, "ADR process." <https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html> (accessed 2026-10-17). "When the team accepts an ADR, it becomes immutable. If new insights require a different decision, the team proposes a new ADR." On rejection: "the ADR owner adds a reason for the rejection to prevent future discussions on the same topic."
 [^aws-blog]: C. Kappey, D. Goby, D. Kunce, "Master architecture decision records (ADRs): Best practices for effective decision-making," AWS Architecture Blog, 2025-03-20. <https://aws.amazon.com/blogs/architecture/master-architecture-decision-records-adrs-best-practices-for-effective-decision-making/> (accessed 2026-10-17). "Keep ADRs concise by focusing on a single decision."
