@@ -95,11 +95,23 @@ export const openTerminal = createAppThunk<void, OpenRequest>(
   },
 );
 
-export const sendText = createAppThunk<void, { key: string; text: string }>(
-  "terminals/send",
+/**
+ * How long, in milliseconds, Enter waits after a message's text. Claude
+ * Code reads a burst of input as a paste and turns an Enter inside it into
+ * a newline, so Enter has to arrive on its own to submit.
+ */
+export const submitDelay = 200;
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Types text into a terminal, then presses Enter once the text has settled. */
+export const sendMessage = createAppThunk<void, { key: string; text: string }>(
+  "terminals/sendMessage",
   async ({ key, text }, { extra, dispatch }) => {
     try {
       await extra.terminals.send(key, text);
+      await delay(submitDelay);
+      await extra.terminals.send(key, "\r");
     } catch (err: unknown) {
       dispatch(noticeShown({ severity: "error", message: toAppError(err).message }));
     }
