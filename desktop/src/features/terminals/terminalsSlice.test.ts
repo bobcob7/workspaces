@@ -6,6 +6,7 @@ import {
   closeTerminal,
   maxAttached,
   openTerminal,
+  sendMessage,
   shellsLinked,
   terminalsReducer,
   terminalShown,
@@ -122,5 +123,41 @@ describe("closeTerminal", () => {
     await store.dispatch(openTerminal({ key: "attach:a", title: "a", spec: attach("a") }));
     await store.dispatch(closeTerminal("attach:a"));
     expect(store.getState().terminals.items).toEqual([]);
+  });
+});
+
+describe("sendMessage", () => {
+  it("presses Enter in a write of its own after the text", async () => {
+    const terminals = fakeHost();
+    const writes: string[][] = [];
+    terminals.send = async (key, text) => {
+      writes.push([key, text]);
+    };
+    const store = testStore({ terminals });
+    await store.dispatch(sendMessage({ key: "attach:a", text: "go on" }));
+    expect(writes).toEqual([
+      ["attach:a", "go on"],
+      ["attach:a", "\r"],
+    ]);
+  });
+
+  it("does not press Enter when the text fails to send", async () => {
+    const terminals = fakeHost();
+    let writes = 0;
+    terminals.send = async () => {
+      writes += 1;
+      return Promise.reject(new Error("The terminal isn't open"));
+    };
+    const store = testStore({ terminals });
+    await store.dispatch(sendMessage({ key: "attach:a", text: "go on" }));
+    expect(writes).toBe(1);
+  });
+
+  it("shows a notice when the terminal can't be written", async () => {
+    const terminals = fakeHost();
+    terminals.send = async () => Promise.reject(new Error("The terminal isn't open"));
+    const store = testStore({ terminals });
+    await store.dispatch(sendMessage({ key: "attach:a", text: "go on" }));
+    expect(store.getState().ui.notice?.message).toBe("The terminal isn't open");
   });
 });
