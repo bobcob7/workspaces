@@ -27,6 +27,11 @@ A window onto your `ws` workspaces and their Claude Code agents, like
 Everything goes through the `ws` and `claude` CLIs; the app keeps no state
 of its own.
 
+Repos and Reviews sections, and a Settings page, are designed in
+[docs/design/desktop-sections](../docs/design/desktop-sections/README.md)
+([ADR 0031](../docs/adrs/0031-desktop-sections-rail.md),
+[ADR 0032](../docs/adrs/0032-review-agent-per-pr-head.md)).
+
 ![An agent waiting on a permission prompt, attached in the app](docs/needs-input.png)
 
 | A finished agent, with its result and PRs | Starting an agent |

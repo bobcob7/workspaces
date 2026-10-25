@@ -197,6 +197,8 @@ Cloning from the cache took 0.28 s versus 4.40 s from upstream[^bench-clone].
 | [0028](0028-single-repo-session-directory.md) | A one-repo workspace's session starts in its repo, which `ws claude` trusts in Claude Code's config for the workspace's lifetime | Proposed |
 | [0029](0029-desktop-app.md) | A Tauri desktop app drives agents through `ws --json` and `claude attach` in a pseudo-terminal | Proposed |
 | [0030](0030-desktop-conversation-from-transcript.md) | The desktop app shows an agent's conversation by following its transcript file | Proposed |
+| [0031](0031-desktop-sections-rail.md) | The desktop app is split into sections chosen from a left rail: Agents, Repos, Reviews, and Settings | Proposed |
+| [0032](0032-review-agent-per-pr-head.md) | A pull request review is a `ws claude` agent on the PR's head commit, named after the PR and that commit | Proposed |
 
 [^aws-process]: AWS Prescriptive Guidance, "ADR process." <https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html> (accessed 2026-10-17). "When the team accepts an ADR, it becomes immutable. If new insights require a different decision, the team proposes a new ADR." On rejection: "the ADR owner adds a reason for the rejection to prevent future discussions on the same topic."
 [^aws-blog]: C. Kappey, D. Goby, D. Kunce, "Master architecture decision records (ADRs): Best practices for effective decision-making," AWS Architecture Blog, 2025-03-20. <https://aws.amazon.com/blogs/architecture/master-architecture-decision-records-adrs-best-practices-for-effective-decision-making/> (accessed 2026-10-17). "Keep ADRs concise by focusing on a single decision."
