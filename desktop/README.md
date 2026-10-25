@@ -76,8 +76,8 @@ backend every 5 minutes by default
 | ![](docs/reviews-watched.png) | ![](docs/settings.png) |
 | **A review agent in Agents** | **Nothing watched yet, gh signed out** |
 | ![](docs/review-agent.png) | ![](docs/reviews-empty.png) |
-| **A repo's Pull request reviews card, in Repos** | |
-| ![](docs/repos-reviews.png) | |
+| **A repo's Pull request reviews card, in Repos** | **Renaming a workspace** |
+| ![](docs/repos-reviews.png) | ![](docs/rename.png) |
 
 The screenshots use sample data.
 
