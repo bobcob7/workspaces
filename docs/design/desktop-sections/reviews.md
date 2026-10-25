@@ -152,7 +152,10 @@ Settled by the implementing PR:
   pushed.
 - **Settings** lists only the Reviews group, since a group is shown once it
   has settings.
-- **Repos detail card** ships as `RepoReviewsCard` in
-  `features/reviews/RepoReviewsCard.tsx`, for the Repos section to render;
-  the Add repo dialog's Watch switch is left to the Repos PR, which can
-  call `api.reviewsSetWatch`.
+- **Repos slots** ([repos.md](repos.md#slots-for-reviews)) are filled by
+  `RepoReviewsCard` and `features/reviews/RepoSlots.tsx`
+  (`RepoReviewsIcons`, `AddRepoWatchSwitch`, `RemoveRepoReviewsNote`).
+  A listener follows Repos' `addRepo.fulfilled` (watching the repo when
+  its Watch switch was on, for GitHub repos only) and `removeRepo.fulfilled`
+  (re-reading the Watched repos list). Removing a repo keeps its switches
+  in `desktop.json`, so adding it back watches it again.
