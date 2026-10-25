@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { entry, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { fetchEntries } from "../agents/agentsSlice";
+import { fetchReviews } from "../reviews/reviewsSlice";
+import { pullRequest, reviewsView } from "../../test/fixtures";
 import { Rail, shortcutSection } from "./Rail";
 
 const key = (k: string, mods: Partial<KeyboardEvent> = {}) => ({
@@ -16,10 +18,10 @@ const key = (k: string, mods: Partial<KeyboardEvent> = {}) => ({
 });
 
 describe("Rail", () => {
-  it("shows only the sections built so far", () => {
+  it("shows every section, Settings last", () => {
     renderWithStore(<Rail />, testStore());
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(labels).toEqual(["Agents", "Repos"]);
+    expect(labels).toEqual(["Agents", "Repos", "Reviews", "Settings"]);
   });
 
   it("marks the current section", () => {
@@ -42,6 +44,20 @@ describe("Rail", () => {
     expect(screen.getByRole("button", { name: "Agents, 1" })).toBeInTheDocument();
   });
 
+  it("badges Reviews with the pull requests to review", () => {
+    const store = testStore();
+    store.dispatch(fetchReviews.fulfilled(reviewsView({ prs: [pullRequest(), pullRequest({ key: "b" })] }), "req"));
+    renderWithStore(<Rail />, store);
+    expect(screen.getByRole("button", { name: "Reviews, 2" })).toBeInTheDocument();
+  });
+
+  it("chooses Settings on ⌘4", () => {
+    const store = testStore();
+    renderWithStore(<Rail />, store);
+    fireEvent.keyDown(window, { key: "4", metaKey: true });
+    expect(store.getState().ui.section).toBe("settings");
+  });
+
   it("chooses Repos on ⌘2", () => {
     const store = testStore();
     renderWithStore(<Rail />, store);
@@ -55,8 +71,12 @@ describe("shortcutSection", () => {
     expect(shortcutSection(key("1"))).toBe("agents");
   });
 
-  it("ignores a section that isn't shown", () => {
-    expect(shortcutSection(key("3"))).toBeNull();
+  it("maps ⌘3 to Reviews", () => {
+    expect(shortcutSection(key("3"))).toBe("reviews");
+  });
+
+  it("ignores digits past the last section", () => {
+    expect(shortcutSection(key("5"))).toBeNull();
   });
 
   it("ignores the key without ⌘", () => {

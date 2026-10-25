@@ -1,0 +1,11 @@
+.icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+
+.icons svg {
+  width: 14px;
+  height: 14px;
+}

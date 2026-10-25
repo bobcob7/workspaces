@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, CachedRepo, Entry, RepoRef } from "../api";
+import type { Api, CachedRepo, Entry, PullRequest, RepoRef, ReviewRun, ReviewSettings, ReviewsView } from "../api";
 import type { TerminalHost } from "../features/terminals/host";
 import { createStore, type RootState } from "../store";
 
@@ -44,6 +44,80 @@ export const repoRef = (overrides: Partial<RepoRef> = {}): RepoRef => ({
   ...overrides,
 });
 
+export const head = "3f2a9c1e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c";
+
+export const pullRequest = (overrides: Partial<PullRequest> = {}): PullRequest => ({
+  key: "github.com/bobcob7/buff-bear#42",
+  repo: "github.com/bobcob7/buff-bear",
+  number: 42,
+  title: "Add rate limiting to login",
+  author: { login: "alice" },
+  url: "https://github.com/bobcob7/buff-bear/pull/42",
+  body: "Adds a **token bucket**.",
+  isDraft: false,
+  headRefOid: head,
+  headRefName: "feat/rate-limit",
+  baseRefName: "main",
+  additions: 214,
+  deletions: 37,
+  changedFiles: 9,
+  createdAt: "2026-10-24T09:00:00Z",
+  updatedAt: "2026-10-24T09:00:00Z",
+  group: "toReview",
+  outOfDate: false,
+  requested: true,
+  mine: false,
+  reviews: [],
+  newCommits: null,
+  ...overrides,
+});
+
+export const reviewRun = (overrides: Partial<ReviewRun> = {}): ReviewRun => ({
+  workspaceId: "review-buff-bear-42-3f2a9c1",
+  sessionId: "7be1d0c2",
+  sha: head,
+  status: "done",
+  createdAt: "2026-10-24T10:00:00Z",
+  detail: null,
+  result: "Two problems worth fixing before merge, one nit.",
+  links: [],
+  auto: false,
+  ...overrides,
+});
+
+export const reviewsView = (overrides: Partial<ReviewsView> = {}): ReviewsView => ({
+  checking: false,
+  checkedAtMs: Date.parse("2026-10-24T10:00:00Z"),
+  error: null,
+  repos: [
+    { id: "github.com/bobcob7/buff-bear", github: true, watch: true, autoReview: false, open: 1, checkedAtMs: 1, error: null },
+    { id: "gitlab.example.com/team/svc", github: false, watch: false, autoReview: false, open: null, checkedAtMs: null, error: null },
+  ],
+  prs: [pullRequest()],
+  warnings: [],
+  ...overrides,
+});
+
+export const reviewPlan = () => ({
+  name: "review-buff-bear-42-3f2a9c1",
+  spec: `github.com/bobcob7/buff-bear@${head}`,
+  prompt: "Review pull request bobcob7/buff-bear#42",
+  model: "",
+  permissionMode: "",
+});
+
+export const reviewSettings = (overrides: Partial<ReviewSettings> = {}): ReviewSettings => ({
+  checkIntervalMinutes: 5,
+  skipDrafts: true,
+  skipMine: true,
+  onlyRequested: false,
+  maxAutoReviews: 2,
+  taskTemplate: "Review pull request {repo}#{number}",
+  model: "",
+  permissionMode: "",
+  ...overrides,
+});
+
 export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   listEntries: vi.fn(async () => ({ entries: [], warnings: [] })),
   cacheRepos: vi.fn(async () => []),
@@ -74,6 +148,16 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   terminalWrite: vi.fn(async () => undefined),
   terminalResize: vi.fn(async () => undefined),
   terminalClose: vi.fn(async () => undefined),
+  reviewsView: vi.fn(async () => reviewsView()),
+  reviewsCheckNow: vi.fn(async () => reviewsView()),
+  reviewsLoadRepos: vi.fn(async () => reviewsView()),
+  reviewsSetWatch: vi.fn(async () => reviewsView()),
+  reviewsDismiss: vi.fn(async () => reviewsView()),
+  reviewsRestore: vi.fn(async () => reviewsView()),
+  reviewsPlan: vi.fn(async () => reviewPlan()),
+  reviewsStart: vi.fn(async () => ({ id: "review-buff-bear-42-3f2a9c1", already: false })),
+  settingsGet: vi.fn(async () => ({ reviews: reviewSettings() })),
+  settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews })),
   ...overrides,
 });
 

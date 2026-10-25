@@ -163,6 +163,104 @@ export interface AddedRepo {
   readonly added: boolean;
 }
 
+export type ReviewGroup = "toReview" | "reviewing" | "reviewed" | "dismissed";
+
+/** A review workspace of a pull request (ADR 0032). */
+export interface ReviewRun {
+  readonly workspaceId: string;
+  readonly sessionId: string | null;
+  /** The commit it checked out. */
+  readonly sha: string;
+  readonly status: Status;
+  readonly createdAt: string | null;
+  readonly detail: string | null;
+  readonly result: string | null;
+  readonly links: readonly Link[];
+  readonly auto: boolean;
+}
+
+export interface NewCommits {
+  readonly count: number;
+  readonly subjects: readonly string[];
+}
+
+/** An open pull request in a watched repo, with its reviews. */
+export interface PullRequest {
+  readonly key: string;
+  readonly repo: string;
+  readonly number: number;
+  readonly title: string;
+  readonly author: { readonly login: string };
+  readonly url: string;
+  readonly body: string;
+  readonly isDraft: boolean;
+  readonly headRefOid: string;
+  readonly headRefName: string;
+  readonly baseRefName: string;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly changedFiles: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly group: ReviewGroup;
+  readonly outOfDate: boolean;
+  readonly requested: boolean;
+  readonly mine: boolean;
+  /** Newest first. */
+  readonly reviews: readonly ReviewRun[];
+  readonly newCommits: NewCommits | null;
+}
+
+/** A cached repo, and whether its pull requests are watched. */
+export interface WatchRepo {
+  readonly id: string;
+  readonly github: boolean;
+  readonly watch: boolean;
+  readonly autoReview: boolean;
+  readonly open: number | null;
+  readonly checkedAtMs: number | null;
+  readonly error: string | null;
+}
+
+export interface ReviewsView {
+  readonly checking: boolean;
+  readonly checkedAtMs: number | null;
+  readonly error: AppError | null;
+  readonly repos: readonly WatchRepo[];
+  readonly prs: readonly PullRequest[];
+  readonly warnings: readonly string[];
+}
+
+/** What starting a review runs: ws claude --name <name> <spec> -- <prompt>. */
+export interface ReviewPlan {
+  readonly name: string;
+  readonly spec: string;
+  readonly prompt: string;
+  readonly model: string;
+  readonly permissionMode: string;
+}
+
+export interface Started {
+  readonly id: string;
+  /** The review was already running under this name. */
+  readonly already: boolean;
+}
+
+export interface ReviewSettings {
+  readonly checkIntervalMinutes: number;
+  readonly skipDrafts: boolean;
+  readonly skipMine: boolean;
+  readonly onlyRequested: boolean;
+  readonly maxAutoReviews: number;
+  readonly taskTemplate: string;
+  readonly model: string;
+  readonly permissionMode: string;
+}
+
+export interface Settings {
+  readonly reviews: ReviewSettings;
+}
+
 const isAppError = (value: unknown): value is AppError =>
   typeof value === "object" && value !== null && "code" in value && "message" in value;
 
@@ -217,6 +315,21 @@ export const api = {
   terminalResize: async (id: number, cols: number, rows: number): Promise<void> =>
     call<void>("terminal_resize", { id, cols, rows }),
   terminalClose: async (id: number): Promise<void> => call<void>("terminal_close", { id }),
+  reviewsView: async (): Promise<ReviewsView> => call<ReviewsView>("reviews_view"),
+  reviewsCheckNow: async (): Promise<ReviewsView> => call<ReviewsView>("reviews_check_now"),
+  reviewsLoadRepos: async (): Promise<ReviewsView> => call<ReviewsView>("reviews_load_repos"),
+  reviewsSetWatch: async (repo: string, watch: boolean, autoReview: boolean): Promise<ReviewsView> =>
+    call<ReviewsView>("reviews_set_watch", { repo, watch, autoReview }),
+  reviewsDismiss: async (repo: string, number: number, head: string): Promise<ReviewsView> =>
+    call<ReviewsView>("reviews_dismiss", { repo, number, head }),
+  reviewsRestore: async (repo: string, number: number): Promise<ReviewsView> =>
+    call<ReviewsView>("reviews_restore", { repo, number }),
+  reviewsPlan: async (repo: string, number: number): Promise<ReviewPlan> =>
+    call<ReviewPlan>("reviews_plan", { repo, number }),
+  reviewsStart: async (plan: ReviewPlan): Promise<Started> => call<Started>("reviews_start", { plan }),
+  settingsGet: async (): Promise<Settings> => call<Settings>("settings_get"),
+  settingsSetReviews: async (reviews: ReviewSettings): Promise<Settings> =>
+    call<Settings>("settings_set_reviews", { reviews }),
 };
 
 export type Api = typeof api;

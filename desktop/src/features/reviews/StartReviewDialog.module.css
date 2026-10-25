@@ -1,0 +1,49 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px !important;
+}
+
+.loading {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+}
+
+.mono {
+  font-family: var(--font-mono) !important;
+}
+
+.repo {
+  position: relative;
+  padding: 14px 12px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.23);
+  border-radius: 8px;
+}
+
+.repoLabel {
+  position: absolute;
+  top: -9px;
+  left: 9px;
+  padding: 0 4px;
+  background: var(--panel-raised);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.repoValue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+}

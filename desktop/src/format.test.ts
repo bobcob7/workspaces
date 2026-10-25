@@ -54,3 +54,9 @@ describe("count", () => {
     expect(count(0, "workspace")).toBe("0 workspaces");
   });
 });
+
+describe("repoLabel with a commit", () => {
+  it("shortens a full commit hash", () => {
+    expect(repoLabel("github.com/bobcob7/buff-bear", "9c04e2a7d1b3c5e7f9a1b3c5d7e9f1a3b5c7d9e1")).toBe("buff-bear@9c04e2a");
+  });
+});

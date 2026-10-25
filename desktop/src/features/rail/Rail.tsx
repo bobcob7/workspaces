@@ -1,6 +1,7 @@
 import { useEffect, type JSX } from "react";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { needsAttention } from "../agents/status";
+import { badgeCount } from "../reviews/groups";
 import { sectionChosen, type Section } from "../ui/uiSlice";
 import styles from "./Rail.module.css";
 
@@ -64,7 +65,7 @@ const labels: Readonly<Record<Section, string>> = {
 export const railOrder: readonly Section[] = ["agents", "repos", "reviews", "settings"];
 
 /** The sections built so far. A section joins the rail when its PR lands. */
-export const shownSections: readonly Section[] = ["agents", "repos"];
+export const shownSections: readonly Section[] = ["agents", "repos", "reviews", "settings"];
 
 /** Settings sits apart, at the bottom of the rail. */
 const bottomSections: ReadonlySet<Section> = new Set(["settings"]);
@@ -80,7 +81,8 @@ export const shortcutSection = (event: Pick<KeyboardEvent, "key" | "metaKey" | "
 
 const useBadges = (): Readonly<Partial<Record<Section, number>>> => {
   const attention = useAppSelector((s) => s.agents.entries.filter(needsAttention).length);
-  return { agents: attention };
+  const toReview = useAppSelector((s) => badgeCount(s.reviews.view));
+  return { agents: attention, reviews: toReview };
 };
 
 export const Rail = (): JSX.Element => {

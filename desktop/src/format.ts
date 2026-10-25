@@ -22,9 +22,13 @@ export const age = (iso: string | null, now: number = Date.now()): string => {
   return "just now";
 };
 
+/** `name@ref`, with a full commit hash shortened to 7 characters. */
 export const repoLabel = (id: string, ref: string | null): string => {
   const name = id.split("/").at(-1) ?? id;
-  return ref === null ? name : `${name}@${ref}`;
+  if (ref === null) {
+    return name;
+  }
+  return `${name}@${/^[0-9a-f]{40}$/.test(ref) ? ref.slice(0, 7) : ref}`;
 };
 
 const sizeUnits: readonly string[] = ["KB", "MB", "GB", "TB"];

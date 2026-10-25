@@ -19,8 +19,8 @@ import { RepoSpecsField } from "./RepoSpecsField";
 import { usePrefilledSpecs } from "./usePrefilledSpecs";
 import styles from "./NewDialog.module.css";
 
-const models = ["", "opus", "sonnet", "haiku", "fable"] as const;
-const permissionModes = ["", "manual", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"] as const;
+export const models = ["", "opus", "sonnet", "haiku", "fable"] as const;
+export const permissionModes = ["", "manual", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"] as const;
 
 const errorHint = (error: AppError): string | null => {
   if (error.code !== "claude_untrusted") {

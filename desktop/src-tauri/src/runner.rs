@@ -50,9 +50,19 @@ impl Runner {
     }
 
     pub async fn run(&self, program: &str, args: &[String]) -> Result<Outcome, AppError> {
+        self.run_with_env(program, args, &[]).await
+    }
+
+    pub async fn run_with_env(
+        &self,
+        program: &str,
+        args: &[String],
+        envs: &[(&str, &str)],
+    ) -> Result<Outcome, AppError> {
         let output = Command::new(program)
             .args(args)
             .env("PATH", &self.path)
+            .envs(envs.iter().copied())
             .stdin(Stdio::null())
             .output()
             .await
