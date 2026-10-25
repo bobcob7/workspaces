@@ -8,7 +8,7 @@ own doc:
 | Section  | Doc                        | Built in                     |
 | -------- | -------------------------- | ---------------------------- |
 | Agents   | unchanged, apart from the rail | the Repos or Reviews PR, whichever lands first |
-| Repos    | [repos.md](repos.md)       | its own PR                   |
+| Repos    | [repos.md](repos.md)       | its own PR; decisions in [0033](../../adrs/0033-ws-cache-refs.md) |
 | Reviews  | [reviews.md](reviews.md)   | its own PR                   |
 | Settings | [settings.md](settings.md) | the Reviews PR adds the first group |
 
@@ -84,7 +84,9 @@ conflicts small:
 - The **Pull request reviews** card in a repo's detail ([repos.md](repos.md))
   belongs to Reviews: the Repos PR leaves a slot for it
   (`<RepoReviewsCard repoId />` rendered if the Reviews feature exports
-  it), and the Reviews PR fills it.
+  it), and the Reviews PR fills it. The Repos PR built this as named
+  exports from any module in `features/reviews/`; see
+  [Slots for Reviews](repos.md#slots-for-reviews).
 
 ## Mockups
 

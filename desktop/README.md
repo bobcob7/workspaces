@@ -23,14 +23,22 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   or the app quits.
 - **Manage**: Stop (`claude stop`), Remove (`ws rm`, after confirming),
   and Restore stopped (`ws restore`).
+- **Repos**: the cached repos, grouped by host and owner, with each one's
+  branches and tags, the last commit on each, and the workspaces on it
+  (`ws cache list`, `ws cache refs`). Fetch one or all (`ws cache update`),
+  add one with a live preview of what the spec resolves to (`ws cache
+  resolve`, `ws cache add`), remove one after confirming (`ws cache
+  remove`), and start an agent or shell on any repo, branch, or tag.
+  ⌘1 and ⌘2 switch between Agents and Repos.
 
 Everything goes through the `ws` and `claude` CLIs; the app keeps no state
 of its own.
 
-Repos and Reviews sections, and a Settings page, are designed in
+The sections (Agents, Repos, and Reviews and Settings to come) are designed in
 [docs/design/desktop-sections](../docs/design/desktop-sections/README.md)
 ([ADR 0031](../docs/adrs/0031-desktop-sections-rail.md),
-[ADR 0032](../docs/adrs/0032-review-agent-per-pr-head.md)).
+[ADR 0032](../docs/adrs/0032-review-agent-per-pr-head.md),
+[ADR 0033](../docs/adrs/0033-ws-cache-refs.md)).
 
 ![An agent waiting on a permission prompt, attached in the app](docs/needs-input.png)
 
@@ -38,12 +46,18 @@ Repos and Reviews sections, and a Settings page, are designed in
 | --- | --- |
 | ![](docs/done.png) | ![](docs/new-agent.png) |
 
+![A cached repo's branches, with the workspaces on each](docs/repos.png)
+
+| Adding a repo | Removing a repo |
+| --- | --- |
+| ![](docs/repos-add.png) | ![](docs/repos-remove.png) |
+
 The screenshots use sample data.
 
 ## Requirements
 
 - `ws` and Claude Code (2.1.302 or newer) on the PATH your login shell
-  sets. The app asks your login shell for its PATH, then adds
+  sets; the Repos section needs a `ws` with `ws cache refs`. The app asks your login shell for its PATH, then adds
   `~/.local/bin`, `~/go/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`.
 - The workspace root trusted in Claude Code once (see
   [`ws claude`](../docs/tools/ws-claude.md#trust)); the New agent dialog
@@ -61,14 +75,17 @@ $ make desktop-test   # typecheck, vitest, cargo test, clippy
 
 `cargo test -- --ignored` in `src-tauri` also runs two checks against your
 real setup: `list_live` prints the listing, `attach_live` attaches to
-the session in `WS_DESKTOP_ATTACH` for 4 s and detaches, and
-`conversation_live` prints that session's conversation.
+the session in `WS_DESKTOP_ATTACH` for 4 s and detaches,
+`conversation_live` prints that session's conversation, and `cache_live`
+prints the cache and the first repo's refs (it needs a `ws` with
+`ws cache refs`).
 
 ## Layout
 
 ```
 src-tauri/src/
   commands.rs   # the commands the frontend invokes
+  cache.rs      # the Repos section's commands: ws cache list, refs, resolve, update, add, remove
   model.rs      # merging ws list, claude agents, and job state into entries and statuses
   jobs.rs       # Claude Code's jobs/<id>/state.json, read best-effort
   transcript.rs # a session's transcript, read into conversation items
@@ -77,11 +94,13 @@ src-tauri/src/
   env.rs        # the login shell's PATH
 src/
   api.ts                    # typed invoke wrappers
-  features/agents/          # list, statuses, entry pane, agents slice
+  features/rail/            # the section rail and ⌘1–⌘4
+  features/agents/          # list, statuses, entry pane, agents slice, top-bar actions
+  features/repos/           # repo list, detail with branches and tags, add and remove dialogs, repos slice
   features/conversation/    # conversation view, tool call pairing, conversations slice
   features/terminals/       # xterm.js registry, terminal view, message box, terminals slice
   features/create/          # new agent and new shell dialogs
-  features/ui/              # selection, dialogs, notices
+  features/ui/              # section, agent selection, dialogs, notices
 ```
 
 ## Status
