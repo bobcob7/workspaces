@@ -124,6 +124,35 @@ See [Configuration](docs/config.md) for how `CONFIG_DIR` is chosen, the
 [Workspace state](docs/state.md) for what `ws` keeps under it, its locks,
 and when workspaces are removed.
 
+## Install
+
+Download the binary for your platform from the
+[latest release](https://github.com/bobcob7/workspaces/releases/latest),
+check it against `SHA256SUMS`, and install it on your `PATH` as `ws`:
+
+```console
+$ os=$(uname -s | tr '[:upper:]' '[:lower:]')
+$ arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+$ base=https://github.com/bobcob7/workspaces/releases/latest/download
+$ curl -fLO "$base/ws-$os-$arch" -fLO "$base/SHA256SUMS"
+$ shasum -a 256 --check --ignore-missing SHA256SUMS
+$ mkdir -p ~/.local/bin && install -m 755 "ws-$os-$arch" ~/.local/bin/ws
+```
+
+On Linux without `shasum`, check with
+`sha256sum --check --ignore-missing SHA256SUMS`.
+
+The macOS binaries aren't signed with an Apple Developer ID or notarized;
+the arm64 one has only the Go linker's ad-hoc signature. Downloaded with
+`curl` as above, they run. Downloaded with a browser, Gatekeeper blocks
+them; clear the quarantine flag with
+`xattr -d com.apple.quarantine ws-darwin-<arch>` before installing.
+
+Releases have binaries for darwin and linux, on amd64 and arm64, built
+with `CGO_ENABLED=0`, so the linux ones are static
+([0002](docs/adrs/0002-implementation-language.md)). To build from source
+instead, run `make build` and copy `bin/ws`.
+
 ## Requirements
 
 - `git` 2.23 or newer on `PATH`; `ws` shells out to it
@@ -185,8 +214,9 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   ([0014](docs/adrs/0014-command-set.md))
 - [x] **Desktop app** ([0029](docs/adrs/0029-desktop-app.md), proposed):
   agents grouped by status, attach and reply, new agents and shells
-- [ ] **Release**: `make dist` binaries for darwin and linux, amd64 and
-  arm64 ([0002](docs/adrs/0002-implementation-language.md))
+- [x] **Release**: `make dist` binaries for darwin and linux, amd64 and
+  arm64, with `SHA256SUMS`; CI, and a GitHub release for each `v*` tag
+  ([0002](docs/adrs/0002-implementation-language.md))
 
 ## Development
 
@@ -194,8 +224,15 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 $ make build      # bin/ws
 $ make test
 $ make lint       # golangci-lint; `make fmt` applies its formatters
+$ make dist       # dist/: a binary per platform, and SHA256SUMS
 $ make desktop    # desktop app bundle; `make desktop-dev`, `make desktop-test`
 ```
+
+CI lints, tests, and builds every pull request on Linux and macOS. To
+release, push a tag such as `v0.1.0`. The
+[release workflow](.github/workflows/release.yml) runs CI, then `make dist`,
+and attaches the binaries and checksums to a GitHub release for the tag. A
+tag with a `-`, such as `v0.2.0-rc.1`, is a prerelease.
 
 ```
 cmd/ws/                       # main: streams, signals, exit code
@@ -214,6 +251,7 @@ internal/
   writeonce/                  # files written once, never overwritten: config.toml, workspaces/CLAUDE.md
   backup/                     # Time Machine exclusion (0011)
   gittest/                    # local upstreams for tests, via insteadOf (0020)
+  exectest/                   # fake executables for tests
 desktop/                      # Tauri desktop app: Rust backend in src-tauri/, React frontend in src/ (0029)
 docs/
   adrs/                       # architecture decision records

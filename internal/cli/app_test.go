@@ -22,6 +22,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/gittest"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
@@ -547,6 +548,12 @@ func (e *lifetimeE2E) start(t *testing.T, name, id string) string {
 	require.Equal(t, exitOK, e.run(t, "claude", "--name", name, "n", "--", "fix it"), "stderr: %s", e.stderr.String())
 	id, _, ok := strings.Cut(e.stdout.String(), "  ")
 	require.True(t, ok, "ws claude printed %q", e.stdout.String())
+	// A child that a parallel test forked while creation held the lock
+	// holds it too until that child execs.
+	require.Eventually(t, func() bool {
+		held, err := lockfile.HeldExclusively(filepath.Join(e.paths.State, id, "lock"))
+		return err == nil && !held
+	}, 5*time.Second, 10*time.Millisecond, "creation lock still held")
 	return filepath.Join(e.paths.Workspaces, id)
 }
 
@@ -655,6 +662,6 @@ func fakeLifetimeClaude(t *testing.T, dir string) string {
 		`  esac ;;` + "\n" +
 		`*) exit 1 ;;` + "\n" +
 		"esac\n"
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	exectest.WriteScript(t, path, script)
 	return path
 }

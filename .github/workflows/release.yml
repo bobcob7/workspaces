@@ -1,0 +1,34 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.x
+          check-latest: true
+      # ADR 0002: every target builds with CGO_ENABLED=0; the linux ones
+      # must be static.
+      - run: make dist VERSION="$GITHUB_REF_NAME"
+      # A tag like v0.2.0-rc.1 is a prerelease, so it never becomes latest.
+      - run: |
+          flags=(--verify-tag --generate-notes)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* "${flags[@]}"
+        env:
+          GH_TOKEN: ${{ github.token }}

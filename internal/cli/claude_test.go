@@ -21,6 +21,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/gittest"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -127,7 +128,7 @@ func fakeClaudeScript(t *testing.T, dir, bgBody string) string {
 		`if [ "$1" = --version ]; then echo "2.1.303 (Claude Code)"; exit 0; fi` + "\n" +
 		`{ printf '%s\n' "$@"; echo "pwd=$(pwd -P)"; [ -e /dev/fd/3 ] && echo "fd3=open"; } > "` + dir + `/out"` + "\n" +
 		bgBody + "\n"
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	exectest.WriteScript(t, path, script)
 	return path
 }
 
