@@ -4,8 +4,9 @@
 //	<root>/<host>/<owner>/<name>/<sha>/<profile>.json
 //
 // is each profile's current submission, and a resubmission renames the one
-// before it to <profile>.<n>.json, n counting up from 1. Writes happen
-// under a lock per directory, through a temp file and a rename.
+// before it to <profile>.<n>.json, n counting up from 1. decisions.json
+// beside them holds the decisions on their findings (ADR 0040). Writes
+// happen under a lock per directory, through a temp file and a rename.
 package store
 
 import (
@@ -80,6 +81,11 @@ func (s *Store) Submit(ctx context.Context, id repo.ID, commit, profile string, 
 	superseded, err := supersede(dir, profile, current)
 	if err != nil {
 		return Submitted{}, err
+	}
+	if superseded != "" {
+		if err := dropDecisions(dir, profile); err != nil {
+			return Submitted{}, err
+		}
 	}
 	if err := writeFile(current, doc); err != nil {
 		return Submitted{}, fmt.Errorf("storing %s: %w", current, err)
@@ -156,7 +162,7 @@ func list(dir string) ([]File, error) {
 	files := []File{}
 	for _, e := range entries {
 		m := filePattern.FindStringSubmatch(e.Name())
-		if m == nil || !e.Type().IsRegular() {
+		if m == nil || !e.Type().IsRegular() || e.Name() == decisionsName {
 			continue
 		}
 		ordinal := 0
@@ -193,6 +199,9 @@ func checkKey(commit, profile string) error {
 	}
 	if !profilePattern.MatchString(profile) {
 		return fmt.Errorf("%q isn't a profile name", profile)
+	}
+	if profile+".json" == decisionsName {
+		return fmt.Errorf("%q can't be a profile name: its file would be %s", profile, decisionsName)
 	}
 	return nil
 }

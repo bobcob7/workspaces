@@ -120,7 +120,7 @@ func TestApp_newReviewCmd(t *testing.T) {
 		for _, c := range cmd.Commands() {
 			names = append(names, c.Name())
 		}
-		assert.ElementsMatch(t, []string{"start", "wait", "report", "profiles", "prime", "describe", "submit"}, names)
+		assert.ElementsMatch(t, []string{"start", "wait", "report", "decide", "acted", "profiles", "prime", "describe", "submit"}, names)
 	})
 	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"nope"}))

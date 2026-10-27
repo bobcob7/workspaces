@@ -110,12 +110,18 @@ func TestApp_newReviewReportCmd(t *testing.T) {
 	})
 }
 
+func TestApp_newReviewReportCmd_decided(t *testing.T) {
+	e := newReportApp(t)
+	assert.Equal(t, exitUsage, e.app.Run(t.Context(), []string{"review", "report", "--decided", "maybe", reportWorkspace}))
+	assert.Contains(t, e.stderr.String(), "--decided must be comment, fix, or skip")
+}
+
 func TestApp_runReviewReport(t *testing.T) {
 	t.Run("combines the submissions with the record and agent", func(t *testing.T) {
 		e := newReportApp(t)
 		e.submit(t, "security", reviewDoc("security"))
 		e.app.global.json = true
-		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, ""))
+		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", ""))
 		out := e.report(t)
 		assert.Equal(t, reviewedRepo, out["repo"])
 		assert.Equal(t, testCommit, out["ref"])
@@ -144,7 +150,7 @@ func TestApp_runReviewReport(t *testing.T) {
 		e.submit(t, "security", reviewDoc("security"))
 		e.submit(t, "security", reviewDoc("security", `"dropped-context-1"`, `"dropped-context-2"`))
 		e.app.global.json = true
-		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, ""))
+		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", ""))
 		out := e.typedReport(t)
 		require.Len(t, out.Comments, 1)
 		require.Len(t, out.Superseded, 1)
@@ -156,11 +162,11 @@ func TestApp_runReviewReport(t *testing.T) {
 		e.submit(t, "go", reviewDoc("go"))
 		e.app.global.json = true
 		subject := &reviewSubjectOptions{repo: reviewedRepo, ref: testCommit}
-		require.NoError(t, e.app.runReviewReport(t.Context(), nil, subject, ""))
+		require.NoError(t, e.app.runReviewReport(t.Context(), nil, subject, "", ""))
 		assert.NotNil(t, e.report(t)["review"])
 		e.stdout.Reset()
 		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) { return lifetime.Listing{}, nil }
-		require.NoError(t, e.app.runReviewReport(t.Context(), nil, subject, ""))
+		require.NoError(t, e.app.runReviewReport(t.Context(), nil, subject, "", ""))
 		out := e.report(t)
 		assert.Nil(t, out["review"])
 		assert.Nil(t, out["agent"])
@@ -171,31 +177,86 @@ func TestApp_runReviewReport(t *testing.T) {
 	})
 	t.Run("an unknown workspace is review_not_found", func(t *testing.T) {
 		e := newReportApp(t)
-		requireCode(t, codeReviewNotFound, e.app.runReviewReport(t.Context(), []string{"nope"}, &reviewSubjectOptions{}, ""))
+		requireCode(t, codeReviewNotFound, e.app.runReviewReport(t.Context(), []string{"nope"}, &reviewSubjectOptions{}, "", ""))
 	})
 	t.Run("a workspace without a record is review_not_found", func(t *testing.T) {
 		e := newReportApp(t)
 		require.NoError(t, os.Remove(record.Path(e.app.paths.State, reportWorkspace)))
-		requireCode(t, codeReviewNotFound, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, ""))
+		requireCode(t, codeReviewNotFound, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", ""))
 	})
 	t.Run("markdown by default, listing missing profiles", func(t *testing.T) {
 		e := newReportApp(t)
 		e.submit(t, "security", reviewDoc("security"))
-		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, ""))
+		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", ""))
 		assert.Contains(t, e.stdout.String(), "## security:dropped-context-1")
 		assert.Contains(t, e.stdout.String(), "\n**Missing** go\n")
 	})
 	t.Run("html", func(t *testing.T) {
 		e := newReportApp(t)
 		e.submit(t, "security", reviewDoc("security"))
-		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "html"))
+		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "html", ""))
 		assert.Contains(t, e.stdout.String(), "<!doctype html>")
+	})
+	t.Run("each current finding carries its decision", func(t *testing.T) {
+		e := newDecideApp(t)
+		require.NoError(t, e.decide(t, decideOptions{fix: true, hasSuggestion: true, note: "n", hasNote: true}, "security:dropped-context-1"))
+		require.NoError(t, e.acted(t, actedOptions{fixSent: "fix-1"}, "security:dropped-context-1"))
+		e.stdout.Reset()
+		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", ""))
+		comments := e.typedReport(t).Comments
+		require.Len(t, comments, 2)
+		assert.Equal(t, "go:dropped-context-1", comments[0].ID)
+		assert.Nil(t, comments[0].Decision)
+		assert.Equal(t, &store.Decision{
+			Decision: store.DecisionFix, Suggestion: new(0), Note: "n", At: testNow().UTC(),
+			Done: &store.Done{FixSent: "fix-1", At: testNow().UTC()},
+		}, comments[1].Decision)
+	})
+	t.Run("a resubmission drops its profile's decisions", func(t *testing.T) {
+		e := newDecideApp(t)
+		require.NoError(t, e.decide(t, decideOptions{skip: true}, "security:dropped-context-1", "go:dropped-context-1"))
+		e.submit(t, "security", reviewDoc("security"))
+		e.stdout.Reset()
+		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", ""))
+		out := e.typedReport(t)
+		require.Len(t, out.Comments, 2)
+		assert.NotNil(t, out.Comments[0].Decision, "go's decision stays")
+		assert.Nil(t, out.Comments[1].Decision, "security resubmitted")
+		require.Len(t, out.Superseded, 1)
+		assert.Nil(t, out.Superseded[0].Decision)
+	})
+	t.Run("--decided lists only the findings decided that way", func(t *testing.T) {
+		e := newDecideApp(t)
+		e.submit(t, "security", reviewDoc("security", `"dropped-context-1"`, `"dropped-context-2"`))
+		require.NoError(t, e.decide(t, decideOptions{fix: true}, "go:dropped-context-1"))
+		require.NoError(t, e.decide(t, decideOptions{skip: true}, "security:dropped-context-2"))
+		for decided, want := range map[string][]string{"fix": {"go:dropped-context-1"}, "skip": {"security:dropped-context-2"}, "comment": {}} {
+			e.stdout.Reset()
+			require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", decided))
+			out := e.typedReport(t)
+			ids := []string{}
+			for _, c := range out.Comments {
+				ids = append(ids, c.ID)
+			}
+			assert.Equal(t, want, ids, decided)
+			assert.Empty(t, out.Superseded, decided)
+			assert.Len(t, out.Profiles, 2, decided)
+		}
+	})
+	t.Run("--decided filters the markdown report too", func(t *testing.T) {
+		e := newDecideApp(t)
+		require.NoError(t, e.decide(t, decideOptions{fix: true}, "go:dropped-context-1"))
+		e.app.global.json = false
+		e.stdout.Reset()
+		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", "fix"))
+		assert.Contains(t, e.stdout.String(), "## go:dropped-context-1")
+		assert.NotContains(t, e.stdout.String(), "## security:dropped-context-1")
 	})
 	t.Run("an unreadable submission is a warning", func(t *testing.T) {
 		e := newReportApp(t)
 		e.submit(t, "security", "not json")
 		e.app.global.json = true
-		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, ""))
+		require.NoError(t, e.app.runReviewReport(t.Context(), []string{reportWorkspace}, &reviewSubjectOptions{}, "", ""))
 		assert.Equal(t, []any{"skipped 1 stored submission that couldn't be read"}, e.report(t)["warnings"])
 	})
 }

@@ -42,6 +42,8 @@ func (a *App) newReviewCmd() *cobra.Command {
 		a.newReviewStartCmd(),
 		a.newReviewWaitCmd(),
 		a.newReviewReportCmd(),
+		a.newReviewDecideCmd(),
+		a.newReviewActedCmd(),
 		a.newReviewProfilesCmd(),
 		a.newReviewPrimeCmd(),
 		a.newReviewDescribeCmd(),
