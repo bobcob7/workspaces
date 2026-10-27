@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -27,17 +28,55 @@ host = "github.com"
 # Owners to try, in order, for a bare repo name that isn't cached,
 # for example ["your-name", "your-org"].
 owners = []
+
+# [review]
+# How long ws review wait waits for a review by default.
+# timeout = "60m"
+#
+# Override a review profile's when (always, auto, or off), and pin its model.
+# [review.profiles.security]
+# when = "always"
+# model = "opus"
 `
+
+// defaultReviewTimeout is how long ws review wait waits when [review]
+// timeout isn't set (ADR 0039).
+const defaultReviewTimeout = 60 * time.Minute
 
 // Config is the contents of config.toml.
 type Config struct {
 	Defaults Defaults `toml:"defaults"`
+	Review   Review   `toml:"review"`
 }
 
 // Defaults drive short-name resolution (ADR 0007).
 type Defaults struct {
 	Host   string   `toml:"host"`
 	Owners []string `toml:"owners"`
+}
+
+// Review configures ws review (ADRs 0038, 0039).
+type Review struct {
+	// Timeout is how long ws review wait waits by default; zero for
+	// defaultReviewTimeout.
+	Timeout time.Duration `toml:"timeout"`
+	// Profiles override profiles' when and set their models, by name.
+	Profiles map[string]ReviewProfile `toml:"profiles"`
+}
+
+// ReviewProfile is [review.profiles.<name>]. Empty fields leave the
+// profile's own when, and the session's model.
+type ReviewProfile struct {
+	When  string `toml:"when"`
+	Model string `toml:"model"`
+}
+
+// WaitTimeout is [review] timeout, or 60 minutes when it isn't set.
+func (r *Review) WaitTimeout() time.Duration {
+	if r.Timeout == 0 {
+		return defaultReviewTimeout
+	}
+	return r.Timeout
 }
 
 // Default is the configuration used for keys config.toml leaves out.
@@ -80,7 +119,26 @@ func (c Config) normalize() (Config, error) {
 			owners = append(owners, owner)
 		}
 	}
-	return Config{Defaults: Defaults{Host: host, Owners: owners}}, nil
+	if err := c.Review.check(); err != nil {
+		return Config{}, err
+	}
+	return Config{Defaults: Defaults{Host: host, Owners: owners}, Review: c.Review}, nil
+}
+
+// check rejects a negative timeout and a when that isn't always, auto, or
+// off.
+func (r *Review) check() error {
+	if r.Timeout < 0 {
+		return fmt.Errorf("%w: review.timeout %s is negative", ErrInvalid, r.Timeout)
+	}
+	for name, p := range r.Profiles {
+		switch p.When {
+		case "", "always", "auto", "off":
+		default:
+			return fmt.Errorf("%w: review.profiles.%s.when must be always, auto, or off, not %q", ErrInvalid, name, p.When)
+		}
+	}
+	return nil
 }
 
 func validateHost(host string) error {

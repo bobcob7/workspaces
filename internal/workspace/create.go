@@ -26,6 +26,11 @@ type CreateOptions struct {
 	Specs []repo.Spec
 	// Offline skips fetching: every repo must already be cached.
 	Offline bool
+	// Prepare, if set, runs once the repos are cloned and workspace.toml
+	// is written, before the workspace is moved into place, so it can add
+	// its own records to state/<id>/ (ADR 0022). An error discards the
+	// workspace.
+	Prepare func(ws *Workspace) error
 }
 
 // target is a spec resolved to a cached or cacheable repo.
@@ -177,6 +182,11 @@ func (s *Store) build(ctx context.Context, id string, opts CreateOptions, target
 	}
 	if err := writeRecord(s.recordPath(id), &ws); err != nil {
 		return Workspace{}, err
+	}
+	if opts.Prepare != nil {
+		if err := opts.Prepare(&ws); err != nil {
+			return Workspace{}, err
+		}
 	}
 	if err := os.Rename(building, ws.Path); err != nil {
 		return Workspace{}, fmt.Errorf("moving %s into place: %w", id, err)
