@@ -101,7 +101,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws rm`](docs/tools/ws-rm.md)           | Remove workspaces and their sessions now             |
 | [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |
-| [`ws review`](docs/tools/ws-review.md)   | Start structured reviews and read their reports      |
+| [`ws review`](docs/tools/ws-review.md)   | Start structured reviews and triage their reports    |
 | [`ws llm`](docs/tools/ws-llm.md)         | Print guidance for AI agents                         |
 
 Commands are non-interactive, write results to stdout and diagnostics to
@@ -222,10 +222,11 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   [0037](docs/adrs/0037-review-engine-forked-from-loam-refinery.md)–[0041](docs/adrs/0041-desktop-acts-on-findings.md),
   accepted): `ws review start`, `wait`, and `report`; one subagent per
   reviewer profile; findings triaged, commented, and fixed from the
-  desktop app. Steps 1 and 2 of 6 are done: the forked review engine with
+  desktop app. Steps 1 to 3 of 6 are done: the forked review engine with
   `ws review prime`, `describe`, and `submit` and the review store; and
   `ws review start`, `wait`, `report`, and `profiles`, so agents can
-  review each other's work from a terminal
+  review each other's work from a terminal; and `ws review decide`,
+  `acted`, and `report --decided`, so they can triage it too
 
 ## Development
 

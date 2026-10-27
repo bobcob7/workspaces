@@ -86,6 +86,8 @@ func TestStore_Submit(t *testing.T) {
 		require.ErrorContains(t, err, "isn't a full commit")
 		_, err = s.Submit(t.Context(), id(t), commit, "../go", nil)
 		require.ErrorContains(t, err, "isn't a profile name")
+		_, err = s.Submit(t.Context(), id(t), commit, "decisions", nil)
+		require.ErrorContains(t, err, "can't be a profile name")
 	})
 	t.Run("fails when the store can't be created", func(t *testing.T) {
 		t.Parallel()
@@ -110,7 +112,7 @@ func TestStore_Files(t *testing.T) {
 		s := New(t.TempDir())
 		dir := s.Dir(id(t), commit)
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub.json"), 0o750))
-		for _, name := range []string{"tests.json", "go.10.json", "go.json", "go.2.json", "decisions.txt", ".tmp.json", "Go.json", "go.0.json"} {
+		for _, name := range []string{"tests.json", "go.10.json", "go.json", "go.2.json", "decisions.txt", "decisions.json", ".tmp.json", "Go.json", "go.0.json"} {
 			require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0o600))
 		}
 		files, err := s.Files(t.Context(), id(t), commit)

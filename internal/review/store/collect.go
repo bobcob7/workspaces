@@ -16,13 +16,23 @@ import (
 // #<ordinal>:<id> otherwise (ADR 0039). A file that can't be read or isn't
 // a JSON object is counted in Unreadable, not fatal.
 func (s *Store) Collect(ctx context.Context, id repo.ID, commit string) (*collect.Result, error) {
-	files, err := s.Files(ctx, id, commit)
+	result, _, err := s.Report(ctx, id, commit)
+	return result, err
+}
+
+// collectDir combines dir's submissions. The caller holds dir's lock.
+func collectDir(ctx context.Context, id repo.ID, commit, dir string) (*collect.Result, error) {
+	files, err := list(dir)
 	if err != nil {
 		return nil, err
 	}
+	return assemble(ctx, id, commit, files)
+}
+
+func assemble(ctx context.Context, id repo.ID, commit string, files []File) (*collect.Result, error) {
 	rows := make([]collect.DigestRow, 0, len(files))
 	for i, f := range files {
-		// Files is already in submission order; At carries that order, and
+		// files is already in submission order; At carries that order, and
 		// the path is the digest Assemble reads back.
 		rows = append(rows, collect.DigestRow{Digest: f.Path, At: time.Unix(int64(i), 0)})
 	}

@@ -32,6 +32,9 @@ const maxDescriptionRunes = 120
 // frontMatterFence is the line, alone, that opens and closes front matter.
 const frontMatterFence = "---"
 
+// reservedName can't name a profile; see validName.
+const reservedName = "decisions"
+
 // When says when a profile joins a review (ADR 0038).
 type When string
 
@@ -202,9 +205,10 @@ func (r *Reader) loadEntry(name, filename string) (Profile, bool, error) {
 
 // validName is the name charset: lowercase letters, digits, and hyphens
 // only. The charset alone is what makes a separator, "..", a leading dot,
-// and an absolute path all invalid.
+// and an absolute path all invalid. "decisions" is reserved: the store
+// keeps decisions.json beside each profile's <name>.json (ADR 0040).
 func validName(name string) bool {
-	if name == "" {
+	if name == "" || name == reservedName {
 		return false
 	}
 	for _, r := range name {

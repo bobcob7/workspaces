@@ -17,7 +17,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
 | `state/<id>/lock` | the workspace lock | by creation |
 | `state/<id>/review.toml` | a review workspace's record: repo, commit, profiles, requester, and pull request ([0039](adrs/0039-ws-review-command.md)) | by `ws review start`, before the workspace is moved into place; read by `ws review`, and shown as `review` by `ws list --json` |
-| `reviews/<host>/<owner>/<name>/<sha>/` | submitted reviews; see [Reviews](#reviews) | by `ws review submit`; outlives the workspace; removed by `ws cache prune` once the repo isn't cached |
+| `reviews/<host>/<owner>/<name>/<sha>/` | submitted reviews and the decisions on their findings; see [Reviews](#reviews) | by `ws review submit`, `decide`, and `acted`; outlives the workspace; removed by `ws cache prune` once the repo isn't cached |
 | `state/<id>/trust` | the Claude Code trust `ws claude` added for a one-repo workspace's repo ([0028](adrs/0028-single-repo-session-directory.md)) | once, before the trust is written; read by every removal, which takes the trust back |
 | `state/<id>/building/` | the workspace while it's being built ([0022](adrs/0022-workspace-record-before-rename.md)) | by creation, then moved |
 | `state/.removal-pass` | its modification time is when the removal pass last started ([0026](adrs/0026-removal-pass-timing.md)) | by the removal pass |
@@ -188,12 +188,38 @@ reviews/<host>/<owner>/<name>/<sha>/
   .lock               the directory's lock
   <profile>.json      the profile's current submission
   <profile>.<n>.json  its earlier submissions, n from 1, oldest first
+  decisions.json      the decisions on the current findings
 ```
+
+`decisions.json`, version 1
+([0040](adrs/0040-review-decisions-kept-with-findings.md)), maps a
+current finding's `<profile>:<id>` to its decision:
+
+```json
+{ "version": 1, "decisions": {
+  "security:dropped-context-1": {
+    "decision": "fix", "suggestion": 0, "note": "",
+    "at": "2026-10-26T18:30:00Z",
+    "done": null } } }
+```
+
+- `decision`: `comment`, `fix`, or `skip`. `suggestion`: an index into
+  the finding's suggestions, or null. `at`: when it was decided.
+- `done`: null, or how the decision was acted on, from `ws review acted`:
+  `{"commented": "<url>", "at": …}` or `{"fix_sent": "<agent>", "at": …}`.
+- No profile can be named `decisions`, so the file is never read as a
+  submission. A `decisions.json` of another version makes `ws review
+  report`, `decide`, and `acted` fail.
 
 - **Writing.** `ws review submit` takes the directory's lock exclusively,
   renames the profile's current file to the next free `<n>`, and writes
-  the new one through a temporary file renamed into place.
-- **Reading.** Readers take the lock shared. A report combines the files:
+  the new one through a temporary file renamed into place. A resubmission
+  also drops the profile's decisions, since its ids may now name other
+  findings. `ws review decide` and `acted` hold the same lock while they
+  check the findings against the current report and rewrite
+  `decisions.json` the same way.
+- **Reading.** Readers take the lock shared. A report combines the files,
+  with each current finding's decision:
   each profile's current submission, and the earlier ones marked
   superseded. Comment ids are qualified as `<profile>:<id>` for a current
   submission and `#<ordinal>:<id>` otherwise.

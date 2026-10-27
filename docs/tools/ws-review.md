@@ -1,7 +1,8 @@
 # ws review
 
-Structured reviews: start a review, wait for it, and read the combined
-report; and, for reviewers, check, store, and explain review documents.
+Structured reviews: start a review, wait for it, read the combined
+report, and decide what to do with each finding; and, for reviewers,
+check, store, and explain review documents.
 
 ## Synopsis
 
@@ -9,7 +10,9 @@ report; and, for reviewers, check, store, and explain review documents.
 # requesters
 ws review start [OPTIONS] <SPEC> [-- <CLAUDE ARGS>... [<FOCUS>]]
 ws review wait [--timeout <DURATION>] <ID>
-ws review report [--format json|markdown|html] (<ID> | --repo <REPO> --ref <SHA>)
+ws review report [--format json|markdown|html] [--decided comment|fix|skip] (<ID> | --repo <REPO> --ref <SHA>)
+ws review decide (<ID> | --repo <REPO> --ref <SHA>) <FINDING>... (--comment | --fix [--suggestion <N>] | --skip | --clear) [--note <TEXT>]
+ws review acted (<ID> | --repo <REPO> --ref <SHA>) <FINDING>... (--commented <URL> | --fix-sent <AGENT>)
 ws review profiles
 
 # reviewers, inside a review workspace
@@ -33,8 +36,9 @@ The format, its checks, and the guides come from a fork of
 A **review workspace** reviews one commit of one repo. Its record,
 `state/<id>/review.toml`, names the repo, the commit, and the profiles that
 review it, and who asked ([0039](../adrs/0039-ws-review-command.md)).
-`start`, `wait`, `report`, and `profiles` are the requester's: an agent
-that wants its pull request reviewed, or the desktop app. `prime`,
+`start`, `wait`, `report`, `decide`, `acted`, and `profiles` are the
+requester's: an agent that wants its pull request reviewed, or the
+desktop app. `prime`,
 `describe`, and `submit` are the reviewer's, and run inside a review
 workspace; outside one they fail with `review_not_found`.
 
@@ -103,7 +107,35 @@ Combines the submissions stored for the review's repo and commit
 `--repo host/owner/name` and `--ref <full SHA>`, which works after the
 workspace is removed. `--format markdown` (the default without `--json`)
 and `html` use the forked renderers; Markdown ends with the profiles that
-haven't submitted.
+haven't submitted. `--decided comment|fix|skip` lists only the findings
+decided that way: a fixer reads `--decided fix --json`.
+
+### `ws review decide`
+
+Records what to do with findings
+([0040](../adrs/0040-review-decisions-kept-with-findings.md)): `--comment`
+to post them, `--fix` to have them fixed, with `--suggestion <N>` (an
+index into the finding's `suggestions`) to choose how, or `--skip`.
+`--note` is kept with the decision; `--clear` removes it. Findings are
+named by their `<profile>:<id>` in the current report; a superseded
+finding (`#<n>:<id>`) or one not in the report fails with
+`finding_not_found`, and nothing is changed. Setting a decision replaces
+any earlier one, `done` included.
+
+Decisions are kept in the review's store directory, in `decisions.json`
+([state](../state.md#reviews)), so they outlive the review workspace and
+every reader of the report sees them. They belong to one commit: a review
+of a new commit starts undecided. A profile's resubmission drops the
+decisions on its findings, since the same id can then name a different
+finding.
+
+### `ws review acted`
+
+Records that decided findings were acted on
+([0041](../adrs/0041-desktop-acts-on-findings.md)), in the decision's
+`done`: `--commented <URL>` once findings decided `comment` are posted,
+and `--fix-sent <AGENT>` once findings decided `fix` are sent to an
+agent. Each finding must already be decided that way.
 
 ### `ws review profiles`
 
@@ -206,6 +238,7 @@ contract; the layout isn't.
 
 `ws llm review` tells an agent how to ask for a review and get the report
 back: start it, run `wait_command` in the background, and act when woken.
+It tells a fixer to read `ws review report --json --decided fix`.
 `ws llm review <op>` has each command's guide.
 
 ## Options
@@ -220,10 +253,16 @@ back: start it, run `wait_command` in the background, and act when woken.
 | `--offline` | `start`: don't fetch the cache |
 | `--timeout <DURATION>` | `wait`: give up after this long |
 | `--format json\|markdown\|html` | `report`: the output format |
-| `--repo <REPO>`, `--ref <SHA>` | `report`: the review by repo and commit |
+| `--decided comment\|fix\|skip` | `report`: only the findings decided this way |
+| `--repo <REPO>`, `--ref <SHA>` | `report`, `decide`, `acted`: the review by repo and commit |
+| `--comment`, `--fix`, `--skip`, `--clear` | `decide`: the decision; exactly one |
+| `--suggestion <N>` | `decide`: with `--fix`, the suggestion to apply, from 0 |
+| `--note <TEXT>` | `decide`: a note kept with the decision |
+| `--commented <URL>` | `acted`: the findings were posted in this review |
+| `--fix-sent <AGENT>` | `acted`: the findings were sent to this agent |
 | `--lens <NAME>,...` | `describe`: open these entries |
 | `--list` | `describe`: the index alone |
-| `--json` | `start`, `wait`, `report`, `profiles`, `submit`: print the result below |
+| `--json` | `start`, `wait`, `report`, `decide`, `acted`, `profiles`, `submit`: print the result below |
 
 `ws review start --json` prints [`ws claude`](ws-claude.md)'s result, plus
 the record and the command that waits for the report:
@@ -262,7 +301,7 @@ the record and the command that waits for the report:
     {"id": "security:dropped-context-1", "profile": "security", "priority": 9, "category": "correctness",
      "body": "…", "code": null, "anchors": [{"file": "client.go", "line": 3, "end_line": 5}],
      "suggestions": [{"summary": "…", "effort": "trivial", "scope": "line", "pros": ["…"], "cons": ["…"], "code": null}],
-     "decision": null}
+     "decision": {"decision": "fix", "suggestion": 0, "note": "", "at": "2026-10-26T18:30:00Z", "done": null}}
   ],
   "superseded": [],
   "warnings": []
@@ -277,8 +316,28 @@ the record and the command that waits for the report:
 - `comments` are the current submissions' findings, `<profile>:<id>`;
   `superseded` holds those of submissions a resubmission replaced,
   `#<n>:<id>`.
-- `decision` is [0040](../adrs/0040-review-decisions-kept-with-findings.md)'s,
-  null until `ws review decide` exists.
+- `decision` is the finding's decision, or null when undecided, and
+  always for a superseded finding. `suggestion` is an index into
+  `suggestions`, or null. `done` is null until `ws review acted`:
+  `{"commented": "<url>", "at": …}` or `{"fix_sent": "<agent>", "at": …}`.
+- With `--decided`, `comments` holds only the findings decided that way
+  and `superseded` is empty.
+
+`ws review decide --json` and `acted --json` print each finding named,
+with its decision, or null once cleared:
+
+```json
+{
+  "repo": "github.com/bobcob7/buff-bear",
+  "ref": "3f2a9c1e…",
+  "decisions": {
+    "security:dropped-context-1": {"decision": "fix", "suggestion": 0, "note": "",
+      "at": "2026-10-26T18:30:00Z", "done": {"fix_sent": "fix-buff-bear-42-3f2a9c1-0c4e1a2b", "at": "2026-10-26T18:31:00Z"}},
+    "go:naked-return-2": null
+  },
+  "warnings": []
+}
+```
 
 `ws review profiles --json` prints:
 
@@ -320,7 +379,10 @@ the record and the command that waits for the report:
 | `start`: `--requester` names no workspace | `workspace_not_found` | 3 |
 | `start`: what [`ws claude`](ws-claude.md#errors) fails with | | |
 | `wait`: still running after `--timeout` | `review_timeout` | 1 |
-| `wait`, `report`: no such workspace, or it has no review record | `review_not_found` | 3 |
+| `wait`, `report`, `decide`, `acted`: no such workspace, or it has no review record | `review_not_found` | 3 |
+| `decide`: not exactly one of `--comment`, `--fix`, `--skip`, `--clear`; `--suggestion` without `--fix` or past the finding's suggestions; `--note` with `--clear` | `usage` | 2 |
+| `acted`: not exactly one of `--commented` and `--fix-sent`, or a finding not decided `comment` or `fix` to match | `usage` | 2 |
+| `decide`, `acted`: a finding isn't in the current report, or is superseded; `details.findings` lists them | `finding_not_found` | 3 |
 | A profile file can't be read or parsed | `config_invalid` | 1 |
 | The review has errors: revise and resubmit | `review_invalid` | 1 |
 | The anchors can't be checked: the checkout diverged from the commit, or doesn't have it | `review_unverifiable` | 1 |
@@ -338,6 +400,9 @@ $ ws review start --json --pr 42 buff-bear -- "Look hard at the retry loop"
 $ ws review wait --json review-buff-bear-42-3f2a9c1-d8efb24f
 $ ws review report --repo github.com/bobcob7/buff-bear --ref 3f2a9c1e4b5d6f7a8b9c0d1e2f3a4b5c6d7e8f90
 $ ws review report --format html review-buff-bear-42-3f2a9c1-d8efb24f > report.html
+$ ws review decide review-buff-bear-42-3f2a9c1-d8efb24f security:dropped-context-1 --fix --suggestion 0
+$ ws review report --json --decided fix review-buff-bear-42-3f2a9c1-d8efb24f
+$ ws review acted review-buff-bear-42-3f2a9c1-d8efb24f security:dropped-context-1 --fix-sent fix-buff-bear-42-3f2a9c1-0c4e1a2b
 $ ws review profiles
 $ ws review prime --profile security
 $ ws review describe --lens=review-profile

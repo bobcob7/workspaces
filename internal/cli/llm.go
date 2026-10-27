@@ -45,6 +45,8 @@ func guideTopics() []string {
 		"review start",
 		"review wait",
 		"review report",
+		"review decide",
+		"review acted",
 		"review profiles",
 		"review prime",
 		"review describe",

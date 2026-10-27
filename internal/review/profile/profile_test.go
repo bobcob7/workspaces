@@ -41,6 +41,7 @@ func TestReader_Load_Outcomes(t *testing.T) {
 	dir := t.TempDir()
 	writeProfile(t, dir, "good.md", validFrontMatter("A valid profile")+"Body text.\n")
 	writeProfile(t, dir, "broken.md", "---\ndescription: ok\n---\n")
+	writeProfile(t, dir, "decisions.md", validFrontMatter("Reserved")+"Body text.\n")
 	r := New(dir)
 	t.Run("valid name and file", func(t *testing.T) {
 		t.Parallel()
@@ -59,6 +60,13 @@ func TestReader_Load_Outcomes(t *testing.T) {
 	t.Run("name is not a valid name", func(t *testing.T) {
 		t.Parallel()
 		p, ok, err := r.Load("UPPERCASE")
+		require.NoError(t, err)
+		assert.False(t, ok)
+		assert.Zero(t, p)
+	})
+	t.Run("decisions is reserved for the store's decisions.json", func(t *testing.T) {
+		t.Parallel()
+		p, ok, err := r.Load("decisions")
 		require.NoError(t, err)
 		assert.False(t, ok)
 		assert.Zero(t, p)

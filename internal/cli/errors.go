@@ -48,6 +48,8 @@ const (
 	codeGhMissing          errorCode = "gh_missing"
 	codeGhAuth             errorCode = "gh_auth"
 	codePRNotFound         errorCode = "pr_not_found"
+	// From ADR 0040.
+	codeFindingNotFound errorCode = "finding_not_found"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -95,7 +97,7 @@ func (c errorCode) exitCode() int {
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
-		codeReviewNotFound, codePRNotFound:
+		codeReviewNotFound, codePRNotFound, codeFindingNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch:
 		return exitRefused

@@ -42,17 +42,21 @@ type reviewSubjectOptions struct {
 
 func (a *App) newReviewReportCmd() *cobra.Command {
 	var subject reviewSubjectOptions
-	var format string
+	var format, decided string
 	cmd := &cobra.Command{
-		Use:   "report [--format json|markdown|html] (<ID> | --repo <REPO> --ref <SHA>)",
+		Use:   "report [--format json|markdown|html] [--decided comment|fix|skip] (<ID> | --repo <REPO> --ref <SHA>)",
 		Short: "Print a review's combined report",
 		Args:  reviewSubjectArgs(&subject),
 		RunE: runE(a.withConfigUnswept(func(cmd *cobra.Command, args []string) error {
-			return a.runReviewReport(cmd.Context(), args, &subject, format)
+			if cmd.Flags().Changed("decided") && !slices.Contains([]string{store.DecisionComment, store.DecisionFix, store.DecisionSkip}, decided) {
+				return usageErrorf("--decided must be comment, fix, or skip, not %q", decided)
+			}
+			return a.runReviewReport(cmd.Context(), args, &subject, format, decided)
 		})),
 	}
 	addReviewSubjectFlags(cmd, &subject)
 	cmd.Flags().StringVar(&format, "format", "", "json, markdown, or html; default: json with --json, else markdown")
+	cmd.Flags().StringVar(&decided, "decided", "", "list only the findings decided comment, fix, or skip")
 	return cmd
 }
 
@@ -185,7 +189,8 @@ func (a *App) findReviewByCommit(subject *reviewSubjectOptions, listing *lifetim
 }
 
 // runReviewReport prints the review's combined report.
-func (a *App) runReviewReport(ctx context.Context, args []string, opts *reviewSubjectOptions, format string) error {
+// With decided set, it lists only the findings decided that way.
+func (a *App) runReviewReport(ctx context.Context, args []string, opts *reviewSubjectOptions, format, decided string) error {
 	format, err := a.reportFormat(format)
 	if err != nil {
 		return err
@@ -198,7 +203,7 @@ func (a *App) runReviewReport(ctx context.Context, args []string, opts *reviewSu
 	if err != nil {
 		return err
 	}
-	return a.printReport(ctx, &subject, format)
+	return a.printReport(ctx, &subject, format, decided)
 }
 
 // reportSubject finds the review a workspace, or --repo and --ref, name.
@@ -257,7 +262,7 @@ func (a *App) runReviewWait(ctx context.Context, arg string, timeout time.Durati
 			return err
 		}
 		if reviewFinished(subject.agent) {
-			return a.printReport(ctx, &subject, format)
+			return a.printReport(ctx, &subject, format, "")
 		}
 		select {
 		case <-ctx.Done():
@@ -319,8 +324,9 @@ type reviewCommentJSON struct {
 	Code        *string                `json:"code"`
 	Anchors     []reviewAnchorJSON     `json:"anchors"`
 	Suggestions []reviewSuggestionJSON `json:"suggestions"`
-	// Decision is ADR 0040's; null until ws review decide exists.
-	Decision any `json:"decision"`
+	// Decision is ADR 0040's, set with ws review decide; null when
+	// undecided, and always for a superseded finding.
+	Decision *store.Decision `json:"decision"`
 }
 
 type reviewAnchorJSON struct {
@@ -339,16 +345,23 @@ type reviewSuggestionJSON struct {
 }
 
 // printReport combines the subject's submissions and prints them in
-// format.
-func (a *App) printReport(ctx context.Context, subject *reviewSubject, format string) error {
-	result, err := store.New(a.paths.Reviews).Collect(ctx, subject.id, subject.ref)
+// format. With decided set, only the findings decided that way are
+// listed.
+func (a *App) printReport(ctx context.Context, subject *reviewSubject, format, decided string) error {
+	result, decisions, err := store.New(a.paths.Reviews).Report(ctx, subject.id, subject.ref)
 	if err != nil {
 		return err
 	}
 	if result.Unreadable > 0 {
 		a.warned = append(a.warned, fmt.Sprintf("skipped %s that couldn't be read", plural(result.Unreadable, "stored submission")))
 	}
-	report := buildReport(subject, result)
+	if decided != "" {
+		result.Comments = slices.DeleteFunc(result.Comments, func(c collect.Comment) bool {
+			d, ok := decisions[c.ID]
+			return strings.HasPrefix(c.ID, "#") || !ok || d.Decision != decided
+		})
+	}
+	report := buildReport(subject, result, decisions)
 	report.Warnings = a.warnings()
 	if format == formatJSON {
 		return a.writeJSON(report)
@@ -388,8 +401,9 @@ func (a *App) writeMarkdownReport(envelope *render.CollectReviewsEnvelope, repor
 	return err
 }
 
-// buildReport is the JSON report of result for subject.
-func buildReport(subject *reviewSubject, result *collect.Result) reviewReportJSON {
+// buildReport is the JSON report of result for subject, with each current
+// finding's decision.
+func buildReport(subject *reviewSubject, result *collect.Result, decisions store.Decisions) reviewReportJSON {
 	report := reviewReportJSON{
 		Repo: subject.id.String(), Ref: subject.ref, Review: subject.record, Agent: subject.agent,
 		Profiles: reportProfiles(subject.record, result.Submissions), Comments: []reviewCommentJSON{}, Superseded: []reviewCommentJSON{},
@@ -398,9 +412,12 @@ func buildReport(subject *reviewSubject, result *collect.Result) reviewReportJSO
 		c := reportComment(&result.Comments[i])
 		if strings.HasPrefix(c.ID, "#") {
 			report.Superseded = append(report.Superseded, c)
-		} else {
-			report.Comments = append(report.Comments, c)
+			continue
 		}
+		if d, ok := decisions[c.ID]; ok {
+			c.Decision = &d
+		}
+		report.Comments = append(report.Comments, c)
 	}
 	return report
 }

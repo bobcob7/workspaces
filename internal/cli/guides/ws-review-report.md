@@ -1,7 +1,7 @@
 # ws review report
 
 ```
-ws review report [--format json|markdown|html] [--json] (<id> | --repo <repo> --ref <sha>)
+ws review report [--format json|markdown|html] [--decided comment|fix|skip] [--json] (<id> | --repo <repo> --ref <sha>)
 ```
 
 Combines a review's stored submissions into one report. Name the review
@@ -18,6 +18,7 @@ submission's are `#<n>:<id>`, under `superseded`.
 | Flag                | Meaning                                                          |
 | ------------------- | ---------------------------------------------------------------- |
 | `--format <f>`      | `json`, `markdown` (the default without `--json`), or `html`     |
+| `--decided <d>`     | List only the findings decided `comment`, `fix`, or `skip`       |
 | `--repo <repo>`     | The reviewed repo's id, with `--ref`                             |
 | `--ref <sha>`       | The reviewed commit, all 40 characters, with `--repo`            |
 | `--json`            | Print the report as JSON; the same as `--format json`            |
@@ -39,7 +40,7 @@ submission's are `#<n>:<id>`, under `superseded`.
     {"id": "security:dropped-context-1", "profile": "security", "priority": 9, "category": "correctness",
      "body": "…", "code": null, "anchors": [{"file": "client.go", "line": 3, "end_line": 5}],
      "suggestions": [{"summary": "…", "effort": "trivial", "scope": "line", "pros": [], "cons": [], "code": null}],
-     "decision": null}
+     "decision": {"decision": "fix", "suggestion": 0, "note": "", "at": "2026-10-26T18:30:00Z", "done": null}}
   ],
   "superseded": [],
   "warnings": []
@@ -54,13 +55,21 @@ submission's are `#<n>:<id>`, under `superseded`.
   profiles isn't an error.
 - `priority` runs from 1 to 10: 9–10 must fix, 7–8 should fix, 4–6 worth
   fixing, 1–3 optional.
-- `decision` is always null for now.
+- `decision`: what `ws review decide` chose for the finding, or
+  null when it's undecided. `suggestion` is the chosen suggestion's index,
+  or null. `done` is null until `ws review acted` records the action:
+  `{"commented": "<url>", "at": …}` or `{"fix_sent": "<agent>", "at": …}`.
+  Superseded findings have no decision.
+- With `--decided`, `comments` lists only the findings decided that way,
+  and `superseded` is empty; `profiles` is unchanged. **To fix a review's
+  findings**, read `--decided fix --json`: each finding, its chosen
+  suggestion, and the note.
 
 ## Exit codes
 
 | Situation                                          | Error code         | Exit |
 | -------------------------------------------------- | ------------------ | ---- |
-| Both or neither of a workspace and `--repo`/`--ref`, a short `--ref`, or an unknown `--format` | `usage` | 2 |
+| Both or neither of a workspace and `--repo`/`--ref`, a short `--ref`, or an unknown `--format` or `--decided` | `usage` | 2 |
 | No such workspace, or it isn't a review            | `review_not_found` | 3    |
 
 ## Examples
@@ -68,5 +77,6 @@ submission's are `#<n>:<id>`, under `superseded`.
 ```console
 $ ws review report --json review-buff-bear-42-3f2a9c1-d8efb24f
 $ ws review report --json --repo github.com/bobcob7/buff-bear --ref 3f2a9c1e4b5d6f7a8b9c0d1e2f3a4b5c6d7e8f90
+$ ws review report --json --decided fix review-buff-bear-42-3f2a9c1-d8efb24f
 $ ws review report --format html review-buff-bear-42-3f2a9c1-d8efb24f > report.html
 ```
