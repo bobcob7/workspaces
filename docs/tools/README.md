@@ -10,7 +10,7 @@
 | [`ws rm`](ws-rm.md)           | Remove workspaces and their sessions now                 |
 | [`ws rename`](ws-rename.md)   | Change a workspace's display name                        |
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |
-| [`ws review`](ws-review.md)   | Check, store, and explain structured reviews             |
+| [`ws review`](ws-review.md)   | Start structured reviews, wait for their reports, and check, store, and explain reviews |
 | [`ws llm`](ws-llm.md)         | Print guidance for AI agents                             |
 
 > Not every command is implemented yet; the
@@ -32,6 +32,10 @@ $ ws claude buff-bear@feat/new-thing
 
 # Open a shell in a new workspace
 $ ws shell buff-bear@main
+
+# Get a pull request reviewed, then wait for the report
+$ ws review start --pr 42 buff-bear
+$ ws review wait review-buff-bear-42-3f2a9c1-d8efb24f
 
 # After a reboot
 $ ws restore
@@ -145,9 +149,9 @@ and messages aren't ([0016](../adrs/0016-output-contract.md)).
 | Exit | Meaning                       | Error codes |
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
-| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable` |
+| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth` |
 | 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found` |
 | 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch` |
 
 `ws shell` exits with the shell's exit code once the shell has started,

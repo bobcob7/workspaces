@@ -83,6 +83,15 @@ host = "github.com"
 # Owners to try, in order, for a bare repo name that isn't cached,
 # for example ["your-name", "your-org"].
 owners = []
+
+# [review]
+# How long ws review wait waits for a review by default.
+# timeout = "60m"
+#
+# Override a review profile's when (always, auto, or off), and pin its model.
+# [review.profiles.security]
+# when = "always"
+# model = "opus"
 ```
 
 - **It's never overwritten.** Edit it freely; `ws` only reads it from then
@@ -124,6 +133,42 @@ Example, for someone whose repos are mostly on a company GitLab:
 [defaults]
 host = "gitlab.example.com"
 owners = ["platform", "platform/tools", "me"]
+```
+
+### `[review]`
+
+How `ws review` runs reviews ([0038](adrs/0038-review-fans-out-to-profile-subagents.md),
+[0039](adrs/0039-ws-review-command.md)).
+
+| Key       | Type     | Default | Used for |
+| --------- | -------- | ------- | -------- |
+| `timeout` | duration | `"60m"` | how long [`ws review wait`](tools/ws-review.md#ws-review-wait) waits without `--timeout`; a Go duration such as `"90m"` or `"2h"` |
+
+### `[review.profiles.<name>]`
+
+One table per review profile you want to change; `ws review profiles`
+lists the names. `ws review start`'s `--profile` and `--auto` replace the
+set these choose, but a profile they name still takes its `model` from
+here unless the flag gives one.
+
+| Key     | Type   | Default            | Used for |
+| ------- | ------ | ------------------ | -------- |
+| `when`  | string | the profile's own  | `always`: every review; `auto`: a review whose changed files match the profile's patterns; `off`: only when asked for with `--profile` |
+| `model` | string | `""`, the session's | the model of the profile's reviewer subagent: `sonnet`, `opus`, `haiku`, `fable`, a full model id, or `inherit` |
+
+Rules: `timeout` can't be negative; `when` must be `always`, `auto`, or
+`off`. A `<name>` that isn't a profile makes `ws review start` fail with
+`profile_unknown`.
+
+```toml
+[review]
+timeout = "90m"
+
+[review.profiles.security]
+model = "opus"
+
+[review.profiles.efficiency]
+when = "auto"
 ```
 
 ### Keys that aren't here

@@ -204,12 +204,18 @@ every ref is kept while a workspace is being created, since it may be about
 to check one out. If a workspace record can't be read, nothing is pruned,
 since that workspace might use one of the refs.
 
+Then delete the stored reviews of every repo that is no longer cached:
+`reviews/<host>/<owner>/<name>/`, with every commit's submissions
+([0039](../adrs/0039-ws-review-command.md), [state](../state.md#reviews)).
+
 ```console
 $ ws cache prune
 pruned  github.com/bobcob7/buff-bear  9b1d22a0c7e1f3a8b2d4c6e8f0a1b3c5d7e9f1a2
+pruned reviews  github.com/bobcob7/old-repo  /Users/me/Library/Application Support/workspaces/reviews/github.com/bobcob7/old-repo
 
 $ ws cache prune --json -n
 { "refs": [ { "id": "github.com/bobcob7/buff-bear", "commit": "9b1d22a0c7…" } ],
+  "reviews": [ { "id": "github.com/bobcob7/old-repo", "path": "/…/reviews/github.com/bobcob7/old-repo" } ],
   "warnings": [] }
 ```
 
