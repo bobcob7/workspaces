@@ -7,7 +7,7 @@
 
 ### Problem
 
-With decisions kept per finding ([0040](0040-desktop-renders-report-and-keeps-triage.md)),
+With decisions kept per finding in the review's store ([0040](0040-review-decisions-kept-with-findings.md)),
 the app needs two actions: **Comment** puts the chosen findings on the
 pull request, and **Fix** gets the chosen findings fixed, with the chosen
 suggestion for each. How is each carried out?
@@ -20,8 +20,8 @@ suggestion for each. How is each carried out?
 2. **Comments land on the right lines**, at the commit that was reviewed.
 3. **A fix goes to whoever owns the change**: preferably the agent that
    asked for the review and has the branch checked out.
-4. **Done once.** An action already taken shows as done and isn't repeated
-   by accident.
+4. **Done once.** An action already taken shows as done, to the app and to
+   agents, and isn't repeated by accident.
 
 ### Relevant facts
 
@@ -67,9 +67,9 @@ suggestion for each. How is each carried out?
    comments may show as outdated.
 3. **Post** with one `gh api --method POST
    repos/<owner>/<repo>/pulls/<n>/reviews --input -`, `commit_id` set to
-   the reviewed commit. Success records `done: {"kind": "comment", "at",
-   "url"}` on each posted decision; failure shows `gh`'s message, posts
-   nothing, and keeps the decisions.
+   the reviewed commit. Success runs `ws review acted … --commented <url>`
+   for the posted findings ([0040](0040-review-decisions-kept-with-findings.md));
+   failure shows `gh`'s message, posts nothing, and keeps the decisions.
 
 **Fix.** A dialog lists the selected findings and a target:
 
@@ -81,13 +81,12 @@ suggestion for each. How is each carried out?
   a fork PR, the agent starts at the reviewed commit and is told to push
   a `fix/pr-<n>-<sha7>` branch to `origin` instead.
 
-The message (or the new agent's task) lists, per finding: the qualified id,
-priority, category, body, anchors, and the chosen suggestion's summary,
-code, effort, and scope, or "choose a fix" when none was chosen; the
-person's note; the command to read the full report (`ws review report
-<id> --json`, or `--repo --ref`); and to push when done, and start a new
-review with `ws review start --pr <n>`. Sending records `done: {"kind":
-"fix", "at", "agent"}`.
+The message (or the new agent's task) is short, because the decisions are
+in the store: the findings' qualified ids and titles, the command that
+lists them in full with the chosen fixes and notes (`ws review report
+<review> --decided fix --json`, or `--repo --ref`), and to push when done
+and start a new review with `ws review start --pr <n>`. Sending runs `ws
+review acted … --fix-sent <agent>`.
 
 A decision with `done` set shows as done, and is included in a later
 action only if the person ticks it again.
@@ -103,7 +102,8 @@ action only if the person ticks it again.
 3. The requester usually wrote the change and has its branch; sending it
    the findings closes the loop 0039 opens. The fix agent covers a review
    started by hand or a requester that's gone.
-4. `done` records make repeats deliberate.
+4. `done`, kept with the decision, makes repeats deliberate, and tells the
+   fix agent which findings are already handled.
 
 It's weak in two ways: the hunk parser is a small piece of diff logic the
 app owns, and a message typed into the requester's terminal arrives as
@@ -140,6 +140,8 @@ own, and two agents that may push to the same branch.
 - The hunk parser, the placement rules, the `@` escaping, and the request
   body are unit-tested in `reviews::comment` with captured `pulls/files`
   output; the fix message and target choice in `reviews::fix`.
+- A fix agent that reads `--decided fix` sees the person's choices
+  exactly, rather than a copy pasted into its prompt.
 - Agents that read the report themselves (`ws review wait`) can fix
   without the app; Comment stays app-only, so agents never post to GitHub.
 - **Unverified:** that GitHub accepts `subject_type: file` comments inside

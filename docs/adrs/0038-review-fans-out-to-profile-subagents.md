@@ -1,4 +1,4 @@
-# 0038. A review stays one agent per PR head, which runs one Claude Code subagent per loam-refinery profile and checks that each one submitted
+# 0038. A review stays one agent per PR head; `ws` chooses its profiles and defines one Claude Code subagent per profile, with that profile's model
 
 - Status: Proposed
 - Date: 2026-10-26
@@ -7,13 +7,13 @@
 
 ### Problem
 
-loam-refinery reviewers are focused by **profiles** (`architecture`,
-`claims`, `compatibility`, `efficiency`, `security`, `tests`, `go`,
-`typescript`), and `collect-reviews` combines one review per profile into
-one report ([0037](0037-loam-refinery-as-external-binary.md)). A review
-today is one `ws claude` agent at the PR head
-([0032](0032-review-agent-per-pr-head.md)). How do several profiles review
-one commit: several agents, or one?
+Reviewers are focused by **profiles** (`architecture`, `claims`,
+`compatibility`, `efficiency`, `security`, `tests`, `go`, `typescript`),
+now `ws`'s own ([0037](0037-review-engine-forked-from-loam-refinery.md)),
+and a report combines one review per profile. A review today is one `ws
+claude` agent at the PR head ([0032](0032-review-agent-per-pr-head.md)).
+How do several profiles review one commit, which profiles run, and how
+does each get the model chosen for it?
 
 ### What a solution needs
 
@@ -21,127 +21,139 @@ one commit: several agents, or one?
    `ws list`, and starting it twice is harmless.
 2. **Each profile reviews independently**, so one reviewer's framing
    doesn't flatten the others.
-3. **Complete or visibly incomplete**: a report missing a requested
-   profile must say so.
-4. **Cost** in clones, sessions, and the auto-review cap stays bounded.
+3. **Profiles and models are chosen by the person**, per profile, and
+   applied as chosen, not left to the review agent's judgment.
+4. **Complete or visibly incomplete**.
+5. **Cost** in clones, sessions, and the auto-review cap stays bounded.
 
 ### Relevant facts
 
-- Claude Code subagents: "Each subagent runs in its own context window with
-  a custom system prompt, specific tool access, and independent
-  permissions"; "Background subagents run concurrently"; "A subagent starts
-  in the main conversation's current working directory"; spawning beyond
-  20 concurrent ones fails[^cc-subagents].
-- `loam-refinery prime --profile=<p>` appends the profile's guidance to
-  the workflow; `prime --list` lists profiles as JSON[^lr-prime]. A
-  submission's `profile` is caller-authored, and resubmitting under the
-  same profile supersedes the earlier one in `collect-reviews`[^lr-collect].
-- `collect-reviews` lists `submissions[]` with `profile`, `verdict`, and a
-  `severity` summary, and qualifies each comment as `<profile>:<id>`
-  (`#<ordinal>:<id>` for unprofiled or superseded ones)[^lr-collect].
-- Verification needs the working tree to match `ref` for anchored files;
-  an untracked file elsewhere in the repo didn't stop it
-  ([0037](0037-loam-refinery-as-external-binary.md), `bench-lr`).
+- Claude Code subagents: "Each subagent runs in its own context window
+  with a custom system prompt, specific tool access, and independent
+  permissions"; "Background subagents run concurrently"; "A subagent
+  starts in the main conversation's current working directory"; more than
+  20 at once fails[^cc-subagents].
+- Subagents can be defined for a session with `claude --agents <json>`,
+  "a JSON object defining custom agents", whose entries take `description`,
+  `prompt`, `tools`, and `model`[^cc-help][^cc-subagents]. `model` is
+  "`sonnet`, `opus`, `haiku`, `fable`, a full model ID such as
+  `claude-opus-5-5`, or `inherit`"; a per-invocation `model` parameter
+  takes precedence over it[^cc-subagents].
+- `ws claude` passes everything after `--` to `claude --bg`, except
+  `--settings` ([`ws claude`](../tools/ws-claude.md)).
+- loam-refinery's profile files are Markdown with a `description` in
+  front matter[^lr-profile].
 - Each workspace is a hard-linked clone plus a Claude Code session
   ([0017](0017-clones-not-worktrees.md)).
 
 ## Decision
 
-We will keep one review agent per PR head and make its task an
-orchestration prompt that `ws` embeds (`internal/review/prompt.md`), filled
-with the repo, commit, PR, and profiles:
+We will keep one review agent per PR head, and have `ws review start`
+choose the profiles and define a subagent for each.
 
-1. **Profiles.** The required set comes from `--profile` (repeatable),
-   else `[review] profiles` in `config.toml`, else `architecture`,
-   `claims`, `security`, `tests`. `ws` checks each against `prime --list`
-   before starting (`profile_unknown`, exit 2). The agent may **add**
-   language profiles from `prime --list` that match the changed files
-   (`go` for `.go`, `typescript` for `.ts`/`.tsx`); it may not drop one.
-2. **Fan-out.** The agent starts one background subagent per profile. Each
-   runs `loam-refinery prime --profile=<p>`, reviews the diff against the
-   base (or the commit alone without a PR), sets `profile` and `ref` in its
-   document, and submits with `loam-refinery submit-review -` until exit 0.
-   Exit 2, 3, or 101 stops that subagent and is reported.
-3. **No writes.** Review documents go on stdin or under `$CLAUDE_JOB_DIR`,
-   never in the repo; the agent never commits, pushes, or comments on
-   GitHub.
-4. **Completion check.** The agent runs `loam-refinery collect-reviews
-   --ref=<sha>` and re-runs any required profile with no current
-   submission, once. Its final message (the job result the app shows) is
-   one line per profile: verdict and the count of priority 7+ findings,
-   then any profile that failed and why.
-5. **Extra instructions** from `ws review start -- … <text>`, or the
-   app's template setting, are appended under "From the requester".
+**Profiles.** A profile file's front matter gains two keys:
 
-`ws review report` compares the record's profiles with the current
-submissions and lists the difference as `missing_profiles`
-([0039](0039-ws-review-command.md)), so completeness doesn't rest on the
-agent's word.
+```markdown
+---
+description: Go: concurrency, error wrapping, context handling, hot-path cost, and tests
+when: auto          # always | auto | off
+match: ["*.go", "go.mod"]
+---
+```
+
+Built in: `architecture`, `claims`, `security`, `tests` are `always`;
+`go` (`*.go`, `go.mod`) and `typescript` (`*.ts`, `*.tsx`) are `auto`;
+`compatibility` and `efficiency` are `off`. `config.toml` can override
+`when` and set a `model` per profile under `[review.profiles.<name>]`.
+
+**Choosing.** `ws review start` takes `--profile NAME[:MODEL]` and `--auto
+NAME[:MODEL]`, both repeatable; given either, they replace the
+configured set. `ws` lists the files the review covers (`git diff
+--name-only <base>...<head>` in the cache with `--pr`, else the commit
+against its first parent) and adds each `auto` profile with a matching
+file. The record ([0039](0039-ws-review-command.md)) holds the final
+list, each with its model (`""` for the session's).
+
+**Defining.** The session is started with `--agents`, one entry per
+profile:
+
+```json
+{"review-security": {
+  "description": "Reviews this commit as the security profile and submits with ws review submit",
+  "prompt": "<ws review prime --profile=security>\n\n<the task: diff, commit, PR, no writes>",
+  "tools": ["Read", "Grep", "Glob", "Bash"],
+  "model": "opus"}}
+```
+
+`model` is omitted when the profile has none.
+
+**The review agent's prompt** (embedded in `ws`) tells it to start every
+`review-*` subagent in the background without a `model` parameter, so the
+definition's model applies; to wait for them; to run `ws review report`
+and start each profile with no current submission once more; and to end
+with one line per profile (verdict, priority 7+ count) and any profile
+that failed. Documents go on stdin; nothing in the repo is written,
+committed, pushed, or posted.
 
 ### Why this option
 
-1. Workspace, name, and status are exactly 0032's; the app's matching,
-   the dedupe, and the auto-review cap don't change.
-2. Subagents have their own context windows, so each profile reviews from
-   scratch. They share the checkout, which is safe because none of them
-   writes to it.
-3. Completeness is checked twice: by the agent, which can retry, and by
-   `ws review report`, which reads the store.
-4. One clone and one session per review, as now; subagents cost tokens,
-   not disk.
+1. Workspace, name, and status are exactly 0032's.
+2. Subagents have their own context windows; they share the checkout,
+   which is safe because none of them writes to it.
+3. Profiles are chosen by `ws` from settings and the diff, and each
+   model is pinned in the subagent's definition, so neither depends on the
+   review agent following instructions.
+4. Completeness is checked by the agent, which can retry, and by `ws
+   review report`, which compares the record with the store.
+5. One clone and one session per review; subagents cost tokens, not disk.
 
-It's weak where the agent has latitude: whether it really started one
-subagent per profile, or reviewed some itself, isn't observable; only the
-submissions are. And per-profile progress isn't visible in `ws list`, only
-"working" or "done" for the whole review.
+It's weak in two ways. Whether the agent started every subagent isn't
+observable, only the submissions are. And per-profile progress is only
+visible as submissions arrive, not while a subagent works.
 
 ## Alternatives
 
 ### One workspace and agent per profile
 
-`review-<repo>-<n>-<sha7>-<profile>`, each a `ws claude` agent.
-
 **Pros:** independence enforced by process boundaries; per-profile status
-in `ws list` and the app; a different model per profile; one profile can
-be retried alone.
-**Cons:** four or more clones and sessions per PR head; 0032's name format
-and matching change; the auto-review cap counts profiles rather than PRs;
-and something still has to notice when all of them are done and combine
-them. Could complement this later for profiles that need their own model.
+in `ws list`; one profile can be retried alone.
+**Cons:** a clone and session per profile; 0032's names and matching
+change; the auto-review cap counts profiles rather than PRs; and
+something still has to notice when all are done. Models per profile no
+longer need it, since subagent definitions carry them.
 
-### One agent reviews under every profile in turn
+### Tell the review agent which models to use
 
-**Pros:** simplest prompt; no subagents.
-**Cons:** one context window carries every earlier profile's findings into
-the next, which is the framing problem profiles exist to avoid; and the
-reviews run one after another.
+List profiles and models in the prompt and let the agent pass `model` per
+invocation.
 
-### `ws` drives subagents itself
+**Pros:** no `--agents`; the prompt alone carries everything.
+**Cons:** the model is applied only if the agent remembers to; the
+definitions make it the default instead of a request.
 
-`ws` would run `claude -p` once per profile and submit for it.
+### The review agent picks language profiles itself
 
-**Pros:** `ws` knows exactly which profile ran.
-**Cons:** a second way of running Claude Code beside background sessions,
-outside `internal/claude`'s contract ([0024](0024-claude-code-client.md));
-the runs wouldn't be sessions the app can attach to.
+**Pros:** it can judge relevance from the diff's content, not file names.
+**Cons:** the record no longer says in advance which profiles to expect,
+so a missing one can't be told from one never started.
 
 ## Consequences
 
-- The review task changes from a free-form template to `ws`'s prompt plus
-  extra instructions; the app's "Review task" setting is relabelled
-  accordingly ([0039](0039-ws-review-command.md)).
-- A review costs roughly one subagent per profile in tokens; four by
-  default. The Settings and `--profile` are the lever.
-- Conformance: a unit test fills the prompt and checks it names every
-  profile, the commit, `submit-review -`, and the no-writes rule; `ws
-  review report`'s `missing_profiles` is tested against captured
-  `collect-reviews` output.
-- **Unverified:** that subagents started from a `claude --bg` session run
-  concurrently there as they do interactively. Check with a four-profile
-  review and the session's transcript before accepting.
+- The review task is `ws`'s prompt; the app's "Review task" setting is
+  removed ([0039](0039-ws-review-command.md)).
+- A review costs about one subagent per profile in tokens: four by
+  default, plus the language profiles that match.
+- Conformance: unit tests for profile front matter and overrides, the
+  `--profile`/`--auto` rules, matching against a file list, the
+  `--agents` JSON (one entry per profile, model present only when set),
+  and the prompt naming every subagent.
+- **Unverified:** that `claude --bg` sessions honor `--agents`, run
+  background subagents concurrently, and keep the definitions after `ws
+  restore` or `ws restart` respawns the session. Check with a four-profile
+  review, a restore in the middle, and the transcript, before accepting.
 
 ## References
 
-[^cc-subagents]: Claude Code docs, "Create custom subagents." <https://code.claude.com/docs/en/sub-agents> (accessed 2026-10-26). Quoted as above; also "By default, when 20 subagents are running in a session, spawning another with the Agent tool fails with `Concurrent subagent limit reached`."
-[^lr-prime]: `loam-refinery prime --list`, built from loam-refinery f7b52c0, run 2026-10-26: a JSON object with `profiles`, each `{name, description}`, listing architecture, claims, compatibility, efficiency, go, security, tests, typescript.
-[^lr-collect]: loam-refinery `describe --lens=collect-reviews`, f7b52c0. "Each comment's id is qualified to stay unique: `profile:origin_id` when its submission is current for that profile, `#ordinal:origin_id` otherwise — no profile claimed, or superseded." "Resubmitting under the same profile supersedes (`topic:store`): the earlier submission gets `superseded_by`".
+[^cc-subagents]: Claude Code docs, "Create custom subagents." <https://code.claude.com/docs/en/sub-agents> (accessed 2026-10-27). Quoted as above; on precedence: "When Claude invokes a subagent, it can also pass a `model` parameter for that specific invocation. Claude Code resolves the subagent's model in this order: 1. The per-invocation `model` parameter 2. The subagent definition's `model` frontmatter …"; on `--agents`: "CLI-defined subagents are passed as JSON when launching Claude Code. They exist only for that session and aren't saved to disk."
+[^cc-help]: `claude --help`, Claude Code 2.1.311, run 2026-10-27. "--agents <json-or-file>  JSON object defining custom agents, or with --print the path to a file that holds one".
+[^lr-profile]: loam-refinery `profiles/go.md`, at f7b52c0: front matter `description: Go: concurrency, error wrapping, context handling, hot-path cost, and tests`.

@@ -217,8 +217,8 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **Release**: `make dist` binaries for darwin and linux, amd64 and
   arm64, with `SHA256SUMS`; CI, and a GitHub release for each `v*` tag
   ([0002](docs/adrs/0002-implementation-language.md))
-- [ ] **Reviews with loam-refinery** ([design](docs/design/loam-refinery-reviews/README.md),
-  [0037](docs/adrs/0037-loam-refinery-as-external-binary.md)–[0041](docs/adrs/0041-desktop-acts-on-findings.md),
+- [ ] **Structured reviews**, forked from loam-refinery ([design](docs/design/loam-refinery-reviews/README.md),
+  [0037](docs/adrs/0037-review-engine-forked-from-loam-refinery.md)–[0041](docs/adrs/0041-desktop-acts-on-findings.md),
   proposed): `ws review start`, `wait`, and `report`; one subagent per
   reviewer profile; findings triaged, commented, and fixed from the
   desktop app
