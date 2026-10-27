@@ -8,7 +8,7 @@ profiles, and combining come from
 `ws` and specialized for workspaces. The decisions are ADRs
 [0037](../../adrs/0037-review-engine-forked-from-loam-refinery.md) to
 [0041](../../adrs/0041-desktop-acts-on-findings.md); the desktop screens
-are in a follow-up design PR.
+are in [report.md](report.md).
 
 ## Why
 

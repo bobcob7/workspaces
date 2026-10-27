@@ -1,0 +1,611 @@
+<!doctype html>
+<!--
+  Static mockups for review reports in the desktop app (docs/design/loam-refinery-reviews).
+  Open with a hash to pick a screen, e.g. mockups.html#report. The screenshots
+  in img/ are rendered from this file at 1280x800; see README.md.
+  Base styles are copied from ../desktop-sections/mockups.html; colors and type match desktop/src/index.css and theme.ts.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review report mockups</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --panel: #161920;
+  --panel-raised: #1d212a;
+  --border: #2a2f3a;
+  --text: #e3e6ec;
+  --text-muted: #8d94a3;
+  --accent: #58a6ff;
+  --selected: #233047;
+  --danger: #f85149;
+  --status-working: #58a6ff;
+  --status-needs-input: #f0a43a;
+  --status-idle: #d8b04c;
+  --status-done: #56c478;
+  --status-stopped: #6e7681;
+  --status-running: #a371f7;
+  --font-mono: "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+.root { display: flex; flex-direction: column; height: 800px; width: 1280px; position: relative; }
+.topBar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--panel); min-height: 47px; }
+.brand { font-weight: 700; font-size: 15px; }
+.badge { padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--status-needs-input) 18%, transparent); color: var(--status-needs-input); font-size: 12px; font-weight: 600; }
+.spacer { flex: 1; }
+.muted { color: var(--text-muted); font-size: 12px; }
+.mono { font-family: var(--font-mono); }
+.btn { border: 0; background: none; color: var(--accent); font: 600 13px/1 inherit; font-family: inherit; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.btn.outlined { border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); padding: 7px 10px; }
+.btn.contained { background: var(--accent); color: #0b1220; }
+.btn.danger { color: var(--danger); }
+.btn.small { font-size: 12px; padding: 5px 8px; }
+.body { flex: 1; display: flex; min-height: 0; }
+
+/* Section rail */
+.rail { width: 72px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; border-right: 1px solid var(--border); background: var(--bg); }
+.railItem { position: relative; width: 60px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0 7px; border-radius: 10px; color: var(--text-muted); font-size: 11px; font-weight: 600; }
+.railItem svg { width: 20px; height: 20px; }
+.railItem.active { background: var(--selected); color: var(--text); }
+.railItem.active::before { content: ""; position: absolute; left: -6px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.railCount { position: absolute; top: 3px; right: 9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--status-needs-input); color: #1a1205; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+.railCount.blue { background: var(--accent); color: #0b1220; }
+.railSpacer { flex: 1; }
+
+/* List pane */
+.sidebar { width: 300px; flex: none; border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+.search { margin: 10px 12px 2px; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); font-size: 13px; background: var(--bg); }
+.search svg { width: 14px; height: 14px; }
+.list { overflow: hidden; padding: 8px 0 16px; }
+.heading { display: flex; align-items: center; gap: 6px; margin: 0; padding: 8px 16px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.heading .count { font-weight: 500; opacity: 0.8; }
+.group + .group { margin-top: 8px; }
+.items { list-style: none; margin: 0; padding: 0 8px; }
+.item { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 8px; }
+.item.current { background: var(--selected); }
+.row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.age { flex: none; color: var(--text-muted); font-size: 11px; }
+.summary { padding-left: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; }
+.summary.flush { padding-left: 0; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status-stopped); }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.icon { width: 14px; height: 14px; flex: none; color: var(--text-muted); }
+.icon.on { color: var(--accent); }
+
+/* Detail pane */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.header { padding: 14px 18px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.titleRow { display: flex; align-items: center; gap: 12px; }
+.title { margin: 0; font-size: 18px; font-weight: 650; }
+.title .prefix { color: var(--text-muted); font-weight: 500; }
+.meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; color: var(--text-muted); font-size: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: #2a303b; color: var(--text); font-size: 12px; }
+.chip.link { background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent); }
+.chip.warn { background: color-mix(in srgb, var(--status-needs-input) 18%, transparent); color: var(--status-needs-input); font-weight: 600; }
+.chip.small { padding: 1px 6px; font-size: 11px; }
+.content { flex: 1; overflow: hidden; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.card { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.cardHead { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; }
+.cardBody { padding: 12px 14px; }
+.toggleRow { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.toggleRow + .toggleRow { border-top: 1px solid var(--border); }
+.toggleText { flex: 1; }
+.toggleText div:first-child { font-weight: 600; font-size: 13px; }
+.switch { width: 34px; height: 20px; border-radius: 999px; background: #3a404c; position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; top: 2px; left: 2px; background: #c9ced8; }
+.switch.on { background: var(--accent); }
+.switch.on::after { left: 16px; background: #fff; }
+.tabs { display: flex; align-items: center; gap: 4px; }
+.tab { padding: 6px 10px; border-radius: 8px; color: var(--text-muted); font-weight: 600; font-size: 13px; }
+.tab.active { background: var(--panel-raised); color: var(--text); }
+.tab .n { opacity: 0.7; font-weight: 500; margin-left: 4px; }
+.filter { margin-left: auto; width: 220px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); font-size: 12px; background: var(--bg); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); padding: 6px 10px; border-bottom: 1px solid var(--border); }
+td { padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+tr.hover td { background: var(--panel-raised); }
+td.actions { text-align: right; }
+.result { margin: 0; padding: 8px 10px; border-left: 3px solid var(--status-done); background: var(--panel-raised); border-radius: 0 6px 6px 0; }
+.prose { color: var(--text); font-size: 13px; line-height: 1.55; }
+.prose p { margin: 0 0 8px; }
+.prose ul { margin: 0 0 8px; padding-left: 20px; }
+.prose code { font-family: var(--font-mono); font-size: 12px; background: var(--panel-raised); padding: 1px 4px; border-radius: 4px; }
+.cmd { font: 12px var(--font-mono); color: var(--text-muted); padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; }
+.kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; font-size: 13px; }
+.kv dt { color: var(--text-muted); }
+.kv dd { margin: 0; }
+.alert { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+.alert.info { background: color-mix(in srgb, var(--accent) 12%, transparent); color: #b9d8ff; }
+.alert.warn { background: color-mix(in srgb, var(--status-needs-input) 14%, transparent); color: #f5cf95; }
+
+/* Conversation stand-in for the Agents screen */
+.convo { flex: 1; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.msg { max-width: 760px; font-size: 13px; line-height: 1.55; }
+.msg.user { align-self: flex-end; background: var(--panel-raised); padding: 8px 12px; border-radius: 10px; }
+.tool { font: 12px var(--font-mono); color: var(--text-muted); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; width: fit-content; }
+.tool b { color: var(--text); }
+.reply { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.reply .box { flex: 1; padding: 10px 12px; border: 1px solid #3a404c; border-radius: 8px; color: var(--text-muted); }
+
+/* Dialog */
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: grid; place-items: center; }
+.dialog { width: 600px; background: #1d212a; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.dialog h2 { margin: 0; padding: 18px 22px 6px; font-size: 18px; font-weight: 650; }
+.dialog .dbody { padding: 10px 22px 6px; display: flex; flex-direction: column; gap: 16px; }
+.dialog .dactions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; }
+.field { position: relative; border: 1px solid #3a404c; border-radius: 8px; padding: 14px 12px 10px; font-size: 14px; }
+.field label { position: absolute; top: -8px; left: 9px; padding: 0 4px; background: #1d212a; font-size: 12px; color: var(--text-muted); }
+.field.focus { border: 2px solid var(--accent); }
+.field.focus label { color: var(--accent); }
+.field.multi { white-space: pre-wrap; line-height: 1.5; font-size: 13px; }
+.fieldHint { margin-top: -10px; font-size: 12px; color: var(--text-muted); }
+.fields { display: flex; gap: 12px; }
+.fields .field { flex: 1; }
+
+/* Settings */
+.subnav { width: 220px; flex: none; border-right: 1px solid var(--border); background: var(--panel); padding: 12px 8px; }
+.subnav .item { font-weight: 600; flex-direction: row; align-items: center; }
+.settings { flex: 1; overflow: hidden; padding: 22px 28px; display: flex; flex-direction: column; gap: 18px; max-width: 820px; }
+.settings h1 { margin: 0; font-size: 20px; }
+.setting { display: flex; gap: 24px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.setting .label { width: 260px; flex: none; }
+.setting .label div:first-child { font-weight: 600; font-size: 13px; }
+.setting .control { flex: 1; display: flex; align-items: center; gap: 10px; }
+.input { padding: 7px 10px; border: 1px solid #3a404c; border-radius: 8px; font-size: 13px; background: var(--bg); }
+.textarea { width: 100%; padding: 10px; border: 1px solid #3a404c; border-radius: 8px; font: 12px/1.55 var(--font-mono); background: var(--bg); white-space: pre-wrap; }
+.check { width: 16px; height: 16px; border-radius: 4px; border: 2px solid #6b7280; flex: none; }
+.check.on { background: var(--accent); border-color: var(--accent); position: relative; }
+.check.on::after { content: ""; position: absolute; left: 3px; top: 0px; width: 4px; height: 8px; border: solid #0b1220; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.empty { flex: 1; display: grid; place-items: center; padding: 24px; color: var(--text-muted); text-align: center; }
+
+/* ---------- Review report ---------- */
+.content.tight { gap: 10px; padding: 12px 18px 0; }
+.profiles { display: flex; gap: 8px; flex-wrap: wrap; }
+.prof { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); font-size: 12px; }
+.prof b { font-weight: 650; font-size: 12.5px; }
+.prof .v { font-weight: 600; }
+.prof.missing { border-style: dashed; color: var(--text-muted); }
+.prof.pending { border-style: dashed; }
+.v.rc { color: var(--danger); } .v.cm { color: var(--status-idle); } .v.ok { color: var(--status-done); }
+.filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fchip { padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; color: var(--text-muted); }
+.fchip.on { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--text); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.findings { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
+.band { display: flex; align-items: center; gap: 8px; padding: 10px 2px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.band .bar { width: 10px; height: 10px; border-radius: 3px; }
+.finding { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.finding + .finding { margin-top: 6px; }
+.fhead { display: flex; align-items: center; gap: 10px; padding: 8px 10px; min-width: 0; }
+.prio { flex: none; width: 24px; height: 22px; border-radius: 6px; display: grid; place-items: center; font: 700 12px var(--font-mono); }
+.p-must { background: color-mix(in srgb, var(--danger) 22%, transparent); color: #ff9b95; }
+.p-should { background: color-mix(in srgb, var(--status-needs-input) 22%, transparent); color: #f5c47c; }
+.p-worth { background: color-mix(in srgb, var(--accent) 18%, transparent); color: #9cc8ff; }
+.p-opt { background: #2a303b; color: var(--text-muted); }
+.ftitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; }
+.fid { flex: none; font: 11.5px var(--font-mono); color: var(--text-muted); }
+.floc { flex: none; font: 11.5px var(--font-mono); color: var(--accent); }
+.seg { display: inline-flex; flex: none; border: 1px solid #3a404c; border-radius: 7px; overflow: hidden; }
+.seg span { padding: 4px 9px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.seg span + span { border-left: 1px solid #3a404c; }
+.seg .on-comment { background: color-mix(in srgb, var(--accent) 22%, transparent); color: #b9d8ff; }
+.seg .on-fix { background: color-mix(in srgb, var(--status-done) 22%, transparent); color: #a6e3b8; }
+.seg .on-skip { background: #2f3540; color: var(--text); }
+.fbody { padding: 0 12px 12px 44px; display: flex; flex-direction: column; gap: 10px; }
+.code { margin: 0; font: 12px/1.5 var(--font-mono); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre; overflow: hidden; }
+.code .ln { color: #5b6270; display: inline-block; width: 28px; }
+.code .k { color: #ff7b72; } .code .s { color: #a5d6ff; } .code .f { color: #d2a8ff; } .code .c { color: #8b949e; }
+.suggs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sugg { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.sugg.chosen { border: 2px solid var(--status-done); padding: 7px 9px; }
+.sugg .shead { display: flex; align-items: flex-start; gap: 8px; font-weight: 600; }
+.radio { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #6b7280; flex: none; margin-top: 2px; }
+.radio.on { border-color: var(--status-done); box-shadow: inset 0 0 0 3px #1d212a; background: var(--status-done); }
+.pc { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; color: var(--text-muted); font-size: 12px; }
+.pc div::before { font-weight: 700; margin-right: 4px; }
+.pc .pro::before { content: "+"; color: var(--status-done); }
+.pc .con::before { content: "−"; color: var(--danger); }
+.done { font-size: 12px; font-weight: 600; color: var(--status-done); flex: none; }
+.decided { font-size: 11px; color: var(--text-muted); flex: none; }
+.actionBar { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-top: 1px solid var(--border); background: var(--panel); }
+.tally { display: flex; gap: 12px; font-size: 12.5px; color: var(--text-muted); }
+.tally b { color: var(--text); }
+.mini { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 4px; }
+.dialog.wide { width: 860px; }
+.pv { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.pvHead { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--panel); border-bottom: 1px solid var(--border); font: 12px var(--font-mono); color: var(--text-muted); }
+.pvBody { padding: 8px 12px; font-size: 13px; line-height: 1.5; }
+.pvBody .foot { color: var(--text-muted); font-size: 11.5px; margin-top: 4px; }
+.radioRow { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.radioRow.sel { border: 2px solid var(--accent); padding: 9px 11px; }
+.radioRow .t { font-weight: 600; font-size: 13px; }
+.ptable td { padding: 5px 10px; white-space: nowrap; max-width: none; }
+.ptable .input { display: inline-block; padding: 4px 8px; font-size: 12px; }
+.steps { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.step { display: flex; align-items: center; gap: 10px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const icons = {
+  agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg>',
+  repos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 7.2v9.6"/><path d="M18 10.2c0 4-6 3.5-11.2 7"/></svg>',
+  reviews: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6"/><path d="M18 16.8V9a3 3 0 0 0-3-3h-4"/><path d="M13 3.5 10.5 6 13 8.5"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+};
+
+const rail = (active, counts = {}) => {
+  const item = (key, label) => `
+    <div class="railItem ${active === key ? "active" : ""}">
+      ${icons[key]}<span>${label}</span>
+      ${counts[key] ? `<span class="railCount ${key === "reviews" ? "blue" : ""}">${counts[key]}</span>` : ""}
+    </div>`;
+  return `<nav class="rail">${item("agents", "Agents")}${item("repos", "Repos")}${item("reviews", "Reviews")}<div class="railSpacer"></div>${item("settings", "Settings")}</nav>`;
+};
+
+const counts = { agents: 2, reviews: 3 };
+
+const topBar = (actions) => `
+  <header class="topBar">
+    <span class="brand">Workspaces</span>
+    <span class="badge">2 waiting for you</span>
+    <span class="spacer"></span>
+    ${actions}
+  </header>`;
+
+const dot = (color) => `<span class="dot" style="background:${color}"></span>`;
+
+const listItem = ({ name, age, summary, color, current, trailing = "" }) => `
+  <li class="item ${current ? "current" : ""}">
+    <div class="row">${color ? dot(color) : ""}<span class="name">${name}</span>${trailing}<span class="age">${age}</span></div>
+    <div class="summary ${color ? "" : "flush"}">${summary}</div>
+  </li>`;
+
+const group = (title, items) => `
+  <div class="group">
+    <h2 class="heading">${title} <span class="count">${items.length}</span></h2>
+    <ul class="items">${items.map(listItem).join("")}</ul>
+  </div>`;
+
+const shell = (active, actions, sidebar, main, overlay = "") => `
+  <div class="root">
+    ${topBar(actions)}
+    <div class="body">
+      ${rail(active, counts)}
+      ${sidebar}
+      <main class="main">${main}</main>
+    </div>
+    ${overlay}
+  </div>`;
+
+const reviewsActions = `<span class="muted">3 repos watched · checked 1m ago</span><button class="btn">Check now</button><button class="btn outlined">Watched repos</button>`;
+
+const reviewsSidebar = (current) => `
+  <aside class="sidebar">
+    <div class="search">${icons.search}Filter pull requests</div>
+    <div class="list">
+      ${group("To review", [
+        { name: "#17 Paginate the audit log", age: "6h ago", summary: "api · carol", color: "var(--status-needs-input)" },
+        { name: "#7 Release binaries with checksums", age: "1d ago", summary: "workspaces · bobcob7", color: "var(--status-needs-input)" },
+      ])}
+      ${group("Reviewing", [
+        { name: "#41 Retry webhooks with backoff", age: "1m ago", summary: "buff-bear · dana · 3 of 5 profiles in", color: "var(--status-working)", current: current === 41 },
+      ])}
+      ${group("Reviewed", [
+        { name: "#42 Add rate limiting to login", age: "12m ago", summary: "buff-bear · alice · 2 must fix · 7 findings", color: "var(--status-done)", current: current === 42 },
+        { name: "#38 Cache session lookups", age: "2h ago", summary: "buff-bear · alice · 2 new commits · 2 to fix", color: "var(--status-idle)", current: current === 38 },
+        { name: "#16 Drop the v1 endpoints", age: "1d ago", summary: "api · bobcob7 · approve · 3 optional", color: "var(--status-done)" },
+      ])}
+    </div>
+  </aside>`;
+
+const tab = (label, n, active) => `<span class="tab ${active ? "active" : ""}">${label}${n != null ? `<span class="n">${n}</span>` : ""}</span>`;
+
+const bandOf = (p) => (p >= 9 ? "p-must" : p >= 7 ? "p-should" : p >= 4 ? "p-worth" : "p-opt");
+
+const seg = (d) => `<span class="seg"><span class="${d === "comment" ? "on-comment" : ""}">Comment</span><span class="${d === "fix" ? "on-fix" : ""}">Fix</span><span class="${d === "skip" ? "on-skip" : ""}">Skip</span></span>`;
+
+const finding = ({ p, title, id, loc, d, open, body, code, suggs, done, decided, readonly }) => `
+  <div class="finding" style="${readonly ? "opacity:.6" : ""}">
+    <div class="fhead">
+      <span class="prio ${bandOf(p)}">${p}</span>
+      <span class="ftitle" style="${open ? "white-space:normal" : ""}">${title}</span>
+      <span class="fid">${id}</span>
+      ${loc ? `<span class="floc">${loc}</span>` : ""}
+      ${decided ? `<span class="decided">${decided}</span>` : ""}
+      ${done ? `<span class="done">${done}</span>` : readonly ? `<span class="decided">read-only</span>` : seg(d)}
+    </div>
+    ${open ? `<div class="fbody">
+      <div class="prose" style="margin:0">${body}</div>
+      ${code ? `<pre class="code">${code}</pre>` : ""}
+      ${suggs ? `<div class="suggs">${suggs.map((s) => `
+        <div class="sugg ${s.on ? "chosen" : ""}">
+          <div class="shead"><span class="radio ${s.on ? "on" : ""}"></span><span style="flex:1">${s.summary}</span></div>
+          <div class="row" style="gap:6px"><span class="chip small">effort: ${s.effort}</span><span class="chip small">scope: ${s.scope}</span></div>
+          <div class="pc"><div class="pro">${s.pro}</div><div class="con">${s.con}</div></div>
+        </div>`).join("")}</div>` : ""}
+    </div>` : ""}
+  </div>`;
+
+const band = (label, color, n) => `<div class="band"><span class="bar" style="background:${color}"></span>${label}<span class="count" style="font-weight:500">${n}</span></div>`;
+
+const prof = (name, verdict, cls, detail, model = "", extra = "") => `<div class="prof ${extra}"><b>${name}</b>${model ? `<span class="chip small mono">${model}</span>` : ""}<span class="v ${cls}">${verdict}</span><span class="muted">${detail}</span></div>`;
+
+const prHeader42 = (status = `<span class="status" style="color:var(--status-done)">${dot("var(--status-done)")}Reviewed</span>`) => `
+  <section class="header">
+    <div class="titleRow"><h1 class="title">Add rate limiting to login</h1>${status}<span class="spacer"></span><button class="btn">Open on GitHub</button><button class="btn">Dismiss</button><button class="btn outlined">Review again</button></div>
+    <div class="meta"><span class="chip link">bobcob7/buff-bear#42</span><span>alice · updated 40m ago</span><span>·</span><span class="mono">feat/rate-limit → main</span><span>·</span><span class="mono">3f2a9c1</span><span>·</span><span><span style="color:var(--status-done)">+214</span> <span style="color:var(--danger)">−37</span> in 9 files</span><span class="chip link">Requested by fix-login-rate</span></div>
+  </section>`;
+
+const profileStrip = `
+  <div class="profiles">
+    ${prof("security", "request changes", "rc", "1 must · 1 should", "opus")}
+    ${prof("tests", "request changes", "rc", "1 must · 1 worth", "sonnet")}
+    ${prof("go", "comment", "cm", "1 should · 1 optional", "sonnet")}
+    ${prof("architecture", "comment", "cm", "1 worth", "opus")}
+    ${prof("claims", "approve", "ok", "no findings", "haiku")}
+  </div>`;
+
+const filterRow = (extra = "") => `
+  <div class="filters">
+    <span class="fchip on">All profiles</span><span class="fchip">security</span><span class="fchip">tests</span><span class="fchip">go</span><span class="fchip">architecture</span>
+    <span style="width:10px"></span>
+    <span class="fchip on">Any category</span>
+    <span class="spacer"></span>${extra}
+    <span class="fchip">Hide decided</span>
+  </div>`;
+
+const xffCode = `<span class="ln">31</span><span class="k">func</span> <span class="f">clientIP</span>(r *http.Request) <span class="k">string</span> {
+<span class="ln">32</span>    <span class="k">if</span> xff := r.Header.Get(<span class="s">"X-Forwarded-For"</span>); xff != <span class="s">""</span> {
+<span class="ln">33</span>        <span class="k">return</span> strings.Split(xff, <span class="s">","</span>)[<span class="s">0</span>]
+<span class="ln">34</span>    }`;
+
+const reportBody = (expand = true) => `
+  ${band("Must fix", "var(--danger)", 2)}
+  ${finding({
+    p: 9, title: "Any client can choose its own bucket by sending X-Forwarded-For", id: "security:spoofable-client-ip-1", loc: "ratelimit/ip.go:31-34", d: "fix", open: expand,
+    body: "<p><code>clientIP</code> trusts the first <code>X-Forwarded-For</code> entry from any caller, so a client that rotates the header gets a fresh bucket per request and the limit never applies. The service isn't behind a proxy that strips the header.</p>",
+    code: xffCode,
+    suggs: [
+      { on: true, summary: "Use r.RemoteAddr, and read X-Forwarded-For only from configured trusted proxies", effort: "small", scope: "file", pro: "Closes the bypass outright", con: "Needs a TRUSTED_PROXIES setting in deploys behind a load balancer" },
+      { summary: "Key buckets by username as well as IP", effort: "medium", scope: "module", pro: "Limits password spraying across IPs", con: "Lets an attacker lock a known user out" },
+    ],
+  })}
+  ${finding({ p: 9, title: "No test drives a request over the limit; 429 and Retry-After are untested", id: "tests:missing-over-limit-1", loc: "ratelimit/limiter_test.go", d: "fix" })}
+  ${band("Should fix", "var(--status-needs-input)", 2)}
+  ${finding({ p: 8, title: "Sweeper goroutine never stops; tests leak one per limiter", id: "go:leaked-goroutine-1", loc: "ratelimit/limiter.go:58", d: "comment" })}
+  ${finding({ p: 7, title: "Retry-After is rounded down to 0 for waits under a second", id: "security:retry-after-zero-1", loc: "ratelimit/middleware.go:22", d: "comment" })}
+  ${band("Worth fixing", "var(--accent)", 2)}
+  ${finding({ p: 5, title: "Limiter is a package global, so two routers share one budget", id: "architecture:global-limiter-1", loc: "ratelimit/limiter.go:12", d: "skip" })}
+  ${finding({ p: 4, title: "Table test reuses one limiter across cases, so order matters", id: "tests:shared-fixture-1", loc: "ratelimit/limiter_test.go:40", d: null })}`;
+
+const actionBar = (tally, buttons) => `
+  <div class="actionBar">
+    <div class="tally">${tally}</div>
+    <span class="spacer"></span>${buttons}
+  </div>`;
+
+const stdTally = `<span><span class="mini" style="background:var(--accent)"></span><b>2</b> to comment</span><span><span class="mini" style="background:var(--status-done)"></span><b>2</b> to fix</span><span><b>1</b> skipped</span><span><b>1</b> undecided · 1 optional hidden</span>`;
+const stdButtons = `<button class="btn">Open full report</button><button class="btn outlined">Comment on 2…</button><button class="btn contained">Fix 2…</button>`;
+
+const reportMain = (expand) => `
+  ${prHeader42()}
+  <div class="content tight">
+    <div class="tabs">${tab("Findings", 7, true)}${tab("Description")}${tab("Review agent")}<span class="spacer"></span><span class="muted">review-buff-bear-42-3f2a9c1-8e1d · reviewed 3f2a9c1 · 12m ago</span></div>
+    ${profileStrip}
+    ${filterRow()}
+    <div class="findings">${reportBody(expand)}</div>
+  </div>
+  ${actionBar(stdTally, stdButtons)}`;
+
+const reportScreen = (overlay = "", expand = true) => shell("reviews", reviewsActions, reviewsSidebar(42), reportMain(expand), overlay);
+
+/* Reviewing: per-profile progress */
+const reviewingScreen = () => shell(
+  "reviews",
+  reviewsActions,
+  reviewsSidebar(41),
+  `<section class="header">
+     <div class="titleRow"><h1 class="title">Retry webhooks with backoff</h1><span class="status" style="color:var(--status-working)">${dot("var(--status-working)")}Reviewing</span><span class="spacer"></span><button class="btn">Open on GitHub</button><button class="btn">Open agent</button></div>
+     <div class="meta"><span class="chip link">bobcob7/buff-bear#41</span><span>dana · updated 1h ago</span><span>·</span><span class="mono">feat/webhook-retry → main</span><span>·</span><span class="mono">9c04e2a</span><span>·</span><span><span style="color:var(--status-done)">+311</span> <span style="color:var(--danger)">−48</span> in 7 files</span><span class="chip">auto</span></div>
+   </section>
+   <div class="content tight">
+     <div class="tabs">${tab("Findings", 4, true)}${tab("Description")}${tab("Review agent")}<span class="spacer"></span><span class="muted">review-buff-bear-41-9c04e2a-41b0 · started 6m ago</span></div>
+     <div class="profiles">
+       ${prof("security", "comment", "cm", "1 should", "opus")}
+       ${prof("tests", "request changes", "rc", "1 must · 1 worth", "sonnet")}
+       ${prof("go", "comment", "cm", "1 optional", "sonnet")}
+       <div class="prof pending">${dot("var(--status-working)")}<b>architecture</b><span class="chip small mono">opus</span><span class="muted">not in yet</span></div>
+       <div class="prof pending">${dot("var(--status-working)")}<b>claims</b><span class="chip small mono">haiku</span><span class="muted">not in yet</span></div>
+     </div>
+     <div class="alert info">3 of 5 profiles have submitted. Findings appear as each one does; you can start deciding now.</div>
+     <div class="findings">
+       ${band("Must fix", "var(--danger)", 1)}
+       ${finding({ p: 9, title: "A retry after the deadline still sends; ctx is not checked between attempts", id: "tests:retry-after-deadline-1", loc: "webhook/retry.go:66-80", d: null })}
+       ${band("Should fix", "var(--status-needs-input)", 1)}
+       ${finding({ p: 7, title: "Retried requests log the signing header verbatim", id: "security:logged-signature-1", loc: "webhook/retry.go:71", d: null })}
+       ${band("Worth fixing", "var(--accent)", 1)}
+       ${finding({ p: 5, title: "Backoff test sleeps for real; 9 s added to the suite", id: "tests:real-sleep-1", loc: "webhook/retry_test.go:21", d: null })}
+     </div>
+   </div>
+   ${actionBar(`<span><b>3</b> undecided · 1 optional hidden</span>`, `<button class="btn">Open full report</button><button class="btn outlined" disabled style="opacity:.45">Comment…</button><button class="btn contained" style="opacity:.45">Fix…</button>`)}`,
+);
+
+/* Incomplete: agent done, a profile missing */
+const incompleteBanner = `<div class="alert warn"><span><b>architecture</b> never submitted: the review agent finished without it. Its last message: "review-architecture stopped: ws review submit failed with review_unverifiable (working tree diverged)". <span style="color:var(--accent);font-weight:600">Review again</span> or <span style="color:var(--accent);font-weight:600">Open agent</span>.</span></div>`;
+
+/* Out of date + done + decided-at */
+const outdatedScreen = () => shell(
+  "reviews",
+  reviewsActions,
+  reviewsSidebar(38),
+  `<section class="header">
+     <div class="titleRow"><h1 class="title">Cache session lookups</h1><span class="status" style="color:var(--status-done)">${dot("var(--status-done)")}Reviewed</span><span class="chip warn">2 new commits since review</span><span class="spacer"></span><button class="btn">Open on GitHub</button><button class="btn">Dismiss</button><button class="btn contained">Review again</button></div>
+     <div class="meta"><span class="chip link">bobcob7/buff-bear#38</span><span>alice · updated 2h ago</span><span>·</span><span class="mono">feat/session-cache → main</span><span>·</span><span class="mono">e71b0d4</span><span>·</span><span><span style="color:var(--status-done)">+96</span> <span style="color:var(--danger)">−12</span> in 4 files</span></div>
+   </section>
+   <div class="content tight">
+     <div class="tabs">${tab("Findings", 4, true)}${tab("Description")}${tab("Review agent")}<span class="spacer"></span><span class="muted">reviewed a41c9f2 · 3h ago · <span style="color:var(--accent)">older reviews (1)</span></span></div>
+     <div class="alert warn"><span>alice pushed 2 commits after this review: "Evict on logout" and "Cap the cache at 10k entries". These decisions stay with a41c9f2; <b>Review again</b> reviews e71b0d4 from scratch.</span></div>
+     ${incompleteBanner}
+     <div class="profiles">
+       ${prof("security", "request changes", "rc", "1 must", "opus")}
+       ${prof("tests", "comment", "cm", "1 should", "sonnet")}
+       ${prof("go", "comment", "cm", "1 optional", "sonnet")}
+       <div class="prof missing"><b>architecture</b><span class="chip small mono">opus</span><span>missing</span></div>
+     </div>
+     <div class="findings">
+       ${band("Must fix", "var(--danger)", 1)}
+       ${finding({ p: 9, title: "Logout deletes the session row but not the cache entry; tokens live on for the TTL", id: "security:stale-after-logout-1", loc: "session/cache.go:48", done: "✓ Fix sent to fix-login-rate · 2h ago" })}
+       ${band("Should fix", "var(--status-needs-input)", 1)}
+       ${finding({ p: 7, title: "Cache grows without bound between TTL sweeps", id: "tests:unbounded-cache-1", loc: "session/cache.go:20", done: "✓ Commented · view on GitHub" })}
+       ${band("Optional", "#3a404c", 2)}
+       ${finding({ p: 2, title: "cacheTTL is exported but only used in the package", id: "go:exported-unused-1", loc: "session/cache.go:9", d: "skip" })}
+       ${finding({ p: 2, title: "Two tests share the name TestCache_Get (superseded by tests' resubmission)", id: "#2:duplicate-name-1", loc: "session/cache_test.go:30", readonly: true })}
+     </div>
+   </div>
+   ${actionBar(`<span><b>1</b> skipped · 2 done · 1 read-only (superseded)</span>`, `<button class="btn">Open full report</button><button class="btn outlined" style="opacity:.45">Comment…</button><button class="btn contained" style="opacity:.45">Fix…</button>`)}`,
+);
+
+/* Comment preview */
+const pvComment = (path, lines, prio, cat, body, sugg, id) => `
+  <div class="pv">
+    <div class="pvHead"><span style="color:var(--accent)">${path}</span><span>${lines}</span><span class="spacer"></span><span class="chip small">line comment</span><button class="btn small">Edit</button></div>
+    <div class="pvBody"><b>${prio} · ${cat}</b> — ${body}${sugg ? `<div style="margin-top:4px"><b>Suggested:</b> ${sugg}</div>` : ""}<div class="foot">ws review · <span class="mono">${id}</span></div></div>
+  </div>`;
+
+const commentDialog = () => `
+  <div class="scrim"><div class="dialog wide">
+    <h2>Post a review on bobcob7/buff-bear#42</h2>
+    <div class="dbody" style="gap:12px">
+      <div class="muted">One review, as <b style="color:var(--text)">bobcob7</b>, at <span class="mono">3f2a9c1</span> (the PR's current head). Nothing is posted until you choose Post review.</div>
+      <div class="fields">
+        <div class="field" style="flex:2"><label>Review summary</label>Two findings from an agent review (security, go). Details inline.</div>
+        <div class="field"><label>Event</label>Comment ▾</div>
+      </div>
+      ${pvComment("ratelimit/limiter.go", "line 58", "Should fix", "correctness", "The sweeper goroutine started in <code>New</code> never exits; each test that builds a limiter leaks one.", "Take a context in <code>New</code> and stop the sweeper when it's done.", "go:leaked-goroutine-1")}
+      ${pvComment("ratelimit/middleware.go", "line 22", "Should fix", "security", "<code>Retry-After</code> is computed with integer seconds, so a 400 ms wait is sent as <code>0</code> and clients retry immediately.", null, "security:retry-after-zero-1")}
+      <div class="alert info"><span><span class="mono">@</span>mentions in agent-written text are shown as code, so nobody is notified by a finding.</span></div>
+    </div>
+    <div class="dactions"><span class="muted" style="margin-right:auto;align-self:center;padding-left:6px">2 line comments · 0 file comments · 0 in summary</span><button class="btn">Cancel</button><button class="btn contained">Post review</button></div>
+  </div></div>`;
+
+/* Fix dialog */
+const fixDialog = () => `
+  <div class="scrim"><div class="dialog wide">
+    <h2>Fix 2 findings</h2>
+    <div class="dbody" style="gap:12px">
+      <div class="radioRow sel"><span class="radio" style="border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px #1d212a"></span><div style="flex:1"><div class="t">Send to fix-login-rate <span class="chip small" style="margin-left:6px">${dot("var(--status-idle)")} idle</span></div><div class="muted">The agent that requested this review. It has <span class="mono">feat/rate-limit</span> checked out; it reads your decisions with <span class="mono">ws review report --decided fix</span>.</div></div></div>
+      <div class="radioRow"><span class="radio"></span><div style="flex:1"><div class="t">Start a fix agent</div><div class="muted mono" style="font-size:12px">ws claude --name fix-buff-bear-42-3f2a9c1 github.com/bobcob7/buff-bear@feat/rate-limit</div></div></div>
+      <div class="field multi"><label>Message</label>Fix the 2 findings decided "fix" in the review of bobcob7/buff-bear#42 at 3f2a9c1:
+  security:spoofable-client-ip-1  Any client can choose its own bucket by sending X-Forwarded-For
+  tests:missing-over-limit-1      No test drives a request over the limit
+
+The chosen fixes and notes:
+  ws review report review-buff-bear-42-3f2a9c1-8e1d --decided fix --json
+
+When done, push, and start a new review with: ws review start --pr 42 buff-bear</div>
+    </div>
+    <div class="dactions"><button class="btn">Cancel</button><button class="btn contained">Send to fix-login-rate</button></div>
+  </div></div>`;
+
+/* Agents: the requester receives the fix message */
+const requesterScreen = () => shell(
+  "agents",
+  `<button class="btn">Restore stopped</button><button class="btn outlined">New shell</button><button class="btn contained">New agent</button>`,
+  `<aside class="sidebar"><div class="list">
+    ${group("Working", [
+      { name: "fix-login-rate", age: "now", summary: "Fixing 2 review findings on #42", color: "var(--status-working)", current: true },
+      { name: "review-buff-bear-41-9c04e2a-41b0", age: "1m ago", summary: "Reviewing #41: 3 of 5 profiles in", color: "var(--status-working)" },
+    ])}
+    ${group("Done", [
+      { name: "review-buff-bear-42-3f2a9c1-8e1d", age: "14m ago", summary: "security: request changes (1 must) · tests: request…", color: "var(--status-done)" },
+    ])}
+  </div></aside>`,
+  `<section class="header">
+     <div class="titleRow"><h1 class="title">fix-login-rate</h1><span class="status" style="color:var(--status-working)">${dot("var(--status-working)")}Working</span><span class="spacer"></span><button class="btn">Detach</button><button class="btn">Stop</button><button class="btn danger">Remove</button></div>
+     <div class="meta"><span class="mono">…/workspaces/fix-login-rate</span><span class="chip">buff-bear@feat/rate-limit</span><span class="chip link">Requested review of #42</span></div>
+   </section>
+   <div class="convo">
+     <div class="tool"><b>Bash</b>(ws review wait review-buff-bear-42-3f2a9c1-8e1d --json) <span style="color:var(--status-done)">· background · exited 0</span></div>
+     <div class="msg">The review is in: security and tests request changes, two must-fix findings. I'll wait for your call on which to address before changing anything.</div>
+     <div class="msg user" style="white-space:pre-wrap">Fix the 2 findings decided "fix" in the review of bobcob7/buff-bear#42 at 3f2a9c1: …
+ws review report review-buff-bear-42-3f2a9c1-8e1d --decided fix --json</div>
+     <div class="tool"><b>Bash</b>(ws review report review-buff-bear-42-3f2a9c1-8e1d --decided fix --json)</div>
+     <div class="msg">Switching <code class="mono">clientIP</code> to <code class="mono">r.RemoteAddr</code> with a <code class="mono">TRUSTED_PROXIES</code> list, then adding an over-the-limit test that checks the 429 and Retry-After.</div>
+   </div>
+   <div class="reply"><div class="box">Message the agent (Enter to send, Shift+Enter for a new line)</div><button class="btn">Send</button></div>`,
+);
+
+/* Settings */
+const settingsScreen = () => `
+  <div class="root">
+    ${topBar("")}
+    <div class="body">
+      ${rail("settings", counts)}
+      <aside class="subnav"><ul class="items" style="padding:0">
+        <li class="item current"><span class="name">Reviews</span></li>
+      </ul></aside>
+      <main class="main"><div class="settings">
+        <h1>Reviews</h1>
+        <div class="setting"><div class="label"><div>Check for pull requests</div><div class="muted">How often watched repos are checked with <span class="mono">gh</span>.</div></div><div class="control"><span class="input">Every 5 minutes ▾</span></div></div>
+        <div class="setting" style="flex-direction:column;gap:10px"><div class="label" style="width:auto"><div>Reviewer profiles</div><div class="muted">Each runs as its own subagent on the model chosen here. <b>Always</b> runs on every review; <b>When files match</b> runs when the diff touches its files. From <span class="mono">ws review profiles</span>.</div></div>
+          <table class="ptable">
+            <thead><tr><th style="width:24%">Profile</th><th style="width:30%">Runs</th><th style="width:20%">Model</th><th>Files</th></tr></thead>
+            <tbody>
+              ${[
+                ["architecture", "Always", "opus", ""],
+                ["claims", "Always", "haiku", ""],
+                ["security", "Always", "opus", ""],
+                ["tests", "Always", "sonnet", ""],
+                ["go", "When files match", "sonnet", "*.go, go.mod"],
+                ["typescript", "When files match", "sonnet", "*.ts, *.tsx"],
+                ["compatibility", "Off", "Default", ""],
+                ["efficiency", "Off", "Default", ""],
+              ].map(([n, w, m, f]) => `<tr style="${w === "Off" ? "opacity:.55" : ""}"><td style="font-weight:600">${n}</td><td><span class="input">${w} ▾</span></td><td><span class="input">${m} ▾</span></td><td class="mono muted" style="font-size:12px">${f}</td></tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        <div class="setting"><div class="label"><div>Review agent</div><div class="muted">Model and permission mode of the agent that runs the subagents. It runs <span class="mono">ws review</span> and <span class="mono">git</span>; allow them in Claude Code's permissions, or it waits for you.</div></div><div class="control"><span class="input">Default ▾</span><span class="input">default ▾</span></div></div>
+        <div class="setting"><div class="label"><div>Auto-review only</div><div class="muted">Which new PRs in an auto-review repo start a review.</div></div><div class="control" style="flex-direction:column;align-items:flex-start;gap:8px">
+          <span class="row"><span class="check on"></span>Skip drafts</span>
+          <span class="row"><span class="check on"></span>Skip pull requests I opened</span>
+          <span class="row"><span class="check"></span>Only when my review is requested</span>
+        </div></div>
+        <div class="setting"><div class="label"><div>At most</div><div class="muted">Auto-reviews running at once; the rest wait.</div></div><div class="control"><span class="input">2</span><span class="muted">review agents</span></div></div>
+      </div></main>
+    </div>
+  </div>`;
+
+const screens = {
+  report: () => reportScreen("", false),
+  "report-finding": () => reportScreen(),
+  "report-comment": () => reportScreen(commentDialog()),
+  "report-fix": () => reportScreen(fixDialog()),
+  "report-reviewing": reviewingScreen,
+  "report-outdated": outdatedScreen,
+  "report-requester": requesterScreen,
+  "report-settings": settingsScreen,
+};
+
+const render = () => {
+  const key = location.hash.slice(1) || "report";
+  document.getElementById("app").innerHTML = (screens[key] ?? screens.report)();
+};
+window.addEventListener("hashchange", render);
+render();
+</script>
+</body>
+</html>
