@@ -1,5 +1,7 @@
 ---
 description: TypeScript: type escapes, null handling, and the runtime the types do not cover
+when: auto
+match: ["*.ts", "*.tsx"]
 ---
 
 `any`, `as`, and `!` are the three ways the type system stops checking. Every

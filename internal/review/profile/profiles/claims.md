@@ -1,5 +1,6 @@
 ---
 description: Claims: commit messages, PR text, comments, and docs that describe code that changed
+when: always
 ---
 
 One question, asked of every piece of prose the change touches: does it still

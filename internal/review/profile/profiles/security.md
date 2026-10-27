@@ -1,5 +1,6 @@
 ---
 description: Security: untrusted input, the boundary it crosses, and what it reaches
+when: always
 ---
 
 Trace the input: a finding needs a source an attacker controls, a path, and

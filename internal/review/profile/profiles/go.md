@@ -1,5 +1,7 @@
 ---
 description: Go: concurrency, error wrapping, context handling, hot-path cost, and tests
+when: auto
+match: ["*.go", "go.mod"]
 ---
 
 Anchor a concurrency finding at the goroutine or channel that leaks, not at the

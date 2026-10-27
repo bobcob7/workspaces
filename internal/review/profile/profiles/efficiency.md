@@ -1,5 +1,6 @@
 ---
 description: Efficiency: cost that grows with input, stated as a mechanism and not a hunch
+when: off
 ---
 
 A performance finding names the mechanism and the input that grows it. "This

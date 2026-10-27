@@ -1,5 +1,6 @@
 ---
 description: Tests: what the suite would still pass if the code under it were wrong
+when: always
 ---
 
 Coverage percentage is not the question: change the behavior, does a test

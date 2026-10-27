@@ -256,3 +256,147 @@ func TestReader_Load_WhitespaceOnlyFrontMatterLineIsBlank(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "ok", p.Description)
 }
+
+func TestParseWhen(t *testing.T) {
+	for _, s := range []string{"always", "auto", "off"} {
+		w, err := ParseWhen(s)
+		require.NoError(t, err)
+		assert.Equal(t, When(s), w)
+	}
+	_, err := ParseWhen("sometimes")
+	require.ErrorContains(t, err, `not "sometimes"`)
+}
+
+func TestProfile_Matches(t *testing.T) {
+	p := Profile{Match: []string{"*.go", "go.mod", "web/*.ts"}}
+	t.Run("a pattern without a slash matches the base name at any depth", func(t *testing.T) {
+		assert.True(t, p.Matches("main.go"))
+		assert.True(t, p.Matches("internal/cli/app.go"))
+		assert.True(t, p.Matches("tools/go.mod"))
+	})
+	t.Run("a pattern with a slash matches the whole path", func(t *testing.T) {
+		assert.True(t, p.Matches("web/app.ts"))
+		assert.False(t, p.Matches("web/src/app.ts"))
+	})
+	t.Run("nothing else matches", func(t *testing.T) {
+		assert.False(t, p.Matches("README.md"))
+		assert.False(t, p.Matches("go.sum"))
+	})
+	t.Run("no patterns match nothing", func(t *testing.T) {
+		assert.False(t, (&Profile{}).Matches("main.go"))
+	})
+}
+
+func TestReader_Load_WhenAndMatch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeProfile(t, dir, "explicit.md", "---\ndescription: d\nwhen: auto          # always | auto | off\nmatch: [\"*.rs\", \"Cargo.toml\"]  # files\n---\nBody.\n")
+	writeProfile(t, dir, "plain.md", validFrontMatter("d")+"Body.\n")
+	writeProfile(t, dir, "matched.md", "---\ndescription: d\nmatch: [\"*.py\"]\n---\nBody.\n")
+	writeProfile(t, dir, "off.md", "---\ndescription: d\nwhen: off\n---\nBody.\n")
+	r := New(dir)
+	t.Run("when and match are read, comments dropped", func(t *testing.T) {
+		t.Parallel()
+		p, ok, err := r.Load("explicit")
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, WhenAuto, p.When)
+		assert.Equal(t, []string{"*.rs", "Cargo.toml"}, p.Match)
+		assert.False(t, p.Builtin)
+	})
+	t.Run("without when or match a profile is always", func(t *testing.T) {
+		t.Parallel()
+		p, _, err := r.Load("plain")
+		require.NoError(t, err)
+		assert.Equal(t, WhenAlways, p.When)
+		assert.Empty(t, p.Match)
+	})
+	t.Run("match without when is auto", func(t *testing.T) {
+		t.Parallel()
+		p, _, err := r.Load("matched")
+		require.NoError(t, err)
+		assert.Equal(t, WhenAuto, p.When)
+	})
+	t.Run("off is kept", func(t *testing.T) {
+		t.Parallel()
+		p, _, err := r.Load("off")
+		require.NoError(t, err)
+		assert.Equal(t, WhenOff, p.When)
+	})
+}
+
+func TestReader_Load_WhenAndMatchErrors(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		label   string
+		content string
+		want    string
+	}{
+		{"unknown when", "---\ndescription: d\nwhen: never\n---\nb\n", "when must be always, auto, or off"},
+		{"auto without match", "---\ndescription: d\nwhen: auto\n---\nb\n", "when: auto needs match patterns"},
+		{"match not a list", "---\ndescription: d\nmatch: *.go\n---\nb\n", "match must be a list"},
+		{"match pattern malformed", "---\ndescription: d\nmatch: [\"[\"]\n---\nb\n", "malformed"},
+		{"match pattern empty", "---\ndescription: d\nmatch: [\"\"]\n---\nb\n", "malformed"},
+		{"duplicate when", "---\ndescription: d\nwhen: off\nwhen: always\n---\nb\n", `duplicate frontmatter key "when"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeProfile(t, dir, "profile.md", tc.content)
+			_, ok, err := New(dir).Load("profile")
+			require.ErrorContains(t, err, tc.want)
+			assert.False(t, ok)
+		})
+	}
+}
+
+func TestReader_List(t *testing.T) {
+	t.Parallel()
+	t.Run("valid profiles sorted, broken ones named, other files skipped", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeProfile(t, dir, "b.md", validFrontMatter("b")+"Body.\n")
+		writeProfile(t, dir, "a.md", validFrontMatter("a")+"Body.\n")
+		writeProfile(t, dir, "broken.md", "no front matter\n")
+		writeProfile(t, dir, "README.md", "# not a profile\n")
+		writeProfile(t, dir, "notes.txt", "x")
+		require.NoError(t, os.Mkdir(filepath.Join(dir, "sub.md"), 0o750))
+		profiles, broken, err := New(dir).List()
+		require.NoError(t, err)
+		require.Len(t, profiles, 2)
+		assert.Equal(t, "a", profiles[0].Name)
+		assert.Equal(t, "b", profiles[1].Name)
+		assert.Equal(t, []string{filepath.Join(dir, "broken.md")}, broken)
+	})
+	t.Run("a missing directory is empty", func(t *testing.T) {
+		t.Parallel()
+		profiles, broken, err := New(filepath.Join(t.TempDir(), "missing")).List()
+		require.NoError(t, err)
+		assert.Empty(t, profiles)
+		assert.Empty(t, broken)
+	})
+}
+
+func TestBuiltin(t *testing.T) {
+	profiles, broken, err := Builtin().List()
+	require.NoError(t, err)
+	assert.Empty(t, broken)
+	got := map[string]Profile{}
+	for _, p := range profiles {
+		assert.True(t, p.Builtin, p.Name)
+		got[p.Name] = p
+	}
+	want := map[string]When{
+		"architecture": WhenAlways, "claims": WhenAlways, "security": WhenAlways, "tests": WhenAlways,
+		"go": WhenAuto, "typescript": WhenAuto,
+		"compatibility": WhenOff, "efficiency": WhenOff,
+	}
+	require.Len(t, got, len(want))
+	for name, when := range want {
+		assert.Equal(t, when, got[name].When, name)
+	}
+	goProfile, tsProfile := got["go"], got["typescript"]
+	assert.Equal(t, []string{"*.go", "go.mod"}, goProfile.Match)
+	assert.Equal(t, []string{"*.ts", "*.tsx"}, tsProfile.Match)
+}

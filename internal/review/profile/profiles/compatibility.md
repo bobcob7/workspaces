@@ -1,5 +1,6 @@
 ---
 description: Compatibility: what breaks for a caller who upgrades without reading this diff
+when: off
 ---
 
 The audience upgrades and reads nothing: what stops working, and how they

@@ -1,5 +1,6 @@
 ---
 description: Architecture: coupling, boundaries, and the change this makes expensive next time
+when: always
 ---
 
 The lens is the second change, not this one. What does this make harder to do
