@@ -83,6 +83,26 @@ func (s *Store) Find(arg string) (Workspace, error) {
 	return Workspace{}, fmt.Errorf("%w: %q", ErrNotFound, arg)
 }
 
+// Containing returns the workspace whose directory holds dir, or is dir,
+// after resolving symlinks in both. ErrNotFound means dir is in none.
+func (s *Store) Containing(dir string) (Workspace, error) {
+	want, err := resolvePath(dir)
+	if err != nil {
+		return Workspace{}, fmt.Errorf("%w: %s", ErrNotFound, dir)
+	}
+	list, err := s.List()
+	if err != nil {
+		return Workspace{}, err
+	}
+	for _, ws := range list {
+		got, err := resolvePath(ws.Path)
+		if err == nil && contains(got, want) {
+			return ws, nil
+		}
+	}
+	return Workspace{}, fmt.Errorf("%w: %s", ErrNotFound, dir)
+}
+
 // byID returns the complete workspace with this id.
 func (s *Store) byID(id string) (Workspace, error) {
 	if !validID(id) {

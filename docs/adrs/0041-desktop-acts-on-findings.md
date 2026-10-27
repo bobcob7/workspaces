@@ -1,6 +1,6 @@
 # 0041. Selected findings are posted as one GitHub review at the reviewed commit after a preview, and sent to fix to the requesting agent, or else to a new agent on the PR's branch
 
-- Status: Proposed
+- Status: Accepted (2026-10-27)
 - Date: 2026-10-26
 
 ## Context

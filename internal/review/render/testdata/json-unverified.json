@@ -1,0 +1,27 @@
+{
+  "valid": true,
+  "strict": false,
+  "verification": {
+    "source": "none",
+    "reason": "not a git repository",
+    "anchors": 0,
+    "verified": 0
+  },
+  "counts": {
+    "comments": 5,
+    "errors": 0,
+    "advisories": 0,
+    "skipped": 3
+  },
+  "skipped": [
+    {
+      "reason": "not a git repository",
+      "checks": [
+        "ref-unknown",
+        "anchor-file-missing",
+        "anchor-line-out-of-range"
+      ]
+    }
+  ],
+  "diagnostics": []
+}

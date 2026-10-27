@@ -1,6 +1,6 @@
 # 0037. Reviews are a `ws` feature built from a fork of loam-refinery's code and specialized for workspaces; `ws` doesn't run or depend on loam-refinery
 
-- Status: Proposed
+- Status: Accepted (2026-10-27)
 - Date: 2026-10-26
 
 ## Context

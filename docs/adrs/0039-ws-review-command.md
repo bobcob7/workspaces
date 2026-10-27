@@ -1,6 +1,6 @@
 # 0039. `ws review` starts a review with a record of what it reviews and who asked, keeps submissions in `CONFIG_DIR/reviews/`, and `wait` hands the requester the combined report
 
-- Status: Proposed
+- Status: Accepted (2026-10-27)
 - Date: 2026-10-26
 
 ## Context

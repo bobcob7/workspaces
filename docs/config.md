@@ -42,10 +42,14 @@ CONFIG_DIR/
   workspaces/          one directory per workspace, your repos only (0012)
     CLAUDE.md          tells agents to run `ws llm` (0014)
   state/<id>/          ws's records and locks per workspace
+  reviews/             submitted reviews, by repo and commit (0039)
+  review/profiles/     your review profiles, <name>.md (0038)
 ```
 
-What `ws` keeps under `state/`, and when, is described in
-[Workspace state](state.md).
+What `ws` keeps under `state/` and `reviews/`, and when, is described in
+[Workspace state](state.md). `review/profiles/` is yours: `ws` reads it
+and never writes it; [`ws review`](tools/ws-review.md#ws-review-prime)
+describes the files.
 
 `CONFIG_DIR` and `config.toml` are created by the first command that needs
 them. The other entries are created by the commands that use them. On

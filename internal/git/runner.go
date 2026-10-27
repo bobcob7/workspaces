@@ -18,6 +18,12 @@ import (
 
 var errNoDir = errors.New("git command without a directory")
 
+// waitDelay bounds the wait for git's output once ctx has killed it. Killing
+// git doesn't close the pipes a descendant inherited (a hook, a credential
+// helper), and without a bound the call outlives its context for as long as
+// that descendant lives.
+const waitDelay = 5 * time.Second
+
 // Runner runs git commands with a fixed environment.
 type Runner struct {
 	log      *slog.Logger
@@ -87,6 +93,7 @@ func (r *Runner) exec(ctx context.Context, dir string, args []string) ([]byte, e
 	//nolint:gosec // G204: running git with arguments is this package's purpose.
 	cmd := exec.CommandContext(ctx, r.gitPath, full...)
 	cmd.Env = append(slices.Clone(r.environ), "GIT_TERMINAL_PROMPT=0")
+	cmd.WaitDelay = waitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	start := time.Now()

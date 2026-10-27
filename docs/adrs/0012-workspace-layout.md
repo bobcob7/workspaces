@@ -1,6 +1,6 @@
 # 0012. Workspace names, state kept outside the workspace, and deletion guard
 
-- Status: Accepted (2026-10-17); state files amended by [0015](0015-workspace-lifetime-follows-session.md) (2026-10-18); creation order amended by [0022](0022-workspace-record-before-rename.md) (2026-10-19); removal-pass timestamp in `state/` amended by [0026](0026-removal-pass-timing.md) (2026-10-19); `state/.respawn.lock` and session record version added by [0027](0027-respawn-lock-and-record-versions.md) (2026-10-20); ids from `--name` get a random suffix, and the name can be changed, by [0036](0036-workspace-id-suffix-and-rename.md) (proposed)
+- Status: Accepted (2026-10-17); state files amended by [0015](0015-workspace-lifetime-follows-session.md) (2026-10-18); creation order amended by [0022](0022-workspace-record-before-rename.md) (2026-10-19); removal-pass timestamp in `state/` amended by [0026](0026-removal-pass-timing.md) (2026-10-19); `state/.respawn.lock` and session record version added by [0027](0027-respawn-lock-and-record-versions.md) (2026-10-20); ids from `--name` get a random suffix, and the name can be changed, by [0036](0036-workspace-id-suffix-and-rename.md) (proposed); `review.toml` in state and `reviews/` in `CONFIG_DIR` added by [0039](0039-ws-review-command.md) (2026-10-27)
 - Date: 2026-10-17
 
 ## Context

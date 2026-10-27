@@ -39,6 +39,11 @@ const (
 	codeShellRunning      errorCode = "shell_running"
 	codeWorkspaceBusy     errorCode = "workspace_busy"
 	codeSessionMismatch   errorCode = "session_mismatch"
+	// Review codes from ADR 0039.
+	codeReviewInvalid      errorCode = "review_invalid"
+	codeReviewUnverifiable errorCode = "review_unverifiable"
+	codeProfileUnknown     errorCode = "profile_unknown"
+	codeReviewNotFound     errorCode = "review_not_found"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -80,11 +85,13 @@ func (e *cliError) exitCode() int {
 func (c errorCode) exitCode() int {
 	switch c {
 	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing,
-		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid:
+		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
+		codeReviewInvalid, codeReviewUnverifiable:
 		return exitFailed
-	case codeUsage, codeSpecInvalid, codeNameInvalid:
+	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown:
 		return exitUsage
-	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound:
+	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
+		codeReviewNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch:
 		return exitRefused

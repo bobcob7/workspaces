@@ -213,6 +213,19 @@ func TestRunner_exec(t *testing.T) {
 		_, err := r.exec(ctx, "/repo", []string{"fetch"})
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})
+	t.Run("returns when a child holds its pipes", func(t *testing.T) {
+		t.Parallel()
+		r := NewRunner(discardLogger(), fakeGit(t, "/bin/sleep 60 & /bin/sleep 60"), nil)
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		_, err := r.exec(ctx, "/repo", []string{"fetch"})
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		var cmdErr *CommandError
+		require.ErrorAs(t, err, &cmdErr)
+		assert.Equal(t, -1, cmdErr.ExitCode)
+		assert.Less(t, time.Since(start), waitDelay+5*time.Second)
+	})
 	t.Run("logs the command at debug level", func(t *testing.T) {
 		t.Parallel()
 		var logs bytes.Buffer

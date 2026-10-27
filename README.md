@@ -101,6 +101,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws rm`](docs/tools/ws-rm.md)           | Remove workspaces and their sessions now             |
 | [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |
+| [`ws review`](docs/tools/ws-review.md)   | Check, store, and explain structured reviews         |
 | [`ws llm`](docs/tools/ws-llm.md)         | Print guidance for AI agents                         |
 
 Commands are non-interactive, write results to stdout and diagnostics to
@@ -219,9 +220,10 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   ([0002](docs/adrs/0002-implementation-language.md))
 - [ ] **Structured reviews**, forked from loam-refinery ([design](docs/design/loam-refinery-reviews/README.md),
   [0037](docs/adrs/0037-review-engine-forked-from-loam-refinery.md)–[0041](docs/adrs/0041-desktop-acts-on-findings.md),
-  proposed): `ws review start`, `wait`, and `report`; one subagent per
+  accepted): `ws review start`, `wait`, and `report`; one subagent per
   reviewer profile; findings triaged, commented, and fixed from the
-  desktop app
+  desktop app. Step 1 of 6, the forked review engine with `ws review
+  prime`, `describe`, and `submit` and the review store, is done
 
 ## Development
 

@@ -184,6 +184,37 @@ func TestStore_Find(t *testing.T) {
 	})
 }
 
+func TestStore_Containing(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t, nil, nil)
+	ws := putWorkspace(t, s, "review-x", testNow())
+	putWorkspace(t, s, "review-xy", testNow())
+	sub := filepath.Join(ws.Path, "repo", "internal")
+	require.NoError(t, os.MkdirAll(sub, 0o750))
+	t.Run("the workspace directory itself", func(t *testing.T) {
+		t.Parallel()
+		got, err := s.Containing(ws.Path)
+		require.NoError(t, err)
+		assert.Equal(t, ws, got)
+	})
+	t.Run("a directory inside it", func(t *testing.T) {
+		t.Parallel()
+		got, err := s.Containing(sub)
+		require.NoError(t, err)
+		assert.Equal(t, ws, got)
+	})
+	t.Run("outside every workspace", func(t *testing.T) {
+		t.Parallel()
+		_, err := s.Containing(t.TempDir())
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+	t.Run("a directory that doesn't exist", func(t *testing.T) {
+		t.Parallel()
+		_, err := s.Containing(filepath.Join(ws.Path, "missing"))
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
 func TestStore_byID(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		s := newTestStore(t, nil, nil)

@@ -1,0 +1,208 @@
+// Package structural runs the hard checks: the ones that decide whether the
+// input can be consumed as a review document at all.
+package structural
+
+import (
+	"fmt"
+	"log/slog"
+	"regexp"
+	"slices"
+	"strings"
+	"unicode"
+
+	"github.com/bobcob7/workspaces/internal/review"
+)
+
+var shaPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+var profilePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// Checker runs every structural check over one document.
+type Checker struct {
+	schema schemaValidator
+	log    *slog.Logger
+}
+
+// New returns a Checker that validates against the supplied schema.
+func New(schema schemaValidator, log *slog.Logger) *Checker {
+	return &Checker{schema: schema, log: log}
+}
+
+// Check runs every structural check. No check gates another: each degrades to
+// skipping the item whose inputs it cannot read.
+func (c *Checker) Check(doc *review.Document) []review.Diagnostic {
+	diagnostics := []review.Diagnostic{}
+	diagnostics = append(diagnostics, c.idUnique(doc)...)
+	diagnostics = append(diagnostics, c.anchorRangeOrdered(doc)...)
+	diagnostics = append(diagnostics, c.anchorPathSafe(doc)...)
+	diagnostics = append(diagnostics, c.refFormat(doc)...)
+	diagnostics = append(diagnostics, c.profileFormat(doc)...)
+	covered := map[string]bool{}
+	for _, d := range diagnostics {
+		covered[d.Path] = true
+	}
+	c.log.Debug("structural checks complete", "diagnostics", len(diagnostics))
+	return append(c.schemaCheck(doc, covered), diagnostics...)
+}
+
+// schemaCheck reports conformance failures, dropping any whose location a
+// dedicated check already reported so one mistake costs one diagnostic.
+func (c *Checker) schemaCheck(doc *review.Document, covered map[string]bool) []review.Diagnostic {
+	diagnostics := []review.Diagnostic{}
+	for _, failure := range c.schema.Validate(doc.Root) {
+		if covered[failure.Path] {
+			continue
+		}
+		lens := failure.Field
+		if lens == "" {
+			lens = "schema"
+		}
+		diagnostics = append(diagnostics, review.Diagnostic{
+			Severity: review.SeverityError,
+			Name:     "schema",
+			Path:     failure.Path,
+			Message:  failure.Message,
+			Lens:     lens,
+		})
+	}
+	return diagnostics
+}
+
+func (*Checker) idUnique(doc *review.Document) []review.Diagnostic {
+	diagnostics := []review.Diagnostic{}
+	first := map[string]int{}
+	for _, comment := range doc.Comments {
+		if !comment.ID.OK {
+			continue
+		}
+		id := comment.ID.Value
+		earlier, seen := first[id]
+		if !seen {
+			first[id] = comment.Index
+			continue
+		}
+		diagnostics = append(diagnostics, review.Diagnostic{
+			Severity: review.SeverityError,
+			Name:     "id-unique",
+			Comment:  id,
+			Path:     comment.Path + "/id",
+			Message:  fmt.Sprintf("declared by comments[%d] and comments[%d]", earlier, comment.Index),
+		})
+	}
+	return diagnostics
+}
+
+func (*Checker) anchorRangeOrdered(doc *review.Document) []review.Diagnostic {
+	diagnostics := []review.Diagnostic{}
+	for _, comment := range doc.Comments {
+		for _, anchor := range comment.Anchors {
+			if !anchor.EndLine.OK {
+				continue
+			}
+			switch {
+			case !anchor.Line.Present:
+				diagnostics = append(diagnostics, review.Diagnostic{
+					Severity: review.SeverityError,
+					Name:     "anchor-range-ordered",
+					Comment:  comment.DiagnosticID(),
+					Path:     anchor.Path + "/end_line",
+					Message:  fmt.Sprintf("end_line %d without line", anchor.EndLine.Value),
+				})
+			case anchor.Line.OK && anchor.EndLine.Value < anchor.Line.Value:
+				diagnostics = append(diagnostics, review.Diagnostic{
+					Severity: review.SeverityError,
+					Name:     "anchor-range-ordered",
+					Comment:  comment.DiagnosticID(),
+					Path:     anchor.Path + "/end_line",
+					Message:  fmt.Sprintf("end_line %d is before line %d", anchor.EndLine.Value, anchor.Line.Value),
+				})
+			}
+		}
+	}
+	return diagnostics
+}
+
+func (*Checker) anchorPathSafe(doc *review.Document) []review.Diagnostic {
+	diagnostics := []review.Diagnostic{}
+	for _, comment := range doc.Comments {
+		for _, anchor := range comment.Anchors {
+			if !anchor.File.OK {
+				continue
+			}
+			reason, unsafe := pathProblem(anchor.File.Value)
+			if !unsafe {
+				continue
+			}
+			diagnostics = append(diagnostics, review.Diagnostic{
+				Severity: review.SeverityError,
+				Name:     "anchor-path-safe",
+				Comment:  comment.DiagnosticID(),
+				Path:     anchor.Path + "/file",
+				Message:  fmt.Sprintf("file %q %s", anchor.File.Value, reason),
+			})
+		}
+	}
+	return diagnostics
+}
+
+func pathProblem(file string) (string, bool) {
+	switch {
+	case strings.HasPrefix(file, "/"):
+		return "is absolute; anchors are repository-relative", true
+	case strings.Contains(file, `\`):
+		return "contains a backslash; anchors are POSIX paths", true
+	case containsControlRune(file):
+		// A denylist of bad shapes keeps losing to inputs nobody enumerated —
+		// a newline turns a single-line render (an inline code span, per
+		// docs/features/combined-reviews.md §8.3.2) into a multi-line one it
+		// cannot survive, forging whatever markdown follows it. Rejecting the
+		// whole class closes that off structurally instead of one escape
+		// sequence at a time.
+		return "contains a control character; anchors are plain text", true
+	}
+	if slices.Contains(strings.Split(file, "/"), "..") {
+		return "escapes the repository", true
+	}
+	return "", false
+}
+
+// containsControlRune reports whether s contains any control character —
+// category Cc, which covers \n, \r, \t, and every other C0/C1 control
+// point, DEL included.
+func containsControlRune(s string) bool {
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func (*Checker) refFormat(doc *review.Document) []review.Diagnostic {
+	if !doc.Ref.OK || shaPattern.MatchString(doc.Ref.Value) {
+		return nil
+	}
+	return []review.Diagnostic{{
+		Severity: review.SeverityError,
+		Name:     "ref-format",
+		Path:     "/ref",
+		Message:  fmt.Sprintf("ref %q is not a 40-character lowercase commit SHA", doc.Ref.Value),
+	}}
+}
+
+func (*Checker) profileFormat(doc *review.Document) []review.Diagnostic {
+	if !doc.Profile.OK || profilePattern.MatchString(doc.Profile.Value) {
+		return nil
+	}
+	return []review.Diagnostic{{
+		Severity: review.SeverityError,
+		Name:     "profile-format",
+		Path:     "/profile",
+		Message:  fmt.Sprintf("profile %q does not match ^[a-z0-9]+(-[a-z0-9]+)*$", doc.Profile.Value),
+	}}
+}
+
+// ValidSHA reports whether a ref is a full lowercase commit SHA.
+func ValidSHA(ref string) bool {
+	return shaPattern.MatchString(ref)
+}
