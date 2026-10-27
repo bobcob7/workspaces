@@ -44,6 +44,10 @@ const (
 	codeReviewUnverifiable errorCode = "review_unverifiable"
 	codeProfileUnknown     errorCode = "profile_unknown"
 	codeReviewNotFound     errorCode = "review_not_found"
+	codeReviewTimeout      errorCode = "review_timeout"
+	codeGhMissing          errorCode = "gh_missing"
+	codeGhAuth             errorCode = "gh_auth"
+	codePRNotFound         errorCode = "pr_not_found"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -86,12 +90,12 @@ func (c errorCode) exitCode() int {
 	switch c {
 	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing,
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
-		codeReviewInvalid, codeReviewUnverifiable:
+		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
-		codeReviewNotFound:
+		codeReviewNotFound, codePRNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch:
 		return exitRefused

@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/review/record"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -85,11 +87,11 @@ func TestApp_runList(t *testing.T) {
 		assert.JSONEq(t, `{"workspaces":[
 			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false},
-			 "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}]},
+			 "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
 			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null},
-			 "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}]},
-			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"repos":[]}
+			 "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
+			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"repos":[],"review":null}
 		],"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--json with nothing to list", func(t *testing.T) {
@@ -323,15 +325,39 @@ func TestRepoMatches(t *testing.T) {
 	})
 }
 
-func TestListWorkspaces(t *testing.T) {
+func TestApp_listWorkspaces(t *testing.T) {
 	t.Run("never null", func(t *testing.T) {
-		assert.Equal(t, []listWorkspaceJSON{}, listWorkspaces(nil, nil))
+		app, _, _ := newTestApp()
+		assert.Equal(t, []listWorkspaceJSON{}, app.listWorkspaces(nil, nil))
 	})
 	t.Run("workspaces, then unknown directories", func(t *testing.T) {
-		got := listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, []string{"/cfg/workspaces/stray"})
+		app, _, _ := newTestApp()
+		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, []string{"/cfg/workspaces/stray"})
 		require.Len(t, got, 2)
 		assert.Equal(t, "a", *got[0].ID)
+		assert.Nil(t, got[0].Review)
 		assert.Equal(t, listWorkspaceJSON{Path: "/cfg/workspaces/stray", Repos: []listRepoJSON{}}, got[1])
+	})
+	t.Run("a review workspace has its record", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		app.paths = config.NewPaths(t.TempDir())
+		rec := testRecord()
+		require.NoError(t, os.MkdirAll(filepath.Join(app.paths.State, "a"), 0o750))
+		require.NoError(t, record.Write(record.Path(app.paths.State, "a"), &rec))
+		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, nil)
+		require.NotNil(t, got[0].Review)
+		assert.Equal(t, rec.Repo, got[0].Review.Repo)
+		assert.Equal(t, 1, got[0].Review.Version)
+	})
+	t.Run("an unreadable record is a warning", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		app.paths = config.NewPaths(t.TempDir())
+		require.NoError(t, os.MkdirAll(filepath.Join(app.paths.State, "a"), 0o750))
+		require.NoError(t, os.WriteFile(record.Path(app.paths.State, "a"), []byte("version = 99\n"), 0o600))
+		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, nil)
+		assert.Nil(t, got[0].Review)
+		require.Len(t, app.warned, 1)
+		assert.Contains(t, app.warned[0], "review record")
 	})
 }
 

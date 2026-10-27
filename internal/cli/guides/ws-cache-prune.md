@@ -10,6 +10,9 @@ pull request's. A ref is kept while any workspace's record names its repo
 and commit, and every ref is kept while a workspace is being created. If
 a workspace record can't be read, nothing is pruned.
 
+Then it deletes the stored reviews (`$CONFIG_DIR/reviews/`) of every repo
+that is no longer cached.
+
 ## When to use it
 
 Only when told to, to free cache space.
@@ -24,11 +27,12 @@ Only when told to, to free cache space.
 ## JSON output
 
 ```json
-{"refs": [{"id": "github.com/bobcob7/buff-bear", "commit": "9b1d22a0c7e1f3a8b2d4c6e8f0a1b3c5d7e9f1a2"}], "warnings": []}
+{"refs": [{"id": "github.com/bobcob7/buff-bear", "commit": "9b1d22a0c7e1f3a8b2d4c6e8f0a1b3c5d7e9f1a2"}],
+ "reviews": [{"id": "github.com/bobcob7/old-repo", "path": "/…/reviews/github.com/bobcob7/old-repo"}], "warnings": []}
 ```
 
-Without `--json`, `pruned  <id>  <commit>` per ref, or `would prune` with
-`-n`.
+Without `--json`, `pruned  <id>  <commit>` per ref and `pruned reviews
+<id>  <path>` per repo, or `would prune` with `-n`.
 
 ## Exit codes
 

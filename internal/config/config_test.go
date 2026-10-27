@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,30 @@ func TestParse(t *testing.T) {
 	t.Run("rejects invalid values", func(t *testing.T) {
 		_, err := parse([]byte("[defaults]\nhost = \"\"\n"))
 		assert.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("reads review", func(t *testing.T) {
+		cfg, err := parse([]byte("[review]\ntimeout = \"90m\"\n[review.profiles.go]\nwhen = \"always\"\nmodel = \"opus\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, 90*time.Minute, cfg.Review.Timeout)
+		assert.Equal(t, map[string]ReviewProfile{"go": {When: "always", Model: "opus"}}, cfg.Review.Profiles)
+	})
+	t.Run("rejects a bad review when", func(t *testing.T) {
+		_, err := parse([]byte("[review.profiles.go]\nwhen = \"sometimes\"\n"))
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorContains(t, err, "review.profiles.go.when")
+	})
+	t.Run("rejects a negative review timeout", func(t *testing.T) {
+		_, err := parse([]byte("[review]\ntimeout = \"-1m\"\n"))
+		assert.ErrorIs(t, err, ErrInvalid)
+	})
+}
+
+func TestReview_WaitTimeout(t *testing.T) {
+	t.Run("defaults to 60 minutes", func(t *testing.T) {
+		assert.Equal(t, 60*time.Minute, (&Review{}).WaitTimeout())
+	})
+	t.Run("is the configured timeout", func(t *testing.T) {
+		assert.Equal(t, 2*time.Hour, (&Review{Timeout: 2 * time.Hour}).WaitTimeout())
 	})
 }
 

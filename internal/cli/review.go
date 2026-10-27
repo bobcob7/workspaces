@@ -27,8 +27,8 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-// newReviewCmd is the ws review group (ADR 0039). This step has the
-// reviewer's commands, run inside a review workspace.
+// newReviewCmd is the ws review group (ADR 0039): the requester's
+// commands, and the reviewer's, run inside a review workspace.
 func (a *App) newReviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "review <OP>",
@@ -39,6 +39,10 @@ func (a *App) newReviewCmd() *cobra.Command {
 		}),
 	}
 	cmd.AddCommand(
+		a.newReviewStartCmd(),
+		a.newReviewWaitCmd(),
+		a.newReviewReportCmd(),
+		a.newReviewProfilesCmd(),
 		a.newReviewPrimeCmd(),
 		a.newReviewDescribeCmd(),
 		a.newReviewSubmitCmd(),

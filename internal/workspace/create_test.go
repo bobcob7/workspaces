@@ -440,6 +440,31 @@ func TestStore_build(t *testing.T) {
 		require.ErrorContains(t, err, "moving x into place")
 		assert.FileExists(t, filepath.Join(s.dir("x"), "keep"))
 	})
+	t.Run("prepares before moving into place", func(t *testing.T) {
+		s := newTestStore(t, okGit(), fakeCache())
+		require.NoError(t, s.ensureRoots())
+		require.NoError(t, os.MkdirAll(s.stateOf("x"), 0o750))
+		var prepared *Workspace
+		opts := CreateOptions{Prepare: func(ws *Workspace) error {
+			assert.NoDirExists(t, s.dir("x"), "the workspace isn't in place yet")
+			assert.FileExists(t, s.recordPath("x"))
+			prepared = ws
+			return nil
+		}}
+		ws, err := s.build(t.Context(), "x", opts, nil)
+		require.NoError(t, err)
+		require.NotNil(t, prepared)
+		assert.Equal(t, "x", prepared.ID)
+		assert.DirExists(t, ws.Path)
+	})
+	t.Run("a failed prepare leaves no workspace directory", func(t *testing.T) {
+		s := newTestStore(t, okGit(), fakeCache())
+		require.NoError(t, s.ensureRoots())
+		require.NoError(t, os.MkdirAll(s.stateOf("x"), 0o750))
+		_, err := s.build(t.Context(), "x", CreateOptions{Prepare: func(*Workspace) error { return errTest }}, nil)
+		require.ErrorIs(t, err, errTest)
+		assert.NoDirExists(t, s.dir("x"))
+	})
 	t.Run("record write failure leaves no workspace directory", func(t *testing.T) {
 		s := newTestStore(t, okGit(), fakeCache())
 		require.NoError(t, s.ensureRoots())

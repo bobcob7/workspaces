@@ -68,7 +68,8 @@ $ ws list --json
       "repos": [
         { "id": "github.com/bobcob7/buff-bear", "path": "buff-bear",
           "ref": "main", "ref_kind": "branch" }
-      ]
+      ],
+      "review": null
     }
   ],
   "warnings": []
@@ -78,6 +79,12 @@ $ ws list --json
 `name` is the display name, from `--name` or [`ws rename`](ws-rename.md),
 or `null` (`-` in the table) for a workspace created without one
 ([0036](../adrs/0036-workspace-id-suffix-and-rename.md)).
+
+`review` is a review workspace's record, `state/<id>/review.toml`, as
+[`ws review start --json`](ws-review.md) prints it, or `null` for any other
+workspace and for a record that can't be read, which is a warning
+([0039](../adrs/0039-ws-review-command.md)). The desktop app matches
+reviews to pull requests by its `pr.number` and `ref`.
 
 `session.state` is `working`, `idle`, `starting`, `stopped`, `unknown`, or
 `running` for a shell. It is `ws`'s reading, not Claude Code's own `state`

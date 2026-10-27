@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -308,13 +311,13 @@ func TestApp_cachePrune(t *testing.T) {
 		app, stdout, _ := newCacheApp(pruning())
 		app.global.json = true
 		require.NoError(t, app.cachePrune(t.Context(), false))
-		assert.JSONEq(t, `{"refs":[{"id":"github.com/bobcob7/buff-bear","commit":"abc"}],"warnings":[]}`, stdout.String())
+		assert.JSONEq(t, `{"refs":[{"id":"github.com/bobcob7/buff-bear","commit":"abc"}],"reviews":[],"warnings":[]}`, stdout.String())
 	})
 	t.Run("nothing to prune is an empty list", func(t *testing.T) {
 		app, stdout, _ := newCacheApp(stubCache())
 		app.global.json = true
 		require.NoError(t, app.cachePrune(t.Context(), false))
-		assert.JSONEq(t, `{"refs":[],"warnings":[]}`, stdout.String())
+		assert.JSONEq(t, `{"refs":[],"reviews":[],"warnings":[]}`, stdout.String())
 	})
 	t.Run("a workspace check failure stops it", func(t *testing.T) {
 		m := pruning()
@@ -332,6 +335,42 @@ func TestApp_cachePrune(t *testing.T) {
 		}
 		app, _, _ := newCacheApp(m)
 		requireCode(t, codeGitFailed, app.cachePrune(t.Context(), false))
+	})
+	reviewsOf := func(t *testing.T, app *App) (kept, gone string) {
+		t.Helper()
+		app.paths = config.NewPaths(t.TempDir())
+		other, err := repo.NewID("github.com", "bobcob7", "gone")
+		require.NoError(t, err)
+		reviews := store.New(app.paths.Reviews)
+		for _, id := range []repo.ID{testID(), other} {
+			_, err := reviews.Submit(t.Context(), id, testCommit, "go", []byte(`{}`))
+			require.NoError(t, err)
+		}
+		return reviews.Dir(testID(), testCommit), filepath.Join(app.paths.Reviews, "github.com", "bobcob7", "gone")
+	}
+	t.Run("removes the reviews of repos no longer cached", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		kept, gone := reviewsOf(t, app)
+		app.global.json = true
+		require.NoError(t, app.cachePrune(t.Context(), false))
+		assert.JSONEq(t, `{"refs":[],"reviews":[{"id":"github.com/bobcob7/gone","path":`+strconv.Quote(gone)+`}],"warnings":[]}`, stdout.String())
+		assert.NoDirExists(t, gone)
+		assert.DirExists(t, kept)
+	})
+	t.Run("a dry run keeps reviews", func(t *testing.T) {
+		app, stdout, _ := newCacheApp(stubCache())
+		_, gone := reviewsOf(t, app)
+		require.NoError(t, app.cachePrune(t.Context(), true))
+		assert.Equal(t, "would prune reviews  github.com/bobcob7/gone  "+gone+"\n", stdout.String())
+		assert.DirExists(t, gone)
+	})
+	t.Run("listing the cache failing stops pruning reviews", func(t *testing.T) {
+		m := stubCache()
+		m.IDsFunc = func() ([]repo.ID, error) { return nil, errTest }
+		app, _, _ := newCacheApp(m)
+		_, gone := reviewsOf(t, app)
+		require.ErrorIs(t, app.cachePrune(t.Context(), false), errTest)
+		assert.DirExists(t, gone)
 	})
 }
 

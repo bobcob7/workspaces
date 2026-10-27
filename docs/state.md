@@ -16,8 +16,8 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | by creation; its `name` rewritten by `ws rename` ([0036](adrs/0036-workspace-id-suffix-and-rename.md)) |
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
 | `state/<id>/lock` | the workspace lock | by creation |
-| `state/<id>/review.toml` | a review workspace's record: repo, commit, profiles, requester, and pull request ([0039](adrs/0039-ws-review-command.md)) | before the workspace is moved into place; read by `ws review` |
-| `reviews/<host>/<owner>/<name>/<sha>/` | submitted reviews; see [Reviews](#reviews) | by `ws review submit`; outlives the workspace |
+| `state/<id>/review.toml` | a review workspace's record: repo, commit, profiles, requester, and pull request ([0039](adrs/0039-ws-review-command.md)) | by `ws review start`, before the workspace is moved into place; read by `ws review`, and shown as `review` by `ws list --json` |
+| `reviews/<host>/<owner>/<name>/<sha>/` | submitted reviews; see [Reviews](#reviews) | by `ws review submit`; outlives the workspace; removed by `ws cache prune` once the repo isn't cached |
 | `state/<id>/trust` | the Claude Code trust `ws claude` added for a one-repo workspace's repo ([0028](adrs/0028-single-repo-session-directory.md)) | once, before the trust is written; read by every removal, which takes the trust back |
 | `state/<id>/building/` | the workspace while it's being built ([0022](adrs/0022-workspace-record-before-rename.md)) | by creation, then moved |
 | `state/.removal-pass` | its modification time is when the removal pass last started ([0026](adrs/0026-removal-pass-timing.md)) | by the removal pass |
@@ -197,13 +197,19 @@ reviews/<host>/<owner>/<name>/<sha>/
   each profile's current submission, and the earlier ones marked
   superseded. Comment ids are qualified as `<profile>:<id>` for a current
   submission and `#<ordinal>:<id>` otherwise.
-- **Removal.** Nothing removes `reviews/` with a workspace.
+- **Removal.** Nothing removes `reviews/` with a workspace. `ws cache
+  prune` removes `reviews/<host>/<owner>/<name>/`, every commit of it, for
+  each repo that is no longer cached, and then the parent directories
+  that leaves empty.
 
 ## What each command does
 
 - **`ws shell`**: creates the workspace, records a `shell` session and
   runs the shell under the lock. When the shell exits, it removes the
   workspace ([0023](adrs/0023-shell-session-keeps-creation-lock.md)).
+- **`ws review start`**: creates the workspace as `ws claude` does, at
+  the reviewed commit, writing `review.toml` after `workspace.toml` and
+  before the workspace is moved into place, then starts the review agent.
 - **`ws claude`**: creates the workspace and runs `claude --bg`, which
   finishes even if `ws` is interrupted. Then it records a `claude` session
   and releases the lock.
