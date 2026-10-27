@@ -1,6 +1,6 @@
 # Review reports in the desktop app: UI/UX
 
-How the Reviews section shows a loam-refinery review and lets you decide,
+How the Reviews section shows a review and lets you decide,
 finding by finding, what to comment on, what to fix, and what to skip.
 The flow and decisions behind it are in the [design](README.md) and ADRs
 [0039](../../adrs/0039-ws-review-command.md) to
@@ -34,9 +34,9 @@ It's a cross-link: it switches to Agents and selects that agent.
 
 ## Profiles strip
 
-One tile per profile in the review record, plus any the agent added:
-the name, its verdict (red *request changes*, yellow *comment*, green
-*approve*), and its findings by band (`1 must · 1 should`).
+One tile per profile in the review record: the name, the model its
+subagent ran on, its verdict (red *request changes*, yellow *comment*,
+green *approve*), and its findings by band (`1 must · 1 should`).
 
 - A profile with no submission yet is dashed, with a blue dot and "not
   in yet", while the agent works.
@@ -47,7 +47,7 @@ the name, its verdict (red *request changes*, yellow *comment*, green
 
 ## Findings
 
-Grouped by band, in loam-refinery's priority ladder:
+Grouped by band, in the review format's priority ladder:
 
 | Band | Priorities | Marker |
 | ---- | ---------- | ------ |
@@ -81,11 +81,15 @@ Clicking the row (anywhere but the control and the link) expands it:
 - a note field ("Add a note for the fixer or the comment"), collapsed
   until clicked.
 
-**Read-only findings.** A comment whose id is `#N:…` (from a submission
-with no profile) shows dimmed with "read-only" where the control would
-be; it can't carry a decision ([0040](../../adrs/0040-desktop-renders-report-and-keeps-triage.md)).
-Superseded submissions are hidden; **Show superseded** in the filter row's
-overflow brings them back, also read-only.
+**Decisions are saved as you make them**, with `ws review decide`, in the
+review's store ([0040](../../adrs/0040-review-decisions-kept-with-findings.md)).
+They survive restarts and removing the review agent, and agents see them
+in `ws review report`.
+
+**Read-only findings.** Superseded submissions (a profile that submitted
+again) are hidden; **Show superseded** in the filter row's overflow brings
+them back, dimmed, with ids like `#2:…` and "read-only" where the control
+would be. They can't carry a decision.
 
 **Done findings.** A finding that was acted on shows the result in place
 of the control: "✓ Commented · view on GitHub" (a link to the review) or
@@ -150,10 +154,10 @@ keeps the dialog open with `gh`'s message in an Alert, and posts nothing.
   - **Start a fix agent**, with the `ws claude` command it will run (on
     the PR's branch, or a `fix/pr-<n>-<sha7>` branch for a fork PR).
     Model and permission mode come from the Reviews settings.
-- **Message**: the text that will be sent, editable: each finding's id,
-  priority, category, anchor, a short body, the chosen fix (or "Choose a
-  fix"), your note, and the `ws review report` and `ws review start`
-  commands.
+- **Message**: the text that will be sent, editable. It stays short:
+  the findings' ids and titles, and `ws review report <review> --decided
+  fix --json`, which gives the agent the full findings with your chosen
+  fixes and notes; then `ws review start` for the next review.
 - **Send to `<requester>`** or **Start fix agent**. After sending, the
   findings show as done, and a Snackbar offers **Open agent**.
 
@@ -167,7 +171,7 @@ The requester sees the message as a user turn in its conversation:
 
 The Findings tab appears as soon as the first profile submits; the
 report is re-read every 30 s while the agent works
-([0040](../../adrs/0040-desktop-renders-report-and-keeps-triage.md)).
+([0040](../../adrs/0040-review-decisions-kept-with-findings.md)).
 A blue Alert says "3 of 5 profiles have submitted…", and decisions can be
 made already. Comment and Fix stay disabled until the agent is done, so a
 fix isn't sent while findings are still arriving. The list row's summary
@@ -188,27 +192,35 @@ reads `3 of 5 profiles in`.
 
 ## Settings
 
-![Reviews settings with profiles and extra instructions](img/report-settings.png)
+![Reviews settings: profiles, models, and when each runs](img/report-settings.png)
 
-The Reviews group changes in two places:
+The Reviews group changes in three places:
 
-- **Reviewer profiles**: chips for the profiles each review runs, with
-  ✕ to remove and `+ <name>` for the others from `loam-refinery prime
-  --list`. Passed as `--profile` to `ws review start`; empty means
-  `ws`'s default.
-- **Review task** becomes **Extra instructions**: free text added to
-  `ws review`'s prompt, with the same `{title}`, `{author}`, and `{body}`
-  fields. A non-default template from before is kept here, with a note
-  that the review itself is now `ws review`'s.
+- **Reviewer profiles** is a table of every profile `ws review profiles`
+  lists, built in or added under `CONFIG_DIR/review/profiles/`:
+  - **Runs**: *Always*, *When files match* (with the profile's patterns,
+    such as `*.go, go.mod`, shown beside it), or *Off*.
+  - **Model**: *Default* (the review agent's), an alias (`opus`,
+    `sonnet`, `haiku`, `fable`), or a full model id typed in.
 
-The permission mode's hint says the review agent runs `loam-refinery` and
-`git`, so they must be allowed or it waits for you.
+  The table starts from `ws`'s defaults and `config.toml`. Changes are
+  kept in `desktop.json` and passed to every review as `--profile
+  NAME:MODEL` and `--auto NAME:MODEL`
+  ([0038](../../adrs/0038-review-fans-out-to-profile-subagents.md)).
+  **Reset to defaults** under the table drops them.
+- **Review task is removed.** `ws review` writes the review's prompt
+  itself, so a template isn't needed. A request for focus belongs to one
+  review, not every one: **Edit before starting** keeps a *Focus* field
+  for that, which goes after `--` as `ws review start`'s focus text.
+- **Review agent** holds the model and permission mode of the agent that
+  starts the subagents. Its hint says it runs `ws review` and `git`, so
+  they must be allowed or it waits for you.
 
 ## Empty and error states
 
 | State | Shows |
 | ----- | ----- |
-| `loam-refinery` missing or too old | Alert in the Findings tab with `ws`'s message and the `go install` command; Review buttons disabled with the same reason |
+| A profile's subagent failed to submit | The profile's tile is "missing" and the Alert quotes the review agent's last message, which names `ws`'s error (`review_unverifiable`, `review_invalid`) |
 | Review finished, no submissions | "The review agent finished without submitting a review." with **Open agent** and **Review again** |
 | Every profile approves, no findings | Green "No findings from 5 profiles." with the profiles strip |
 | `ws review report` fails | Alert with `ws`'s error code and message; the Review agent tab still works |

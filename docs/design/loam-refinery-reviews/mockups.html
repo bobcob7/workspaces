@@ -170,7 +170,7 @@ td.actions { text-align: right; }
 .check.on::after { content: ""; position: absolute; left: 3px; top: 0px; width: 4px; height: 8px; border: solid #0b1220; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .empty { flex: 1; display: grid; place-items: center; padding: 24px; color: var(--text-muted); text-align: center; }
 
-/* ---------- Review report (loam-refinery) ---------- */
+/* ---------- Review report ---------- */
 .content.tight { gap: 10px; padding: 12px 18px 0; }
 .profiles { display: flex; gap: 8px; flex-wrap: wrap; }
 .prof { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); font-size: 12px; }
@@ -230,6 +230,8 @@ td.actions { text-align: right; }
 .radioRow { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .radioRow.sel { border: 2px solid var(--accent); padding: 9px 11px; }
 .radioRow .t { font-weight: 600; font-size: 13px; }
+.ptable td { padding: 5px 10px; white-space: nowrap; max-width: none; }
+.ptable .input { display: inline-block; padding: 4px 8px; font-size: 12px; }
 .steps { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .step { display: flex; align-items: center; gap: 10px; }
 </style>
@@ -340,7 +342,7 @@ const finding = ({ p, title, id, loc, d, open, body, code, suggs, done, decided,
 
 const band = (label, color, n) => `<div class="band"><span class="bar" style="background:${color}"></span>${label}<span class="count" style="font-weight:500">${n}</span></div>`;
 
-const prof = (name, verdict, cls, detail, extra = "") => `<div class="prof ${extra}"><b>${name}</b><span class="v ${cls}">${verdict}</span><span class="muted">${detail}</span></div>`;
+const prof = (name, verdict, cls, detail, model = "", extra = "") => `<div class="prof ${extra}"><b>${name}</b>${model ? `<span class="chip small mono">${model}</span>` : ""}<span class="v ${cls}">${verdict}</span><span class="muted">${detail}</span></div>`;
 
 const prHeader42 = (status = `<span class="status" style="color:var(--status-done)">${dot("var(--status-done)")}Reviewed</span>`) => `
   <section class="header">
@@ -350,11 +352,11 @@ const prHeader42 = (status = `<span class="status" style="color:var(--status-don
 
 const profileStrip = `
   <div class="profiles">
-    ${prof("security", "request changes", "rc", "1 must · 1 should")}
-    ${prof("tests", "request changes", "rc", "1 must · 1 worth")}
-    ${prof("go", "comment", "cm", "1 should · 1 optional", "")}
-    ${prof("architecture", "comment", "cm", "1 worth")}
-    ${prof("claims", "approve", "ok", "no findings")}
+    ${prof("security", "request changes", "rc", "1 must · 1 should", "opus")}
+    ${prof("tests", "request changes", "rc", "1 must · 1 worth", "sonnet")}
+    ${prof("go", "comment", "cm", "1 should · 1 optional", "sonnet")}
+    ${prof("architecture", "comment", "cm", "1 worth", "opus")}
+    ${prof("claims", "approve", "ok", "no findings", "haiku")}
   </div>`;
 
 const filterRow = (extra = "") => `
@@ -423,11 +425,11 @@ const reviewingScreen = () => shell(
    <div class="content tight">
      <div class="tabs">${tab("Findings", 4, true)}${tab("Description")}${tab("Review agent")}<span class="spacer"></span><span class="muted">review-buff-bear-41-9c04e2a-41b0 · started 6m ago</span></div>
      <div class="profiles">
-       ${prof("security", "comment", "cm", "1 should")}
-       ${prof("tests", "request changes", "rc", "1 must · 1 worth")}
-       ${prof("go", "comment", "cm", "1 optional")}
-       <div class="prof pending">${dot("var(--status-working)")}<b>architecture</b><span class="muted">not in yet</span></div>
-       <div class="prof pending">${dot("var(--status-working)")}<b>claims</b><span class="muted">not in yet</span></div>
+       ${prof("security", "comment", "cm", "1 should", "opus")}
+       ${prof("tests", "request changes", "rc", "1 must · 1 worth", "sonnet")}
+       ${prof("go", "comment", "cm", "1 optional", "sonnet")}
+       <div class="prof pending">${dot("var(--status-working)")}<b>architecture</b><span class="chip small mono">opus</span><span class="muted">not in yet</span></div>
+       <div class="prof pending">${dot("var(--status-working)")}<b>claims</b><span class="chip small mono">haiku</span><span class="muted">not in yet</span></div>
      </div>
      <div class="alert info">3 of 5 profiles have submitted. Findings appear as each one does; you can start deciding now.</div>
      <div class="findings">
@@ -443,7 +445,7 @@ const reviewingScreen = () => shell(
 );
 
 /* Incomplete: agent done, a profile missing */
-const incompleteBanner = `<div class="alert warn"><span><b>architecture</b> never submitted: the review agent finished without it. Its last message: "architecture subagent stopped: loam-refinery exit 3, working tree diverged". <span style="color:var(--accent);font-weight:600">Review again</span> or <span style="color:var(--accent);font-weight:600">Open agent</span>.</span></div>`;
+const incompleteBanner = `<div class="alert warn"><span><b>architecture</b> never submitted: the review agent finished without it. Its last message: "review-architecture stopped: ws review submit failed with review_unverifiable (working tree diverged)". <span style="color:var(--accent);font-weight:600">Review again</span> or <span style="color:var(--accent);font-weight:600">Open agent</span>.</span></div>`;
 
 /* Out of date + done + decided-at */
 const outdatedScreen = () => shell(
@@ -459,10 +461,10 @@ const outdatedScreen = () => shell(
      <div class="alert warn"><span>alice pushed 2 commits after this review: "Evict on logout" and "Cap the cache at 10k entries". These decisions stay with a41c9f2; <b>Review again</b> reviews e71b0d4 from scratch.</span></div>
      ${incompleteBanner}
      <div class="profiles">
-       ${prof("security", "request changes", "rc", "1 must")}
-       ${prof("tests", "comment", "cm", "1 should")}
-       ${prof("go", "comment", "cm", "1 optional")}
-       <div class="prof missing"><b>architecture</b><span>missing</span></div>
+       ${prof("security", "request changes", "rc", "1 must", "opus")}
+       ${prof("tests", "comment", "cm", "1 should", "sonnet")}
+       ${prof("go", "comment", "cm", "1 optional", "sonnet")}
+       <div class="prof missing"><b>architecture</b><span class="chip small mono">opus</span><span>missing</span></div>
      </div>
      <div class="findings">
        ${band("Must fix", "var(--danger)", 1)}
@@ -471,17 +473,17 @@ const outdatedScreen = () => shell(
        ${finding({ p: 7, title: "Cache grows without bound between TTL sweeps", id: "tests:unbounded-cache-1", loc: "session/cache.go:20", done: "✓ Commented · view on GitHub" })}
        ${band("Optional", "#3a404c", 2)}
        ${finding({ p: 2, title: "cacheTTL is exported but only used in the package", id: "go:exported-unused-1", loc: "session/cache.go:9", d: "skip" })}
-       ${finding({ p: 2, title: "Two tests share the name TestCache_Get", id: "#2:duplicate-name-1", loc: "session/cache_test.go:30", readonly: true })}
+       ${finding({ p: 2, title: "Two tests share the name TestCache_Get (superseded by tests' resubmission)", id: "#2:duplicate-name-1", loc: "session/cache_test.go:30", readonly: true })}
      </div>
    </div>
-   ${actionBar(`<span><b>1</b> skipped · 2 done · 1 read-only (unprofiled)</span>`, `<button class="btn">Open full report</button><button class="btn outlined" style="opacity:.45">Comment…</button><button class="btn contained" style="opacity:.45">Fix…</button>`)}`,
+   ${actionBar(`<span><b>1</b> skipped · 2 done · 1 read-only (superseded)</span>`, `<button class="btn">Open full report</button><button class="btn outlined" style="opacity:.45">Comment…</button><button class="btn contained" style="opacity:.45">Fix…</button>`)}`,
 );
 
 /* Comment preview */
 const pvComment = (path, lines, prio, cat, body, sugg, id) => `
   <div class="pv">
     <div class="pvHead"><span style="color:var(--accent)">${path}</span><span>${lines}</span><span class="spacer"></span><span class="chip small">line comment</span><button class="btn small">Edit</button></div>
-    <div class="pvBody"><b>${prio} · ${cat}</b> — ${body}${sugg ? `<div style="margin-top:4px"><b>Suggested:</b> ${sugg}</div>` : ""}<div class="foot">loam-refinery · <span class="mono">${id}</span></div></div>
+    <div class="pvBody"><b>${prio} · ${cat}</b> — ${body}${sugg ? `<div style="margin-top:4px"><b>Suggested:</b> ${sugg}</div>` : ""}<div class="foot">ws review · <span class="mono">${id}</span></div></div>
   </div>`;
 
 const commentDialog = () => `
@@ -505,18 +507,14 @@ const fixDialog = () => `
   <div class="scrim"><div class="dialog wide">
     <h2>Fix 2 findings</h2>
     <div class="dbody" style="gap:12px">
-      <div class="radioRow sel"><span class="radio" style="border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px #1d212a"></span><div style="flex:1"><div class="t">Send to fix-login-rate <span class="chip small" style="margin-left:6px">${dot("var(--status-idle)")} idle</span></div><div class="muted">The agent that requested this review. It has <span class="mono">feat/rate-limit</span> checked out; the findings arrive as a message in its conversation.</div></div></div>
+      <div class="radioRow sel"><span class="radio" style="border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px #1d212a"></span><div style="flex:1"><div class="t">Send to fix-login-rate <span class="chip small" style="margin-left:6px">${dot("var(--status-idle)")} idle</span></div><div class="muted">The agent that requested this review. It has <span class="mono">feat/rate-limit</span> checked out; it reads your decisions with <span class="mono">ws review report --decided fix</span>.</div></div></div>
       <div class="radioRow"><span class="radio"></span><div style="flex:1"><div class="t">Start a fix agent</div><div class="muted mono" style="font-size:12px">ws claude --name fix-buff-bear-42-3f2a9c1 github.com/bobcob7/buff-bear@feat/rate-limit</div></div></div>
-      <div class="field multi"><label>Message</label>Fix these findings from the review of bobcob7/buff-bear#42 at 3f2a9c1.
-Full report: ws review report review-buff-bear-42-3f2a9c1-8e1d --json
+      <div class="field multi"><label>Message</label>Fix the 2 findings decided "fix" in the review of bobcob7/buff-bear#42 at 3f2a9c1:
+  security:spoofable-client-ip-1  Any client can choose its own bucket by sending X-Forwarded-For
+  tests:missing-over-limit-1      No test drives a request over the limit
 
-1. security:spoofable-client-ip-1 (priority 9, security) ratelimit/ip.go:31-34
-   clientIP trusts the first X-Forwarded-For entry from any caller…
-   Use this fix: Use r.RemoteAddr, and read X-Forwarded-For only from configured trusted proxies (small, file)
-
-2. tests:missing-over-limit-1 (priority 9, testing) ratelimit/limiter_test.go
-   No test drives a request over the limit…
-   Choose a fix.
+The chosen fixes and notes:
+  ws review report review-buff-bear-42-3f2a9c1-8e1d --decided fix --json
 
 When done, push, and start a new review with: ws review start --pr 42 buff-bear</div>
     </div>
@@ -543,10 +541,9 @@ const requesterScreen = () => shell(
    <div class="convo">
      <div class="tool"><b>Bash</b>(ws review wait review-buff-bear-42-3f2a9c1-8e1d --json) <span style="color:var(--status-done)">· background · exited 0</span></div>
      <div class="msg">The review is in: security and tests request changes, two must-fix findings. I'll wait for your call on which to address before changing anything.</div>
-     <div class="msg user" style="white-space:pre-wrap">Fix these findings from the review of bobcob7/buff-bear#42 at 3f2a9c1.
-1. security:spoofable-client-ip-1 … Use this fix: Use r.RemoteAddr, …
-2. tests:missing-over-limit-1 … Choose a fix.</div>
-     <div class="tool"><b>Read</b>(ratelimit/ip.go)</div>
+     <div class="msg user" style="white-space:pre-wrap">Fix the 2 findings decided "fix" in the review of bobcob7/buff-bear#42 at 3f2a9c1: …
+ws review report review-buff-bear-42-3f2a9c1-8e1d --decided fix --json</div>
+     <div class="tool"><b>Bash</b>(ws review report review-buff-bear-42-3f2a9c1-8e1d --decided fix --json)</div>
      <div class="msg">Switching <code class="mono">clientIP</code> to <code class="mono">r.RemoteAddr</code> with a <code class="mono">TRUSTED_PROXIES</code> list, then adding an over-the-limit test that checks the 429 and Retry-After.</div>
    </div>
    <div class="reply"><div class="box">Message the agent (Enter to send, Shift+Enter for a new line)</div><button class="btn">Send</button></div>`,
@@ -564,17 +561,30 @@ const settingsScreen = () => `
       <main class="main"><div class="settings">
         <h1>Reviews</h1>
         <div class="setting"><div class="label"><div>Check for pull requests</div><div class="muted">How often watched repos are checked with <span class="mono">gh</span>.</div></div><div class="control"><span class="input">Every 5 minutes ▾</span></div></div>
-        <div class="setting"><div class="label"><div>Reviewer profiles</div><div class="muted">loam-refinery profiles every review runs, one subagent each. Language profiles are added when the diff has those files.</div></div><div class="control" style="flex-wrap:wrap;gap:6px">
-          <span class="fchip on">architecture ✕</span><span class="fchip on">claims ✕</span><span class="fchip on">security ✕</span><span class="fchip on">tests ✕</span><span class="fchip">+ compatibility</span><span class="fchip">+ efficiency</span>
-        </div></div>
+        <div class="setting" style="flex-direction:column;gap:10px"><div class="label" style="width:auto"><div>Reviewer profiles</div><div class="muted">Each runs as its own subagent on the model chosen here. <b>Always</b> runs on every review; <b>When files match</b> runs when the diff touches its files. From <span class="mono">ws review profiles</span>.</div></div>
+          <table class="ptable">
+            <thead><tr><th style="width:24%">Profile</th><th style="width:30%">Runs</th><th style="width:20%">Model</th><th>Files</th></tr></thead>
+            <tbody>
+              ${[
+                ["architecture", "Always", "opus", ""],
+                ["claims", "Always", "haiku", ""],
+                ["security", "Always", "opus", ""],
+                ["tests", "Always", "sonnet", ""],
+                ["go", "When files match", "sonnet", "*.go, go.mod"],
+                ["typescript", "When files match", "sonnet", "*.ts, *.tsx"],
+                ["compatibility", "Off", "Default", ""],
+                ["efficiency", "Off", "Default", ""],
+              ].map(([n, w, m, f]) => `<tr style="${w === "Off" ? "opacity:.55" : ""}"><td style="font-weight:600">${n}</td><td><span class="input">${w} ▾</span></td><td><span class="input">${m} ▾</span></td><td class="mono muted" style="font-size:12px">${f}</td></tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        <div class="setting"><div class="label"><div>Review agent</div><div class="muted">Model and permission mode of the agent that runs the subagents. It runs <span class="mono">ws review</span> and <span class="mono">git</span>; allow them in Claude Code's permissions, or it waits for you.</div></div><div class="control"><span class="input">Default ▾</span><span class="input">default ▾</span></div></div>
         <div class="setting"><div class="label"><div>Auto-review only</div><div class="muted">Which new PRs in an auto-review repo start a review.</div></div><div class="control" style="flex-direction:column;align-items:flex-start;gap:8px">
           <span class="row"><span class="check on"></span>Skip drafts</span>
           <span class="row"><span class="check on"></span>Skip pull requests I opened</span>
           <span class="row"><span class="check"></span>Only when my review is requested</span>
         </div></div>
         <div class="setting"><div class="label"><div>At most</div><div class="muted">Auto-reviews running at once; the rest wait.</div></div><div class="control"><span class="input">2</span><span class="muted">review agents</span></div></div>
-        <div class="setting"><div class="label"><div>Extra instructions</div><div class="muted">Added to every review under "From the requester". The review itself is <span class="mono">ws review</span>'s; <span class="mono">{title}</span>, <span class="mono">{author}</span>, and <span class="mono">{body}</span> are filled in.</div></div><div class="control"><div class="textarea">Pay attention to anything touching auth or billing.</div></div></div>
-        <div class="setting"><div class="label"><div>Model and permission mode</div><div class="muted">The review agent runs <span class="mono">loam-refinery</span> and <span class="mono">git</span>; allow them in Claude Code's permissions, or it waits for you.</div></div><div class="control"><span class="input">Default ▾</span><span class="input">default ▾</span></div></div>
       </div></main>
     </div>
   </div>`;
