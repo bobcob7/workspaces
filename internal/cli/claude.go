@@ -192,19 +192,23 @@ func (a *App) attach(ctx context.Context, ws *workspace.Workspace, id string) bo
 // printClaudeResult prints the workspace id, the session id, and the
 // workspace path, or with --json the result object.
 func (a *App) printClaudeResult(ws *workspace.Workspace, session string) error {
-	warnings := a.warnings()
 	if a.global.json {
-		repos := make([]claudeRepo, 0, len(ws.Repos))
-		for _, r := range ws.Repos {
-			repos = append(repos, claudeRepo{ID: r.ID, Path: r.Path, Ref: r.Ref, RefKind: r.RefKind, Commit: r.Commit})
-		}
-		return a.writeJSON(claudeResult{ID: ws.ID, Session: session, Path: ws.Path, Repos: repos, Warnings: warnings})
+		return a.writeJSON(a.claudeResultOf(ws, session))
 	}
-	for _, w := range warnings {
+	for _, w := range a.warnings() {
 		fmt.Fprintf(a.stderr, "ws: warning: %s\n", w)
 	}
 	fmt.Fprintf(a.stdout, "%s  %s  %s\n", ws.ID, session, ws.Path)
 	return nil
+}
+
+// claudeResultOf is ws claude's JSON result for session in ws.
+func (a *App) claudeResultOf(ws *workspace.Workspace, session string) claudeResult {
+	repos := make([]claudeRepo, 0, len(ws.Repos))
+	for _, r := range ws.Repos {
+		repos = append(repos, claudeRepo{ID: r.ID, Path: r.Path, Ref: r.Ref, RefKind: r.RefKind, Commit: r.Commit})
+	}
+	return claudeResult{ID: ws.ID, Session: session, Path: ws.Path, Repos: repos, Warnings: a.warnings()}
 }
 
 // specsBeforeDash checks the repo specs before "--". There may be none,

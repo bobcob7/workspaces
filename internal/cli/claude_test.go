@@ -143,6 +143,8 @@ type claudeE2E struct {
 	claudeJSON string
 	stdout     *bytes.Buffer
 	stderr     *bytes.Buffer
+	// up holds the upstream repo o/n.
+	up *gittest.Upstream
 }
 
 func newClaudeE2E(t *testing.T, bgBody string) *claudeE2E {
@@ -151,7 +153,7 @@ func newClaudeE2E(t *testing.T, bgBody string) *claudeE2E {
 	up.Repo(t, "o", "n")
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	e := &claudeE2E{paths: config.NewPaths(filepath.Join(root, "cfg")), scratch: filepath.Join(root, "scratch"), claudeJSON: filepath.Join(root, "claude-config", ".claude.json"), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
+	e := &claudeE2E{paths: config.NewPaths(filepath.Join(root, "cfg")), scratch: filepath.Join(root, "scratch"), claudeJSON: filepath.Join(root, "claude-config", ".claude.json"), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, up: up}
 	require.NoError(t, os.MkdirAll(e.scratch, 0o750))
 	require.NoError(t, os.MkdirAll(filepath.Dir(e.claudeJSON), 0o700))
 	e.trustRoot(t, true)

@@ -11,9 +11,11 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -515,10 +517,17 @@ type cachePruneJSON struct {
 	Commit string `json:"commit"`
 }
 
+// cachePruneReviewJSON is a repo whose reviews ws cache prune removed.
+type cachePruneReviewJSON struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
 // cachePrune deletes refs/ws/commits refs that no workspace's recorded
-// commit uses. The workspaces are checked while each repo is locked, so a
-// workspace being created meanwhile keeps its commit. If a workspace record
-// can't be read, pruning stops, since that workspace might use one.
+// commit uses, then the reviews of repos no longer cached (ADR 0039). The
+// workspaces are checked while each repo is locked, so a workspace being
+// created meanwhile keeps its commit. If a workspace record can't be read,
+// pruning stops, since that workspace might use one.
 func (a *App) cachePrune(ctx context.Context, dryRun bool) error {
 	keep := func(id repo.ID, commit string) (bool, error) {
 		used, err := a.workspaces.UsesCommit(id.String(), commit)
@@ -531,12 +540,16 @@ func (a *App) cachePrune(ctx context.Context, dryRun bool) error {
 	if err != nil {
 		return domainError(err)
 	}
+	reviews, err := a.pruneReviews(dryRun)
+	if err != nil {
+		return err
+	}
 	if a.global.json {
 		refs := make([]cachePruneJSON, 0, len(pruned))
 		for _, p := range pruned {
 			refs = append(refs, cachePruneJSON{ID: p.ID.String(), Commit: p.Commit})
 		}
-		return a.writeJSON(map[string]any{"refs": refs, "warnings": a.warnings()})
+		return a.writeJSON(map[string]any{"refs": refs, "reviews": reviews, "warnings": a.warnings()})
 	}
 	verb := "pruned"
 	if dryRun {
@@ -545,8 +558,25 @@ func (a *App) cachePrune(ctx context.Context, dryRun bool) error {
 	for _, p := range pruned {
 		fmt.Fprintf(a.stdout, "%s  %s  %s\n", verb, p.ID, p.Commit)
 	}
+	for _, r := range reviews {
+		fmt.Fprintf(a.stdout, "%s reviews  %s  %s\n", verb, r.ID, r.Path)
+	}
 	a.printWarnings()
 	return nil
+}
+
+// pruneReviews removes the reviews of every repo that isn't cached.
+func (a *App) pruneReviews(dryRun bool) ([]cachePruneReviewJSON, error) {
+	cached, err := a.cache.IDs()
+	if err != nil {
+		return nil, domainError(err)
+	}
+	pruned, err := store.New(a.paths.Reviews).Prune(func(id repo.ID) bool { return slices.Contains(cached, id) }, dryRun)
+	out := make([]cachePruneReviewJSON, 0, len(pruned))
+	for _, p := range pruned {
+		out = append(out, cachePruneReviewJSON{ID: p.ID.String(), Path: p.Path})
+	}
+	return out, err
 }
 
 // domainError gives a cache, git, or claude failure its error code (ADR
@@ -565,13 +595,16 @@ func domainError(err error) error {
 	return ce
 }
 
-// commandStderr is the stderr of the git or claude command err comes from,
+// commandStderr is the stderr of the git, claude, or gh command err comes from,
 // if any.
 func commandStderr(err error) string {
 	if cmdErr, ok := errors.AsType[*git.CommandError](err); ok {
 		return cmdErr.Stderr
 	}
 	if cmdErr, ok := errors.AsType[*claude.CommandError](err); ok {
+		return cmdErr.Stderr
+	}
+	if cmdErr, ok := errors.AsType[*gh.CommandError](err); ok {
 		return cmdErr.Stderr
 	}
 	return ""
@@ -614,6 +647,9 @@ func codedDomainError(err error) *cliError {
 		{claude.ErrNoSession, codeClaudeFailed},
 		{claude.ErrUnexpectedOutput, codeClaudeFailed},
 		{lifetime.ErrServiceFailed, codeClaudeFailed},
+		{gh.ErrNotInstalled, codeGhMissing},
+		{gh.ErrAuth, codeGhAuth},
+		{gh.ErrPRNotFound, codePRNotFound},
 	} {
 		if errors.Is(err, m.target) {
 			return newError(m.code, err)

@@ -34,7 +34,8 @@ removes every workspace whose session is gone.
       "path": "/…/workspaces/fix-login-d8efb24f",
       "created_at": "2026-10-18T08:12:00Z",
       "session": {"kind": "agent", "id": "e8cdf5d8", "state": "idle", "pid": 4242, "stale": false},
-      "repos": [{"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch"}]
+      "repos": [{"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch"}],
+      "review": null
     }
   ],
   "warnings": []
@@ -56,6 +57,8 @@ removes every workspace whose session is gone.
 - `session.stale`: `true` when the agent's process is older than Claude
   Code's background service, so it runs with an old environment; `null`
   when that can't be told, and for shells.
+- `review`: a review workspace's record, as `ws review start --json`
+  prints it, or `null` for any other workspace.
 - `session` is `null` while `ws claude` or `ws shell` is still handing the
   workspace to its session.
 - A directory under the workspace root that isn't a workspace is listed

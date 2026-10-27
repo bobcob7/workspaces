@@ -6,6 +6,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
@@ -13,7 +14,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -25,6 +26,9 @@ type repoCache interface {
 	Resolve(ctx context.Context, sp *repo.Spec) (cache.Resolution, error)
 	Lookup(ctx context.Context, sp *repo.Spec) (cache.Resolution, error)
 	Add(ctx context.Context, id repo.ID, upstream string) (bool, error)
+	Fetch(ctx context.Context, id repo.ID) error
+	ResolveRef(ctx context.Context, id repo.ID, ref string) (cache.Ref, error)
+	ChangedFiles(ctx context.Context, id repo.ID, base, head string) ([]string, error)
 	FetchEach(ctx context.Context, ids []repo.ID) []error
 	IDs() ([]repo.ID, error)
 	List(ctx context.Context) ([]cache.Entry, error)
@@ -83,4 +87,9 @@ type claudeClient interface {
 	DaemonStatus(ctx context.Context) (claude.DaemonStatus, error)
 	StopDaemon(ctx context.Context) error
 	RunDaemon(ctx context.Context) (int, error)
+}
+
+// ghClient runs the GitHub CLI; nothing else in ws does (ADR 0039).
+type ghClient interface {
+	PRView(ctx context.Context, repo string, number int) (gh.PR, error)
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
@@ -95,6 +96,12 @@ var _ repoCache = &repoCacheMock{}
 //			AddFunc: func(ctx context.Context, id repo.ID, upstream string) (bool, error) {
 //				panic("mock out the Add method")
 //			},
+//			ChangedFilesFunc: func(ctx context.Context, id repo.ID, base string, head string) ([]string, error) {
+//				panic("mock out the ChangedFiles method")
+//			},
+//			FetchFunc: func(ctx context.Context, id repo.ID) error {
+//				panic("mock out the Fetch method")
+//			},
 //			FetchEachFunc: func(ctx context.Context, ids []repo.ID) []error {
 //				panic("mock out the FetchEach method")
 //			},
@@ -122,6 +129,9 @@ var _ repoCache = &repoCacheMock{}
 //			ResolveFunc: func(ctx context.Context, sp *repo.Spec) (cache.Resolution, error) {
 //				panic("mock out the Resolve method")
 //			},
+//			ResolveRefFunc: func(ctx context.Context, id repo.ID, ref string) (cache.Ref, error) {
+//				panic("mock out the ResolveRef method")
+//			},
 //			SearchFunc: func(ctx context.Context, query string, limit int, refs bool) ([]cache.Match, error) {
 //				panic("mock out the Search method")
 //			},
@@ -137,6 +147,12 @@ var _ repoCache = &repoCacheMock{}
 type repoCacheMock struct {
 	// AddFunc mocks the Add method.
 	AddFunc func(ctx context.Context, id repo.ID, upstream string) (bool, error)
+
+	// ChangedFilesFunc mocks the ChangedFiles method.
+	ChangedFilesFunc func(ctx context.Context, id repo.ID, base string, head string) ([]string, error)
+
+	// FetchFunc mocks the Fetch method.
+	FetchFunc func(ctx context.Context, id repo.ID) error
 
 	// FetchEachFunc mocks the FetchEach method.
 	FetchEachFunc func(ctx context.Context, ids []repo.ID) []error
@@ -165,6 +181,9 @@ type repoCacheMock struct {
 	// ResolveFunc mocks the Resolve method.
 	ResolveFunc func(ctx context.Context, sp *repo.Spec) (cache.Resolution, error)
 
+	// ResolveRefFunc mocks the ResolveRef method.
+	ResolveRefFunc func(ctx context.Context, id repo.ID, ref string) (cache.Ref, error)
+
 	// SearchFunc mocks the Search method.
 	SearchFunc func(ctx context.Context, query string, limit int, refs bool) ([]cache.Match, error)
 
@@ -181,6 +200,24 @@ type repoCacheMock struct {
 			ID repo.ID
 			// Upstream is the upstream argument value.
 			Upstream string
+		}
+		// ChangedFiles holds details about calls to the ChangedFiles method.
+		ChangedFiles []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID repo.ID
+			// Base is the base argument value.
+			Base string
+			// Head is the head argument value.
+			Head string
+		}
+		// Fetch holds details about calls to the Fetch method.
+		Fetch []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID repo.ID
 		}
 		// FetchEach holds details about calls to the FetchEach method.
 		FetchEach []struct {
@@ -239,6 +276,15 @@ type repoCacheMock struct {
 			// Sp is the sp argument value.
 			Sp *repo.Spec
 		}
+		// ResolveRef holds details about calls to the ResolveRef method.
+		ResolveRef []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID repo.ID
+			// Ref is the ref argument value.
+			Ref string
+		}
 		// Search holds details about calls to the Search method.
 		Search []struct {
 			// Ctx is the ctx argument value.
@@ -254,18 +300,21 @@ type repoCacheMock struct {
 		Warnings []struct {
 		}
 	}
-	lockAdd       sync.RWMutex
-	lockFetchEach sync.RWMutex
-	lockIDs       sync.RWMutex
-	lockList      sync.RWMutex
-	lockLookup    sync.RWMutex
-	lockPath      sync.RWMutex
-	lockPrune     sync.RWMutex
-	lockRefs      sync.RWMutex
-	lockRemove    sync.RWMutex
-	lockResolve   sync.RWMutex
-	lockSearch    sync.RWMutex
-	lockWarnings  sync.RWMutex
+	lockAdd          sync.RWMutex
+	lockChangedFiles sync.RWMutex
+	lockFetch        sync.RWMutex
+	lockFetchEach    sync.RWMutex
+	lockIDs          sync.RWMutex
+	lockList         sync.RWMutex
+	lockLookup       sync.RWMutex
+	lockPath         sync.RWMutex
+	lockPrune        sync.RWMutex
+	lockRefs         sync.RWMutex
+	lockRemove       sync.RWMutex
+	lockResolve      sync.RWMutex
+	lockResolveRef   sync.RWMutex
+	lockSearch       sync.RWMutex
+	lockWarnings     sync.RWMutex
 }
 
 // Add calls AddFunc.
@@ -305,6 +354,86 @@ func (mock *repoCacheMock) AddCalls() []struct {
 	mock.lockAdd.RLock()
 	calls = mock.calls.Add
 	mock.lockAdd.RUnlock()
+	return calls
+}
+
+// ChangedFiles calls ChangedFilesFunc.
+func (mock *repoCacheMock) ChangedFiles(ctx context.Context, id repo.ID, base string, head string) ([]string, error) {
+	if mock.ChangedFilesFunc == nil {
+		panic("repoCacheMock.ChangedFilesFunc: method is nil but repoCache.ChangedFiles was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		ID   repo.ID
+		Base string
+		Head string
+	}{
+		Ctx:  ctx,
+		ID:   id,
+		Base: base,
+		Head: head,
+	}
+	mock.lockChangedFiles.Lock()
+	mock.calls.ChangedFiles = append(mock.calls.ChangedFiles, callInfo)
+	mock.lockChangedFiles.Unlock()
+	return mock.ChangedFilesFunc(ctx, id, base, head)
+}
+
+// ChangedFilesCalls gets all the calls that were made to ChangedFiles.
+// Check the length with:
+//
+//	len(mockedrepoCache.ChangedFilesCalls())
+func (mock *repoCacheMock) ChangedFilesCalls() []struct {
+	Ctx  context.Context
+	ID   repo.ID
+	Base string
+	Head string
+} {
+	var calls []struct {
+		Ctx  context.Context
+		ID   repo.ID
+		Base string
+		Head string
+	}
+	mock.lockChangedFiles.RLock()
+	calls = mock.calls.ChangedFiles
+	mock.lockChangedFiles.RUnlock()
+	return calls
+}
+
+// Fetch calls FetchFunc.
+func (mock *repoCacheMock) Fetch(ctx context.Context, id repo.ID) error {
+	if mock.FetchFunc == nil {
+		panic("repoCacheMock.FetchFunc: method is nil but repoCache.Fetch was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  repo.ID
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockFetch.Lock()
+	mock.calls.Fetch = append(mock.calls.Fetch, callInfo)
+	mock.lockFetch.Unlock()
+	return mock.FetchFunc(ctx, id)
+}
+
+// FetchCalls gets all the calls that were made to Fetch.
+// Check the length with:
+//
+//	len(mockedrepoCache.FetchCalls())
+func (mock *repoCacheMock) FetchCalls() []struct {
+	Ctx context.Context
+	ID  repo.ID
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  repo.ID
+	}
+	mock.lockFetch.RLock()
+	calls = mock.calls.Fetch
+	mock.lockFetch.RUnlock()
 	return calls
 }
 
@@ -616,6 +745,46 @@ func (mock *repoCacheMock) ResolveCalls() []struct {
 	mock.lockResolve.RLock()
 	calls = mock.calls.Resolve
 	mock.lockResolve.RUnlock()
+	return calls
+}
+
+// ResolveRef calls ResolveRefFunc.
+func (mock *repoCacheMock) ResolveRef(ctx context.Context, id repo.ID, ref string) (cache.Ref, error) {
+	if mock.ResolveRefFunc == nil {
+		panic("repoCacheMock.ResolveRefFunc: method is nil but repoCache.ResolveRef was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  repo.ID
+		Ref string
+	}{
+		Ctx: ctx,
+		ID:  id,
+		Ref: ref,
+	}
+	mock.lockResolveRef.Lock()
+	mock.calls.ResolveRef = append(mock.calls.ResolveRef, callInfo)
+	mock.lockResolveRef.Unlock()
+	return mock.ResolveRefFunc(ctx, id, ref)
+}
+
+// ResolveRefCalls gets all the calls that were made to ResolveRef.
+// Check the length with:
+//
+//	len(mockedrepoCache.ResolveRefCalls())
+func (mock *repoCacheMock) ResolveRefCalls() []struct {
+	Ctx context.Context
+	ID  repo.ID
+	Ref string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  repo.ID
+		Ref string
+	}
+	mock.lockResolveRef.RLock()
+	calls = mock.calls.ResolveRef
+	mock.lockResolveRef.RUnlock()
 	return calls
 }
 
@@ -2175,5 +2344,83 @@ func (mock *claudeClientMock) UntrustCalls() []struct {
 	mock.lockUntrust.RLock()
 	calls = mock.calls.Untrust
 	mock.lockUntrust.RUnlock()
+	return calls
+}
+
+// Ensure, that ghClientMock does implement ghClient.
+// If this is not the case, regenerate this file with moq.
+var _ ghClient = &ghClientMock{}
+
+// ghClientMock is a mock implementation of ghClient.
+//
+//	func TestSomethingThatUsesghClient(t *testing.T) {
+//
+//		// make and configure a mocked ghClient
+//		mockedghClient := &ghClientMock{
+//			PRViewFunc: func(ctx context.Context, repoMoqParam string, number int) (gh.PR, error) {
+//				panic("mock out the PRView method")
+//			},
+//		}
+//
+//		// use mockedghClient in code that requires ghClient
+//		// and then make assertions.
+//
+//	}
+type ghClientMock struct {
+	// PRViewFunc mocks the PRView method.
+	PRViewFunc func(ctx context.Context, repoMoqParam string, number int) (gh.PR, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// PRView holds details about calls to the PRView method.
+		PRView []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// RepoMoqParam is the repoMoqParam argument value.
+			RepoMoqParam string
+			// Number is the number argument value.
+			Number int
+		}
+	}
+	lockPRView sync.RWMutex
+}
+
+// PRView calls PRViewFunc.
+func (mock *ghClientMock) PRView(ctx context.Context, repoMoqParam string, number int) (gh.PR, error) {
+	if mock.PRViewFunc == nil {
+		panic("ghClientMock.PRViewFunc: method is nil but ghClient.PRView was just called")
+	}
+	callInfo := struct {
+		Ctx          context.Context
+		RepoMoqParam string
+		Number       int
+	}{
+		Ctx:          ctx,
+		RepoMoqParam: repoMoqParam,
+		Number:       number,
+	}
+	mock.lockPRView.Lock()
+	mock.calls.PRView = append(mock.calls.PRView, callInfo)
+	mock.lockPRView.Unlock()
+	return mock.PRViewFunc(ctx, repoMoqParam, number)
+}
+
+// PRViewCalls gets all the calls that were made to PRView.
+// Check the length with:
+//
+//	len(mockedghClient.PRViewCalls())
+func (mock *ghClientMock) PRViewCalls() []struct {
+	Ctx          context.Context
+	RepoMoqParam string
+	Number       int
+} {
+	var calls []struct {
+		Ctx          context.Context
+		RepoMoqParam string
+		Number       int
+	}
+	mock.lockPRView.RLock()
+	calls = mock.calls.PRView
+	mock.lockPRView.RUnlock()
 	return calls
 }

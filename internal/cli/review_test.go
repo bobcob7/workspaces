@@ -59,6 +59,19 @@ func newReviewApp(t *testing.T) *reviewApp {
 	return e
 }
 
+// testCommit is the commit testRecord reviews.
+const testCommit = "3f2a9c1e4b5d6f7a8b9c0d1e2f3a4b5c6d7e8f90"
+
+// testRecord is a review of reviewedRepo's pull request 42 at testCommit
+// with security and go.
+func testRecord() record.Record {
+	return record.Record{
+		Repo: reviewedRepo, Ref: testCommit, Requester: "fix-login-d8efb24f", StartedAt: testNow(),
+		Profiles: []record.Profile{{Name: "security", Model: "opus"}, {Name: "go", Auto: true}},
+		PR:       &record.PR{Number: 42, URL: "https://github.com/bobcob7/buff-bear/pull/42", Base: "main", HeadBranch: "feat/login"},
+	}
+}
+
 // commitRepo makes a git repo at dir with a 20-line client.go committed,
 // and returns the commit.
 func commitRepo(t *testing.T, dir string) string {
@@ -102,12 +115,12 @@ func (e *reviewApp) run(t *testing.T, stdin string, args ...string) int {
 func TestApp_newReviewCmd(t *testing.T) {
 	app, _, _ := newTestApp()
 	cmd := app.newReviewCmd()
-	t.Run("has the reviewer's operations", func(t *testing.T) {
+	t.Run("has the requester's and reviewer's operations", func(t *testing.T) {
 		var names []string
 		for _, c := range cmd.Commands() {
 			names = append(names, c.Name())
 		}
-		assert.ElementsMatch(t, []string{"prime", "describe", "submit"}, names)
+		assert.ElementsMatch(t, []string{"start", "wait", "report", "profiles", "prime", "describe", "submit"}, names)
 	})
 	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"nope"}))

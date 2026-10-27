@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"text/tabwriter"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/review/record"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -48,6 +50,8 @@ type listWorkspaceJSON struct {
 	CreatedAt *string          `json:"created_at"`
 	Session   *listSessionJSON `json:"session"`
 	Repos     []listRepoJSON   `json:"repos"`
+	// Review is a review workspace's record, or null (ADR 0039).
+	Review *record.Record `json:"review"`
 }
 
 type listSessionJSON struct {
@@ -91,7 +95,7 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	}
 	switch {
 	case a.global.json:
-		return a.writeJSON(listJSON{Workspaces: listWorkspaces(entries, unknown), Warnings: a.warnings()})
+		return a.writeJSON(listJSON{Workspaces: a.listWorkspaces(entries, unknown), Warnings: a.warnings()})
 	case opts.idsOnly:
 		for i := range entries {
 			fmt.Fprintln(a.stdout, entries[i].Workspace.ID)
@@ -147,11 +151,14 @@ func repoMatches(id string, filter *repo.Spec) bool {
 }
 
 // listWorkspaces is the JSON for the workspaces and then the unknown
-// directories, which have no id, creation time, session, or repos.
-func listWorkspaces(entries []lifetime.Entry, unknown []string) []listWorkspaceJSON {
+// directories, which have no id, creation time, session, repos, or
+// review.
+func (a *App) listWorkspaces(entries []lifetime.Entry, unknown []string) []listWorkspaceJSON {
 	out := make([]listWorkspaceJSON, 0, len(entries)+len(unknown))
 	for i := range entries {
-		out = append(out, listWorkspace(&entries[i]))
+		ws := listWorkspace(&entries[i])
+		ws.Review = a.reviewRecord(entries[i].Workspace.ID)
+		out = append(out, ws)
 	}
 	for _, dir := range unknown {
 		out = append(out, listWorkspaceJSON{Path: dir, Repos: []listRepoJSON{}})
@@ -178,6 +185,20 @@ func listSession(s *lifetime.Session) *listSessionJSON {
 		out.PID = &s.PID
 	}
 	return out
+}
+
+// reviewRecord is workspace id's review record, or nil when it has none
+// or it can't be read, which is a warning.
+func (a *App) reviewRecord(id string) *record.Record {
+	rec, err := record.Read(record.Path(a.paths.State, id))
+	if errors.Is(err, record.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't read workspace %s's review record: %v", id, err))
+		return nil
+	}
+	return &rec
 }
 
 // printList prints a table like `docker ps`.

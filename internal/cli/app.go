@@ -17,6 +17,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/proc"
@@ -52,10 +53,14 @@ type App struct {
 	shell shellRunner
 	// claude runs the Claude Code CLI; nothing else in ws does.
 	claude claudeClient
+	// gh runs the GitHub CLI; nothing else in ws does.
+	gh ghClient
 	// environ is the environment git, claude, and the shell run with.
 	environ []string
 	// getwd is os.Getwd: ws review finds its workspace from it.
 	getwd func() (string, error)
+	// reviewPoll is how often ws review wait reads the review's session.
+	reviewPoll time.Duration
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 	// progress is set when stderr is a terminal, where progress may be
@@ -92,6 +97,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	a := &App{
 		shell:       shell.New(log, environ, stdin, stdout, stderr),
 		claude:      claude.New(log, "claude", environ),
+		gh:          gh.New(log, "gh", environ),
 		version:     version,
 		stdin:       stdin,
 		stdout:      stdout,
@@ -105,6 +111,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		interactive: isTerminal(stdin) && isTerminal(stdout),
 		environ:     environ,
 		getwd:       os.Getwd,
+		reviewPoll:  defaultReviewPoll,
 		notify:      signal.Notify,
 		stopNotify:  signal.Stop,
 	}

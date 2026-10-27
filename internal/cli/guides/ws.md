@@ -14,6 +14,9 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 - Don't remove, stop, or work in a workspace you didn't create unless told
   to.
 - Parse `--json` output, never the tables.
+- To get a pull request reviewed, use `ws review start --json --pr <n>
+  <repo>` and run its `wait_command` as a background command; see `ws llm
+  review`.
 - Never run `ws restart` unless told to: it interrupts every background
   agent on the machine, not only yours.
 - Removing a workspace discards everything in it, whatever its git state.
@@ -26,6 +29,10 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 $ ws claude --json --name fix-login buff-bear -- "Fix the login bug"
 {"id":"fix-login-d8efb24f","session":"e8cdf5d8","path":"/…/workspaces/fix-login-d8efb24f","repos":[…],"warnings":[]}
 $ claude logs e8cdf5d8
+
+# Get your pull request reviewed; run wait_command in the background
+$ ws review start --json --pr 42 buff-bear
+{"id":"review-buff-bear-42-3f2a9c1-d8efb24f",…,"wait_command":"ws review wait --json review-buff-bear-42-3f2a9c1-d8efb24f"}
 
 # See every workspace and its session
 $ ws list --json
@@ -128,9 +135,9 @@ messages aren't.
 | Exit | Meaning                       | Error codes |
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
-| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable` |
+| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth` |
 | 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found` |
 | 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
@@ -158,7 +165,11 @@ everything.
   - `ws llm cache path`: a cached repo's directory
   - `ws llm cache remove`: delete cached repos
   - `ws llm cache prune`: delete commit refs no workspace uses
-- `ws llm review`: structured reviews, and the reviewer's commands:
+- `ws llm review`: structured reviews: getting your work reviewed, and the reviewer's commands:
+  - `ws llm review start`: start a review of a pull request or commit
+  - `ws llm review wait`: wait for a review, then print its report
+  - `ws llm review report`: a review's combined report
+  - `ws llm review profiles`: the review profiles and their settings
   - `ws llm review prime`: how to write and submit a review, and a profile's guide
   - `ws llm review describe`: the review document, a field, check, or topic at a time
   - `ws llm review submit`: check a review and store it
