@@ -21,7 +21,8 @@ one they fail with `review_not_found`.
 - `ws review prime --profile <name>` first: how to write and submit a
   review, and what your profile looks for.
 - `ws review describe` for the document's shape, and `--lens` for any
-  field, check, or topic it names.
+  field, check, or topic it names. A lens is a page of the format's
+  manual; a profile is what you look for. They're unrelated.
 - `ws review submit --json -` to check your review and store it.
 
 Run `ws llm review <op>` for each one's guide.

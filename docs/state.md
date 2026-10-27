@@ -59,6 +59,13 @@ A review workspace also has `review.toml`, version 1
 A `review.toml` from a newer `ws` makes `ws review` fail on that
 workspace, naming the file.
 
+It's TOML, like the other records under `state/`, because it's `ws`'s
+record of a workspace: written once by `ws`, read by `ws`, and next to
+`workspace.toml` and the session record ([0012](adrs/0012-workspace-layout.md),
+[0039](adrs/0039-ws-review-command.md)). What crosses `ws`'s boundary is
+JSON: the review documents reviewers submit, the stored submissions, and
+the record itself wherever a command prints it with `--json`.
+
 A workspace whose record is from a newer `ws` (a version this `ws` doesn't
 know), or can't be parsed, is left alone
 ([0027](adrs/0027-respawn-lock-and-record-versions.md)):

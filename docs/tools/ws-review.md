@@ -14,8 +14,11 @@ ws review submit [OPTIONS] [<PATH> | -]
 
 A review is one JSON document: a verdict, a summary, the reviewer's
 profile, and comments with an id, a priority, a category, a body, anchors
-(file and lines at the reviewed commit), and competing suggestions. The
-format, its checks, and the guides come from a fork of
+(file and lines at the reviewed commit), and competing suggestions:
+[The review document](../review-document.md) describes every field, and
+its JSON Schema is
+[`review.schema.json`](../../internal/review/schema/review.schema.json).
+The format, its checks, and the guides come from a fork of
 [loam-refinery](https://github.com/bobcob7/loam-refinery) at f7b52c0
 ([0037](../adrs/0037-review-engine-forked-from-loam-refinery.md)).
 
@@ -26,6 +29,31 @@ are the reviewer's, and run inside a review workspace; outside one they
 fail with `review_not_found`. The requester's commands (`start`, `wait`,
 `report`, `profiles`) are added with the rest of [the
 design](../design/loam-refinery-reviews/README.md).
+
+### Terms
+
+- **Profile**: what a reviewer looks for, such as `security` or `go`. A
+  review runs one reviewer per profile, and each submits its own review
+  document, naming its profile. `ws review prime --profile` prints a
+  profile's guide.
+- **Lens**: one entry `ws review describe --lens` explains: a field of
+  the document (`priority`), a check a diagnostic named
+  (`anchor-line-out-of-range`), or a topic (`tiers`). Lenses document the
+  format; they don't change what a reviewer looks for. The name comes from
+  loam-refinery's `describe --lens`.
+
+A profile is a focus for the review; a lens is a page of its manual.
+
+### Relation to `ws llm`
+
+`ws llm` explains how to use `ws`: its commands, flags, and exit codes,
+for an agent that drives `ws`. `ws llm review` is that guide for these
+commands. `ws review prime` and `describe` explain the review format
+itself, to the reviewer that writes one: `prime` is small enough to pin
+into a reviewer's prompt, with its profile appended, and `describe`
+answers one question at a time, so a reviewer pays only for the fields
+and checks it asks about. Both read the review workspace, which `ws llm`
+never does: `prime --profile` takes only the review's profiles.
 
 ### `ws review prime`
 
@@ -85,6 +113,14 @@ Checks a review from `PATH`, or stdin for `-` or no path, and stores it:
    `CONFIG_DIR/reviews/<host>/<owner>/<name>/<sha>/<profile>.json`
    ([state](../state.md#reviews)). The profile's previous submission, if
    any, is superseded: renamed `<profile>.<n>.json`.
+
+The store is outside the review workspace on purpose: the workspace, its
+agent, and its record are removed when the review agent is, but its
+findings, and the decisions made on them later, are still needed while
+the pull request is open ([0039](../adrs/0039-ws-review-command.md)). The
+reviewer doesn't need `path`; it's reported so a person can find the
+file. Requesters will read reviews through `ws review report`, added
+with the rest of the design, which is the contract; the layout isn't.
 
 ## Options
 

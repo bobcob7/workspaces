@@ -193,3 +193,31 @@ func TestDocumentShapeListsExactlyTheSchemasFields(t *testing.T) {
 	assert.Equal(t, schemaProperties(t, "$defs", "comment"), shapeFields(t, "comment"))
 	assert.Equal(t, schemaProperties(t, "$defs", "suggestion"), shapeFields(t, "suggestion"))
 }
+
+var docFieldRow = regexp.MustCompile("^\\| `([a-z_]+)` \\|")
+
+// docFields reads the field names in docs/review-document.md's table under
+// "### <heading>".
+func docFields(t *testing.T, heading string) []string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "review-document.md"))
+	require.NoError(t, err)
+	_, section, found := strings.Cut(string(data), "\n### "+heading+"\n")
+	require.True(t, found, "no %q section in docs/review-document.md", heading)
+	section, _, _ = strings.Cut(section, "\n#")
+	var fields []string
+	for line := range strings.SplitSeq(section, "\n") {
+		if m := docFieldRow.FindStringSubmatch(line); m != nil {
+			fields = append(fields, m[1])
+		}
+	}
+	slices.Sort(fields)
+	return fields
+}
+
+func TestReviewDocumentDocListsExactlyTheSchemasFields(t *testing.T) {
+	assert.Equal(t, schemaProperties(t), docFields(t, "Root"))
+	assert.Equal(t, schemaProperties(t, "$defs", "comment"), docFields(t, "Comment"))
+	assert.Equal(t, schemaProperties(t, "$defs", "anchor"), docFields(t, "Anchor"))
+	assert.Equal(t, schemaProperties(t, "$defs", "suggestion"), docFields(t, "Suggestion"))
+}
