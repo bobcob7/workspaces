@@ -53,8 +53,9 @@ and keep decisions in `desktop.json`.
 - **Reading.** A backend command `review_report(workspace)` runs `ws review
   report --json <id>` (or `--repo --ref` for a review whose workspace is
   gone) and caches the result by repo, commit, and the report's `total`.
-  The pane asks for it when a review is selected, and again when its agent
-  goes from working to idle.
+  The pane asks for it when a review is selected, every 30 s while its
+  agent works (so each profile shows as submitted when it is), and again
+  when the agent goes from working to idle.
 - **Showing.** Findings grouped by priority band (9–10 must fix, 7–8
   should fix, 4–6 worth fixing, 1–3 optional), each with profile and
   category chips, body (Markdown), anchors (`file:line`, linked to the file
