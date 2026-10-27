@@ -1,6 +1,6 @@
 # 0040. A decision per finding is kept with the review in `ws`'s store, set with `ws review decide`; the desktop app renders findings itself from `ws review report --json`
 
-- Status: Proposed
+- Status: Accepted (2026-10-27)
 - Date: 2026-10-26
 
 ## Context

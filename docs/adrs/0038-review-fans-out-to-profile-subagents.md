@@ -1,6 +1,6 @@
 # 0038. A review stays one agent per PR head; `ws` chooses its profiles and defines one Claude Code subagent per profile, with that profile's model
 
-- Status: Proposed
+- Status: Accepted (2026-10-27)
 - Date: 2026-10-26
 
 ## Context
