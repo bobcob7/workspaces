@@ -41,6 +41,14 @@ does each get the model chosen for it?
   takes precedence over it[^cc-subagents].
 - `ws claude` passes everything after `--` to `claude --bg`, except
   `--settings` ([`ws claude`](../tools/ws-claude.md)).
+- In a `ws claude` session started with `--agents` defining two
+  subagents (one `haiku`, one `sonnet`) and a `sonnet` main model, the
+  agent started both in the background with no `model` parameter; their
+  transcripts show `claude-haiku-5-5` and `claude-sonnet-5-5`, and their
+  runs overlapped (one 25 s command each, started 3 s apart)[^bench-agents].
+- After `claude stop` and `ws restore`, the session's job state
+  (`~/.claude/jobs/<id>/state.json`, undocumented) listed `respawnFlags`
+  including `--agents` and its full JSON[^bench-agents].
 - loam-refinery's profile files are Markdown with a `description` in
   front matter[^lr-profile].
 - Each workspace is a hard-linked clone plus a Claude Code session
@@ -147,13 +155,18 @@ so a missing one can't be told from one never started.
   `--profile`/`--auto` rules, matching against a file list, the
   `--agents` JSON (one entry per profile, model present only when set),
   and the prompt naming every subagent.
-- **Unverified:** that `claude --bg` sessions honor `--agents`, run
-  background subagents concurrently, and keep the definitions after `ws
-  restore` or `ws restart` respawns the session. Check with a four-profile
-  review, a restore in the middle, and the transcript, before accepting.
+- `--agents`, pinned models, and concurrent background subagents in a
+  `claude --bg` session were checked[^bench-agents].
+- **Partly unverified:** that a respawned session *uses* the definitions.
+  Its recorded `respawnFlags` include them, but a subagent wasn't started
+  after the restore (typing into `claude attach` from `expect` didn't
+  submit). The implementing PR checks it from the desktop app's reply box:
+  restore a review mid-run and confirm the next subagent's model in its
+  transcript.
 
 ## References
 
 [^cc-subagents]: Claude Code docs, "Create custom subagents." <https://code.claude.com/docs/en/sub-agents> (accessed 2026-10-27). Quoted as above; on precedence: "When Claude invokes a subagent, it can also pass a `model` parameter for that specific invocation. Claude Code resolves the subagent's model in this order: 1. The per-invocation `model` parameter 2. The subagent definition's `model` frontmatter …"; on `--agents`: "CLI-defined subagents are passed as JSON when launching Claude Code. They exist only for that session and aren't saved to disk."
 [^cc-help]: `claude --help`, Claude Code 2.1.311, run 2026-10-27. "--agents <json-or-file>  JSON object defining custom agents, or with --print the path to a file that holds one".
+[^bench-agents]: Measured 2026-10-27 on an Apple M4, macOS 26.6.2, Claude Code 2.1.311, `ws claude --name probe-agents -- --agents '<json>' --allowedTools Bash --model sonnet '<prompt>'` in an empty workspace. Subagents `probe-a` (`model: haiku`) and `probe-b` (`model: sonnet`), each told to run `date +%s > <dir>/<name>.start; sleep 25; date +%s > <dir>/<name>.end`. The main agent's two `Agent` calls had `subagent_type` and `run_in_background` and no `model`. Timestamps: probe-b 1793110377–1793110402, probe-a 1793110380–1793110405. Models read from `message.model` in each `subagents/agent-*.jsonl`. Then `claude stop 7e1f7c9c`, `ws restore --json probe-agents` (`restored: true`), and `jq` over `~/.claude/jobs/7e1f7c9c/state.json`: `respawnFlags` = `-n probe-agents --settings … --agents {…} --allowedTools Bash --model sonnet`. One run.
 [^lr-profile]: loam-refinery `profiles/go.md`, at f7b52c0: front matter `description: Go: concurrency, error wrapping, context handling, hot-path cost, and tests`.

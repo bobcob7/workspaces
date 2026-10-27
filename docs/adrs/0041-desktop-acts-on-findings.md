@@ -35,6 +35,17 @@ suggestion for each. How is each carried out?
 - For a review comment, `line` is "The line of the blob in the pull request
   diff that the comment applies to"; `subject_type` is `line` or `file`,
   and `line` is "Required unless using subject_type:file"[^gh-comment].
+- But `subject_type` is rejected inside a create-review request's
+  `comments[]`: "Field is not defined on DraftPullRequestReviewComment"
+  (HTTP 422, nothing created). A file comment can be added to a pending
+  review with GraphQL `addPullRequestReviewThread` (`subjectType: FILE`,
+  `pullRequestReviewId`), which put it in the same pending review as the
+  REST line comment[^bench-review].
+- A pending review is submitted with `POST
+  …/pulls/<n>/reviews/<id>/events` and an `event`, and one not yet
+  submitted can be deleted[^gh-review]. A user "can only have one pending
+  review per pull request"; a second create fails with HTTP
+  422[^bench-review].
 - "List pull requests files" returns each file's `filename`, `status`, and
   `patch`, at most 3000 files, up to 100 a page[^gh-files]; for one PR it
   took 0.39–0.54 s[^bench-gh].
@@ -55,8 +66,8 @@ suggestion for each. How is each carried out?
    lines fall in a hunk becomes a line comment (`side: RIGHT`, `line` =
    `end_line` or `line`, `start_line` when it spans lines); an anchor in a
    changed file but outside the hunks, or a file with no `patch`, becomes a
-   file comment (`subject_type: file`); anything else goes in the review
-   body.
+   file comment (a `FILE` thread, added when posting); anything else goes in
+   the review body.
 2. **Preview.** A dialog shows every comment and the body as GitHub will
    render them, editable, with the event (default **Comment**; **Request
    changes** and **Approve** selectable, never preselected). Each comment
@@ -65,11 +76,20 @@ suggestion for each. How is each carried out?
    is wrapped in backticks so a finding can't mention anyone. If the
    reviewed commit isn't the PR's current head, the dialog says the
    comments may show as outdated.
-3. **Post** with one `gh api --method POST
-   repos/<owner>/<repo>/pulls/<n>/reviews --input -`, `commit_id` set to
-   the reviewed commit. Success runs `ws review acted … --commented <url>`
-   for the posted findings ([0040](0040-review-decisions-kept-with-findings.md));
-   failure shows `gh`'s message, posts nothing, and keeps the decisions.
+3. **Post** in three steps, as one review:
+   1. `gh api --method POST repos/<owner>/<repo>/pulls/<n>/reviews --input
+      -` with `commit_id` (the reviewed commit), the body, the line
+      comments, and no `event`, which leaves it pending;
+   2. one `gh api graphql` `addPullRequestReviewThread` per file comment,
+      with `subjectType: FILE` and the pending review's node id;
+   3. `gh api --method POST …/reviews/<id>/events` with the chosen event.
+
+   Nothing is visible to others until the last call. If creating it fails because
+   you already have a pending review on the PR, the dialog says so and
+   offers **Open on GitHub** to finish or discard it. If adding a file
+   thread or submitting fails, the app deletes the pending review, shows `gh`'s message, and
+   keeps the decisions. Success runs `ws review acted … --commented <url>`
+   for the posted findings ([0040](0040-review-decisions-kept-with-findings.md)).
 
 **Fix.** A dialog lists the selected findings and a target:
 
@@ -94,9 +114,10 @@ action only if the person ticks it again.
 ### Why this option
 
 1. The preview is the only path to GitHub, it shows the request as sent,
-   and it's one review: one notification batch, one call against the
-   secondary limit.
-2. `commit_id` pins comments to the commit whose anchors loam-refinery
+   and it's one review: one notification batch when it's submitted, and
+   a handful of calls rather than one per finding against the secondary
+   limit.
+2. `commit_id` pins comments to the commit whose anchors `ws review submit`
    verified; the patch check keeps a line comment from failing on a line
    that isn't in the diff, and file comments and the body catch the rest.
 3. The requester usually wrote the change and has its branch; sending it
@@ -105,8 +126,9 @@ action only if the person ticks it again.
 4. `done`, kept with the decision, makes repeats deliberate, and tells the
    fix agent which findings are already handled.
 
-It's weak in two ways: the hunk parser is a small piece of diff logic the
-app owns, and a message typed into the requester's terminal arrives as
+It's weak in three ways: the hunk parser is a small piece of diff logic the
+app owns; posting takes two APIs and up to 2 + N calls, with cleanup if
+one fails; and a message typed into the requester's terminal arrives as
 user input mid-task, which the requester has to fit in with what it's
 doing.
 
@@ -123,9 +145,9 @@ docs warn may hit the secondary rate limit[^gh-review].
 Leave `event` blank, so the review stays `PENDING`.
 
 **Pros:** GitHub's own UI is the final preview.
-**Cons:** a second place to finish the job; a pending review is invisible
-to the app, and the person's other pending review on that PR, if any,
-would conflict. Could be an option in the dialog later.
+**Cons:** a second place to finish the job, and the app can't tell when
+it's done. Since the app already builds a pending review, **Finish on
+GitHub** (stop before submitting, open the PR) could be a dialog option later.
 
 ### Always start a new fix agent
 
@@ -144,14 +166,14 @@ own, and two agents that may push to the same branch.
   exactly, rather than a copy pasted into its prompt.
 - Agents that read the report themselves (`ws review wait`) can fix
   without the app; Comment stays app-only, so agents never post to GitHub.
-- **Unverified:** that GitHub accepts `subject_type: file` comments inside
-  a create-review request's `comments[]` (documented for single review
-  comments). Check against a test PR before accepting; if not, those go in
-  the body.
+- Placement of file comments and the one-pending-review rule were
+  checked against a real PR[^bench-review]; tests replay the three calls
+  with a fake `gh`, including cleanup when a later call fails.
 
 ## References
 
-[^gh-review]: GitHub Docs, REST API, "Create a review for a pull request." <https://docs.github.com/en/rest/pulls/reviews?apiVersion=2022-11-28#create-a-review-for-a-pull-request> (accessed 2026-10-26). Quoted as above; also "By leaving this blank, you set the review action state to PENDING".
+[^gh-review]: GitHub Docs, REST API, "Create a review for a pull request." <https://docs.github.com/en/rest/pulls/reviews?apiVersion=2022-11-28#create-a-review-for-a-pull-request> (accessed 2026-10-26). Quoted as above; also "By leaving this blank, you set the review action state to PENDING". "Submit a review for a pull request" (accessed 2026-10-27): "Submits a pending review for a pull request"; "Delete a pending review for a pull request": "Deletes a pull request review that has not been submitted. Submitted reviews cannot be deleted."
+[^bench-review]: Measured 2026-10-27 with gh 2.81.0 against bobcob7/workspaces#12, as pending reviews only (never submitted, so no notifications), each deleted afterwards. (1) `POST …/pulls/12/reviews` with `comments[0].subject_type: "file"` → HTTP 422 "Variable $comments of type [DraftPullRequestReviewComment] was provided invalid value for 0.subjectType (Field is not defined on DraftPullRequestReviewComment), 0.position (Expected value to not be null)". (2) The same with only a line comment (`line: 3, side: RIGHT`) → `state: PENDING`; then `addPullRequestReviewThread(input: {pullRequestReviewId, path, subjectType: FILE, body})` → a thread with `subjectType: FILE` whose comment's `pullRequestReview` was that pending review; `GET …/reviews/<id>/comments` listed both. (3) Two creates in a row: the second → HTTP 422 "User can only have one pending review per pull request". One run each.
 [^gh-comment]: GitHub Docs, REST API, "Create a review comment for a pull request." <https://docs.github.com/en/rest/pulls/comments?apiVersion=2022-11-28#create-a-review-comment-for-a-pull-request> (accessed 2026-10-26). Quoted as above.
 [^gh-files]: GitHub Docs, REST API, "List pull requests files." <https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28#list-pull-requests-files> (accessed 2026-10-26). "Responses include a maximum of 3000 files. The paginated response returns 30 files per page by default."
 [^bench-gh]: Measured 2026-10-26 on an Apple M4, macOS 26.6.2, gh 2.81.0, over the network to github.com. 3 runs of `/usr/bin/time -p gh api repos/bobcob7/workspaces/pulls/10/files --paginate`; range of `real`. Each file object had `additions`, `blob_url`, `changes`, `contents_url`, `deletions`, `filename`, `patch`, `raw_url`, `sha`, `status`. Network-bound.

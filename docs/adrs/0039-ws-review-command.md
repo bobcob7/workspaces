@@ -46,7 +46,12 @@ report get back to the requester?
   runs the command asynchronously and immediately returns a background
   task ID"; "In a session that runs unattended, such as a `-p` run or a
   cloud session, Claude Code stops a background command at its time
-  limit"[^cc-bg].
+  limit", by default 30 minutes and at most 2 hours[^cc-bg].
+- In a `ws claude` session, a background `sleep 150` that the agent
+  started with a 60 s `timeout` ran the full 150 s, and when it exited
+  Claude Code sent the idle agent a task notification, which it answered
+  in a new turn[^bench-bg]. So a `claude --bg` session isn't held to the
+  unattended time limit, and a background command's exit wakes it.
 
 ## Decision
 
@@ -143,8 +148,9 @@ and `[review.profiles.<name>]`. New error codes: `gh_missing`, `gh_auth`,
 
 **Getting the report to the requester.** `ws llm review` tells an agent to
 start the review, run `wait_command` as a background command, carry on,
-act on the report when it arrives, and, before finishing its own task, run
-`wait` once more in the foreground if it hasn't seen the result.
+and act on the report when Claude Code tells it the command exited.
+`wait`'s own timeout is the only limit; if it fires, the agent runs `wait`
+again.
 
 ### Why this option
 
@@ -197,13 +203,15 @@ decisions while the PR is still open.
   the requester default, the record's round trip, the store's supersede
   rule and locking, `wait` against a fake `claude` session going working →
   idle, the timeout, and `missing`.
-- **Unverified:** whether a background command in a `claude --bg`
-  session counts as unattended and has a time limit, and whether its exit
-  prompts the agent. `wait`'s timeout and the "run it once more" rule are
-  the fallback; check with a review started from a `ws claude` agent.
+- Delivery by background `wait` was checked in a `ws claude`
+  session[^bench-bg]. A requester run with `claude
+  -p` *is* unattended, so its background `wait` stops after 30 minutes;
+  `ws llm review` says to pass a `timeout` up to 2 hours there, or run
+  `wait` again.
 
 ## References
 
 [^bench-gh]: Measured 2026-10-26 on an Apple M4, macOS 26.6.2, gh 2.81.0, over the network to github.com. 3 runs of `/usr/bin/time -p gh pr view 10 --repo github.com/bobcob7/workspaces --json number,title,headRefOid,headRefName,baseRefName,isCrossRepository,url`; range of `real`. Network-bound.
 [^lr-collect]: loam-refinery `describe --lens=collect-reviews`, built from f7b52c0, run 2026-10-26. "Each comment's id is qualified to stay unique: `profile:origin_id` when its submission is current for that profile, `#ordinal:origin_id` otherwise — no profile claimed, or superseded." "Resubmitting under the same profile supersedes".
-[^cc-bg]: Claude Code docs, "Interactive mode", Background Bash commands. <https://code.claude.com/docs/en/interactive-mode> (accessed 2026-10-26). Quoted as above.
+[^cc-bg]: Claude Code docs, "Interactive mode", Background Bash commands. <https://code.claude.com/docs/en/interactive-mode> (accessed 2026-10-26). Quoted as above. Limits from "Tools reference", Time limit for background commands, <https://code.claude.com/docs/en/tools-reference> (accessed 2026-10-27): "A command that Claude starts in the background gets 30 minutes, or the `timeout` Claude passes with `run_in_background`, up to a maximum of 2 hours"; "A local session you work in from a terminal, the desktop app, or the VS Code extension has no time limit on background commands."
+[^bench-bg]: Measured 2026-10-27 on an Apple M4, macOS 26.6.2, Claude Code 2.1.311, in the `ws claude` session of 0038's `bench-agents`. The agent ran `sleep 150; echo finished-ok` with `run_in_background: true` and `timeout: 60000` at 14:13:42Z and ended its turn; the transcript shows a `task-notification` at 14:16:12Z and the agent's reply "BG-RESULT: Background command "sleep 150; echo finished-ok" completed (exit code 0)" at 14:16:14Z. One run.
