@@ -12,12 +12,13 @@ this ref, does the file have this many lines. Always run, and cannot be
 disabled or demoted: an anchor claim that goes unconfirmed fails the run.
 
 Advisory checks ask "is this a good review?" — a thin body, a suggestion with no
-stated cost, every comment at priority 9. Always run, never fatal.
---strict promotes them to errors; no flag silences one.
+stated cost, every comment at priority 9. Always run, never fatal; no
+flag silences one.
 
-Exit 0 is valid, exit 1 means revise the review, exit 2 means fix the
-invocation, exit 3 means the reviewed state is not a commit — commit it, or
-run `git stash create` and submit that SHA — and exit 101 means the tool
-failed: stop and report the machine. Document-unparseable and exit 3 both
-gate the rest; every other run reports everything findable, skipped checks
-included.
+Exit 0 is stored. Exit 1 with review_invalid means revise the review and
+resubmit; with review_unverifiable, the anchors could not be checked — the
+working tree diverged or the commit is missing — and resubmitting will not
+help: stop and report it. Exit 2 means fix the invocation, exit 3 means
+this is not a review workspace. Document-unparseable and a diverged working
+tree both gate the rest; every other run reports everything findable,
+skipped checks included.

@@ -34,7 +34,7 @@ nothing here for it to ask about.`,
 		{
 			Name:    "ref-unknown",
 			Tier:    review.TierVerification,
-			Summary: "the ref does not resolve in the repository loam-refinery was run in",
+			Summary: "the ref does not resolve in the review workspace's repository",
 			Title:   "Unresolvable ref",
 			Body: `Fires when the document ref names no commit in the repository the tool was run
 in. Every anchor is read at that ref, so the whole review becomes a set of claims
@@ -50,7 +50,7 @@ has no flag to work around anymore: the fix is a deeper fetch, git fetch
 
 If the ref is wrong rather than absent, take it from the checkout the review was
 performed against: git rev-parse HEAD. Fetching the commit is the other fix;
-loam-refinery never touches the network itself.`,
+ws never touches the network to verify.`,
 			Related: []string{"ref", "ref-format", "anchor-file-missing"},
 		},
 		{
@@ -97,7 +97,7 @@ before filing it:
 
   git show 4f2c1a9:internal/fetch/client.go | sed -n '88,94p'
 
-loam-refinery only confirms the line exists. Whether it is the right line is your
+ws only confirms the line exists. Whether it is the right line is your
 job — that is why a file-level anchor, with no line at all, is a legitimate
 answer when you are not certain.`,
 			Related: []string{"line", "end_line", "anchors"},
@@ -113,7 +113,7 @@ state of a checkout somebody is actively editing. It is read off
 verification's own pass as a precondition: once found, that pass's other
 results are discarded and the run stops before structural checks and
 advisories. One diagnostic covers the whole document, however many anchors
-diverged — exit 3, not exit 1.
+diverged — review_unverifiable, not review_invalid.
 
 The reviewed state is not a commit, and revising the document cannot fix
 that. Commit what was reviewed — even to a throwaway branch — so ref and the
@@ -122,8 +122,8 @@ object out of the working tree and the index without touching either, giving
 a resolvable SHA to submit against instead.
 
 This is not a check to retry. Resubmitting the identical document against
-the identical dirty tree cannot succeed — an agent that treats exit 3 like
-exit 1 and just resubmits will loop until something outside the review
+the identical dirty tree cannot succeed — an agent that treats it like
+review_invalid and just resubmits will loop until something outside the review
 changes.`,
 			Related: []string{"anchor-file-missing", "anchor-line-out-of-range", "verification-required"},
 		},

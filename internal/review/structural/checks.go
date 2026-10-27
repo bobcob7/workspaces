@@ -23,7 +23,7 @@ The usual causes are prose wrapped around the JSON, a fenced code block left
 in, and two documents concatenated into one stream. The message carries the
 decoder's own complaint, which names the byte offset:
 
-  loam-refinery submit-review review.json
+  ws review submit review.json
   invalid character 'h' looking for beginning of value
 
 This is a document to repair rather than a command line to fix, so it exits 1
@@ -135,10 +135,10 @@ holding a checkout already.
 			Body: `Fires when the document profile is present but not lowercase letters, digits,
 and single hyphens between them — the same grammar the filename a profile
 resolves to already uses. This checks shape only, never whether the reviewer
-was actually primed with that profile; profile is caller-authored and
-unverifiable, exactly like id.
+was actually primed with that profile; ws review submit separately requires
+it to be one of the review's profiles (review-profile).
 
-The shape matters because collect-reviews builds each comment's qualified id
+The shape matters because the combined report builds each comment's qualified id
 as <profile>:<origin_id>, splitting on the first colon to recover origin_id
 later. A profile containing a colon breaks that split for every comment it
 produced, silently and downstream of this check.
