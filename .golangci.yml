@@ -189,6 +189,18 @@ linters:
         linters:
           - sloglint
         text: use slog.DiscardHandler instead
+      # internal/review is forked from loam-refinery (ADR 0037). Its document
+      # types are passed and ranged by value, its check registries are long
+      # functions of data, and its lookup tables are package-level values
+      # nothing writes.
+      - path: ^internal/review/
+        linters:
+          - gocritic
+        text: "hugeParam|rangeValCopy"
+      - path: ^internal/review/
+        linters:
+          - funlen
+          - gochecknoglobals
       # main is where the real streams and the exit code belong.
       - path: ^cmd/ws/
         linters:

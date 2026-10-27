@@ -1,0 +1,309 @@
+package render
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/bobcob7/workspaces/internal/review"
+	"github.com/bobcob7/workspaces/internal/review/entry"
+	"github.com/bobcob7/workspaces/internal/review/profile"
+)
+
+// JSON renders for programmatic callers. The whole object goes to stdout;
+// nothing is written to stderr except on a usage error.
+type JSON struct{}
+
+// NewJSON returns the JSON renderer.
+func NewJSON() *JSON {
+	return &JSON{}
+}
+
+type jsonResult struct {
+	Valid        bool             `json:"valid"`
+	Strict       bool             `json:"strict"`
+	Verification jsonVerification `json:"verification"`
+	Counts       jsonCounts       `json:"counts"`
+	Skipped      []jsonSkipped    `json:"skipped"`
+	Diagnostics  []jsonDiagnostic `json:"diagnostics"`
+	Lenses       []string         `json:"lenses,omitempty"`
+}
+
+// jsonVerification carries no unverified field: docs/cli.md §5.2 states
+// outright that this command's output has none. anchor-worktree-diverged
+// used to have a soft, per-anchor home here, on a run that still passed;
+// docs/cli.md §2.3.1's precondition replaced that — a diverged anchor now
+// stops the run before verification even reaches per-anchor checking,
+// reported once, in diagnostics, at exit 3, never as a soft entry in a
+// passing verification block, because a passing run with a diverged anchor
+// in it can no longer happen. collect-reviews keeps the identical shape for
+// a different question, on head_check.diverged
+// (docs/features/combined-reviews.md §4.3.1), which is no reason to carry
+// it here too.
+type jsonVerification struct {
+	Source   string `json:"source"`
+	Reason   string `json:"reason,omitempty"`
+	Anchors  int    `json:"anchors"`
+	Verified int    `json:"verified"`
+}
+
+type jsonCounts struct {
+	Comments   int `json:"comments"`
+	Errors     int `json:"errors"`
+	Advisories int `json:"advisories"`
+	Skipped    int `json:"skipped"`
+}
+
+// jsonSkipped groups the checks that stopped for the same cause. One cause
+// commonly stops every check there is — an unparseable document stops all of
+// them — and repeating its sentence once per check made the reason the bulk of
+// the payload rather than the finding.
+type jsonSkipped struct {
+	Reason string   `json:"reason"`
+	Checks []string `json:"checks"`
+}
+
+// groupSkipped collects checks by reason, keeping first-seen order so the
+// output does not move between runs.
+func groupSkipped(skipped []review.Skipped) []jsonSkipped {
+	order := []string{}
+	byReason := map[string][]string{}
+	for _, skip := range skipped {
+		if _, seen := byReason[skip.Reason]; !seen {
+			order = append(order, skip.Reason)
+		}
+		byReason[skip.Reason] = append(byReason[skip.Reason], skip.Name)
+	}
+	out := make([]jsonSkipped, 0, len(order))
+	for _, reason := range order {
+		out = append(out, jsonSkipped{Reason: reason, Checks: byReason[reason]})
+	}
+	return out
+}
+
+type jsonDiagnostic struct {
+	Severity string `json:"severity"`
+	Name     string `json:"name"`
+	Comment  string `json:"comment,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Message  string `json:"message"`
+}
+
+// Result writes the whole result object to stdout.
+func (*JSON) Result(w io.Writer, result *review.Result) error {
+	payload := jsonResult{
+		Valid:  result.Valid,
+		Strict: result.Strict,
+		Verification: jsonVerification{
+			Source:   result.Verification.Source,
+			Reason:   result.Verification.Reason,
+			Anchors:  result.Verification.Anchors,
+			Verified: result.Verification.Verified,
+		},
+		Counts: jsonCounts{
+			Comments:   result.Comments,
+			Errors:     result.Errors(),
+			Advisories: result.Advisories(),
+			Skipped:    len(result.Skipped),
+		},
+		Skipped:     groupSkipped(result.Skipped),
+		Diagnostics: []jsonDiagnostic{},
+		Lenses:      result.Lenses(),
+	}
+	for _, diagnostic := range result.Diagnostics {
+		payload.Diagnostics = append(payload.Diagnostics, jsonDiagnostic{
+			Severity: string(diagnostic.Severity),
+			Name:     diagnostic.Name,
+			Comment:  diagnostic.Comment,
+			Path:     diagnostic.Path,
+			Message:  diagnostic.Message,
+		})
+	}
+	return Write(w, payload)
+}
+
+type jsonEntry struct {
+	Name      string   `json:"name"`
+	Namespace string   `json:"namespace"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Example   string   `json:"example,omitempty"`
+	Related   []string `json:"related,omitempty"`
+	Aliases   []string `json:"aliases,omitempty"`
+	Provider  string   `json:"provider"`
+}
+
+// Entries writes the requested entries as one object.
+func (*JSON) Entries(w io.Writer, entries []entry.Entry) error {
+	payload := struct {
+		Entries []jsonEntry `json:"entries"`
+	}{Entries: []jsonEntry{}}
+	for _, e := range entries {
+		payload.Entries = append(payload.Entries, jsonEntry{
+			Name:      e.Name,
+			Namespace: string(e.Namespace),
+			Title:     e.Title,
+			Body:      e.Body,
+			Example:   e.Example,
+			Related:   e.Related,
+			Aliases:   e.Aliases,
+			Provider:  e.Provider,
+		})
+	}
+	return Write(w, payload)
+}
+
+// jsonGroup is one namespace of the index. The index is a list rather than an
+// object because the registry orders its namespaces deliberately — fields
+// first, then checks, then topics — and a map serializes in whatever order
+// Go feels like, alphabetical or otherwise; writeIndexGroups below walks
+// this slice in order and writes namespace before names on every group, so
+// nothing gets a chance to reorder it. The struct tags are never read by an
+// encoder on the hand-built path writeIndexGroups takes, but they stay: this
+// is still the type's wire shape, and a future caller that reaches for
+// json.Marshal on a jsonGroup — reasonable, for an unexported render type —
+// gets the same "namespace"/"names" keys instead of silently capitalized
+// ones.
+type jsonGroup struct {
+	Namespace string   `json:"namespace"`
+	Names     []string `json:"names"`
+}
+
+func groupIndex(groups []entry.Group) []jsonGroup {
+	out := make([]jsonGroup, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, jsonGroup{Namespace: string(group.Namespace), Names: group.Names})
+	}
+	return out
+}
+
+// marshalCompact returns v's JSON encoding without the trailing newline
+// json.Encoder normally appends, using this package's own escaping
+// convention rather than json.Marshal's: HTML characters are left alone, the
+// same reason Write below turns escaping off — describe's own summary
+// carries a literal "<40 hex>" placeholder that must survive verbatim for a
+// caller to copy.
+func marshalCompact(v any) (string, error) {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
+		return "", fmt.Errorf("marshalling %T: %w", v, err)
+	}
+	return strings.TrimSuffix(buf.String(), "\n"), nil
+}
+
+// writeIndexGroups writes groups as the body of a JSON array whose "[" and
+// "]" the caller has already written, one group per line at indent, each
+// group's own fields one level deeper. Every group's names render as a
+// single inline array rather than the standard encoder's one name per line:
+// the array holds nothing but short, already-namespaced identifiers, so
+// per-element indentation buys no readability and only spends tokens
+// against describe's budget (docs/cli.md §6.1).
+func writeIndexGroups(b *strings.Builder, groups []jsonGroup, indent string) error {
+	inner := indent + "  "
+	for i, group := range groups {
+		namespace, err := marshalCompact(group.Namespace)
+		if err != nil {
+			return err
+		}
+		names := make([]string, len(group.Names))
+		for ni, name := range group.Names {
+			encoded, err := marshalCompact(name)
+			if err != nil {
+				return err
+			}
+			names[ni] = encoded
+		}
+		b.WriteString(indent + "{\n")
+		b.WriteString(inner + "\"namespace\": " + namespace + ",\n")
+		b.WriteString(inner + "\"names\": [" + strings.Join(names, ", ") + "]\n")
+		b.WriteString(indent + "}")
+		if i < len(groups)-1 {
+			b.WriteString(",")
+		}
+		b.WriteString("\n")
+	}
+	return nil
+}
+
+// Index writes the lens index, no bodies.
+func (*JSON) Index(w io.Writer, groups []entry.Group) error {
+	var b strings.Builder
+	b.WriteString("{\n  \"index\": [\n")
+	if err := writeIndexGroups(&b, groupIndex(groups), "    "); err != nil {
+		return err
+	}
+	b.WriteString("  ]\n}\n")
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// Summary writes the document-shape prose and the lens index together, which
+// is what describe with no arguments has to say.
+func (*JSON) Summary(w io.Writer, text string, groups []entry.Group) error {
+	summary, err := marshalCompact(text)
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("{\n  \"summary\": " + summary + ",\n  \"index\": [\n")
+	if err = writeIndexGroups(&b, groupIndex(groups), "    "); err != nil {
+		return err
+	}
+	b.WriteString("  ]\n}\n")
+	_, err = io.WriteString(w, b.String())
+	return err
+}
+
+// jsonProfile is one row of prime --list: name and description, no body
+// (docs/cli.md §2.1.5 - bodies are never part of the index).
+type jsonProfile struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// Profiles writes prime --list's profile index. profiles is never nil going
+// in (internal/profile.Reader.List guarantees that), and the payload's own
+// slice is initialized empty rather than left nil either way, so a missing
+// or empty profile directory renders "profiles":[] and never "profiles":null.
+func (*JSON) Profiles(w io.Writer, profiles []profile.Profile) error {
+	payload := struct {
+		Profiles []jsonProfile `json:"profiles"`
+	}{Profiles: []jsonProfile{}}
+	for _, p := range profiles {
+		payload.Profiles = append(payload.Profiles, jsonProfile{Name: p.Name, Description: p.Description})
+	}
+	return Write(w, payload)
+}
+
+// Write encodes payload to w with this package's JSON conventions:
+// two-space indent, and HTML escaping off so a path or a digest is never
+// rewritten. Result, Entries, and Profiles call it for their whole-object
+// payloads. Index and Summary do not: their array-of-groups shape needs
+// each group's "names" rendered as one inline array rather than
+// json.Encoder's one-element-per-line indent, so they hand-build that text
+// themselves and call marshalCompact per value instead - a second encoder
+// configuration, but a deliberate one, since a compact per-value encoding
+// and json.Encoder's own top-down indentation cannot produce the same
+// output. Both configurations keep HTML escaping off for the same reason:
+// describe's own summary carries a literal "<40 hex>" placeholder that must
+// survive verbatim. Write is exported so a caller outside this package that
+// must emit JSON in the same whole-object shape - internal/cli's reviews
+// command, whose payload types are not review.Result, entry.Entry, or any
+// other type this package already knows - calls it instead of keeping a
+// second copy of that configuration.
+func Write(w io.Writer, payload any) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	// The document shape and every lens body are prose meant to be read. HTML
+	// escaping turns the canonical example's "<40 hex>" into "\u003c40 hex\u003e",
+	// which is what a caller would then copy.
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(payload); err != nil {
+		return fmt.Errorf("encoding json output: %w", err)
+	}
+	return nil
+}
