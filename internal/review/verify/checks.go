@@ -121,10 +121,8 @@ working tree agree again, or run git stash create: it builds a real commit
 object out of the working tree and the index without touching either, giving
 a resolvable SHA to submit against instead.
 
-This is not a check to retry. Resubmitting the identical document against
-the identical dirty tree cannot succeed — an agent that treats it like
-review_invalid and just resubmits will loop until something outside the review
-changes.`,
+This is not a check to retry: resubmitting against the same dirty tree
+cannot succeed, and an agent that treats it like review_invalid will loop.`,
 			Related: []string{"anchor-file-missing", "anchor-line-out-of-range", "verification-required"},
 		},
 	}

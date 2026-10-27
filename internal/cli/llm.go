@@ -41,6 +41,10 @@ func guideTopics() []string {
 		"cache path",
 		"cache remove",
 		"cache prune",
+		"review",
+		"review prime",
+		"review describe",
+		"review submit",
 		"llm",
 	}
 }

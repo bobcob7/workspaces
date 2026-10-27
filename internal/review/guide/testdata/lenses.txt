@@ -1,0 +1,1003 @@
+{
+  "entries": [
+    {
+      "name": "assessment",
+      "namespace": "field",
+      "title": "Quality grade",
+      "body": "Quality grade: how good the work is, independent of verdict. Four bare words read as synonyms for \"fine,\" so each is anchored to a test the reviewer applies to its own findings, ordinal from strong down: strong — everything sound means, plus name one specific thing in the change that exceeds what it needed. sound — the default; any comments filed sit in the optional band (priority 1-3). mixed — at least one reservation too substantial to fold into summary. weak — a finding serious enough to raise regardless of this review's own verdict. Optional, like profile: omit rather than pick the middle value to fill it. Deliberately orthogonal to verdict — weak with comment and mixed with approve are both coherent.",
+      "example": "\"sound\"",
+      "related": [
+        "verdict",
+        "priority"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments",
+      "namespace": "field",
+      "title": "Findings",
+      "body": "The findings, one object per finding. May be empty only when verdict is approve; a request_changes or comment verdict with no comments is not a review with a quality problem, it is a review that failed to say anything. Each comment carries a reviewer-authored id, a priority, a category, a body, a list of anchors and a list of suggestions. Four occurrences of the same problem are one comment with four anchors, not four comments. More than 25 comments raises comment-flood.",
+      "related": [
+        "id",
+        "priority",
+        "anchors",
+        "suggestions"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.anchors",
+      "namespace": "field",
+      "title": "Where the finding applies",
+      "body": "Zero or more locations the finding applies to, each a repository-relative path with an optional line or line span, read at the document ref. A list, because one finding can occur at four call sites — that is one comment with four anchors, not four comments. Architectural findings with no single location may carry none, but the array is required and empty is the way to say so. Anchors describe where the problem is; where a fix lands and how far it reaches is the suggestion's scope, and the two are frequently different. Anchors are checked against the repository: a path or line that does not exist at the document ref is an error, not an advisory.",
+      "related": [
+        "file",
+        "line",
+        "ref",
+        "scope"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.anchors.end_line",
+      "namespace": "field",
+      "title": "Span end",
+      "body": "1-indexed inclusive last line of the span. Requires line and must be greater than or equal to it; end_line without line, or before it, is a structural error (anchor-range-ordered). Omit for a single-line anchor rather than repeating line. Note the underscore: end-line is rejected, because a permissive schema would drop the misspelling silently and leave a review claiming a one-line span the reviewer never meant.",
+      "example": "94",
+      "related": [
+        "line",
+        "anchor-range-ordered"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.anchors.file",
+      "namespace": "field",
+      "title": "File path",
+      "body": "A repository-relative POSIX path: no leading slash, no .. segment, no backslashes. internal/fetch/client.go, never /home/me/repo/internal/fetch/client.go and never ../other/client.go. The path is checked against the repository at the document ref, so a file that does not exist there is an error naming the ref it was looked up in.",
+      "example": "\"internal/fetch/client.go\"",
+      "related": [
+        "line",
+        "ref",
+        "anchor-path-safe"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.anchors.line",
+      "namespace": "field",
+      "title": "Line number",
+      "body": "1-indexed line the comment applies to. Omit for a file-level comment — an anchor with only a file is valid and is the right shape for \"this file needs a test\". The number is verified against the file at the document ref, so it must be a line that exists there; a plausible-looking line number is exactly the error this format exists to catch.",
+      "example": "88",
+      "related": [
+        "end_line",
+        "file",
+        "ref"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.body",
+      "namespace": "field",
+      "title": "Finding and rationale",
+      "body": "The finding and why it matters, 20-4000 characters. State what is wrong, then the consequence — \"passes context.Background(), so a cancelled request keeps retrying for the full backoff schedule\" is actionable where \"context handling is wrong\" is not. Under 60 characters raises body-thin; low-signal text (\"lgtm\", \"looks good\", \"see above\", \"consider refactoring\" with nothing following) raises vacuous-body. Two comments with identical bodies raise duplicate-body. Where the fix goes belongs in a suggestion, not here.",
+      "example": "\"The retry loop calls c.do(context.Background(), req) rather than passing the caller's ctx, so a cancelled request keeps retrying.\"",
+      "related": [
+        "comments.code",
+        "suggestions",
+        "body-thin"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.category",
+      "namespace": "field",
+      "title": "Category",
+      "body": "What kind of finding this is. correctness — wrong behaviour, logic errors, unhandled cases. security — vulnerabilities, unsafe handling of untrusted input or secrets. performance — avoidable cost in time, memory or I/O. maintainability — structure, naming, duplication, complexity. testing — missing, weak or misleading tests. documentation — missing or incorrect comments, docs or godoc. style — formatting and convention adherence. The first three can carry any priority; the last four conventionally stay below the blocking band, and one filed at 9-10 raises priority-category-convention rather than being rejected.",
+      "example": "\"correctness\"",
+      "related": [
+        "priority",
+        "priority-category-convention"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.code",
+      "namespace": "field",
+      "title": "Code excerpt",
+      "body": "An optional illustrative excerpt. On a comment it shows the problematic code as it stands; on a suggestion it shows that code as the suggestion would leave it. Read together they show the change without anyone opening a file, and one before can be quoted against several afters. Both are deliberately soft: no line numbers, no fences, matched against nothing, verified by nothing, and carrying none of an anchor's constraints. Truncate freely, elide the middle, trim context to whatever makes the point. Nothing downstream may treat it as authoritative, and it must never be applied as a patch — a soft excerpt that gets applied is a patch that silently corrupts a file. Often absent: a missing test has no code to quote.",
+      "example": "\"resp, err := c.do(context.Background(), req)\"",
+      "related": [
+        "anchors",
+        "suggestions"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.id",
+      "namespace": "field",
+      "title": "Comment identifier",
+      "body": "A reviewer-authored identifier: a short kebab-case slug naming the kind of finding, then a numeric suffix, e.g. missing-context-2. Pattern ^[a-z][a-z0-9]*(-[a-z0-9]+)*-[1-9][0-9]*$; keep the slug under 48 characters and five words. The slug groups: four findings of the same kind share it, so a consumer collapses them into one theme without reading four bodies. The suffix addresses one finding, so an orchestrator can say \"resolve missing-context-2\". There is no controlled vocabulary — naming the finding is part of the job, and describe-2 or issue-1 throws the grouping away. Ids are unique within a document, and suffixes within a slug run contiguously from 1.",
+      "example": "\"missing-context-2\"",
+      "related": [
+        "id-unique",
+        "id-grouping"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.priority",
+      "namespace": "field",
+      "title": "Priority",
+      "body": "Integer 1-10, higher is more urgent. 9-10 must fix before merge: the change is wrong or unsafe as it stands. 7-8 should fix before merge: a real defect or design problem, not a preference. 4-6 worth fixing, does not block. 1-3 optional polish the author may decline without justification. Use the range, not the endpoints — four or more comments at one value raises priority-flat, the signal that the scale went unused. A comment at 7 or above with no suggestions raises suggestion-absent. testing, maintainability, documentation and style filed at 9-10 raise priority-category-convention; there is no floor, and a security finding at 2 is fine.",
+      "example": "9",
+      "related": [
+        "category",
+        "suggestions",
+        "priority-flat"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.suggestions",
+      "namespace": "field",
+      "title": "Proposed fixes",
+      "body": "Zero or more competing ways to address the finding, each with its effort, its blast radius, its pros and its cons. A list because the useful case is offering a choice: \"patch this call site\" and \"make the mistake unexpressible at the type level\" answer the same finding at different cost and different risk, and a reviewer presenting one has quietly made the orchestrator's decision for it. Required, and may be empty — but a comment at priority 7 or above with no suggestions raises suggestion-absent, and a comment whose only suggestion is module or project scope raises broad-scope-alone.",
+      "related": [
+        "effort",
+        "scope",
+        "pros",
+        "cons"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.suggestions.code",
+      "namespace": "field",
+      "title": "Resulting code",
+      "body": "An optional illustrative excerpt of the code as this suggestion would leave it — the after to the comment's before. It lives on the suggestion rather than the comment because competing suggestions produce different code: a line-scope option rewrites the call site where a module-scope option answering the same finding changes the exported signature. One before, several afters, and a consumer choosing between them can see the difference without opening a file. Soft, exactly like the comment's excerpt: no line numbers, no fences, matched against nothing, verified by nothing. Truncate and elide freely. It is not a patch and must never be applied as one.",
+      "example": "\"resp, err := c.do(ctx, req)\"",
+      "related": [
+        "comments.code",
+        "comments.suggestions.summary"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.suggestions.cons",
+      "namespace": "field",
+      "title": "Downsides",
+      "body": "What this option costs or risks, one string per point. Required; may be empty, but an empty list raises suggestion-no-cons, and an empty list on a module or project suggestion also raises broad-scope-no-cons. A suggestion with no stated downside is either trivially correct or under-examined, and the difference matters to whoever has to choose. If the fix really is free, an empty list plus the advisory is the honest record; reaching module or project scope is never free.",
+      "example": "[\"Breaks the exported signature; every caller must be updated\"]",
+      "related": [
+        "pros",
+        "broad-scope-no-cons"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.suggestions.effort",
+      "namespace": "field",
+      "title": "Level of effort",
+      "body": "How much work the suggestion is, as one of four buckets. trivial — a line or two, no design decision, no new tests. small — contained in one function or file, under an hour. medium — spans several files or needs a design choice, under a day. large — structural change, migration, or new subsystem. An ordinal enum rather than a number because effort estimates from a model are not precise enough to justify a 1-10 scale. Effort is independent of scope, and keeping them apart is the point: one shared constant is trivial effort with project blast radius.",
+      "example": "\"trivial\"",
+      "related": [
+        "scope",
+        "suggestions"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.suggestions.pros",
+      "namespace": "field",
+      "title": "Upsides",
+      "body": "Why this option is worth taking, one string per point. Required; may be empty, but an empty list raises suggestion-no-pros. Say what this option buys that the alternatives do not — \"cancellation propagates immediately\", \"makes the deadline impossible to drop rather than fixing one site\" — since the value of listing several suggestions is that a consumer can tell them apart.",
+      "example": "[\"Cancellation and deadlines propagate immediately\"]",
+      "related": [
+        "cons",
+        "suggestions"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.suggestions.scope",
+      "namespace": "field",
+      "title": "Blast radius",
+      "body": "How far applying this suggestion reaches — what else has to be re-read, re-tested or re-approved. line: a line or a few adjacent lines, nothing beyond them. block: one function, method or type body, callers unaffected. file: structure within one file, the package's exported surface unchanged. module: several files, or a package's exported surface, so other packages must adapt. project: architecture, conventions, tooling or a public API; repository-wide. A property of the fix, not of the finding — the same finding can be answered at several radii, which is why scope sits here and not on the comment. A lone module or project suggestion raises broad-scope-alone.",
+      "example": "\"line\"",
+      "related": [
+        "effort",
+        "broad-scope-alone"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comments.suggestions.summary",
+      "namespace": "field",
+      "title": "Suggestion summary",
+      "body": "What to do, in one sentence, 10-500 characters. Name the change and where it goes — \"pass the caller's context straight through to c.do\" — rather than restating the finding. This is the field an orchestrator reads when choosing between competing suggestions, so two suggestions on one comment should be distinguishable from their summaries alone. The optional code field shows the result; the summary says what the move is.",
+      "example": "\"Pass the caller's context straight through to c.do\"",
+      "related": [
+        "effort",
+        "scope",
+        "comments.suggestions.code"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "profile",
+      "namespace": "field",
+      "title": "Reviewer profile",
+      "body": "The name of the reviewer profile (cli.md §2.1.1) this review was written under, if any — the same NAME passed to `prime --profile=NAME`. Optional: omitted when the reviewer ran unprimed. Caller-authored and unverifiable, like id.",
+      "example": "\"backend\"",
+      "related": [
+        "profile-format"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "ref",
+      "namespace": "field",
+      "title": "Reviewed commit",
+      "body": "The commit the review was performed against: a full 40-character lowercase SHA, and nothing else. Not a branch, not a tag, not an abbreviation — a branch names a moving target, so an anchor recorded against main means whatever main points at when someone looks, which reads as precision while being unverifiable. git rev-parse HEAD produces the correct value. Set it once at the root: it is the commit every anchor in the document is read at. There is deliberately no per-anchor ref — a review is of one change at one revision, and a comment that needs to talk about a second revision says so in its body. Required — a review is of one change at one revision, and a document that does not say which revision has not finished describing itself; git rev-parse HEAD costs a reviewing agent nothing, since it is already holding the checkout.",
+      "example": "\"4f2c1a9e8b3d7c5a1f0e2d4b6a8c9e1f3a5b7c9d\"",
+      "related": [
+        "anchors",
+        "line",
+        "ref-format"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "summary",
+      "namespace": "field",
+      "title": "Change overview",
+      "body": "One to three sentences assessing the change as a whole, 30-1500 characters. Consumers read it without opening the comments, so state what is actually wrong and what holds up — restating the verdict (\"changes requested\") wastes the field. Under 60 characters on a review with three or more comments raises summary-thin. A suggestion's one-line summary is a different field: comments.suggestions.summary.",
+      "example": "\"The retry loop is sound, but the context deadline is not propagated to the downstream call, so a cancelled request keeps retrying.\"",
+      "related": [
+        "verdict",
+        "comments"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "verdict",
+      "namespace": "field",
+      "title": "Overall disposition",
+      "body": "The review's overall disposition. approve — the change should land as it stands. request_changes — something has to change first. comment — observations, with no gate either way. Nothing relates the verdict to comment priorities: approve while filing a priority-10 note, or request changes over a single 4, if that is your judgement. Reconciling verdict and priorities is the reviewer's job and no check second-guesses it. A request_changes or comment verdict must carry at least one comment; approve may carry none, and that is the only case where an empty comments array validates.",
+      "example": "\"request_changes\"",
+      "related": [
+        "comments",
+        "priority"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "version",
+      "namespace": "field",
+      "title": "Format version",
+      "body": "Format version. Always the string \"1\" — a string, not a number. Any other value is rejected outright. The field is not a compatibility scheme; it exists so a future consumer can recognise a format it does not understand and say so.",
+      "example": "\"1\"",
+      "related": [
+        "verdict",
+        "comments"
+      ],
+      "provider": "schema"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "document-unparseable",
+      "namespace": "check",
+      "title": "Unparseable document",
+      "body": "Fires when the input never became a document: malformed JSON, a top-level\nvalue that is not an object, or a second value after the first. It is the one\nfailure that stops the run, because there is nothing left to check — every\nother check reports against a document, and here there is none.\n\nNo other diagnostic accompanies it. Do not read that quiet as approval of the\nrest: nothing else ran.\n\nThe usual causes are prose wrapped around the JSON, a fenced code block left\nin, and two documents concatenated into one stream. The message carries the\ndecoder's own complaint, which names the byte offset:\n\n  ws review submit review.json\n  invalid character 'h' looking for beginning of value\n\nThis is a document to repair rather than a command line to fix, so it exits 1\nlike any other unusable document.",
+      "related": [
+        "schema",
+        "tiers",
+        "verdict"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "schema",
+      "namespace": "check",
+      "title": "Schema conformance",
+      "body": "Fires when the document does not conform to the embedded JSON Schema: a\nmissing required field, a value of the wrong type, an out-of-range priority, an\nenum value that is not in the enum, or a field name the format does not define.\nEach failure is reported with a JSON Pointer into your document, so the third\ncolumn tells you exactly where to look.\n\nUnknown fields are rejected on purpose: the failure this format exists to catch\nis the mistake that reads as correct, and a misspelled key is exactly that.\nWrite \"end-line\" and a permissive schema drops it silently, leaving a review\nthat validates clean while claiming a span you never meant. When the unknown\nname is close to a real one the diagnostic says so:\n\n  unknown field \"end-line\" — did you mean \"end_line\"?\n\nOpen the lens for the field the diagnostic names — for \"12 is greater than the\nmaximum of 10\" that is the priority scale, not JSON Schema.",
+      "related": [
+        "version",
+        "comments",
+        "priority"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "id-unique",
+      "namespace": "check",
+      "title": "Duplicate comment id",
+      "body": "Fires when two comments carry the same id. Ids are how every consumer refers\nto a finding — a diagnostic, an orchestrator saying \"resolve missing-context-2\",\na human reading a digest — so a duplicate makes one of the two findings\nunaddressable, and nothing downstream can tell which one was meant.\n\nFix it by renumbering rather than renaming. The slug is the grouping mechanism,\nso two findings of the same kind belong on the same slug and differ only in\nsuffix; inventing a second slug to dodge the collision throws away the grouping\nthat made the ids worth having.\n\n  before: \"missing-context-1\", \"missing-context-1\"\n  after:  \"missing-context-1\", \"missing-context-2\"",
+      "related": [
+        "id",
+        "id-grouping"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "anchor-range-ordered",
+      "namespace": "check",
+      "title": "Anchor span out of order",
+      "body": "Fires when an anchor carries end_line without line, or an end_line before its\nline. A span that runs backwards names no lines at all, and an end_line with no\nstart has no anchor point, so neither can be resolved by anyone reading the\nreview later.\n\nDrop end_line for a single-line anchor rather than repeating line; the span is\ninclusive, so line 88 with end_line 94 is seven lines.\n\n  before: { \"file\": \"internal/fetch/client.go\", \"line\": 94, \"end_line\": 88 }\n  after:  { \"file\": \"internal/fetch/client.go\", \"line\": 88, \"end_line\": 94 }",
+      "related": [
+        "line",
+        "end_line",
+        "anchors"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "anchor-path-safe",
+      "namespace": "check",
+      "title": "Unsafe anchor path",
+      "body": "Fires when an anchor's file is not a plain repository-relative POSIX path: a\nleading slash, a \"..\" segment, or a backslash anywhere. An absolute path names a\nlocation on the reviewing machine, which nobody else has; a \"..\" segment names a\nfile outside the repository the ref belongs to, so no commit can confirm it; a\nbackslash is a Windows path that will not resolve in git.\n\nWrite the path exactly as git reports it — git ls-files output is always the\nright shape.\n\n  before: \"/home/me/repo/internal/fetch/client.go\", \"../other/client.go\"\n  after:  \"internal/fetch/client.go\"",
+      "related": [
+        "file",
+        "anchors"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "ref-format",
+      "namespace": "check",
+      "title": "Malformed ref",
+      "body": "Fires when the document ref is not 40 lowercase hex characters. There is one\nref, at the root, and every anchor is read at it. Branches and tags are rejected because they name a moving\ntarget: an anchor recorded against \"main\" means whatever main points at when\nsomeone looks, which is not what was reviewed, and nothing in the document\nrecords the difference. Abbreviations are rejected because they are unambiguous\nonly until the repository grows.\n\nThis is checkable without a repository, so it fires even when verification is\nskipped. git rev-parse HEAD produces the correct value, and a reviewing agent is\nholding a checkout already.\n\n  before: \"main\", \"4f2c1a9\"\n  after:  \"4f2c1a9e8b3d7c5a1f0e2d4b6a8c9e1f3a5b7c9d\"",
+      "related": [
+        "ref",
+        "ref-unknown"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "profile-format",
+      "namespace": "check",
+      "title": "Malformed profile",
+      "body": "Fires when the document profile is present but not lowercase letters, digits,\nand single hyphens between them — the same grammar the filename a profile\nresolves to already uses. This checks shape only, never whether the reviewer\nwas actually primed with that profile; ws review submit separately requires\nit to be one of the review's profiles (review-profile).\n\nThe shape matters because the combined report builds each comment's qualified id\nas <profile>:<origin_id>, splitting on the first colon to recover origin_id\nlater. A profile containing a colon breaks that split for every comment it\nproduced, silently and downstream of this check.\n\n  before: \"arch:v2\"\n  after:  \"arch-v2\"",
+      "related": [
+        "profile",
+        "id"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "verification-required",
+      "namespace": "check",
+      "title": "Verification required but unavailable",
+      "body": "Fires whenever an anchor claim went unchecked, for any of three reasons: no\nrepository, one that could not be asked, or a file git could not read. It runs\nunconditionally now — there is no flag to accept the gap, because nothing\nenters the store unverified. A document is not wrong for being checked\nsomewhere that could not check it, but the run still fails: a review nobody\nverified is worth no more than no review.\n\nThe verification block carries the cause. \"none\" means the run was outside a\nrepository: cd to the one the review names. \"unavailable\" means a repository\nexisted but could not answer — git missing, a bare repository, a checkout git\nrefuses on ownership grounds — and the reason is git's own words. A file git\ncould not read is rarer still.\n\nThe fix in every case is a repository that can actually answer — not a\ncommand-line option. A document with no anchors is never affected; there is\nnothing here for it to ask about.",
+      "related": [
+        "ref-unknown",
+        "anchor-file-missing",
+        "tiers"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "ref-unknown",
+      "namespace": "check",
+      "title": "Unresolvable ref",
+      "body": "Fires when the document ref names no commit in the repository the tool was run\nin. Every anchor is read at that ref, so the whole review becomes a set of claims\nnobody can check — which is why it is reported once for the document rather than\nonce per anchor.\n\nThere are two ordinary causes. Either you are in the wrong repository, in which\ncase the SHA in the diagnostic will look foreign and the fix is to cd; or the\ncommit is genuinely absent — a shallow clone that never fetched it, or a branch\ndeleted and garbage collected since the review was written. That second case\nhas no flag to work around anymore: the fix is a deeper fetch, git fetch\n--deepen, or an unshallow clone, before resubmitting.\n\nIf the ref is wrong rather than absent, take it from the checkout the review was\nperformed against: git rev-parse HEAD. Fetching the commit is the other fix;\nws never touches the network to verify.",
+      "related": [
+        "ref",
+        "ref-format",
+        "anchor-file-missing"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "anchor-file-missing",
+      "namespace": "check",
+      "title": "Anchored file missing",
+      "body": "Fires when an anchor's path does not exist at the document ref, or names a\ndirectory rather than a file:\n\n  git ls-tree -r --name-only 4f2c1a9 | grep client\n\nTwo causes read identically but are not the same mistake. A path invented\nfrom memory exists nowhere. One that exists on disk but was never committed\n— an ordinary new file in an unmerged change — is absent from ref for a\ndifferent reason, and the message says so: commit it, or anchor the ref\nactually reviewed. No such note means no working-tree copy either. Either\nway this stays an error, unconditionally: review an uncommitted document by\ncommitting it first, not by demoting the check.\n\nA third, unrelated cause: a path relative to a subdirectory rather than the\nrepository root — internal/fetch/client.go, never fetch/client.go, because\nthat is where you happened to be standing.\n\nAn anchor pointing at nothing makes its comment unactionable, which is why this\nis an error rather than an advisory. A comment with no location at all is\nlegitimate: file it with an empty anchors list.",
+      "related": [
+        "file",
+        "anchors",
+        "ref-unknown"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "anchor-line-out-of-range",
+      "namespace": "check",
+      "title": "Anchored line out of range",
+      "body": "Fires when an anchor's line or end_line is past the end of the file at the\ndocument ref. The diagnostic names the file's real length and the ref, because\n\"line 88 is out of range\" invites an argument and \"line 88 is out of range in a\n61-line file at 4f2c1a9\" ends it.\n\nThis is the check that catches the failure this format exists for: a\nhallucinated line number is well-formed, plausibly numbered, and wrong, and no\namount of care elsewhere in the review makes it inspectable. Confirm the span\nbefore filing it:\n\n  git show 4f2c1a9:internal/fetch/client.go | sed -n '88,94p'\n\nws only confirms the line exists. Whether it is the right line is your\njob — that is why a file-level anchor, with no line at all, is a legitimate\nanswer when you are not certain.",
+      "related": [
+        "line",
+        "end_line",
+        "anchors"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "anchor-worktree-diverged",
+      "namespace": "check",
+      "title": "Anchored file diverged from ref",
+      "body": "Fires when ref is the checked-out commit, an anchored file exists there, a\nworking-tree copy exists too, and git says the two differ — the ordinary\nstate of a checkout somebody is actively editing. It is read off\nverification's own pass as a precondition: once found, that pass's other\nresults are discarded and the run stops before structural checks and\nadvisories. One diagnostic covers the whole document, however many anchors\ndiverged — review_unverifiable, not review_invalid.\n\nThe reviewed state is not a commit, and revising the document cannot fix\nthat. Commit what was reviewed — even to a throwaway branch — so ref and the\nworking tree agree again, or run git stash create: it builds a real commit\nobject out of the working tree and the index without touching either, giving\na resolvable SHA to submit against instead.\n\nThis is not a check to retry: resubmitting against the same dirty tree\ncannot succeed, and an agent that treats it like review_invalid will loop.",
+      "related": [
+        "anchor-file-missing",
+        "anchor-line-out-of-range",
+        "verification-required"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "review-ref",
+      "namespace": "check",
+      "title": "Ref differs from the review's commit",
+      "body": "Fires when the document sets ref to anything but the commit the review\nworkspace was started for. ws review submit already knows that commit from\nthe workspace's record, so ref may be left out: it is filled in.\n\nA ref that differs means the review describes some other commit, and its\nanchors would be checked against the wrong tree. Leave ref out, or copy it\nfrom git rev-parse HEAD in the review workspace.",
+      "related": [
+        "ref",
+        "ref-unknown"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "review-profile",
+      "namespace": "check",
+      "title": "Profile not in the review",
+      "body": "Fires when the document has no profile, or one the review workspace was not\nstarted with. Each profile's submission is stored under its name, and the\nreport counts a profile as done once it has one, so a review under a name\nthe review didn't ask for would never be read.\n\nSet profile to the name you were primed with: ws review prime\n--profile=NAME. Resubmitting under the same profile replaces your earlier\nsubmission.",
+      "related": [
+        "profile",
+        "store"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "id-grouping",
+      "namespace": "check",
+      "title": "Non-contiguous id suffixes",
+      "body": "Fires when the suffixes on a slug do not run 1, 2, 3 — a gap (foo-1, foo-3), a\nstart above 1, or a slug used once as foo-2. Nothing breaks, but the gap reads\nas a missing finding: a consumer collapsing a slug into one theme cannot tell\nwhether foo-2 was dropped on purpose or lost in an edit.\n\nThe slug is the grouping mechanism and the suffix is the address, so number\nwithin a slug from 1 and stay contiguous. Do not renumber to dodge a collision\nbetween different kinds of finding — give those different slugs.\n\n  before: \"missing-context-1\", \"missing-context-3\"\n  after:  \"missing-context-1\", \"missing-context-2\"",
+      "related": [
+        "id",
+        "id-unique"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "body-thin",
+      "namespace": "check",
+      "title": "Thin comment body",
+      "body": "Fires when a body is under 60 characters once whitespace is normalized. It\nmeets the schema minimum but is unlikely to carry a rationale, and a finding\nwithout one is a preference the author can dismiss without cost.\n\nA body should say what is wrong and what follows from it. The consequence is the\npart that survives the trip to whoever fixes it.\n\n  before: \"Context handling is wrong here.\"\n  after:  \"The retry loop passes context.Background() rather than the caller's\n           ctx, so a cancelled request keeps retrying for the full backoff\n           schedule, holding the connection past the caller's deadline.\"\n\nLength is a proxy, not the point: a genuinely one-line finding that names the\nsymptom and the consequence will clear 60 characters on its own.",
+      "related": [
+        "body",
+        "vacuous-body"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "vacuous-body",
+      "namespace": "check",
+      "title": "Vacuous comment body",
+      "body": "Fires when a body, normalized and lowercased, is nothing but a low-signal\nphrase: \"lgtm\", \"looks good\", \"no issues\", \"see above\", \"consider refactoring\"\nwith nothing following. These pass the schema's length floor while transferring\nno information, and they are the exact failure mode this format exists to catch\n— a hollow review that is indistinguishable from a real one downstream.\n\n\"See above\" is worth calling out separately: a comment is addressed by id and\nread in isolation, so a body that refers to another comment by position is\nunreadable to the consumer that received only this one. Name the id, or repeat\nthe finding.\n\n  before: \"Consider refactoring.\"\n  after:  \"parseHeader and parseTrailer differ only in the delimiter; folding\n           them into one function keeps the two parsers from drifting.\"",
+      "related": [
+        "body",
+        "body-thin"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "suggestion-absent",
+      "namespace": "check",
+      "title": "High-priority finding with no suggestion",
+      "body": "Fires when a comment at priority 7 or above carries no suggestions. At that\npriority you are saying the change should not merge as it stands, so the\norchestrator has to act — and with no suggestion it has to derive the fix from\nyour prose, which is the work you were asked to do.\n\nOne suggestion is enough when there is one move. Two are better when the finding\ncan be answered at different blast radii: patch the call site, or change the\ntype so the mistake stops being expressible.\n\n  \"suggestions\": [{ \"summary\": \"Pass the caller's ctx through to c.do\",\n    \"effort\": \"trivial\", \"scope\": \"line\", \"pros\": [\"Deadlines propagate\"],\n    \"cons\": [\"Callers relying on the old behaviour see a change\"] }]\n\nIf you cannot propose anything, the priority is usually too high: lower it and\nsay what you are unsure about.",
+      "related": [
+        "suggestions",
+        "priority"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "suggestion-no-cons",
+      "namespace": "check",
+      "title": "Suggestion with no stated downside",
+      "body": "Fires when a suggestion's cons list is empty. A fix with no stated downside is\neither trivially correct or under-examined, and the consumer choosing between\nyour suggestions cannot tell which — that difference is most of the value of\noffering a choice at all.\n\nState the cost even when it is small: a behaviour change some caller may rely\non, a test that has to be rewritten, a signature other packages import.\n\n  \"cons\": [\"Callers relying on retries outliving the request context see a\n            behaviour change\"]\n\nIf the fix really is free, say so in a pro (\"no caller-visible change\") and\ncarry the advisory. It is a note that the tradeoff was examined and found empty,\nnot a finding that you were wrong.",
+      "related": [
+        "cons",
+        "pros",
+        "broad-scope-no-cons"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "suggestion-no-pros",
+      "namespace": "check",
+      "title": "Suggestion with no stated upside",
+      "body": "Fires when a suggestion's pros list is empty. With one suggestion the omission\nis mild; with two it is the whole problem, because a consumer choosing between\nthem has only the summaries to go on and no statement of what each option buys.\n\nSay what this option gets that the alternatives do not — and say it in terms of\nconsequences, not restatement of the summary.\n\n  before: \"pros\": []\n  after:  \"pros\": [\"Cancellation propagates immediately\",\n                   \"Nothing outside the loop body has to be re-read\"]\n\nAn empty list is legal, and sometimes honest for a fix whose only merit is that\nit is correct. Filling it in costs one line and makes the comparison possible.",
+      "related": [
+        "pros",
+        "cons"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "broad-scope-alone",
+      "namespace": "check",
+      "title": "Wide fix offered with no alternative",
+      "body": "Fires when a comment's single suggestion has scope module or project. A wide\nblast radius offered with no narrower alternative gives the orchestrator no\nchoice exactly where the choice costs most: it can take a change that reaches\nother packages or the whole repository, or it can take nothing.\n\nOffer the narrow option too, even if you prefer the wide one. Scope sits on the\nsuggestion precisely because one finding can be answered at several radii.\n\n  1. \"Pass the caller's context through at this call site\"  — scope: line\n  2. \"Take a context on the exported Fetch method\"          — scope: module\n\nThe advisory does not say the wide fix is wrong. It says the consumer should be\nallowed to defer it, and that deferring is only possible if you named something\nsmaller.",
+      "related": [
+        "scope",
+        "suggestions",
+        "broad-scope-no-cons"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "broad-scope-no-cons",
+      "namespace": "check",
+      "title": "Wide fix with no stated cost",
+      "body": "Fires when a suggestion at scope module or project has an empty cons list.\nReaching that far always costs something — other packages adapt, an exported\nsignature breaks, a convention has to be applied everywhere it was not — and a\nwide change presented as free is the one a consumer is most likely to apply\nwithout checking.\n\nName what has to be re-read, re-tested or re-approved:\n\n  \"scope\": \"module\",\n  \"cons\": [\"Breaks the exported signature; every caller of Fetch is updated\",\n           \"Larger blast radius than the defect strictly requires\"]\n\nThis fires alongside suggestion-no-cons, which is deliberate: the empty list is\nworth one note on its own and another when the fix is this wide.",
+      "related": [
+        "scope",
+        "cons",
+        "broad-scope-alone"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "summary-thin",
+      "namespace": "check",
+      "title": "Thin review summary",
+      "body": "Fires when the document summary is under 60 characters and the review carries\nthree or more comments. The summary is what a consumer reads when it will not\nread twelve comments, so on a review with real findings it has to carry the\nshape of them — not restate the verdict, which is already a field.\n\n  before: \"Changes requested.\"\n  after:  \"The retry loop is sound, but the context deadline is not propagated\n           to the downstream call, so a cancelled request keeps retrying until\n           the attempt budget is exhausted.\"\n\nOne to three sentences is the target. Say what holds up as well as what does\nnot: a summary that only lists problems reads as a rejection even when the\nverdict is comment.",
+      "related": [
+        "field:summary",
+        "verdict"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "priority-category-convention",
+      "namespace": "check",
+      "title": "Category above the blocking band",
+      "body": "Fires when a testing, maintainability, documentation or style comment is filed\nat priority 9 or 10 — the band that says the change must not merge as it stands.\nThose four categories conventionally sit below it: a formatting complaint is not\na reason to stop a change, however strongly you feel about it.\n\nThe format encodes no ceiling per category; any such table would invent\nprecision nobody has. This is a note that a convention was crossed, not a\nfinding that you were wrong — undocumented behaviour in a public API genuinely\ncan be worth blocking on, and a reviewer who means it should say so in the body\nand carry the advisory.\n\n  before: category \"documentation\", priority 9, \"godoc missing on Fetch\"\n  after:  priority 5 — or keep 9 and justify it in the body\n\nThere is no floor: a security finding at priority 2 is fine.",
+      "related": [
+        "priority",
+        "category"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "priority-flat",
+      "namespace": "check",
+      "title": "Flat priority distribution",
+      "body": "Fires when a review carries four or more comments and every one of them has the\nsame priority. A subset sharing a priority is ordinary and says nothing; it is\nthe absence of any spread across the whole review that suggests the scale was\nnot used: the field exists so a consumer can sort, threshold and merge\nacross reviewers, and a review where everything is a 7 gives it nothing to sort\nby.\n\nSpread the findings across the bands you actually mean. 9-10 must fix before\nmerge. 7-8 should fix, a real defect. 4-6 worth fixing, does not block. 1-3\noptional polish the author may decline.\n\n  before: 7, 7, 7, 7\n  after:  9, 7, 5, 2\n\nThis is an aggregate check: it runs only when every comment has a usable\npriority, because a confident claim computed over the subset that happened to\nparse is worse than no claim. If one priority is ill-typed you will see this\nreported as skipped rather than answered.",
+      "related": [
+        "priority",
+        "category"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "assessment-priority-mismatch",
+      "namespace": "check",
+      "title": "Assessment out of step with priority",
+      "body": "Fires in either direction when the grade and the priorities describe\ndifferent reviews. The four levels are ordinal (docs/review-document.md\nsection 3): sound's own anchor puts every comment at priority 1-3, so a\npriority 4+ comment already breaks sound's claim. strong inherits that\nfloor instead of a separate one — its anchor adds a nameable instance on\ntop of sound's, not a relaxation of it. weak with nothing above priority\n3, or no comments at all, claims significant concerns while backing it\nwith nothing.\n\nSame defect from opposite ends: assessment and priority describe one\nreview, and when they disagree one is wrong about it. An over-harsh weak\nis not the safer failure — it makes the field as useless as an all-strong\nreviewer does.\n\n  strong/sound + priority 6  -> mixed\n  weak + every comment 1-3   -> sound\n\nNever compares assessment to verdict — weak+comment and mixed+approve stay\nsilent. mixed never fires; its anchor names no priority claim. Aggregate\ncheck: skipped, not guessed, on an unusable priority. Absent assessment\nnever fires.",
+      "related": [
+        "assessment",
+        "priority"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "duplicate-anchor",
+      "namespace": "check",
+      "title": "Two comments on one span",
+      "body": "Fires when two comments anchor the identical span — same file, line and\nend_line. Usually it is one finding filed twice, which costs the consumer two\nreads to discover they are the same thing.\n\nIf they really are two findings about one span, they should have different\nanchors or be one comment carrying two suggestions. If it is one finding with\nseveral fixes, that is exactly what the suggestions list is for.\n\n  before: two comments, both anchored at client.go:88-94\n  after:  one comment at client.go:88-94 with two suggestions\n\nTwo anchors on the same file at different lines are not duplicates, and neither\nis the same finding filed once with several anchors — that is what the anchors\nlist is for.",
+      "related": [
+        "anchors",
+        "suggestions",
+        "duplicate-body"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "duplicate-body",
+      "namespace": "check",
+      "title": "Repeated comment body",
+      "body": "Fires when two comments carry the same body once whitespace is normalized. The\nsame text filed twice is either a copy-paste that lost its second finding, or\none finding split across two ids for no reason a consumer can see.\n\nIf it is genuinely the same problem in several places, that is one comment with\nseveral anchors — the anchors list exists for exactly this, and filing it once\nkeeps the finding and its suggestions together:\n\n  before: two comments, identical bodies, one anchor each\n  after:  one comment, two anchors\n\nIf the findings differ, say how in each body. A consumer reading them side by\nside has nothing else to go on.",
+      "related": [
+        "body",
+        "anchors",
+        "duplicate-anchor"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "comment-flood",
+      "namespace": "check",
+      "title": "Too many comments",
+      "body": "Fires when a review carries more than 25 comments. Feedback at that volume is\nnot actionable: nobody triages it in one pass, and the findings that matter are\nburied among the ones that do not.\n\nTwo things usually fix it. Collapse repetition — the same unchecked error at\nnine call sites is one comment with nine anchors, not nine comments. And drop\nthe 1-3 band entirely on a large change: optional polish is what a consumer\ndiscards first anyway, and filing it costs the same attention as a defect.\n\nIf more than 25 distinct blocking findings really are present, the honest report\nis usually a summary saying the change needs restructuring, with the strongest\nhandful anchored.\n\nThis is an aggregate check and runs only when every element of comments is an\nobject; otherwise it is reported as skipped.",
+      "related": [
+        "comments",
+        "duplicate-body"
+      ],
+      "provider": "checks"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "collect-reviews",
+      "namespace": "topic",
+      "title": "Combining stored reviews",
+      "body": "Every stored submission for one repo and commit combines into one report:\n`submissions` and `comments`, neither a review-document field, because the\nreport is not one.\n\nTwo submissions can share an `id`. Each comment's id is qualified to stay\nunique: `profile:origin_id` when its submission is current for that\nprofile, `#ordinal:origin_id` otherwise — superseded. `ordinal` is\npositional and shifts on the next submission; treat a `#N:id` form as good\nfor one call only.\n\nResubmitting under the same profile supersedes (`topic:store`): the\nearlier submission gets `superseded_by`, naming the superseding ordinal.\nNothing is ever dropped — filter out anything carrying `superseded_by` for\ncurrent opinions only.\n\nThe report renders as JSON, Markdown, or HTML. None validates as a review\ndocument.",
+      "related": [
+        "store",
+        "id"
+      ],
+      "aliases": [
+        "collecting",
+        "combined-reviews"
+      ],
+      "provider": "topics"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "effort-vs-scope",
+      "namespace": "topic",
+      "title": "Effort and blast radius",
+      "body": "Every suggestion carries two independent ordinals, and keeping them apart is the\npoint.\n\neffort is how much work: trivial, small, medium, large. scope is blast radius,\nwhat else has to be re-read or re-tested: line, block, file, module, project.\n\nThey come apart constantly: one shared constant is trivial effort with project\nblast radius, a gnarly parser internal large effort with block radius. An\norchestrator triaging needs both:\n\n                narrow radius     wide radius\n  low effort    apply it          cheap but far-reaching; check first\n  high effort   schedule it       escalate; this is its own change\n\nscope sits on the suggestion because one finding can be answered at several\nradii: patch this call site, or change the type so the mistake stops being\nexpressible. The choice belongs to the caller, which is why a lone module or\nproject suggestion raises broad-scope-alone.",
+      "related": [
+        "effort",
+        "scope",
+        "suggestions",
+        "broad-scope-alone"
+      ],
+      "aliases": [
+        "tradeoffs",
+        "sizing"
+      ],
+      "provider": "topics"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "ids",
+      "namespace": "topic",
+      "title": "Comment ids and grouping",
+      "body": "Every comment carries a reviewer-authored id: a kebab-case slug naming the kind\nof finding, then a numeric suffix — missing-context-2, unchecked-error-1.\n\nThe slug groups and the suffix addresses. Four findings of the same kind share a\nslug, so a consumer collapses missing-context-1 through -4 into one theme\nwithout reading four bodies; the suffix means an orchestrator can say \"resolve\nmissing-context-2\" and both sides know which finding is meant.\n\nThere is no controlled vocabulary. Naming the finding is part of reviewing:\nunchecked-error groups with other unchecked errors, where client-go-1 and\nissue-1 group with nothing.\n\nIds are unique within a document — a duplicate makes one finding unaddressable,\nwhich is a structural error. Suffixes within a slug run contiguously from 1; a\ngap raises id-grouping, because a consumer cannot tell a deliberate gap from a\nlost finding.",
+      "related": [
+        "id",
+        "id-unique",
+        "id-grouping"
+      ],
+      "aliases": [
+        "comment-ids",
+        "slugs"
+      ],
+      "provider": "topics"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "store",
+      "namespace": "topic",
+      "title": "The review store",
+      "body": "Every `ws review submit` that passes is stored, outside the workspace, so\nthe review outlives it: one file per profile for the reviewed repo and\ncommit. A run that fails stores nothing.\n\nStoring needs no flag: it is simply what `submit` does. The result names\nthe stored file in `path`.\n\nResubmitting under the same profile supersedes rather than replaces: the\nearlier submission is kept and marked superseded, and its ids are\nrequalified from `profile:id` to `#N:id`, so an id from an earlier report\ncan stop resolving.\n\nA store that cannot be written — read-only home, full disk — fails with\n`internal` (exit 1): the machine is at fault, not the review. Stop and\nreport it.",
+      "related": [
+        "exit-codes",
+        "collect-reviews"
+      ],
+      "aliases": [
+        "storing"
+      ],
+      "provider": "topics"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "tiers",
+      "namespace": "topic",
+      "title": "Check tiers and exit codes",
+      "body": "Checks come in three tiers answering different questions.\n\nStructural checks ask \"is this a document?\" — schema conformance, unique ids,\nsafe paths, well-formed refs. Always run, always hard.\n\nVerification checks ask \"is this about anything real?\" — does this path exist at\nthis ref, does the file have this many lines. Always run, and cannot be\ndisabled or demoted: an anchor claim that goes unconfirmed fails the run.\n\nAdvisory checks ask \"is this a good review?\" — a thin body, a suggestion with no\nstated cost, every comment at priority 9. Always run, never fatal; no\nflag silences one.\n\nExit 0 is stored. review_invalid (exit 1): revise and resubmit.\nreview_unverifiable (exit 1): the anchors could not be checked — a diverged\nworking tree or a missing commit — so stop and report it. Exit 2: fix the\ninvocation. Exit 3: not a review workspace. Document-unparseable and a\ndiverged tree gate the rest; every other run reports everything findable.",
+      "related": [
+        "schema",
+        "ref-unknown",
+        "priority-flat"
+      ],
+      "aliases": [
+        "exit-codes",
+        "severity",
+        "strict"
+      ],
+      "provider": "topics"
+    }
+  ]
+}
+
+{
+  "entries": [
+    {
+      "name": "verification",
+      "namespace": "topic",
+      "title": "Anchors as checkable claims",
+      "body": "An anchor says: this path, at this commit, has this line. That is a factual\nclaim, and the one an agent gets wrong most confidently: a hallucinated line\nnumber is well-formed, plausibly numbered, and wrong.\n\nSo the document carries a ref: a full 40-character commit SHA, never a branch.\nA branch names a moving target — an anchor recorded against main means whatever\nmain points at when someone looks, stale without ever changing.\n\nws review submit checks those claims against the review workspace's repository,\nby default and with no flag, by object lookup — a commit that is not checked\nout still resolves. When git cannot answer, the anchors are not passed: the\nrun fails as review_unverifiable. An anchorless document passes either way.\n\nws confirms the anchor points somewhere; whether it points at\nthe right line is the reviewer's job. What the SHA buys is that anyone can\ncheck:\n\n  git show 4f2c1a9:internal/fetch/client.go | sed -n '88,94p'",
+      "related": [
+        "anchors",
+        "file",
+        "line",
+        "ref",
+        "anchor-file-missing"
+      ],
+      "aliases": [
+        "anchor-claims",
+        "checking"
+      ],
+      "provider": "topics"
+    }
+  ]
+}
+

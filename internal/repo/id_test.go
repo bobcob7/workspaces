@@ -42,6 +42,34 @@ func TestID_String(t *testing.T) {
 	assert.Equal(t, "gitlab.com/a/b/c", id.String())
 }
 
+func TestParseID(t *testing.T) {
+	t.Run("parses what String writes", func(t *testing.T) {
+		for _, want := range []ID{
+			{Host: "github.com", Owner: "bobcob7", Name: "buff-bear"},
+			{Host: "gitlab.com:2222", Owner: "a/b", Name: "c"},
+		} {
+			got, err := ParseID(want.String())
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		}
+	})
+	t.Run("lowercases", func(t *testing.T) {
+		got, err := ParseID("GitHub.com/BobCob7/X")
+		require.NoError(t, err)
+		assert.Equal(t, "github.com/bobcob7/x", got.String())
+	})
+	t.Run("rejects fewer than three parts", func(t *testing.T) {
+		for _, s := range []string{"", "github.com", "github.com/x"} {
+			_, err := ParseID(s)
+			require.ErrorIs(t, err, ErrInvalidSpec, s)
+		}
+	})
+	t.Run("rejects an invalid part", func(t *testing.T) {
+		_, err := ParseID("github.com/a b/c")
+		require.ErrorIs(t, err, ErrInvalidSpec)
+	})
+}
+
 func TestID_UpstreamURL(t *testing.T) {
 	id := ID{Host: "github.com", Owner: "bobcob7", Name: "buff-bear"}
 	assert.Equal(t, "https://github.com/bobcob7/buff-bear.git", id.UpstreamURL())

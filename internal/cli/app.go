@@ -27,6 +27,7 @@ import (
 // App is one ws process: its streams, logger, and parsed global flags.
 type App struct {
 	version string
+	stdin   io.Reader
 	stdout  io.Writer
 	stderr  io.Writer
 	log     *slog.Logger
@@ -51,6 +52,10 @@ type App struct {
 	shell shellRunner
 	// claude runs the Claude Code CLI; nothing else in ws does.
 	claude claudeClient
+	// environ is the environment git, claude, and the shell run with.
+	environ []string
+	// getwd is os.Getwd: ws review finds its workspace from it.
+	getwd func() (string, error)
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 	// progress is set when stderr is a terminal, where progress may be
@@ -88,6 +93,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		shell:       shell.New(log, environ, stdin, stdout, stderr),
 		claude:      claude.New(log, "claude", environ),
 		version:     version,
+		stdin:       stdin,
 		stdout:      stdout,
 		stderr:      stderr,
 		configs:     configs,
@@ -97,6 +103,8 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		indentJSON:  isTerminal(stdout),
 		progress:    isTerminal(stderr),
 		interactive: isTerminal(stdin) && isTerminal(stdout),
+		environ:     environ,
+		getwd:       os.Getwd,
 		notify:      signal.Notify,
 		stopNotify:  signal.Stop,
 	}
@@ -177,6 +185,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newRmCmd(),
 		a.newRenameCmd(),
 		a.newCacheCmd(),
+		a.newReviewCmd(),
 		a.newLLMCmd(),
 	)
 	return root

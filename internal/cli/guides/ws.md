@@ -128,9 +128,9 @@ messages aren't.
 | Exit | Meaning                       | Error codes |
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
-| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found` |
+| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found` |
 | 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
@@ -158,4 +158,8 @@ everything.
   - `ws llm cache path`: a cached repo's directory
   - `ws llm cache remove`: delete cached repos
   - `ws llm cache prune`: delete commit refs no workspace uses
+- `ws llm review`: structured reviews, and the reviewer's commands:
+  - `ws llm review prime`: how to write and submit a review, and a profile's guide
+  - `ws llm review describe`: the review document, a field, check, or topic at a time
+  - `ws llm review submit`: check a review and store it
 - `ws llm llm`: this guide

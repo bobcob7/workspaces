@@ -10,6 +10,7 @@
 | [`ws rm`](ws-rm.md)           | Remove workspaces and their sessions now                 |
 | [`ws rename`](ws-rename.md)   | Change a workspace's display name                        |
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |
+| [`ws review`](ws-review.md)   | Check, store, and explain structured reviews             |
 | [`ws llm`](ws-llm.md)         | Print guidance for AI agents                             |
 
 > Not every command is implemented yet; the
@@ -144,9 +145,9 @@ and messages aren't ([0016](../adrs/0016-output-contract.md)).
 | Exit | Meaning                       | Error codes |
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
-| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found` |
+| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found` |
 | 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch` |
 
 `ws shell` exits with the shell's exit code once the shell has started,

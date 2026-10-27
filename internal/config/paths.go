@@ -11,6 +11,10 @@ type Paths struct {
 	Cache      string
 	Workspaces string
 	State      string
+	// Reviews holds submitted reviews (ADR 0039).
+	Reviews string
+	// ReviewProfiles holds the user's review profiles (ADR 0038).
+	ReviewProfiles string
 }
 
 // NewPaths lays out the files and directories under root.
@@ -21,5 +25,8 @@ func NewPaths(root string) Paths {
 		Cache:      filepath.Join(root, "cache"),
 		Workspaces: filepath.Join(root, "workspaces"),
 		State:      filepath.Join(root, "state"),
+		Reviews:    filepath.Join(root, "reviews"),
+		// review/ is config the user writes; reviews/ is data ws writes.
+		ReviewProfiles: filepath.Join(root, "review", "profiles"),
 	}
 }

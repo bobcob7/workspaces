@@ -16,6 +16,8 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | by creation; its `name` rewritten by `ws rename` ([0036](adrs/0036-workspace-id-suffix-and-rename.md)) |
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
 | `state/<id>/lock` | the workspace lock | by creation |
+| `state/<id>/review.toml` | a review workspace's record: repo, commit, profiles, requester, and pull request ([0039](adrs/0039-ws-review-command.md)) | before the workspace is moved into place; read by `ws review` |
+| `reviews/<host>/<owner>/<name>/<sha>/` | submitted reviews; see [Reviews](#reviews) | by `ws review submit`; outlives the workspace |
 | `state/<id>/trust` | the Claude Code trust `ws claude` added for a one-repo workspace's repo ([0028](adrs/0028-single-repo-session-directory.md)) | once, before the trust is written; read by every removal, which takes the trust back |
 | `state/<id>/building/` | the workspace while it's being built ([0022](adrs/0022-workspace-record-before-rename.md)) | by creation, then moved |
 | `state/.removal-pass` | its modification time is when the removal pass last started ([0026](adrs/0026-removal-pass-timing.md)) | by the removal pass |
@@ -30,7 +32,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 
 ## Records
 
-Both records are TOML files with a top-level `version`. They're written
+The records are TOML files with a top-level `version`. They're written
 through a temporary file renamed into place, so a reader sees all of a
 record or none of it.
 
@@ -40,6 +42,22 @@ The session record holds these fields:
 - `started_at`: RFC 3339, UTC.
 
 A session record with no `version` is version 1.
+
+A review workspace also has `review.toml`, version 1
+([0039](adrs/0039-ws-review-command.md)):
+- `repo`: the reviewed repo's id, `host/owner/name`;
+- `ref`: the reviewed commit, a full SHA;
+- `requester`: the id of the workspace that asked for the review, or
+  empty;
+- `started_at`: RFC 3339, UTC;
+- `profiles`: one `{name, model, auto}` per profile; `model` is empty for
+  the session's, and `auto` is set when the profile joined because the
+  review's files matched it;
+- `[pr]`, absent for a review of a commit: `number`, `url`, `base`,
+  `head_branch`, `cross_repository`.
+
+A `review.toml` from a newer `ws` makes `ws review` fail on that
+workspace, naming the file.
 
 A workspace whose record is from a newer `ws` (a version this `ws` doesn't
 know), or can't be parsed, is left alone
@@ -151,6 +169,28 @@ any (a failure is a warning), then deletes `state/<id>/`
 ([0028](adrs/0028-single-repo-session-directory.md)).
 - A workspace another command already removed counts as removed.
 - One whose removal fails stays listed, with a warning.
+
+## Reviews
+
+`reviews/` holds submitted reviews, outside any workspace, so they outlive
+the review agent ([0039](adrs/0039-ws-review-command.md)). `ws review
+report --json` is the contract; this layout isn't.
+
+```
+reviews/<host>/<owner>/<name>/<sha>/
+  .lock               the directory's lock
+  <profile>.json      the profile's current submission
+  <profile>.<n>.json  its earlier submissions, n from 1, oldest first
+```
+
+- **Writing.** `ws review submit` takes the directory's lock exclusively,
+  renames the profile's current file to the next free `<n>`, and writes
+  the new one through a temporary file renamed into place.
+- **Reading.** Readers take the lock shared. A report combines the files:
+  each profile's current submission, and the earlier ones marked
+  superseded. Comment ids are qualified as `<profile>:<id>` for a current
+  submission and `#<ordinal>:<id>` otherwise.
+- **Removal.** Nothing removes `reviews/` with a workspace.
 
 ## What each command does
 

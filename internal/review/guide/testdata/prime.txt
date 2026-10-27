@@ -1,0 +1,32 @@
+ws review checks a review document — one JSON object: a verdict, a
+summary, a profile, and comments carrying an id you choose, a priority, a
+category, a body, anchors, and competing suggestions.
+
+Read the shape before writing one:
+
+ws review describe          the document shape
+ws review describe --list   every name it can explain
+
+Run inside your review workspace, and don't change its checkout: submit
+verifies every anchor against its repository at the commit under review.
+Anchor paths are repo-relative. Leave ref out — ws fills in the reviewed
+commit — and set profile to the one you were primed with.
+
+The loop:
+
+1. Write the review.
+2. ws review submit --json -   (stdin; or a path)
+3. Read the JSON, not prose. Exit 0: stored, done.
+4. Exit 1, review_invalid: error.details lists each diagnostic, named by
+   its check, and "lenses" — run ws review describe --lens=a,b,c, fix,
+   resubmit. One call reports every fault it can, so fix them all before
+   you resubmit. Only review_invalid retries.
+5. Exit 1, review_unverifiable: the checkout diverged from the commit or
+   lacks it. Exit 2: fix the invocation. Exit 3: not a review workspace.
+   These stop: report them.
+6. Unsure about a field? ws review describe --lens=<field>. Never guess at
+   an enum or a scale.
+
+Advisories report review quality and never fail the run; structural and
+anchor errors do. Resubmitting under your profile replaces your earlier
+submission.

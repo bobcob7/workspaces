@@ -32,6 +32,16 @@ func NewID(host, owner, name string) (ID, error) {
 	return id, nil
 }
 
+// ParseID parses a canonical id, host/owner/name, as String writes it.
+func ParseID(s string) (ID, error) {
+	host, rest, ok := strings.Cut(s, "/")
+	slash := strings.LastIndex(rest, "/")
+	if !ok || slash < 0 {
+		return ID{}, fmt.Errorf("%w: repo id %q isn't host/owner/name", ErrInvalidSpec, s)
+	}
+	return NewID(host, rest[:slash], rest[slash+1:])
+}
+
 // String returns host/owner/name.
 func (id ID) String() string {
 	return id.Host + "/" + id.Owner + "/" + id.Name

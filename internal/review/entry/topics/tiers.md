@@ -15,10 +15,8 @@ Advisory checks ask "is this a good review?" — a thin body, a suggestion with 
 stated cost, every comment at priority 9. Always run, never fatal; no
 flag silences one.
 
-Exit 0 is stored. Exit 1 with review_invalid means revise the review and
-resubmit; with review_unverifiable, the anchors could not be checked — the
-working tree diverged or the commit is missing — and resubmitting will not
-help: stop and report it. Exit 2 means fix the invocation, exit 3 means
-this is not a review workspace. Document-unparseable and a diverged working
-tree both gate the rest; every other run reports everything findable,
-skipped checks included.
+Exit 0 is stored. review_invalid (exit 1): revise and resubmit.
+review_unverifiable (exit 1): the anchors could not be checked — a diverged
+working tree or a missing commit — so stop and report it. Exit 2: fix the
+invocation. Exit 3: not a review workspace. Document-unparseable and a
+diverged tree gate the rest; every other run reports everything findable.

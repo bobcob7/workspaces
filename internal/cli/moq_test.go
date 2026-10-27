@@ -700,6 +700,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //
 //		// make and configure a mocked workspaceStore
 //		mockedworkspaceStore := &workspaceStoreMock{
+//			ContainingFunc: func(dir string) (workspace.Workspace, error) {
+//				panic("mock out the Containing method")
+//			},
 //			CreateFunc: func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
 //				panic("mock out the Create method")
 //			},
@@ -731,6 +734,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //
 //	}
 type workspaceStoreMock struct {
+	// ContainingFunc mocks the Containing method.
+	ContainingFunc func(dir string) (workspace.Workspace, error)
+
 	// CreateFunc mocks the Create method.
 	CreateFunc func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error)
 
@@ -757,6 +763,11 @@ type workspaceStoreMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Containing holds details about calls to the Containing method.
+		Containing []struct {
+			// Dir is the dir argument value.
+			Dir string
+		}
 		// Create holds details about calls to the Create method.
 		Create []struct {
 			// Ctx is the ctx argument value.
@@ -812,6 +823,7 @@ type workspaceStoreMock struct {
 		Warnings []struct {
 		}
 	}
+	lockContaining    sync.RWMutex
 	lockCreate        sync.RWMutex
 	lockFind          sync.RWMutex
 	lockRecordSession sync.RWMutex
@@ -820,6 +832,38 @@ type workspaceStoreMock struct {
 	lockRename        sync.RWMutex
 	lockUsesCommit    sync.RWMutex
 	lockWarnings      sync.RWMutex
+}
+
+// Containing calls ContainingFunc.
+func (mock *workspaceStoreMock) Containing(dir string) (workspace.Workspace, error) {
+	if mock.ContainingFunc == nil {
+		panic("workspaceStoreMock.ContainingFunc: method is nil but workspaceStore.Containing was just called")
+	}
+	callInfo := struct {
+		Dir string
+	}{
+		Dir: dir,
+	}
+	mock.lockContaining.Lock()
+	mock.calls.Containing = append(mock.calls.Containing, callInfo)
+	mock.lockContaining.Unlock()
+	return mock.ContainingFunc(dir)
+}
+
+// ContainingCalls gets all the calls that were made to Containing.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.ContainingCalls())
+func (mock *workspaceStoreMock) ContainingCalls() []struct {
+	Dir string
+} {
+	var calls []struct {
+		Dir string
+	}
+	mock.lockContaining.RLock()
+	calls = mock.calls.Containing
+	mock.lockContaining.RUnlock()
+	return calls
 }
 
 // Create calls CreateFunc.

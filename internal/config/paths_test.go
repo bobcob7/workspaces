@@ -9,10 +9,12 @@ import (
 func TestNewPaths(t *testing.T) {
 	paths := NewPaths("/cfg")
 	assert.Equal(t, Paths{
-		Root:       "/cfg",
-		ConfigFile: "/cfg/config.toml",
-		Cache:      "/cfg/cache",
-		Workspaces: "/cfg/workspaces",
-		State:      "/cfg/state",
+		Root:           "/cfg",
+		ConfigFile:     "/cfg/config.toml",
+		Cache:          "/cfg/cache",
+		Workspaces:     "/cfg/workspaces",
+		State:          "/cfg/state",
+		Reviews:        "/cfg/reviews",
+		ReviewProfiles: "/cfg/review/profiles",
 	}, paths)
 }
