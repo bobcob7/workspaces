@@ -141,7 +141,14 @@ A wide dialog showing exactly what will be posted
 
 Posting shows a spinner on the button; success closes the dialog, marks
 the findings done, and shows a Snackbar with **View on GitHub**. A failure
-keeps the dialog open with `gh`'s message in an Alert, and posts nothing.
+keeps the dialog open with `gh`'s message in an Alert, and posts nothing:
+the review is built as a pending review and deleted if a step fails
+([0041](../../adrs/0041-desktop-acts-on-findings.md)).
+
+GitHub allows one pending review per person per pull request. If you
+already have one open on this PR, **Post review** is replaced by an amber
+Alert, "You have an unsubmitted review on this pull request. Finish or
+discard it on GitHub first.", with **Open on GitHub**.
 
 ## Fix N…
 
