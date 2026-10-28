@@ -21,7 +21,7 @@ import { attachKey, closeTerminal, openTerminal, terminalShown, type TerminalInf
 import { ownerRepo } from "../reviews/groups";
 import { reviewSelected } from "../reviews/reviewsSlice";
 import { agentViewChosen, sectionChosen, type AgentView } from "../ui/uiSlice";
-import { removeEntry, renameEntry, stopAgent } from "./agentsSlice";
+import { removeEntry, renameEntry, setEntryHidden, stopAgent } from "./agentsSlice";
 import { isLive } from "./status";
 import { StatusDot } from "./StatusDot";
 import styles from "./EntryPane.module.css";
@@ -41,6 +41,24 @@ const terminalFor = (items: readonly TerminalInfo[], entry: Entry): TerminalInfo
   }
   return undefined;
 };
+
+const EyeOffIcon = (): JSX.Element => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M10.6 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.8 3.7M6.6 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.6 9.6 0 0 0 5.4-1.6" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    <path d="m3 3 18 18" />
+  </svg>
+);
 
 interface RenameDialogProps {
   readonly entry: Entry;
@@ -185,6 +203,15 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
               Rename
             </Button>
           )}
+          {renamable && (
+            <Button
+              size="small"
+              disabled={busy}
+              onClick={() => void dispatch(setEntryHidden({ entry, hidden: !entry.hidden }))}
+            >
+              {entry.hidden ? "Unhide" : "Hide"}
+            </Button>
+          )}
           {entry.kind !== "shell" && entry.kind !== "unknown" && (
             <Button size="small" color="error" disabled={busy} onClick={() => setConfirming(true)}>
               Remove
@@ -199,6 +226,14 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           {entry.repos.map((r) => (
             <Chip key={r.path} size="small" label={repoLabel(r.id, r.ref)} title={r.id} />
           ))}
+          {entry.hidden && (
+            <Chip
+              size="small"
+              icon={<EyeOffIcon />}
+              label="Hidden"
+              title="Left out of the Agents list's groups and the waiting count; Unhide shows it"
+            />
+          )}
           {reviewing !== undefined && (
             <Chip
               size="small"

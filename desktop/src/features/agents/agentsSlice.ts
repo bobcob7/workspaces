@@ -1,4 +1,4 @@
-import { createSlice, isAnyOf } from "@reduxjs/toolkit";
+import { createSlice, isAnyOf, type PayloadAction } from "@reduxjs/toolkit";
 import { toAppError, type AppError, type Created, type Entry, type Listing, type NewAgent } from "../../api";
 import { createAppThunk } from "../../thunk";
 import { closeTerminal } from "../terminals/terminalsSlice";
@@ -14,6 +14,8 @@ export interface AgentsState {
   readonly busy: readonly string[];
   readonly creating: boolean;
   readonly createError: AppError | null;
+  /** The Hidden group is open (ADR 0043); not persisted. */
+  readonly showHidden: boolean;
 }
 
 const initialState: AgentsState = {
@@ -25,6 +27,7 @@ const initialState: AgentsState = {
   busy: [],
   creating: false,
   createError: null,
+  showHidden: false,
 };
 
 export const fetchEntries = createAppThunk<Listing, void>(
@@ -116,6 +119,25 @@ export const renameEntry = createAppThunk<void, { readonly entry: Entry; readonl
   },
 );
 
+export const setEntryHidden = createAppThunk<void, { readonly entry: Entry; readonly hidden: boolean }>(
+  "agents/setHidden",
+  async ({ entry, hidden }, { extra, dispatch, rejectWithValue }) => {
+    if (entry.workspaceId === null) {
+      return;
+    }
+    try {
+      await extra.api.setWorkspaceHidden(entry.workspaceId, hidden);
+      dispatch(noticeShown({ severity: "info", message: hidden ? `Hid ${entry.name}` : `Unhid ${entry.name}` }));
+    } catch (err: unknown) {
+      const error = toAppError(err);
+      dispatch(noticeShown({ severity: "error", message: error.message }));
+      return rejectWithValue(error);
+    } finally {
+      void dispatch(fetchEntries());
+    }
+  },
+);
+
 export const restoreAgents = createAppThunk<readonly string[], void>(
   "agents/restore",
   async (_arg, { extra, dispatch, rejectWithValue }) => {
@@ -140,6 +162,9 @@ const agentsSlice = createSlice({
   reducers: {
     createErrorCleared: (state) => {
       state.createError = null;
+    },
+    hiddenShown: (state, action: PayloadAction<boolean>) => {
+      state.showHidden = action.payload;
     },
   },
   extraReducers: (builder) => {
@@ -180,14 +205,17 @@ const agentsSlice = createSlice({
           state.busy = state.busy.filter((key) => key !== action.meta.arg.key);
         },
       )
-      .addMatcher(isAnyOf(renameEntry.pending), (state, action) => {
+      .addMatcher(isAnyOf(renameEntry.pending, setEntryHidden.pending), (state, action) => {
         state.busy = [...state.busy, action.meta.arg.entry.key];
       })
-      .addMatcher(isAnyOf(renameEntry.fulfilled, renameEntry.rejected), (state, action) => {
-        state.busy = state.busy.filter((key) => key !== action.meta.arg.entry.key);
-      });
+      .addMatcher(
+        isAnyOf(renameEntry.fulfilled, renameEntry.rejected, setEntryHidden.fulfilled, setEntryHidden.rejected),
+        (state, action) => {
+          state.busy = state.busy.filter((key) => key !== action.meta.arg.entry.key);
+        },
+      );
   },
 });
 
-export const { createErrorCleared } = agentsSlice.actions;
+export const { createErrorCleared, hiddenShown } = agentsSlice.actions;
 export const agentsReducer = agentsSlice.reducer;

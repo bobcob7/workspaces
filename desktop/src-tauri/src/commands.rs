@@ -47,10 +47,12 @@ pub async fn list_entries(state: State<'_, AppState>) -> CmdResult<Listing> {
     Ok(listing)
 }
 
-/// Runs `ws list` and `claude agents` together. Either failing becomes a
+/// Runs `ws list --all` and `claude agents` together; hidden workspaces
+/// are listed too, and the frontend keeps them out of the default views
+/// (ADR 0043). Either failing becomes a
 /// warning as long as the other one answers.
 pub async fn list(runner: &Runner, jobs_dir: Option<&Path>) -> CmdResult<Listing> {
-    let ws_args = strings(&["list"]);
+    let ws_args = strings(&["list", "--all"]);
     let claude_args = strings(&["agents", "--json", "--all"]);
     let (ws, agents) = tokio::join!(
         runner.ws_json::<WsList>(&ws_args),
@@ -229,6 +231,32 @@ pub async fn rename_workspace(
         .await
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HiddenSet {
+    pub id: String,
+    pub hidden: bool,
+}
+
+/// The arguments that hide or show a workspace: `ws hide` or `ws unhide`
+/// (ADR 0043).
+pub fn set_hidden_args(workspace_id: &str, hidden: bool) -> Vec<String> {
+    let op = if hidden { "hide" } else { "unhide" };
+    strings(&[op, "--", workspace_id])
+}
+
+/// Hides or shows a workspace.
+#[tauri::command]
+pub async fn set_workspace_hidden(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    hidden: bool,
+) -> CmdResult<HiddenSet> {
+    state
+        .runner
+        .ws_json(&set_hidden_args(&workspace_id, hidden))
+        .await
+}
+
 #[tauri::command]
 pub async fn stop_agent(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
     state
@@ -380,6 +408,30 @@ mod tests {
         let runner = Runner::new(dir.path().display().to_string());
         let err = ws_items(&runner, &["rm", "x"]).await.unwrap_err();
         assert_eq!(err.code, "workspace_not_found");
+    }
+
+    #[test]
+    fn set_hidden_args_hide_or_unhide() {
+        assert_eq!(
+            set_hidden_args("x-d8efb24f", true),
+            ["hide", "--", "x-d8efb24f"]
+        );
+        assert_eq!(set_hidden_args("-x", false), ["unhide", "--", "-x"]);
+    }
+
+    #[tokio::test]
+    async fn set_workspace_hidden_runs_ws_hide() {
+        let dir = fake_programs(
+            r#"printf '{"id":"%s","name":null,"path":"/w","hidden":%s,"warnings":[]}' "$4" "$([ "$1" = hide ] && echo true || echo false)""#,
+            "exit 0",
+        );
+        let runner = Runner::new(dir.path().display().to_string());
+        let set: HiddenSet = runner
+            .ws_json(&set_hidden_args("x-d8efb24f", true))
+            .await
+            .unwrap();
+        assert_eq!(set.id, "x-d8efb24f");
+        assert!(set.hidden);
     }
 
     #[tokio::test]

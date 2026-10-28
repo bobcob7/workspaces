@@ -48,4 +48,26 @@ describe("EntryPane", () => {
     renderWithStore(<EntryPane entry={unknown} />, testStore());
     expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
   });
+
+  it("hides a visible workspace with ws hide", async () => {
+    const api = fakeApi();
+    renderWithStore(<EntryPane entry={shellWorkspace} />, testStore({ api }));
+    expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Hide" }));
+    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true);
+  });
+
+  it("marks a hidden workspace and unhides it", async () => {
+    const api = fakeApi();
+    renderWithStore(<EntryPane entry={{ ...shellWorkspace, hidden: true }} />, testStore({ api }));
+    expect(screen.getByText("Hidden")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Unhide" }));
+    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", false);
+  });
+
+  it("offers no Hide outside a workspace", () => {
+    const session = entry({ key: "session:abc", workspaceId: null, sessionId: "abc" });
+    renderWithStore(<EntryPane entry={session} />, testStore());
+    expect(screen.queryByRole("button", { name: "Hide" })).not.toBeInTheDocument();
+  });
 });

@@ -44,6 +44,8 @@ export interface Entry {
   readonly repos: readonly Repo[];
   /** What a workspace `ws review start` made reviews (ADR 0039). */
   readonly review: ReviewRecord | null;
+  /** Shown only in the Hidden group and not counted as waiting (ADR 0043). */
+  readonly hidden: boolean;
 }
 
 export interface ReviewRecord {
@@ -85,6 +87,12 @@ export interface Created {
 export interface Renamed {
   readonly id: string;
   readonly name: string;
+}
+
+/** Whether a workspace is hidden, from ws hide or ws unhide (ADR 0043). */
+export interface HiddenSet {
+  readonly id: string;
+  readonly hidden: boolean;
 }
 
 export type TermSpec =
@@ -574,6 +582,8 @@ export const api = {
     call<void>("remove_entry", { workspaceId, sessionId }),
   renameWorkspace: async (workspaceId: string, name: string): Promise<Renamed> =>
     call<Renamed>("rename_workspace", { workspaceId, name }),
+  setWorkspaceHidden: async (workspaceId: string, hidden: boolean): Promise<HiddenSet> =>
+    call<HiddenSet>("set_workspace_hidden", { workspaceId, hidden }),
   stopAgent: async (sessionId: string): Promise<void> => call<void>("stop_agent", { sessionId }),
   restoreAgents: async (): Promise<readonly string[]> => call<string[]>("restore_agents"),
   openExternal: async (target: string): Promise<void> => call<void>("open_external", { target }),

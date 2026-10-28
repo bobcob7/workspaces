@@ -97,3 +97,44 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+
+.toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.caret {
+  display: inline-block;
+  width: 10px;
+  transition: transform 120ms;
+}
+
+.caret[data-open="true"] {
+  transform: rotate(90deg);
+}
+
+.show {
+  margin-left: auto;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.hidden {
+  opacity: 0.78;
+}

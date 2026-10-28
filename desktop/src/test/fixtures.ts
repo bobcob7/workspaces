@@ -35,6 +35,7 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   links: [],
   repos: [],
   review: null,
+  hidden: false,
   ...overrides,
 });
 
@@ -242,6 +243,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   createAgent: vi.fn(async () => ({ id: "new", session: "abcd1234", path: "/w/new" })),
   removeEntry: vi.fn(async () => undefined),
   renameWorkspace: vi.fn(async (id: string, name: string) => ({ id, name })),
+  setWorkspaceHidden: vi.fn(async (id: string, hidden: boolean) => ({ id, hidden })),
   stopAgent: vi.fn(async () => undefined),
   restoreAgents: vi.fn(async () => []),
   openExternal: vi.fn(async () => undefined),

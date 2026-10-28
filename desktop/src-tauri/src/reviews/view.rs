@@ -341,6 +341,7 @@ pub mod tests {
                 ref_kind: Some("commit".to_string()),
             }],
             review: None,
+            hidden: false,
         }
     }
 

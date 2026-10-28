@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { entry } from "../../test/fixtures";
-import { groupEntries, groupOf, needsAttention } from "./status";
+import { groupEntries, groupOf, hiddenEntries, needsAttention } from "./status";
 
 describe("groupOf", () => {
   it("puts agents waiting for an answer in the attention group", () => {
@@ -45,5 +45,26 @@ describe("groupEntries", () => {
 describe("needsAttention", () => {
   it("is false for shells", () => {
     expect(needsAttention(entry({ kind: "shell", status: "idle" }))).toBe(false);
+  });
+});
+
+describe("hidden entries", () => {
+  it("aren't grouped", () => {
+    const groups = groupEntries([entry({ key: "a" }), entry({ key: "b", hidden: true })]);
+    expect(groups.flatMap((g) => g.entries.map((e) => e.key))).toEqual(["a"]);
+  });
+
+  it("are listed apart, most recent first", () => {
+    const hidden = hiddenEntries([
+      entry({ key: "a" }),
+      entry({ key: "old", hidden: true, updatedAt: "2026-10-28T08:00:00Z" }),
+      entry({ key: "new", hidden: true, updatedAt: "2026-10-28T09:00:00Z" }),
+    ]);
+    expect(hidden.map((e) => e.key)).toEqual(["new", "old"]);
+  });
+
+  it("never need attention", () => {
+    expect(needsAttention(entry({ status: "needsInput", hidden: true }))).toBe(false);
+    expect(needsAttention(entry({ status: "idle", hidden: true }))).toBe(false);
   });
 });
