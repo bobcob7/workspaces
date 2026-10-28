@@ -57,7 +57,7 @@ the workspace they run in. Its first commands start, list, and remove
 that workspace's children.
 
 ```
-ws machine spawn [--name <n>] [--offline] [--hidden] <spec>... -- "<prompt>" [<claude args>...]
+ws machine spawn [--name <n>] [--offline] [--hidden] [<spec>...] -- "<prompt>" [<claude args>...]
 ws machine children [--all]
 ws machine rm [--dry-run] [--keep-children] (<WORKSPACE>... | --all)
 ```

@@ -6,7 +6,7 @@ workspace started.
 ## Synopsis
 
 ```
-ws machine spawn [OPTIONS] <spec>... -- "<prompt>" [<claude args>...]
+ws machine spawn [OPTIONS] [<spec>...] -- "<prompt>" [<claude args>...]
 ws machine children [--all]
 ws machine rm [--dry-run] [--keep-children] (<WORKSPACE>... | --all)
 ```
