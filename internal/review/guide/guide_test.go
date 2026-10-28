@@ -72,8 +72,8 @@ func TestOutputsStayWithinBudget(t *testing.T) {
 		wantTokens int
 	}{
 		{name: "prime", out: Prime(), golden: "prime.txt", budget: 450, wantTokens: 361},
-		{name: "prime --profile=go", out: PrimeWithProfile(&goProfile), budget: 750, wantTokens: 696},
-		{name: "describe", out: summary.String(), golden: "describe.txt", budget: 850, wantTokens: 777},
+		{name: "prime --profile=go", out: PrimeWithProfile(&goProfile), budget: 750, wantTokens: 659},
+		{name: "describe", out: summary.String(), golden: "describe.txt", budget: 850, wantTokens: 797},
 		{name: "describe --list", out: index.String(), golden: "list.txt", budget: 380, wantTokens: 284},
 	}
 	for _, test := range tests {

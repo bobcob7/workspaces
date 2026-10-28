@@ -10,7 +10,8 @@ root
   assessment  strong | sound | mixed | weak; optional, ordinal quality grade orthogonal to verdict
 
 comment
-  id           kebab slug + number, e.g. missing-context-2; unique
+  id           kebab slug + number counting from 1 within each slug:
+               missing-context-1, missing-context-2, unchecked-error-1; unique
   priority     1-10: 9-10 blocks, 7-8 should fix, 4-6 worth fixing, 1-3 optional
   category     correctness | security | performance | maintainability | testing
                | documentation | style

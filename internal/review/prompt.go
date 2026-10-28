@@ -40,8 +40,17 @@ type Prompt struct {
 	PR *PromptPR
 	// Subagents are the review-<profile> subagents' names.
 	Subagents []string
+	// Profiles are the review's profiles, so each subagent can be told
+	// what the others cover.
+	Profiles []PromptProfile
 	// Focus is the requester's text, or empty.
 	Focus string
+}
+
+// PromptProfile is one of a review's profiles, as another reviewer sees it.
+type PromptProfile struct {
+	Name        string
+	Description string
 }
 
 // AgentPrompt is the review agent's prompt: start every subagent, check
@@ -52,13 +61,21 @@ func AgentPrompt(p *Prompt) (string, error) {
 }
 
 // SubagentTask is the task that ends profile's subagent prompt: what to
-// review, how to see the changes, and how to submit.
+// review, how to see the changes, what the review's other profiles cover,
+// and how to submit.
 func SubagentTask(p *Prompt, profile string) (string, error) {
+	others := make([]PromptProfile, 0, len(p.Profiles))
+	for _, other := range p.Profiles {
+		if other.Name != profile {
+			others = append(others, other)
+		}
+	}
 	data := struct {
 		*Prompt
 
 		Profile string
-	}{p, profile}
+		Others  []PromptProfile
+	}{p, profile, others}
 	return execute(subagentTask, data)
 }
 

@@ -58,6 +58,25 @@ func TestSubagentTask(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, text, "`git show HEAD`")
 	})
+	t.Run("names the other profiles, not its own", func(t *testing.T) {
+		p := testPrompt()
+		p.Profiles = []PromptProfile{
+			{Name: "security", Description: "Security: untrusted input"},
+			{Name: "go", Description: "Go: concurrency and errors"},
+		}
+		text, err := SubagentTask(p, "go")
+		require.NoError(t, err)
+		assert.Contains(t, text, "- security: Security: untrusted input\n")
+		assert.NotContains(t, text, "- go: ")
+		assert.Contains(t, text, "Leave their ground to them.")
+	})
+	t.Run("a lone profile has no other reviewers to defer to", func(t *testing.T) {
+		p := testPrompt()
+		p.Profiles = []PromptProfile{{Name: "go", Description: "Go"}}
+		text, err := SubagentTask(p, "go")
+		require.NoError(t, err)
+		assert.NotContains(t, text, "Other reviewers")
+	})
 	t.Run("carries the focus", func(t *testing.T) {
 		p := testPrompt()
 		p.Focus = "retries"

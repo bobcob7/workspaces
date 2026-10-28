@@ -282,10 +282,19 @@ func (a *App) reviewAgentArgs(rec *record.Record, target *reviewTarget, opts *re
 	if pr := target.pr; pr != nil {
 		prompt.PR = &review.PromptPR{Number: pr.Number, Title: pr.Title, URL: pr.URL, Base: pr.BaseRefName, HeadBranch: pr.HeadRefName}
 	}
-	subagents := make([]start.Subagent, 0, len(rec.Profiles))
+	loaded := make([]profile.Profile, 0, len(rec.Profiles))
 	for _, p := range rec.Profiles {
+		lp, err := a.loadReviewProfile(p.Name)
+		if err != nil {
+			return nil, err
+		}
+		loaded = append(loaded, lp)
 		prompt.Subagents = append(prompt.Subagents, start.SubagentName(p.Name))
-		text, err := a.subagentPrompt(prompt, p.Name)
+		prompt.Profiles = append(prompt.Profiles, review.PromptProfile{Name: lp.Name, Description: lp.Description})
+	}
+	subagents := make([]start.Subagent, 0, len(rec.Profiles))
+	for i, p := range rec.Profiles {
+		text, err := subagentPrompt(prompt, &loaded[i])
 		if err != nil {
 			return nil, err
 		}
@@ -302,21 +311,27 @@ func (a *App) reviewAgentArgs(rec *record.Record, target *reviewTarget, opts *re
 	return slices.Concat([]string{"--agents", agents}, opts.claudeArgs, []string{agentPrompt}), nil
 }
 
-// subagentPrompt is what ws review prime --profile prints for name,
-// followed by the subagent's task.
-func (a *App) subagentPrompt(prompt *review.Prompt, name string) (string, error) {
+// loadReviewProfile reads the profile named name, the user's or the
+// built-in.
+func (a *App) loadReviewProfile(name string) (profile.Profile, error) {
 	p, ok, err := profile.NewSet(a.paths.ReviewProfiles).Load(name)
 	if err != nil {
-		return "", newError(codeConfigInvalid, err)
+		return profile.Profile{}, newError(codeConfigInvalid, err)
 	}
 	if !ok {
-		return "", newError(codeProfileUnknown, fmt.Errorf("no profile named %q", name))
+		return profile.Profile{}, newError(codeProfileUnknown, fmt.Errorf("no profile named %q", name))
 	}
-	task, err := review.SubagentTask(prompt, name)
+	return p, nil
+}
+
+// subagentPrompt is what ws review prime --profile prints for p, followed
+// by the subagent's task.
+func subagentPrompt(prompt *review.Prompt, p *profile.Profile) (string, error) {
+	task, err := review.SubagentTask(prompt, p.Name)
 	if err != nil {
 		return "", err
 	}
-	return guide.PrimeWithProfile(&p) + "\n" + task, nil
+	return guide.PrimeWithProfile(p) + "\n" + task, nil
 }
 
 // startReview creates the review workspace at the commit, writing rec

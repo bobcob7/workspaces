@@ -1,5 +1,5 @@
 ---
-description: Go: concurrency, error wrapping, context handling, hot-path cost, and tests
+description: Go: concurrency, error wrapping, context handling, and resource lifetime
 when: auto
 match: ["*.go", "go.mod"]
 ---
@@ -18,11 +18,8 @@ Look hardest at:
 - Lifetime and aliasing. `defer` inside a loop, a handle closed only on the
   happy path, a goroutine with no way to stop, a struct copied while holding
   its mutex.
-- Cost in a path that runs per item on unbounded input.
-- Tests, when none of the above have purchase. A table case that never
-  reaches the error branch, a mock whose calls nothing asserts on, a subtest
-  that would pass with its body deleted — where the real findings land on
-  ordinary code.
+- Cleanup that runs on a context already cancelled: a compensating write
+  or delete after the request's ctx is done needs its own, bounded context.
 
 Interfaces belong at the consumer. A wide interface with one implementation is
 still a finding: file it at the bottom of the priority scale, not nowhere.
