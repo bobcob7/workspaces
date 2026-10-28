@@ -1,10 +1,19 @@
-import { Alert, Button, CircularProgress, MenuItem, TextField } from "@mui/material";
+import { Alert, Button, Chip, CircularProgress, MenuItem, TextField } from "@mui/material";
 import { useState, type JSX } from "react";
-import type { ListedProfile, ProfileSetting, Runs } from "../../api";
+import type { ListedProfile, ProfileSetting, ProfileSource, Runs } from "../../api";
 import { models } from "../create/NewAgentDialog";
+import { ProfileEditor, runsLabels } from "./ProfileEditor";
+import { RemoveProfileDialog } from "./RemoveProfileDialog";
 import styles from "./ReviewerProfiles.module.css";
 
-const runsLabels: Readonly<Record<Runs, string>> = { always: "Always", auto: "When files match", off: "Off" };
+/** The badge after a profile's name: none for a built-in (ADR 0042). */
+const badges: Readonly<Record<ProfileSource, { readonly label: string; readonly className: string } | null>> = {
+  builtin: null,
+  user: { label: "custom", className: styles.custom ?? "" },
+  override: { label: "edited", className: styles.edited ?? "" },
+};
+
+type Editing = { readonly kind: "new" } | { readonly kind: "edit"; readonly profile: ListedProfile };
 
 /** The choice in the Model menu that switches to typing a model id. */
 const typeModel = "\u0000type";
@@ -100,9 +109,12 @@ interface ReviewerProfilesProps {
 /**
  * The Reviewer profiles table: every profile `ws review profiles` lists,
  * with when it runs and on which model. Changes are passed to every review
- * as --profile and --auto (ADR 0038).
+ * as --profile and --auto (ADR 0038). Profiles are added, edited, and
+ * removed from here too (ADR 0042).
  */
 export const ReviewerProfiles = ({ profiles, error, changed, onChange }: ReviewerProfilesProps): JSX.Element => {
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [removing, setRemoving] = useState<ListedProfile | null>(null);
   if (profiles === null) {
     return error === null ? (
       <CircularProgress size={20} aria-label="Loading profiles" />
@@ -119,6 +131,7 @@ export const ReviewerProfiles = ({ profiles, error, changed, onChange }: Reviewe
             <th>Runs</th>
             <th>Model</th>
             <th>Files</th>
+            <th aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -126,10 +139,12 @@ export const ReviewerProfiles = ({ profiles, error, changed, onChange }: Reviewe
             const row = rowOf(profile, changed);
             const off = row.runs === "off";
             const save = (next: ProfileSetting): void => onChange(withRow(changed, profile, next));
+            const badge = badges[profile.source];
             return (
               <tr key={profile.name} className={off ? styles.off : undefined}>
                 <td className={styles.name} title={profile.description}>
                   {profile.name}
+                  {badge !== null && <Chip size="small" label={badge.label} className={`${styles.badge} ${badge.className}`} />}
                 </td>
                 <td>
                   <TextField
@@ -155,14 +170,38 @@ export const ReviewerProfiles = ({ profiles, error, changed, onChange }: Reviewe
                   />
                 </td>
                 <td className={styles.files}>{profile.patterns.join(", ")}</td>
+                <td className={styles.actions}>
+                  <Button size="small" aria-label={`Edit ${profile.name}`} onClick={() => setEditing({ kind: "edit", profile })}>
+                    Edit
+                  </Button>
+                  {profile.source === "user" && (
+                    <Button size="small" color="error" aria-label={`Delete ${profile.name}`} onClick={() => setRemoving(profile)}>
+                      Delete
+                    </Button>
+                  )}
+                  {profile.source === "override" && (
+                    <Button size="small" aria-label={`Reset ${profile.name} to built-in`} onClick={() => setRemoving(profile)}>
+                      Reset to built-in
+                    </Button>
+                  )}
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      <Button size="small" disabled={Object.keys(changed).length === 0} onClick={() => onChange({})}>
-        Reset to defaults
-      </Button>
+      <div className={styles.buttons}>
+        <Button size="small" variant="outlined" onClick={() => setEditing({ kind: "new" })}>
+          New profile
+        </Button>
+        <Button size="small" disabled={Object.keys(changed).length === 0} onClick={() => onChange({})}>
+          Reset to defaults
+        </Button>
+      </div>
+      {editing !== null && (
+        <ProfileEditor profile={editing.kind === "edit" ? editing.profile : null} onClose={() => setEditing(null)} />
+      )}
+      {removing !== null && <RemoveProfileDialog profile={removing} onClose={() => setRemoving(null)} />}
     </div>
   );
 };

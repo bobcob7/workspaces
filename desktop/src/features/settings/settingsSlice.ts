@@ -1,5 +1,14 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import { toAppError, type AppError, type ListedProfile, type ReviewSettings, type Settings } from "../../api";
+import {
+  toAppError,
+  type AppError,
+  type ListedProfile,
+  type ProfileDetail,
+  type ProfileDraft,
+  type ProfileRemoved,
+  type ReviewSettings,
+  type Settings,
+} from "../../api";
 import { createAppThunk } from "../../thunk";
 
 /** Settings groups; a group is listed once it has settings. */
@@ -40,6 +49,56 @@ export const fetchProfiles = createAppThunk<readonly ListedProfile[], void>(
   async (_arg, { extra, rejectWithValue }) => {
     try {
       return await extra.api.reviewsProfiles();
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+/** One profile with its guide, for the editor. */
+export const fetchProfileDetail = createAppThunk<ProfileDetail, string>(
+  "settings/fetchProfileDetail",
+  async (name, { extra, rejectWithValue }) => {
+    try {
+      return await extra.api.reviewsProfileShow(name);
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+export interface SaveProfile {
+  readonly name: string;
+  readonly draft: ProfileDraft;
+  /** `ws review profiles add`, rather than `edit`. */
+  readonly create: boolean;
+}
+
+/** Adds or edits a profile, then lists the profiles again. */
+export const saveProfile = createAppThunk<ProfileDetail, SaveProfile>(
+  "settings/saveProfile",
+  async ({ name, draft, create }, { extra, dispatch, rejectWithValue }) => {
+    try {
+      const saved = create ? await extra.api.reviewsProfileAdd(name, draft) : await extra.api.reviewsProfileEdit(name, draft);
+      void dispatch(fetchProfiles());
+      return saved;
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+/**
+ * Deletes a custom profile, or resets an edited built-in, then lists the
+ * profiles again. A profile that's gone loses its Runs and Model row.
+ */
+export const removeProfile = createAppThunk<ProfileRemoved, string>(
+  "settings/removeProfile",
+  async (name, { extra, dispatch, rejectWithValue }) => {
+    try {
+      const removed = await extra.api.reviewsProfileRemove(name);
+      void dispatch(fetchProfiles());
+      return removed;
     } catch (err: unknown) {
       return rejectWithValue(toAppError(err));
     }
@@ -91,6 +150,10 @@ const settingsSlice = createSlice({
       .addCase(fetchProfiles.rejected, (state, action) => {
         state.profilesError = action.payload ?? { code: "internal", message: action.error.message ?? "listing profiles failed" };
       })
+      .addCase(removeProfile.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        settings: action.payload.settings,
+      }))
       .addCase(saveReviewSettings.fulfilled, (state, action): SettingsState => {
         const fieldErrors = { ...state.fieldErrors };
         for (const key of changedKeys(action.meta.arg)) {

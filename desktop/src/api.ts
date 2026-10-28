@@ -288,6 +288,34 @@ export interface ListedProfile {
   /** "" for the review agent's. */
   readonly model: string;
   readonly builtin: boolean;
+  readonly source: ProfileSource;
+}
+
+/** Built into ws, a user's file, or a user's file replacing a built-in (ADR 0042). */
+export type ProfileSource = "builtin" | "user" | "override";
+
+/** A profile with its guide, from `ws review profiles show`, `add`, or `edit`. */
+export interface ProfileDetail extends ListedProfile {
+  /** The reviewer's instructions, in Markdown. */
+  readonly guide: string;
+  /** The user's file; null for a built-in. */
+  readonly path: string | null;
+}
+
+/** The fields the editor saves; a field left out isn't changed. */
+export interface ProfileDraft {
+  readonly description?: string;
+  readonly when?: Runs;
+  /** `[]` removes every pattern. */
+  readonly patterns?: readonly string[];
+  readonly guide?: string;
+}
+
+/** What `ws review profiles rm` did, and the settings it left. */
+export interface ProfileRemoved {
+  /** The removed file was an edited built-in, which is back. */
+  readonly restored: boolean;
+  readonly settings: Settings;
 }
 
 /** A Reviewer profiles row changed from what ws lists. */
@@ -577,6 +605,13 @@ export const api = {
   reviewsPlan: async (repo: string, number: number): Promise<ReviewPlan> =>
     call<ReviewPlan>("reviews_plan", { repo, number }),
   reviewsProfiles: async (): Promise<readonly ListedProfile[]> => call<ListedProfile[]>("reviews_profiles"),
+  reviewsProfileShow: async (name: string): Promise<ProfileDetail> => call<ProfileDetail>("reviews_profile_show", { name }),
+  reviewsProfileAdd: async (name: string, draft: ProfileDraft): Promise<ProfileDetail> =>
+    call<ProfileDetail>("reviews_profile_add", { name, draft }),
+  reviewsProfileEdit: async (name: string, draft: ProfileDraft): Promise<ProfileDetail> =>
+    call<ProfileDetail>("reviews_profile_edit", { name, draft }),
+  reviewsProfileRemove: async (name: string): Promise<ProfileRemoved> =>
+    call<ProfileRemoved>("reviews_profile_remove", { name }),
   reviewsStart: async (plan: ReviewPlan): Promise<Started> => call<Started>("reviews_start", { plan }),
   reviewReport: async (repo: string, gitRef: string, refresh: boolean): Promise<ReviewReport> =>
     call<ReviewReport>("review_report", { repo, gitRef, refresh }),
