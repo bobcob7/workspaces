@@ -46,6 +46,8 @@ export interface Entry {
   readonly review: ReviewRecord | null;
   /** Shown only in the Hidden group and not counted as waiting (ADR 0043). */
   readonly hidden: boolean;
+  /** The workspace this one was started from, and is removed with (ADR 0044). */
+  readonly parentId: string | null;
 }
 
 export interface ReviewRecord {
@@ -206,6 +208,8 @@ export interface ReviewRun {
   readonly recorded: boolean;
   /** The workspace its record names as having asked for it. */
   readonly requester: string | null;
+  /** ws removed its agent and workspace once it finished (ADR 0045). */
+  readonly removed: boolean;
 }
 
 export interface NewCommits {
@@ -578,8 +582,8 @@ export const api = {
   cacheAdd: async (spec: string): Promise<AddedRepo> => call<AddedRepo>("cache_add", { spec }),
   cacheRemove: async (id: string): Promise<void> => call<void>("cache_remove", { id }),
   createAgent: async (request: NewAgent): Promise<Created> => call<Created>("create_agent", { request }),
-  removeEntry: async (workspaceId: string | null, sessionId: string | null): Promise<void> =>
-    call<void>("remove_entry", { workspaceId, sessionId }),
+  removeEntry: async (workspaceId: string | null, sessionId: string | null, keepChildren = false): Promise<void> =>
+    call<void>("remove_entry", { workspaceId, sessionId, keepChildren }),
   renameWorkspace: async (workspaceId: string, name: string): Promise<Renamed> =>
     call<Renamed>("rename_workspace", { workspaceId, name }),
   setWorkspaceHidden: async (workspaceId: string, hidden: boolean): Promise<HiddenSet> =>

@@ -36,6 +36,7 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   repos: [],
   review: null,
   hidden: false,
+  parentId: null,
   ...overrides,
 });
 
@@ -101,6 +102,7 @@ export const reviewRun = (overrides: Partial<ReviewRun> = {}): ReviewRun => ({
   auto: false,
   recorded: true,
   requester: null,
+  removed: false,
   ...overrides,
 });
 

@@ -138,3 +138,7 @@
 .hidden {
   opacity: 0.78;
 }
+
+.parent {
+  color: var(--text-muted);
+}

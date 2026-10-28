@@ -62,6 +62,8 @@ pub struct ReviewView {
     pub recorded: bool,
     /// The workspace its record names as having asked for it.
     pub requester: Option<String>,
+    /// `ws` removed its agent and workspace once it finished (ADR 0045).
+    pub removed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -223,6 +225,7 @@ fn pr_view(
                     .as_ref()
                     .map(|r| r.requester.clone())
                     .filter(|r| !r.is_empty()),
+                removed: e.kind == Kind::Removed,
             })
             .collect(),
         new_commits,
@@ -342,6 +345,7 @@ pub mod tests {
             }],
             review: None,
             hidden: false,
+            parent_id: None,
         }
     }
 
@@ -526,6 +530,18 @@ pub mod tests {
         let mut entry = recorded(42, OLD, Status::Done, "2026-10-24T10:00:00Z");
         entry.repos[0].git_ref = Some(HEAD.to_string());
         assert_eq!(group(&[entry], &watching()), (Group::Reviewed, true));
+    }
+
+    #[test]
+    fn removed_review_keeps_its_pull_request_reviewed() {
+        let listed = recorded(42, HEAD, Status::Idle, "2026-10-24T10:00:00Z");
+        let removed = crate::reviews::runs::removed_from(&listed).unwrap();
+        let entries = [removed];
+        assert_eq!(group(&entries, &watching()), (Group::Reviewed, false));
+        assert!(has_review_at_head(&entries, REPO, &pr(42)));
+        let view = build(&checked(vec![pr(42)]), &entries, &watching());
+        assert!(view.prs[0].reviews[0].removed);
+        assert_eq!(view.prs[0].reviews[0].status, Status::Done);
     }
 
     #[test]

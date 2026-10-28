@@ -73,12 +73,20 @@ export const ReviewCard = ({ review, pr, collapsed = false }: ReviewCardProps): 
           {!atHead && " · older commit"}
         </span>
         <span className={styles.spacer} />
-        <Button size="small" onClick={openAgent}>
-          Open agent
-        </Button>
-        <Button size="small" color="error" disabled={entry === undefined || busy} onClick={() => setConfirming(true)}>
-          Remove
-        </Button>
+        {review.removed ? (
+          <span className={styles.muted} title="Removed once every reviewer had reported; the findings are kept">
+            agent removed after finishing
+          </span>
+        ) : (
+          <>
+            <Button size="small" onClick={openAgent}>
+              Open agent
+            </Button>
+            <Button size="small" color="error" disabled={entry === undefined || busy} onClick={() => setConfirming(true)}>
+              Remove
+            </Button>
+          </>
+        )}
       </header>
       {open && (
         <div className={styles.body}>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { entry } from "../../test/fixtures";
-import { groupEntries, groupOf, hiddenEntries, needsAttention } from "./status";
+import { childrenOf, descendantsOf, groupEntries, groupOf, hiddenEntries, needsAttention } from "./status";
 
 describe("groupOf", () => {
   it("puts agents waiting for an answer in the attention group", () => {
@@ -68,3 +68,36 @@ describe("hidden entries", () => {
     expect(needsAttention(entry({ status: "idle", hidden: true }))).toBe(false);
   });
 });
+
+describe("trees", () => {
+  const root = entry({ key: "root", workspaceId: "root" });
+  const a = entry({ key: "a", workspaceId: "a", parentId: "root", updatedAt: "2026-10-28T08:00:00Z" });
+  const b = entry({ key: "b", workspaceId: "b", parentId: "root", updatedAt: "2026-10-28T09:00:00Z" });
+  const a1 = entry({ key: "a1", workspaceId: "a1", parentId: "a" });
+  const other = entry({ key: "other", workspaceId: "other" });
+  const all = [root, a, b, a1, other];
+
+  it("children are the direct ones, most recent first", () => {
+    expect(childrenOf(all, root).map((e) => e.key)).toEqual(["b", "a"]);
+    expect(childrenOf(all, other)).toEqual([]);
+  });
+
+  it("descendants come after their parent, with their depth", () => {
+    expect(descendantsOf(all, root).map(({ entry: e, depth }) => [e.key, depth])).toEqual([
+      ["b", 1],
+      ["a", 1],
+      ["a1", 2],
+    ]);
+  });
+
+  it("a session outside any workspace has no children", () => {
+    expect(childrenOf(all, entry({ key: "s", workspaceId: null }))).toEqual([]);
+  });
+
+  it("a cycle is visited once", () => {
+    const x = entry({ key: "x", workspaceId: "x", parentId: "y" });
+    const y = entry({ key: "y", workspaceId: "y", parentId: "x" });
+    expect(descendantsOf([x, y], x).map(({ entry: e }) => e.key)).toEqual(["y"]);
+  });
+});
+

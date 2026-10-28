@@ -21,16 +21,21 @@ export interface EntryRowProps {
   readonly entry: Entry;
   readonly current: boolean;
   readonly onClick: () => void;
+  /** The name of the workspace it was started from, if that's listed (ADR 0044). */
+  readonly parentName?: string | null;
 }
 
 /** An agent or workspace as a two-line list row, as the Agents list shows it. */
-export const EntryRow = ({ entry, current, onClick }: EntryRowProps): JSX.Element => (
+export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRowProps): JSX.Element => (
   <button type="button" className={styles.item} aria-current={current ? "true" : undefined} onClick={onClick}>
     <span className={styles.row}>
       <StatusDot status={entry.status} />
       <span className={styles.name}>{entry.name}</span>
       <span className={styles.age}>{age(entry.updatedAt ?? entry.createdAt)}</span>
     </span>
-    <span className={styles.summary}>{summary(entry)}</span>
+    <span className={styles.summary}>
+      {parentName !== null && <span className={styles.parent}>↳ {parentName} · </span>}
+      {summary(entry)}
+    </span>
   </button>
 );

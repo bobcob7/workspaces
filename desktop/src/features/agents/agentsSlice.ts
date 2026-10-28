@@ -78,14 +78,17 @@ export const stopAgent = createAppThunk<void, Entry>(
   },
 );
 
-export const removeEntry = createAppThunk<void, Entry>(
+/** An entry to remove; keepChildren makes the workspaces it started top-level instead (ADR 0044). */
+export type RemoveRequest = Entry & { readonly keepChildren?: boolean };
+
+export const removeEntry = createAppThunk<void, RemoveRequest>(
   "agents/remove",
   async (entry, { extra, dispatch, getState, rejectWithValue }) => {
     try {
       if (entry.sessionId !== null) {
         await dispatch(closeTerminal(`attach:${entry.sessionId}`));
       }
-      await extra.api.removeEntry(entry.workspaceId, entry.sessionId);
+      await extra.api.removeEntry(entry.workspaceId, entry.sessionId, entry.keepChildren ?? false);
       if (getState().ui.selectedKey === entry.key) {
         dispatch(selected(null));
       }

@@ -31,6 +31,13 @@ const unwatched = (view: ReviewsView): ReviewsView => ({
 });
 
 describe("ReviewsPane", () => {
+  it("says a removed review's agent is gone, with no agent actions", () => {
+    renderPane(reviewsView({ prs: [pullRequest({ group: "reviewed", reviews: [reviewRun({ removed: true, sessionId: null })] })] }));
+    expect(screen.getByText("agent removed after finishing")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open agent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+  });
+
   it("offers to choose repos when none are watched", async () => {
     const store = renderPane(unwatched(reviewsView()));
     await userEvent.click(screen.getByRole("button", { name: "Choose repos to watch" }));
@@ -118,6 +125,6 @@ describe("ReviewsPane", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Review agent" }));
     await userEvent.click(screen.getByRole("button", { name: "Remove" }));
     await userEvent.click(screen.getAllByRole("button", { name: "Remove" }).at(-1) as HTMLElement);
-    expect(api.removeEntry).toHaveBeenCalledWith("review-buff-bear-42-3f2a9c1", "e8cdf5d8");
+    expect(api.removeEntry).toHaveBeenCalledWith("review-buff-bear-42-3f2a9c1", "e8cdf5d8", false);
   });
 });

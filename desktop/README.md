@@ -32,6 +32,18 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   Open the group to see them; Unhide (`ws unhide`) puts one back
   ([ADR 0043](../docs/adrs/0043-hidden-workspaces.md),
   [design](../docs/design/hidden-workspaces/README.md)).
+- **Workspace trees**: what an agent starts from its workspace, helpers and
+  reviews, is its child. A child's row says `↳ <parent>`; a parent's pane
+  lists the workspaces it started, with Open and Remove. Removing a parent
+  lists everything that goes with it, and can keep its children instead
+  (`ws rm --keep-children`)
+  ([ADR 0044](../docs/adrs/0044-workspace-trees.md),
+  [design](../docs/design/workspace-trees/README.md)).
+- **Finished reviews clean up after themselves**: once every reviewer has
+  reported, `ws` removes the review agent and its workspace. The app reads
+  `ws review list`, so the pull request stays in Reviewed with its report,
+  marked "agent removed after finishing", and isn't auto-reviewed again
+  ([ADR 0045](../docs/adrs/0045-finished-reviews-are-removed.md)).
 - **Repos**: the cached repos, grouped by host and owner, with each one's
   branches and tags, the last commit on each, and the workspaces on it
   (`ws cache list`, `ws cache refs`). Fetch one or all (`ws cache update`),
