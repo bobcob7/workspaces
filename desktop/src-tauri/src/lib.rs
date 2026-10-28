@@ -56,6 +56,7 @@ pub fn run() {
             commands::create_agent,
             commands::remove_entry,
             commands::rename_workspace,
+            commands::set_workspace_hidden,
             commands::stop_agent,
             commands::restore_agents,
             commands::open_external,

@@ -197,7 +197,7 @@ Cloning from the cache took 0.28 s versus 4.40 s from upstream[^bench-clone].
 | [0028](0028-single-repo-session-directory.md) | A one-repo workspace's session starts in its repo, which `ws claude` trusts in Claude Code's config for the workspace's lifetime | Proposed |
 | [0029](0029-desktop-app.md) | A Tauri desktop app drives agents through `ws --json` and `claude attach` in a pseudo-terminal | Proposed |
 | [0030](0030-desktop-conversation-from-transcript.md) | The desktop app shows an agent's conversation by following its transcript file | Proposed |
-| [0031](0031-desktop-sections-rail.md) | The desktop app is split into sections chosen from a left rail: Agents, Repos, Reviews, and Settings | Proposed |
+| [0031](0031-desktop-sections-rail.md) | The desktop app is split into sections chosen from a left rail: Agents, Repos, Reviews, and Settings | Proposed; the Agents list's Hidden group added by [0043](0043-hidden-workspaces.md) |
 | [0032](0032-review-agent-per-pr-head.md) | A pull request review is a `ws claude` agent on the PR's head commit, named after the PR and that commit | Proposed; task and matching amended by [0038](0038-review-fans-out-to-profile-subagents.md) and [0039](0039-ws-review-command.md) |
 | [0033](0033-ws-cache-refs.md) | `ws cache refs` lists a cached repo's branches and tags with their last commits, and `ws cache list` counts them | Proposed |
 | [0034](0034-desktop-state-file.md) | The desktop app keeps watched repos, dismissals, auto-review records, and settings in one `desktop.json` in its own config directory | Proposed |

@@ -36,8 +36,9 @@ const liveStatuses: ReadonlySet<Status> = new Set(["working", "needsInput", "idl
 
 export const isLive = (status: Status): boolean => liveStatuses.has(status);
 
+/** Hidden entries never count: they wait in the Hidden group (ADR 0043). */
 export const needsAttention = (entry: Entry): boolean =>
-  entry.kind === "agent" && (entry.status === "needsInput" || entry.status === "idle");
+  !entry.hidden && entry.kind === "agent" && (entry.status === "needsInput" || entry.status === "idle");
 
 export const groupOf = (entry: Entry): GroupId => {
   if (entry.kind === "shell") {
@@ -65,14 +66,18 @@ export const groupOf = (entry: Entry): GroupId => {
 
 const recency = (entry: Entry): string => entry.updatedAt ?? entry.createdAt ?? "";
 
-/** Groups entries the way agent view does, most recently active first. */
+const byRecency = (a: Entry, b: Entry): number => recency(b).localeCompare(recency(a)) || a.name.localeCompare(b.name);
+
+/** Groups the visible entries the way agent view does, most recently active first. */
 export const groupEntries = (entries: readonly Entry[]): readonly Group[] =>
   groupOrder
     .map((id) => ({
       id,
       title: groupTitles[id],
-      entries: entries
-        .filter((e) => groupOf(e) === id)
-        .toSorted((a, b) => recency(b).localeCompare(recency(a)) || a.name.localeCompare(b.name)),
+      entries: entries.filter((e) => !e.hidden && groupOf(e) === id).toSorted(byRecency),
     }))
     .filter((g) => g.entries.length > 0);
+
+/** The hidden entries, most recently active first (ADR 0043). */
+export const hiddenEntries = (entries: readonly Entry[]): readonly Entry[] =>
+  entries.filter((e) => e.hidden).toSorted(byRecency);

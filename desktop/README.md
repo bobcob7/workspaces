@@ -26,6 +26,12 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   confirming), and Restore stopped (`ws restore`). A workspace's name is
   the one it was created with until renamed; its id, and directory, end
   with a random suffix ([ADR 0036](../docs/adrs/0036-workspace-id-suffix-and-rename.md)).
+- **Hidden workspaces**: reviews, agents started with `ws claude
+  --hidden`, and anything you Hide (`ws hide`) sit in a collapsed Hidden
+  group at the end of the Agents list and don't count as waiting for you.
+  Open the group to see them; Unhide (`ws unhide`) puts one back
+  ([ADR 0043](../docs/adrs/0043-hidden-workspaces.md),
+  [design](../docs/design/hidden-workspaces/README.md)).
 - **Repos**: the cached repos, grouped by host and owner, with each one's
   branches and tags, the last commit on each, and the workspaces on it
   (`ws cache list`, `ws cache refs`). Fetch one or all (`ws cache update`),

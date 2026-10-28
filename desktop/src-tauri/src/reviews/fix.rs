@@ -405,6 +405,7 @@ mod tests {
             links: vec![],
             repos: vec![],
             review: None,
+            hidden: false,
         }
     }
 

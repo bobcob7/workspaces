@@ -31,6 +31,9 @@ pub struct WsWorkspace {
     /// The review record of a workspace `ws review start` made (ADR 0039).
     #[serde(default)]
     pub review: Option<ReviewRecord>,
+    /// Left out of the default views (ADR 0043).
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 /// What a review workspace reviews, from its `review.toml`.
@@ -145,6 +148,9 @@ pub struct Entry {
     pub links: Vec<Link>,
     pub repos: Vec<Repo>,
     pub review: Option<ReviewRecord>,
+    /// The workspace is hidden: shown only in the Agents list's Hidden
+    /// group, and not counted as waiting (ADR 0043).
+    pub hidden: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -234,6 +240,7 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         links: links(job.as_ref()),
         repos: ws.repos,
         review: ws.review,
+        hidden: ws.hidden,
     }
 }
 
@@ -255,6 +262,7 @@ fn session_entry(agent: &ClaudeAgent, id: &str, job: Option<JobState>, now_ms: i
         links: links(job.as_ref()),
         repos: Vec::new(),
         review: None,
+        hidden: false,
     }
 }
 
@@ -384,6 +392,18 @@ mod tests {
         assert_eq!(e.result.as_deref(), Some("shipped"));
         assert_eq!(e.links[0].kind, "pr");
         assert_eq!(e.repos[0].git_ref.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn merge_keeps_whether_a_workspace_is_hidden() {
+        let entries = merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW);
+        assert!(!entries[0].hidden, "hidden defaults to false");
+        let hidden = ONE_AGENT.replace(
+            r#""path":"/w/fix-login","#,
+            r#""path":"/w/fix-login","hidden":true,"#,
+        );
+        let entries = merge(Some(ws_list(&hidden)), &[], &|_| None, NOW);
+        assert!(entries[0].hidden);
     }
 
     #[test]
