@@ -18,7 +18,9 @@ Look hardest at:
 
 A structural comment must name a concrete cost: the test that now needs a
 database, the change that now touches four packages, the caller that can no
-longer be built alone. An abstract preference is not a finding.
+longer be built alone. An abstract preference is not a finding, and neither
+is a runtime cost or a missing test by itself: report the structure that
+causes it, or leave it to whoever covers cost and tests.
 
 Wide scope is honest here — set `scope` and `effort` to what the work actually
 is, and offer the cheap variant as a competing suggestion. A restructuring with

@@ -23,8 +23,8 @@ behind three conditions an attacker cannot satisfy is low, and a review
 calling everything critical cannot say when something truly is.
 
 A traced surface found closed is often the most useful output a pass
-produces, and there is no field for it. Say so in `summary` for the review
-as a whole, or as a low-priority comment anchored at the code that held,
-when one boundary earns naming.
+produces, and there is no field for it. Say so in `summary`: which sources
+you traced, to which sinks, and what held. Make it a comment only when the
+code that holds is one easy edit away from not holding, and say which edit.
 
 Do not report a missing mitigation that this threat model does not need.
