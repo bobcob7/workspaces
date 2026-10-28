@@ -59,10 +59,10 @@ describe("Reviewer profiles", () => {
     await open();
     const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
     expect(rows.map((r) => r.textContent?.replaceAll("\u200b", ""))).toEqual([
-      "securityAlwaysDefault",
-      "testsAlwayshaiku",
-      "goWhen files matchDefault*.go, go.mod",
-      "efficiencyOffDefault",
+      "securityAlwaysDefaultEdit",
+      "testsAlwayshaikuEdit",
+      "goWhen files matchDefault*.go, go.modEdit",
+      "efficiencyOffDefaultEdit",
     ]);
   });
 

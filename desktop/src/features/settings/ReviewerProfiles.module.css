@@ -49,3 +49,30 @@
   width: 180px;
   font-family: var(--font-mono) !important;
 }
+
+.badge {
+  height: 18px !important;
+  margin-left: 6px;
+  font-size: 11px !important;
+  font-weight: 600;
+}
+
+.custom {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 16%, transparent) !important;
+}
+
+.edited {
+  color: var(--status-needs-input) !important;
+  background: color-mix(in srgb, var(--status-needs-input) 16%, transparent) !important;
+}
+
+.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.buttons {
+  display: flex;
+  gap: 6px;
+}
