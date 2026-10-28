@@ -11,6 +11,7 @@ check, store, and explain review documents.
 ws review start [OPTIONS] <SPEC> [-- <CLAUDE ARGS>... [<FOCUS>]]
 ws review wait [--timeout <DURATION>] <ID>
 ws review report [--format json|markdown|html] [--decided comment|fix|skip] (<ID> | --repo <REPO> --ref <SHA>)
+ws review list [--repo <REPO>] [--pr <N>]
 ws review decide (<ID> | --repo <REPO> --ref <SHA>) <FINDING>... (--comment | --fix [--suggestion <N>] | --skip | --clear) [--note <TEXT>]
 ws review acted (<ID> | --repo <REPO> --ref <SHA>) <FINDING>... (--commented <URL> | --fix-sent <AGENT>)
 ws review profiles
@@ -97,7 +98,9 @@ agents; [`ws unhide`](ws-hide.md) shows it
 
 Reads the review agent's session every 5 seconds, as `ws list` does,
 until it is idle or stopped, or its workspace is gone, then prints what
-`ws review report` prints. It returns at once for a finished review.
+`ws review report` prints. It returns at once for a finished review,
+including one already removed: an id with no workspace is looked up in
+the review store's `runs/` ([0045](../adrs/0045-finished-reviews-are-removed.md)).
 After `--timeout` (default `[review] timeout`, 60 minutes) it fails with
 `review_timeout`, and `details` has `workspace` and `status`; running it
 again keeps waiting.
@@ -111,12 +114,32 @@ so.
 ### `ws review report`
 
 Combines the submissions stored for the review's repo and commit
-([state](../state.md#reviews)). Name the review by its workspace, or by
-`--repo host/owner/name` and `--ref <full SHA>`, which works after the
-workspace is removed. `--format markdown` (the default without `--json`)
+([state](../state.md#reviews)). Name the review by its workspace id,
+which also works after the workspace is removed, or by
+`--repo host/owner/name` and `--ref <full SHA>`. `--format markdown` (the default without `--json`)
 and `html` use the forked renderers; Markdown ends with the profiles that
 haven't submitted. `--decided comment|fix|skip` lists only the findings
 decided that way: a fixer reads `--decided fix --json`.
+
+### `ws review list`
+
+Lists every review the store has a run for, and any review workspace
+started before runs were kept, newest first, optionally only of one repo
+(`--repo`, an id) or pull request (`--pr`)
+([0045](../adrs/0045-finished-reviews-are-removed.md)). With `--json`:
+`{"reviews": [{"id", "review", "agent"}], "warnings"}`, where `review` is
+the record and `agent` is `{"workspace", "status"}` while the workspace
+exists, `null` once it's removed. The table's AGENT column says
+`removed`.
+
+### Finished reviews are removed
+
+Once a review's agent is idle or stopped and every profile it chose has
+a current submission, the removal pass removes its agent and workspace as
+`ws rm` would, descendants first
+([0045](../adrs/0045-finished-reviews-are-removed.md)). A review still
+working, or missing a submission, is kept. `[review] remove_finished =
+false` in [`config.toml`](../config.md) keeps them all.
 
 ### `ws review decide`
 

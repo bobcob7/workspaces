@@ -116,11 +116,20 @@ type reviewAgentJSON struct {
 }
 
 // findReviewByID finds the review workspace arg names and reads its
-// record. A missing workspace or record is review_not_found.
+// record. A review whose workspace was removed is found by its id in the
+// review store, with no path (ADR 0045). A review in neither, or a
+// workspace with no record, is review_not_found.
 func (a *App) findReviewByID(arg string) (workspace.Workspace, record.Record, error) {
 	ws, err := a.workspaces.Find(arg)
 	if errors.Is(err, workspace.ErrNotFound) {
-		return workspace.Workspace{}, record.Record{}, newError(codeReviewNotFound, fmt.Errorf("no review workspace %q; with the workspace removed, use --repo and --ref", arg))
+		run, runErr := store.New(a.paths.Reviews).FindRun(arg)
+		if runErr == nil {
+			return workspace.Workspace{ID: run.ID}, run.Record, nil
+		}
+		if !errors.Is(runErr, store.ErrNoRun) {
+			return workspace.Workspace{}, record.Record{}, runErr
+		}
+		return workspace.Workspace{}, record.Record{}, newError(codeReviewNotFound, fmt.Errorf("no review workspace or review run %q; use --repo and --ref", arg))
 	}
 	if err != nil {
 		return workspace.Workspace{}, record.Record{}, err

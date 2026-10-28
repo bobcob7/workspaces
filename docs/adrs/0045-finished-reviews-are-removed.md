@@ -1,6 +1,6 @@
 # 0045. A finished review's workspace and agent are removed; its record is kept in the review store, where `ws review` and the desktop app find it
 
-- Status: Proposed
+- Status: Accepted (2026-10-28)
 - Date: 2026-10-28
 
 ## Context
@@ -136,7 +136,8 @@ and Claude Code's session list still fill up.
 ## Consequences
 
 - Amends [0039](0039-ws-review-command.md) (`runs/` in the store, `ws
-  review list`, `wait` and `report` by a removed id) and
+  review list`, `wait`, `report`, and `decide` by a removed id),
+  [0014](0014-command-set.md) (`ws review list`), and
   [0015](0015-workspace-lifetime-follows-session.md) (a workspace also
   goes when it's a complete review).
 - `docs/state.md`, `docs/config.md`, `docs/tools/ws-review.md`, and `ws
@@ -150,5 +151,6 @@ and Claude Code's session list still fill up.
   view keeps a reviewed pull request whose workspace is gone, and that
   auto-review doesn't start it again.
 - **Unverified:** that a review agent goes idle, not stopped, right after
-  its last subagent submits, so it's removed at the next pass; checked
-  with a real review before acceptance.
+  its last subagent submits, so it's removed at the next pass; either
+  counts as finished, so this affects only timing. To be checked with a
+  real review once it ships.

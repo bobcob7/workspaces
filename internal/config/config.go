@@ -33,6 +33,10 @@ owners = []
 # How long ws review wait waits for a review by default.
 # timeout = "60m"
 #
+# Remove a review's agent and workspace once every reviewer has reported;
+# its findings are kept.
+# remove_finished = true
+#
 # Override a review profile's when (always, auto, or off), and pin its model.
 # [review.profiles.security]
 # when = "always"
@@ -62,6 +66,9 @@ type Review struct {
 	Timeout time.Duration `toml:"timeout"`
 	// Profiles override profiles' when and set their models, by name.
 	Profiles map[string]ReviewProfile `toml:"profiles"`
+	// RemoveFinished is whether the removal pass removes reviews whose
+	// every profile has reported; nil for true (ADR 0045).
+	RemoveFinished *bool `toml:"remove_finished"`
 }
 
 // ReviewProfile is [review.profiles.<name>]. Empty fields leave the
@@ -69,6 +76,11 @@ type Review struct {
 type ReviewProfile struct {
 	When  string `toml:"when"`
 	Model string `toml:"model"`
+}
+
+// RemovesFinished is [review] remove_finished, true when it isn't set.
+func (r *Review) RemovesFinished() bool {
+	return r.RemoveFinished == nil || *r.RemoveFinished
 }
 
 // WaitTimeout is [review] timeout, or 60 minutes when it isn't set.

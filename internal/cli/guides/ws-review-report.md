@@ -70,7 +70,7 @@ submission's are `#<n>:<id>`, under `superseded`.
 | Situation                                          | Error code         | Exit |
 | -------------------------------------------------- | ------------------ | ---- |
 | Both or neither of a workspace and `--repo`/`--ref`, a short `--ref`, or an unknown `--format` or `--decided` | `usage` | 2 |
-| No such workspace, or it isn't a review            | `review_not_found` | 3    |
+| No such review workspace or kept review            | `review_not_found` | 3    |
 
 ## Examples
 

@@ -28,6 +28,9 @@ const (
 	// abandoned: no session was ever recorded, so the workspace goes with
 	// any session started in it (ADRs 0023, 0025).
 	abandoned
+	// finished: a review whose agent is idle or stopped and whose every
+	// profile has reported, so it goes with its session (ADR 0045).
+	finished
 )
 
 // Sweep removes leftover state (ADRs 0012, 0022) and, at most once a
@@ -83,6 +86,9 @@ func (m *Manager) pass(ctx context.Context, r *reader) ([]Entry, []Removed, erro
 	verdicts := make([]verdict, len(list))
 	for i := range list {
 		sessions[i], verdicts[i] = r.judge(ctx, list[i].ID, &records[i])
+		if verdicts[i] == keep && m.reviewFinished(ctx, &list[i], sessions[i]) {
+			verdicts[i] = finished
+		}
 	}
 	gone := m.cascade(ctx, r, list, verdicts)
 	var entries []Entry
@@ -174,4 +180,22 @@ func (m *Manager) writeStamp() error {
 		return fmt.Errorf("writing %s: %w", m.stamp, err)
 	}
 	return os.Chtimes(m.stamp, now, now)
+}
+
+// reviewFinished reports whether ws is a complete review, when finished
+// reviews are removed: its agent idle or stopped, and its reviews all in
+// (ADR 0045). A review that can't be judged is kept, with a warning.
+func (m *Manager) reviewFinished(ctx context.Context, ws *workspace.Workspace, sess *Session) bool {
+	if m.reviews == nil || sess == nil || sess.Kind != KindAgent {
+		return false
+	}
+	if sess.State != StateIdle && sess.State != StateStopped {
+		return false
+	}
+	done, err := m.reviews.Complete(ctx, ws)
+	if err != nil {
+		m.warn("couldn't tell whether review %s is finished: %v", ws.ID, err)
+		return false
+	}
+	return done
 }

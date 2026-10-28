@@ -35,6 +35,15 @@ type Manager struct {
 	sleep       func(ctx context.Context, d time.Duration) error
 	mu          sync.Mutex
 	warnings    []string
+	// reviews judges finished reviews, which the removal pass removes;
+	// nil keeps them (ADR 0045).
+	reviews reviewJudge
+}
+
+// RemoveFinishedReviews makes the removal pass remove reviews that
+// reviews judges complete (ADR 0045).
+func (m *Manager) RemoveFinishedReviews(reviews reviewJudge) {
+	m.reviews = reviews
 }
 
 // New returns a Manager for the workspaces in store, whose state is under

@@ -877,3 +877,75 @@ func (mock *processReaderMock) StartTimeCalls() []struct {
 	mock.lockStartTime.RUnlock()
 	return calls
 }
+
+// Ensure, that reviewJudgeMock does implement reviewJudge.
+// If this is not the case, regenerate this file with moq.
+var _ reviewJudge = &reviewJudgeMock{}
+
+// reviewJudgeMock is a mock implementation of reviewJudge.
+//
+//	func TestSomethingThatUsesreviewJudge(t *testing.T) {
+//
+//		// make and configure a mocked reviewJudge
+//		mockedreviewJudge := &reviewJudgeMock{
+//			CompleteFunc: func(ctx context.Context, ws *workspace.Workspace) (bool, error) {
+//				panic("mock out the Complete method")
+//			},
+//		}
+//
+//		// use mockedreviewJudge in code that requires reviewJudge
+//		// and then make assertions.
+//
+//	}
+type reviewJudgeMock struct {
+	// CompleteFunc mocks the Complete method.
+	CompleteFunc func(ctx context.Context, ws *workspace.Workspace) (bool, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Complete holds details about calls to the Complete method.
+		Complete []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Ws is the ws argument value.
+			Ws *workspace.Workspace
+		}
+	}
+	lockComplete sync.RWMutex
+}
+
+// Complete calls CompleteFunc.
+func (mock *reviewJudgeMock) Complete(ctx context.Context, ws *workspace.Workspace) (bool, error) {
+	if mock.CompleteFunc == nil {
+		panic("reviewJudgeMock.CompleteFunc: method is nil but reviewJudge.Complete was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Ws  *workspace.Workspace
+	}{
+		Ctx: ctx,
+		Ws:  ws,
+	}
+	mock.lockComplete.Lock()
+	mock.calls.Complete = append(mock.calls.Complete, callInfo)
+	mock.lockComplete.Unlock()
+	return mock.CompleteFunc(ctx, ws)
+}
+
+// CompleteCalls gets all the calls that were made to Complete.
+// Check the length with:
+//
+//	len(mockedreviewJudge.CompleteCalls())
+func (mock *reviewJudgeMock) CompleteCalls() []struct {
+	Ctx context.Context
+	Ws  *workspace.Workspace
+} {
+	var calls []struct {
+		Ctx context.Context
+		Ws  *workspace.Workspace
+	}
+	mock.lockComplete.RLock()
+	calls = mock.calls.Complete
+	mock.lockComplete.RUnlock()
+	return calls
+}

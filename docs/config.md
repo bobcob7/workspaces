@@ -89,6 +89,10 @@ owners = []
 # How long ws review wait waits for a review by default.
 # timeout = "60m"
 #
+# Remove a review's agent and workspace once every reviewer has reported;
+# its findings are kept.
+# remove_finished = true
+#
 # Override a review profile's when (always, auto, or off), and pin its model.
 # [review.profiles.security]
 # when = "always"
@@ -144,6 +148,7 @@ How `ws review` runs reviews ([0038](adrs/0038-review-fans-out-to-profile-subage
 | Key       | Type     | Default | Used for |
 | --------- | -------- | ------- | -------- |
 | `timeout` | duration | `"60m"` | how long [`ws review wait`](tools/ws-review.md#ws-review-wait) waits without `--timeout`; a Go duration such as `"90m"` or `"2h"` |
+| `remove_finished` | bool | `true` | whether the removal pass removes a review's agent and workspace once its agent is idle or stopped and every profile has submitted ([0045](adrs/0045-finished-reviews-are-removed.md)); the findings are kept either way |
 
 ### `[review.profiles.<name>]`
 

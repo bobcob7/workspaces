@@ -17,6 +17,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/review/profile"
 	"github.com/bobcob7/workspaces/internal/review/record"
 	"github.com/bobcob7/workspaces/internal/review/start"
+	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -358,17 +359,25 @@ func (a *App) startReview(ctx context.Context, rec *record.Record, target *revie
 	if err != nil {
 		return err
 	}
+	runs := store.New(a.paths.Reviews)
+	var saved string
 	prepare := func(ws *workspace.Workspace) error {
-		return record.Write(record.Path(a.paths.State, ws.ID), rec)
+		if writeErr := record.Write(record.Path(a.paths.State, ws.ID), rec); writeErr != nil {
+			return writeErr
+		}
+		saved = ws.ID
+		return runs.SaveRun(ws.ID, rec)
 	}
 	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: name, Specs: []repo.Spec{sp}, Offline: true, Hidden: true, Parent: rec.Requester, Prepare: prepare})
 	if err != nil {
+		a.dropRun(runs, saved, rec)
 		a.printWarnings()
 		return domainError(err)
 	}
 	defer lock.Unlock()
 	started, _, err := a.handOff(ctx, &ws, args)
 	if err != nil {
+		a.dropRun(runs, ws.ID, rec)
 		return err
 	}
 	lock.Unlock()
@@ -395,4 +404,15 @@ func (a *App) printReviewStart(ws *workspace.Workspace, session string, rec *rec
 		Review:       *rec,
 		WaitCommand:  "ws review wait --json " + ws.ID,
 	})
+}
+
+// dropRun removes the run record of a review that didn't start, so the
+// store doesn't list it (ADR 0045). A failure is a warning.
+func (a *App) dropRun(runs *store.Store, id string, rec *record.Record) {
+	if id == "" {
+		return
+	}
+	if err := runs.DropRun(id, rec); err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't remove review run %s's record: %v", id, err))
+	}
 }

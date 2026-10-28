@@ -4,6 +4,7 @@
 ws review start [--pr <n>] [--profile <p>[:<model>]]... [--auto <p>[:<model>]]... [--requester <id>|none] [--name <name>] [--offline] [--json] <spec> [-- <claude args>... [<focus>]]
 ws review wait [--timeout <duration>] [--json] <id>
 ws review report [--format json|markdown|html] [--decided comment|fix|skip] [--json] (<id> | --repo <repo> --ref <sha>)
+ws review list [--repo <repo>] [--pr <n>] [--json]
 ws review decide [--json] (<id> | --repo <repo> --ref <sha>) <finding>... (--comment | --fix [--suggestion <n>] | --skip | --clear) [--note <text>]
 ws review acted [--json] (<id> | --repo <repo> --ref <sha>) <finding>... (--commented <url> | --fix-sent <agent>)
 ws review profiles [--json]
@@ -47,7 +48,9 @@ or run `wait_command` again when it's stopped. An interactive or
 `claude --bg` session has no such limit.
 
 A profile with `"missing": true` didn't submit; the review is still
-usable. Never post review findings to the pull request yourself.
+usable. Once every profile has submitted and the review agent is idle,
+`ws` removes the review's agent and workspace; `wait_command`, `ws review
+report <id>`, and `ws review list` still find it by its id. Never post review findings to the pull request yourself.
 
 **To triage** a finished review, record a decision per finding with
 `ws review decide <review> <finding>... --comment|--fix|--skip`; findings

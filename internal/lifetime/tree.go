@@ -178,28 +178,43 @@ func doomed(list []workspace.Workspace, kids map[string][]int, verdicts []verdic
 func (m *Manager) cascade(ctx context.Context, r *reader, list []workspace.Workspace, verdicts []verdict) []bool {
 	kids := children(list)
 	doom := doomed(list, kids, verdicts)
-	gone := make([]bool, len(list))
+	removed := make([]bool, len(list))
 	for _, i := range forestOrder(list, kids) {
 		if !doom[i] {
 			continue
 		}
 		ws := &list[i]
-		if kept := keptChild(list, kids[ws.ID], gone); kept != "" {
+		if kept := keptChild(list, kids[ws.ID], removed); kept != "" {
 			m.warn("kept workspace %s: %v: %s", ws.ID, ErrChildKept, kept)
 			continue
 		}
-		if verdicts[i] != keep {
-			gone[i] = m.reap(ctx, r, ws, verdicts[i])
+		if verdicts[i] == gone || verdicts[i] == abandoned {
+			removed[i] = m.reap(ctx, r, ws, verdicts[i])
 			continue
 		}
-		if _, err := m.Remove(ctx, ws, false); err != nil {
-			m.warn("couldn't remove workspace %s with its parent %s: %v", ws.ID, ws.Parent, err)
-			continue
-		}
-		m.log.InfoContext(ctx, "removed workspace with its parent", slog.String("id", ws.ID), slog.String("parent", ws.Parent))
-		gone[i] = true
+		removed[i] = m.removeLive(ctx, ws, verdicts[i])
 	}
-	return gone
+	return removed
+}
+
+// removeLive removes a workspace whose session still exists, as ws rm
+// does: a finished review (ADR 0045), or a descendant of one being
+// removed (ADR 0044). A failure is a warning.
+func (m *Manager) removeLive(ctx context.Context, ws *workspace.Workspace, v verdict) bool {
+	if _, err := m.Remove(ctx, ws, false); err != nil {
+		if v == finished {
+			m.warn("couldn't remove finished review %s: %v", ws.ID, err)
+		} else {
+			m.warn("couldn't remove workspace %s with its parent %s: %v", ws.ID, ws.Parent, err)
+		}
+		return false
+	}
+	if v == finished {
+		m.log.InfoContext(ctx, "removed finished review", slog.String("id", ws.ID))
+	} else {
+		m.log.InfoContext(ctx, "removed workspace with its parent", slog.String("id", ws.ID), slog.String("parent", ws.Parent))
+	}
+	return true
 }
 
 // keptChild is the id of a child, by index, that isn't gone, or "".
