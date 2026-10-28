@@ -84,6 +84,15 @@ func newFixture(t *testing.T) *fixture {
 		AbandonedFunc:  func(id string) (bool, error) { return f.abandoned[id], nil },
 		GuardedDirFunc: func(id string) (string, error) { return "/cfg/workspaces/" + id, nil },
 		RemoveFunc:     func(string, workspace.RemoveOptions) error { return nil },
+		ClearParentFunc: func(id string) (workspace.Workspace, error) {
+			for i := range f.workspaces {
+				if f.workspaces[i].ID == id {
+					f.workspaces[i].Parent = ""
+					return f.workspaces[i], nil
+				}
+			}
+			return workspace.Workspace{}, workspace.ErrNotFound
+		},
 	}
 	f.claude = &claudeClientMock{
 		AgentsFunc: func(context.Context, claude.ListOptions) ([]claude.Session, error) { return f.sessions, nil },
@@ -143,6 +152,17 @@ func (f *fixture) add(id string) workspace.Workspace {
 	ws := workspace.Workspace{Version: 1, ID: id, Path: "/cfg/workspaces/" + id, CreatedAt: testNow().Add(-time.Hour)}
 	f.workspaces = append(f.workspaces, ws)
 	return ws
+}
+
+// childOf makes workspace id a child of parent.
+func (f *fixture) childOf(id, parent string) workspace.Workspace {
+	for i := range f.workspaces {
+		if f.workspaces[i].ID == id {
+			f.workspaces[i].Parent = parent
+			return f.workspaces[i]
+		}
+	}
+	panic("no workspace " + id)
 }
 
 // agent adds workspace id with an agent session.

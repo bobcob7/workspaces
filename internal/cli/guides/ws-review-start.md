@@ -22,7 +22,8 @@ Returns as soon as the agent has started.
   base, or the commit's against its first parent. `ws review profiles`
   lists the profiles.
 - **Requester**: the workspace you run this in, recorded so the review
-  can be traced back; `--requester <id>` names another, `none` none.
+  can be traced back; `--requester <id>` names another, `none` none. The
+  requester is also the review's parent: removing it removes the review.
 - After `--`: options for `claude` (`--model opus`), and last, the
   **focus**: what you want the reviewers to look at, added to their
   prompts. Give options their values with `=` (`--model=opus`) when no

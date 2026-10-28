@@ -19,6 +19,11 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   review`.
 - Never run `ws restart` unless told to: it interrupts every background
   agent on the machine, not only yours.
+- What you start from your workspace (`ws claude`, `ws review start`) is
+  your child, and is removed with your workspace. Remove each child with
+  `ws rm` as soon as you've used its result; `ws list --json --parent
+  <your workspace id>` lists them. Use `--parent none` only for work meant
+  to outlive you.
 - Removing a workspace discards everything in it, whatever its git state.
   Push, or copy out, anything worth keeping before `ws rm` or `claude rm`.
 
@@ -138,7 +143,7 @@ messages aren't.
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth` |
 | 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.

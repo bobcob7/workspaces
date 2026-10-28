@@ -17,6 +17,7 @@ type claudeOptions struct {
 	name       string
 	offline    bool
 	hidden     bool
+	parent     string
 	specs      []string
 	claudeArgs []string
 }
@@ -34,14 +35,17 @@ func (a *App) newClaudeCmd() *cobra.Command {
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
 	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views")
+	cmd.Flags().StringVar(&opts.parent, "parent", "", "the workspace this one is removed with, or none; default: the one ws runs in")
 	return cmd
 }
 
 // claudeResult is ws claude's output (docs/tools/ws-claude.md).
 type claudeResult struct {
-	ID       string       `json:"id"`
-	Session  string       `json:"session"`
-	Path     string       `json:"path"`
+	ID      string `json:"id"`
+	Session string `json:"session"`
+	Path    string `json:"path"`
+	// Parent is the workspace this one is removed with (ADR 0044).
+	Parent   *string      `json:"parent"`
 	Repos    []claudeRepo `json:"repos"`
 	Warnings []string     `json:"warnings"`
 }
@@ -67,7 +71,11 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err := a.claude.Check(ctx); err != nil {
 		return domainError(err)
 	}
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Hidden: opts.hidden})
+	parent, err := a.enclosingOr(opts.parent)
+	if err != nil {
+		return err
+	}
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Hidden: opts.hidden, Parent: parent})
 	if err != nil {
 		a.printWarnings()
 		return domainError(err)
@@ -210,7 +218,7 @@ func (a *App) claudeResultOf(ws *workspace.Workspace, session string) claudeResu
 	for _, r := range ws.Repos {
 		repos = append(repos, claudeRepo{ID: r.ID, Path: r.Path, Ref: r.Ref, RefKind: r.RefKind, Commit: r.Commit})
 	}
-	return claudeResult{ID: ws.ID, Session: session, Path: ws.Path, Repos: repos, Warnings: a.warnings()}
+	return claudeResult{ID: ws.ID, Session: session, Path: ws.Path, Parent: optional(ws.Parent), Repos: repos, Warnings: a.warnings()}
 }
 
 // specsBeforeDash checks the repo specs before "--". There may be none,

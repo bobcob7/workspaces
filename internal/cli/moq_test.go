@@ -1381,8 +1381,8 @@ var _ lifetimeManager = &lifetimeManagerMock{}
 //			ListFunc: func(ctx context.Context) (lifetime.Listing, error) {
 //				panic("mock out the List method")
 //			},
-//			RemoveFunc: func(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error) {
-//				panic("mock out the Remove method")
+//			RemoveTreeFunc: func(ctx context.Context, ws *workspace.Workspace, opts lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+//				panic("mock out the RemoveTree method")
 //			},
 //			RestartFunc: func(ctx context.Context, opts lifetime.RestartOptions) ([]lifetime.Restarted, error) {
 //				panic("mock out the Restart method")
@@ -1406,8 +1406,8 @@ type lifetimeManagerMock struct {
 	// ListFunc mocks the List method.
 	ListFunc func(ctx context.Context) (lifetime.Listing, error)
 
-	// RemoveFunc mocks the Remove method.
-	RemoveFunc func(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error)
+	// RemoveTreeFunc mocks the RemoveTree method.
+	RemoveTreeFunc func(ctx context.Context, ws *workspace.Workspace, opts lifetime.TreeOptions) ([]lifetime.TreeItem, error)
 
 	// RestartFunc mocks the Restart method.
 	RestartFunc func(ctx context.Context, opts lifetime.RestartOptions) ([]lifetime.Restarted, error)
@@ -1428,14 +1428,14 @@ type lifetimeManagerMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// Remove holds details about calls to the Remove method.
-		Remove []struct {
+		// RemoveTree holds details about calls to the RemoveTree method.
+		RemoveTree []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Ws is the ws argument value.
 			Ws *workspace.Workspace
-			// DryRun is the dryRun argument value.
-			DryRun bool
+			// Opts is the opts argument value.
+			Opts lifetime.TreeOptions
 		}
 		// Restart holds details about calls to the Restart method.
 		Restart []struct {
@@ -1460,12 +1460,12 @@ type lifetimeManagerMock struct {
 		Warnings []struct {
 		}
 	}
-	lockList     sync.RWMutex
-	lockRemove   sync.RWMutex
-	lockRestart  sync.RWMutex
-	lockRestore  sync.RWMutex
-	lockSweep    sync.RWMutex
-	lockWarnings sync.RWMutex
+	lockList       sync.RWMutex
+	lockRemoveTree sync.RWMutex
+	lockRestart    sync.RWMutex
+	lockRestore    sync.RWMutex
+	lockSweep      sync.RWMutex
+	lockWarnings   sync.RWMutex
 }
 
 // List calls ListFunc.
@@ -1500,43 +1500,43 @@ func (mock *lifetimeManagerMock) ListCalls() []struct {
 	return calls
 }
 
-// Remove calls RemoveFunc.
-func (mock *lifetimeManagerMock) Remove(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error) {
-	if mock.RemoveFunc == nil {
-		panic("lifetimeManagerMock.RemoveFunc: method is nil but lifetimeManager.Remove was just called")
+// RemoveTree calls RemoveTreeFunc.
+func (mock *lifetimeManagerMock) RemoveTree(ctx context.Context, ws *workspace.Workspace, opts lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+	if mock.RemoveTreeFunc == nil {
+		panic("lifetimeManagerMock.RemoveTreeFunc: method is nil but lifetimeManager.RemoveTree was just called")
 	}
 	callInfo := struct {
-		Ctx    context.Context
-		Ws     *workspace.Workspace
-		DryRun bool
+		Ctx  context.Context
+		Ws   *workspace.Workspace
+		Opts lifetime.TreeOptions
 	}{
-		Ctx:    ctx,
-		Ws:     ws,
-		DryRun: dryRun,
+		Ctx:  ctx,
+		Ws:   ws,
+		Opts: opts,
 	}
-	mock.lockRemove.Lock()
-	mock.calls.Remove = append(mock.calls.Remove, callInfo)
-	mock.lockRemove.Unlock()
-	return mock.RemoveFunc(ctx, ws, dryRun)
+	mock.lockRemoveTree.Lock()
+	mock.calls.RemoveTree = append(mock.calls.RemoveTree, callInfo)
+	mock.lockRemoveTree.Unlock()
+	return mock.RemoveTreeFunc(ctx, ws, opts)
 }
 
-// RemoveCalls gets all the calls that were made to Remove.
+// RemoveTreeCalls gets all the calls that were made to RemoveTree.
 // Check the length with:
 //
-//	len(mockedlifetimeManager.RemoveCalls())
-func (mock *lifetimeManagerMock) RemoveCalls() []struct {
-	Ctx    context.Context
-	Ws     *workspace.Workspace
-	DryRun bool
+//	len(mockedlifetimeManager.RemoveTreeCalls())
+func (mock *lifetimeManagerMock) RemoveTreeCalls() []struct {
+	Ctx  context.Context
+	Ws   *workspace.Workspace
+	Opts lifetime.TreeOptions
 } {
 	var calls []struct {
-		Ctx    context.Context
-		Ws     *workspace.Workspace
-		DryRun bool
+		Ctx  context.Context
+		Ws   *workspace.Workspace
+		Opts lifetime.TreeOptions
 	}
-	mock.lockRemove.RLock()
-	calls = mock.calls.Remove
-	mock.lockRemove.RUnlock()
+	mock.lockRemoveTree.RLock()
+	calls = mock.calls.RemoveTree
+	mock.lockRemoveTree.RUnlock()
 	return calls
 }
 

@@ -145,8 +145,15 @@ func parseChoices(profiles, auto []string) (explicit, autoChoices []start.Choice
 
 // reviewRequester is the workspace asking for the review (ADR 0039):
 // --requester's, "" for none, or by default the workspace ws runs in, ""
-// outside one.
+// outside one. It is also the review's parent (ADR 0044).
 func (a *App) reviewRequester(flag string) (string, error) {
+	return a.enclosingOr(flag)
+}
+
+// enclosingOr is the workspace flag names, "" for none, or without one
+// the workspace ws runs in, "" outside one: --requester's and --parent's
+// rule (ADRs 0039, 0044).
+func (a *App) enclosingOr(flag string) (string, error) {
 	if flag == requesterNone {
 		return "", nil
 	}
@@ -354,7 +361,7 @@ func (a *App) startReview(ctx context.Context, rec *record.Record, target *revie
 	prepare := func(ws *workspace.Workspace) error {
 		return record.Write(record.Path(a.paths.State, ws.ID), rec)
 	}
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: name, Specs: []repo.Spec{sp}, Offline: true, Hidden: true, Prepare: prepare})
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: name, Specs: []repo.Spec{sp}, Offline: true, Hidden: true, Parent: rec.Requester, Prepare: prepare})
 	if err != nil {
 		a.printWarnings()
 		return domainError(err)

@@ -88,11 +88,11 @@ func TestApp_runList(t *testing.T) {
 		assert.JSONEq(t, `{"workspaces":[
 			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false},
-			 "hidden":false,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
 			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null},
-			 "hidden":false,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
-			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"repos":[],"review":null}
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
+			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null}
 		],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--json with nothing to list", func(t *testing.T) {
@@ -165,6 +165,44 @@ func TestApp_runList(t *testing.T) {
 		e.app.global.json = true
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{repo: "api"}))
 		assert.JSONEq(t, `{"workspaces":[],"hidden_count":1,"warnings":[]}`, e.stdout.String())
+	})
+	child := func(id, parent string) lifetime.Entry {
+		ws := listedWorkspace(id)
+		ws.Parent = parent
+		return lifetime.Entry{Workspace: ws, Session: &lifetime.Session{Kind: lifetime.KindShell, State: lifetime.StateRunning}}
+	}
+	t.Run("lists each workspace under the one that started it", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{agent, shell, child("a", "fix-login"), child("a1", "a"), child("orphan", "gone")}, nil)
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.Equal(t, ""+
+			"ID          NAME        CREATED   SESSION                   REPOS\n"+
+			"fix-login   Fix login   2h ago    agent e8cdf5d8: stopped   buff-bear@main\n"+
+			"└ a         -           2h ago    shell                     buff-bear@main\n"+
+			"  └ a1      -           2h ago    shell                     buff-bear@main\n"+
+			"api-bump    -           2h ago    shell                     buff-bear@main\n"+
+			"orphan      -           2h ago    shell                     buff-bear@main\n", e.stdout.String())
+	})
+	t.Run("--json gives each workspace its parent, oldest first", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{child("a", "fix-login"), agent}, nil)
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 2)
+		assert.Equal(t, "fix-login", *got.Workspaces[0].Parent)
+		assert.Nil(t, got.Workspaces[1].Parent)
+	})
+	t.Run("--parent lists only its direct children", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{agent, child("a", "fix-login"), child("a1", "a"), shell}, []string{"/cfg/workspaces/stray"})
+		e.store.FindFunc = func(arg string) (workspace.Workspace, error) { return workspace.Workspace{ID: arg}, nil }
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true, parent: "fix-login"}))
+		assert.Equal(t, "a\n", e.stdout.String())
+	})
+	t.Run("--parent naming no workspace", func(t *testing.T) {
+		e := newListApp(nil, nil)
+		e.store.FindFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{}, workspace.ErrNotFound }
+		requireCode(t, codeWorkspaceNotFound, e.app.runList(t.Context(), &listOptions{parent: "nope"}))
+		assert.Empty(t, e.lifetime.ListCalls())
 	})
 	t.Run("an invalid --repo", func(t *testing.T) {
 		e := newListApp(nil, nil)

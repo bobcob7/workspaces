@@ -1,7 +1,7 @@
 # ws claude
 
 ```
-ws claude [--name <name>] [--offline] [--hidden] [--json] [<spec>...] [-- <claude args>...]
+ws claude [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--json] [<spec>...] [-- <claude args>...]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, then
@@ -11,6 +11,8 @@ starts a Claude Code background session in it. This is how to hand work to anoth
 
 - To give a task to a new agent in its own copy of the repos. Put the
   prompt after `--`, and use `--json`.
+- The new workspace is your child: removing yours removes it. Remove it
+  yourself with `ws rm` once you've used its result.
 - Not to run something yourself: work in your own workspace instead.
 
 With a prompt, `ws` returns as soon as Claude Code has accepted the
@@ -44,6 +46,7 @@ Its workspace stays, even after it finishes, until the session is deleted
 | `--name <name>` | Name the workspace. The name is shown by `ws list` and can be changed with `ws rename`; the id is made from it once: lowercased, accents dropped, other characters become `-`, and 8 random hex digits added (`"Fix Login"` → `fix-login-d8efb24f`). Without it the id is generated, like `ws-20261018-k3f9qa` |
 | `--offline`     | Don't fetch; use the cache as it is. Uncached repos and refs fail |
 | `--hidden`      | Hide the workspace: `ws list` shows it only with `-a`, and the desktop app keeps it in a collapsed Hidden group that doesn't count as waiting for input. For helpers the user needn't follow; see `ws llm hide` |
+| `--parent <id>\|none` | The workspace this one is removed with; default: the workspace you run `ws` in, so a helper you start is yours. `none` for work meant to outlive you |
 | `--json`        | Print the result as JSON                                    |
 
 ## JSON output

@@ -13,8 +13,9 @@ import (
 )
 
 type rmOptions struct {
-	dryRun     bool
-	workspaces []string
+	dryRun       bool
+	keepChildren bool
+	workspaces   []string
 }
 
 func (a *App) newRmCmd() *cobra.Command {
@@ -29,12 +30,16 @@ func (a *App) newRmCmd() *cobra.Command {
 		})),
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print what would be removed, change nothing")
+	cmd.Flags().BoolVar(&opts.keepChildren, "keep-children", false, "make the workspaces it started top-level instead of removing them")
 	return cmd
 }
 
 // rmJSON is one workspace in ws rm's output (docs/tools/ws-rm.md).
 type rmJSON struct {
-	ID      string         `json:"id"`
+	ID string `json:"id"`
+	// Parent is the workspace it was started from, for a descendant
+	// removed with it (ADR 0044).
+	Parent  *string        `json:"parent"`
 	Removed bool           `json:"removed"`
 	Error   *itemErrorJSON `json:"error"`
 }
@@ -48,21 +53,30 @@ type rmTarget struct {
 	err   error
 }
 
-// runRm removes each workspace named, with its session. A failure doesn't
-// stop the others; the exit code is the first failure's (ADR 0016).
+// runRm removes each workspace named, with its session and its
+// descendants, deepest first (ADR 0044), each reported as an item. A
+// failure doesn't stop the others; the exit code is the first failure's
+// (ADR 0016).
 func (a *App) runRm(ctx context.Context, opts *rmOptions) error {
 	var items itemResults
 	results := []rmJSON{}
+	done := map[string]bool{}
 	targets := a.rmTargets(opts.workspaces)
 	for i := range targets {
 		t := &targets[i]
-		r, err := a.rmOne(ctx, t, opts.dryRun)
-		id := t.arg
-		if err == nil {
-			id = r.Workspace.ID
+		if t.err != nil || t.swept != nil {
+			r, err := t.unremovable()
+			id := t.arg
+			if err == nil {
+				id = r.Workspace.ID
+			}
+			removed := err == nil && t.swept != nil
+			results = append(results, rmJSON{ID: id, Removed: removed, Error: items.add(rmLine(&r, removed, false), err)})
+			continue
 		}
-		removed := err == nil && (t.swept != nil || !opts.dryRun)
-		results = append(results, rmJSON{ID: id, Removed: removed, Error: items.add(rmLine(&r, removed), err)})
+		if !done[t.ws.ID] {
+			results = append(results, a.rmTree(ctx, &t.ws, opts, done, &items)...)
+		}
 	}
 	return a.finishItems("workspaces", results, &items)
 }
@@ -122,26 +136,53 @@ func (a *App) sweptMatch(arg string) (lifetime.Removed, bool) {
 	return lifetime.Removed{}, false
 }
 
-// rmOne removes one target, or with dryRun checks that it could. A
-// workspace the removal pass already removed needs nothing more.
-func (a *App) rmOne(ctx context.Context, t *rmTarget, dryRun bool) (lifetime.Removed, error) {
-	switch {
-	case t.err != nil:
-		return lifetime.Removed{}, t.err
-	case t.swept != nil:
-		return *t.swept, nil
+// rmTree removes ws and its descendants and returns an item for each that
+// done doesn't already hold, adding it to done.
+func (a *App) rmTree(ctx context.Context, ws *workspace.Workspace, opts *rmOptions, done map[string]bool, items *itemResults) []rmJSON {
+	tree, err := a.lifetime.RemoveTree(ctx, ws, lifetime.TreeOptions{DryRun: opts.dryRun, KeepChildren: opts.keepChildren})
+	if err != nil {
+		tree = []lifetime.TreeItem{{Workspace: *ws, Err: err}}
 	}
-	return a.lifetime.Remove(ctx, &t.ws, dryRun)
+	var results []rmJSON
+	for j := range tree {
+		item := &tree[j]
+		if done[item.Workspace.ID] {
+			continue
+		}
+		done[item.Workspace.ID] = true
+		child := item.Workspace.ID != ws.ID
+		removed := item.Err == nil && !opts.dryRun
+		r := rmJSON{ID: item.Workspace.ID, Removed: removed, Error: items.add(rmLine(&item.Removed, removed, child), item.Err)}
+		if child {
+			r.Parent = &item.Workspace.Parent
+		}
+		results = append(results, r)
+	}
+	return results
 }
 
-// rmLine is the text output for a workspace removed, or that would be.
-func rmLine(r *lifetime.Removed, removed bool) string {
+// unremovable is a target that names no workspace, or one the removal
+// pass already removed, which needs nothing more.
+func (t *rmTarget) unremovable() (lifetime.Removed, error) {
+	if t.err != nil {
+		return lifetime.Removed{}, t.err
+	}
+	return *t.swept, nil
+}
+
+// rmLine is the text output for a workspace removed, or that would be; a
+// descendant removed with the one named is marked "└ ".
+func rmLine(r *lifetime.Removed, removed, child bool) string {
 	verb := "removed"
 	if !removed {
 		verb = "would remove"
 	}
-	if r.SessionID == "" {
-		return fmt.Sprintf("%s  %s", verb, r.Workspace.ID)
+	id := r.Workspace.ID
+	if child {
+		id = "└ " + id
 	}
-	return fmt.Sprintf("%s  %s  %s", verb, r.Workspace.ID, r.SessionID)
+	if r.SessionID == "" {
+		return fmt.Sprintf("%s  %s", verb, id)
+	}
+	return fmt.Sprintf("%s  %s  %s", verb, id, r.SessionID)
 }

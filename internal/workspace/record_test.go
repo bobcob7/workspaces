@@ -82,12 +82,12 @@ func TestReadRecord(t *testing.T) {
 	})
 	t.Run("a newer version", func(t *testing.T) {
 		t.Parallel()
-		_, err := readRecord(recordIn(t, "version = 3\nid = \"fix-login\"\npath = \"/w/fix-login\"\n"))
-		assert.ErrorContains(t, err, "written by a newer ws (version 3; this ws reads up to 2); upgrade ws")
+		_, err := readRecord(recordIn(t, "version = 4\nid = \"fix-login\"\npath = \"/w/fix-login\"\n"))
+		assert.ErrorContains(t, err, "written by a newer ws (version 4; this ws reads up to 3); upgrade ws")
 	})
 	t.Run("a newer version with keys this ws doesn't know", func(t *testing.T) {
 		t.Parallel()
-		_, err := readRecord(recordIn(t, "version = 3\nid = \"fix-login\"\npath = \"/w/fix-login\"\nextra = 1\n"))
+		_, err := readRecord(recordIn(t, "version = 4\nid = \"fix-login\"\npath = \"/w/fix-login\"\nextra = 1\n"))
 		assert.ErrorContains(t, err, "newer ws")
 	})
 	t.Run("no version", func(t *testing.T) {
@@ -146,6 +146,21 @@ func TestWriteRecord(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, ws, got)
 	})
+	t.Run("a workspace with a parent is version 3, hidden or not", func(t *testing.T) {
+		t.Parallel()
+		for _, hidden := range []bool{false, true} {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "x", "workspace.toml")
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+			ws := sampleRecord("/w", "x")
+			ws.Parent, ws.Hidden = "fix-login-d8efb24f", hidden
+			require.NoError(t, writeRecord(path, &ws))
+			got, err := readRecord(path)
+			require.NoError(t, err)
+			assert.Equal(t, parentVersion, got.Version)
+			assert.Equal(t, ws, got)
+		}
+	})
 	t.Run("missing directory", func(t *testing.T) {
 		t.Parallel()
 		err := writeRecord(filepath.Join(t.TempDir(), "missing", "workspace.toml"), new(sampleRecord("/w", "x")))
@@ -192,6 +207,10 @@ func TestCheckVersion(t *testing.T) {
 	t.Run("newer", func(t *testing.T) {
 		t.Parallel()
 		assert.ErrorContains(t, checkVersion(3, 1), "written by a newer ws (version 3; this ws reads up to 1); upgrade ws")
+	})
+	t.Run("a record with a parent read by a ws from before trees", func(t *testing.T) {
+		t.Parallel()
+		assert.ErrorContains(t, checkVersion(parentVersion, hiddenVersion), "upgrade ws")
 	})
 	t.Run("a hidden record read by a ws from before hidden", func(t *testing.T) {
 		t.Parallel()

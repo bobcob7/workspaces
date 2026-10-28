@@ -236,6 +236,16 @@ func TestApp_reviewRequester(t *testing.T) {
 		assert.Equal(t, "fix-login-d8efb24f", e.record(t).Requester)
 		assert.Equal(t, "/cfg/workspaces/fix-login-d8efb24f/buff-bear", e.store.ContainingCalls()[0].Dir)
 	})
+	t.Run("is the review's parent", func(t *testing.T) {
+		e := newReviewStartEnv(t)
+		require.NoError(t, e.start(t, &reviewStartOptions{pr: 42}))
+		assert.Equal(t, "fix-login-d8efb24f", e.store.CreateCalls()[0].Opts.Parent)
+	})
+	t.Run("none makes a review with no parent", func(t *testing.T) {
+		e := newReviewStartEnv(t)
+		require.NoError(t, e.start(t, &reviewStartOptions{pr: 42, requester: "none"}))
+		assert.Empty(t, e.store.CreateCalls()[0].Opts.Parent)
+	})
 	t.Run("is none outside a workspace", func(t *testing.T) {
 		e := newReviewStartEnv(t)
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{}, workspace.ErrNotFound }

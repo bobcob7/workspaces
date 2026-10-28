@@ -64,7 +64,8 @@ func (m *Manager) List(ctx context.Context) (Listing, error) {
 }
 
 // pass judges every workspace's session, removes those that are gone or
-// abandoned, and returns the rest and the removed. A workspace whose
+// abandoned with their descendants (ADR 0044), and returns the rest and
+// the removed. A workspace whose
 // removal failed is among the rest, with a warning, since it is still on
 // disk. Every session record is read before Claude Code's sessions are
 // listed: `ws claude` records a session only once Claude Code has accepted
@@ -78,19 +79,20 @@ func (m *Manager) pass(ctx context.Context, r *reader) ([]Entry, []Removed, erro
 	for i := range list {
 		records[i].sess, records[i].err = m.store.Session(list[i].ID)
 	}
+	sessions := make([]*Session, len(list))
+	verdicts := make([]verdict, len(list))
+	for i := range list {
+		sessions[i], verdicts[i] = r.judge(ctx, list[i].ID, &records[i])
+	}
+	gone := m.cascade(ctx, r, list, verdicts)
 	var entries []Entry
 	var removed []Removed
 	for i := range list {
-		ws := &list[i]
-		sess, v := r.judge(ctx, ws.ID, &records[i])
-		switch {
-		case v == keep:
-			entries = append(entries, Entry{Workspace: *ws, Session: sess})
-		case m.reap(ctx, r, ws, v):
-			removed = append(removed, Removed{Workspace: *ws, SessionID: sessionID(sess)})
-		default:
-			entries = append(entries, Entry{Workspace: *ws, Session: sess})
+		if gone[i] {
+			removed = append(removed, Removed{Workspace: list[i], SessionID: sessionID(sessions[i])})
+			continue
 		}
+		entries = append(entries, Entry{Workspace: list[i], Session: sessions[i]})
 	}
 	return entries, removed, nil
 }
