@@ -111,11 +111,21 @@ pub fn gh_error(stderr: &str) -> AppError {
 }
 
 pub async fn gh(runner: &Runner, args: &[String]) -> Result<runner::Outcome, AppError> {
+    gh_with_input(runner, args, None).await
+}
+
+/// Runs `gh` with `input`, if any, on its stdin, as `gh api --input -` reads it.
+pub async fn gh_with_input(
+    runner: &Runner,
+    args: &[String],
+    input: Option<&[u8]>,
+) -> Result<runner::Outcome, AppError> {
     runner
-        .run_with_env(
+        .run_with_input(
             "gh",
             args,
             &[("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1")],
+            input,
         )
         .await
         .map_err(|e| {

@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { fakeHost, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
-import { messageKeys, ReplyBox } from "./ReplyBox";
+import { ReplyBox } from "./ReplyBox";
+import { messageKeys } from "./terminalsSlice";
 
 describe("messageKeys", () => {
   it("types a one-line message as is", () => {

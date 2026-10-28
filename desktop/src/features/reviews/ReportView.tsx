@@ -4,12 +4,15 @@ import type { DecisionKind, PullRequest, ReportComment, ReportProfile, ReviewRep
 import { useAppDispatch, useAppSelector } from "../../store";
 import { conversationClosed, fetchConversation } from "../conversation/conversationSlice";
 import { sectionChosen, selected } from "../ui/uiSlice";
+import { openCommentDialog, openFixDialog } from "./actionsSlice";
 import { FindingRow } from "./FindingRow";
 import {
   bandCount,
   decidedEarlier,
+  findingTitle,
   groupFindings,
   keyAction,
+  pendingDecision,
   profilesIn,
   severityText,
   tally,
@@ -296,6 +299,14 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
   const parts = tallyParts(counts);
   const toComment = counts.comment;
   const toFix = counts.fix;
+  const subject = { prKey: pr.key, repo: pr.repo, ref: review.sha };
+  const comment = (): void => void dispatch(openCommentDialog({ ...subject, number: pr.number }));
+  const fix = (): void => {
+    const findings = report.comments
+      .filter((c) => pendingDecision(c) === "fix")
+      .map((c) => ({ id: c.id, title: findingTitle(c.body) }));
+    void dispatch(openFixDialog({ ...subject, review: review.workspaceId, findings }));
+  };
 
   return (
     <div className={styles.root}>
@@ -428,11 +439,11 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
         <Button size="small" onClick={() => void dispatch(openFullReport({ repo: pr.repo, ref: review.sha }))}>
           Open full report
         </Button>
-        {/* Comment and Fix act on the decisions; they arrive with ADR 0041's step. */}
-        <Button size="small" variant="outlined" disabled>
+        {/* Disabled while the agent works, so nothing is acted on while findings still arrive. */}
+        <Button size="small" variant="outlined" disabled={working || toComment === 0} onClick={comment}>
           {toComment > 0 && !working ? `Comment on ${toComment}…` : "Comment…"}
         </Button>
-        <Button size="small" variant="contained" disabled>
+        <Button size="small" variant="contained" disabled={working || toFix === 0} onClick={fix}>
           {toFix > 0 && !working ? `Fix ${toFix}…` : "Fix…"}
         </Button>
       </footer>

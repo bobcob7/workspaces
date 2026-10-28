@@ -179,9 +179,73 @@ pub async fn decide(
     git_ref: &str,
     req: &DecideRequest,
 ) -> Result<Value, AppError> {
-    let decided: Decided = runner
-        .ws_json_as_given(&decide_args(repo, git_ref, req)?)
-        .await?;
+    record(
+        runner,
+        cache,
+        repo,
+        git_ref,
+        &decide_args(repo, git_ref, req)?,
+    )
+    .await
+}
+
+/// How decided findings were acted on (ADR 0041).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Acted<'a> {
+    /// Posted in the review at this URL.
+    Commented(&'a str),
+    /// Sent to this agent to fix.
+    FixSent(&'a str),
+}
+
+/// `ws review acted --json --repo R --ref SHA <finding>... (--commented URL
+/// | --fix-sent AGENT)`.
+pub fn acted_args(
+    repo: &str,
+    git_ref: &str,
+    findings: &[String],
+    acted: Acted<'_>,
+) -> Result<Vec<String>, AppError> {
+    if findings.is_empty() {
+        return Err(AppError::new("usage", "no findings were acted on"));
+    }
+    let mut args = vec!["review", "acted", "--json"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    args.extend(subject_args(repo, git_ref));
+    args.extend(findings.iter().cloned());
+    let (flag, value) = match acted {
+        Acted::Commented(url) => ("--commented", url),
+        Acted::FixSent(agent) => ("--fix-sent", agent),
+    };
+    args.extend([flag.to_string(), value.to_string()]);
+    Ok(args)
+}
+
+/// Runs `ws review acted` and returns the report with the findings done.
+pub async fn acted(
+    runner: &Runner,
+    cache: &Cache,
+    repo: &str,
+    git_ref: &str,
+    findings: &[String],
+    how: Acted<'_>,
+) -> Result<Value, AppError> {
+    let args = acted_args(repo, git_ref, findings, how)?;
+    record(runner, cache, repo, git_ref, &args).await
+}
+
+/// Runs a `ws review` command that prints decisions, and applies them to
+/// the cached report, or reads the report when none is cached.
+async fn record(
+    runner: &Runner,
+    cache: &Cache,
+    repo: &str,
+    git_ref: &str,
+    args: &[String],
+) -> Result<Value, AppError> {
+    let decided: Decided = runner.ws_json_as_given(args).await?;
     let key = (repo.to_string(), git_ref.to_string());
     match cache.apply(&key, &decided.decisions) {
         Some(report) => Ok(report),
@@ -332,6 +396,33 @@ mod tests {
         let mut req = request(Decision::Skip, None, "");
         req.findings.clear();
         assert_eq!(decide_args(REPO, REF, &req).unwrap_err().code, "usage");
+    }
+
+    #[test]
+    fn acted_args_name_the_review_url() {
+        let ids = vec!["security:a-1".to_string()];
+        let args = acted_args(REPO, REF, &ids, Acted::Commented("https://x/pull/42#r1")).unwrap();
+        assert_eq!(
+            args.join(" "),
+            format!(
+                "review acted --json --repo {REPO} --ref {REF} security:a-1 --commented https://x/pull/42#r1"
+            )
+        );
+    }
+
+    #[test]
+    fn acted_args_name_the_fix_agent() {
+        let ids = vec!["security:a-1".to_string(), "tests:b-1".to_string()];
+        let args = acted_args(REPO, REF, &ids, Acted::FixSent("fix-login-rate")).unwrap();
+        assert!(args
+            .join(" ")
+            .ends_with("security:a-1 tests:b-1 --fix-sent fix-login-rate"));
+    }
+
+    #[test]
+    fn acted_args_refuse_no_findings() {
+        let err = acted_args(REPO, REF, &[], Acted::FixSent("a")).unwrap_err();
+        assert_eq!(err.code, "usage");
     }
 
     #[test]

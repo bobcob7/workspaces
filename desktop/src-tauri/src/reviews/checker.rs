@@ -146,6 +146,16 @@ impl Checker {
         self.state.lock().ok().map(|mut s| f(&mut s))
     }
 
+    /// The latest agent listing.
+    pub fn entries(&self) -> Vec<Entry> {
+        self.entries.lock().map(|e| e.clone()).unwrap_or_default()
+    }
+
+    /// The login `gh` is signed in as on a host, as last checked.
+    pub fn login(&self, host: &str) -> Option<String> {
+        self.with_state(|s| s.hosts.get(host).cloned()).flatten()
+    }
+
     /// The pull request as last checked.
     pub fn pull_request(&self, repo: &str, number: u64) -> Option<PullRequest> {
         self.with_state(|s| {

@@ -2,6 +2,7 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import { toAppError, type TermSpec } from "../../api";
 import { createAppThunk } from "../../thunk";
 import { noticeShown } from "../ui/uiSlice";
+import type { TerminalHost } from "./host";
 
 export type TerminalState = "opening" | "open" | "exited";
 
@@ -104,14 +105,30 @@ export const submitDelay = 200;
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+const bracketedPasteStart = "\x1b[200~";
+const bracketedPasteEnd = "\x1b[201~";
+
+/**
+ * The keystrokes that type message into Claude Code, without submitting
+ * it. A message with several lines is sent as a paste, so its newlines
+ * don't submit it early.
+ */
+export const messageKeys = (message: string): string =>
+  message.includes("\n") ? `${bracketedPasteStart}${message}${bracketedPasteEnd}` : message;
+
 /** Types text into a terminal, then presses Enter once the text has settled. */
+export const typeMessage = async (host: TerminalHost, key: string, text: string): Promise<void> => {
+  await host.send(key, text);
+  await delay(submitDelay);
+  await host.send(key, "\r");
+};
+
+/** Types text into a terminal and submits it, showing a failure as a notice. */
 export const sendMessage = createAppThunk<void, { key: string; text: string }>(
   "terminals/sendMessage",
   async ({ key, text }, { extra, dispatch }) => {
     try {
-      await extra.terminals.send(key, text);
-      await delay(submitDelay);
-      await extra.terminals.send(key, "\r");
+      await typeMessage(extra.terminals, key, text);
     } catch (err: unknown) {
       dispatch(noticeShown({ severity: "error", message: toAppError(err).message }));
     }

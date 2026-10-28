@@ -2,7 +2,9 @@ import { vi } from "vitest";
 import type {
   Api,
   CachedRepo,
+  CommentPlan,
   Entry,
+  FixPlan,
   ListedProfile,
   PullRequest,
   RepoRef,
@@ -154,6 +156,60 @@ export const reviewSettings = (overrides: Partial<ReviewSettings> = {}): ReviewS
   ...overrides,
 });
 
+export const commentPlan = (overrides: Partial<CommentPlan> = {}): CommentPlan => ({
+  number: 42,
+  commitId: head,
+  head,
+  outdated: false,
+  login: "bobcob7",
+  pendingReview: null,
+  prUrl: "https://github.com/bobcob7/buff-bear/pull/42",
+  body: "2 findings from an agent review (go, security). Details inline.",
+  comments: [
+    {
+      finding: "go:leaked-goroutine-1",
+      kind: "line",
+      path: "ratelimit/limiter.go",
+      line: 58,
+      startLine: null,
+      body: "**Should fix · correctness** — The sweeper goroutine never exits.\n\n<sub>ws review · `go:leaked-goroutine-1`</sub>",
+    },
+    {
+      finding: "security:retry-after-zero-1",
+      kind: "file",
+      path: "ratelimit/middleware.go",
+      line: null,
+      startLine: null,
+      body: "**Should fix · security** — Retry-After is computed with integer seconds; cc `@alice`.\n\n<sub>ws review · `security:retry-after-zero-1`</sub>",
+    },
+  ],
+  findings: ["go:leaked-goroutine-1", "security:retry-after-zero-1"],
+  inBody: 0,
+  ...overrides,
+});
+
+export const fixPlan = (overrides: Partial<FixPlan> = {}): FixPlan => ({
+  findings: ["security:spoofable-client-ip-1"],
+  requester: {
+    workspaceId: "fix-login-rate",
+    sessionId: "e8cdf5d8",
+    path: "/w/fix-login-rate",
+    status: "idle",
+    available: true,
+    reason: null,
+  },
+  target: "requester",
+  agent: {
+    name: "fix-buff-bear-42-3f2a9c1",
+    spec: "github.com/bobcob7/buff-bear@feat/rate-limit",
+    branch: null,
+    command: "ws claude --json --name fix-buff-bear-42-3f2a9c1 github.com/bobcob7/buff-bear@feat/rate-limit",
+  },
+  requesterMessage: "Fix the 1 finding decided \"fix\"…\n\nWhen done, push, and start a new review with: ws review start --pr 42 github.com/bobcob7/buff-bear",
+  agentMessage: "Fix the 1 finding decided \"fix\"… (agent)",
+  ...overrides,
+});
+
 export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   listEntries: vi.fn(async () => ({ entries: [], warnings: [] })),
   cacheRepos: vi.fn(async () => []),
@@ -197,6 +253,11 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewReport: vi.fn(async () => reviewReport()),
   reviewDecide: vi.fn(async () => reviewReport()),
   reviewOpenReport: vi.fn(async () => "/cache/reviews/review-buff-bear-3f2a9c1.html"),
+  reviewCommentPlan: vi.fn(async () => commentPlan()),
+  reviewCommentPost: vi.fn(async () => ({ url: "https://github.com/bobcob7/buff-bear/pull/42#pullrequestreview-99", report: reviewReport(), warning: null })),
+  reviewFixPlan: vi.fn(async () => fixPlan()),
+  reviewFixStart: vi.fn(async () => ({ agent: "fix-buff-bear-42-3f2a9c1-0a1b2c3d", session: "5f6e7d8c", report: reviewReport(), warning: null })),
+  reviewFixSent: vi.fn(async () => reviewReport()),
   settingsGet: vi.fn(async () => ({ reviews: reviewSettings() })),
   settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews })),
   ...overrides,

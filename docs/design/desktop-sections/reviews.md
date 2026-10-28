@@ -73,7 +73,11 @@ Body:
   (green-edged block) and its reply, as Agents shows a finished agent.
   More than one review (one per pushed commit) lists the newest first,
   older ones collapsed. A review that `ws review start` didn't make has
-  no report, so it shows only Description and Review agent.
+  no report, so it shows only Description and Review agent. Findings'
+  action bar has **Comment on N…**, a preview of the one GitHub review
+  that will be posted at the reviewed commit, and **Fix N…**, which sends
+  the findings decided fix to the requesting agent or a new fix agent
+  ([0041](../../adrs/0041-desktop-acts-on-findings.md)).
 - **Out of date**: a warning strip naming the commits pushed since the
   review, and **Review again**.
 
@@ -139,11 +143,22 @@ Settled by the implementing PR:
    it (`2 must fix · 7 findings`, then `2 to fix`, then `all done`) and
    Findings shows it ([0040](../../adrs/0040-review-decisions-kept-with-findings.md)).
    For one without, the summary is the agent's result.
-5. **Tests**: `cargo test` pins ADR 0032's name format and matching
+5. **Acting on findings**: Comment reads the pull request's files with
+   `gh api …/pulls/<n>/files`, places each finding as a line comment, a
+   file comment, or in the summary, and posts nothing until **Post
+   review**. It posts a pending review with the line comments, adds a
+   GraphQL file thread per file comment, then submits; a failed thread or
+   submit deletes the pending review. Fix types its message into the
+   requester's `claude attach` terminal, as the reply box does, or starts
+   `ws claude --name fix-<repo>-<n>-<sha7>`. Both then run `ws review
+   acted` ([0041](../../adrs/0041-desktop-acts-on-findings.md)).
+6. **Tests**: `cargo test` pins ADR 0032's name format and matching
    (`reviews::names`), the groups (`reviews::view`), every auto-review rule
    and the cap (`reviews::auto`), and checking with fake `gh` and `ws`
-   (`reviews::checker`); Vitest covers grouping, filtering, the badge, and
-   each component.
+   (`reviews::checker`), placement, posting and its cleanup with a fake
+   `gh` (`reviews::comment`), and the fix target and message
+   (`reviews::fix`); Vitest covers grouping, filtering, the badge, and
+   each component, both action dialogs included.
 
 ### Where the build differs from the mockups
 

@@ -3,6 +3,8 @@
 
 pub mod auto;
 pub mod checker;
+pub mod comment;
+pub mod fix;
 pub mod github;
 pub mod names;
 pub mod plan;
@@ -14,6 +16,8 @@ pub mod view;
 use crate::commands::AppState;
 use crate::runner::AppError;
 use checker::Started;
+use comment::{CommentPlan, PostRequest, Posted};
+use fix::{FixFinding, FixPlan, FixStarted, StartFix};
 use plan::ReviewPlan;
 use profiles::ListedProfile;
 use report::DecideRequest;
@@ -161,6 +165,116 @@ pub async fn review_open_report(
         .open_path(path.display().to_string(), None::<&str>)
         .map_err(|e| AppError::new("open_failed", e.to_string()))?;
     Ok(path.display().to_string())
+}
+
+/// What posting the findings decided `comment` would post, for the preview
+/// (ADR 0041). Nothing is posted.
+#[tauri::command]
+pub async fn review_comment_plan(
+    state: State<'_, AppState>,
+    repo: String,
+    git_ref: String,
+    number: u64,
+) -> CmdResult<CommentPlan> {
+    let pr = state.reviews.pull_request(&repo, number);
+    let host = github::split_repo(&repo).map_or("", |(h, _, _)| h);
+    let url = pr.as_ref().map_or_else(
+        || format!("https://{repo}/pull/{number}"),
+        |p| p.url.clone(),
+    );
+    let subject = comment::Subject {
+        repo: &repo,
+        git_ref: &git_ref,
+        number,
+        head: pr
+            .as_ref()
+            .map_or(git_ref.as_str(), |p| p.head_ref_oid.as_str()),
+        pr_url: &url,
+        login: state.reviews.login(host),
+    };
+    comment::plan(&state.runner, &state.reports, subject).await
+}
+
+/// Posts the review the person confirmed in the preview, as one GitHub
+/// review, and records the findings as commented.
+#[tauri::command]
+pub async fn review_comment_post(
+    state: State<'_, AppState>,
+    repo: String,
+    git_ref: String,
+    request: PostRequest,
+) -> CmdResult<Posted> {
+    comment::post(&state.runner, &state.reports, &repo, &git_ref, &request).await
+}
+
+/// Whom the findings decided `fix` would go to, and the message.
+#[tauri::command]
+pub async fn review_fix_plan(
+    state: State<'_, AppState>,
+    repo: String,
+    git_ref: String,
+    review: String,
+    findings: Vec<FixFinding>,
+) -> CmdResult<FixPlan> {
+    let report = report::read(&state.runner, &state.reports, &repo, &git_ref, false).await?;
+    let settings = state.store.get().settings.reviews;
+    let agent = fix::AgentSettings {
+        model: &settings.model,
+        permission_mode: &settings.permission_mode,
+    };
+    fix::plan(
+        &report,
+        &review,
+        &findings,
+        &state.reviews.entries(),
+        &agent,
+    )
+}
+
+/// Starts a fix agent with the message, and records the findings as sent
+/// to it.
+#[tauri::command]
+pub async fn review_fix_start(
+    state: State<'_, AppState>,
+    repo: String,
+    git_ref: String,
+    request: StartFix,
+) -> CmdResult<FixStarted> {
+    let settings = state.store.get().settings.reviews;
+    let agent = fix::AgentSettings {
+        model: &settings.model,
+        permission_mode: &settings.permission_mode,
+    };
+    fix::start_agent(
+        &state.runner,
+        &state.reports,
+        &repo,
+        &git_ref,
+        &request,
+        &agent,
+    )
+    .await
+}
+
+/// Records findings as sent to an agent to fix, once the app has typed the
+/// message into its terminal.
+#[tauri::command]
+pub async fn review_fix_sent(
+    state: State<'_, AppState>,
+    repo: String,
+    git_ref: String,
+    findings: Vec<String>,
+    agent: String,
+) -> CmdResult<Value> {
+    report::acted(
+        &state.runner,
+        &state.reports,
+        &repo,
+        &git_ref,
+        &findings,
+        report::Acted::FixSent(&agent),
+    )
+    .await
 }
 
 #[tauri::command]
