@@ -50,6 +50,10 @@ const (
 	codePRNotFound         errorCode = "pr_not_found"
 	// From ADR 0040.
 	codeFindingNotFound errorCode = "finding_not_found"
+	// From ADR 0042.
+	codeProfileInvalid errorCode = "profile_invalid"
+	codeProfileExists  errorCode = "profile_exists"
+	codeProfileBuiltin errorCode = "profile_builtin"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -94,12 +98,13 @@ func (c errorCode) exitCode() int {
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth:
 		return exitFailed
-	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown:
+	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound:
 		return exitNotFound
-	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch:
+	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
+		codeProfileExists, codeProfileBuiltin:
 		return exitRefused
 	}
 	return exitFailed

@@ -14,6 +14,10 @@ ws review report [--format json|markdown|html] [--decided comment|fix|skip] (<ID
 ws review decide (<ID> | --repo <REPO> --ref <SHA>) <FINDING>... (--comment | --fix [--suggestion <N>] | --skip | --clear) [--note <TEXT>]
 ws review acted (<ID> | --repo <REPO> --ref <SHA>) <FINDING>... (--commented <URL> | --fix-sent <AGENT>)
 ws review profiles
+ws review profiles show <NAME>
+ws review profiles add <NAME> --description <D> [--when <W>] [--match <GLOB>]... (--guide-file <F> | -)
+ws review profiles edit <NAME> [--description <D>] [--when <W>] [--match <GLOB>]... [--no-match] [--guide-file <F> | -]
+ws review profiles rm <NAME>
 
 # reviewers, inside a review workspace
 ws review prime [--profile <NAME>]
@@ -140,7 +144,34 @@ agent. Each finding must already be decided that way.
 ### `ws review profiles`
 
 Lists every profile with its description, `when`, `match`, and model,
-with `config.toml` applied; the desktop app's settings read it.
+with `config.toml` applied, and its `source`: `builtin`, `user` (one you
+added), or `override` (your file replacing the built-in of that name).
+`builtin` is kept beside `source` for compatibility. The desktop app's
+settings read it.
+
+Its operations manage the files in `CONFIG_DIR/review/profiles/`
+([0042](../adrs/0042-review-profile-management.md)):
+
+- **`show <NAME>`** prints one profile as the listing does, with its
+  guide and the file it's read from (`path`, null for a built-in).
+- **`add <NAME>`** writes `<NAME>.md`. The name is lowercase letters,
+  digits, and hyphens, and not `decisions`, which is reserved
+  (`profile_invalid`); a name any profile has, built in or yours, is
+  `profile_exists`. `--description` is required, and the guide comes from
+  `--guide-file` or, with `-`, stdin, and can't be empty.
+- **`edit <NAME>`** changes only the fields given: `--match` replaces the
+  patterns, and `--no-match` removes them. Editing your profile or
+  override rewrites its file; editing a built-in writes a full copy
+  first, so it becomes an `override`. An override doesn't follow later
+  improvements to its built-in.
+- **`rm <NAME>`** deletes your file. For an override that restores the
+  built-in (`restored`); a built-in without one is `profile_builtin`: set
+  it to `off` instead. A name no profile has is `profile_unknown`.
+
+Every write goes to a temp file, is parsed back, and is renamed into
+place, under a lock on the directory, so a profile that wouldn't load is
+never left behind. Reviews already running keep the guides they started
+with: `start` copies each into the session.
 
 ### Terms
 
@@ -262,7 +293,12 @@ It tells a fixer to read `ws review report --json --decided fix`.
 | `--fix-sent <AGENT>` | `acted`: the findings were sent to this agent |
 | `--lens <NAME>,...` | `describe`: open these entries |
 | `--list` | `describe`: the index alone |
-| `--json` | `start`, `wait`, `report`, `decide`, `acted`, `profiles`, `submit`: print the result below |
+| `--description <D>` | `profiles add`, `edit`: one line, at most 120 characters; required by `add` |
+| `--when always\|auto\|off` | `profiles add`, `edit`: when the profile joins a review |
+| `--match <GLOB>` | `profiles add`, `edit`: a file pattern; repeatable, and `edit` replaces them all |
+| `--no-match` | `profiles edit`: remove every file pattern |
+| `--guide-file <F>`, `-` | `profiles add`, `edit`: read the guide from a file, or from stdin |
+| `--json` | `start`, `wait`, `report`, `decide`, `acted`, `profiles` and its operations, `submit`: print the result below |
 
 `ws review start --json` prints [`ws claude`](ws-claude.md)'s result, plus
 the record and the command that waits for the report:
@@ -342,8 +378,22 @@ with its decision, or null once cleared:
 `ws review profiles --json` prints:
 
 ```json
-{"profiles": [{"name": "go", "description": "Go: concurrency, …", "when": "auto", "match": ["*.go", "go.mod"], "model": "", "builtin": true}],
+{"profiles": [{"name": "go", "description": "Go: concurrency, …", "when": "auto", "match": ["*.go", "go.mod"], "model": "", "builtin": true, "source": "builtin"}],
  "warnings": []}
+```
+
+`ws review profiles show`, `add`, and `edit --json` print the profile:
+
+```json
+{"name": "go", "description": "Go, our way", "when": "auto", "match": ["*.go", "go.mod"], "model": "",
+ "builtin": false, "source": "override", "guide": "Anchor a concurrency finding…",
+ "path": "/…/review/profiles/go.md", "warnings": []}
+```
+
+`ws review profiles rm --json` prints:
+
+```json
+{"name": "go", "path": "/…/review/profiles/go.md", "restored": true, "warnings": []}
 ```
 
 `ws review submit --json` prints:
@@ -384,6 +434,11 @@ with its decision, or null once cleared:
 | `acted`: not exactly one of `--commented` and `--fix-sent`, or a finding not decided `comment` or `fix` to match | `usage` | 2 |
 | `decide`, `acted`: a finding isn't in the current report, or is superseded; `details.findings` lists them | `finding_not_found` | 3 |
 | A profile file can't be read or parsed | `config_invalid` | 1 |
+| `profiles show`, `edit`, `rm`: no profile has the name | `profile_unknown` | 2 |
+| `profiles add`, `edit`: no `--description` for `add`, no guide or two, nothing to change, `--match` with `--no-match`, or a bad `--when` | `usage` | 2 |
+| `profiles add`, `edit`, `rm`: an invalid or reserved name; `add`, `edit`: an empty guide, or a profile that wouldn't parse back | `profile_invalid` | 2 |
+| `profiles add`: a profile already has the name | `profile_exists` | 4 |
+| `profiles rm`: a built-in with no override | `profile_builtin` | 4 |
 | The review has errors: revise and resubmit | `review_invalid` | 1 |
 | The anchors can't be checked: the checkout diverged from the commit, or doesn't have it | `review_unverifiable` | 1 |
 | Not inside a review workspace | `review_not_found` | 3 |
@@ -404,6 +459,9 @@ $ ws review decide review-buff-bear-42-3f2a9c1-d8efb24f security:dropped-context
 $ ws review report --json --decided fix review-buff-bear-42-3f2a9c1-d8efb24f
 $ ws review acted review-buff-bear-42-3f2a9c1-d8efb24f security:dropped-context-1 --fix-sent fix-buff-bear-42-3f2a9c1-0c4e1a2b
 $ ws review profiles
+$ ws review profiles add docs --description "Docs: accuracy and links" --match '*.md' - < docs-guide.md
+$ ws review profiles edit go --guide-file our-go.md
+$ ws review profiles rm go
 $ ws review prime --profile security
 $ ws review describe --lens=review-profile
 $ ws review submit --json - < review.json
