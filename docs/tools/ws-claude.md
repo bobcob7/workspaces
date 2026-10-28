@@ -87,7 +87,8 @@ workspace.
 | `--name <name>` | Workspace name, shown by `ws list` and changed with [`ws rename`](ws-rename.md); the id derived from it, with a random suffix, also names the session |
 | `--offline`     | Don't fetch; use the cache as-is                            |
 | `--hidden`      | Hide the workspace from `ws list` (without `-a`) and the desktop app's default views; for helpers started by scripts or agents. See [`ws hide`](ws-hide.md) and [0043](../adrs/0043-hidden-workspaces.md) |
-| `--json`        | Print `{"id", "session", "path", "repos", "warnings"}`      |
+| `--parent <WORKSPACE>\|none` | The workspace this one is removed with ([0044](../adrs/0044-workspace-trees.md)); default: the workspace `ws` runs in, so an agent's helpers are its children; `none` for a top-level workspace |
+| `--json`        | Print `{"id", "session", "path", "parent", "repos", "warnings"}` |
 
 ## Trust
 

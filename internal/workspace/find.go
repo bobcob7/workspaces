@@ -94,10 +94,10 @@ func (s *Store) Containing(dir string) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, err
 	}
-	for _, ws := range list {
-		got, err := resolvePath(ws.Path)
+	for i := range list {
+		got, err := resolvePath(list[i].Path)
 		if err == nil && contains(got, want) {
-			return ws, nil
+			return list[i], nil
 		}
 	}
 	return Workspace{}, fmt.Errorf("%w: %s", ErrNotFound, dir)
@@ -156,9 +156,9 @@ func byPath(list []Workspace, path string) (Workspace, bool) {
 	if err != nil {
 		return Workspace{}, false
 	}
-	for _, ws := range list {
-		if got, err := resolvePath(ws.Path); err == nil && got == want {
-			return ws, true
+	for i := range list {
+		if got, err := resolvePath(list[i].Path); err == nil && got == want {
+			return list[i], true
 		}
 	}
 	return Workspace{}, false
@@ -170,10 +170,10 @@ func (s *Store) bySession(list []Workspace, id string) (Workspace, bool) {
 	if id == "" {
 		return Workspace{}, false
 	}
-	for _, ws := range list {
-		sess, err := s.Session(ws.ID)
+	for i := range list {
+		sess, err := s.Session(list[i].ID)
 		if err == nil && sess.Kind == SessionClaude && sess.ClaudeSessionID == id {
-			return ws, true
+			return list[i], true
 		}
 	}
 	return Workspace{}, false

@@ -62,6 +62,15 @@ func newClaudeEnv(t *testing.T) *claudeEnv {
 		RecordSessionFunc: func(string, workspace.SessionKind, string) error { return nil },
 		RemoveFunc:        func(string, workspace.RemoveOptions) error { return nil },
 		WarningsFunc:      func() []string { return nil },
+		ContainingFunc: func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{}, workspace.ErrNotFound
+		},
+		FindFunc: func(arg string) (workspace.Workspace, error) {
+			if arg == "fix-login-d8efb24f" {
+				return workspace.Workspace{ID: arg}, nil
+			}
+			return workspace.Workspace{}, workspace.ErrNotFound
+		},
 	}
 	e.claude = &claudeClientMock{
 		CheckFunc: func(context.Context) error { return nil },
@@ -74,6 +83,7 @@ func newClaudeEnv(t *testing.T) *claudeEnv {
 	}
 	app.cache, app.workspaces, app.claude = stubCache(), e.store, e.claude
 	app.paths = testPaths()
+	app.getwd = func() (string, error) { return "/somewhere", nil }
 	return e
 }
 
@@ -231,6 +241,48 @@ func TestApp_newClaudeCmd(t *testing.T) {
 	})
 }
 
+func TestApp_runClaude_parent(t *testing.T) {
+	inWorkspace := func(e *claudeEnv) {
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
+		}
+	}
+	t.Run("outside a workspace, a root", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		require.NoError(t, e.run(t, "fix it"))
+		assert.Empty(t, e.store.CreateCalls()[0].Opts.Parent)
+	})
+	t.Run("inside a workspace, its child", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		inWorkspace(e)
+		require.NoError(t, e.run(t, "fix it"))
+		assert.Equal(t, "fix-login-d8efb24f", e.store.CreateCalls()[0].Opts.Parent)
+	})
+	t.Run("--parent none, a root anywhere", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		inWorkspace(e)
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: "none", claudeArgs: []string{"fix it"}}))
+		assert.Empty(t, e.store.CreateCalls()[0].Opts.Parent)
+	})
+	t.Run("--parent names one", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: "fix-login-d8efb24f", claudeArgs: []string{"fix it"}}))
+		assert.Equal(t, "fix-login-d8efb24f", e.store.CreateCalls()[0].Opts.Parent)
+	})
+	t.Run("--parent naming no workspace creates nothing", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		requireCode(t, codeWorkspaceNotFound, e.app.runClaude(t.Context(), &claudeOptions{parent: "nope", claudeArgs: []string{"fix it"}}))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("--json prints the parent", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.ws.Parent = "fix-login-d8efb24f"
+		e.app.global.json = true
+		require.NoError(t, e.run(t, "fix it"))
+		assert.Contains(t, e.stdout.String(), `"parent":"fix-login-d8efb24f"`)
+	})
+}
+
 func TestApp_runClaude(t *testing.T) {
 	t.Run("holds the lock while the session starts and is recorded, then releases it", func(t *testing.T) {
 		e := newClaudeEnv(t)
@@ -376,6 +428,7 @@ func TestApp_runClaude(t *testing.T) {
 			"id":      "x",
 			"session": "e8cdf5d8",
 			"path":    "/cfg/workspaces/x",
+			"parent":  nil,
 			"repos": []any{map[string]any{
 				"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch", "commit": "3f2a9c1e",
 			}},
@@ -703,7 +756,7 @@ func TestApp_printClaudeResult(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.app.global.json = true
 		require.NoError(t, e.app.printClaudeResult(&workspace.Workspace{ID: "x", Path: "/p"}, "e8cdf5d8"))
-		assert.JSONEq(t, `{"id":"x","session":"e8cdf5d8","path":"/p","repos":[],"warnings":[]}`, e.stdout.String())
+		assert.JSONEq(t, `{"id":"x","session":"e8cdf5d8","path":"/p","parent":null,"repos":[],"warnings":[]}`, e.stdout.String())
 	})
 }
 

@@ -1,7 +1,7 @@
 # ws list
 
 ```
-ws list [-a] [--repo <spec>] [--json | -q]
+ws list [-a] [--repo <spec>] [--parent <id>] [--json | -q]
 ```
 
 Lists workspaces and their sessions, oldest first. Before listing, it
@@ -22,6 +22,7 @@ reviews from `ws review start` and agents started with `ws claude
 | Flag            | Meaning                                                     |
 | --------------- | ----------------------------------------------------------- |
 | `-a`, `--all`   | Include hidden workspaces                                   |
+| `--parent <id>` | Only the workspaces that workspace started, its direct children; find your helpers and reviews with your own id |
 | `--repo <spec>` | Only workspaces holding this repo, matched by the parts the spec gives: `api` matches any owner and host, `o/api` any host, `@ref` the ref checked out. No cache lookup |
 | `-q`, `--ids`   | Print only workspace ids, one per line; not with `--json`   |
 | `--json`        | Print the result as JSON                                    |
@@ -38,6 +39,7 @@ reviews from `ws review start` and agents started with `ws claude
       "created_at": "2026-10-18T08:12:00Z",
       "session": {"kind": "agent", "id": "e8cdf5d8", "state": "idle", "pid": 4242, "stale": false},
       "hidden": false,
+      "parent": null,
       "repos": [{"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch"}],
       "review": null
     }
@@ -64,6 +66,9 @@ reviews from `ws review start` and agents started with `ws claude
   when that can't be told, and for shells.
 - `hidden`: whether the workspace is hidden; see `ws llm hide`. Only
   `true` with `-a`.
+- `parent`: the workspace this one was started from, and is removed
+  with; `null` for a top-level one. The table lists a child under its
+  parent, its id indented with `└ `.
 - `hidden_count`: how many hidden workspaces were left out; 0 with `-a`.
 - `review`: a review workspace's record, as `ws review start --json`
   prints it, or `null` for any other workspace.

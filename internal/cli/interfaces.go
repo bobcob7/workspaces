@@ -60,7 +60,7 @@ type workspaceStore interface {
 type lifetimeManager interface {
 	Sweep(ctx context.Context) []lifetime.Removed
 	List(ctx context.Context) (lifetime.Listing, error)
-	Remove(ctx context.Context, ws *workspace.Workspace, dryRun bool) (lifetime.Removed, error)
+	RemoveTree(ctx context.Context, ws *workspace.Workspace, opts lifetime.TreeOptions) ([]lifetime.TreeItem, error)
 	Restore(ctx context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error)
 	Restart(ctx context.Context, opts lifetime.RestartOptions) ([]lifetime.Restarted, error)
 	Warnings() []string

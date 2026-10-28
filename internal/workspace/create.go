@@ -28,6 +28,9 @@ type CreateOptions struct {
 	Offline bool
 	// Hidden makes a hidden workspace (ADR 0043).
 	Hidden bool
+	// Parent is the id of the workspace this one is started from, or
+	// empty (ADR 0044). The caller checks that it exists.
+	Parent string
 	// Prepare, if set, runs once the repos are cloned and workspace.toml
 	// is written, before the workspace is moved into place, so it can add
 	// its own records to state/<id>/ (ADR 0022). An error discards the
@@ -174,7 +177,7 @@ func (s *Store) build(ctx context.Context, id string, opts CreateOptions, target
 	if err := os.Mkdir(building, 0o750); err != nil {
 		return Workspace{}, fmt.Errorf("creating %s: %w", building, err)
 	}
-	ws := Workspace{ID: id, Name: strings.TrimSpace(opts.Name), Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second), Hidden: opts.Hidden}
+	ws := Workspace{ID: id, Name: strings.TrimSpace(opts.Name), Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second), Hidden: opts.Hidden, Parent: opts.Parent}
 	for i := range targets {
 		r, err := s.addRepo(ctx, building, &targets[i], opts.Offline)
 		if err != nil {

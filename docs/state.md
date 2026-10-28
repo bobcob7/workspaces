@@ -13,7 +13,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 | --- | --- | --- |
 | `workspaces/<id>/` | the workspace: the user's repos and files only | moved into place by creation |
 | `workspaces/CLAUDE.md` | tells agents to run `ws llm` ([0014](adrs/0014-command-set.md)) | when `workspaces/` is first created, if missing, through a temp file linked into place; never overwritten |
-| `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | by creation; its `name` rewritten by `ws rename` ([0036](adrs/0036-workspace-id-suffix-and-rename.md)), its `hidden` by `ws hide` and `ws unhide` ([0043](adrs/0043-hidden-workspaces.md)) |
+| `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | by creation; its `name` rewritten by `ws rename` ([0036](adrs/0036-workspace-id-suffix-and-rename.md)), its `hidden` by `ws hide` and `ws unhide` ([0043](adrs/0043-hidden-workspaces.md)); its `parent` cleared by `ws rm --keep-children` on its parent ([0044](adrs/0044-workspace-trees.md)) |
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
 | `state/<id>/lock` | the workspace lock | by creation |
 | `state/<id>/review.toml` | a review workspace's record: repo, commit, profiles, requester, and pull request ([0039](adrs/0039-ws-review-command.md)) | by `ws review start`, before the workspace is moved into place; read by `ws review`, and shown as `review` by `ws list --json` |
@@ -43,10 +43,13 @@ The session record holds these fields:
 
 A session record with no `version` is version 1.
 
-`workspace.toml` is version 1, or version 2 when it has `hidden = true`,
+`workspace.toml` is version 1; version 2 when it has `hidden = true`,
 so a `ws` from before hidden workspaces leaves a hidden one alone
-([0043](adrs/0043-hidden-workspaces.md)). `hidden` is written only when
-true.
+([0043](adrs/0043-hidden-workspaces.md)); and version 3 when it has
+`parent = "<id>"`, the workspace it was started from, so a `ws` from
+before trees never removes a parent without its children
+([0044](adrs/0044-workspace-trees.md)). `hidden` and `parent` are written
+only when set.
 
 A review workspace also has `review.toml`, version 1
 ([0039](adrs/0039-ws-review-command.md)):
@@ -133,7 +136,7 @@ Creation goes through the stages in order
 4. Rename `building/` to `workspaces/<id>/`.
 5. Write the session record.
 
-A workspace stops being kept in one of two ways:
+A workspace stops being kept in one of three ways:
 
 - **Gone**: its session ended.
   - A shell workspace's lock is free.
@@ -142,6 +145,10 @@ A workspace stops being kept in one of two ways:
 - **Abandoned**: it's in one of the first three stages, its lock is free,
   and `state/<id>/` hasn't changed for a minute. This is left behind by an
   interrupted creation or hand-off.
+- **With its parent**: an ancestor is gone or abandoned, or named in
+  `ws rm`. Descendants are removed first, deepest first, each as `ws rm`
+  removes it; one that can't be keeps its ancestors until a later pass
+  ([0044](adrs/0044-workspace-trees.md)).
 
 A Claude Code session's state comes only from its `pid`, `status` and
 `startedAt` ([0024](adrs/0024-claude-code-client.md)):

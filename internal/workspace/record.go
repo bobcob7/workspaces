@@ -22,6 +22,10 @@ const (
 	// hiddenVersion is the version of a hidden workspace's workspace.toml,
 	// so an older ws leaves it alone (ADR 0043).
 	hiddenVersion = 2
+	// parentVersion is the version of a workspace.toml with a parent,
+	// hidden or not, so an older ws never removes a parent without its
+	// children (ADR 0044).
+	parentVersion = 3
 )
 
 // Workspace is a workspace's state/<id>/workspace.toml (ADR 0012).
@@ -35,7 +39,10 @@ type Workspace struct {
 	CreatedAt time.Time `toml:"created_at"`
 	// Hidden leaves the workspace out of ws list without -a, and out of
 	// the desktop app's default views (ADR 0043).
-	Hidden bool   `toml:"hidden,omitempty"`
+	Hidden bool `toml:"hidden,omitempty"`
+	// Parent is the id of the workspace this one was started from; its
+	// removal removes this one first (ADR 0044). Empty for a root.
+	Parent string `toml:"parent,omitempty"`
 	Repos  []Repo `toml:"repos"`
 }
 
@@ -100,7 +107,7 @@ func readRecord(path string) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if err := checkVersion(ws.Version, hiddenVersion); err != nil {
+	if err := checkVersion(ws.Version, parentVersion); err != nil {
 		return Workspace{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
@@ -129,11 +136,16 @@ func checkVersion(version, newest int) error {
 }
 
 // writeRecord writes a workspace.toml through a temp file and a rename, so
-// a reader never sees part of one. Its version follows Hidden (ADR 0043).
+// a reader never sees part of one. Its version is the oldest that holds
+// its fields (ADRs 0043, 0044).
 func writeRecord(path string, ws *Workspace) error {
-	ws.Version = visibleVersion
-	if ws.Hidden {
+	switch {
+	case ws.Parent != "":
+		ws.Version = parentVersion
+	case ws.Hidden:
 		ws.Version = hiddenVersion
+	default:
+		ws.Version = visibleVersion
 	}
 	if err := writeTOML(path, ws); err != nil {
 		return fmt.Errorf("writing workspace record: %w", err)

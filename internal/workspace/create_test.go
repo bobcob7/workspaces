@@ -112,6 +112,16 @@ func TestStore_Create(t *testing.T) {
 		assert.True(t, got.Hidden)
 		assert.Equal(t, hiddenVersion, got.Version)
 	})
+	t.Run("a parent is recorded", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		ws, err := createUnlocked(t, e.store, CreateOptions{Parent: "fix-login-d8efb24f"})
+		require.NoError(t, err)
+		got, err := readRecord(e.store.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "fix-login-d8efb24f", got.Parent)
+		assert.Equal(t, parentVersion, got.Version)
+	})
 	t.Run("no repos makes an empty workspace", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)

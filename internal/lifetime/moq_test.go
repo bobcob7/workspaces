@@ -27,6 +27,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			CleanLeftoversFunc: func() []string {
 //				panic("mock out the CleanLeftovers method")
 //			},
+//			ClearParentFunc: func(id string) (workspace.Workspace, error) {
+//				panic("mock out the ClearParent method")
+//			},
 //			GuardedDirFunc: func(id string) (string, error) {
 //				panic("mock out the GuardedDir method")
 //			},
@@ -58,6 +61,9 @@ type workspaceStoreMock struct {
 	// CleanLeftoversFunc mocks the CleanLeftovers method.
 	CleanLeftoversFunc func() []string
 
+	// ClearParentFunc mocks the ClearParent method.
+	ClearParentFunc func(id string) (workspace.Workspace, error)
+
 	// GuardedDirFunc mocks the GuardedDir method.
 	GuardedDirFunc func(id string) (string, error)
 
@@ -85,6 +91,11 @@ type workspaceStoreMock struct {
 		}
 		// CleanLeftovers holds details about calls to the CleanLeftovers method.
 		CleanLeftovers []struct {
+		}
+		// ClearParent holds details about calls to the ClearParent method.
+		ClearParent []struct {
+			// ID is the id argument value.
+			ID string
 		}
 		// GuardedDir holds details about calls to the GuardedDir method.
 		GuardedDir []struct {
@@ -117,6 +128,7 @@ type workspaceStoreMock struct {
 	}
 	lockAbandoned      sync.RWMutex
 	lockCleanLeftovers sync.RWMutex
+	lockClearParent    sync.RWMutex
 	lockGuardedDir     sync.RWMutex
 	lockList           sync.RWMutex
 	lockLocked         sync.RWMutex
@@ -181,6 +193,38 @@ func (mock *workspaceStoreMock) CleanLeftoversCalls() []struct {
 	mock.lockCleanLeftovers.RLock()
 	calls = mock.calls.CleanLeftovers
 	mock.lockCleanLeftovers.RUnlock()
+	return calls
+}
+
+// ClearParent calls ClearParentFunc.
+func (mock *workspaceStoreMock) ClearParent(id string) (workspace.Workspace, error) {
+	if mock.ClearParentFunc == nil {
+		panic("workspaceStoreMock.ClearParentFunc: method is nil but workspaceStore.ClearParent was just called")
+	}
+	callInfo := struct {
+		ID string
+	}{
+		ID: id,
+	}
+	mock.lockClearParent.Lock()
+	mock.calls.ClearParent = append(mock.calls.ClearParent, callInfo)
+	mock.lockClearParent.Unlock()
+	return mock.ClearParentFunc(id)
+}
+
+// ClearParentCalls gets all the calls that were made to ClearParent.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.ClearParentCalls())
+func (mock *workspaceStoreMock) ClearParentCalls() []struct {
+	ID string
+} {
+	var calls []struct {
+		ID string
+	}
+	mock.lockClearParent.RLock()
+	calls = mock.calls.ClearParent
+	mock.lockClearParent.RUnlock()
 	return calls
 }
 

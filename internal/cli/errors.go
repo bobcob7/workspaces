@@ -54,6 +54,8 @@ const (
 	codeProfileInvalid errorCode = "profile_invalid"
 	codeProfileExists  errorCode = "profile_exists"
 	codeProfileBuiltin errorCode = "profile_builtin"
+	// From ADR 0044.
+	codeChildKept errorCode = "child_kept"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -104,7 +106,7 @@ func (c errorCode) exitCode() int {
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
-		codeProfileExists, codeProfileBuiltin:
+		codeProfileExists, codeProfileBuiltin, codeChildKept:
 		return exitRefused
 	}
 	return exitFailed

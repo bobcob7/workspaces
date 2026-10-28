@@ -1,6 +1,6 @@
 # 0044. A workspace started from inside another is its child; removing a workspace removes its descendants first
 
-- Status: Proposed
+- Status: Accepted (2026-10-28)
 - Date: 2026-10-28
 
 ## Context
@@ -77,7 +77,8 @@ its descendants, deepest first, each the way `ws rm` would.
   as items, each with `parent`. `--dry-run` lists them without removing
   anything. If a descendant can't be removed (`shell_running`,
   `workspace_busy`, a failed `claude rm`), it and its ancestors are kept
-  and the failure is its item's error; the other branches still go.
+  and the failure is its item's error, `child_kept` (exit 4) on each
+  ancestor; the other branches still go.
 - `ws rm --keep-children <W>` instead clears `parent` in each direct
   child, making it a root, then removes `W` alone.
 - The removal pass does the same for a workspace whose session is gone:
@@ -148,7 +149,8 @@ is the problem; it complements the decision as `--keep-children`.
 
 ## Consequences
 
-- Amends [0012](0012-workspace-layout.md) (`parent` and version 3),
+- Amends [0016](0016-output-contract.md) (error code `child_kept` under
+  exit 4), [0012](0012-workspace-layout.md) (`parent` and version 3),
   [0014](0014-command-set.md) (`ws claude --parent`, `ws rm
   --keep-children`, `ws list --parent`), [0015](0015-workspace-lifetime-follows-session.md)
   (a workspace also goes with its parent), and
@@ -163,8 +165,9 @@ is the problem; it complements the decision as `--keep-children`.
   parent makes a root. Cargo and Vitest tests for the app's children list
   and confirmation.
 - **Unverified:** how long a cascade over many agent sessions takes,
-  since each runs `claude stop` and `claude rm`; measured on a tree of 10
-  before acceptance.
+  since each runs `claude stop` and `claude rm`, and the removal pass
+  runs before commands; to be measured on a tree of 10 agents once it
+  ships, and moved off the command path if it's slow.
 
 ## References
 

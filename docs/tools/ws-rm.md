@@ -10,6 +10,14 @@ ws rm [OPTIONS] <WORKSPACE>...
 
 ## Description
 
+Each workspace named is removed with its **descendants**, the workspaces
+started from it ([0044](../adrs/0044-workspace-trees.md)), deepest first,
+each as below. If one can't be removed, it and its ancestors are kept,
+the ancestors with `child_kept`, while other branches still go. With
+`--keep-children`, the workspace's children become top-level instead and
+only the workspace is removed. Every workspace removed is an item in the
+output, a descendant with its `parent`; the text marks it `└ `.
+
 For an **agent workspace**, first checks that the recorded session is the
 workspace's: if `claude agents --json --all` lists it, its working
 directory must be the workspace's directory, or, for a workspace with one
@@ -43,7 +51,7 @@ directly under the workspace root, are ever deleted
 ([0012](../adrs/0012-workspace-layout.md)).
 
 You don't need `ws rm` after `claude rm` or deleting the session in agent
-view: the workspace is removed at the start of a later `ws` command (checked
+view: the workspace is removed, with its descendants, at the start of a later `ws` command (checked
 at most once a minute). If that check, at the start of `ws rm` itself,
 removes a workspace named on the command line, it is reported as removed
 ([0026](../adrs/0026-removal-pass-timing.md), proposed).
@@ -52,8 +60,9 @@ removes a workspace named on the command line, it is reported as removed
 
 | Option      | Description                                   |
 | ----------- | --------------------------------------------- |
-| `--dry-run` | Print what would be removed; `ws rm` itself changes nothing |
-| `--json`    | Print `{"workspaces": [{"id", "removed", "error"}], "warnings"}` |
+| `--dry-run` | Print what would be removed, descendants included; `ws rm` itself changes nothing |
+| `--keep-children` | Make the workspace's children top-level instead of removing them |
+| `--json`    | Print `{"workspaces": [{"id", "parent", "removed", "error"}], "warnings"}` |
 
 ## Examples
 

@@ -48,6 +48,7 @@ id `unknown` (in JSON, `id`, `name`, `created_at`, and `session` are `null`).
 | --------------- | ---------------------------------------------- |
 | `-a`, `--all`   | Include hidden workspaces                      |
 | `-q`, `--ids`   | Print only workspace IDs (like `docker ps -q`); not with `--json` |
+| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children ([0044](../adrs/0044-workspace-trees.md)) |
 | `--repo <SPEC>` | Only workspaces containing this repo, matched by the parts the spec gives (`api` matches any owner and host, `o/api` any host) and its ref, if any, against the ref checked out; no cache lookup |
 | `--json`        | Print `{"workspaces": [...], "warnings"}`       |
 
@@ -75,6 +76,7 @@ $ ws list --json
           "ref": "main", "ref_kind": "branch" }
       ],
       "hidden": false,
+      "parent": null,
       "review": null
     }
   ],
@@ -86,6 +88,11 @@ $ ws list --json
 `name` is the display name, from `--name` or [`ws rename`](ws-rename.md),
 or `null` (`-` in the table) for a workspace created without one
 ([0036](../adrs/0036-workspace-id-suffix-and-rename.md)).
+
+`parent` is the workspace this one was started from and is removed with,
+or `null` ([0044](../adrs/0044-workspace-trees.md)). The table lists each
+workspace right after its parent, its id indented with `└ `, one level
+more per generation; one whose parent isn't listed is top-level.
 
 `hidden` is whether the workspace is hidden; `false` for directories
 that aren't workspaces. `hidden_count` is how many hidden workspaces were

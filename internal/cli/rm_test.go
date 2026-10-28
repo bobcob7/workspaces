@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,17 +29,30 @@ func newRmApp(ids ...string) *mockedApp {
 		}
 		return workspace.Workspace{}, workspace.ErrNotFound
 	}
-	e.lifetime.RemoveFunc = func(_ context.Context, ws *workspace.Workspace, _ bool) (lifetime.Removed, error) {
+	removeEach(e, func(ws *workspace.Workspace) (lifetime.Removed, error) {
 		return lifetime.Removed{Workspace: *ws, SessionID: "s-" + ws.ID}, nil
-	}
+	})
 	return e
+}
+
+// removeEach makes e's lifetime manager remove each workspace alone, as
+// remove says.
+func removeEach(e *mockedApp, remove func(ws *workspace.Workspace) (lifetime.Removed, error)) {
+	e.lifetime.RemoveTreeFunc = func(_ context.Context, ws *workspace.Workspace, _ lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+		r, err := remove(ws)
+		if err != nil {
+			r = lifetime.Removed{Workspace: *ws}
+		}
+		return []lifetime.TreeItem{{Removed: r, Err: err}}, nil
+	}
 }
 
 func TestApp_newRmCmd(t *testing.T) {
 	app, _, _ := newTestApp()
 	cmd := app.newRmCmd()
-	t.Run("has --dry-run", func(t *testing.T) {
+	t.Run("has --dry-run and --keep-children", func(t *testing.T) {
 		assertFlag(t, cmd, "dry-run", "false")
+		assertFlag(t, cmd, "keep-children", "false")
 	})
 	t.Run("needs a workspace", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, nil))
@@ -50,8 +64,8 @@ func TestApp_newRmCmd(t *testing.T) {
 		require.NoError(t, cmd.ParseFlags([]string{"--dry-run", "fix-login"}))
 		require.NoError(t, cmd.RunE(cmd, cmd.Flags().Args()))
 		assert.Len(t, e.lifetime.SweepCalls(), 1)
-		require.Len(t, e.lifetime.RemoveCalls(), 1)
-		assert.True(t, e.lifetime.RemoveCalls()[0].DryRun)
+		require.Len(t, e.lifetime.RemoveTreeCalls(), 1)
+		assert.True(t, e.lifetime.RemoveTreeCalls()[0].Opts.DryRun)
 	})
 }
 
@@ -60,21 +74,21 @@ func TestApp_runRm(t *testing.T) {
 		e := newRmApp("a", "b")
 		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"a", "b"}}))
 		assert.Equal(t, "removed  a  s-a\nremoved  b  s-b\n", e.stdout.String())
-		require.Len(t, e.lifetime.RemoveCalls(), 2)
-		assert.False(t, e.lifetime.RemoveCalls()[0].DryRun)
+		require.Len(t, e.lifetime.RemoveTreeCalls(), 2)
+		assert.False(t, e.lifetime.RemoveTreeCalls()[0].Opts.DryRun)
 	})
 	t.Run("--json", func(t *testing.T) {
 		e := newRmApp("a")
 		e.app.global.json = true
 		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"a"}}))
-		assert.JSONEq(t, `{"workspaces":[{"id":"a","removed":true,"error":null}],"warnings":[]}`, e.stdout.String())
+		assert.JSONEq(t, `{"workspaces":[{"id":"a","parent":null,"removed":true,"error":null}],"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--dry-run", func(t *testing.T) {
 		e := newRmApp("a")
 		e.app.global.json = true
 		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"a"}, dryRun: true}))
-		assert.JSONEq(t, `{"workspaces":[{"id":"a","removed":false,"error":null}],"warnings":[]}`, e.stdout.String())
-		assert.True(t, e.lifetime.RemoveCalls()[0].DryRun)
+		assert.JSONEq(t, `{"workspaces":[{"id":"a","parent":null,"removed":false,"error":null}],"warnings":[]}`, e.stdout.String())
+		assert.True(t, e.lifetime.RemoveTreeCalls()[0].Opts.DryRun)
 	})
 	t.Run("--dry-run text", func(t *testing.T) {
 		e := newRmApp("a")
@@ -83,7 +97,7 @@ func TestApp_runRm(t *testing.T) {
 	})
 	t.Run("a failure doesn't stop the others; the exit code is the first failure's", func(t *testing.T) {
 		e := newRmApp("busy", "running", "ok")
-		e.lifetime.RemoveFunc = func(_ context.Context, ws *workspace.Workspace, _ bool) (lifetime.Removed, error) {
+		removeEach(e, func(ws *workspace.Workspace) (lifetime.Removed, error) {
 			switch ws.ID {
 			case "busy":
 				return lifetime.Removed{}, lifetime.ErrBusy
@@ -91,32 +105,83 @@ func TestApp_runRm(t *testing.T) {
 				return lifetime.Removed{}, lifetime.ErrShellRunning
 			}
 			return lifetime.Removed{Workspace: *ws}, nil
-		}
+		})
 		e.app.global.json = true
 		err := e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"missing", "busy", "running", "ok"}})
 		requireCode(t, codeWorkspaceNotFound, err)
 		assert.JSONEq(t, `{"workspaces":[
-			{"id":"missing","removed":false,"error":{"code":"workspace_not_found","message":"workspace not found"}},
-			{"id":"busy","removed":false,"error":{"code":"workspace_busy","message":"the workspace is still being created or handed to its session"}},
-			{"id":"running","removed":false,"error":{"code":"shell_running","message":"the workspace's shell is still running; exit it to remove the workspace"}},
-			{"id":"ok","removed":true,"error":null}
+			{"id":"missing","parent":null,"removed":false,"error":{"code":"workspace_not_found","message":"workspace not found"}},
+			{"id":"busy","parent":null,"removed":false,"error":{"code":"workspace_busy","message":"the workspace is still being created or handed to its session"}},
+			{"id":"running","parent":null,"removed":false,"error":{"code":"shell_running","message":"the workspace's shell is still running; exit it to remove the workspace"}},
+			{"id":"ok","parent":null,"removed":true,"error":null}
 		],"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("failures go to stderr as text", func(t *testing.T) {
 		e := newRmApp("a")
-		e.lifetime.RemoveFunc = func(context.Context, *workspace.Workspace, bool) (lifetime.Removed, error) {
+		removeEach(e, func(*workspace.Workspace) (lifetime.Removed, error) {
 			return lifetime.Removed{}, &claude.CommandError{Args: []string{"rm", "s-a"}, ExitCode: 1, Stderr: "nope", Err: errTest}
-		}
+		})
 		requireCode(t, codeClaudeFailed, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"a"}}))
 		assert.Empty(t, e.stdout.String())
 		assert.Equal(t, "ws: claude rm s-a: boom: nope\n", e.stderr.String())
+	})
+	t.Run("descendants are items too, marked in the text", func(t *testing.T) {
+		e := newRmApp("root")
+		e.lifetime.RemoveTreeFunc = func(_ context.Context, ws *workspace.Workspace, _ lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+			child := workspace.Workspace{ID: "child", Parent: ws.ID}
+			return []lifetime.TreeItem{{Workspace: child, SessionID: "s-child"}, {Workspace: *ws, SessionID: "s-root"}}, nil
+		}
+		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"root"}}))
+		assert.Equal(t, "removed  └ child  s-child\nremoved  root  s-root\n", e.stdout.String())
+		e.stdout.Reset()
+		e.app.global.json = true
+		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"root"}}))
+		assert.JSONEq(t, `{"workspaces":[{"id":"child","parent":"root","removed":true,"error":null},{"id":"root","parent":null,"removed":true,"error":null}],"warnings":[]}`, e.stdout.String())
+	})
+	t.Run("a workspace in an earlier tree is reported once", func(t *testing.T) {
+		e := newRmApp("root", "child")
+		e.lifetime.RemoveTreeFunc = func(_ context.Context, ws *workspace.Workspace, _ lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+			if ws.ID == "child" {
+				return []lifetime.TreeItem{{Workspace: *ws}}, nil
+			}
+			child := workspace.Workspace{ID: "child", Parent: ws.ID}
+			return []lifetime.TreeItem{{Workspace: child}, {Workspace: *ws}}, nil
+		}
+		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"root", "child"}}))
+		assert.Equal(t, "removed  └ child\nremoved  root\n", e.stdout.String())
+		assert.Len(t, e.lifetime.RemoveTreeCalls(), 1)
+	})
+	t.Run("a kept child is refused", func(t *testing.T) {
+		e := newRmApp("root")
+		e.lifetime.RemoveTreeFunc = func(_ context.Context, ws *workspace.Workspace, _ lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+			child := workspace.Workspace{ID: "sh", Parent: ws.ID}
+			return []lifetime.TreeItem{
+				{Workspace: child, Err: lifetime.ErrShellRunning},
+				{Workspace: *ws, Err: fmt.Errorf("%w: sh", lifetime.ErrChildKept)},
+			}, nil
+		}
+		e.app.global.json = true
+		requireCode(t, codeShellRunning, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"root"}}))
+		assert.Contains(t, e.stdout.String(), `"code":"child_kept"`)
+	})
+	t.Run("--keep-children is passed on", func(t *testing.T) {
+		e := newRmApp("root")
+		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"root"}, keepChildren: true}))
+		assert.True(t, e.lifetime.RemoveTreeCalls()[0].Opts.KeepChildren)
+	})
+	t.Run("a tree that can't be read is the workspace's error", func(t *testing.T) {
+		e := newRmApp("root")
+		e.lifetime.RemoveTreeFunc = func(context.Context, *workspace.Workspace, lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+			return nil, errTest
+		}
+		assert.ErrorIs(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"root"}}), errTest)
 	})
 	t.Run("a workspace the removal pass just removed counts as removed", func(t *testing.T) {
 		e := newRmApp()
 		e.app.swept = []lifetime.Removed{{Workspace: workspace.Workspace{ID: "a", Path: "/cfg/workspaces/a"}, SessionID: "e8cdf5d8"}}
 		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{workspaces: []string{"e8cdf5d8"}, dryRun: true}))
 		assert.Equal(t, "removed  a  e8cdf5d8\n", e.stdout.String())
-		assert.Empty(t, e.lifetime.RemoveCalls())
+		assert.Empty(t, e.lifetime.RemoveTreeCalls())
 	})
 	t.Run("end to end: an agent workspace by its session id", func(t *testing.T) {
 		t.Parallel()
@@ -298,39 +363,30 @@ func TestApp_sweptMatch(t *testing.T) {
 	})
 }
 
-func TestApp_rmOne(t *testing.T) {
+func TestRmTarget_unremovable(t *testing.T) {
 	t.Run("a failed lookup", func(t *testing.T) {
-		e := newRmApp()
-		_, err := e.app.rmOne(t.Context(), &rmTarget{err: errTest}, false)
+		_, err := (&rmTarget{err: errTest}).unremovable()
 		require.ErrorIs(t, err, errTest)
-		assert.Empty(t, e.lifetime.RemoveCalls())
 	})
 	t.Run("already removed by the pass", func(t *testing.T) {
-		e := newRmApp()
 		r := lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}}
-		got, err := e.app.rmOne(t.Context(), &rmTarget{swept: &r}, false)
+		got, err := (&rmTarget{swept: &r}).unremovable()
 		require.NoError(t, err)
 		assert.Equal(t, r, got)
-		assert.Empty(t, e.lifetime.RemoveCalls())
-	})
-	t.Run("removes", func(t *testing.T) {
-		e := newRmApp()
-		got, err := e.app.rmOne(t.Context(), &rmTarget{ws: workspace.Workspace{ID: "a"}}, true)
-		require.NoError(t, err)
-		assert.Equal(t, "s-a", got.SessionID)
-		require.Len(t, e.lifetime.RemoveCalls(), 1)
-		assert.True(t, e.lifetime.RemoveCalls()[0].DryRun)
 	})
 }
 
 func TestRmLine(t *testing.T) {
 	t.Run("an agent", func(t *testing.T) {
-		assert.Equal(t, "removed  a  e8cdf5d8", rmLine(&lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}, SessionID: "e8cdf5d8"}, true))
+		assert.Equal(t, "removed  a  e8cdf5d8", rmLine(&lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}, SessionID: "e8cdf5d8"}, true, false))
 	})
 	t.Run("without a session id", func(t *testing.T) {
-		assert.Equal(t, "removed  a", rmLine(&lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}}, true))
+		assert.Equal(t, "removed  a", rmLine(&lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}}, true, false))
 	})
 	t.Run("not removed", func(t *testing.T) {
-		assert.Equal(t, "would remove  a", rmLine(&lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}}, false))
+		assert.Equal(t, "would remove  a", rmLine(&lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}}, false, false))
+	})
+	t.Run("a descendant", func(t *testing.T) {
+		assert.Equal(t, "removed  └ a", rmLine(&lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}}, true, true))
 	})
 }

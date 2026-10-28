@@ -21,8 +21,9 @@ func newRestoreApp(ids ...string) *mockedApp {
 	e := newRmApp(ids...)
 	e.lifetime.RestoreFunc = func(_ context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error) {
 		var out []lifetime.Restored
-		for _, ws := range opts.Workspaces {
-			out = append(out, lifetime.Restored{Workspace: ws, SessionID: "s-" + ws.ID, State: lifetime.StateStopped, Respawned: !opts.DryRun})
+		for i := range opts.Workspaces {
+			ws := &opts.Workspaces[i]
+			out = append(out, lifetime.Restored{Workspace: *ws, SessionID: "s-" + ws.ID, State: lifetime.StateStopped, Respawned: !opts.DryRun})
 		}
 		return out, nil
 	}

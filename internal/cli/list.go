@@ -20,6 +20,7 @@ type listOptions struct {
 	all     bool
 	idsOnly bool
 	repo    string
+	parent  string
 }
 
 func (a *App) newListCmd() *cobra.Command {
@@ -35,6 +36,7 @@ func (a *App) newListCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.all, "all", "a", false, "include hidden workspaces")
 	cmd.Flags().BoolVarP(&opts.idsOnly, "ids", "q", false, "print only workspace IDs")
 	cmd.Flags().StringVar(&opts.repo, "repo", "", "only workspaces containing this repo")
+	cmd.Flags().StringVar(&opts.parent, "parent", "", "only the workspaces this one started")
 	return cmd
 }
 
@@ -54,7 +56,9 @@ type listWorkspaceJSON struct {
 	CreatedAt *string          `json:"created_at"`
 	Session   *listSessionJSON `json:"session"`
 	Hidden    bool             `json:"hidden"`
-	Repos     []listRepoJSON   `json:"repos"`
+	// Parent is the workspace this one is removed with (ADR 0044).
+	Parent *string        `json:"parent"`
+	Repos  []listRepoJSON `json:"repos"`
 	// Review is a review workspace's record, or null (ADR 0039).
 	Review *record.Record `json:"review"`
 }
@@ -89,13 +93,17 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 		}
 		filter = &sp
 	}
+	parent, err := a.parentFilter(opts.parent)
+	if err != nil {
+		return err
+	}
 	listing, err := a.lifetime.List(ctx)
 	if err != nil {
 		return err
 	}
-	entries, hidden := visibleEntries(filterEntries(listing.Workspaces, filter), opts.all)
+	entries, hidden := visibleEntries(childrenOf(filterEntries(listing.Workspaces, filter), parent), opts.all)
 	unknown := listing.Unknown
-	if filter != nil {
+	if filter != nil || parent != "" {
 		unknown = nil
 	}
 	switch {
@@ -139,6 +147,83 @@ func (a *App) printHiddenNote(hidden int) {
 		noun = "workspace"
 	}
 	fmt.Fprintf(a.stderr, "%d hidden %s not shown; ws list -a shows them\n", hidden, noun)
+}
+
+// parentFilter is the id of the workspace --parent names, or "" without
+// one.
+func (a *App) parentFilter(arg string) (string, error) {
+	if arg == "" {
+		return "", nil
+	}
+	ws, err := a.workspaces.Find(arg)
+	if err != nil {
+		return "", domainError(err)
+	}
+	return ws.ID, nil
+}
+
+// childrenOf keeps the direct children of workspace parent, or everything
+// for "".
+func childrenOf(entries []lifetime.Entry, parent string) []lifetime.Entry {
+	if parent == "" {
+		return entries
+	}
+	var kept []lifetime.Entry
+	for i := range entries {
+		if entries[i].Workspace.Parent == parent {
+			kept = append(kept, entries[i])
+		}
+	}
+	return kept
+}
+
+// treeOrder puts each workspace right after its parent, deepest last, and
+// gives its depth: 0 for one whose parent isn't listed (ADR 0044). Roots
+// and siblings keep their order, oldest first.
+func treeOrder(entries []lifetime.Entry) ([]int, []int) {
+	listed := map[string]bool{}
+	for i := range entries {
+		listed[entries[i].Workspace.ID] = true
+	}
+	kids := map[string][]int{}
+	var roots []int
+	for i := range entries {
+		p := entries[i].Workspace.Parent
+		if p != "" && p != entries[i].Workspace.ID && listed[p] {
+			kids[p] = append(kids[p], i)
+			continue
+		}
+		roots = append(roots, i)
+	}
+	order := make([]int, 0, len(entries))
+	depths := make([]int, 0, len(entries))
+	seen := map[int]bool{}
+	var visit func(i, depth int)
+	visit = func(i, depth int) {
+		if seen[i] {
+			return
+		}
+		seen[i] = true
+		order, depths = append(order, i), append(depths, depth)
+		for _, c := range kids[entries[i].Workspace.ID] {
+			visit(c, depth+1)
+		}
+	}
+	for _, r := range roots {
+		visit(r, 0)
+	}
+	for i := range entries {
+		visit(i, 0)
+	}
+	return order, depths
+}
+
+// treeID is the ID column: the id, indented under its parent.
+func treeID(id string, depth int) string {
+	if depth == 0 {
+		return id
+	}
+	return strings.Repeat("  ", depth-1) + "└ " + id
 }
 
 // filterEntries keeps the workspaces with a repo matching filter, or all
@@ -207,7 +292,7 @@ func listWorkspace(e *lifetime.Entry) listWorkspaceJSON {
 		repos = append(repos, listRepoJSON{ID: r.ID, Path: r.Path, Ref: r.Ref, RefKind: r.RefKind})
 	}
 	created := formatTime(ws.CreatedAt)
-	return listWorkspaceJSON{ID: &ws.ID, Name: optional(ws.Name), Path: ws.Path, CreatedAt: &created, Session: listSession(e.Session), Hidden: ws.Hidden, Repos: repos}
+	return listWorkspaceJSON{ID: &ws.ID, Name: optional(ws.Name), Path: ws.Path, CreatedAt: &created, Session: listSession(e.Session), Hidden: ws.Hidden, Parent: optional(ws.Parent), Repos: repos}
 }
 
 func listSession(s *lifetime.Session) *listSessionJSON {
@@ -235,14 +320,16 @@ func (a *App) reviewRecord(id string) *record.Record {
 	return &rec
 }
 
-// printList prints a table like `docker ps`.
+// printList prints a table like `docker ps`, each workspace under the
+// one that started it.
 func (a *App) printList(entries []lifetime.Entry, unknown []string) {
 	tw := tabwriter.NewWriter(a.stdout, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(tw, "ID\tNAME\tCREATED\tSESSION\tREPOS")
 	now := a.now()
-	for i := range entries {
+	order, depths := treeOrder(entries)
+	for k, i := range order {
 		ws := &entries[i].Workspace
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", ws.ID, nameText(ws.Name, ws.Hidden), ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", treeID(ws.ID, depths[k]), nameText(ws.Name, ws.Hidden), ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
 	}
 	for _, dir := range unknown {
 		fmt.Fprintf(tw, "unknown\t-\t-\t-\t%s\n", dir)
