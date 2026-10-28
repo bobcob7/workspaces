@@ -34,6 +34,9 @@ pub struct WsWorkspace {
     /// Left out of the default views (ADR 0043).
     #[serde(default)]
     pub hidden: bool,
+    /// The workspace this one was started from (ADR 0044).
+    #[serde(default)]
+    pub parent: Option<String>,
 }
 
 /// What a review workspace reviews, from its `review.toml`.
@@ -121,6 +124,9 @@ pub enum Kind {
     Shell,
     Pending,
     Unknown,
+    /// A finished review whose agent and workspace `ws` removed (ADR
+    /// 0045); only in the Reviews view, never the Agents list.
+    Removed,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -151,6 +157,8 @@ pub struct Entry {
     /// The workspace is hidden: shown only in the Agents list's Hidden
     /// group, and not counted as waiting (ADR 0043).
     pub hidden: bool,
+    /// The workspace this one was started from, removed with it (ADR 0044).
+    pub parent_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -241,6 +249,7 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         repos: ws.repos,
         review: ws.review,
         hidden: ws.hidden,
+        parent_id: ws.parent,
     }
 }
 
@@ -263,6 +272,7 @@ fn session_entry(agent: &ClaudeAgent, id: &str, job: Option<JobState>, now_ms: i
         repos: Vec::new(),
         review: None,
         hidden: false,
+        parent_id: None,
     }
 }
 

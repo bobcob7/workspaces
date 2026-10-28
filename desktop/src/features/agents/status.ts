@@ -81,3 +81,27 @@ export const groupEntries = (entries: readonly Entry[]): readonly Group[] =>
 /** The hidden entries, most recently active first (ADR 0043). */
 export const hiddenEntries = (entries: readonly Entry[]): readonly Entry[] =>
   entries.filter((e) => e.hidden).toSorted(byRecency);
+
+/** The workspaces entry started directly, most recently active first (ADR 0044). */
+export const childrenOf = (entries: readonly Entry[], entry: Entry): readonly Entry[] =>
+  entry.workspaceId === null
+    ? []
+    : entries.filter((e) => e.parentId === entry.workspaceId && e.key !== entry.key).toSorted(byRecency);
+
+/** Everything entry started, and what that started, each after its parent, with its depth from 1. */
+export const descendantsOf = (entries: readonly Entry[], entry: Entry): readonly { readonly entry: Entry; readonly depth: number }[] => {
+  const out: { entry: Entry; depth: number }[] = [];
+  const seen = new Set<string>([entry.key]);
+  const visit = (parent: Entry, depth: number): void => {
+    for (const child of childrenOf(entries, parent)) {
+      if (seen.has(child.key)) {
+        continue;
+      }
+      seen.add(child.key);
+      out.push({ entry: child, depth });
+      visit(child, depth + 1);
+    }
+  };
+  visit(entry, 1);
+  return out;
+};

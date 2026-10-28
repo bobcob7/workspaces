@@ -7,8 +7,13 @@ import { EntryRow } from "./EntryRow";
 import { groupEntries, hiddenEntries } from "./status";
 import styles from "./Sidebar.module.css";
 
+/** The listed name of the workspace entry was started from, or null. */
+const parentName = (entries: readonly Entry[], entry: Entry): string | null =>
+  entry.parentId === null ? null : entries.find((e) => e.workspaceId === entry.parentId)?.name ?? null;
+
 interface HiddenGroupProps {
   readonly entries: readonly Entry[];
+  readonly all: readonly Entry[];
   readonly selectedKey: string | null;
 }
 
@@ -17,7 +22,7 @@ interface HiddenGroupProps {
  * opens on its own while one of its entries is selected, as after a
  * cross-link or hiding the selected entry.
  */
-const HiddenGroup = ({ entries, selectedKey }: HiddenGroupProps): JSX.Element => {
+const HiddenGroup = ({ entries, all, selectedKey }: HiddenGroupProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const showHidden = useAppSelector((s) => s.agents.showHidden);
   const open = showHidden || entries.some((e) => e.key === selectedKey);
@@ -42,7 +47,12 @@ const HiddenGroup = ({ entries, selectedKey }: HiddenGroupProps): JSX.Element =>
         <ul className={`${styles.list} ${styles.hidden}`}>
           {entries.map((entry) => (
             <li key={entry.key}>
-              <EntryRow entry={entry} current={entry.key === selectedKey} onClick={() => dispatch(selected(entry.key))} />
+              <EntryRow
+                entry={entry}
+                current={entry.key === selectedKey}
+                parentName={parentName(all, entry)}
+                onClick={() => dispatch(selected(entry.key))}
+              />
             </li>
           ))}
         </ul>
@@ -70,13 +80,18 @@ export const Sidebar = (): JSX.Element => {
           <ul className={styles.list}>
             {group.entries.map((entry) => (
               <li key={entry.key}>
-                <EntryRow entry={entry} current={entry.key === selectedKey} onClick={() => dispatch(selected(entry.key))} />
+                <EntryRow
+                entry={entry}
+                current={entry.key === selectedKey}
+                parentName={parentName(entries, entry)}
+                onClick={() => dispatch(selected(entry.key))}
+              />
               </li>
             ))}
           </ul>
         </section>
       ))}
-      {hidden.length > 0 && <HiddenGroup entries={hidden} selectedKey={selectedKey} />}
+      {hidden.length > 0 && <HiddenGroup entries={hidden} all={entries} selectedKey={selectedKey} />}
     </nav>
   );
 };

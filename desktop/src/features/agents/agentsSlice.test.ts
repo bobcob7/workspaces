@@ -94,7 +94,14 @@ describe("thunks", () => {
     const api = fakeApi();
     const store = testStore({ api });
     await store.dispatch(removeEntry(entry()));
-    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8");
+    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", false);
+  });
+
+  it("removes keeping the workspaces it started", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(removeEntry({ ...entry(), keepChildren: true }));
+    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", true);
   });
 
   it("closes the agent's terminal before removing it", async () => {

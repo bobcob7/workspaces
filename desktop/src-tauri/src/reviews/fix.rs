@@ -406,6 +406,7 @@ mod tests {
             repos: vec![],
             review: None,
             hidden: false,
+            parent_id: None,
         }
     }
 

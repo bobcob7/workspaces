@@ -10,6 +10,7 @@ pub mod names;
 pub mod plan;
 pub mod profiles;
 pub mod report;
+pub mod runs;
 pub mod store;
 pub mod view;
 

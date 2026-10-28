@@ -71,4 +71,14 @@ describe("Sidebar", () => {
     renderWithStore(<Sidebar />, loadedStore([{ key: "r", hidden: true }]));
     expect(screen.queryByText("No workspaces yet.")).not.toBeInTheDocument();
   });
+
+  it("marks a child with the workspace it was started from", () => {
+    const store = loadedStore([
+      { key: "root", workspaceId: "root", name: "fix-login" },
+      { key: "c", workspaceId: "c", name: "login-tests", parentId: "root", detail: "Writing tests" },
+    ]);
+    renderWithStore(<Sidebar />, store);
+    expect(screen.getByRole("button", { name: /login-tests/ })).toHaveTextContent("↳ fix-login · Writing tests");
+  });
 });
+

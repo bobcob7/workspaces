@@ -4,7 +4,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogContentText,
   DialogTitle,
   TextField,
   ToggleButton,
@@ -20,8 +19,10 @@ import { TerminalView } from "../terminals/TerminalView";
 import { attachKey, closeTerminal, openTerminal, terminalShown, type TerminalInfo } from "../terminals/terminalsSlice";
 import { ownerRepo } from "../reviews/groups";
 import { reviewSelected } from "../reviews/reviewsSlice";
-import { agentViewChosen, sectionChosen, type AgentView } from "../ui/uiSlice";
-import { removeEntry, renameEntry, setEntryHidden, stopAgent } from "./agentsSlice";
+import { agentViewChosen, sectionChosen, selected, type AgentView } from "../ui/uiSlice";
+import { renameEntry, setEntryHidden, stopAgent } from "./agentsSlice";
+import { ChildrenCard } from "./ChildrenCard";
+import { RemoveDialog } from "./RemoveDialog";
 import { isLive } from "./status";
 import { StatusDot } from "./StatusDot";
 import styles from "./EntryPane.module.css";
@@ -111,11 +112,6 @@ const RenameDialog = ({ entry, open, onClose }: RenameDialogProps): JSX.Element 
   );
 };
 
-const removeWarning = (entry: Entry): string =>
-  entry.workspaceId === null
-    ? `This deletes the Claude Code session ${entry.sessionId ?? ""}. Its transcript stays available through claude --resume.`
-    : `This stops the agent and deletes ${entry.path}, including uncommitted changes, unpushed commits, and stashes.`;
-
 export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const terminal = useAppSelector((s) => terminalFor(s.terminals.items, entry));
@@ -124,6 +120,9 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const view = useAppSelector((s) => s.ui.agentView);
   const reviewing = useAppSelector((s) =>
     s.reviews.view?.prs.find((pr) => pr.reviews.some((r) => r.workspaceId === entry.workspaceId)),
+  );
+  const parent = useAppSelector((s) =>
+    entry.parentId === null ? undefined : s.agents.entries.find((e) => e.workspaceId === entry.parentId),
   );
   const [confirming, setConfirming] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -226,6 +225,16 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           {entry.repos.map((r) => (
             <Chip key={r.path} size="small" label={repoLabel(r.id, r.ref)} title={r.id} />
           ))}
+          {parent !== undefined && (
+            <Chip
+              size="small"
+              variant="outlined"
+              clickable
+              label={`↳ ${parent.name}`}
+              title="Started from this workspace, and removed with it"
+              onClick={() => dispatch(selected(parent.key))}
+            />
+          )}
           {entry.hidden && (
             <Chip
               size="small"
@@ -272,6 +281,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           </div>
         )}
       </header>
+      <ChildrenCard entry={entry} />
       {showConversation && entry.sessionId !== null ? (
         <>
           <ConversationView
@@ -297,25 +307,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
         </div>
       )}
       {renamable && <RenameDialog entry={entry} open={renaming} onClose={() => setRenaming(false)} />}
-      <Dialog open={confirming} onClose={() => setConfirming(false)}>
-        <DialogTitle>Remove {entry.name}?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>{removeWarning(entry)}</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirming(false)}>Cancel</Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => {
-              setConfirming(false);
-              void dispatch(removeEntry(entry));
-            }}
-          >
-            Remove
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <RemoveDialog entry={entry} open={confirming} onClose={() => setConfirming(false)} />
     </section>
   );
 };

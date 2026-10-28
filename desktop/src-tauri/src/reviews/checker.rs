@@ -4,6 +4,7 @@ use super::auto;
 use super::github::{self, PullRequest};
 use super::plan::{self, ReviewPlan};
 use super::profiles;
+use super::runs;
 use super::store::{AutoStarted, Store};
 use super::view::{self, CheckState, CompareKey, RepoCheck};
 use crate::commands::{self, Created};
@@ -57,6 +58,9 @@ pub struct Deps {
 pub struct Checker {
     state: Mutex<CheckState>,
     entries: Mutex<Vec<Entry>>,
+    /// Reviews `ws` removed once finished, from `ws review list`, and any
+    /// that left the listing since (ADR 0045).
+    removed: Mutex<Vec<Entry>>,
     /// Names of reviews whose `ws review start` is running, so starting one twice
     /// at once starts it once: `ws` no longer refuses a name used twice
     /// (ADR 0036).
@@ -81,10 +85,41 @@ impl Checker {
 
     /// Keeps the latest agent listing, so the view shows review status as
     /// fresh as the Agents poll.
+    /// A review workspace that leaves the listing is kept as removed until
+    /// the next check reads `ws review list`, so its pull request stays
+    /// Reviewed meanwhile (ADR 0045).
     pub fn set_entries(&self, entries: Vec<Entry>) {
-        if let Ok(mut current) = self.entries.lock() {
-            *current = entries;
+        let Ok(mut current) = self.entries.lock() else {
+            return;
+        };
+        let gone: Vec<Entry> = current
+            .iter()
+            .filter(|old| !entries.iter().any(|e| e.workspace_id == old.workspace_id))
+            .filter_map(runs::removed_from)
+            .collect();
+        *current = entries;
+        drop(current);
+        if let Ok(mut removed) = self.removed.lock() {
+            for e in gone {
+                if !removed.iter().any(|r| r.workspace_id == e.workspace_id) {
+                    removed.push(e);
+                }
+            }
         }
+    }
+
+    fn set_removed(&self, removed: Vec<Entry>) {
+        if let Ok(mut current) = self.removed.lock() {
+            *current = removed;
+        }
+    }
+
+    /// The listing with the removed reviews it doesn't have, for the
+    /// Reviews view and auto-review.
+    pub fn review_entries(&self) -> Vec<Entry> {
+        let entries = self.entries();
+        let removed = self.removed.lock().map(|r| r.clone()).unwrap_or_default();
+        runs::merge(&entries, &removed)
     }
 
     /// Starts a review with `ws review start`, unless the latest listing
@@ -115,7 +150,7 @@ impl Checker {
     /// The listed workspace `ws` made from the plan's `--name`, or whose
     /// review record has the plan's pull request and head, if any.
     fn existing(&self, plan: &ReviewPlan) -> Option<String> {
-        let entries = self.entries.lock().ok()?;
+        let entries = self.review_entries();
         entries
             .iter()
             .find(|e| {
@@ -134,7 +169,7 @@ impl Checker {
     }
 
     pub fn view(&self, store: &Store) -> view::ReviewsView {
-        let entries = self.entries.lock().map(|e| e.clone()).unwrap_or_default();
+        let entries = self.review_entries();
         let state = self.state.lock();
         match state {
             Ok(check) => view::build(&check, &entries, &store.get()),
@@ -266,9 +301,13 @@ impl Checker {
         });
         let listing = commands::list(&deps.runner, deps.jobs_dir.as_deref()).await?;
         self.set_entries(listing.entries.clone());
-        self.compare_out_of_date(&deps.runner, &listing.entries)
-            .await;
-        warnings.extend(self.auto_review(deps, &listing.entries).await);
+        match runs::removed(&deps.runner).await {
+            Ok(removed) => self.set_removed(removed),
+            Err(err) => warnings.push(format!("ws review list: {}", err.message)),
+        }
+        let entries = self.review_entries();
+        self.compare_out_of_date(&deps.runner, &entries).await;
+        warnings.extend(self.auto_review(deps, &entries).await);
         self.with_state(|s| s.warnings = warnings);
         Ok(())
     }
@@ -448,6 +487,10 @@ mod tests {
 
     /// A PATH directory with fake `ws`, `claude`, and `gh` scripts. `ws`
     /// logs its arguments to `ws.log`; `ws_review` is `ws review start`.
+    /// What the fake `ws review list` lists: one removed review of
+    /// buff-bear#38.
+    const REMOVED: &str = r#"{"reviews":[{"id":"review-buff-bear-38-a41c9f2-d8efb24f","review":{"repo":"github.com/bobcob7/buff-bear","ref":"a41c9f2d0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c","requester":"","started_at":"2026-10-28T09:00:00Z","profiles":[],"pr":{"number":38,"url":"u"}},"agent":null}],"warnings":[]}"#;
+
     fn fake_programs(gh: &str, ws_review: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("ws.log");
@@ -456,7 +499,7 @@ mod tests {
 case "$1" in
   cache) echo '{{"repos":[{{"id":"github.com/bobcob7/buff-bear"}},{{"id":"github.com/bobcob7/api"}}]}}' ;;
   list) echo '{{"workspaces":[],"warnings":[]}}' ;;
-  review) case "$2" in profiles) echo '{PROFILES}' ;; *) {ws_review} ;; esac ;;
+  review) case "$2 $3" in profiles*) echo '{PROFILES}' ;; "--json list") echo '{REMOVED}' ;; *) {ws_review} ;; esac ;;
 esac"#,
             log.display()
         );
@@ -502,6 +545,44 @@ esac"#
 
     fn ws_log(dir: &tempfile::TempDir) -> String {
         std::fs::read_to_string(dir.path().join("ws.log")).unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn check_reads_removed_reviews() {
+        let dir = fake_programs(&gh_script(&format!("echo '{PRS}'")), "exit 1");
+        let deps = deps(&dir, false);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let removed: Vec<Entry> = checker
+            .review_entries()
+            .into_iter()
+            .filter(|e| e.kind == crate::model::Kind::Removed)
+            .collect();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(
+            removed[0].workspace_id.as_deref(),
+            Some("review-buff-bear-38-a41c9f2-d8efb24f")
+        );
+        assert!(checker.entries().is_empty(), "never in the agent listing");
+    }
+
+    #[test]
+    fn a_review_that_leaves_the_listing_is_kept_as_removed() {
+        let checker = Checker::default();
+        let review = crate::reviews::view::tests::recorded(
+            41,
+            crate::reviews::view::tests::HEAD,
+            crate::model::Status::Idle,
+            "2026-10-24T10:00:00Z",
+        );
+        checker.set_entries(vec![review.clone()]);
+        checker.set_entries(vec![]);
+        let entries = checker.review_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kind, crate::model::Kind::Removed);
+        assert_eq!(entries[0].workspace_id, review.workspace_id);
+        checker.set_entries(vec![review]);
+        assert_eq!(checker.review_entries().len(), 1, "a listed workspace wins");
     }
 
     #[tokio::test]

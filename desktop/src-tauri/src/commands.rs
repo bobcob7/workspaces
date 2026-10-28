@@ -178,10 +178,15 @@ async fn ws_items(runner: &Runner, args: &[&str]) -> CmdResult<Vec<String>> {
     let Ok(results) = serde_json::from_slice::<ItemResults>(&outcome.stdout) else {
         return Err(runner::ws_error(&outcome.stderr));
     };
-    if let Some(error) = results.workspaces.iter().find_map(|r| r.error.as_ref()) {
+    if let Some((id, error)) = results
+        .workspaces
+        .iter()
+        .find_map(|r| r.error.as_ref().map(|e| (r.id.as_deref(), e)))
+    {
+        let message = error["message"].as_str().unwrap_or("ws failed");
         return Err(AppError {
             code: error["code"].as_str().unwrap_or("ws_failed").to_string(),
-            message: error["message"].as_str().unwrap_or("ws failed").to_string(),
+            message: id.map_or_else(|| message.to_string(), |id| format!("{id}: {message}")),
             details: None,
         });
     }
@@ -192,16 +197,30 @@ async fn ws_items(runner: &Runner, args: &[&str]) -> CmdResult<Vec<String>> {
         .collect())
 }
 
-/// Removes a workspace and its session (`ws rm`), or, for a session outside
-/// any workspace, deletes the session (`claude rm`).
+/// The arguments of `ws rm` for a workspace, which removes the workspaces
+/// it started too, unless they're kept (ADR 0044).
+pub fn rm_args(workspace_id: &str, keep_children: bool) -> Vec<&str> {
+    let mut args = vec!["rm"];
+    if keep_children {
+        args.push("--keep-children");
+    }
+    args.extend(["--", workspace_id]);
+    args
+}
+
+/// Removes a workspace, its session, and the workspaces it started
+/// (`ws rm`), or, for a session outside any workspace, deletes the session
+/// (`claude rm`).
 #[tauri::command]
 pub async fn remove_entry(
     state: State<'_, AppState>,
     workspace_id: Option<String>,
     session_id: Option<String>,
+    keep_children: Option<bool>,
 ) -> CmdResult<()> {
     if let Some(id) = workspace_id {
-        return ws_items(&state.runner, &["rm", &id]).await.map(|_| ());
+        let args = rm_args(&id, keep_children.unwrap_or(false));
+        return ws_items(&state.runner, &args).await.map(|_| ());
     }
     let id = session_id.ok_or_else(|| AppError::new("usage", "nothing to remove"))?;
     state
@@ -408,6 +427,12 @@ mod tests {
         let runner = Runner::new(dir.path().display().to_string());
         let err = ws_items(&runner, &["rm", "x"]).await.unwrap_err();
         assert_eq!(err.code, "workspace_not_found");
+    }
+
+    #[test]
+    fn rm_args_keep_children_or_not() {
+        assert_eq!(rm_args("x", false), ["rm", "--", "x"]);
+        assert_eq!(rm_args("-x", true), ["rm", "--keep-children", "--", "-x"]);
     }
 
     #[test]
