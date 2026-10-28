@@ -3,8 +3,11 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { groupChosen, type SettingsGroup } from "./settingsSlice";
 import styles from "./SettingsList.module.css";
 
-/** Groups with settings, in list order. General, Agents, and About join once they have some. */
-const groups: readonly { readonly id: SettingsGroup; readonly title: string }[] = [{ id: "reviews", title: "Reviews" }];
+/** Groups with settings, in list order. General and Agents join once they have some. */
+const groups: readonly { readonly id: SettingsGroup; readonly title: string }[] = [
+  { id: "reviews", title: "Reviews" },
+  { id: "about", title: "About" },
+];
 
 export const SettingsList = (): JSX.Element => {
   const dispatch = useAppDispatch();

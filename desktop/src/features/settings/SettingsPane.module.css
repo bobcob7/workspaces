@@ -102,3 +102,8 @@
 .control :global(.MuiInputBase-root) {
   font-size: 13px;
 }
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

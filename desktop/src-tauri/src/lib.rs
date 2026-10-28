@@ -2,6 +2,7 @@
 //! agents. It runs `ws` and `claude` for everything it does, and reads
 //! Claude Code's job state for detail they don't print.
 
+mod about;
 mod cache;
 mod commands;
 mod env;
@@ -56,6 +57,7 @@ pub fn run() {
             commands::create_agent,
             commands::remove_entry,
             commands::rename_workspace,
+            commands::versions,
             commands::set_workspace_hidden,
             commands::stop_agent,
             commands::restore_agents,

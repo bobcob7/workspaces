@@ -3,6 +3,7 @@ import { useEffect, useState, type JSX, type ReactNode } from "react";
 import type { ReviewSettings } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { models, permissionModes } from "../create/NewAgentDialog";
+import { AboutGroup } from "./AboutGroup";
 import { ReviewerProfiles } from "./ReviewerProfiles";
 import { fetchProfiles, fetchSettings, saveReviewSettings, type ReviewSettingKey } from "./settingsSlice";
 import styles from "./SettingsPane.module.css";
@@ -191,9 +192,17 @@ export const SettingsPane = (): JSX.Element => {
   const dispatch = useAppDispatch();
   const settings = useAppSelector((s) => s.settings.settings);
   const error = useAppSelector((s) => s.settings.error);
+  const group = useAppSelector((s) => s.settings.group);
   useEffect(() => {
     void dispatch(fetchSettings());
   }, [dispatch]);
+  if (group === "about") {
+    return (
+      <div className={styles.root}>
+        <AboutGroup />
+      </div>
+    );
+  }
   if (settings === null) {
     return (
       <div className={styles.loading}>
