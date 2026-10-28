@@ -117,7 +117,17 @@ impl Runner {
         &self,
         args: &[String],
     ) -> Result<T, AppError> {
-        let outcome = self.run("ws", args).await?;
+        self.ws_json_with_input(args, None).await
+    }
+
+    /// Runs `ws <args>`, which place `--json` themselves, with `input`, if
+    /// any, as its stdin, and parses its result, or its error.
+    pub async fn ws_json_with_input<T: DeserializeOwned>(
+        &self,
+        args: &[String],
+        input: Option<&[u8]>,
+    ) -> Result<T, AppError> {
+        let outcome = self.run_with_input("ws", args, &[], input).await?;
         if !outcome.success {
             return Err(ws_error(&outcome.stderr));
         }

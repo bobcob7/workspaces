@@ -19,8 +19,9 @@ use checker::Started;
 use comment::{CommentPlan, PostRequest, Posted};
 use fix::{FixFinding, FixPlan, FixStarted, StartFix};
 use plan::ReviewPlan;
-use profiles::ListedProfile;
+use profiles::{ListedProfile, ProfileDetail, ProfileDraft};
 use report::DecideRequest;
+use serde::Serialize;
 use serde_json::Value;
 use store::{PrHead, RepoWatch, ReviewSettings, Settings};
 use tauri::{Manager, State};
@@ -114,6 +115,65 @@ pub async fn reviews_plan(
 #[tauri::command]
 pub async fn reviews_profiles(state: State<'_, AppState>) -> CmdResult<Vec<ListedProfile>> {
     profiles::list(&state.runner).await
+}
+
+/// One profile with its guide (`ws review profiles show`), for the editor.
+#[tauri::command]
+pub async fn reviews_profile_show(
+    state: State<'_, AppState>,
+    name: String,
+) -> CmdResult<ProfileDetail> {
+    profiles::show(&state.runner, &name).await
+}
+
+/// Adds a profile (`ws review profiles add`); the draft's Runs is its
+/// `--when` (ADR 0042).
+#[tauri::command]
+pub async fn reviews_profile_add(
+    state: State<'_, AppState>,
+    name: String,
+    draft: ProfileDraft,
+) -> CmdResult<ProfileDetail> {
+    profiles::add(&state.runner, &name, &draft).await
+}
+
+/// Changes the draft's fields of a profile (`ws review profiles edit`). A
+/// built-in becomes an override.
+#[tauri::command]
+pub async fn reviews_profile_edit(
+    state: State<'_, AppState>,
+    name: String,
+    draft: ProfileDraft,
+) -> CmdResult<ProfileDetail> {
+    profiles::edit(&state.runner, &name, &draft).await
+}
+
+/// What removing a profile did, with the settings it left.
+#[derive(Debug, Serialize)]
+pub struct ProfileRemoved {
+    pub restored: bool,
+    pub settings: Settings,
+}
+
+/// Removes a profile's file (`ws review profiles rm`). A profile that's
+/// gone for good loses its Settings row; a restored built-in keeps it.
+#[tauri::command]
+pub async fn reviews_profile_remove(
+    state: State<'_, AppState>,
+    name: String,
+) -> CmdResult<ProfileRemoved> {
+    let removed = profiles::remove(&state.runner, &name).await?;
+    let mut settings = state.store.get().settings;
+    if profiles::forget_removed(&mut settings.reviews.profiles, &removed) {
+        settings = state.store.update(|d| {
+            profiles::forget_removed(&mut d.settings.reviews.profiles, &removed);
+            d.settings.clone()
+        })?;
+    }
+    Ok(ProfileRemoved {
+        restored: removed.restored,
+        settings,
+    })
 }
 
 /// Starts a review by hand (`ws review start`). Starting one that already
