@@ -41,10 +41,10 @@ func (a *App) newMachineSpawnCmd() *cobra.Command {
 		Use:   "spawn [OPTIONS] [<SPEC>...] -- <PROMPT> [<CLAUDE ARGS>...]",
 		Short: "New child workspace with a Claude Code background agent",
 		Args:  allArgs(specsBeforeDash, claudeArgsAfterDash, promptAfterDash),
-		RunE: a.alwaysJSON(runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			opts.specs, opts.claudeArgs = splitAtDash(cmd, args)
 			return a.runMachineSpawn(cmd.Context(), &opts)
-		}))),
+		})),
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
 	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views")
@@ -57,9 +57,9 @@ func (a *App) newMachineChildrenCmd() *cobra.Command {
 		Use:   "children [--all]",
 		Short: "List the workspaces yours started",
 		Args:  noArgs,
-		RunE: a.alwaysJSON(runE(a.withConfigUnswept(func(cmd *cobra.Command, _ []string) error {
+		RunE: runE(a.withConfigUnswept(func(cmd *cobra.Command, _ []string) error {
 			return a.runMachineChildren(cmd.Context(), all)
-		}))),
+		})),
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "every descendant, not only direct children")
 	return cmd
@@ -78,10 +78,10 @@ func (a *App) newMachineRmCmd() *cobra.Command {
 		Args: func(cmd *cobra.Command, args []string) error {
 			return checkMachineRmArgs(cmd, opts.all, args)
 		},
-		RunE: a.alwaysJSON(runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			opts.workspaces = args
 			return a.runMachineRm(cmd.Context(), &opts)
-		}))),
+		})),
 	}
 	cmd.Flags().BoolVar(&opts.all, "all", false, "remove every direct child, and with them their descendants")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print what would be removed, change nothing")
@@ -89,18 +89,10 @@ func (a *App) newMachineRmCmd() *cobra.Command {
 	return cmd
 }
 
-// alwaysJSON makes a ws machine command print JSON, as if --json were
-// given (ADR 0046). Errors cobra finds before the command runs are made
-// JSON by execute.
-func (a *App) alwaysJSON(fn func(cmd *cobra.Command, args []string) error) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		a.global.json = true
-		return fn(cmd, args)
-	}
-}
-
 // isAgentCommand reports whether cmd is in ws --help's group for agents,
-// or under a command that is.
+// or under a command that is. Such commands always print JSON, as if
+// --json were given: the root's PersistentPreRun sets it, and execute for
+// errors cobra finds before then (ADR 0046).
 func isAgentCommand(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		if c.GroupID == agentsGroup {
@@ -229,7 +221,7 @@ func (a *App) runMachineRm(ctx context.Context, opts *machineRmOptions) error {
 	if opts.all {
 		opts.workspaces = directChildren(list, caller)
 	}
-	opts.adopter = caller
+	opts.caller = caller
 	targets := a.rmTargets(opts.workspaces)
 	refuseOutside(targets, descendants(list, caller))
 	return a.removeTargets(ctx, targets, &opts.rmOptions)

@@ -176,9 +176,13 @@ func (a *App) newRootCmd() *cobra.Command {
 		Version:       a.version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRun: func(*cobra.Command, []string) {
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			if a.global.verbose {
 				a.level.Set(slog.LevelDebug)
+			}
+			// Commands for agents always print JSON (ADR 0046).
+			if isAgentCommand(cmd) {
+				a.global.json = true
 			}
 		},
 	}

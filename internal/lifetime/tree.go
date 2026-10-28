@@ -14,16 +14,22 @@ import (
 // without the parent that removes it (ADR 0044).
 var ErrChildKept = errors.New("kept because a workspace it started couldn't be removed")
 
+// ErrCallerInTree means removing a tree would remove the workspace it's
+// removed for, which a cycle of parents can make it reach (ADR 0046).
+var ErrCallerInTree = errors.New("removing it would remove this workspace")
+
 // TreeOptions are ws rm's options for one workspace and its descendants.
 type TreeOptions struct {
 	// DryRun makes the same checks and changes nothing.
 	DryRun bool
-	// KeepChildren makes the workspace's children Adopter's, or roots
+	// KeepChildren makes the workspace's children Caller's, or roots
 	// without one, instead of removing them.
 	KeepChildren bool
-	// Adopter is the workspace KeepChildren gives the children to: ws
-	// machine rm's caller (ADR 0046).
-	Adopter string
+	// Caller is the workspace the tree is removed for: ws machine rm's
+	// (ADR 0046). It is never removed: a tree that reaches it is refused
+	// with ErrCallerInTree. With KeepChildren, it is the children's new
+	// parent. "" for ws rm, which protects nothing and makes them roots.
+	Caller string
 }
 
 // TreeItem is one workspace of a tree ws rm was asked to remove: removed,
@@ -72,8 +78,8 @@ func postOrder(list []workspace.Workspace, kids map[string][]int, root int, seen
 // RemoveTree removes ws and its descendants, deepest first, each as Remove
 // does (ADR 0044). A descendant that can't be removed keeps itself and
 // its ancestors, each with ErrChildKept, while other branches still go.
-// With KeepChildren, ws's children become Adopter's, or roots, and only
-// ws is removed.
+// With KeepChildren, ws's children become Caller's, or roots, and only
+// ws is removed. A tree holding Caller is refused, with nothing removed.
 // It returns the descendants first and ws last.
 func (m *Manager) RemoveTree(ctx context.Context, ws *workspace.Workspace, opts TreeOptions) ([]TreeItem, error) {
 	list, err := m.store.List()
@@ -90,17 +96,35 @@ func (m *Manager) RemoveTree(ctx context.Context, ws *workspace.Workspace, opts 
 		list, root = append(list, *ws), len(list)
 	}
 	kids := children(list)
+	order := postOrder(list, kids, root, map[int]bool{})
+	if opts.Caller != "" && reaches(list, order, ws, opts) {
+		return []TreeItem{{Workspace: *ws, Err: fmt.Errorf("%w: %s", ErrCallerInTree, opts.Caller)}}, nil
+	}
 	if opts.KeepChildren {
 		return m.removeKeepingChildren(ctx, list, kids[ws.ID], &list[root], opts)
 	}
 	var items []TreeItem
 	failed := map[int]bool{}
-	for _, i := range postOrder(list, kids, root, map[int]bool{}) {
+	for _, i := range order {
 		item := m.removeNode(ctx, &list[i], kidsFailed(list, kids, i, failed), opts.DryRun)
 		failed[i] = item.Err != nil
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+// reaches reports whether removing ws, as opts says, would remove
+// opts.Caller: ws alone with KeepChildren, else every index of order.
+func reaches(list []workspace.Workspace, order []int, ws *workspace.Workspace, opts TreeOptions) bool {
+	if opts.KeepChildren {
+		return ws.ID == opts.Caller
+	}
+	for _, i := range order {
+		if list[i].ID == opts.Caller {
+			return true
+		}
+	}
+	return false
 }
 
 // kidsFailed is the id of a child of node i that failed, or "".
@@ -124,17 +148,39 @@ func (m *Manager) removeNode(ctx context.Context, ws *workspace.Workspace, keptC
 	return TreeItem{Removed: r}
 }
 
-// removeKeepingChildren gives each child to opts.Adopter, or makes it a
-// root, then removes ws. A dry run changes neither.
+// removeKeepingChildren checks that ws can be removed, gives each child
+// to opts.Caller, or makes it a root, then removes ws. If ws still can't
+// be removed, the children are given back to it. A dry run changes
+// nothing.
 func (m *Manager) removeKeepingChildren(ctx context.Context, list []workspace.Workspace, kids []int, ws *workspace.Workspace, opts TreeOptions) ([]TreeItem, error) {
-	if !opts.DryRun {
-		for _, c := range kids {
-			if _, err := m.store.SetParent(list[c].ID, opts.Adopter); err != nil {
-				return nil, fmt.Errorf("keeping workspace %s: %w", list[c].ID, err)
-			}
+	checked := m.removeNode(ctx, ws, "", true)
+	if removable := checked.Err == nil; !removable || opts.DryRun {
+		return []TreeItem{checked}, nil
+	}
+	var moved []string
+	for _, c := range kids {
+		if _, err := m.store.SetParent(list[c].ID, opts.Caller); err != nil {
+			m.giveBack(moved, ws.ID)
+			return nil, fmt.Errorf("keeping workspace %s: %w", list[c].ID, err)
+		}
+		moved = append(moved, list[c].ID)
+	}
+	item := m.removeNode(ctx, ws, "", false)
+	if item.Err != nil {
+		m.giveBack(moved, ws.ID)
+	}
+	return []TreeItem{item}, nil
+}
+
+// giveBack makes parent the parent of each workspace in ids again, after
+// its removal failed. A failure is a warning: the child stays where it
+// was moved.
+func (m *Manager) giveBack(ids []string, parent string) {
+	for _, id := range ids {
+		if _, err := m.store.SetParent(id, parent); err != nil {
+			m.warn("couldn't give workspace %s back to %s: %v", id, parent, err)
 		}
 	}
-	return []TreeItem{m.removeNode(ctx, ws, "", opts.DryRun)}, nil
 }
 
 // forestOrder is every index of list, each workspace's descendants before

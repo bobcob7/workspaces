@@ -15,9 +15,10 @@ import (
 type rmOptions struct {
 	dryRun       bool
 	keepChildren bool
-	// adopter is the workspace --keep-children gives the children to, or
-	// "" to make them roots: ws machine rm's caller (ADR 0046).
-	adopter    string
+	// caller is the workspace ws machine rm removes for, which is never
+	// removed and adopts --keep-children's children; "" for ws rm (ADR
+	// 0046).
+	caller     string
 	workspaces []string
 }
 
@@ -156,7 +157,7 @@ func (a *App) sweptMatch(arg string) (lifetime.Removed, bool) {
 // rmTree removes ws and its descendants and returns an item for each that
 // done doesn't already hold, adding it to done.
 func (a *App) rmTree(ctx context.Context, ws *workspace.Workspace, opts *rmOptions, done map[string]bool, items *itemResults) []rmJSON {
-	tree, err := a.lifetime.RemoveTree(ctx, ws, lifetime.TreeOptions{DryRun: opts.dryRun, KeepChildren: opts.keepChildren, Adopter: opts.adopter})
+	tree, err := a.lifetime.RemoveTree(ctx, ws, lifetime.TreeOptions{DryRun: opts.dryRun, KeepChildren: opts.keepChildren, Caller: opts.caller})
 	if err != nil {
 		tree = []lifetime.TreeItem{{Workspace: *ws, Err: err}}
 	}

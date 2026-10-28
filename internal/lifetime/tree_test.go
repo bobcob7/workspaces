@@ -3,6 +3,7 @@ package lifetime
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -80,10 +81,99 @@ func TestManager_RemoveTree(t *testing.T) {
 		assert.Empty(t, f.workspaces[2].Parent)
 		assert.Equal(t, "a", f.workspaces[3].Parent, "grandchildren keep their parent")
 	})
-	t.Run("keeping children gives them to the adopter", func(t *testing.T) {
+	t.Run("keeping children of a workspace that can't be removed leaves them", func(t *testing.T) {
+		f := newFixture(t)
+		root := f.shell("root")
+		f.locked["root"] = true
+		f.agent("a", "a-sess")
+		f.childOf("a", "root")
+		items, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, Caller: "caller"})
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		require.ErrorIs(t, items[0].Err, ErrShellRunning)
+		assert.Empty(t, f.store.SetParentCalls())
+		assert.Equal(t, "root", f.workspaces[1].Parent)
+	})
+	t.Run("keeping children gives them back if the removal still fails", func(t *testing.T) {
+		f := newFixture(t)
+		root := f.shell("root")
+		f.agent("a", "a-sess")
+		f.childOf("a", "root")
+		f.store.RemoveFunc = func(string, workspace.RemoveOptions) error { return errTest }
+		items, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, Caller: "caller"})
+		require.NoError(t, err)
+		require.ErrorIs(t, items[0].Err, errTest)
+		assert.Equal(t, "root", f.workspaces[1].Parent)
+		require.Len(t, f.store.SetParentCalls(), 2)
+		assert.Equal(t, "caller", f.store.SetParentCalls()[0].Parent)
+	})
+	t.Run("keeping children warns about one it can't give back", func(t *testing.T) {
+		f := newFixture(t)
+		root := f.shell("root")
+		f.agent("a", "a-sess")
+		f.childOf("a", "root")
+		f.store.RemoveFunc = func(string, workspace.RemoveOptions) error { return errTest }
+		f.store.SetParentFunc = func(id, parent string) (workspace.Workspace, error) {
+			if parent == "root" {
+				return workspace.Workspace{}, errTest
+			}
+			return workspace.Workspace{ID: id, Parent: parent}, nil
+		}
+		_, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, Caller: "caller"})
+		require.NoError(t, err)
+		assert.Contains(t, strings.Join(f.m.Warnings(), "\n"), "couldn't give workspace a back to root")
+	})
+	t.Run("keeping children gives back those moved when moving one fails", func(t *testing.T) {
 		f := newFixture(t)
 		root := f.tree()
-		_, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, Adopter: "caller"})
+		f.store.SetParentFunc = func(id, parent string) (workspace.Workspace, error) {
+			if id == "b" && parent == "caller" {
+				return workspace.Workspace{}, errTest
+			}
+			return workspace.Workspace{ID: id, Parent: parent}, nil
+		}
+		_, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, Caller: "caller"})
+		require.ErrorIs(t, err, errTest)
+		calls := f.store.SetParentCalls()
+		require.Len(t, calls, 3)
+		assert.Equal(t, "a", calls[2].ID)
+		assert.Equal(t, "root", calls[2].Parent)
+		assert.Empty(t, f.removedIDs())
+	})
+	t.Run("a tree that reaches the caller is refused, with nothing removed", func(t *testing.T) {
+		f := newFixture(t)
+		f.shell("caller")
+		f.shell("b")
+		f.childOf("caller", "b")
+		b := f.childOf("b", "caller")
+		items, err := f.m.RemoveTree(t.Context(), &b, TreeOptions{Caller: "caller"})
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		assert.Equal(t, "b", items[0].Workspace.ID)
+		require.ErrorIs(t, items[0].Err, ErrCallerInTree)
+		assert.Empty(t, f.removedIDs())
+	})
+	t.Run("the caller itself is refused", func(t *testing.T) {
+		f := newFixture(t)
+		caller := f.shell("caller")
+		for _, keep := range []bool{false, true} {
+			items, err := f.m.RemoveTree(t.Context(), &caller, TreeOptions{Caller: "caller", KeepChildren: keep})
+			require.NoError(t, err)
+			require.ErrorIs(t, items[0].Err, ErrCallerInTree)
+		}
+		assert.Empty(t, f.removedIDs())
+	})
+	t.Run("keeping children may name the caller's own child's tree", func(t *testing.T) {
+		f := newFixture(t)
+		root := f.tree()
+		_, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, Caller: "a"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"root"}, f.removedIDs())
+	})
+	t.Run("keeping children gives them to the caller", func(t *testing.T) {
+		f := newFixture(t)
+		root := f.tree()
+		_, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, Caller: "caller"})
 		require.NoError(t, err)
 		assert.Equal(t, "caller", f.workspaces[1].Parent)
 		assert.Equal(t, "caller", f.workspaces[2].Parent)

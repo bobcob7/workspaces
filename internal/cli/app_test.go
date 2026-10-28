@@ -311,6 +311,22 @@ func TestApp_newRootCmd(t *testing.T) {
 		root.PersistentPreRun(root, nil)
 		assert.True(t, app.log.Enabled(t.Context(), slog.LevelDebug))
 	})
+	t.Run("commands for agents print JSON without --json", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		root := app.newRootCmd()
+		machine, _, err := root.Find([]string{"machine", "children"})
+		require.NoError(t, err)
+		root.PersistentPreRun(machine, nil)
+		assert.True(t, app.global.json)
+	})
+	t.Run("other commands keep --json off", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		root := app.newRootCmd()
+		rm, _, err := root.Find([]string{"rm"})
+		require.NoError(t, err)
+		root.PersistentPreRun(rm, nil)
+		assert.False(t, app.global.json)
+	})
 	t.Run("logging stays off without verbose", func(t *testing.T) {
 		app, _, _ := newTestApp()
 		root := app.newRootCmd()

@@ -16,7 +16,8 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 - To hand work to another agent, use `ws machine spawn <spec>... --
   "<prompt>"` and keep the returned session id. Follow it with
   `claude logs <id>`.
-- Don't stop or work in a workspace you didn't create unless told to.
+- Don't remove, stop, or work in a workspace you didn't create unless
+  told to; `ws machine rm` enforces this, `ws rm` doesn't.
 - Parse `--json` output, never the tables.
 - To get a pull request reviewed, use `ws review start --json --pr <n>
   <repo>` and run its `wait_command` as a background command; see `ws llm
