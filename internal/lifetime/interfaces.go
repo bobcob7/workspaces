@@ -8,7 +8,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . workspaceStore claudeClient processReader
+//go:generate go tool moq -out moq_test.go . workspaceStore claudeClient processReader reviewJudge
 
 // workspaceStore is the set of workspaces and their state (ADRs 0012,
 // 0022, 0023).
@@ -40,4 +40,10 @@ type claudeClient interface {
 // (ADR 0018's stale sessions).
 type processReader interface {
 	StartTime(pid int) (time.Time, error)
+}
+
+// reviewJudge tells whether a workspace is a review whose every profile
+// has reported (ADR 0045). A workspace that isn't a review isn't complete.
+type reviewJudge interface {
+	Complete(ctx context.Context, ws *workspace.Workspace) (bool, error)
 }

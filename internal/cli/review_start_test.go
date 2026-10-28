@@ -23,6 +23,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/review/record"
+	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -240,6 +241,20 @@ func TestApp_reviewRequester(t *testing.T) {
 		e := newReviewStartEnv(t)
 		require.NoError(t, e.start(t, &reviewStartOptions{pr: 42}))
 		assert.Equal(t, "fix-login-d8efb24f", e.store.CreateCalls()[0].Opts.Parent)
+	})
+	t.Run("keeps the review's run in the store", func(t *testing.T) {
+		e := newReviewStartEnv(t)
+		require.NoError(t, e.start(t, &reviewStartOptions{pr: 42}))
+		run, err := store.New(e.app.paths.Reviews).FindRun(e.ws.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "fix-login-d8efb24f", run.Record.Requester)
+	})
+	t.Run("drops the run when the agent doesn't start", func(t *testing.T) {
+		e := newReviewStartEnv(t)
+		e.claude.StartFunc = func(context.Context, claude.StartOptions) (claude.Started, error) { return claude.Started{}, errTest }
+		require.Error(t, e.start(t, &reviewStartOptions{pr: 42}))
+		_, err := store.New(e.app.paths.Reviews).FindRun(e.ws.ID)
+		require.ErrorIs(t, err, store.ErrNoRun)
 	})
 	t.Run("none makes a review with no parent", func(t *testing.T) {
 		e := newReviewStartEnv(t)

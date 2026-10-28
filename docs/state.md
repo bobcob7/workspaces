@@ -136,7 +136,7 @@ Creation goes through the stages in order
 4. Rename `building/` to `workspaces/<id>/`.
 5. Write the session record.
 
-A workspace stops being kept in one of three ways:
+A workspace stops being kept in one of four ways:
 
 - **Gone**: its session ended.
   - A shell workspace's lock is free.
@@ -145,7 +145,11 @@ A workspace stops being kept in one of three ways:
 - **Abandoned**: it's in one of the first three stages, its lock is free,
   and `state/<id>/` hasn't changed for a minute. This is left behind by an
   interrupted creation or hand-off.
-- **With its parent**: an ancestor is gone or abandoned, or named in
+- **Finished review**: a review workspace whose agent is idle or stopped
+  and whose every profile has a current submission, unless `[review]
+  remove_finished = false` ([0045](adrs/0045-finished-reviews-are-removed.md)).
+  It's removed as `ws rm` removes it.
+- **With its parent**: an ancestor is gone, abandoned, or finished, or named in
   `ws rm`. Descendants are removed first, deepest first, each as `ws rm`
   removes it; one that can't be keeps its ancestors until a later pass
   ([0044](adrs/0044-workspace-trees.md)).
@@ -201,6 +205,7 @@ reviews/<host>/<owner>/<name>/<sha>/
   <profile>.json      the profile's current submission
   <profile>.<n>.json  its earlier submissions, n from 1, oldest first
   decisions.json      the decisions on the current findings
+  runs/<id>.toml      the record of each review run of the commit, by workspace id
 ```
 
 `decisions.json`, version 1
@@ -235,6 +240,11 @@ current finding's `<profile>:<id>` to its decision:
   each profile's current submission, and the earlier ones marked
   superseded. Comment ids are qualified as `<profile>:<id>` for a current
   submission and `#<ordinal>:<id>` otherwise.
+- **Runs.** `ws review start` writes the review's record, the same
+  `review.toml`, to `runs/<workspace id>.toml` before the agent starts, and
+  removes it if the agent doesn't start. `ws review wait`, `report`,
+  `decide`, and `list` find a review whose workspace is gone through it
+  ([0045](adrs/0045-finished-reviews-are-removed.md)).
 - **Removal.** Nothing removes `reviews/` with a workspace. `ws cache
   prune` removes `reviews/<host>/<owner>/<name>/`, every commit of it, for
   each repo that is no longer cached, and then the parent directories

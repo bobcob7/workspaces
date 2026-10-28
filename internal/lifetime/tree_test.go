@@ -1,6 +1,8 @@
 package lifetime
 
 import (
+	"context"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -141,5 +143,103 @@ func TestManager_pass_cascade(t *testing.T) {
 		entries, _, err := f.m.pass(t.Context(), newReader(f.m, false))
 		require.NoError(t, err)
 		assert.Len(t, entries, 1)
+	})
+}
+
+// judgeComplete makes f's Manager remove finished reviews, the ids in
+// complete counting as complete.
+func (f *fixture) judgeComplete(complete ...string) *reviewJudgeMock {
+	j := &reviewJudgeMock{CompleteFunc: func(_ context.Context, ws *workspace.Workspace) (bool, error) {
+		return slices.Contains(complete, ws.ID), nil
+	}}
+	f.m.RemoveFinishedReviews(j)
+	return j
+}
+
+func TestManager_pass_finishedReviews(t *testing.T) {
+	t.Run("removes a complete review whose agent is idle", func(t *testing.T) {
+		f := newFixture(t)
+		f.agent("review", "r-sess")
+		f.listed("r-sess", "/cfg/workspaces/review")
+		f.judgeComplete("review")
+		entries, removed, err := f.m.pass(t.Context(), newReader(f.m, false))
+		require.NoError(t, err)
+		assert.Empty(t, entries)
+		require.Len(t, removed, 1)
+		assert.Equal(t, []string{"r-sess"}, f.claudeRemoved())
+		assert.Equal(t, []string{"review"}, f.removedIDs())
+	})
+	t.Run("removes a complete review whose agent is stopped", func(t *testing.T) {
+		f := newFixture(t)
+		f.agent("review", "r-sess")
+		f.stopped("r-sess", "/cfg/workspaces/review")
+		f.judgeComplete("review")
+		_, removed, err := f.m.pass(t.Context(), newReader(f.m, false))
+		require.NoError(t, err)
+		assert.Len(t, removed, 1)
+	})
+	t.Run("keeps a review still working", func(t *testing.T) {
+		f := newFixture(t)
+		f.agent("review", "r-sess")
+		f.working("r-sess", "/cfg/workspaces/review")
+		j := f.judgeComplete("review")
+		entries, removed, err := f.m.pass(t.Context(), newReader(f.m, false))
+		require.NoError(t, err)
+		assert.Len(t, entries, 1)
+		assert.Empty(t, removed)
+		assert.Empty(t, j.CompleteCalls(), "not asked while it works")
+	})
+	t.Run("keeps an idle review missing a report", func(t *testing.T) {
+		f := newFixture(t)
+		f.agent("review", "r-sess")
+		f.listed("r-sess", "/cfg/workspaces/review")
+		f.judgeComplete()
+		entries, _, err := f.m.pass(t.Context(), newReader(f.m, false))
+		require.NoError(t, err)
+		assert.Len(t, entries, 1)
+	})
+	t.Run("keeps everything without a judge", func(t *testing.T) {
+		f := newFixture(t)
+		f.agent("review", "r-sess")
+		f.listed("r-sess", "/cfg/workspaces/review")
+		entries, _, err := f.m.pass(t.Context(), newReader(f.m, false))
+		require.NoError(t, err)
+		assert.Len(t, entries, 1)
+	})
+	t.Run("a review that can't be judged is kept, with a warning", func(t *testing.T) {
+		f := newFixture(t)
+		f.agent("review", "r-sess")
+		f.listed("r-sess", "/cfg/workspaces/review")
+		f.m.RemoveFinishedReviews(&reviewJudgeMock{CompleteFunc: func(context.Context, *workspace.Workspace) (bool, error) {
+			return false, errTest
+		}})
+		entries, _, err := f.m.pass(t.Context(), newReader(f.m, false))
+		require.NoError(t, err)
+		assert.Len(t, entries, 1)
+		assert.Equal(t, []string{"couldn't tell whether review review is finished: boom"}, f.m.Warnings())
+	})
+	t.Run("a finished review takes its descendants", func(t *testing.T) {
+		f := newFixture(t)
+		f.agent("review", "r-sess")
+		f.listed("r-sess", "/cfg/workspaces/review")
+		f.agent("helper", "h-sess")
+		f.working("h-sess", "/cfg/workspaces/helper")
+		f.childOf("helper", "review")
+		f.judgeComplete("review")
+		_, removed, err := f.m.pass(t.Context(), newReader(f.m, false))
+		require.NoError(t, err)
+		assert.Len(t, removed, 2)
+		assert.Equal(t, []string{"helper", "review"}, f.removedIDs())
+	})
+	t.Run("a failed removal is a warning and keeps it", func(t *testing.T) {
+		f := newFixture(t)
+		f.agent("review", "r-sess")
+		f.listed("r-sess", "/cfg/workspaces/review")
+		f.judgeComplete("review")
+		f.claude.StopFunc = func(context.Context, string) error { return errTest }
+		entries, _, err := f.m.pass(t.Context(), newReader(f.m, false))
+		require.NoError(t, err)
+		assert.Len(t, entries, 1)
+		assert.Equal(t, []string{"couldn't remove finished review review: boom"}, f.m.Warnings())
 	})
 }

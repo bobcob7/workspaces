@@ -7,7 +7,9 @@ ws review wait [--timeout <duration>] [--json] <id>
 Waits for a review to finish, then prints its report, exactly as `ws
 review report` does. It reads the review agent's session every 5 seconds,
 as `ws list` does, and is done when the agent is idle or stopped, or its
-workspace is gone. For a finished review it returns at once.
+workspace is gone. For a finished review it returns at once, including
+one whose agent and workspace were removed once every reviewer had
+reported: `ws` keeps its record with its findings.
 
 Run it as a background command and act on its output when Claude Code
 tells you it exited (see `ws llm review`).
@@ -34,7 +36,7 @@ The same as `ws review report --json`; see `ws llm review report`.
 | Situation                                         | Error code         | Exit |
 | ------------------------------------------------- | ------------------ | ---- |
 | Not exactly one workspace, or `--timeout` not positive | `usage`       | 2    |
-| No such workspace, or it isn't a review           | `review_not_found` | 3    |
+| No such review workspace or kept review           | `review_not_found` | 3    |
 | Still running after the timeout; run `wait` again | `review_timeout`   | 1    |
 
 On `review_timeout`, `details` has `workspace` and `status`.

@@ -16,7 +16,8 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 - Parse `--json` output, never the tables.
 - To get a pull request reviewed, use `ws review start --json --pr <n>
   <repo>` and run its `wait_command` as a background command; see `ws llm
-  review`.
+  review`. A review removes its own agent and workspace once every
+  reviewer has reported; its report stays readable.
 - Never run `ws restart` unless told to: it interrupts every background
   agent on the machine, not only yours.
 - What you start from your workspace (`ws claude`, `ws review start`) is
@@ -176,6 +177,7 @@ everything.
   - `ws llm review start`: start a review of a pull request or commit
   - `ws llm review wait`: wait for a review, then print its report
   - `ws llm review report`: a review's combined report
+  - `ws llm review list`: reviews, including finished ones whose agent was removed
   - `ws llm review decide`: decide to comment on, fix, or skip findings
   - `ws llm review acted`: record that decided findings were commented on or sent to fix
   - `ws llm review profiles`: the review profiles and their settings

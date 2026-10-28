@@ -21,6 +21,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/proc"
+	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/shell"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -119,7 +120,11 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		runner := git.NewRunner(log, "git", environ)
 		c := cache.New(log, runner, paths.Cache, cfg.Defaults)
 		ws := workspace.New(log, runner, c, a.claude, paths.Workspaces, paths.State)
-		return stores{cache: c, workspaces: ws, lifetime: lifetime.New(log, ws, a.claude, proc.Reader{}, paths.State)}
+		lm := lifetime.New(log, ws, a.claude, proc.Reader{}, paths.State)
+		if cfg.Review.RemovesFinished() {
+			lm.RemoveFinishedReviews(reviewJudge{state: paths.State, store: store.New(paths.Reviews)})
+		}
+		return stores{cache: c, workspaces: ws, lifetime: lm}
 	}
 	return a
 }
