@@ -87,7 +87,7 @@ describe("ReviewsPane", () => {
     });
     renderPane(reviewsView({ prs: [pr] }));
     expect(screen.getByRole("status")).toHaveTextContent(
-      '2 commits pushed after this review: "Evict on logout" and "Cap the cache". Review again to check them.',
+      'alice pushed 2 commits after this review: "Evict on logout" and "Cap the cache". These decisions stay with a41c9f2; Review again reviews 3f2a9c1 from scratch.',
     );
     expect(screen.getByRole("button", { name: "Review again" })).toBeInTheDocument();
   });
@@ -104,6 +104,7 @@ describe("ReviewsPane", () => {
 
   it("opens the review agent in Agents", async () => {
     const store = renderPane(reviewsView({ prs: [pullRequest({ group: "reviewed", reviews: [reviewRun()] })] }));
+    await userEvent.click(await screen.findByRole("tab", { name: "Review agent" }));
     await userEvent.click(screen.getByRole("button", { name: "Open agent" }));
     expect(store.getState().ui.section).toBe("agents");
     expect(store.getState().ui.selectedKey).toBe("review-buff-bear-42-3f2a9c1");
@@ -114,6 +115,7 @@ describe("ReviewsPane", () => {
     const store = renderPane(reviewsView({ prs: [pullRequest({ group: "reviewed", reviews: [reviewRun()] })] }), api);
     const workspace = entry({ key: "review-buff-bear-42-3f2a9c1", workspaceId: "review-buff-bear-42-3f2a9c1" });
     store.dispatch(fetchEntries.fulfilled({ entries: [workspace], warnings: [] }, "req"));
+    await userEvent.click(await screen.findByRole("tab", { name: "Review agent" }));
     await userEvent.click(screen.getByRole("button", { name: "Remove" }));
     await userEvent.click(screen.getAllByRole("button", { name: "Remove" }).at(-1) as HTMLElement);
     expect(api.removeEntry).toHaveBeenCalledWith("review-buff-bear-42-3f2a9c1", "e8cdf5d8");

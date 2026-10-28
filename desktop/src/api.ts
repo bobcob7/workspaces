@@ -194,6 +194,10 @@ export interface ReviewRun {
   readonly result: string | null;
   readonly links: readonly Link[];
   readonly auto: boolean;
+  /** Made by `ws review start`, so it has a report (ADR 0039). */
+  readonly recorded: boolean;
+  /** The workspace its record names as having asked for it. */
+  readonly requester: string | null;
 }
 
 export interface NewCommits {
@@ -311,6 +315,91 @@ export interface ReviewSettings {
   readonly profiles: Readonly<Record<string, ProfileSetting>>;
 }
 
+/** A finding's decision, from `ws review decide` (ADR 0040). */
+export type DecisionKind = "comment" | "fix" | "skip";
+
+/** What was done about a decided finding, from `ws review acted`. */
+export interface DecisionDone {
+  readonly commented?: string;
+  readonly fix_sent?: string;
+  readonly at: string;
+}
+
+export interface FindingDecision {
+  readonly decision: DecisionKind;
+  /** An index into the finding's suggestions, or null for the fixer's choice. */
+  readonly suggestion: number | null;
+  readonly note: string;
+  readonly at: string;
+  readonly done: DecisionDone | null;
+}
+
+/** A file and lines at the reviewed commit; line 0 is the whole file. */
+export interface ReportAnchor {
+  readonly file: string;
+  readonly line: number;
+  readonly end_line: number | null;
+}
+
+export interface ReportSuggestion {
+  readonly summary: string;
+  readonly effort: string;
+  readonly scope: string;
+  readonly pros: readonly string[];
+  readonly cons: readonly string[];
+  readonly code: string | null;
+}
+
+/** One finding: `<profile>:<id>`, or `#<n>:<id>` when superseded. */
+export interface ReportComment {
+  readonly id: string;
+  readonly profile: string;
+  readonly priority: number;
+  readonly category: string;
+  readonly body: string;
+  readonly code: string | null;
+  readonly anchors: readonly ReportAnchor[];
+  readonly suggestions: readonly ReportSuggestion[];
+  readonly decision: FindingDecision | null;
+}
+
+export type Verdict = "approve" | "request_changes" | "comment";
+
+export interface ReportProfile {
+  readonly name: string;
+  readonly model: string;
+  readonly verdict: Verdict | null;
+  readonly severity: {
+    readonly max: number | null;
+    readonly must_fix: number;
+    readonly should_fix: number;
+    readonly worth_fixing: number;
+    readonly optional: number;
+  } | null;
+  /** No current submission. */
+  readonly missing: boolean;
+}
+
+/** `ws review report --json`, as ws prints it (ADR 0039). */
+export interface ReviewReport {
+  readonly repo: string;
+  readonly ref: string;
+  readonly review: { readonly requester: string; readonly pr: { readonly number: number; readonly url: string } | null } | null;
+  readonly agent: { readonly workspace: string; readonly status: string } | null;
+  readonly profiles: readonly ReportProfile[];
+  readonly comments: readonly ReportComment[];
+  readonly superseded: readonly ReportComment[];
+  readonly warnings: readonly string[];
+}
+
+/** One click's decision on one or more findings. */
+export interface DecideRequest {
+  readonly findings: readonly string[];
+  readonly decision: DecisionKind | "clear";
+  readonly suggestion: number | null;
+  readonly note: string;
+}
+
 export interface Settings {
   readonly reviews: ReviewSettings;
 }
@@ -384,6 +473,12 @@ export const api = {
     call<ReviewPlan>("reviews_plan", { repo, number }),
   reviewsProfiles: async (): Promise<readonly ListedProfile[]> => call<ListedProfile[]>("reviews_profiles"),
   reviewsStart: async (plan: ReviewPlan): Promise<Started> => call<Started>("reviews_start", { plan }),
+  reviewReport: async (repo: string, gitRef: string, refresh: boolean): Promise<ReviewReport> =>
+    call<ReviewReport>("review_report", { repo, gitRef, refresh }),
+  reviewDecide: async (repo: string, gitRef: string, request: DecideRequest): Promise<ReviewReport> =>
+    call<ReviewReport>("review_decide", { repo, gitRef, request }),
+  reviewOpenReport: async (repo: string, gitRef: string): Promise<string> =>
+    call<string>("review_open_report", { repo, gitRef }),
   settingsGet: async (): Promise<Settings> => call<Settings>("settings_get"),
   settingsSetReviews: async (reviews: ReviewSettings): Promise<Settings> =>
     call<Settings>("settings_set_reviews", { reviews }),

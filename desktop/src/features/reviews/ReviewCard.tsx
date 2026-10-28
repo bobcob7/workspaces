@@ -1,6 +1,6 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
 import { useEffect, useState, type JSX } from "react";
-import type { PullRequest, ReviewRun, Status } from "../../api";
+import type { PullRequest, ReviewRun } from "../../api";
 import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { removeEntry } from "../agents/agentsSlice";
@@ -8,11 +8,8 @@ import { StatusDot } from "../agents/StatusDot";
 import { conversationClosed, fetchConversation } from "../conversation/conversationSlice";
 import { MarkdownText } from "../conversation/ConversationView";
 import { sectionChosen, selected } from "../ui/uiSlice";
-import { shortSha } from "./groups";
+import { isReviewing, shortSha } from "./groups";
 import styles from "./ReviewCard.module.css";
-
-/** Statuses that put a pull request under Reviewing (ADR 0032). */
-const reviewingStatuses: ReadonlySet<Status> = new Set(["working", "starting", "pending", "needsInput"]);
 
 /** How often a running review's reply is re-read. */
 const replyInterval = 4000;
@@ -70,7 +67,7 @@ export const ReviewCard = ({ review, pr, collapsed = false }: ReviewCardProps): 
         </button>
         {review.auto && <span className={styles.auto}>auto</span>}
         <span className={styles.muted}>
-          {reviewingStatuses.has(review.status) ? "reviewing" : "reviewed"}{" "}
+          {isReviewing(review.status) ? "reviewing" : "reviewed"}{" "}
           {shortSha(review.sha)}
           {review.createdAt !== null && ` · ${age(review.createdAt)}`}
           {!atHead && " · older commit"}

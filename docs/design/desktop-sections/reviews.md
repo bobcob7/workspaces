@@ -62,12 +62,18 @@ Body:
 - **To review**: the PR description (Markdown, as the conversation renders
   it) and a **Review will run** card showing the `ws claude` command, with
   **Edit before starting**.
-- **Reviewing / Reviewed**: a card for the review agent: its name and
+- **Reviewing / Reviewed**: tabs. **Findings** is the review's report,
+  read with `ws review report --json`, and the decision on each finding
+  ([report.md](../loam-refinery-reviews/report.md),
+  [0040](../../adrs/0040-review-decisions-kept-with-findings.md)); it
+  appears once the first profile submits. **Description** is the PR
+  description. **Review agent** is a card per review agent: its name and
   status dot, the commit it reviewed and when, **Open agent** (switches to
   Agents and selects it), **Remove** (`ws rm`). Inside, the agent's result
   (green-edged block) and its reply, as Agents shows a finished agent.
   More than one review (one per pushed commit) lists the newest first,
-  older ones collapsed.
+  older ones collapsed. A review that `ws review start` didn't make has
+  no report, so it shows only Description and Review agent.
 - **Out of date**: a warning strip naming the commits pushed since the
   review, and **Review again**.
 
@@ -129,9 +135,10 @@ Settled by the implementing PR:
 4. **What "done" means**: a review is done when its agent is idle or
    stopped (Reviewed). The summary shown is Claude Code's job result, as in
    Agents, and the card adds the agent's last reply from its transcript.
-   The template doesn't ask for a fixed format and the app counts no
-   findings; a "3 findings" summary is whatever the agent's result says.
-   The template is a setting, so this can change without a new ADR.
+   A review `ws review start` made has a report: the list row summarizes
+   it (`2 must fix · 7 findings`, then `2 to fix`, then `all done`) and
+   Findings shows it ([0040](../../adrs/0040-review-decisions-kept-with-findings.md)).
+   For one without, the summary is the agent's result.
 5. **Tests**: `cargo test` pins ADR 0032's name format and matching
    (`reviews::names`), the groups (`reviews::view`), every auto-review rule
    and the cap (`reviews::auto`), and checking with fake `gh` and `ws`

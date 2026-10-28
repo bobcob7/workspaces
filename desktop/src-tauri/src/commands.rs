@@ -4,6 +4,7 @@ use crate::jobs::{self, JobState};
 use crate::model::{self, ClaudeAgent, Listing, WsList};
 use crate::pty::{TermEvent, TermSpec, Terminals};
 use crate::reviews::checker::Checker;
+use crate::reviews::report;
 use crate::reviews::store::Store;
 use crate::runner::{self, AppError, Runner};
 use crate::transcript::{self, Chunk};
@@ -22,6 +23,8 @@ pub struct AppState {
     pub jobs_dir: Option<PathBuf>,
     pub store: Arc<Store>,
     pub reviews: Arc<Checker>,
+    /// Review reports read this session (ADR 0040).
+    pub reports: report::Cache,
 }
 
 type CmdResult<T> = Result<T, AppError>;

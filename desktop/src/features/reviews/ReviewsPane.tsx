@@ -1,11 +1,14 @@
-import { Alert, Button, Chip, CircularProgress } from "@mui/material";
-import { useEffect, type JSX } from "react";
-import { api, type AppError, type PullRequest } from "../../api";
+import { Alert, Button, Chip, CircularProgress, Menu, MenuItem } from "@mui/material";
+import { useEffect, useState, type JSX } from "react";
+import { api, type AppError, type PullRequest, type ReviewRun } from "../../api";
 import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { MarkdownText } from "../conversation/ConversationView";
-import { commandPreview, ownerRepo, shortSha, watchedCount } from "./groups";
+import { sectionChosen, selected } from "../ui/uiSlice";
+import { commandPreview, isReviewing, ownerRepo, shortSha, watchedCount } from "./groups";
 import { PrDot } from "./PrDot";
+import { ReportView } from "./ReportView";
+import { defaultTriage, fetchReport, reportKey, reviewViewed, tabChosen, type DetailTab } from "./reportsSlice";
 import { ReviewCard } from "./ReviewCard";
 import { dismissPr, fetchPlan, openStartDialog, restorePr, startReview, watchedOpened } from "./reviewsSlice";
 import styles from "./ReviewsPane.module.css";
@@ -55,8 +58,24 @@ const ReviewWillRun = ({ pr }: { readonly pr: PullRequest }): JSX.Element => {
   );
 };
 
-const PrHeader = ({ pr }: { readonly pr: PullRequest }): JSX.Element => {
+const openAgent = (dispatch: ReturnType<typeof useAppDispatch>, id: string): void => {
+  dispatch(sectionChosen("agents"));
+  dispatch(selected(id));
+};
+
+interface PrHeaderProps {
+  readonly pr: PullRequest;
+  /** The review shown, if any. */
+  readonly review: ReviewRun | undefined;
+}
+
+const PrHeader = ({ pr, review }: PrHeaderProps): JSX.Element => {
   const dispatch = useAppDispatch();
+  const requester = useAppSelector((s) =>
+    review === undefined || !review.recorded
+      ? null
+      : review.requester ?? s.reports.byKey[reportKey(pr.repo, review.sha)]?.report?.review?.requester ?? null,
+  );
   const busy = useAppSelector((s) => s.reviews.busy.includes(pr.key));
   const reviewedAtHead = pr.group === "reviewed" && !pr.outOfDate;
   const primary = pr.group === "reviewing" || reviewedAtHead ? null : pr.outOfDate ? "Review again" : "Review";
@@ -75,6 +94,11 @@ const PrHeader = ({ pr }: { readonly pr: PullRequest }): JSX.Element => {
         <Button size="small" onClick={() => void api.openExternal(pr.url)}>
           Open on GitHub
         </Button>
+        {pr.group === "reviewing" && review !== undefined && (
+          <Button size="small" onClick={() => openAgent(dispatch, review.workspaceId)}>
+            Open agent
+          </Button>
+        )}
         {pr.group === "dismissed" ? (
           <Button size="small" onClick={() => void dispatch(restorePr(pr))}>
             Restore
@@ -117,50 +141,177 @@ const PrHeader = ({ pr }: { readonly pr: PullRequest }): JSX.Element => {
         </span>
         {pr.isDraft && <span className={styles.chip}>Draft</span>}
         {pr.requested && <span className={styles.warnChip}>Review requested from you</span>}
+        {requester !== null && requester !== "" && (
+          <Chip
+            size="small"
+            color="primary"
+            variant="outlined"
+            clickable
+            label={`Requested by ${requester}`}
+            title={`Open ${requester} in Agents`}
+            onClick={() => openAgent(dispatch, requester)}
+          />
+        )}
       </div>
     </header>
   );
 };
 
-const PrDetail = ({ pr }: { readonly pr: PullRequest }): JSX.Element => {
-  const [newest, ...older] = pr.reviews;
+const Description = ({ pr }: { readonly pr: PullRequest }): JSX.Element => (
+  <section className={styles.card} aria-label="Description">
+    <header className={styles.cardHeader}>
+      <h2>Description</h2>
+    </header>
+    <div className={styles.cardBody}>
+      {pr.body.trim() === "" ? <p className={styles.caption}>No description provided.</p> : <MarkdownText text={pr.body} />}
+    </div>
+  </section>
+);
+
+/** The amber strip over a review of an older commit: what was pushed since, and where its decisions stay. */
+const OutOfDate = ({ pr, review }: { readonly pr: PullRequest; readonly review: ReviewRun }): JSX.Element => {
+  const newest = pr.reviews[0] === review;
+  const pushed =
+    !newest || pr.newCommits === null
+      ? `This review is of ${shortSha(review.sha)}; the pull request's head is now ${shortSha(pr.headRefOid)}.`
+      : pr.newCommits.subjects.length === 0
+        ? `${pr.author.login} pushed ${plural(pr.newCommits.count, "commit")} after this review.`
+        : `${pr.author.login} pushed ${plural(pr.newCommits.count, "commit")} after this review: ${quoteList(pr.newCommits.subjects)}.`;
   return (
-    <section className={styles.root} aria-label={`${ownerRepo(pr.repo)}#${pr.number}`}>
-      <PrHeader pr={pr} />
-      <div className={styles.body}>
-        {newest === undefined ? (
+    <p className={styles.outOfDate} role="status">
+      {pushed} These decisions stay with {shortSha(review.sha)}
+      {pr.outOfDate ? (
+        <>
+          ; <b>Review again</b> reviews {shortSha(pr.headRefOid)} from scratch.
+        </>
+      ) : (
+        "."
+      )}
+    </p>
+  );
+};
+
+interface TabRowProps {
+  readonly pr: PullRequest;
+  readonly review: ReviewRun;
+  readonly tabs: readonly DetailTab[];
+  readonly tab: DetailTab;
+  readonly findings: number | null;
+}
+
+const tabLabels: Readonly<Record<DetailTab, string>> = {
+  findings: "Findings",
+  description: "Description",
+  agent: "Review agent",
+};
+
+/** Findings / Description / Review agent, with the review shown and links to the others. */
+const TabRow = ({ pr, review, tabs, tab, findings }: TabRowProps): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const others = pr.reviews.filter((r) => r !== review);
+  const working = isReviewing(review.status);
+  return (
+    <div className={styles.tabRow}>
+      <div role="tablist" className={styles.tabs}>
+        {tabs.map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            className={styles.tab}
+            aria-selected={t === tab}
+            onClick={() => dispatch(tabChosen({ pr: pr.key, value: t }))}
+          >
+            {tabLabels[t]}
+            {t === "findings" && findings !== null && <span className={styles.tabCount}>{findings}</span>}
+          </button>
+        ))}
+      </div>
+      <span className={styles.spacer} />
+      <span className={styles.caption}>
+        {review.workspaceId} · {working ? "started" : `reviewed ${shortSha(review.sha)} ·`} {age(review.createdAt)}
+        {others.length > 0 && (
           <>
-            <section className={styles.card} aria-label="Description">
-              <header className={styles.cardHeader}>
-                <h2>Description</h2>
-              </header>
-              <div className={styles.cardBody}>
-                {pr.body.trim() === "" ? (
-                  <p className={styles.caption}>No description provided.</p>
-                ) : (
-                  <MarkdownText text={pr.body} />
-                )}
-              </div>
-            </section>
-            <ReviewWillRun pr={pr} />
-          </>
-        ) : (
-          <>
-            <ReviewCard review={newest} pr={pr} />
-            {older.map((review) => (
-              <ReviewCard key={review.workspaceId} review={review} pr={pr} collapsed />
-            ))}
-            {pr.outOfDate && pr.group === "reviewed" && (
-              <p className={styles.outOfDate} role="status">
-                {pr.newCommits === null || pr.newCommits.subjects.length === 0
-                  ? "New commits were pushed after this review."
-                  : `${plural(pr.newCommits.count, "commit")} pushed after this review: ${quoteList(pr.newCommits.subjects)}.`}{" "}
-                Review again to check them.
-              </p>
-            )}
+            {" · "}
+            <button type="button" className={styles.linkButton} onClick={(e) => setMenu(e.currentTarget)}>
+              {pr.reviews[0] === review ? `older reviews (${others.length})` : "other reviews"}
+            </button>
           </>
         )}
-      </div>
+      </span>
+      <Menu anchorEl={menu} open={menu !== null} onClose={() => setMenu(null)}>
+        {others.map((r) => (
+          <MenuItem
+            key={r.workspaceId}
+            onClick={() => {
+              setMenu(null);
+              dispatch(reviewViewed({ pr: pr.key, value: r === pr.reviews[0] ? null : r.workspaceId }));
+            }}
+          >
+            {shortSha(r.sha)} · {age(r.createdAt)} · {r.workspaceId}
+          </MenuItem>
+        ))}
+      </Menu>
+    </div>
+  );
+};
+
+const ReviewedDetail = ({ pr, review }: { readonly pr: PullRequest; readonly review: ReviewRun }): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const triage = useAppSelector((s) => s.reports.triage[pr.key]) ?? defaultTriage;
+  const entry = useAppSelector((s) => s.reports.byKey[reportKey(pr.repo, review.sha)]);
+  const working = isReviewing(review.status);
+  useEffect(() => {
+    if (review.recorded) {
+      void dispatch(fetchReport({ repo: pr.repo, ref: review.sha, refresh: true }));
+    }
+  }, [dispatch, pr.repo, review.sha, review.recorded]);
+  const report = entry?.report ?? null;
+  const hasFindings =
+    review.recorded &&
+    (entry?.error != null || (report !== null && (!working || report.profiles.some((p) => !p.missing))));
+  const tabs: readonly DetailTab[] = hasFindings ? ["findings", "description", "agent"] : ["description", "agent"];
+  const chosen = triage.tab ?? (hasFindings ? "findings" : "agent");
+  const tab = tabs.includes(chosen) ? chosen : "agent";
+  const atHead = review.sha !== "" && pr.headRefOid.startsWith(review.sha.slice(0, 7));
+  return (
+    <>
+      <TabRow pr={pr} review={review} tabs={tabs} tab={tab} findings={report?.comments.length ?? null} />
+      {!atHead && !working && (
+        <div className={styles.strip}>
+          <OutOfDate pr={pr} review={review} />
+        </div>
+      )}
+      {tab === "findings" ? (
+        <ReportView pr={pr} review={review} working={working} />
+      ) : (
+        <div className={styles.body}>
+          {tab === "description" ? (
+            <Description pr={pr} />
+          ) : (
+            pr.reviews.map((r) => <ReviewCard key={r.workspaceId} review={r} pr={pr} collapsed={r !== review} />)
+          )}
+        </div>
+      )}
+    </>
+  );
+};
+
+const PrDetail = ({ pr }: { readonly pr: PullRequest }): JSX.Element => {
+  const viewed = useAppSelector((s) => s.reports.triage[pr.key]?.viewed ?? null);
+  const review = pr.reviews.find((r) => r.workspaceId === viewed) ?? pr.reviews[0];
+  return (
+    <section className={styles.root} aria-label={`${ownerRepo(pr.repo)}#${pr.number}`}>
+      <PrHeader pr={pr} review={review} />
+      {review === undefined ? (
+        <div className={styles.body}>
+          <Description pr={pr} />
+          <ReviewWillRun pr={pr} />
+        </div>
+      ) : (
+        <ReviewedDetail pr={pr} review={review} />
+      )}
     </section>
   );
 };

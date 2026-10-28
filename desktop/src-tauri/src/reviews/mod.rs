@@ -7,6 +7,7 @@ pub mod github;
 pub mod names;
 pub mod plan;
 pub mod profiles;
+pub mod report;
 pub mod store;
 pub mod view;
 
@@ -15,8 +16,11 @@ use crate::runner::AppError;
 use checker::Started;
 use plan::ReviewPlan;
 use profiles::ListedProfile;
+use report::DecideRequest;
+use serde_json::Value;
 use store::{PrHead, RepoWatch, ReviewSettings, Settings};
-use tauri::State;
+use tauri::{Manager, State};
+use tauri_plugin_opener::OpenerExt;
 use view::ReviewsView;
 
 type CmdResult<T> = Result<T, AppError>;
@@ -113,6 +117,50 @@ pub async fn reviews_profiles(state: State<'_, AppState>) -> CmdResult<Vec<Liste
 #[tauri::command]
 pub async fn reviews_start(state: State<'_, AppState>, plan: ReviewPlan) -> CmdResult<Started> {
     state.reviews.start_review(&state.runner, &plan).await
+}
+
+/// A review's report (`ws review report --json`), from the session's cache
+/// unless `refresh` asks to read it again (ADR 0040).
+#[tauri::command]
+pub async fn review_report(
+    state: State<'_, AppState>,
+    repo: String,
+    git_ref: String,
+    refresh: bool,
+) -> CmdResult<Value> {
+    report::read(&state.runner, &state.reports, &repo, &git_ref, refresh).await
+}
+
+/// Decides one or more findings in one `ws review decide`, and returns the
+/// report with the new decisions.
+#[tauri::command]
+pub async fn review_decide(
+    state: State<'_, AppState>,
+    repo: String,
+    git_ref: String,
+    request: DecideRequest,
+) -> CmdResult<Value> {
+    report::decide(&state.runner, &state.reports, &repo, &git_ref, &request).await
+}
+
+/// Writes `ws review report --format html` to the app's cache directory and
+/// opens it in the browser.
+#[tauri::command]
+pub async fn review_open_report(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    repo: String,
+    git_ref: String,
+) -> CmdResult<String> {
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| AppError::new("internal", format!("no cache directory: {e}")))?;
+    let path = report::write_html(&state.runner, &dir, &repo, &git_ref).await?;
+    app.opener()
+        .open_path(path.display().to_string(), None::<&str>)
+        .map_err(|e| AppError::new("open_failed", e.to_string()))?;
+    Ok(path.display().to_string())
 }
 
 #[tauri::command]

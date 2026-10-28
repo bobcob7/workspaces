@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pullRequest, reviewPlan, reviewRun, reviewsView } from "../../test/fixtures";
+import { realReport } from "../../test/reportFixture";
 import { badgeCount, commandPreview, groupPrs, matchesFilter, summary, visibleOrder } from "./groups";
 
 describe("groupPrs", () => {
@@ -103,5 +104,22 @@ describe("commandPreview", () => {
     expect(commandPreview(plan)).toBe(
       'ws review start --pr 42 github.com/bobcob7/buff-bear --profile security:opus --auto go -- --model=opus --permission-mode=plan "Look hard at the SQL"',
     );
+  });
+});
+
+describe("summary with a report", () => {
+  it("adds what is left to decide after the new commits", () => {
+    const pr = pullRequest({ group: "reviewed", outOfDate: true, newCommits: { count: 2, subjects: [] }, reviews: [reviewRun()] });
+    expect(summary(pr, realReport)).toBe("buff-bear · alice · 2 new commits · 1 to fix · 2 undecided");
+  });
+
+  it("counts the profiles in while reviewing", () => {
+    const pr = pullRequest({ group: "reviewing", reviews: [reviewRun({ status: "working" })] });
+    expect(summary(pr, realReport)).toBe("buff-bear · alice · 2 of 2 profiles in");
+  });
+
+  it("keeps the agent's result without a report", () => {
+    const pr = pullRequest({ group: "reviewed", reviews: [reviewRun()] });
+    expect(summary(pr, null)).toBe("buff-bear · alice · Two problems worth fixing before merge, one nit.");
   });
 });
