@@ -3,8 +3,8 @@
 // and match, and closing with a body that prime appends verbatim.
 //
 // ws builds eight profiles in and reads more, or replacements, from
-// CONFIG_DIR/review/profiles/ (ADR 0038). The directory is read-only here:
-// never created, and supplied by the caller.
+// CONFIG_DIR/review/profiles/ (ADR 0038). A Reader never creates the
+// directory; a Writer adds, edits, and removes the files in it (ADR 0042).
 package profile
 
 import (
@@ -73,7 +73,24 @@ type Profile struct {
 	// Builtin is set for a profile built into ws, clear for one read from
 	// the user's directory.
 	Builtin bool
+	// Source is where the profile comes from; a Set tells a user's file
+	// that replaces a built-in, an override, from one that adds a profile.
+	Source Source
 }
+
+// Source says where a profile comes from (ADR 0042).
+type Source string
+
+const (
+	// SourceBuiltin is a profile built into ws.
+	SourceBuiltin Source = "builtin"
+	// SourceUser is a profile from the user's directory with no built-in
+	// of its name.
+	SourceUser Source = "user"
+	// SourceOverride is a profile from the user's directory that replaces
+	// the built-in of its name.
+	SourceOverride Source = "override"
+)
 
 // Matches reports whether file, a slash-separated path relative to the
 // repository, matches one of the profile's patterns. A pattern without a
@@ -200,6 +217,10 @@ func (r *Reader) loadEntry(name, filename string) (Profile, bool, error) {
 		return Profile{}, false, fmt.Errorf("parsing %s: %w", path.Join(r.label, filename), err)
 	}
 	p.Builtin = r.builtin
+	p.Source = SourceUser
+	if r.builtin {
+		p.Source = SourceBuiltin
+	}
 	return p, true, nil
 }
 

@@ -23,6 +23,7 @@ func TestSet_Load(t *testing.T) {
 		assert.Equal(t, "Our security", p.Description)
 		assert.Equal(t, WhenOff, p.When)
 		assert.False(t, p.Builtin)
+		assert.Equal(t, SourceOverride, p.Source)
 	})
 	t.Run("a user file adds a profile", func(t *testing.T) {
 		t.Parallel()
@@ -30,6 +31,7 @@ func TestSet_Load(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ok)
 		assert.Equal(t, WhenAuto, p.When)
+		assert.Equal(t, SourceUser, p.Source)
 	})
 	t.Run("without a user file the built-in is read", func(t *testing.T) {
 		t.Parallel()
@@ -37,6 +39,7 @@ func TestSet_Load(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ok)
 		assert.True(t, p.Builtin)
+		assert.Equal(t, SourceBuiltin, p.Source)
 	})
 	t.Run("a broken user file is an error, not the built-in", func(t *testing.T) {
 		t.Parallel()
@@ -71,12 +74,17 @@ func TestSet_List(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{filepath.Join(dir, "tests.md")}, broken)
 		assert.Equal(t, []string{"architecture", "claims", "compatibility", "efficiency", "go", "rust", "security", "typescript"}, names(profiles))
+		sources := map[string]Source{}
 		for _, p := range profiles {
+			sources[p.Name] = p.Source
 			if p.Name == "security" {
 				assert.False(t, p.Builtin)
 				assert.Equal(t, "Our security", p.Description)
 			}
 		}
+		assert.Equal(t, SourceOverride, sources["security"])
+		assert.Equal(t, SourceUser, sources["rust"])
+		assert.Equal(t, SourceBuiltin, sources["go"])
 	})
 }
 
