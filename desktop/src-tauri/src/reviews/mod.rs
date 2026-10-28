@@ -1,11 +1,12 @@
 //! The Reviews section: open pull requests in watched repos, and review
-//! agents for them (ADRs 0032, 0034, 0035).
+//! agents for them (ADRs 0032, 0034, 0035, 0038, 0039).
 
 pub mod auto;
 pub mod checker;
 pub mod github;
 pub mod names;
 pub mod plan;
+pub mod profiles;
 pub mod store;
 pub mod view;
 
@@ -13,6 +14,7 @@ use crate::commands::AppState;
 use crate::runner::AppError;
 use checker::Started;
 use plan::ReviewPlan;
+use profiles::ListedProfile;
 use store::{PrHead, RepoWatch, ReviewSettings, Settings};
 use tauri::State;
 use view::ReviewsView;
@@ -85,7 +87,7 @@ pub fn reviews_restore(
 
 /// What reviewing the pull request would run, with the Settings defaults.
 #[tauri::command]
-pub fn reviews_plan(
+pub async fn reviews_plan(
     state: State<'_, AppState>,
     repo: String,
     number: u64,
@@ -96,11 +98,18 @@ pub fn reviews_plan(
             format!("{repo}#{number} isn't among the open pull requests"),
         )
     })?;
-    Ok(plan::plan(&repo, &pr, &state.store.get().settings.reviews))
+    let settings = state.store.get().settings.reviews;
+    plan::build(&state.runner, &repo, &pr, &settings).await
 }
 
-/// Starts a review by hand (`ws claude`). Starting one that already exists
-/// isn't an error.
+/// Every reviewer profile `ws review profiles` lists, for Settings.
+#[tauri::command]
+pub async fn reviews_profiles(state: State<'_, AppState>) -> CmdResult<Vec<ListedProfile>> {
+    profiles::list(&state.runner).await
+}
+
+/// Starts a review by hand (`ws review start`). Starting one that already
+/// exists isn't an error.
 #[tauri::command]
 pub async fn reviews_start(state: State<'_, AppState>, plan: ReviewPlan) -> CmdResult<Started> {
     state.reviews.start_review(&state.runner, &plan).await

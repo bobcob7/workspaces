@@ -47,8 +47,8 @@ const ReviewWillRun = ({ pr }: { readonly pr: PullRequest }): JSX.Element => {
       <div className={styles.cardBody}>
         <pre className={styles.command}>{plan === undefined ? "…" : commandPreview(plan)}</pre>
         <p className={styles.caption}>
-          A new workspace with the PR's head commit. The agent reports its findings here and in Agents; it doesn't
-          comment on GitHub unless your prompt asks it to.
+          A new workspace with the PR's head commit. The review agent runs one reviewer per profile, and each submits
+          its findings with ws review; nothing is posted to GitHub.
         </p>
       </div>
     </section>

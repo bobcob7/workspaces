@@ -86,15 +86,22 @@ describe("visibleOrder", () => {
 });
 
 describe("commandPreview", () => {
-  it("shows the review name, short spec, and start of the task", () => {
-    expect(commandPreview(reviewPlan())).toBe(
-      'ws claude --name review-buff-bear-42-3f2a9c1 github.com/bobcob7/buff-bear@3f2a9c1e… -- "Review pull request bobcob7/buff-bear#42"',
-    );
+  it("shows ws review start for the pull request", () => {
+    expect(commandPreview(reviewPlan())).toBe("ws review start --pr 42 github.com/bobcob7/buff-bear");
   });
 
-  it("includes the model and permission mode when set", () => {
-    expect(commandPreview({ ...reviewPlan(), model: "opus", permissionMode: "plan" })).toContain(
-      "-- --model opus --permission-mode plan",
+  it("includes the profiles, agent options, and the start of the focus", () => {
+    const plan = reviewPlan({
+      profiles: [
+        { name: "security", model: "opus", auto: false },
+        { name: "go", model: "", auto: true },
+      ],
+      model: "opus",
+      permissionMode: "plan",
+      focus: "Look hard at the SQL\nand the migrations",
+    });
+    expect(commandPreview(plan)).toBe(
+      'ws review start --pr 42 github.com/bobcob7/buff-bear --profile security:opus --auto go -- --model=opus --permission-mode=plan "Look hard at the SQL"',
     );
   });
 });

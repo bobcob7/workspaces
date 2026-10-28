@@ -1,4 +1,4 @@
-import type { PullRequest, ReviewGroup, ReviewsView } from "../../api";
+import type { PullRequest, ReviewGroup, ReviewPlan, ReviewsView } from "../../api";
 
 export interface PrGroup {
   readonly id: ReviewGroup;
@@ -91,27 +91,14 @@ export const watchedCount = (view: ReviewsView | null): number => view?.repos.fi
 export const visibleOrder = (groups: readonly PrGroup[], dismissedOpen: boolean): readonly string[] =>
   groups.filter((g) => g.id !== "dismissed" || dismissedOpen).flatMap((g) => g.prs.map((pr) => pr.key));
 
-/** `ws claude …` as the Review will run card shows it, shortened. */
-export const commandPreview = (plan: {
-  readonly name: string;
-  readonly spec: string;
-  readonly prompt: string;
-  readonly model: string;
-  readonly permissionMode: string;
-}): string => {
-  const [repo, sha = ""] = plan.spec.split("@");
+/** `ws review start …` as the Review will run card shows it, shortened. */
+export const commandPreview = (plan: ReviewPlan): string => {
+  const profiles = plan.profiles.map((p) => `${p.auto ? "--auto" : "--profile"} ${p.model === "" ? p.name : `${p.name}:${p.model}`}`);
   const options = [
-    plan.model === "" ? null : `--model ${plan.model}`,
-    plan.permissionMode === "" ? null : `--permission-mode ${plan.permissionMode}`,
+    plan.model === "" ? null : `--model=${plan.model}`,
+    plan.permissionMode === "" ? null : `--permission-mode=${plan.permissionMode}`,
   ].filter((o) => o !== null);
-  const prompt = firstLine(plan.prompt);
-  const shortPrompt = prompt.length > 48 ? `${prompt.slice(0, 48)}…` : prompt;
-  return [
-    "ws claude --name",
-    plan.name,
-    `${repo ?? ""}@${sha.slice(0, 8)}…`,
-    "--",
-    ...options,
-    `"${shortPrompt}"`,
-  ].join(" ");
+  const focus = firstLine(plan.focus.trim());
+  const after = [...options, ...(focus === "" ? [] : [`"${focus.length > 48 ? `${focus.slice(0, 48)}…` : focus}"`])];
+  return ["ws review start --pr", String(plan.number), plan.repo, ...profiles, ...(after.length > 0 ? ["--", ...after] : [])].join(" ");
 };

@@ -70,6 +70,7 @@ pub fn run() {
             reviews::reviews_dismiss,
             reviews::reviews_restore,
             reviews::reviews_plan,
+            reviews::reviews_profiles,
             reviews::reviews_start,
             reviews::settings_get,
             reviews::settings_set_reviews,

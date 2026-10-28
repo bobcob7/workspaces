@@ -1,0 +1,51 @@
+.root {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table :global(.MuiInputBase-root) {
+  font-size: 13px;
+}
+
+.name {
+  font-weight: 650;
+}
+
+.off .name {
+  color: var(--text-muted);
+}
+
+.files {
+  color: var(--text-muted);
+  font: 12px var(--font-mono);
+}
+
+.modelId {
+  width: 180px;
+  font-family: var(--font-mono) !important;
+}

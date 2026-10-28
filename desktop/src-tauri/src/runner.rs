@@ -84,7 +84,16 @@ impl Runner {
     pub async fn ws_json<T: DeserializeOwned>(&self, args: &[String]) -> Result<T, AppError> {
         let mut args = args.to_vec();
         args.insert(1.min(args.len()), "--json".to_string());
-        let outcome = self.run("ws", &args).await?;
+        self.ws_json_as_given(&args).await
+    }
+
+    /// Runs `ws <args>`, which place `--json` themselves, and parses its
+    /// result, or its error.
+    pub async fn ws_json_as_given<T: DeserializeOwned>(
+        &self,
+        args: &[String],
+    ) -> Result<T, AppError> {
+        let outcome = self.run("ws", args).await?;
         if !outcome.success {
             return Err(ws_error(&outcome.stderr));
         }

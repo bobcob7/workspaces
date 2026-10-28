@@ -55,7 +55,7 @@ describe("ReviewsPane", () => {
 
   it("shows the command a review will run", async () => {
     renderPane(reviewsView());
-    expect(await screen.findByText(/ws claude --name review-buff-bear-42-3f2a9c1/)).toBeInTheDocument();
+    expect(await screen.findByText("ws review start --pr 42 github.com/bobcob7/buff-bear")).toBeInTheDocument();
   });
 
   it("starts a review with Review", async () => {

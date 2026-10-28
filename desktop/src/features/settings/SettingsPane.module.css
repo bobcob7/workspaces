@@ -28,6 +28,24 @@
   border-bottom: 1px solid var(--border);
 }
 
+.wideRow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.wideText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.help code {
+  font: 11.5px var(--font-mono);
+}
+
 .text {
   flex: none;
   width: 260px;
@@ -73,10 +91,6 @@
 .number {
   width: 48px;
   text-align: center;
-}
-
-.template {
-  font: 12.5px/1.6 var(--font-mono) !important;
 }
 
 .error {

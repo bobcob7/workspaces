@@ -62,14 +62,31 @@ describe("StartReviewDialog", () => {
     return store;
   };
 
-  it("starts the review with the edited task", async () => {
+  it("starts the review with the focus typed in", async () => {
     const api = fakeApi();
     await openDialog(api);
-    const task = await screen.findByLabelText("Task");
-    await userEvent.clear(task);
-    await userEvent.type(task, "Only check the SQL");
+    await userEvent.type(await screen.findByLabelText("Focus"), "Only check the SQL");
     await userEvent.click(screen.getByRole("button", { name: "Start review" }));
-    expect(api.reviewsStart).toHaveBeenCalledWith({ ...reviewPlan(), prompt: "Only check the SQL" });
+    expect(api.reviewsStart).toHaveBeenCalledWith(reviewPlan({ focus: "Only check the SQL" }));
+  });
+
+  it("starts with an empty focus and the plan's profiles when nothing is edited", async () => {
+    const profiles = [{ name: "security", model: "opus", auto: false }];
+    const api = fakeApi({ reviewsPlan: vi.fn(async () => reviewPlan({ profiles })) });
+    await openDialog(api);
+    expect(await screen.findByLabelText("Focus")).toHaveValue("");
+    expect(screen.queryByLabelText("Task")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start review" }));
+    expect(api.reviewsStart).toHaveBeenCalledWith(reviewPlan({ profiles }));
+  });
+
+  it("sets the review agent's model", async () => {
+    const api = fakeApi();
+    await openDialog(api);
+    await userEvent.click(await screen.findByLabelText("Review agent model"));
+    await userEvent.click(screen.getByRole("option", { name: "opus" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start review" }));
+    expect(api.reviewsStart).toHaveBeenCalledWith(reviewPlan({ model: "opus" }));
   });
 
   it("warns that a different name won't be connected to the pull request", async () => {
