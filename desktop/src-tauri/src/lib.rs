@@ -76,6 +76,11 @@ pub fn run() {
             reviews::review_report,
             reviews::review_decide,
             reviews::review_open_report,
+            reviews::review_comment_plan,
+            reviews::review_comment_post,
+            reviews::review_fix_plan,
+            reviews::review_fix_start,
+            reviews::review_fix_sent,
             reviews::settings_get,
             reviews::settings_set_reviews,
         ])

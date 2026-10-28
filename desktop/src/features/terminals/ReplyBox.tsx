@@ -1,24 +1,13 @@
 import { Button, TextField } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
 import { useAppDispatch } from "../../store";
-import { sendMessage } from "./terminalsSlice";
+import { messageKeys, sendMessage } from "./terminalsSlice";
 import styles from "./ReplyBox.module.css";
 
 export interface ReplyBoxProps {
   readonly terminalKey: string;
   readonly disabled: boolean;
 }
-
-const bracketedPasteStart = "\x1b[200~";
-const bracketedPasteEnd = "\x1b[201~";
-
-/**
- * The keystrokes that type message into Claude Code, without submitting
- * it. A message with several lines is sent as a paste, so its newlines
- * don't submit it early.
- */
-export const messageKeys = (message: string): string =>
-  message.includes("\n") ? `${bracketedPasteStart}${message}${bracketedPasteEnd}` : message;
 
 export const ReplyBox = ({ terminalKey, disabled }: ReplyBoxProps): JSX.Element => {
   const dispatch = useAppDispatch();

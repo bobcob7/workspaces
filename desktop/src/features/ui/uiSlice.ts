@@ -8,9 +8,15 @@ export type Section = "agents" | "repos" | "reviews" | "settings";
 /** How an agent is shown: its conversation, or the claude attach terminal. */
 export type AgentView = "conversation" | "terminal";
 
+/** A notice's button: a link to open in the browser, or an agent to select. */
+export type NoticeAction =
+  | { readonly label: string; readonly href: string }
+  | { readonly label: string; readonly agent: string };
+
 export interface Notice {
   readonly severity: "success" | "error" | "info";
   readonly message: string;
+  readonly action?: NoticeAction;
 }
 
 export interface UiState {

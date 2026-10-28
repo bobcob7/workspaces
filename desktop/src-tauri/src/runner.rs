@@ -4,6 +4,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 /// An error the frontend can show: a `ws` error code where `ws` gave one
@@ -59,20 +60,43 @@ impl Runner {
         args: &[String],
         envs: &[(&str, &str)],
     ) -> Result<Outcome, AppError> {
-        let output = Command::new(program)
+        self.run_with_input(program, args, envs, None).await
+    }
+
+    /// Runs a program with `input`, if any, as its stdin.
+    pub async fn run_with_input(
+        &self,
+        program: &str,
+        args: &[String],
+        envs: &[(&str, &str)],
+        input: Option<&[u8]>,
+    ) -> Result<Outcome, AppError> {
+        let spawn_error = |err: std::io::Error| match err.kind() {
+            std::io::ErrorKind::NotFound => AppError::new(
+                &format!("{program}_missing"),
+                format!("`{program}` isn't on PATH ({})", self.path),
+            ),
+            _ => AppError::new("internal", format!("running {program}: {err}")),
+        };
+        let mut child = Command::new(program)
             .args(args)
             .env("PATH", &self.path)
             .envs(envs.iter().copied())
-            .stdin(Stdio::null())
-            .output()
-            .await
-            .map_err(|err| match err.kind() {
-                std::io::ErrorKind::NotFound => AppError::new(
-                    &format!("{program}_missing"),
-                    format!("`{program}` isn't on PATH ({})", self.path),
-                ),
-                _ => AppError::new("internal", format!("running {program}: {err}")),
-            })?;
+            .stdin(if input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(spawn_error)?;
+        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+            // A program that exits without reading all of stdin isn't an
+            // error here; its status says how it went.
+            let _ = stdin.write_all(input).await;
+        }
+        let output = child.wait_with_output().await.map_err(spawn_error)?;
         Ok(Outcome {
             stdout: output.stdout,
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
@@ -169,6 +193,17 @@ mod tests {
     #[test]
     fn ws_error_with_empty_stderr_has_message() {
         assert_eq!(ws_error("").message, "ws failed");
+    }
+
+    #[tokio::test]
+    async fn run_with_input_passes_stdin() {
+        let runner = Runner::new("/bin:/usr/bin".to_string());
+        let args = ["-c".to_string(), "cat".to_string()];
+        let outcome = runner
+            .run_with_input("sh", &args, &[], Some(b"{\"a\":1}"))
+            .await
+            .unwrap();
+        assert_eq!(outcome.stdout, b"{\"a\":1}");
     }
 
     #[tokio::test]

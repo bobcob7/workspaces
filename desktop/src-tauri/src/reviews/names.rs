@@ -7,6 +7,7 @@ use crate::model::Repo;
 /// random suffix (ADRs 0012, 0036).
 const MAX_NAME_LEN: usize = 55;
 const PREFIX: &str = "review-";
+const FIX_PREFIX: &str = "fix-";
 const SHA_LEN: usize = 7;
 
 /// Lowercases and replaces every run of characters other than ASCII letters
@@ -29,11 +30,12 @@ pub fn repo_name(repo_id: &str) -> &str {
     repo_id.rsplit('/').next().unwrap_or(repo_id)
 }
 
-/// The repo's name, sanitized and shortened so the whole review name fits
-/// in 55 characters and `ws` never cuts off the number or commit.
-fn short_repo(repo_id: &str, number: u64) -> String {
+/// The repo's name, sanitized and shortened so the whole name, with its
+/// prefix, fits in 55 characters and `ws` never cuts off the number or
+/// commit.
+fn short_repo(prefix: &str, repo_id: &str, number: u64) -> String {
     let digits = number.to_string().len();
-    let max = MAX_NAME_LEN - PREFIX.len() - 2 - digits - SHA_LEN;
+    let max = MAX_NAME_LEN - prefix.len() - 2 - digits - SHA_LEN;
     let name = sanitize(repo_name(repo_id));
     if name.len() <= max {
         return name;
@@ -57,7 +59,17 @@ pub fn review_name(repo_id: &str, number: u64, head: &str) -> String {
 
 /// What every review of this pull request's workspace id starts with.
 pub fn review_prefix(repo_id: &str, number: u64) -> String {
-    format!("{PREFIX}{}-{number}-", short_repo(repo_id, number))
+    format!("{PREFIX}{}-{number}-", short_repo(PREFIX, repo_id, number))
+}
+
+/// `fix-<repo>-<number>-<sha7>`: the `--name` of a fix agent for a review
+/// at `sha` (ADR 0041).
+pub fn fix_name(repo_id: &str, number: u64, sha: &str) -> String {
+    format!(
+        "{FIX_PREFIX}{}-{number}-{}",
+        short_repo(FIX_PREFIX, repo_id, number),
+        sanitize(short_sha(sha))
+    )
 }
 
 /// Whether a workspace is a review of the pull request: its id has the
@@ -89,6 +101,16 @@ pub fn same_commit(git_ref: &str, sha: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fix_name_has_repo_number_and_short_sha() {
+        assert_eq!(
+            fix_name("github.com/bobcob7/buff-bear", 42, "3f2a9c1e0b6d"),
+            "fix-buff-bear-42-3f2a9c1"
+        );
+        let long = format!("github.com/o/{}", "x".repeat(80));
+        assert_eq!(fix_name(&long, 7, "abcdef0123").len(), MAX_NAME_LEN);
+    }
 
     const HEAD: &str = "3f2a9c1e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c";
 

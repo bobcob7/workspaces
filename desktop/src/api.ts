@@ -400,6 +400,111 @@ export interface DecideRequest {
   readonly note: string;
 }
 
+/** Where a posted finding lands: on lines of the diff, or on the whole file. */
+export type CommentKind = "line" | "file";
+
+/** One comment of the review to post, as the preview shows and edits it (ADR 0041). */
+export interface DraftComment {
+  readonly finding: string;
+  readonly kind: CommentKind;
+  readonly path: string;
+  readonly line: number | null;
+  readonly startLine: number | null;
+  readonly body: string;
+}
+
+/** What Comment would post, read before anything is posted. */
+export interface CommentPlan {
+  readonly number: number;
+  /** The reviewed commit, which the comments are pinned to. */
+  readonly commitId: string;
+  /** The pull request's head as last checked. */
+  readonly head: string;
+  readonly outdated: boolean;
+  /** Who posts, as gh is signed in; null when the app hasn't checked. */
+  readonly login: string | null;
+  /** Your unsubmitted review on the pull request, which blocks another. */
+  readonly pendingReview: string | null;
+  readonly prUrl: string;
+  readonly body: string;
+  readonly comments: readonly DraftComment[];
+  /** Every finding posted, wherever it lands. */
+  readonly findings: readonly string[];
+  /** How many are only in the summary. */
+  readonly inBody: number;
+}
+
+export type ReviewEvent = "COMMENT" | "REQUEST_CHANGES" | "APPROVE";
+
+/** The review as confirmed in the preview. */
+export interface PostRequest {
+  readonly number: number;
+  readonly commitId: string;
+  readonly body: string;
+  readonly event: ReviewEvent;
+  readonly comments: readonly DraftComment[];
+  readonly findings: readonly string[];
+}
+
+export interface Posted {
+  readonly url: string;
+  readonly report: ReviewReport | null;
+  /** Set when the review was posted but ws review acted failed. */
+  readonly warning: string | null;
+}
+
+/** A finding to fix, with the title the report shows. */
+export interface FixFinding {
+  readonly id: string;
+  readonly title: string;
+}
+
+export type FixTarget = "requester" | "agent";
+
+/** The agent that asked for the review, and whether it can take the fixes. */
+export interface FixRequester {
+  readonly workspaceId: string;
+  readonly sessionId: string | null;
+  readonly path: string;
+  readonly status: Status | null;
+  readonly available: boolean;
+  /** Why it can't: "removed", "stopped: resume it first". */
+  readonly reason: string | null;
+}
+
+/** The fix agent ws claude would start. */
+export interface FixAgentPlan {
+  readonly name: string;
+  readonly spec: string;
+  /** The branch a fork pull request's fix is pushed to instead. */
+  readonly branch: string | null;
+  /** The command, without the message. */
+  readonly command: string;
+}
+
+export interface FixPlan {
+  readonly findings: readonly string[];
+  readonly requester: FixRequester | null;
+  /** The requester when it can take the fixes, else a fix agent. */
+  readonly target: FixTarget;
+  readonly agent: FixAgentPlan;
+  readonly requesterMessage: string;
+  readonly agentMessage: string;
+}
+
+export interface StartFix {
+  readonly findings: readonly string[];
+  readonly agent: FixAgentPlan;
+  readonly message: string;
+}
+
+export interface FixStarted {
+  readonly agent: string;
+  readonly session: string;
+  readonly report: ReviewReport | null;
+  readonly warning: string | null;
+}
+
 export interface Settings {
   readonly reviews: ReviewSettings;
 }
@@ -479,6 +584,16 @@ export const api = {
     call<ReviewReport>("review_decide", { repo, gitRef, request }),
   reviewOpenReport: async (repo: string, gitRef: string): Promise<string> =>
     call<string>("review_open_report", { repo, gitRef }),
+  reviewCommentPlan: async (repo: string, gitRef: string, number: number): Promise<CommentPlan> =>
+    call<CommentPlan>("review_comment_plan", { repo, gitRef, number }),
+  reviewCommentPost: async (repo: string, gitRef: string, request: PostRequest): Promise<Posted> =>
+    call<Posted>("review_comment_post", { repo, gitRef, request }),
+  reviewFixPlan: async (repo: string, gitRef: string, review: string, findings: readonly FixFinding[]): Promise<FixPlan> =>
+    call<FixPlan>("review_fix_plan", { repo, gitRef, review, findings }),
+  reviewFixStart: async (repo: string, gitRef: string, request: StartFix): Promise<FixStarted> =>
+    call<FixStarted>("review_fix_start", { repo, gitRef, request }),
+  reviewFixSent: async (repo: string, gitRef: string, findings: readonly string[], agent: string): Promise<ReviewReport> =>
+    call<ReviewReport>("review_fix_sent", { repo, gitRef, findings, agent }),
   settingsGet: async (): Promise<Settings> => call<Settings>("settings_get"),
   settingsSetReviews: async (reviews: ReviewSettings): Promise<Settings> =>
     call<Settings>("settings_set_reviews", { reviews }),

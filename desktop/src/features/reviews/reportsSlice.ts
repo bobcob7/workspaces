@@ -166,6 +166,11 @@ const reportsSlice = createSlice({
       })),
     selectionCleared: (state, action: PayloadAction<string>): ReportsState =>
       withTriage(state, action.payload, () => ({ selected: [] })),
+    /** A report `ws` printed after acting on findings. */
+    reportReplaced: (state, action: PayloadAction<{ readonly repo: string; readonly ref: string; readonly report: ReviewReport }>): ReportsState => {
+      const key = reportKey(action.payload.repo, action.payload.ref);
+      return withReport(state, key, { report: action.payload.report, error: null, loading: state.byKey[key]?.loading ?? false });
+    },
     noteDrafted: (state, action: PayloadAction<ForPr<{ readonly id: string; readonly text: string }>>): ReportsState =>
       withTriage(state, action.payload.pr, (t) => ({
         notes: { ...t.notes, [action.payload.value.id]: action.payload.value.text },
@@ -226,5 +231,6 @@ export const {
   selectionToggled,
   selectionCleared,
   noteDrafted,
+  reportReplaced,
 } = reportsSlice.actions;
 export const reportsReducer = reportsSlice.reducer;

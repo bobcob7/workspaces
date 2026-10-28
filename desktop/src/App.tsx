@@ -1,5 +1,6 @@
 import { Alert, Button, Snackbar } from "@mui/material";
 import { useEffect, type JSX } from "react";
+import { api } from "./api";
 import { AgentsActions } from "./features/agents/AgentsActions";
 import { EntryPane } from "./features/agents/EntryPane";
 import { fetchEntries } from "./features/agents/agentsSlice";
@@ -12,6 +13,8 @@ import { AddRepoDialog } from "./features/repos/AddRepoDialog";
 import { ReposActions } from "./features/repos/ReposActions";
 import { ReposList } from "./features/repos/ReposList";
 import { ReposPane } from "./features/repos/ReposPane";
+import { CommentDialog } from "./features/reviews/CommentDialog";
+import { FixDialog } from "./features/reviews/FixDialog";
 import { ReviewsActions } from "./features/reviews/ReviewsActions";
 import { ReviewsList } from "./features/reviews/ReviewsList";
 import { ReviewsPane } from "./features/reviews/ReviewsPane";
@@ -23,7 +26,7 @@ import { SettingsPane } from "./features/settings/SettingsPane";
 import { fetchSettings } from "./features/settings/settingsSlice";
 import { TerminalView } from "./features/terminals/TerminalView";
 import { closeTerminal } from "./features/terminals/terminalsSlice";
-import { noticeDismissed, selected, type Section } from "./features/ui/uiSlice";
+import { noticeDismissed, sectionChosen, selected, type NoticeAction, type Section } from "./features/ui/uiSlice";
 import { useAppDispatch, useAppSelector } from "./store";
 import styles from "./App.module.css";
 
@@ -132,6 +135,25 @@ const Warnings = ({ section }: { readonly section: Section }): JSX.Element | nul
   );
 };
 
+/** A notice's button, which opens its link or selects its agent. */
+const NoticeButton = ({ action }: { readonly action: NoticeAction }): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const run = (): void => {
+    dispatch(noticeDismissed());
+    if ("href" in action) {
+      void api.openExternal(action.href).catch(() => undefined);
+      return;
+    }
+    dispatch(sectionChosen("agents"));
+    dispatch(selected(action.agent));
+  };
+  return (
+    <Button color="inherit" size="small" onClick={run}>
+      {action.label}
+    </Button>
+  );
+};
+
 export const App = (): JSX.Element => {
   const dispatch = useAppDispatch();
   const section = useAppSelector((s) => s.ui.section);
@@ -174,13 +196,20 @@ export const App = (): JSX.Element => {
       <AddRepoDialog />
       <WatchedReposDialog />
       <StartReviewDialog />
+      <CommentDialog />
+      <FixDialog />
       <Snackbar
         open={notice !== null}
         autoHideDuration={notice?.severity === "error" ? 8000 : 4000}
         onClose={() => dispatch(noticeDismissed())}
         anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
       >
-        <Alert severity={notice?.severity ?? "info"} onClose={() => dispatch(noticeDismissed())} variant="filled">
+        <Alert
+          severity={notice?.severity ?? "info"}
+          onClose={() => dispatch(noticeDismissed())}
+          variant="filled"
+          action={notice?.action !== undefined ? <NoticeButton action={notice.action} /> : undefined}
+        >
           {notice?.message}
         </Alert>
       </Snackbar>
