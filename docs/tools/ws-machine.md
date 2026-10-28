@@ -46,7 +46,8 @@ Prints `ws claude --json`'s object:
 
 Lists the caller's direct children, or every descendant with `--all`,
 hidden ones included, oldest first. Prints `ws list --json`'s object,
-`{"workspaces": [...], "warnings": []}`, with each workspace's `parent`.
+`{"workspaces": [...], "hidden_count": 0, "warnings": []}`, with each
+workspace's `parent`.
 
 | Option  | Description                               |
 | ------- | ----------------------------------------- |
@@ -59,7 +60,8 @@ deepest first. Each `WORKSPACE` must be a descendant of the caller: any
 other, the caller itself included, is refused as its item's error,
 `not_descendant`, and the rest are still removed. Prints `ws rm --json`'s
 object, `{"workspaces": [{"id", "parent", "removed", "error"}], "warnings"}`,
-one item per workspace removed or refused.
+one item per workspace removed or refused. `parent` is set on a
+descendant removed with a target, and `null` on a workspace named.
 
 | Option            | Description                                               |
 | ----------------- | --------------------------------------------------------- |
@@ -88,10 +90,10 @@ $ ws machine spawn --name fix-login buff-bear -- "Fix the login bug, push a bran
 {"id":"fix-login-d8efb24f","session":"e8cdf5d8","path":"/…/workspaces/fix-login-d8efb24f","parent":"plan-auth-1a2b3c4d","repos":[…],"warnings":[]}
 
 $ ws machine children
-{"workspaces":[{"id":"fix-login-d8efb24f","parent":"plan-auth-1a2b3c4d",…}],"warnings":[]}
+{"workspaces":[{"id":"fix-login-d8efb24f","parent":"plan-auth-1a2b3c4d",…}],"hidden_count":0,"warnings":[]}
 
 $ ws machine rm fix-login-d8efb24f
-{"workspaces":[{"id":"fix-login-d8efb24f","parent":"plan-auth-1a2b3c4d","removed":true,"error":null}],"warnings":[]}
+{"workspaces":[{"id":"fix-login-d8efb24f","parent":null,"removed":true,"error":null}],"warnings":[]}
 
 $ ws machine rm plan-auth-1a2b3c4d
 {"workspaces":[{"id":"plan-auth-1a2b3c4d","parent":null,"removed":false,"error":{"code":"not_descendant","message":"plan-auth-1a2b3c4d is not a workspace this one started"}}],"warnings":[]}
