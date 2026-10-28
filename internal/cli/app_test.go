@@ -292,7 +292,7 @@ func TestApp_newRootCmd(t *testing.T) {
 		for _, cmd := range root.Commands() {
 			names = append(names, cmd.Name())
 		}
-		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "list", "rm", "rename", "cache", "review", "llm"}, names)
+		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "list", "rm", "rename", "hide", "unhide", "cache", "review", "llm"}, names)
 	})
 	t.Run("flag errors are usage errors", func(t *testing.T) {
 		requireUsageError(t, root.FlagErrorFunc()(root, errTest))

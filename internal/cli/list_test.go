@@ -44,7 +44,8 @@ func newListApp(entries []lifetime.Entry, unknown []string) *mockedApp {
 func TestApp_newListCmd(t *testing.T) {
 	app, _, _ := newTestApp()
 	cmd := app.newListCmd()
-	t.Run("has -q and --repo", func(t *testing.T) {
+	t.Run("has -a, -q, and --repo", func(t *testing.T) {
+		assert.NotNil(t, cmd.Flags().ShorthandLookup("a"))
 		assert.NotNil(t, cmd.Flags().ShorthandLookup("q"))
 		assertFlag(t, cmd, "repo", "")
 	})
@@ -87,24 +88,83 @@ func TestApp_runList(t *testing.T) {
 		assert.JSONEq(t, `{"workspaces":[
 			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false},
-			 "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
+			 "hidden":false,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
 			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null},
-			 "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
-			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"repos":[],"review":null}
-		],"warnings":[]}`, e.stdout.String())
+			 "hidden":false,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
+			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"repos":[],"review":null}
+		],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--json with nothing to list", func(t *testing.T) {
 		e := newListApp(nil, nil)
 		e.app.global.json = true
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
-		assert.JSONEq(t, `{"workspaces":[],"warnings":[]}`, e.stdout.String())
+		assert.JSONEq(t, `{"workspaces":[],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--repo keeps matching workspaces and drops unknown directories", func(t *testing.T) {
 		other := lifetime.Entry{Workspace: workspace.Workspace{ID: "other", Repos: []workspace.Repo{{ID: "github.com/bobcob7/api", Path: "api", Ref: "v2"}}}}
 		e := newListApp([]lifetime.Entry{agent, other}, []string{"/cfg/workspaces/stray"})
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true, repo: "api"}))
 		assert.Equal(t, "other\n", e.stdout.String())
+	})
+	hiddenWS := listedWorkspace("review-41")
+	hiddenWS.Hidden = true
+	hidden := lifetime.Entry{Workspace: hiddenWS, Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "7be1d0c2", State: lifetime.StateIdle, Stale: new(false)}}
+	t.Run("leaves hidden workspaces out and says so on stderr", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{agent, hidden}, nil)
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.Equal(t, ""+
+			"ID          NAME        CREATED   SESSION                   REPOS\n"+
+			"fix-login   Fix login   2h ago    agent e8cdf5d8: stopped   buff-bear@main\n", e.stdout.String())
+		assert.Equal(t, "1 hidden workspace not shown; ws list -a shows them\n", e.stderr.String())
+	})
+	t.Run("--quiet drops the hidden note", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{hidden, hidden}, nil)
+		e.app.global.quiet = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.Empty(t, e.stderr.String())
+	})
+	t.Run("-a includes hidden workspaces, marked", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{agent, hidden}, nil)
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{all: true}))
+		assert.Equal(t, ""+
+			"ID          NAME         CREATED   SESSION                   REPOS\n"+
+			"fix-login   Fix login    2h ago    agent e8cdf5d8: stopped   buff-bear@main\n"+
+			"review-41   - (hidden)   2h ago    agent 7be1d0c2: idle      buff-bear@main\n", e.stdout.String())
+		assert.Empty(t, e.stderr.String())
+	})
+	t.Run("-q leaves hidden ids out without -a", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{agent, hidden}, nil)
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true}))
+		assert.Equal(t, "fix-login\n", e.stdout.String())
+		assert.Empty(t, e.stderr.String())
+		e.stdout.Reset()
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true, all: true}))
+		assert.Equal(t, "fix-login\nreview-41\n", e.stdout.String())
+	})
+	t.Run("--json counts hidden workspaces left out", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{hidden, hidden}, nil)
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.JSONEq(t, `{"workspaces":[],"hidden_count":2,"warnings":[]}`, e.stdout.String())
+		assert.Empty(t, e.stderr.String())
+	})
+	t.Run("--json -a marks hidden workspaces", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{hidden}, nil)
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{all: true}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		assert.True(t, got.Workspaces[0].Hidden)
+		assert.Zero(t, got.HiddenCount)
+	})
+	t.Run("--repo counts only matching hidden workspaces", func(t *testing.T) {
+		other := lifetime.Entry{Workspace: workspace.Workspace{ID: "other", Hidden: true, Repos: []workspace.Repo{{ID: "github.com/bobcob7/api", Path: "api", Ref: "v2"}}}}
+		e := newListApp([]lifetime.Entry{hidden, other}, nil)
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{repo: "api"}))
+		assert.JSONEq(t, `{"workspaces":[],"hidden_count":1,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("an invalid --repo", func(t *testing.T) {
 		e := newListApp(nil, nil)
@@ -125,7 +185,7 @@ func TestApp_runList(t *testing.T) {
 		e.stdout.Reset()
 		e.app.global.json = true
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
-		assert.JSONEq(t, `{"workspaces":[],"warnings":["couldn't list Claude Code sessions"]}`, e.stdout.String())
+		assert.JSONEq(t, `{"workspaces":[],"hidden_count":0,"warnings":["couldn't list Claude Code sessions"]}`, e.stdout.String())
 	})
 	t.Run("a failed listing", func(t *testing.T) {
 		e := newListApp(nil, nil)

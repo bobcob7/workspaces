@@ -113,9 +113,10 @@ func (a *App) rmTarget(arg string) rmTarget {
 // id, path, or Claude session id.
 func (a *App) sweptMatch(arg string) (lifetime.Removed, bool) {
 	path, _ := filepath.Abs(arg)
-	for _, r := range a.swept {
+	for i := range a.swept {
+		r := &a.swept[i]
 		if arg == r.Workspace.ID || path == filepath.Clean(r.Workspace.Path) || (r.SessionID != "" && arg == r.SessionID) {
-			return r, true
+			return *r, true
 		}
 	}
 	return lifetime.Removed{}, false

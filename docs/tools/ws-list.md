@@ -11,7 +11,10 @@ ws list [OPTIONS]
 ## Description
 
 Reads `$CONFIG_DIR/state/*/` and prints one row per workspace, like
-`docker ps`. For agent workspaces, the session's state comes from the
+`docker ps`. Hidden workspaces ([`ws hide`](ws-hide.md), reviews, and
+`ws claude --hidden`) are left out unless `-a` is given, and a line on
+stderr says how many were (none with `--quiet`); with `-a`, the NAME
+column marks them `(hidden)` ([0043](../adrs/0043-hidden-workspaces.md)). For agent workspaces, the session's state comes from the
 `pid`, `status`, and `startedAt` that `claude agents --json --all` reports
 ([0024](../adrs/0024-claude-code-client.md)):
 
@@ -43,6 +46,7 @@ id `unknown` (in JSON, `id`, `name`, `created_at`, and `session` are `null`).
 
 | Option          | Description                                    |
 | --------------- | ---------------------------------------------- |
+| `-a`, `--all`   | Include hidden workspaces                      |
 | `-q`, `--ids`   | Print only workspace IDs (like `docker ps -q`); not with `--json` |
 | `--repo <SPEC>` | Only workspaces containing this repo, matched by the parts the spec gives (`api` matches any owner and host, `o/api` any host) and its ref, if any, against the ref checked out; no cache lookup |
 | `--json`        | Print `{"workspaces": [...], "warnings"}`       |
@@ -55,6 +59,7 @@ ID                   NAME        CREATED   SESSION                   REPOS
 fix-login-d8efb24f   Fix login   2h ago    agent e8cdf5d8: stopped   buff-bear@main
 ws-20261018-k3f9qa   -           20m ago   agent 5d8d652c: working   buff-bear@feat/new-thing, api@v2.1.0
 api-bump-5c01e7a2    api-bump    5m ago    shell                     buff-bear@main, api@v2.1.0
+2 hidden workspaces not shown; ws list -a shows them
 
 $ ws list --json
 {
@@ -69,9 +74,11 @@ $ ws list --json
         { "id": "github.com/bobcob7/buff-bear", "path": "buff-bear",
           "ref": "main", "ref_kind": "branch" }
       ],
+      "hidden": false,
       "review": null
     }
   ],
+  "hidden_count": 2,
   "warnings": []
 }
 ```
@@ -79,6 +86,10 @@ $ ws list --json
 `name` is the display name, from `--name` or [`ws rename`](ws-rename.md),
 or `null` (`-` in the table) for a workspace created without one
 ([0036](../adrs/0036-workspace-id-suffix-and-rename.md)).
+
+`hidden` is whether the workspace is hidden; `false` for directories
+that aren't workspaces. `hidden_count` is how many hidden workspaces were
+left out: 0 with `-a`, and counting only those `--repo` matches.
 
 `review` is a review workspace's record, `state/<id>/review.toml`, as
 [`ws review start --json`](ws-review.md) prints it, or `null` for any other
@@ -104,7 +115,7 @@ removed once their shell has exited.
 ## See also
 
 [`ws rm`](ws-rm.md), [`ws restore`](ws-restore.md),
-[`ws restart`](ws-restart.md), [0012](../adrs/0012-workspace-layout.md),
+[`ws restart`](ws-restart.md), [`ws hide`](ws-hide.md), [0012](../adrs/0012-workspace-layout.md),
 [0015](../adrs/0015-workspace-lifetime-follows-session.md),
 [0024](../adrs/0024-claude-code-client.md),
 [0026](../adrs/0026-removal-pass-timing.md)

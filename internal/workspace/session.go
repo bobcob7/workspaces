@@ -70,7 +70,7 @@ func (s *Store) Session(id string) (Session, error) {
 	if sess.Version == 0 {
 		sess.Version = formatVersion
 	}
-	if err := checkVersion(sess.Version); err != nil {
+	if err := checkVersion(sess.Version, formatVersion); err != nil {
 		return Session{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {

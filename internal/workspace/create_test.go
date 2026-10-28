@@ -101,6 +101,17 @@ func TestStore_Create(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "Fix Login", ws.Name)
 	})
+	t.Run("hidden writes a hidden record", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		ws, err := createUnlocked(t, e.store, CreateOptions{Hidden: true})
+		require.NoError(t, err)
+		assert.True(t, ws.Hidden)
+		got, err := readRecord(e.store.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.True(t, got.Hidden)
+		assert.Equal(t, hiddenVersion, got.Version)
+	})
 	t.Run("no repos makes an empty workspace", func(t *testing.T) {
 		t.Parallel()
 		e := newGitEnv(t)

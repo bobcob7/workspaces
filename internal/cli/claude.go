@@ -16,6 +16,7 @@ import (
 type claudeOptions struct {
 	name       string
 	offline    bool
+	hidden     bool
 	specs      []string
 	claudeArgs []string
 }
@@ -32,6 +33,7 @@ func (a *App) newClaudeCmd() *cobra.Command {
 		})),
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
+	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views")
 	return cmd
 }
 
@@ -65,7 +67,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err := a.claude.Check(ctx); err != nil {
 		return domainError(err)
 	}
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline})
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Hidden: opts.hidden})
 	if err != nil {
 		a.printWarnings()
 		return domainError(err)

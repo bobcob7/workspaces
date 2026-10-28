@@ -217,12 +217,13 @@ func TestApp_newClaudeCmd(t *testing.T) {
 		}
 		cmd := e.app.newClaudeCmd()
 		cmd.SetContext(t.Context())
-		require.NoError(t, cmd.ParseFlags([]string{"--name", "Fix Login", "--offline", "buff-bear", "o/api", "--", "--model", "opus", "fix it"}))
+		require.NoError(t, cmd.ParseFlags([]string{"--name", "Fix Login", "--offline", "--hidden", "buff-bear", "o/api", "--", "--model", "opus", "fix it"}))
 		require.NoError(t, cmd.RunE(cmd, cmd.Flags().Args()))
 		require.Len(t, e.store.CreateCalls(), 1)
 		opts := e.store.CreateCalls()[0].Opts
 		assert.Equal(t, "Fix Login", opts.Name)
 		assert.True(t, opts.Offline)
+		assert.True(t, opts.Hidden)
 		require.Len(t, opts.Specs, 2)
 		assert.Equal(t, "o/api", opts.Specs[1].Raw)
 		require.Len(t, e.claude.StartCalls(), 1)

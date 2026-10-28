@@ -130,6 +130,7 @@ func TestApp_runReviewStart(t *testing.T) {
 		create := e.store.CreateCalls()[0].Opts
 		assert.Equal(t, "review-buff-bear-42-3f2a9c1", create.Name)
 		assert.True(t, create.Offline, "the cache is already fetched")
+		assert.True(t, create.Hidden, "review workspaces are hidden")
 		require.Len(t, create.Specs, 1)
 		assert.Equal(t, "github.com/bobcob7/buff-bear@"+testCommit, create.Specs[0].Raw)
 		rec := e.record(t)

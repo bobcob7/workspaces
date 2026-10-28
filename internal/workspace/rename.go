@@ -37,3 +37,20 @@ func checkName(name string) error {
 	}
 	return nil
 }
+
+// SetHidden hides or shows workspace id (ADR 0043). Setting what's already
+// set rewrites nothing.
+func (s *Store) SetHidden(id string, hidden bool) (Workspace, error) {
+	ws, err := s.byID(id)
+	if err != nil {
+		return Workspace{}, err
+	}
+	if ws.Hidden == hidden {
+		return ws, nil
+	}
+	ws.Hidden = hidden
+	if err := writeRecord(s.recordPath(id), &ws); err != nil {
+		return Workspace{}, err
+	}
+	return ws, nil
+}

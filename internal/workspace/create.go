@@ -26,6 +26,8 @@ type CreateOptions struct {
 	Specs []repo.Spec
 	// Offline skips fetching: every repo must already be cached.
 	Offline bool
+	// Hidden makes a hidden workspace (ADR 0043).
+	Hidden bool
 	// Prepare, if set, runs once the repos are cloned and workspace.toml
 	// is written, before the workspace is moved into place, so it can add
 	// its own records to state/<id>/ (ADR 0022). An error discards the
@@ -172,7 +174,7 @@ func (s *Store) build(ctx context.Context, id string, opts CreateOptions, target
 	if err := os.Mkdir(building, 0o750); err != nil {
 		return Workspace{}, fmt.Errorf("creating %s: %w", building, err)
 	}
-	ws := Workspace{Version: formatVersion, ID: id, Name: strings.TrimSpace(opts.Name), Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second)}
+	ws := Workspace{ID: id, Name: strings.TrimSpace(opts.Name), Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second), Hidden: opts.Hidden}
 	for i := range targets {
 		r, err := s.addRepo(ctx, building, &targets[i], opts.Offline)
 		if err != nil {

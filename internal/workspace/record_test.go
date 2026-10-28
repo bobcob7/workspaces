@@ -51,6 +51,12 @@ func TestReadRecord(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, ws, got)
 	})
+	t.Run("reads a hidden record", func(t *testing.T) {
+		t.Parallel()
+		got, err := readRecord(recordIn(t, "version = 2\nid = \"fix-login\"\npath = \"/w/fix-login\"\nhidden = true\n"))
+		require.NoError(t, err)
+		assert.True(t, got.Hidden)
+	})
 	t.Run("missing", func(t *testing.T) {
 		t.Parallel()
 		_, err := readRecord(filepath.Join(t.TempDir(), "x", "workspace.toml"))
@@ -76,12 +82,12 @@ func TestReadRecord(t *testing.T) {
 	})
 	t.Run("a newer version", func(t *testing.T) {
 		t.Parallel()
-		_, err := readRecord(recordIn(t, "version = 2\nid = \"fix-login\"\npath = \"/w/fix-login\"\n"))
-		assert.ErrorContains(t, err, "written by a newer ws (version 2; this ws reads up to 1); upgrade ws")
+		_, err := readRecord(recordIn(t, "version = 3\nid = \"fix-login\"\npath = \"/w/fix-login\"\n"))
+		assert.ErrorContains(t, err, "written by a newer ws (version 3; this ws reads up to 2); upgrade ws")
 	})
 	t.Run("a newer version with keys this ws doesn't know", func(t *testing.T) {
 		t.Parallel()
-		_, err := readRecord(recordIn(t, "version = 2\nid = \"fix-login\"\npath = \"/w/fix-login\"\nextra = 1\n"))
+		_, err := readRecord(recordIn(t, "version = 3\nid = \"fix-login\"\npath = \"/w/fix-login\"\nextra = 1\n"))
 		assert.ErrorContains(t, err, "newer ws")
 	})
 	t.Run("no version", func(t *testing.T) {
@@ -111,6 +117,34 @@ func TestWriteRecord(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 1)
 		assert.Equal(t, "workspace.toml", entries[0].Name())
+	})
+	t.Run("a visible workspace is version 1 without hidden", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "workspace.toml")
+		ws := sampleRecord("/w", "x")
+		ws.Version = 7
+		require.NoError(t, writeRecord(path, &ws))
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "version = 1\n")
+		assert.NotContains(t, string(data), "hidden")
+		assert.Equal(t, 1, ws.Version)
+	})
+	t.Run("a hidden workspace is version 2", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "x", "workspace.toml")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		ws := sampleRecord("/w", "x")
+		ws.Hidden = true
+		require.NoError(t, writeRecord(path, &ws))
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "version = 2\n")
+		assert.Contains(t, string(data), "hidden = true\n")
+		got, err := readRecord(path)
+		require.NoError(t, err)
+		assert.Equal(t, ws, got)
 	})
 	t.Run("missing directory", func(t *testing.T) {
 		t.Parallel()
@@ -150,14 +184,22 @@ func TestWriteTOML(t *testing.T) {
 }
 
 func TestCheckVersion(t *testing.T) {
+	t.Parallel()
 	t.Run("known", func(t *testing.T) {
-		assert.NoError(t, checkVersion(1))
+		t.Parallel()
+		assert.NoError(t, checkVersion(1, 1))
 	})
 	t.Run("newer", func(t *testing.T) {
-		assert.ErrorContains(t, checkVersion(3), "written by a newer ws (version 3; this ws reads up to 1); upgrade ws")
+		t.Parallel()
+		assert.ErrorContains(t, checkVersion(3, 1), "written by a newer ws (version 3; this ws reads up to 1); upgrade ws")
+	})
+	t.Run("a hidden record read by a ws from before hidden", func(t *testing.T) {
+		t.Parallel()
+		assert.ErrorContains(t, checkVersion(hiddenVersion, visibleVersion), "upgrade ws")
 	})
 	t.Run("not a version", func(t *testing.T) {
-		assert.ErrorContains(t, checkVersion(0), "unsupported version 0")
+		t.Parallel()
+		assert.ErrorContains(t, checkVersion(0, 1), "unsupported version 0")
 	})
 }
 

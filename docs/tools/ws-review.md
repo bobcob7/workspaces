@@ -87,7 +87,10 @@ reviewer subagent per profile ([0038](../adrs/0038-review-fans-out-to-profile-su
 The workspace is named `review-<repo>-<N>-<sha7>`, or
 `review-<repo>-<sha7>` without `--pr`, plus [0036](../adrs/0036-workspace-id-suffix-and-rename.md)'s
 suffix ([0032](../adrs/0032-review-agent-per-pr-head.md)); `--name`
-replaces it.
+replaces it. The workspace is hidden: `ws list` shows it only with `-a`,
+and the desktop app lists it under Reviews rather than among the user's
+agents; [`ws unhide`](ws-hide.md) shows it
+([0043](../adrs/0043-hidden-workspaces.md)).
 
 ### `ws review wait`
 

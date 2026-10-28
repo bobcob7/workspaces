@@ -191,6 +191,8 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newListCmd(),
 		a.newRmCmd(),
 		a.newRenameCmd(),
+		a.newHideCmd(),
+		a.newUnhideCmd(),
 		a.newCacheCmd(),
 		a.newReviewCmd(),
 		a.newLLMCmd(),

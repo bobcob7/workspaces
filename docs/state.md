@@ -13,7 +13,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 | --- | --- | --- |
 | `workspaces/<id>/` | the workspace: the user's repos and files only | moved into place by creation |
 | `workspaces/CLAUDE.md` | tells agents to run `ws llm` ([0014](adrs/0014-command-set.md)) | when `workspaces/` is first created, if missing, through a temp file linked into place; never overwritten |
-| `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | by creation; its `name` rewritten by `ws rename` ([0036](adrs/0036-workspace-id-suffix-and-rename.md)) |
+| `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | by creation; its `name` rewritten by `ws rename` ([0036](adrs/0036-workspace-id-suffix-and-rename.md)), its `hidden` by `ws hide` and `ws unhide` ([0043](adrs/0043-hidden-workspaces.md)) |
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
 | `state/<id>/lock` | the workspace lock | by creation |
 | `state/<id>/review.toml` | a review workspace's record: repo, commit, profiles, requester, and pull request ([0039](adrs/0039-ws-review-command.md)) | by `ws review start`, before the workspace is moved into place; read by `ws review`, and shown as `review` by `ws list --json` |
@@ -42,6 +42,11 @@ The session record holds these fields:
 - `started_at`: RFC 3339, UTC.
 
 A session record with no `version` is version 1.
+
+`workspace.toml` is version 1, or version 2 when it has `hidden = true`,
+so a `ws` from before hidden workspaces leaves a hidden one alone
+([0043](adrs/0043-hidden-workspaces.md)). `hidden` is written only when
+true.
 
 A review workspace also has `review.toml`, version 1
 ([0039](adrs/0039-ws-review-command.md)):
