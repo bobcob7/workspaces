@@ -13,6 +13,7 @@ import type {
 } from "../api";
 import type { TerminalHost } from "../features/terminals/host";
 import { createStore, type RootState } from "../store";
+import { reviewReport } from "./reportFixture";
 
 export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   key: "fix-login",
@@ -94,6 +95,8 @@ export const reviewRun = (overrides: Partial<ReviewRun> = {}): ReviewRun => ({
   result: "Two problems worth fixing before merge, one nit.",
   links: [],
   auto: false,
+  recorded: true,
+  requester: null,
   ...overrides,
 });
 
@@ -191,6 +194,9 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewsPlan: vi.fn(async () => reviewPlan()),
   reviewsProfiles: vi.fn(async () => listedProfiles()),
   reviewsStart: vi.fn(async () => ({ id: "review-buff-bear-42-3f2a9c1", already: false })),
+  reviewReport: vi.fn(async () => reviewReport()),
+  reviewDecide: vi.fn(async () => reviewReport()),
+  reviewOpenReport: vi.fn(async () => "/cache/reviews/review-buff-bear-3f2a9c1.html"),
   settingsGet: vi.fn(async () => ({ reviews: reviewSettings() })),
   settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews })),
   ...overrides,

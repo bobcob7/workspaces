@@ -33,6 +33,7 @@ pub fn run() {
                 jobs_dir: jobs::jobs_dir(),
                 store: Arc::new(Store::open(path)),
                 reviews: Arc::new(Checker::default()),
+                reports: reviews::report::Cache::default(),
             };
             let deps = Deps {
                 runner: state.runner.clone(),
@@ -72,6 +73,9 @@ pub fn run() {
             reviews::reviews_plan,
             reviews::reviews_profiles,
             reviews::reviews_start,
+            reviews::review_report,
+            reviews::review_decide,
+            reviews::review_open_report,
             reviews::settings_get,
             reviews::settings_set_reviews,
         ])

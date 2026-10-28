@@ -1,9 +1,12 @@
 import type { JSX, KeyboardEvent } from "react";
+import type { PullRequest, ReviewReport } from "../../api";
 import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { groupPrs, repoName, summary, visibleOrder } from "./groups";
 import { PrDot } from "./PrDot";
+import { reportKey } from "./reportsSlice";
 import { dismissedToggled, filterChanged, reviewSelected } from "./reviewsSlice";
+import { useReports } from "./useReports";
 import styles from "./ReviewsList.module.css";
 
 /** Pull requests in watched repos, grouped by review status. */
@@ -13,6 +16,12 @@ export const ReviewsList = (): JSX.Element => {
   const filter = useAppSelector((s) => s.reviews.filter);
   const selectedKey = useAppSelector((s) => s.reviews.selectedKey);
   const dismissedOpen = useAppSelector((s) => s.reviews.dismissedOpen);
+  const reports = useAppSelector((s) => s.reports.byKey);
+  useReports(view?.prs ?? []);
+  const reportOf = (pr: PullRequest): ReviewReport | null => {
+    const review = pr.reviews[0];
+    return review?.recorded === true ? reports[reportKey(pr.repo, review.sha)]?.report ?? null : null;
+  };
   const groups = groupPrs(view?.prs ?? [], filter);
   const failing = view?.repos.filter((r) => r.watch && r.github && r.error !== null) ?? [];
   const autoWarnings = view?.warnings.filter((w) => w.startsWith("auto-review")) ?? [];
@@ -94,7 +103,7 @@ export const ReviewsList = (): JSX.Element => {
                           </span>
                           <span className={styles.age}>{age(pr.updatedAt)}</span>
                         </span>
-                        <span className={styles.summary}>{summary(pr)}</span>
+                        <span className={styles.summary}>{summary(pr, reportOf(pr))}</span>
                       </button>
                     </li>
                   ))}

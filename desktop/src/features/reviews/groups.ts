@@ -1,4 +1,10 @@
-import type { PullRequest, ReviewGroup, ReviewPlan, ReviewsView } from "../../api";
+import type { PullRequest, ReviewGroup, ReviewPlan, ReviewReport, ReviewsView, Status } from "../../api";
+import { reportSummary } from "./report";
+
+/** Statuses that put a pull request under Reviewing (ADR 0032). */
+export const reviewingStatuses: ReadonlySet<Status> = new Set(["working", "starting", "pending", "needsInput"]);
+
+export const isReviewing = (status: Status): boolean => reviewingStatuses.has(status);
 
 export interface PrGroup {
   readonly id: ReviewGroup;
@@ -57,8 +63,11 @@ const plural = (count: number, word: string): string => `${count} ${word}${count
 
 const firstLine = (text: string): string => text.split("\n").find((line) => line.trim() !== "")?.trim() ?? "";
 
-/** The part of a row's summary after repo and author. */
-export const summaryExtra = (pr: PullRequest): string | null => {
+/**
+ * The part of a row's summary after repo and author; with the newest
+ * review's report, what it found and what's left to decide (report.md).
+ */
+export const summaryExtra = (pr: PullRequest, report: ReviewReport | null = null): string | null => {
   const review = pr.reviews[0];
   switch (pr.group) {
     case "toReview":
@@ -67,19 +76,28 @@ export const summaryExtra = (pr: PullRequest): string | null => {
       }
       return pr.isDraft ? "draft" : null;
     case "reviewing":
-      return review?.status === "needsInput" ? "needs input" : "agent working";
-    case "reviewed":
+      if (review?.status === "needsInput") {
+        return "needs input";
+      }
+      return report === null ? "agent working" : reportSummary(report, true);
+    case "reviewed": {
+      const found = report === null ? null : reportSummary(report, false);
       if (pr.outOfDate) {
-        return pr.newCommits === null ? "new commits" : plural(pr.newCommits.count, "new commit");
+        const commits = pr.newCommits === null ? "new commits" : plural(pr.newCommits.count, "new commit");
+        return found === null ? commits : `${commits} · ${found}`;
+      }
+      if (found !== null) {
+        return found;
       }
       return review !== undefined && review.result !== null ? firstLine(review.result) : "reviewed";
+    }
     case "dismissed":
       return pr.isDraft ? "draft" : null;
   }
 };
 
-export const summary = (pr: PullRequest): string =>
-  [repoName(pr.repo), pr.author.login, summaryExtra(pr)].filter((part) => part !== null && part !== "").join(" · ");
+export const summary = (pr: PullRequest, report: ReviewReport | null = null): string =>
+  [repoName(pr.repo), pr.author.login, summaryExtra(pr, report)].filter((part) => part !== null && part !== "").join(" · ");
 
 /** The rail badge: pull requests to review, plus reviews out of date. */
 export const badgeCount = (view: ReviewsView | null): number =>

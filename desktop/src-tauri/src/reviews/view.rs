@@ -58,6 +58,10 @@ pub struct ReviewView {
     pub result: Option<String>,
     pub links: Vec<Link>,
     pub auto: bool,
+    /// Whether `ws review start` made it, so its report can be read.
+    pub recorded: bool,
+    /// The workspace its record names as having asked for it.
+    pub requester: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -213,6 +217,12 @@ fn pr_view(
                     .workspace_id
                     .as_deref()
                     .is_some_and(|id| state.reviews.is_auto_workspace(id)),
+                recorded: e.review.is_some(),
+                requester: e
+                    .review
+                    .as_ref()
+                    .map(|r| r.requester.clone())
+                    .filter(|r| !r.is_empty()),
             })
             .collect(),
         new_commits,
@@ -515,6 +525,27 @@ pub mod tests {
         let mut entry = recorded(42, OLD, Status::Done, "2026-10-24T10:00:00Z");
         entry.repos[0].git_ref = Some(HEAD.to_string());
         assert_eq!(group(&[entry], &watching()), (Group::Reviewed, true));
+    }
+
+    #[test]
+    fn recorded_review_names_its_requester() {
+        let mut entry = recorded(42, HEAD, Status::Done, "2026-10-24T10:00:00Z");
+        if let Some(record) = entry.review.as_mut() {
+            record.requester = "fix-login-d8efb24f".to_string();
+        }
+        let view = build(&checked(vec![pr(42)]), &[entry], &watching());
+        let review = &view.prs[0].reviews[0];
+        assert!(review.recorded);
+        assert_eq!(review.requester.as_deref(), Some("fix-login-d8efb24f"));
+    }
+
+    #[test]
+    fn review_without_record_has_no_report_or_requester() {
+        let entries = [review(42, HEAD, Status::Done, "2026-10-24T10:00:00Z")];
+        let view = build(&checked(vec![pr(42)]), &entries, &watching());
+        let review = &view.prs[0].reviews[0];
+        assert!(!review.recorded);
+        assert_eq!(review.requester, None);
     }
 
     #[test]
