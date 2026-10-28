@@ -23,10 +23,24 @@ func NewSet(userDir string) *Set {
 // fall back to the built-in it was meant to replace.
 func (s *Set) Load(name string) (Profile, bool, error) {
 	p, ok, err := s.user.Load(name)
-	if err != nil || ok {
-		return p, ok, err
+	if err != nil {
+		return Profile{}, false, err
 	}
-	return s.builtin.Load(name)
+	if !ok {
+		return s.builtin.Load(name)
+	}
+	if s.isBuiltin(name) {
+		p.Source = SourceOverride
+	}
+	return p, true, nil
+}
+
+// isBuiltin reports whether ws builds in a profile named name. The
+// built-ins are embedded and tested, so one that can't be read is reported
+// as absent rather than as an error.
+func (s *Set) isBuiltin(name string) bool {
+	_, ok, err := s.builtin.Load(name)
+	return ok && err == nil
 }
 
 // List returns every profile, sorted by name, and the files that failed to
@@ -44,6 +58,9 @@ func (s *Set) List() (profiles []Profile, broken []string, err error) {
 	broken = append(broken, builtinBroken...)
 	profiles = user
 	for _, p := range builtin {
+		if i := slices.IndexFunc(user, func(u Profile) bool { return u.Name == p.Name }); i >= 0 {
+			profiles[i].Source = SourceOverride
+		}
 		if !s.overridden(p.Name, user, broken) {
 			profiles = append(profiles, p)
 		}

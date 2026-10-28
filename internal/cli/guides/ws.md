@@ -136,9 +136,9 @@ messages aren't.
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -172,6 +172,10 @@ everything.
   - `ws llm review decide`: decide to comment on, fix, or skip findings
   - `ws llm review acted`: record that decided findings were commented on or sent to fix
   - `ws llm review profiles`: the review profiles and their settings
+  - `ws llm review profiles show`: one review profile, with its guide
+  - `ws llm review profiles add`: add a review profile
+  - `ws llm review profiles edit`: edit a review profile, or override a built-in
+  - `ws llm review profiles rm`: remove a review profile, or restore a built-in
   - `ws llm review prime`: how to write and submit a review, and a profile's guide
   - `ws llm review describe`: the review document, a field, check, or topic at a time
   - `ws llm review submit`: check a review and store it

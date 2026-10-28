@@ -6,6 +6,7 @@ import type {
   Entry,
   FixPlan,
   ListedProfile,
+  ProfileDetail,
   PullRequest,
   RepoRef,
   ReviewPlan,
@@ -134,6 +135,14 @@ export const listedProfile = (overrides: Partial<ListedProfile> = {}): ListedPro
   patterns: [],
   model: "",
   builtin: true,
+  source: "builtin",
+  ...overrides,
+});
+
+export const profileDetail = (overrides: Partial<ProfileDetail> = {}): ProfileDetail => ({
+  ...listedProfile(),
+  guide: "Anchor a finding where untrusted input crosses a boundary.",
+  path: null,
   ...overrides,
 });
 
@@ -249,6 +258,10 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewsRestore: vi.fn(async () => reviewsView()),
   reviewsPlan: vi.fn(async () => reviewPlan()),
   reviewsProfiles: vi.fn(async () => listedProfiles()),
+  reviewsProfileShow: vi.fn(async (name: string) => profileDetail({ name })),
+  reviewsProfileAdd: vi.fn(async (name: string) => profileDetail({ name, builtin: false, source: "user" })),
+  reviewsProfileEdit: vi.fn(async (name: string) => profileDetail({ name })),
+  reviewsProfileRemove: vi.fn(async () => ({ restored: false, settings: { reviews: reviewSettings() } })),
   reviewsStart: vi.fn(async () => ({ id: "review-buff-bear-42-3f2a9c1", already: false })),
   reviewReport: vi.fn(async () => reviewReport()),
   reviewDecide: vi.fn(async () => reviewReport()),

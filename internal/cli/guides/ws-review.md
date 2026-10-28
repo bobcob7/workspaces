@@ -7,6 +7,10 @@ ws review report [--format json|markdown|html] [--decided comment|fix|skip] [--j
 ws review decide [--json] (<id> | --repo <repo> --ref <sha>) <finding>... (--comment | --fix [--suggestion <n>] | --skip | --clear) [--note <text>]
 ws review acted [--json] (<id> | --repo <repo> --ref <sha>) <finding>... (--commented <url> | --fix-sent <agent>)
 ws review profiles [--json]
+ws review profiles show [--json] <name>
+ws review profiles add [--json] <name> --description <d> [--when <w>] [--match <glob>]... (--guide-file <f> | -)
+ws review profiles edit [--json] <name> [--description <d>] [--when <w>] [--match <glob>]... [--no-match] [--guide-file <f> | -]
+ws review profiles rm [--json] <name>
 ws review prime [--profile <name>]
 ws review describe [--lens <name>,... | --list]
 ws review submit [--json] [<path> | -]
@@ -67,6 +71,11 @@ fail with `review_not_found`:
   manual; a profile is what you look for. They're unrelated.
 - `ws review submit --json -` to check your review and store it.
 
+**To manage profiles**, `ws review profiles add`, `edit`, and `rm` write
+the files in `$CONFIG_DIR/review/profiles/`. Editing a built-in makes an
+override; removing the override restores the built-in. Reviews already
+running keep the guides they started with.
+
 Run `ws llm review <op>` for each one's guide.
 
 ## Exit codes
@@ -77,6 +86,7 @@ Run `ws llm review <op>` for each one's guide.
 | The review is still running when `wait` gives up | `review_timeout`      | 1    |
 | Not a review workspace                           | `review_not_found`    | 3    |
 | `decide`, `acted`: a finding not in the current report | `finding_not_found` | 3  |
+| `profiles`: an invalid profile, a taken name, or removing a built-in | `profile_invalid`, `profile_exists`, `profile_builtin` | 2, 4, 4 |
 
 ## Examples
 

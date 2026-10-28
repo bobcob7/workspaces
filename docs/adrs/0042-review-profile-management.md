@@ -1,6 +1,6 @@
 # 0042. Review profiles are added, edited, and deleted with `ws review profiles`, as files in `CONFIG_DIR/review/profiles/`; a built-in is edited by overriding it and restored by deleting the override
 
-- Status: Proposed
+- Status: Accepted (2026-10-28)
 - Date: 2026-10-28
 
 ## Context
