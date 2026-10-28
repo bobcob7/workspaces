@@ -80,12 +80,21 @@ func TestManager_RemoveTree(t *testing.T) {
 		assert.Empty(t, f.workspaces[2].Parent)
 		assert.Equal(t, "a", f.workspaces[3].Parent, "grandchildren keep their parent")
 	})
+	t.Run("keeping children gives them to the adopter", func(t *testing.T) {
+		f := newFixture(t)
+		root := f.tree()
+		_, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, Adopter: "caller"})
+		require.NoError(t, err)
+		assert.Equal(t, "caller", f.workspaces[1].Parent)
+		assert.Equal(t, "caller", f.workspaces[2].Parent)
+		assert.Equal(t, "a", f.workspaces[3].Parent, "grandchildren keep their parent")
+	})
 	t.Run("keeping children with a dry run changes nothing", func(t *testing.T) {
 		f := newFixture(t)
 		root := f.tree()
 		_, err := f.m.RemoveTree(t.Context(), &root, TreeOptions{KeepChildren: true, DryRun: true})
 		require.NoError(t, err)
-		assert.Empty(t, f.store.ClearParentCalls())
+		assert.Empty(t, f.store.SetParentCalls())
 		assert.Empty(t, f.removedIDs())
 	})
 	t.Run("a cycle is visited once", func(t *testing.T) {

@@ -292,7 +292,14 @@ func TestApp_newRootCmd(t *testing.T) {
 		for _, cmd := range root.Commands() {
 			names = append(names, cmd.Name())
 		}
-		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "list", "rm", "rename", "hide", "unhide", "cache", "review", "llm"}, names)
+		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "list", "rm", "rename", "hide", "unhide", "cache", "review", "llm", "machine"}, names)
+	})
+	t.Run("lists machine under Commands for agents", func(t *testing.T) {
+		require.True(t, root.ContainsGroup(agentsGroup))
+		machine, _, err := root.Find([]string{"machine"})
+		require.NoError(t, err)
+		assert.Equal(t, agentsGroup, machine.GroupID)
+		assert.Contains(t, root.UsageString(), "Commands for agents:\n  machine")
 	})
 	t.Run("flag errors are usage errors", func(t *testing.T) {
 		requireUsageError(t, root.FlagErrorFunc()(root, errTest))

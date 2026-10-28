@@ -55,17 +55,18 @@ func (s *Store) SetHidden(id string, hidden bool) (Workspace, error) {
 	return ws, nil
 }
 
-// ClearParent makes workspace id a root, for ws rm --keep-children (ADR
-// 0044). A root stays as it is.
-func (s *Store) ClearParent(id string) (Workspace, error) {
+// SetParent makes parent workspace id's parent, or with "" makes it a
+// root, for ws rm --keep-children and ws machine rm --keep-children (ADRs
+// 0044, 0046). Setting what's already set rewrites nothing.
+func (s *Store) SetParent(id, parent string) (Workspace, error) {
 	ws, err := s.byID(id)
 	if err != nil {
 		return Workspace{}, err
 	}
-	if ws.Parent == "" {
+	if ws.Parent == parent {
 		return ws, nil
 	}
-	ws.Parent = ""
+	ws.Parent = parent
 	if err := writeRecord(s.recordPath(id), &ws); err != nil {
 		return Workspace{}, err
 	}

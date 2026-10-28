@@ -18,9 +18,12 @@ var ErrChildKept = errors.New("kept because a workspace it started couldn't be r
 type TreeOptions struct {
 	// DryRun makes the same checks and changes nothing.
 	DryRun bool
-	// KeepChildren makes the workspace's children roots instead of
-	// removing them.
+	// KeepChildren makes the workspace's children Adopter's, or roots
+	// without one, instead of removing them.
 	KeepChildren bool
+	// Adopter is the workspace KeepChildren gives the children to: ws
+	// machine rm's caller (ADR 0046).
+	Adopter string
 }
 
 // TreeItem is one workspace of a tree ws rm was asked to remove: removed,
@@ -69,7 +72,8 @@ func postOrder(list []workspace.Workspace, kids map[string][]int, root int, seen
 // RemoveTree removes ws and its descendants, deepest first, each as Remove
 // does (ADR 0044). A descendant that can't be removed keeps itself and
 // its ancestors, each with ErrChildKept, while other branches still go.
-// With KeepChildren, ws's children become roots and only ws is removed.
+// With KeepChildren, ws's children become Adopter's, or roots, and only
+// ws is removed.
 // It returns the descendants first and ws last.
 func (m *Manager) RemoveTree(ctx context.Context, ws *workspace.Workspace, opts TreeOptions) ([]TreeItem, error) {
 	list, err := m.store.List()
@@ -87,7 +91,7 @@ func (m *Manager) RemoveTree(ctx context.Context, ws *workspace.Workspace, opts 
 	}
 	kids := children(list)
 	if opts.KeepChildren {
-		return m.removeKeepingChildren(ctx, list, kids[ws.ID], &list[root], opts.DryRun)
+		return m.removeKeepingChildren(ctx, list, kids[ws.ID], &list[root], opts)
 	}
 	var items []TreeItem
 	failed := map[int]bool{}
@@ -120,17 +124,17 @@ func (m *Manager) removeNode(ctx context.Context, ws *workspace.Workspace, keptC
 	return TreeItem{Removed: r}
 }
 
-// removeKeepingChildren makes each child a root, then removes ws. A dry
-// run changes neither.
-func (m *Manager) removeKeepingChildren(ctx context.Context, list []workspace.Workspace, kids []int, ws *workspace.Workspace, dryRun bool) ([]TreeItem, error) {
-	if !dryRun {
+// removeKeepingChildren gives each child to opts.Adopter, or makes it a
+// root, then removes ws. A dry run changes neither.
+func (m *Manager) removeKeepingChildren(ctx context.Context, list []workspace.Workspace, kids []int, ws *workspace.Workspace, opts TreeOptions) ([]TreeItem, error) {
+	if !opts.DryRun {
 		for _, c := range kids {
-			if _, err := m.store.ClearParent(list[c].ID); err != nil {
+			if _, err := m.store.SetParent(list[c].ID, opts.Adopter); err != nil {
 				return nil, fmt.Errorf("keeping workspace %s: %w", list[c].ID, err)
 			}
 		}
 	}
-	return []TreeItem{m.removeNode(ctx, ws, "", dryRun)}, nil
+	return []TreeItem{m.removeNode(ctx, ws, "", opts.DryRun)}, nil
 }
 
 // forestOrder is every index of list, each workspace's descendants before

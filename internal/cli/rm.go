@@ -15,7 +15,10 @@ import (
 type rmOptions struct {
 	dryRun       bool
 	keepChildren bool
-	workspaces   []string
+	// adopter is the workspace --keep-children gives the children to, or
+	// "" to make them roots: ws machine rm's caller (ADR 0046).
+	adopter    string
+	workspaces []string
 }
 
 func (a *App) newRmCmd() *cobra.Command {
@@ -58,18 +61,20 @@ type rmTarget struct {
 // failure doesn't stop the others; the exit code is the first failure's
 // (ADR 0016).
 func (a *App) runRm(ctx context.Context, opts *rmOptions) error {
+	return a.removeTargets(ctx, a.rmTargets(opts.workspaces), opts)
+}
+
+// removeTargets removes each target that names a workspace, with its
+// descendants, and reports the others' errors, each as an item.
+func (a *App) removeTargets(ctx context.Context, targets []rmTarget, opts *rmOptions) error {
 	var items itemResults
 	results := []rmJSON{}
 	done := map[string]bool{}
-	targets := a.rmTargets(opts.workspaces)
 	for i := range targets {
 		t := &targets[i]
 		if t.err != nil || t.swept != nil {
 			r, err := t.unremovable()
-			id := t.arg
-			if err == nil {
-				id = r.Workspace.ID
-			}
+			id := t.id()
 			removed := err == nil && t.swept != nil
 			results = append(results, rmJSON{ID: id, Removed: removed, Error: items.add(rmLine(&r, removed, false), err)})
 			continue
@@ -96,6 +101,18 @@ func (a *App) rmTargets(args []string) []rmTarget {
 		targets = append(targets, t)
 	}
 	return targets
+}
+
+// id is the id of the workspace t names, or its argument when it names
+// none.
+func (t *rmTarget) id() string {
+	switch {
+	case t.swept != nil:
+		return t.swept.Workspace.ID
+	case t.ws.ID != "":
+		return t.ws.ID
+	}
+	return t.arg
 }
 
 func (t *rmTarget) key() string {
@@ -139,7 +156,7 @@ func (a *App) sweptMatch(arg string) (lifetime.Removed, bool) {
 // rmTree removes ws and its descendants and returns an item for each that
 // done doesn't already hold, adding it to done.
 func (a *App) rmTree(ctx context.Context, ws *workspace.Workspace, opts *rmOptions, done map[string]bool, items *itemResults) []rmJSON {
-	tree, err := a.lifetime.RemoveTree(ctx, ws, lifetime.TreeOptions{DryRun: opts.dryRun, KeepChildren: opts.keepChildren})
+	tree, err := a.lifetime.RemoveTree(ctx, ws, lifetime.TreeOptions{DryRun: opts.dryRun, KeepChildren: opts.keepChildren, Adopter: opts.adopter})
 	if err != nil {
 		tree = []lifetime.TreeItem{{Workspace: *ws, Err: err}}
 	}

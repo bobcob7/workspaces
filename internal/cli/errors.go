@@ -56,6 +56,9 @@ const (
 	codeProfileBuiltin errorCode = "profile_builtin"
 	// From ADR 0044.
 	codeChildKept errorCode = "child_kept"
+	// From ADR 0046.
+	codeOutsideWorkspace errorCode = "outside_workspace"
+	codeNotDescendant    errorCode = "not_descendant"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -100,13 +103,13 @@ func (c errorCode) exitCode() int {
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth:
 		return exitFailed
-	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid:
+	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
-		codeProfileExists, codeProfileBuiltin, codeChildKept:
+		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant:
 		return exitRefused
 	}
 	return exitFailed

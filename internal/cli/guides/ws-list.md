@@ -9,6 +9,9 @@ removes every workspace whose session is gone. Hidden workspaces, such as
 reviews from `ws review start` and agents started with `ws claude
 --hidden`, are left out unless given `-a`.
 
+`ws list` is for people and the desktop app. Agents use
+`ws machine children` to list their helpers; see `ws llm machine children`.
+
 ## When to use it
 
 - To find your workspaces, check on agents you started, or find the

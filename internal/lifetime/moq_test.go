@@ -27,9 +27,6 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			CleanLeftoversFunc: func() []string {
 //				panic("mock out the CleanLeftovers method")
 //			},
-//			ClearParentFunc: func(id string) (workspace.Workspace, error) {
-//				panic("mock out the ClearParent method")
-//			},
 //			GuardedDirFunc: func(id string) (string, error) {
 //				panic("mock out the GuardedDir method")
 //			},
@@ -44,6 +41,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			},
 //			SessionFunc: func(id string) (workspace.Session, error) {
 //				panic("mock out the Session method")
+//			},
+//			SetParentFunc: func(id string, parent string) (workspace.Workspace, error) {
+//				panic("mock out the SetParent method")
 //			},
 //			UnknownFunc: func() ([]string, error) {
 //				panic("mock out the Unknown method")
@@ -61,9 +61,6 @@ type workspaceStoreMock struct {
 	// CleanLeftoversFunc mocks the CleanLeftovers method.
 	CleanLeftoversFunc func() []string
 
-	// ClearParentFunc mocks the ClearParent method.
-	ClearParentFunc func(id string) (workspace.Workspace, error)
-
 	// GuardedDirFunc mocks the GuardedDir method.
 	GuardedDirFunc func(id string) (string, error)
 
@@ -79,6 +76,9 @@ type workspaceStoreMock struct {
 	// SessionFunc mocks the Session method.
 	SessionFunc func(id string) (workspace.Session, error)
 
+	// SetParentFunc mocks the SetParent method.
+	SetParentFunc func(id string, parent string) (workspace.Workspace, error)
+
 	// UnknownFunc mocks the Unknown method.
 	UnknownFunc func() ([]string, error)
 
@@ -91,11 +91,6 @@ type workspaceStoreMock struct {
 		}
 		// CleanLeftovers holds details about calls to the CleanLeftovers method.
 		CleanLeftovers []struct {
-		}
-		// ClearParent holds details about calls to the ClearParent method.
-		ClearParent []struct {
-			// ID is the id argument value.
-			ID string
 		}
 		// GuardedDir holds details about calls to the GuardedDir method.
 		GuardedDir []struct {
@@ -122,18 +117,25 @@ type workspaceStoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// SetParent holds details about calls to the SetParent method.
+		SetParent []struct {
+			// ID is the id argument value.
+			ID string
+			// Parent is the parent argument value.
+			Parent string
+		}
 		// Unknown holds details about calls to the Unknown method.
 		Unknown []struct {
 		}
 	}
 	lockAbandoned      sync.RWMutex
 	lockCleanLeftovers sync.RWMutex
-	lockClearParent    sync.RWMutex
 	lockGuardedDir     sync.RWMutex
 	lockList           sync.RWMutex
 	lockLocked         sync.RWMutex
 	lockRemove         sync.RWMutex
 	lockSession        sync.RWMutex
+	lockSetParent      sync.RWMutex
 	lockUnknown        sync.RWMutex
 }
 
@@ -193,38 +195,6 @@ func (mock *workspaceStoreMock) CleanLeftoversCalls() []struct {
 	mock.lockCleanLeftovers.RLock()
 	calls = mock.calls.CleanLeftovers
 	mock.lockCleanLeftovers.RUnlock()
-	return calls
-}
-
-// ClearParent calls ClearParentFunc.
-func (mock *workspaceStoreMock) ClearParent(id string) (workspace.Workspace, error) {
-	if mock.ClearParentFunc == nil {
-		panic("workspaceStoreMock.ClearParentFunc: method is nil but workspaceStore.ClearParent was just called")
-	}
-	callInfo := struct {
-		ID string
-	}{
-		ID: id,
-	}
-	mock.lockClearParent.Lock()
-	mock.calls.ClearParent = append(mock.calls.ClearParent, callInfo)
-	mock.lockClearParent.Unlock()
-	return mock.ClearParentFunc(id)
-}
-
-// ClearParentCalls gets all the calls that were made to ClearParent.
-// Check the length with:
-//
-//	len(mockedworkspaceStore.ClearParentCalls())
-func (mock *workspaceStoreMock) ClearParentCalls() []struct {
-	ID string
-} {
-	var calls []struct {
-		ID string
-	}
-	mock.lockClearParent.RLock()
-	calls = mock.calls.ClearParent
-	mock.lockClearParent.RUnlock()
 	return calls
 }
 
@@ -384,6 +354,42 @@ func (mock *workspaceStoreMock) SessionCalls() []struct {
 	mock.lockSession.RLock()
 	calls = mock.calls.Session
 	mock.lockSession.RUnlock()
+	return calls
+}
+
+// SetParent calls SetParentFunc.
+func (mock *workspaceStoreMock) SetParent(id string, parent string) (workspace.Workspace, error) {
+	if mock.SetParentFunc == nil {
+		panic("workspaceStoreMock.SetParentFunc: method is nil but workspaceStore.SetParent was just called")
+	}
+	callInfo := struct {
+		ID     string
+		Parent string
+	}{
+		ID:     id,
+		Parent: parent,
+	}
+	mock.lockSetParent.Lock()
+	mock.calls.SetParent = append(mock.calls.SetParent, callInfo)
+	mock.lockSetParent.Unlock()
+	return mock.SetParentFunc(id, parent)
+}
+
+// SetParentCalls gets all the calls that were made to SetParent.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.SetParentCalls())
+func (mock *workspaceStoreMock) SetParentCalls() []struct {
+	ID     string
+	Parent string
+} {
+	var calls []struct {
+		ID     string
+		Parent string
+	}
+	mock.lockSetParent.RLock()
+	calls = mock.calls.SetParent
+	mock.lockSetParent.RUnlock()
 	return calls
 }
 
