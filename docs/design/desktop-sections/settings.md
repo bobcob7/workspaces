@@ -25,7 +25,7 @@ the first group. Shared frame and rules: [README.md](README.md).
 | Reviews | Check interval; auto-review rules (skip drafts, skip my own, only when my review is requested); max auto-reviews at once; reviewer profiles (when each runs, its model); the review agent's model and permission mode | Reviews PR; profiles from [structured reviews](../loam-refinery-reviews/report.md#settings) |
 | General | Agent list refresh interval; open at login                               | later           |
 | Agents  | Default model and permission mode for New agent; how many attach terminals stay open (now 4) | later |
-| About   | `ws` and `claude` versions and paths, `CONFIG_DIR`, the app's version   | later           |
+| About   | `ws` and `claude` versions and paths, the app's version and the commit it was built from, and a warning when the app and `ws` were built from different commits; `CONFIG_DIR` later | the versions PR |
 
 Settings that `ws` owns, such as `defaults.owners` in `config.toml`
 ([config.md](../../config.md)), aren't edited here unless `ws` gains a

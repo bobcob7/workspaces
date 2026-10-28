@@ -97,6 +97,26 @@ export interface HiddenSet {
   readonly hidden: boolean;
 }
 
+/** A program the app runs, as Settings > About shows it. */
+export interface ToolVersion {
+  readonly version: string | null;
+  /** Where it is on the app's PATH, if it is. */
+  readonly path: string | null;
+  /** Why the version couldn't be read. */
+  readonly error: string | null;
+}
+
+/** The app's version, and the ws and claude it runs. */
+export interface Versions {
+  readonly app: {
+    readonly version: string;
+    /** `git describe` of the commit the app was built from, if known. */
+    readonly commit: string | null;
+  };
+  readonly ws: ToolVersion;
+  readonly claude: ToolVersion;
+}
+
 export type TermSpec =
   | { readonly kind: "attach"; readonly sessionId: string; readonly cwd: string }
   | { readonly kind: "shell"; readonly name: string; readonly specs: readonly string[] };
@@ -644,6 +664,7 @@ export const api = {
   reviewFixSent: async (repo: string, gitRef: string, findings: readonly string[], agent: string): Promise<ReviewReport> =>
     call<ReviewReport>("review_fix_sent", { repo, gitRef, findings, agent }),
   settingsGet: async (): Promise<Settings> => call<Settings>("settings_get"),
+  versions: async (): Promise<Versions> => call<Versions>("versions"),
   settingsSetReviews: async (reviews: ReviewSettings): Promise<Settings> =>
     call<Settings>("settings_set_reviews", { reviews }),
 };

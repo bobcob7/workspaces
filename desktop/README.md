@@ -50,6 +50,10 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   add one with a live preview of what the spec resolves to (`ws cache
   resolve`, `ws cache add`), remove one after confirming (`ws cache
   remove`), and start an agent or shell on any repo, branch, or tag.
+- **Check versions** (Settings, About): the app's version and the commit
+  it was built from, and the `ws` and `claude` it runs, with their versions
+  and where they are on its PATH. A warning says when the app and `ws`
+  were built from different commits, so one needs rebuilding.
 - **Review pull requests** (the Reviews section): watch cached GitHub repos
   and the app checks them for open pull requests with `gh`. Review starts a
   `ws claude` agent on the PR's head commit

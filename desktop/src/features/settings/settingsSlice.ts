@@ -8,11 +8,12 @@ import {
   type ProfileRemoved,
   type ReviewSettings,
   type Settings,
+  type Versions,
 } from "../../api";
 import { createAppThunk } from "../../thunk";
 
 /** Settings groups; a group is listed once it has settings. */
-export type SettingsGroup = "reviews";
+export type SettingsGroup = "reviews" | "about";
 
 export type ReviewSettingKey = keyof ReviewSettings;
 
@@ -25,6 +26,9 @@ export interface SettingsState {
   /** Every reviewer profile, from `ws review profiles`. */
   readonly profiles: readonly ListedProfile[] | null;
   readonly profilesError: AppError | null;
+  /** The app's, ws's, and claude's versions, for About. */
+  readonly versions: Versions | null;
+  readonly versionsError: AppError | null;
 }
 
 const initialState: SettingsState = {
@@ -34,11 +38,21 @@ const initialState: SettingsState = {
   fieldErrors: {},
   profiles: null,
   profilesError: null,
+  versions: null,
+  versionsError: null,
 };
 
 export const fetchSettings = createAppThunk<Settings, void>("settings/fetch", async (_arg, { extra, rejectWithValue }) => {
   try {
     return await extra.api.settingsGet();
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+export const fetchVersions = createAppThunk<Versions, void>("settings/fetchVersions", async (_arg, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.versions();
   } catch (err: unknown) {
     return rejectWithValue(toAppError(err));
   }
@@ -141,6 +155,14 @@ const settingsSlice = createSlice({
       })
       .addCase(fetchSettings.rejected, (state, action) => {
         state.error = action.payload ?? { code: "internal", message: action.error.message ?? "reading settings failed" };
+      })
+      .addCase(fetchVersions.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        versions: action.payload,
+        versionsError: null,
+      }))
+      .addCase(fetchVersions.rejected, (state, action) => {
+        state.versionsError = action.payload ?? { code: "internal", message: action.error.message ?? "reading versions failed" };
       })
       .addCase(fetchProfiles.fulfilled, (state, action): SettingsState => ({
         ...state,

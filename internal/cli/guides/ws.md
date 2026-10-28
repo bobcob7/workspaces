@@ -115,7 +115,7 @@ which needn't be unique.
 | `-v`, `--verbose`     | Log the git and claude commands `ws` runs, with timings, on stderr |
 | `--config-dir <path>` | Config, cache, and workspace directory; env `WS_CONFIG_DIR`. Leave it unset unless told otherwise |
 | `-h`, `--help`        | Flags of one command                                      |
-| `--version`           | The `ws` version                                          |
+| `--version`           | The `ws` version: `make build`'s `git describe`, else the module version or commit Go recorded |
 
 ## Output and exit codes
 

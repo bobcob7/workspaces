@@ -275,6 +275,11 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewFixPlan: vi.fn(async () => fixPlan()),
   reviewFixStart: vi.fn(async () => ({ agent: "fix-buff-bear-42-3f2a9c1-0a1b2c3d", session: "5f6e7d8c", report: reviewReport(), warning: null })),
   reviewFixSent: vi.fn(async () => reviewReport()),
+  versions: vi.fn(async () => ({
+    app: { version: "0.1.0", commit: "v0.3.0-4-gdc313a2" },
+    ws: { version: "v0.3.0-4-gdc313a2", path: "/usr/local/bin/ws", error: null },
+    claude: { version: "2.1.303", path: "/opt/homebrew/bin/claude", error: null },
+  })),
   settingsGet: vi.fn(async () => ({ reviews: reviewSettings() })),
   settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews })),
   ...overrides,

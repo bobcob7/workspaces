@@ -276,6 +276,17 @@ pub async fn set_workspace_hidden(
         .await
 }
 
+/// The app's version, and the `ws` and `claude` it runs, for Settings >
+/// About.
+#[tauri::command]
+pub async fn versions(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> CmdResult<crate::about::Versions> {
+    let version = app.package_info().version.to_string();
+    Ok(crate::about::versions(&state.runner, crate::about::app_version(&version)).await)
+}
+
 #[tauri::command]
 pub async fn stop_agent(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
     state
