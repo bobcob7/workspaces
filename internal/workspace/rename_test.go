@@ -78,3 +78,45 @@ func TestStore_Rename(t *testing.T) {
 		assert.ErrorIs(t, err, ErrNotFound)
 	})
 }
+
+func TestStore_SetHidden(t *testing.T) {
+	t.Parallel()
+	t.Run("hides and writes the record", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putWorkspace(t, s, "fix-login-d8efb24f", testNow())
+		got, err := s.SetHidden(ws.ID, true)
+		require.NoError(t, err)
+		assert.True(t, got.Hidden)
+		read, err := readRecord(s.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.True(t, read.Hidden)
+		assert.Equal(t, hiddenVersion, read.Version)
+	})
+	t.Run("shows again as version 1", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putWorkspace(t, s, "fix-login-d8efb24f", testNow())
+		_, err := s.SetHidden(ws.ID, true)
+		require.NoError(t, err)
+		got, err := s.SetHidden(ws.ID, false)
+		require.NoError(t, err)
+		assert.False(t, got.Hidden)
+		read, err := readRecord(s.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.Equal(t, ws, read)
+	})
+	t.Run("setting what's set is a no-op", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putWorkspace(t, s, "fix-login-d8efb24f", testNow())
+		got, err := s.SetHidden(ws.ID, false)
+		require.NoError(t, err)
+		assert.Equal(t, ws, got)
+	})
+	t.Run("an unknown workspace", func(t *testing.T) {
+		t.Parallel()
+		_, err := newTestStore(t, nil, nil).SetHidden("nope", true)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+}

@@ -17,6 +17,7 @@ import (
 )
 
 type listOptions struct {
+	all     bool
 	idsOnly bool
 	repo    string
 }
@@ -31,6 +32,7 @@ func (a *App) newListCmd() *cobra.Command {
 			return a.runList(cmd.Context(), &opts)
 		})),
 	}
+	cmd.Flags().BoolVarP(&opts.all, "all", "a", false, "include hidden workspaces")
 	cmd.Flags().BoolVarP(&opts.idsOnly, "ids", "q", false, "print only workspace IDs")
 	cmd.Flags().StringVar(&opts.repo, "repo", "", "only workspaces containing this repo")
 	return cmd
@@ -39,7 +41,9 @@ func (a *App) newListCmd() *cobra.Command {
 // listJSON is ws list's output (docs/tools/ws-list.md).
 type listJSON struct {
 	Workspaces []listWorkspaceJSON `json:"workspaces"`
-	Warnings   []string            `json:"warnings"`
+	// HiddenCount is how many hidden workspaces were left out (ADR 0043).
+	HiddenCount int      `json:"hidden_count"`
+	Warnings    []string `json:"warnings"`
 }
 
 type listWorkspaceJSON struct {
@@ -49,6 +53,7 @@ type listWorkspaceJSON struct {
 	Path      string           `json:"path"`
 	CreatedAt *string          `json:"created_at"`
 	Session   *listSessionJSON `json:"session"`
+	Hidden    bool             `json:"hidden"`
 	Repos     []listRepoJSON   `json:"repos"`
 	// Review is a review workspace's record, or null (ADR 0039).
 	Review *record.Record `json:"review"`
@@ -88,23 +93,52 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
-	entries := filterEntries(listing.Workspaces, filter)
+	entries, hidden := visibleEntries(filterEntries(listing.Workspaces, filter), opts.all)
 	unknown := listing.Unknown
 	if filter != nil {
 		unknown = nil
 	}
 	switch {
 	case a.global.json:
-		return a.writeJSON(listJSON{Workspaces: a.listWorkspaces(entries, unknown), Warnings: a.warnings()})
+		return a.writeJSON(listJSON{Workspaces: a.listWorkspaces(entries, unknown), HiddenCount: hidden, Warnings: a.warnings()})
 	case opts.idsOnly:
 		for i := range entries {
 			fmt.Fprintln(a.stdout, entries[i].Workspace.ID)
 		}
 	default:
 		a.printList(entries, unknown)
+		a.printHiddenNote(hidden)
 	}
 	a.printWarnings()
 	return nil
+}
+
+// visibleEntries leaves out hidden workspaces unless all, and counts the
+// ones it left out (ADR 0043).
+func visibleEntries(entries []lifetime.Entry, all bool) ([]lifetime.Entry, int) {
+	if all {
+		return entries, 0
+	}
+	var kept []lifetime.Entry
+	for i := range entries {
+		if !entries[i].Workspace.Hidden {
+			kept = append(kept, entries[i])
+		}
+	}
+	return kept, len(entries) - len(kept)
+}
+
+// printHiddenNote says on stderr how many hidden workspaces the table left
+// out, so stdout stays the table.
+func (a *App) printHiddenNote(hidden int) {
+	if hidden == 0 || a.global.quiet {
+		return
+	}
+	noun := "workspaces"
+	if hidden == 1 {
+		noun = "workspace"
+	}
+	fmt.Fprintf(a.stderr, "%d hidden %s not shown; ws list -a shows them\n", hidden, noun)
 }
 
 // filterEntries keeps the workspaces with a repo matching filter, or all
@@ -173,7 +207,7 @@ func listWorkspace(e *lifetime.Entry) listWorkspaceJSON {
 		repos = append(repos, listRepoJSON{ID: r.ID, Path: r.Path, Ref: r.Ref, RefKind: r.RefKind})
 	}
 	created := formatTime(ws.CreatedAt)
-	return listWorkspaceJSON{ID: &ws.ID, Name: optional(ws.Name), Path: ws.Path, CreatedAt: &created, Session: listSession(e.Session), Repos: repos}
+	return listWorkspaceJSON{ID: &ws.ID, Name: optional(ws.Name), Path: ws.Path, CreatedAt: &created, Session: listSession(e.Session), Hidden: ws.Hidden, Repos: repos}
 }
 
 func listSession(s *lifetime.Session) *listSessionJSON {
@@ -208,7 +242,7 @@ func (a *App) printList(entries []lifetime.Entry, unknown []string) {
 	now := a.now()
 	for i := range entries {
 		ws := &entries[i].Workspace
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", ws.ID, nameText(ws.Name), ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", ws.ID, nameText(ws.Name, ws.Hidden), ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
 	}
 	for _, dir := range unknown {
 		fmt.Fprintf(tw, "unknown\t-\t-\t-\t%s\n", dir)
@@ -216,10 +250,14 @@ func (a *App) printList(entries []lifetime.Entry, unknown []string) {
 	_ = tw.Flush()
 }
 
-// nameText is the NAME column: the display name, or "-" without one.
-func nameText(name string) string {
+// nameText is the NAME column: the display name, or "-" without one,
+// followed by "(hidden)" for a hidden workspace.
+func nameText(name string, hidden bool) string {
 	if name == "" {
-		return "-"
+		name = "-"
+	}
+	if hidden {
+		return name + " (hidden)"
 	}
 	return name
 }

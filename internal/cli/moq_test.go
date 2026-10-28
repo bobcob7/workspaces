@@ -890,6 +890,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			RenameFunc: func(id string, name string) (workspace.Workspace, error) {
 //				panic("mock out the Rename method")
 //			},
+//			SetHiddenFunc: func(id string, hidden bool) (workspace.Workspace, error) {
+//				panic("mock out the SetHidden method")
+//			},
 //			UsesCommitFunc: func(id string, commit string) (bool, error) {
 //				panic("mock out the UsesCommit method")
 //			},
@@ -923,6 +926,9 @@ type workspaceStoreMock struct {
 
 	// RenameFunc mocks the Rename method.
 	RenameFunc func(id string, name string) (workspace.Workspace, error)
+
+	// SetHiddenFunc mocks the SetHidden method.
+	SetHiddenFunc func(id string, hidden bool) (workspace.Workspace, error)
 
 	// UsesCommitFunc mocks the UsesCommit method.
 	UsesCommitFunc func(id string, commit string) (bool, error)
@@ -981,6 +987,13 @@ type workspaceStoreMock struct {
 			// Name is the name argument value.
 			Name string
 		}
+		// SetHidden holds details about calls to the SetHidden method.
+		SetHidden []struct {
+			// ID is the id argument value.
+			ID string
+			// Hidden is the hidden argument value.
+			Hidden bool
+		}
 		// UsesCommit holds details about calls to the UsesCommit method.
 		UsesCommit []struct {
 			// ID is the id argument value.
@@ -999,6 +1012,7 @@ type workspaceStoreMock struct {
 	lockRecordTrust   sync.RWMutex
 	lockRemove        sync.RWMutex
 	lockRename        sync.RWMutex
+	lockSetHidden     sync.RWMutex
 	lockUsesCommit    sync.RWMutex
 	lockWarnings      sync.RWMutex
 }
@@ -1252,6 +1266,42 @@ func (mock *workspaceStoreMock) RenameCalls() []struct {
 	mock.lockRename.RLock()
 	calls = mock.calls.Rename
 	mock.lockRename.RUnlock()
+	return calls
+}
+
+// SetHidden calls SetHiddenFunc.
+func (mock *workspaceStoreMock) SetHidden(id string, hidden bool) (workspace.Workspace, error) {
+	if mock.SetHiddenFunc == nil {
+		panic("workspaceStoreMock.SetHiddenFunc: method is nil but workspaceStore.SetHidden was just called")
+	}
+	callInfo := struct {
+		ID     string
+		Hidden bool
+	}{
+		ID:     id,
+		Hidden: hidden,
+	}
+	mock.lockSetHidden.Lock()
+	mock.calls.SetHidden = append(mock.calls.SetHidden, callInfo)
+	mock.lockSetHidden.Unlock()
+	return mock.SetHiddenFunc(id, hidden)
+}
+
+// SetHiddenCalls gets all the calls that were made to SetHidden.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.SetHiddenCalls())
+func (mock *workspaceStoreMock) SetHiddenCalls() []struct {
+	ID     string
+	Hidden bool
+} {
+	var calls []struct {
+		ID     string
+		Hidden bool
+	}
+	mock.lockSetHidden.RLock()
+	calls = mock.calls.SetHidden
+	mock.lockSetHidden.RUnlock()
 	return calls
 }
 

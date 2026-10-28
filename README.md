@@ -100,6 +100,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws list`](docs/tools/ws-list.md)       | List workspaces and their sessions                   |
 | [`ws rm`](docs/tools/ws-rm.md)           | Remove workspaces and their sessions now             |
 | [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
+| [`ws hide`](docs/tools/ws-hide.md)       | Hide a workspace from default views, or `unhide` it  |
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |
 | [`ws review`](docs/tools/ws-review.md)   | Start structured reviews and triage their reports    |
 | [`ws llm`](docs/tools/ws-llm.md)         | Print guidance for AI agents                         |

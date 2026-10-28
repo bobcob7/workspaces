@@ -11,9 +11,18 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// formatVersion is the newest format version of workspace.toml and the
-// session record that this ws reads and writes (ADR 0027).
+// formatVersion is the newest format version of the session and trust
+// records that this ws reads and writes (ADR 0027).
 const formatVersion = 1
+
+const (
+	// visibleVersion is the version of a visible workspace's
+	// workspace.toml, the same as before hidden existed.
+	visibleVersion = 1
+	// hiddenVersion is the version of a hidden workspace's workspace.toml,
+	// so an older ws leaves it alone (ADR 0043).
+	hiddenVersion = 2
+)
 
 // Workspace is a workspace's state/<id>/workspace.toml (ADR 0012).
 type Workspace struct {
@@ -24,7 +33,10 @@ type Workspace struct {
 	Name      string    `toml:"name"`
 	Path      string    `toml:"path"`
 	CreatedAt time.Time `toml:"created_at"`
-	Repos     []Repo    `toml:"repos"`
+	// Hidden leaves the workspace out of ws list without -a, and out of
+	// the desktop app's default views (ADR 0043).
+	Hidden bool   `toml:"hidden,omitempty"`
+	Repos  []Repo `toml:"repos"`
 }
 
 // Repo is one repo checked out in a workspace.
@@ -88,7 +100,7 @@ func readRecord(path string) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if err := checkVersion(ws.Version); err != nil {
+	if err := checkVersion(ws.Version, hiddenVersion); err != nil {
 		return Workspace{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
@@ -103,12 +115,12 @@ func readRecord(path string) (Workspace, error) {
 	return ws, nil
 }
 
-// checkVersion accepts a record's version if this ws knows it. A newer one
-// was written by a newer ws, and the workspace is left alone until ws is
-// upgraded (ADR 0027).
-func checkVersion(version int) error {
-	if version > formatVersion {
-		return fmt.Errorf("written by a newer ws (version %d; this ws reads up to %d); upgrade ws", version, formatVersion)
+// checkVersion accepts a record's version if this ws knows it, up to
+// newest. A newer one was written by a newer ws, and the workspace is left
+// alone until ws is upgraded (ADR 0027).
+func checkVersion(version, newest int) error {
+	if version > newest {
+		return fmt.Errorf("written by a newer ws (version %d; this ws reads up to %d); upgrade ws", version, newest)
 	}
 	if version < 1 {
 		return fmt.Errorf("unsupported version %d", version)
@@ -117,8 +129,12 @@ func checkVersion(version int) error {
 }
 
 // writeRecord writes a workspace.toml through a temp file and a rename, so
-// a reader never sees part of one.
+// a reader never sees part of one. Its version follows Hidden (ADR 0043).
 func writeRecord(path string, ws *Workspace) error {
+	ws.Version = visibleVersion
+	if ws.Hidden {
+		ws.Version = hiddenVersion
+	}
 	if err := writeTOML(path, ws); err != nil {
 		return fmt.Errorf("writing workspace record: %w", err)
 	}

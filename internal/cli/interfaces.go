@@ -50,6 +50,7 @@ type workspaceStore interface {
 	RecordTrust(id, dir string, createdEntry bool) error
 	Remove(id string, opts workspace.RemoveOptions) error
 	Rename(id, name string) (workspace.Workspace, error)
+	SetHidden(id string, hidden bool) (workspace.Workspace, error)
 	Warnings() []string
 }
 

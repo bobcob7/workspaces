@@ -29,6 +29,8 @@ func guideTopics() []string {
 		"list",
 		"rm",
 		"rename",
+		"hide",
+		"unhide",
 		"restore",
 		"restart",
 		"cache",

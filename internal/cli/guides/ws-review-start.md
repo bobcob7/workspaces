@@ -31,6 +31,9 @@ Returns as soon as the agent has started.
 - The workspace is named `review-<repo>-<n>-<sha7>`, or
   `review-<repo>-<sha7>` without `--pr`, plus a random suffix, unless
   `--name` is given.
+- The workspace is hidden: `ws list` shows it only with `-a`, and the
+  desktop app shows it in Reviews, not among the user's agents. Follow it
+  with `ws review wait` and the id printed here; `ws unhide` shows it.
 
 ## Flags
 

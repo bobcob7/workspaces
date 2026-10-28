@@ -354,7 +354,7 @@ func (a *App) startReview(ctx context.Context, rec *record.Record, target *revie
 	prepare := func(ws *workspace.Workspace) error {
 		return record.Write(record.Path(a.paths.State, ws.ID), rec)
 	}
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: name, Specs: []repo.Spec{sp}, Offline: true, Prepare: prepare})
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: name, Specs: []repo.Spec{sp}, Offline: true, Hidden: true, Prepare: prepare})
 	if err != nil {
 		a.printWarnings()
 		return domainError(err)

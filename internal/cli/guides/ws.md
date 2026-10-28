@@ -34,8 +34,8 @@ $ claude logs e8cdf5d8
 $ ws review start --json --pr 42 buff-bear
 {"id":"review-buff-bear-42-3f2a9c1-d8efb24f",…,"wait_command":"ws review wait --json review-buff-bear-42-3f2a9c1-d8efb24f"}
 
-# See every workspace and its session
-$ ws list --json
+# See every workspace and its session; -a includes hidden ones, such as reviews
+$ ws list --json -a
 
 # Remove a workspace you created, once its work is pushed
 $ ws rm --json fix-login-d8efb24f
@@ -153,6 +153,8 @@ everything.
 - `ws llm list`: list workspaces and their sessions
 - `ws llm rm`: remove workspaces and their sessions now
 - `ws llm rename`: change a workspace's display name
+- `ws llm hide`: hide a workspace from `ws list` and the desktop app's default views
+- `ws llm unhide`: show a hidden workspace again
 - `ws llm restore`: restart agents that stopped, after a reboot or crash
 - `ws llm restart`: restart Claude Code's background service and every agent; only when told to
 - `ws llm cache`: the repo cache, and its subcommands:

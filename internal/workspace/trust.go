@@ -61,7 +61,7 @@ func (s *Store) readTrust(id string) (Trust, error) {
 	if err != nil {
 		return Trust{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if err := checkVersion(t.Version); err != nil {
+	if err := checkVersion(t.Version, formatVersion); err != nil {
 		return Trust{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {

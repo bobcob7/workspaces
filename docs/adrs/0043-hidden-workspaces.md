@@ -1,6 +1,6 @@
 # 0043. A workspace can be hidden: `hidden = true` in its record, set by `ws review start`, `ws claude --hidden`, and `ws hide`; `ws list` and the desktop app show hidden workspaces only when asked
 
-- Status: Proposed
+- Status: Accepted (2026-10-28)
 - Date: 2026-10-28
 
 ## Context

@@ -9,6 +9,7 @@
 | [`ws list`](ws-list.md)       | List workspaces and their sessions                       |
 | [`ws rm`](ws-rm.md)           | Remove workspaces and their sessions now                 |
 | [`ws rename`](ws-rename.md)   | Change a workspace's display name                        |
+| [`ws hide`, `ws unhide`](ws-hide.md) | Hide a workspace from `ws list` and the desktop app's default views, or show it again |
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |
 | [`ws review`](ws-review.md)   | Start structured reviews, wait for their reports, and check, store, and explain reviews |
 | [`ws llm`](ws-llm.md)         | Print guidance for AI agents                             |

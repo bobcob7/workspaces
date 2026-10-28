@@ -1,7 +1,7 @@
 # ws claude
 
 ```
-ws claude [--name <name>] [--offline] [--json] [<spec>...] [-- <claude args>...]
+ws claude [--name <name>] [--offline] [--hidden] [--json] [<spec>...] [-- <claude args>...]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, then
@@ -43,6 +43,7 @@ Its workspace stays, even after it finishes, until the session is deleted
 | --------------- | ----------------------------------------------------------- |
 | `--name <name>` | Name the workspace. The name is shown by `ws list` and can be changed with `ws rename`; the id is made from it once: lowercased, accents dropped, other characters become `-`, and 8 random hex digits added (`"Fix Login"` → `fix-login-d8efb24f`). Without it the id is generated, like `ws-20261018-k3f9qa` |
 | `--offline`     | Don't fetch; use the cache as it is. Uncached repos and refs fail |
+| `--hidden`      | Hide the workspace: `ws list` shows it only with `-a`, and the desktop app keeps it in a collapsed Hidden group that doesn't count as waiting for input. For helpers the user needn't follow; see `ws llm hide` |
 | `--json`        | Print the result as JSON                                    |
 
 ## JSON output
