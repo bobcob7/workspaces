@@ -12,6 +12,7 @@
 | [`ws hide`, `ws unhide`](ws-hide.md) | Hide a workspace from `ws list` and the desktop app's default views, or show it again |
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |
 | [`ws review`](ws-review.md)   | Start structured reviews, wait for their reports, and check, store, and explain reviews |
+| [`ws machine`](ws-machine.md) | For agents: start, list, and remove the workspaces your workspace started |
 | [`ws llm`](ws-llm.md)         | Print guidance for AI agents                             |
 
 > Not every command is implemented yet; the
