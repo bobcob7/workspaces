@@ -215,6 +215,34 @@ The Reviews group changes in three places:
   NAME:MODEL` and `--auto NAME:MODEL`
   ([0038](../../adrs/0038-review-fans-out-to-profile-subagents.md)).
   **Reset to defaults** under the table drops them.
+
+  Profiles themselves are managed here too
+  ([0042](../../adrs/0042-review-profile-management.md)):
+  - A badge after each name says where it comes from: none for a
+    built-in, **custom** for one you added, **edited** for a built-in
+    you've changed.
+  - Each row ends with **Edit**, and **Delete** for a custom profile or
+    **Reset to built-in** for an edited one. A built-in has no Delete;
+    set it to *Off*. Both ask first, saying what comes back.
+  - **New profile**, beside Reset to defaults, opens the editor empty.
+
+![Editing a reviewer profile](img/report-profile-edit.png)
+
+  The editor is a wide dialog:
+  - **Name**: lowercase letters, digits, and hyphens; editable only when
+    creating. A taken name is an error under the field.
+  - **Description**: one line, shown in the table and the report's
+    profile tiles.
+  - **File patterns**: chips (`*.go`, `go.mod`); a profile with patterns
+    can run *When files match*.
+  - **Guide**: the reviewer's instructions, in Markdown, with
+    **Write** and **Preview** tabs.
+  - For a built-in, a note says saving makes an edited copy, and that
+    Reset to built-in undoes it.
+  - **Save** runs `ws review profiles add` or `edit` with the guide on
+    stdin; errors keep the dialog open with `ws`'s message. Edits apply
+    to reviews started afterwards; running reviews keep the guide they
+    started with.
 - **Review task is removed.** `ws review` writes the review's prompt
   itself, so a template isn't needed. A request for focus belongs to one
   review, not every one: **Edit before starting** keeps a *Focus* field
@@ -242,7 +270,7 @@ are rendered from it at 1280 × 800:
 
 ```console
 $ H=$(find ~/Library/Caches/ms-playwright -name chrome-headless-shell -type f | head -1)
-$ for s in report report-finding report-comment report-fix report-reviewing report-outdated report-requester report-settings; do
+$ for s in report report-finding report-comment report-fix report-reviewing report-outdated report-requester report-settings report-profile-edit; do
     "$H" --hide-scrollbars --window-size=1280,800 --screenshot="$PWD/img/$s.png" "file://$PWD/mockups.html#$s"
   done
 ```
