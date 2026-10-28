@@ -28,6 +28,42 @@ pub struct WsWorkspace {
     pub session: Option<WsSession>,
     #[serde(default)]
     pub repos: Vec<Repo>,
+    /// The review record of a workspace `ws review start` made (ADR 0039).
+    #[serde(default)]
+    pub review: Option<ReviewRecord>,
+}
+
+/// What a review workspace reviews, from its `review.toml`.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct ReviewRecord {
+    pub repo: String,
+    /// The full commit reviewed.
+    #[serde(rename = "ref")]
+    pub git_ref: String,
+    #[serde(default)]
+    pub requester: String,
+    #[serde(default)]
+    pub profiles: Vec<ReviewProfile>,
+    #[serde(default)]
+    pub pr: Option<ReviewPr>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ReviewProfile {
+    pub name: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub auto: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct ReviewPr {
+    pub number: u64,
+    #[serde(default)]
+    pub url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +144,7 @@ pub struct Entry {
     pub result: Option<String>,
     pub links: Vec<Link>,
     pub repos: Vec<Repo>,
+    pub review: Option<ReviewRecord>,
 }
 
 #[derive(Debug, Serialize)]
@@ -196,6 +233,7 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         result: job.as_ref().and_then(|j| j.output.as_ref()?.result.clone()),
         links: links(job.as_ref()),
         repos: ws.repos,
+        review: ws.review,
     }
 }
 
@@ -216,6 +254,7 @@ fn session_entry(agent: &ClaudeAgent, id: &str, job: Option<JobState>, now_ms: i
         result: job.as_ref().and_then(|j| j.output.as_ref()?.result.clone()),
         links: links(job.as_ref()),
         repos: Vec::new(),
+        review: None,
     }
 }
 
@@ -408,6 +447,26 @@ mod tests {
                 ("path:/w/stray", "stray", Kind::Unknown, Status::Unknown),
             ]
         );
+    }
+
+    #[test]
+    fn merge_reads_review_record() {
+        let list = ws_list(
+            r#"{"workspaces":[{"id":"review-buff-bear-42-3f2a9c1-d8efb24f","path":"/w/r","created_at":null,
+            "session":{"kind":"agent","id":"7be1d0c2","state":"working","pid":1,"stale":false},
+            "repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"3f2a9c1e","ref_kind":"commit"}],
+            "review":{"version":1,"repo":"github.com/bobcob7/buff-bear","ref":"3f2a9c1e","requester":"",
+              "started_at":"2026-10-26T18:00:00Z","profiles":[{"name":"go","model":"","auto":true}],
+              "pr":{"number":42,"url":"https://github.com/bobcob7/buff-bear/pull/42","base":"main","head_branch":"feat","cross_repository":false}}}]}"#,
+        );
+        let entries = merge(Some(list), &[], &|_| None, NOW);
+        let review = entries[0].review.as_ref().unwrap();
+        assert_eq!(review.pr.as_ref().map(|p| p.number), Some(42));
+        assert_eq!(review.git_ref, "3f2a9c1e");
+        assert!(review.profiles[0].auto);
+        assert!(merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW)[0]
+            .review
+            .is_none());
     }
 
     #[test]

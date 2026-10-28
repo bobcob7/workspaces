@@ -210,17 +210,18 @@ const reviewsSlice = createSlice({
       .addCase(setWatch.fulfilled, setView)
       .addCase(dismissPr.fulfilled, setView)
       .addCase(restorePr.fulfilled, setView)
-      .addCase(fetchPlan.fulfilled, (state, action) => {
-        state.plans[action.meta.arg.key] = action.payload;
-      })
+      .addCase(fetchPlan.fulfilled, (state, action): ReviewsState => ({
+        ...state,
+        plans: { ...state.plans, [action.meta.arg.key]: action.payload },
+      }))
       .addCase(openStartDialog.pending, (state, action) => {
         state.startDialog = { key: action.meta.arg.key, plan: null, error: null };
       })
-      .addCase(openStartDialog.fulfilled, (state, action) => {
-        if (state.startDialog?.key === action.meta.arg.key) {
-          state.startDialog = { key: action.meta.arg.key, plan: action.payload, error: null };
-        }
-      })
+      .addCase(openStartDialog.fulfilled, (state, action): ReviewsState =>
+        state.startDialog?.key === action.meta.arg.key
+          ? { ...state, startDialog: { key: action.meta.arg.key, plan: action.payload, error: null } }
+          : state,
+      )
       .addCase(openStartDialog.rejected, (state, action) => {
         if (state.startDialog?.key === action.meta.arg.key) {
           state.startDialog = {

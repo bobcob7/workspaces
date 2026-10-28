@@ -24,14 +24,13 @@ const PlanForm = ({ plan, prKey }: { readonly plan: ReviewPlan; readonly prKey: 
   const error = useAppSelector((s) => s.reviews.startDialog?.error ?? null);
   const starting = useAppSelector((s) => s.reviews.busy.includes(prKey));
   const [name, setName] = useState(plan.name);
-  const [prompt, setPrompt] = useState(plan.prompt);
+  const [focus, setFocus] = useState(plan.focus);
   const [model, setModel] = useState(plan.model);
   const [permissionMode, setPermissionMode] = useState(plan.permissionMode);
-  const [repo = "", sha = ""] = plan.spec.split("@");
   const submit = (event: FormEvent): void => {
     event.preventDefault();
     if (pr !== undefined) {
-      void dispatch(startReview({ pr, plan: { ...plan, name, prompt, model, permissionMode } }));
+      void dispatch(startReview({ pr, plan: { ...plan, name, focus, model, permissionMode } }));
     }
   };
   return (
@@ -51,15 +50,30 @@ const PlanForm = ({ plan, prKey }: { readonly plan: ReviewPlan; readonly prKey: 
         <div className={styles.repo}>
           <span className={styles.repoLabel}>Repo</span>
           <span className={styles.repoValue}>
-            <Chip size="small" label={`${repo}@${shortSha(sha)}`} title={plan.spec} className={styles.mono} />
+            <Chip
+              size="small"
+              label={`${plan.repo}@${shortSha(plan.head)}`}
+              title={`${plan.repo}@${plan.head}`}
+              className={styles.mono}
+            />
             <span className={styles.muted}>PR head, detached</span>
           </span>
         </div>
-        <TextField label="Task" value={prompt} onChange={(e) => setPrompt(e.target.value)} multiline minRows={5} maxRows={12} />
+        <TextField
+          label="Focus"
+          placeholder="Optional: what this review should look at hardest"
+          helperText="Added to every reviewer's prompt. The reviewers and their models come from Settings."
+          value={focus}
+          onChange={(e) => setFocus(e.target.value)}
+          multiline
+          minRows={3}
+          maxRows={10}
+          slotProps={{ inputLabel: { shrink: true } }}
+        />
         <div className={styles.row}>
           <TextField
             select
-            label="Model"
+            label="Review agent model"
             slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
             value={model}
             onChange={(e) => setModel(e.target.value)}
@@ -100,7 +114,7 @@ const PlanForm = ({ plan, prKey }: { readonly plan: ReviewPlan; readonly prKey: 
   );
 };
 
-/** Edit before starting: the review's name, task, model, and permission mode. */
+/** Edit before starting: the review's name, focus, and the review agent's model and permission mode. */
 export const StartReviewDialog = (): JSX.Element => {
   const dispatch = useAppDispatch();
   const dialog = useAppSelector((s) => s.reviews.startDialog);

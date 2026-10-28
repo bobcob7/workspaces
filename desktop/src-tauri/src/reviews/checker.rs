@@ -3,9 +3,10 @@
 use super::auto;
 use super::github::{self, PullRequest};
 use super::plan::{self, ReviewPlan};
+use super::profiles;
 use super::store::{AutoStarted, Store};
 use super::view::{self, CheckState, CompareKey, RepoCheck};
-use crate::commands::{self, Created, NewAgent};
+use crate::commands::{self, Created};
 use crate::model::Entry;
 use crate::runner::{AppError, Runner};
 use serde::Deserialize;
@@ -56,7 +57,7 @@ pub struct Deps {
 pub struct Checker {
     state: Mutex<CheckState>,
     entries: Mutex<Vec<Entry>>,
-    /// Names of reviews whose `ws claude` is running, so starting one twice
+    /// Names of reviews whose `ws review start` is running, so starting one twice
     /// at once starts it once: `ws` no longer refuses a name used twice
     /// (ADR 0036).
     starting: Mutex<BTreeSet<String>>,
@@ -86,14 +87,16 @@ impl Checker {
         }
     }
 
-    /// Starts a review with `ws claude`, unless the latest listing has a
-    /// workspace made from its name, or one is being started.
+    /// Starts a review with `ws review start`, unless the latest listing
+    /// has a workspace made from its name or recorded as reviewing its pull
+    /// request at its head, or one is being started.
     pub async fn start_review(
         &self,
         runner: &Runner,
         plan: &ReviewPlan,
     ) -> Result<Started, AppError> {
-        if let Some(id) = self.existing(&plan.name) {
+        let args = plan::start_args(plan)?;
+        if let Some(id) = self.existing(plan) {
             return Ok(Started { id, already: true });
         }
         let Some(_claim) = Claim::take(&self.starting, &plan.name) else {
@@ -102,22 +105,32 @@ impl Checker {
                 already: true,
             });
         };
-        let args = commands::new_agent_args(&NewAgent::from(plan));
-        let created = runner.ws_json::<Created>(&args).await?;
+        let created = runner.ws_json_as_given::<Created>(&args).await?;
         Ok(Started {
             id: created.id,
             already: false,
         })
     }
 
-    /// The listed workspace `ws` made from `--name name`, if any.
-    fn existing(&self, name: &str) -> Option<String> {
+    /// The listed workspace `ws` made from the plan's `--name`, or whose
+    /// review record has the plan's pull request and head, if any.
+    fn existing(&self, plan: &ReviewPlan) -> Option<String> {
         let entries = self.entries.lock().ok()?;
         entries
             .iter()
-            .filter_map(|e| e.workspace_id.as_deref())
-            .find(|id| super::names::is_named(id, name))
-            .map(str::to_string)
+            .find(|e| {
+                let named = e
+                    .workspace_id
+                    .as_deref()
+                    .is_some_and(|id| super::names::is_named(id, &plan.name));
+                let recorded = e.review.as_ref().is_some_and(|r| {
+                    r.repo == plan.repo
+                        && r.pr.as_ref().is_some_and(|p| p.number == plan.number)
+                        && super::names::same_commit(&r.git_ref, &plan.head)
+                });
+                named || recorded
+            })
+            .and_then(|e| e.workspace_id.clone())
     }
 
     pub fn view(&self, store: &Store) -> view::ReviewsView {
@@ -289,9 +302,25 @@ impl Checker {
             })
             .unwrap_or_default();
         let pairs: Vec<(&str, &PullRequest)> = prs.iter().map(|(r, p)| (r.as_str(), p)).collect();
+        let selected = auto::select(&pairs, entries, &state, &logins);
+        if selected.is_empty() {
+            return Vec::new();
+        }
+        let settings = &state.settings.reviews;
+        let choices = if settings.profiles.is_empty() {
+            Vec::new()
+        } else {
+            match profiles::list(&deps.runner)
+                .await
+                .and_then(|listed| profiles::choices(&listed, &settings.profiles))
+            {
+                Ok(choices) => choices,
+                Err(err) => return vec![format!("auto-review: {}", err.message)],
+            }
+        };
         let mut warnings = Vec::new();
-        for (repo, pr) in auto::select(&pairs, entries, &state, &logins) {
-            let plan = plan::plan(repo, pr, &state.settings.reviews);
+        for (repo, pr) in selected {
+            let plan = plan::plan(repo, pr, settings, choices.clone());
             match self.start_review(&deps.runner, &plan).await {
                 Ok(started) if started.already => {}
                 Ok(started) => {
@@ -380,7 +409,7 @@ impl Drop for Claim<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reviews::store::RepoWatch;
+    use crate::reviews::store::{ProfileSetting, RepoWatch, Runs};
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -405,9 +434,11 @@ mod tests {
 
     const PRS: &str = r#"[{"number":42,"title":"Add rate limiting","author":{"login":"alice"},"url":"u","body":"b","isDraft":false,"headRefOid":"3f2a9c1e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c","headRefName":"feat","baseRefName":"main","additions":1,"deletions":1,"changedFiles":1,"reviewRequests":[],"createdAt":"2026-10-24T09:00:00Z","updatedAt":"2026-10-24T09:00:00Z"}]"#;
 
+    const PROFILES: &str = r#"{"profiles":[{"name":"security","description":"s","when":"always","match":[],"model":"","builtin":true},{"name":"go","description":"g","when":"auto","match":["*.go"],"model":"","builtin":true}],"warnings":[]}"#;
+
     /// A PATH directory with fake `ws`, `claude`, and `gh` scripts. `ws`
-    /// logs its arguments to `ws.log`.
-    fn fake_programs(gh: &str, ws_claude: &str) -> tempfile::TempDir {
+    /// logs its arguments to `ws.log`; `ws_review` is `ws review start`.
+    fn fake_programs(gh: &str, ws_review: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("ws.log");
         let ws = format!(
@@ -415,7 +446,7 @@ mod tests {
 case "$1" in
   cache) echo '{{"repos":[{{"id":"github.com/bobcob7/buff-bear"}},{{"id":"github.com/bobcob7/api"}}]}}' ;;
   list) echo '{{"workspaces":[],"warnings":[]}}' ;;
-  claude) {ws_claude} ;;
+  review) case "$2" in profiles) echo '{PROFILES}' ;; *) {ws_review} ;; esac ;;
 esac"#,
             log.display()
         );
@@ -528,9 +559,8 @@ esac"#
         );
         let deps = deps(&dir, true);
         Checker::default().check(&deps).await;
-        assert!(ws_log(&dir).contains(
-            "claude --json --name review-buff-bear-42-3f2a9c1 github.com/bobcob7/buff-bear@3f2a9c1e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c --"
-        ));
+        assert!(ws_log(&dir).contains("review start --json --pr 42 github.com/bobcob7/buff-bear\n"));
+        assert!(!ws_log(&dir).contains("review profiles"));
         let state = deps.store.get();
         assert_eq!(
             state.reviews.auto_started[0].workspace,
@@ -538,14 +568,55 @@ esac"#
         );
     }
 
+    #[tokio::test]
+    async fn auto_review_passes_changed_profiles() {
+        let dir = fake_programs(
+            &gh_script(&format!("echo '{PRS}'")),
+            r#"echo '{"id":"review-buff-bear-42-3f2a9c1-d8efb24f","session":"s","path":"/w"}'"#,
+        );
+        let deps = deps(&dir, true);
+        deps.store
+            .update(|d| {
+                d.settings.reviews.profiles.insert(
+                    "security".to_string(),
+                    ProfileSetting {
+                        runs: Runs::Always,
+                        model: "opus".to_string(),
+                    },
+                );
+                d.settings.reviews.model = "sonnet".to_string();
+            })
+            .unwrap();
+        Checker::default().check(&deps).await;
+        assert!(ws_log(&dir).contains(
+            "review start --json --pr 42 github.com/bobcob7/buff-bear --profile security:opus --auto go -- --model=sonnet\n"
+        ));
+    }
+
     fn review_plan() -> ReviewPlan {
-        ReviewPlan {
-            name: "review-buff-bear-42-3f2a9c1".to_string(),
-            spec: "github.com/bobcob7/buff-bear@3f2a9c1".to_string(),
-            prompt: "review".to_string(),
-            model: String::new(),
-            permission_mode: String::new(),
-        }
+        plan::plan(
+            "github.com/bobcob7/buff-bear",
+            &crate::reviews::view::tests::pr(42),
+            &crate::reviews::store::ReviewSettings::default(),
+            Vec::new(),
+        )
+    }
+
+    #[tokio::test]
+    async fn start_review_finds_review_recorded_at_head() {
+        let dir = fake_programs("exit 1", "exit 1");
+        let runner = Runner::new(dir.path().display().to_string());
+        let checker = Checker::default();
+        checker.set_entries(vec![crate::reviews::view::tests::recorded(
+            42,
+            crate::reviews::view::tests::HEAD,
+            crate::model::Status::Working,
+            "2026-10-24T10:00:00Z",
+        )]);
+        let started = checker.start_review(&runner, &review_plan()).await.unwrap();
+        assert_eq!(started.id, "careful-look-d8efb24f");
+        assert!(started.already);
+        assert!(!ws_log(&dir).contains("review start"));
     }
 
     #[tokio::test]
@@ -571,7 +642,7 @@ esac"#
                 already: true
             }
         );
-        assert!(!ws_log(&dir).contains("claude"));
+        assert!(!ws_log(&dir).contains("review start"));
     }
 
     #[tokio::test]
@@ -590,7 +661,7 @@ esac"#
         let mut already = [a.unwrap().already, b.unwrap().already];
         already.sort_unstable();
         assert_eq!(already, [false, true]);
-        assert_eq!(ws_log(&dir).matches("claude").count(), 1);
+        assert_eq!(ws_log(&dir).matches("review start").count(), 1);
     }
 
     #[tokio::test]
@@ -600,7 +671,7 @@ esac"#
         let checker = Checker::default();
         assert!(checker.start_review(&runner, &review_plan()).await.is_err());
         assert!(checker.start_review(&runner, &review_plan()).await.is_err());
-        assert_eq!(ws_log(&dir).matches("claude").count(), 2);
+        assert_eq!(ws_log(&dir).matches("review start").count(), 2);
     }
 
     #[tokio::test]

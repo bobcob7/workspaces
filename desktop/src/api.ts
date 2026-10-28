@@ -42,6 +42,17 @@ export interface Entry {
   readonly result: string | null;
   readonly links: readonly Link[];
   readonly repos: readonly Repo[];
+  /** What a workspace `ws review start` made reviews (ADR 0039). */
+  readonly review: ReviewRecord | null;
+}
+
+export interface ReviewRecord {
+  readonly repo: string;
+  /** The full commit reviewed. */
+  readonly ref: string;
+  readonly requester: string;
+  readonly profiles: readonly { readonly name: string; readonly model: string; readonly auto: boolean }[];
+  readonly pr: { readonly number: number; readonly url: string } | null;
 }
 
 export interface Listing {
@@ -237,13 +248,48 @@ export interface ReviewsView {
   readonly warnings: readonly string[];
 }
 
-/** What starting a review runs: ws claude --name <name> <spec> -- <prompt>. */
+/** A profile a review starts with: `--profile NAME[:MODEL]`, or `--auto` when auto. */
+export interface ProfileChoice {
+  readonly name: string;
+  readonly model: string;
+  readonly auto: boolean;
+}
+
+/**
+ * What starting a review runs: `ws review start --pr <number> <repo>
+ * [--profile …]… -- [--model=…] [--permission-mode=…] [focus]`.
+ */
 export interface ReviewPlan {
   readonly name: string;
-  readonly spec: string;
-  readonly prompt: string;
+  readonly repo: string;
+  readonly number: number;
+  readonly head: string;
+  /** Empty leaves the choice to ws and config.toml. */
+  readonly profiles: readonly ProfileChoice[];
   readonly model: string;
   readonly permissionMode: string;
+  readonly focus: string;
+}
+
+/** When a reviewer profile joins a review: ws's `when`. */
+export type Runs = "always" | "auto" | "off";
+
+/** A profile as `ws review profiles` lists it, with config.toml applied. */
+export interface ListedProfile {
+  readonly name: string;
+  readonly description: string;
+  readonly when: Runs;
+  /** File patterns an auto profile matches. */
+  readonly patterns: readonly string[];
+  /** "" for the review agent's. */
+  readonly model: string;
+  readonly builtin: boolean;
+}
+
+/** A Reviewer profiles row changed from what ws lists. */
+export interface ProfileSetting {
+  readonly runs: Runs;
+  readonly model: string;
 }
 
 export interface Started {
@@ -258,9 +304,11 @@ export interface ReviewSettings {
   readonly skipMine: boolean;
   readonly onlyRequested: boolean;
   readonly maxAutoReviews: number;
-  readonly taskTemplate: string;
+  /** The review agent's model and permission mode. */
   readonly model: string;
   readonly permissionMode: string;
+  /** Changed Reviewer profiles rows, by profile name; empty for ws's defaults. */
+  readonly profiles: Readonly<Record<string, ProfileSetting>>;
 }
 
 export interface Settings {
@@ -334,6 +382,7 @@ export const api = {
     call<ReviewsView>("reviews_restore", { repo, number }),
   reviewsPlan: async (repo: string, number: number): Promise<ReviewPlan> =>
     call<ReviewPlan>("reviews_plan", { repo, number }),
+  reviewsProfiles: async (): Promise<readonly ListedProfile[]> => call<ListedProfile[]>("reviews_profiles"),
   reviewsStart: async (plan: ReviewPlan): Promise<Started> => call<Started>("reviews_start", { plan }),
   settingsGet: async (): Promise<Settings> => call<Settings>("settings_get"),
   settingsSetReviews: async (reviews: ReviewSettings): Promise<Settings> =>

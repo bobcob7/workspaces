@@ -10,10 +10,24 @@ use std::sync::Mutex;
 pub const FILE_NAME: &str = "desktop.json";
 const VERSION: u32 = 1;
 
-pub const DEFAULT_TEMPLATE: &str = "Review pull request {repo}#{number}, \"{title}\", by {author}, at {head} against {base}.
-The PR's description is below. Check the diff against {base} for bugs, security problems, and missing tests. Report findings ranked by severity, with file and line. Don't push or comment on GitHub.
+/// When a reviewer profile joins a review: `ws review profiles`' `when`
+/// (ADR 0038).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Runs {
+    Always,
+    Auto,
+    Off,
+}
 
-{body}";
+/// A profile's row in the Reviewer profiles table, once changed from what
+/// `ws review profiles` lists. `model` is "" for the review agent's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProfileSetting {
+    pub runs: Runs,
+    #[serde(default)]
+    pub model: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -23,9 +37,12 @@ pub struct ReviewSettings {
     pub skip_mine: bool,
     pub only_requested: bool,
     pub max_auto_reviews: u32,
-    pub task_template: String,
+    /// The review agent's model and permission mode.
     pub model: String,
     pub permission_mode: String,
+    /// The Reviewer profiles rows changed from `ws`'s, by profile name.
+    /// Empty leaves the choice to `ws`.
+    pub profiles: BTreeMap<String, ProfileSetting>,
 }
 
 impl Default for ReviewSettings {
@@ -36,9 +53,9 @@ impl Default for ReviewSettings {
             skip_mine: true,
             only_requested: false,
             max_auto_reviews: 2,
-            task_template: DEFAULT_TEMPLATE.to_string(),
             model: String::new(),
             permission_mode: String::new(),
+            profiles: BTreeMap::new(),
         }
     }
 }
@@ -58,14 +75,40 @@ impl ReviewSettings {
                 "at most 1 to 20 auto-reviews can run at once",
             ));
         }
-        if self.task_template.trim().is_empty() {
+        if has_space(&self.model) {
             return Err(AppError::new(
                 "setting_invalid",
-                "the review task can't be empty",
+                "a model is an alias or a model id, without spaces",
             ));
+        }
+        for (name, setting) in &self.profiles {
+            if !is_profile_name(name) {
+                return Err(AppError::new(
+                    "setting_invalid",
+                    format!("{name:?} isn't a profile name: lowercase letters, digits, and -"),
+                ));
+            }
+            if setting.model != setting.model.trim() || has_space(&setting.model) {
+                return Err(AppError::new(
+                    "setting_invalid",
+                    format!("{name}'s model is an alias or a model id, without spaces"),
+                ));
+            }
         }
         Ok(())
     }
+}
+
+fn has_space(s: &str) -> bool {
+    s.chars().any(char::is_whitespace)
+}
+
+/// A name `ws review start --profile` accepts.
+fn is_profile_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -188,8 +231,22 @@ pub struct Store {
 impl Store {
     /// Loads the file at `path`, or defaults when it's missing or unreadable.
     /// With no path, changes are kept in memory only.
+    /// A file from before reviews ran through `ws review` loses its Review
+    /// task setting (ADR 0039) and is rewritten without it.
     pub fn open(path: Option<PathBuf>) -> Self {
-        let data = path.as_deref().and_then(load).unwrap_or_default();
+        let loaded = path.as_deref().and_then(load);
+        let data = match loaded {
+            Some(Loaded { data, stale: true }) => {
+                if let Some(path) = &path {
+                    if data.version <= VERSION {
+                        write(path, &data).ok();
+                    }
+                }
+                data
+            }
+            Some(Loaded { data, .. }) => data,
+            None => StateFile::default(),
+        };
         Self {
             path,
             data: Mutex::new(data),
@@ -225,9 +282,24 @@ impl Store {
     }
 }
 
-fn load(path: &Path) -> Option<StateFile> {
+struct Loaded {
+    data: StateFile,
+    /// It has settings this version of the app no longer keeps.
+    stale: bool,
+}
+
+/// Settings the app no longer keeps, under `settings.reviews`.
+const DROPPED_REVIEW_SETTINGS: &[&str] = &["taskTemplate"];
+
+fn load(path: &Path) -> Option<Loaded> {
     let bytes = std::fs::read(path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let stale = value
+        .pointer("/settings/reviews")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|r| DROPPED_REVIEW_SETTINGS.iter().any(|k| r.contains_key(*k)));
+    let data = serde_json::from_value(value).ok()?;
+    Some(Loaded { data, stale })
 }
 
 /// Writes a temp file beside `path` and renames it into place, so a crash
@@ -373,6 +445,85 @@ mod tests {
         state.prune(REPO, &[(1, "a"), (2, "moved")]);
         let left: Vec<_> = state.dismissed.iter().map(|d| d.number).collect();
         assert_eq!(left, [1, 9]);
+    }
+
+    #[test]
+    fn task_template_is_dropped_from_the_file_on_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"settings":{"reviews":{"skipDrafts":false,"taskTemplate":"Review {repo}"}}}"#,
+        )
+        .unwrap();
+        let store = Store::open(Some(path.clone()));
+        assert!(!store.get().settings.reviews.skip_drafts);
+        let written = std::fs::read_to_string(path).unwrap();
+        assert!(!written.contains("taskTemplate"), "{written}");
+        assert!(written.contains(r#""skipDrafts": false"#), "{written}");
+    }
+
+    #[test]
+    fn file_without_dropped_settings_is_not_rewritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        let raw = r#"{"version":1,"settings":{"reviews":{"skipDrafts":false}}}"#;
+        std::fs::write(&path, raw).unwrap();
+        Store::open(Some(path.clone()));
+        assert_eq!(std::fs::read_to_string(path).unwrap(), raw);
+    }
+
+    #[test]
+    fn profile_settings_round_trip_in_camel_case_json() {
+        let mut settings = ReviewSettings::default();
+        settings.profiles.insert(
+            "go".to_string(),
+            ProfileSetting {
+                runs: Runs::Auto,
+                model: "sonnet".to_string(),
+            },
+        );
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json["profiles"]["go"]["runs"], "auto");
+        assert_eq!(json["profiles"]["go"]["model"], "sonnet");
+        assert!(json.get("taskTemplate").is_none());
+        let back: ReviewSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back, settings);
+    }
+
+    #[test]
+    fn validate_rejects_bad_profile_name_or_model() {
+        let mut settings = ReviewSettings::default();
+        settings.profiles.insert(
+            "Go".to_string(),
+            ProfileSetting {
+                runs: Runs::Always,
+                model: String::new(),
+            },
+        );
+        assert_eq!(settings.validate().unwrap_err().code, "setting_invalid");
+        let mut settings = ReviewSettings::default();
+        settings.profiles.insert(
+            "go".to_string(),
+            ProfileSetting {
+                runs: Runs::Always,
+                model: "claude opus".to_string(),
+            },
+        );
+        assert_eq!(settings.validate().unwrap_err().code, "setting_invalid");
+    }
+
+    #[test]
+    fn validate_accepts_typed_model_id() {
+        let mut settings = ReviewSettings::default();
+        settings.profiles.insert(
+            "security".to_string(),
+            ProfileSetting {
+                runs: Runs::Always,
+                model: "us.anthropic.claude-opus-5-5-v1:0".to_string(),
+            },
+        );
+        assert!(settings.validate().is_ok());
     }
 
     #[test]

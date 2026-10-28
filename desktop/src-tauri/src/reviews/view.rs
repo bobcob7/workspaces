@@ -1,5 +1,5 @@
 //! What the Reviews section shows: each watched repo's open pull requests,
-//! joined with their review workspaces into groups (ADR 0032).
+//! joined with their review workspaces into groups (ADRs 0032, 0039).
 
 use super::github::{self, NewCommits, PullRequest};
 use super::names;
@@ -107,22 +107,37 @@ pub fn is_reviewing(status: Status) -> bool {
     )
 }
 
+/// Whether a workspace reviews the pull request: by its review record's
+/// repo and `pr.number` (ADR 0039), or, for a workspace without one, by
+/// ADR 0032's name.
+pub fn is_review_of(entry: &Entry, repo: &str, number: u64) -> bool {
+    match &entry.review {
+        Some(record) => {
+            record.repo == repo && record.pr.as_ref().is_some_and(|pr| pr.number == number)
+        }
+        None => entry
+            .workspace_id
+            .as_deref()
+            .is_some_and(|id| names::is_review_of(id, &entry.repos, repo, number)),
+    }
+}
+
 /// The review workspaces of a pull request, newest first.
 pub fn reviews_of<'a>(entries: &'a [Entry], repo: &str, number: u64) -> Vec<&'a Entry> {
     let mut found: Vec<&Entry> = entries
         .iter()
         .filter(|e| e.kind != Kind::Unknown)
-        .filter(|e| {
-            e.workspace_id
-                .as_deref()
-                .is_some_and(|id| names::is_review_of(id, &e.repos, repo, number))
-        })
+        .filter(|e| is_review_of(e, repo, number))
         .collect();
     found.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.key.cmp(&a.key)));
     found
 }
 
+/// The commit a review looked at: its record's `ref`, else its repo's.
 fn reviewed_sha(entry: &Entry) -> String {
+    if let Some(record) = &entry.review {
+        return record.git_ref.clone();
+    }
     entry
         .repos
         .first()
@@ -260,7 +275,7 @@ pub fn build(check: &CheckState, entries: &[Entry], state: &StateFile) -> Review
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::model::Repo;
+    use crate::model::{Repo, ReviewPr, ReviewRecord};
     use crate::reviews::github::{Author, ReviewRequest};
     use crate::reviews::store::{PrHead, RepoWatch};
 
@@ -315,6 +330,26 @@ pub mod tests {
                 git_ref: Some(sha.to_string()),
                 ref_kind: Some("commit".to_string()),
             }],
+            review: None,
+        }
+    }
+
+    /// A review `ws review start` made, under an id that isn't 0032's name.
+    pub fn recorded(number: u64, sha: &str, status: Status, created_at: &str) -> Entry {
+        Entry {
+            key: "careful-look-d8efb24f".to_string(),
+            workspace_id: Some("careful-look-d8efb24f".to_string()),
+            review: Some(ReviewRecord {
+                repo: REPO.to_string(),
+                git_ref: sha.to_string(),
+                requester: String::new(),
+                profiles: vec![],
+                pr: Some(ReviewPr {
+                    number,
+                    url: String::new(),
+                }),
+            }),
+            ..review(number, sha, status, created_at)
         }
     }
 
@@ -450,6 +485,36 @@ pub mod tests {
         let entries = [review(42, HEAD, Status::Done, "2026-10-24T10:00:00Z")];
         let view = build(&checked(vec![pr(42)]), &entries, &state);
         assert!(view.prs[0].reviews[0].auto);
+    }
+
+    #[test]
+    fn review_record_matches_whatever_the_workspace_is_called() {
+        let entries = [recorded(42, HEAD, Status::Working, "2026-10-24T10:00:00Z")];
+        assert_eq!(group(&entries, &watching()), (Group::Reviewing, false));
+    }
+
+    #[test]
+    fn review_record_of_another_pull_request_does_not_match_by_name() {
+        let mut other = review(42, HEAD, Status::Working, "2026-10-24T10:00:00Z");
+        other.review = recorded(7, HEAD, Status::Working, "").review;
+        assert_eq!(group(&[other], &watching()).0, Group::ToReview);
+    }
+
+    #[test]
+    fn review_record_without_pull_request_is_not_a_review_of_one() {
+        let mut commit = recorded(42, HEAD, Status::Working, "2026-10-24T10:00:00Z");
+        commit.workspace_id = Some(names::review_name(REPO, 42, HEAD));
+        if let Some(record) = commit.review.as_mut() {
+            record.pr = None;
+        }
+        assert_eq!(group(&[commit], &watching()).0, Group::ToReview);
+    }
+
+    #[test]
+    fn review_record_ref_is_the_reviewed_commit() {
+        let mut entry = recorded(42, OLD, Status::Done, "2026-10-24T10:00:00Z");
+        entry.repos[0].git_ref = Some(HEAD.to_string());
+        assert_eq!(group(&[entry], &watching()), (Group::Reviewed, true));
     }
 
     #[test]

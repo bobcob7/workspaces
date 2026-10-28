@@ -1,5 +1,16 @@
 import { vi } from "vitest";
-import type { Api, CachedRepo, Entry, PullRequest, RepoRef, ReviewRun, ReviewSettings, ReviewsView } from "../api";
+import type {
+  Api,
+  CachedRepo,
+  Entry,
+  ListedProfile,
+  PullRequest,
+  RepoRef,
+  ReviewPlan,
+  ReviewRun,
+  ReviewSettings,
+  ReviewsView,
+} from "../api";
 import type { TerminalHost } from "../features/terminals/host";
 import { createStore, type RootState } from "../store";
 
@@ -19,6 +30,7 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   result: null,
   links: [],
   repos: [],
+  review: null,
   ...overrides,
 });
 
@@ -98,13 +110,34 @@ export const reviewsView = (overrides: Partial<ReviewsView> = {}): ReviewsView =
   ...overrides,
 });
 
-export const reviewPlan = () => ({
+export const reviewPlan = (overrides: Partial<ReviewPlan> = {}): ReviewPlan => ({
   name: "review-buff-bear-42-3f2a9c1",
-  spec: `github.com/bobcob7/buff-bear@${head}`,
-  prompt: "Review pull request bobcob7/buff-bear#42",
+  repo: "github.com/bobcob7/buff-bear",
+  number: 42,
+  head,
+  profiles: [],
   model: "",
   permissionMode: "",
+  focus: "",
+  ...overrides,
 });
+
+export const listedProfile = (overrides: Partial<ListedProfile> = {}): ListedProfile => ({
+  name: "security",
+  description: "Security: injection, secrets, and authorization",
+  when: "always",
+  patterns: [],
+  model: "",
+  builtin: true,
+  ...overrides,
+});
+
+export const listedProfiles = (): readonly ListedProfile[] => [
+  listedProfile(),
+  listedProfile({ name: "tests", description: "Tests", model: "haiku" }),
+  listedProfile({ name: "go", description: "Go", when: "auto", patterns: ["*.go", "go.mod"] }),
+  listedProfile({ name: "efficiency", description: "Efficiency", when: "off" }),
+];
 
 export const reviewSettings = (overrides: Partial<ReviewSettings> = {}): ReviewSettings => ({
   checkIntervalMinutes: 5,
@@ -112,9 +145,9 @@ export const reviewSettings = (overrides: Partial<ReviewSettings> = {}): ReviewS
   skipMine: true,
   onlyRequested: false,
   maxAutoReviews: 2,
-  taskTemplate: "Review pull request {repo}#{number}",
   model: "",
   permissionMode: "",
+  profiles: {},
   ...overrides,
 });
 
@@ -156,6 +189,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewsDismiss: vi.fn(async () => reviewsView()),
   reviewsRestore: vi.fn(async () => reviewsView()),
   reviewsPlan: vi.fn(async () => reviewPlan()),
+  reviewsProfiles: vi.fn(async () => listedProfiles()),
   reviewsStart: vi.fn(async () => ({ id: "review-buff-bear-42-3f2a9c1", already: false })),
   settingsGet: vi.fn(async () => ({ reviews: reviewSettings() })),
   settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews })),
