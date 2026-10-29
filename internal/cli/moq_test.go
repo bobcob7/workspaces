@@ -1415,6 +1415,9 @@ var _ lifetimeManager = &lifetimeManagerMock{}
 //
 //		// make and configure a mocked lifetimeManager
 //		mockedlifetimeManager := &lifetimeManagerMock{
+//			ContinueFunc: func(ctx context.Context, opts lifetime.ContinueOptions) ([]lifetime.Continued, error) {
+//				panic("mock out the Continue method")
+//			},
 //			ListFunc: func(ctx context.Context) (lifetime.Listing, error) {
 //				panic("mock out the List method")
 //			},
@@ -1440,6 +1443,9 @@ var _ lifetimeManager = &lifetimeManagerMock{}
 //
 //	}
 type lifetimeManagerMock struct {
+	// ContinueFunc mocks the Continue method.
+	ContinueFunc func(ctx context.Context, opts lifetime.ContinueOptions) ([]lifetime.Continued, error)
+
 	// ListFunc mocks the List method.
 	ListFunc func(ctx context.Context) (lifetime.Listing, error)
 
@@ -1460,6 +1466,13 @@ type lifetimeManagerMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Continue holds details about calls to the Continue method.
+		Continue []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Opts is the opts argument value.
+			Opts lifetime.ContinueOptions
+		}
 		// List holds details about calls to the List method.
 		List []struct {
 			// Ctx is the ctx argument value.
@@ -1497,12 +1510,49 @@ type lifetimeManagerMock struct {
 		Warnings []struct {
 		}
 	}
+	lockContinue   sync.RWMutex
 	lockList       sync.RWMutex
 	lockRemoveTree sync.RWMutex
 	lockRestart    sync.RWMutex
 	lockRestore    sync.RWMutex
 	lockSweep      sync.RWMutex
 	lockWarnings   sync.RWMutex
+}
+
+// Continue calls ContinueFunc.
+func (mock *lifetimeManagerMock) Continue(ctx context.Context, opts lifetime.ContinueOptions) ([]lifetime.Continued, error) {
+	if mock.ContinueFunc == nil {
+		panic("lifetimeManagerMock.ContinueFunc: method is nil but lifetimeManager.Continue was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Opts lifetime.ContinueOptions
+	}{
+		Ctx:  ctx,
+		Opts: opts,
+	}
+	mock.lockContinue.Lock()
+	mock.calls.Continue = append(mock.calls.Continue, callInfo)
+	mock.lockContinue.Unlock()
+	return mock.ContinueFunc(ctx, opts)
+}
+
+// ContinueCalls gets all the calls that were made to Continue.
+// Check the length with:
+//
+//	len(mockedlifetimeManager.ContinueCalls())
+func (mock *lifetimeManagerMock) ContinueCalls() []struct {
+	Ctx  context.Context
+	Opts lifetime.ContinueOptions
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Opts lifetime.ContinueOptions
+	}
+	mock.lockContinue.RLock()
+	calls = mock.calls.Continue
+	mock.lockContinue.RUnlock()
+	return calls
 }
 
 // List calls ListFunc.
@@ -1814,6 +1864,9 @@ var _ claudeClient = &claudeClientMock{}
 //			RunDaemonFunc: func(ctx context.Context) (int, error) {
 //				panic("mock out the RunDaemon method")
 //			},
+//			SendFunc: func(ctx context.Context, s *claude.Session, message string) error {
+//				panic("mock out the Send method")
+//			},
 //			StartFunc: func(ctx context.Context, opts claude.StartOptions) (claude.Started, error) {
 //				panic("mock out the Start method")
 //			},
@@ -1828,6 +1881,9 @@ var _ claudeClient = &claudeClientMock{}
 //			},
 //			UntrustFunc: func(dir string, created bool) error {
 //				panic("mock out the Untrust method")
+//			},
+//			UsageLimitFunc: func(s *claude.Session, message string) (*claude.Limit, error) {
+//				panic("mock out the UsageLimit method")
 //			},
 //		}
 //
@@ -1860,6 +1916,9 @@ type claudeClientMock struct {
 	// RunDaemonFunc mocks the RunDaemon method.
 	RunDaemonFunc func(ctx context.Context) (int, error)
 
+	// SendFunc mocks the Send method.
+	SendFunc func(ctx context.Context, s *claude.Session, message string) error
+
 	// StartFunc mocks the Start method.
 	StartFunc func(ctx context.Context, opts claude.StartOptions) (claude.Started, error)
 
@@ -1874,6 +1933,9 @@ type claudeClientMock struct {
 
 	// UntrustFunc mocks the Untrust method.
 	UntrustFunc func(dir string, created bool) error
+
+	// UsageLimitFunc mocks the UsageLimit method.
+	UsageLimitFunc func(s *claude.Session, message string) (*claude.Limit, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1925,6 +1987,15 @@ type claudeClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// Send holds details about calls to the Send method.
+		Send []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// S is the s argument value.
+			S *claude.Session
+			// Message is the message argument value.
+			Message string
+		}
 		// Start holds details about calls to the Start method.
 		Start []struct {
 			// Ctx is the ctx argument value.
@@ -1962,6 +2033,13 @@ type claudeClientMock struct {
 			// Created is the created argument value.
 			Created bool
 		}
+		// UsageLimit holds details about calls to the UsageLimit method.
+		UsageLimit []struct {
+			// S is the s argument value.
+			S *claude.Session
+			// Message is the message argument value.
+			Message string
+		}
 	}
 	lockAgents       sync.RWMutex
 	lockAttach       sync.RWMutex
@@ -1971,11 +2049,13 @@ type claudeClientMock struct {
 	lockRemove       sync.RWMutex
 	lockRespawn      sync.RWMutex
 	lockRunDaemon    sync.RWMutex
+	lockSend         sync.RWMutex
 	lockStart        sync.RWMutex
 	lockStop         sync.RWMutex
 	lockStopDaemon   sync.RWMutex
 	lockTrust        sync.RWMutex
 	lockUntrust      sync.RWMutex
+	lockUsageLimit   sync.RWMutex
 }
 
 // Agents calls AgentsFunc.
@@ -2250,6 +2330,46 @@ func (mock *claudeClientMock) RunDaemonCalls() []struct {
 	return calls
 }
 
+// Send calls SendFunc.
+func (mock *claudeClientMock) Send(ctx context.Context, s *claude.Session, message string) error {
+	if mock.SendFunc == nil {
+		panic("claudeClientMock.SendFunc: method is nil but claudeClient.Send was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		S       *claude.Session
+		Message string
+	}{
+		Ctx:     ctx,
+		S:       s,
+		Message: message,
+	}
+	mock.lockSend.Lock()
+	mock.calls.Send = append(mock.calls.Send, callInfo)
+	mock.lockSend.Unlock()
+	return mock.SendFunc(ctx, s, message)
+}
+
+// SendCalls gets all the calls that were made to Send.
+// Check the length with:
+//
+//	len(mockedclaudeClient.SendCalls())
+func (mock *claudeClientMock) SendCalls() []struct {
+	Ctx     context.Context
+	S       *claude.Session
+	Message string
+} {
+	var calls []struct {
+		Ctx     context.Context
+		S       *claude.Session
+		Message string
+	}
+	mock.lockSend.RLock()
+	calls = mock.calls.Send
+	mock.lockSend.RUnlock()
+	return calls
+}
+
 // Start calls StartFunc.
 func (mock *claudeClientMock) Start(ctx context.Context, opts claude.StartOptions) (claude.Started, error) {
 	if mock.StartFunc == nil {
@@ -2431,6 +2551,42 @@ func (mock *claudeClientMock) UntrustCalls() []struct {
 	mock.lockUntrust.RLock()
 	calls = mock.calls.Untrust
 	mock.lockUntrust.RUnlock()
+	return calls
+}
+
+// UsageLimit calls UsageLimitFunc.
+func (mock *claudeClientMock) UsageLimit(s *claude.Session, message string) (*claude.Limit, error) {
+	if mock.UsageLimitFunc == nil {
+		panic("claudeClientMock.UsageLimitFunc: method is nil but claudeClient.UsageLimit was just called")
+	}
+	callInfo := struct {
+		S       *claude.Session
+		Message string
+	}{
+		S:       s,
+		Message: message,
+	}
+	mock.lockUsageLimit.Lock()
+	mock.calls.UsageLimit = append(mock.calls.UsageLimit, callInfo)
+	mock.lockUsageLimit.Unlock()
+	return mock.UsageLimitFunc(s, message)
+}
+
+// UsageLimitCalls gets all the calls that were made to UsageLimit.
+// Check the length with:
+//
+//	len(mockedclaudeClient.UsageLimitCalls())
+func (mock *claudeClientMock) UsageLimitCalls() []struct {
+	S       *claude.Session
+	Message string
+} {
+	var calls []struct {
+		S       *claude.Session
+		Message string
+	}
+	mock.lockUsageLimit.RLock()
+	calls = mock.calls.UsageLimit
+	mock.lockUsageLimit.RUnlock()
 	return calls
 }
 

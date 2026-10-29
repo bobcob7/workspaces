@@ -25,16 +25,20 @@ type Manager struct {
 	store  workspaceStore
 	claude claudeClient
 	procs  processReader
+	power  powerReader
 	// stamp is the file whose modification time is when the removal pass
 	// last ran.
 	stamp string
 	// respawnLock is the file ws restore and ws restart lock while they
 	// respawn sessions.
 	respawnLock string
-	now         func() time.Time
-	sleep       func(ctx context.Context, d time.Duration) error
-	mu          sync.Mutex
-	warnings    []string
+	// continueLock is the file a ws continue pass locks while it sends
+	// messages (ADR 0047).
+	continueLock string
+	now          func() time.Time
+	sleep        func(ctx context.Context, d time.Duration) error
+	mu           sync.Mutex
+	warnings     []string
 	// reviews judges finished reviews, which the removal pass removes;
 	// nil keeps them (ADR 0045).
 	reviews reviewJudge
@@ -47,18 +51,20 @@ func (m *Manager) RemoveFinishedReviews(reviews reviewJudge) {
 }
 
 // New returns a Manager for the workspaces in store, whose state is under
-// stateDir, reading their agents' sessions with c and their processes'
-// start times with procs.
-func New(log *slog.Logger, store workspaceStore, c claudeClient, procs processReader, stateDir string) *Manager {
+// stateDir, reading their agents' sessions with c, their processes' start
+// times with procs, and whether the machine is fully awake with power.
+func New(log *slog.Logger, store workspaceStore, c claudeClient, procs processReader, power powerReader, stateDir string) *Manager {
 	return &Manager{
-		log:         log,
-		store:       store,
-		claude:      c,
-		procs:       procs,
-		stamp:       filepath.Join(stateDir, stampName),
-		respawnLock: filepath.Join(stateDir, respawnLockName),
-		now:         time.Now,
-		sleep:       sleep,
+		log:          log,
+		store:        store,
+		claude:       c,
+		procs:        procs,
+		power:        power,
+		stamp:        filepath.Join(stateDir, stampName),
+		respawnLock:  filepath.Join(stateDir, respawnLockName),
+		continueLock: filepath.Join(stateDir, continueLockName),
+		now:          time.Now,
+		sleep:        sleep,
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . workspaceStore claudeClient processReader reviewJudge
+//go:generate go tool moq -out moq_test.go . workspaceStore claudeClient processReader powerReader reviewJudge
 
 // workspaceStore is the set of workspaces and their state (ADRs 0012,
 // 0022, 0023).
@@ -34,12 +34,20 @@ type claudeClient interface {
 	DaemonStatus(ctx context.Context) (claude.DaemonStatus, error)
 	StopDaemon(ctx context.Context) error
 	RunDaemon(ctx context.Context) (int, error)
+	UsageLimit(s *claude.Session, message string) (*claude.Limit, error)
+	Send(ctx context.Context, s *claude.Session, message string) error
 }
 
 // processReader reads when a process started from the operating system
 // (ADR 0018's stale sessions).
 type processReader interface {
 	StartTime(pid int) (time.Time, error)
+}
+
+// powerReader tells whether the machine is fully awake, rather than in a
+// macOS dark wake (ADR 0047).
+type powerReader interface {
+	Awake(ctx context.Context) (bool, error)
 }
 
 // reviewJudge tells whether a workspace is a review whose every profile

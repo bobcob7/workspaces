@@ -40,6 +40,11 @@ type fixture struct {
 	sessions   []claude.Session
 	jobs       map[string]bool
 	procs      *processReaderMock
+	power      *powerReaderMock
+	// asleep makes power report a dark wake.
+	asleep bool
+	// limits are the usage limits UsageLimit reads, by session id.
+	limits map[string]*claude.Limit
 	// starts is when each process started, by pid; servicePID is the
 	// background service's, which started an hour before testNow.
 	starts   map[int]time.Time
@@ -66,6 +71,7 @@ func newFixture(t *testing.T) *fixture {
 		locked:    map[string]bool{},
 		abandoned: map[string]bool{},
 		jobs:      map[string]bool{},
+		limits:    map[string]*claude.Limit{},
 		starts:    map[int]time.Time{servicePID: testNow().Add(-time.Hour)},
 		stateDir:  t.TempDir(),
 		service:   servicePID,
@@ -119,6 +125,10 @@ func newFixture(t *testing.T) *fixture {
 			f.service = newServicePID
 			return newServicePID, nil
 		},
+		UsageLimitFunc: func(s *claude.Session, _ string) (*claude.Limit, error) {
+			return f.limits[s.ID], nil
+		},
+		SendFunc: func(context.Context, *claude.Session, string) error { return nil },
 	}
 	f.procs = &processReaderMock{StartTimeFunc: func(pid int) (time.Time, error) {
 		if started, ok := f.starts[pid]; ok {
@@ -126,7 +136,8 @@ func newFixture(t *testing.T) *fixture {
 		}
 		return time.Time{}, errTest
 	}}
-	f.m = New(slog.New(slog.NewJSONHandler(io.Discard, nil)), f.store, f.claude, f.procs, f.stateDir)
+	f.power = &powerReaderMock{AwakeFunc: func(context.Context) (bool, error) { return !f.asleep, nil }}
+	f.m = New(slog.New(slog.NewJSONHandler(io.Discard, nil)), f.store, f.claude, f.procs, f.power, f.stateDir)
 	f.clock = testNow()
 	f.m.now = func() time.Time { return f.clock }
 	f.m.sleep = func(_ context.Context, d time.Duration) error {
@@ -256,12 +267,14 @@ func (f *fixture) claudeRemoved() []string {
 }
 
 func TestNew(t *testing.T) {
-	store, c, procs := &workspaceStoreMock{}, &claudeClientMock{}, &processReaderMock{}
-	m := New(slog.New(slog.NewJSONHandler(io.Discard, nil)), store, c, procs, "/cfg/state")
+	store, c, procs, power := &workspaceStoreMock{}, &claudeClientMock{}, &processReaderMock{}, &powerReaderMock{}
+	m := New(slog.New(slog.NewJSONHandler(io.Discard, nil)), store, c, procs, power, "/cfg/state")
 	assert.Same(t, store, m.store)
 	assert.Same(t, c, m.claude)
 	assert.Same(t, procs, m.procs)
+	assert.Same(t, power, m.power)
 	assert.Equal(t, "/cfg/state/.removal-pass", m.stamp)
+	assert.Equal(t, "/cfg/state/.continue.lock", m.continueLock)
 	assert.NotNil(t, m.now)
 }
 

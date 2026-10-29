@@ -26,11 +26,15 @@ type Client struct {
 	path    string
 	environ []string
 	jobsDir string
+	// projectsDir is where Claude Code writes transcripts (ADR 0047).
+	projectsDir string
 	// configFile is Claude Code's global config, where Trust writes.
 	configFile string
 	mu         sync.Mutex
 	checked    bool
 	checkErr   error
+	// sendTimings are Send's waits.
+	sendTimings sendTimings
 	// replace is syscall.Exec: Attach replaces ws with claude through it.
 	replace func(argv0 string, argv, envv []string) error
 }
@@ -39,7 +43,7 @@ type Client struct {
 // normally os.Environ(). Claude Code's per-session directories are looked
 // up in jobsDir(environ), and its global config is configFile(environ).
 func New(log *slog.Logger, path string, environ []string) *Client {
-	return &Client{log: log, path: path, environ: environ, jobsDir: jobsDir(environ), configFile: configFile(environ), replace: syscall.Exec}
+	return &Client{log: log, path: path, environ: environ, jobsDir: jobsDir(environ), projectsDir: projectsDir(environ), configFile: configFile(environ), sendTimings: defaultSendTimings(), replace: syscall.Exec}
 }
 
 // jobsDir is where Claude Code keeps a directory per session:

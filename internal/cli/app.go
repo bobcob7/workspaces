@@ -20,6 +20,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/power"
 	"github.com/bobcob7/workspaces/internal/proc"
 	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/shell"
@@ -62,6 +63,8 @@ type App struct {
 	getwd func() (string, error)
 	// reviewPoll is how often ws review wait reads the review's session.
 	reviewPoll time.Duration
+	// continuePoll is how often ws continue --watch runs a pass.
+	continuePoll time.Duration
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 	// progress is set when stderr is a terminal, where progress may be
@@ -96,31 +99,32 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	level.Set(logOff)
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
 	a := &App{
-		shell:       shell.New(log, environ, stdin, stdout, stderr),
-		claude:      claude.New(log, "claude", environ),
-		gh:          gh.New(log, "gh", environ),
-		version:     version,
-		stdin:       stdin,
-		stdout:      stdout,
-		stderr:      stderr,
-		configs:     configs,
-		log:         log,
-		level:       level,
-		now:         time.Now,
-		indentJSON:  isTerminal(stdout),
-		progress:    isTerminal(stderr),
-		interactive: isTerminal(stdin) && isTerminal(stdout),
-		environ:     environ,
-		getwd:       os.Getwd,
-		reviewPoll:  defaultReviewPoll,
-		notify:      signal.Notify,
-		stopNotify:  signal.Stop,
+		shell:        shell.New(log, environ, stdin, stdout, stderr),
+		claude:       claude.New(log, "claude", environ),
+		gh:           gh.New(log, "gh", environ),
+		version:      version,
+		stdin:        stdin,
+		stdout:       stdout,
+		stderr:       stderr,
+		configs:      configs,
+		log:          log,
+		level:        level,
+		now:          time.Now,
+		indentJSON:   isTerminal(stdout),
+		progress:     isTerminal(stderr),
+		interactive:  isTerminal(stdin) && isTerminal(stdout),
+		environ:      environ,
+		getwd:        os.Getwd,
+		reviewPoll:   defaultReviewPoll,
+		continuePoll: defaultContinuePoll,
+		notify:       signal.Notify,
+		stopNotify:   signal.Stop,
 	}
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
 		runner := git.NewRunner(log, "git", environ)
 		c := cache.New(log, runner, paths.Cache, cfg.Defaults)
 		ws := workspace.New(log, runner, c, a.claude, paths.Workspaces, paths.State)
-		lm := lifetime.New(log, ws, a.claude, proc.Reader{}, paths.State)
+		lm := lifetime.New(log, ws, a.claude, proc.Reader{}, power.Reader{}, paths.State)
 		if cfg.Review.RemovesFinished() {
 			lm.RemoveFinishedReviews(reviewJudge{state: paths.State, store: store.New(paths.Reviews)})
 		}
@@ -202,6 +206,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newShellCmd(),
 		a.newRestoreCmd(),
 		a.newRestartCmd(),
+		a.newContinueCmd(),
 		a.newListCmd(),
 		a.newRmCmd(),
 		a.newRenameCmd(),
