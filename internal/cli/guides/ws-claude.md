@@ -13,10 +13,10 @@ starts a Claude Code background session in it. This is how to hand work to anoth
 ## When to use it
 
 - To give a task to a new agent in its own copy of the repos. Put the
-  prompt after `--`, and use `--json`.
-- The new workspace is your child: removing yours removes it. Remove it
-  yourself with `ws rm` once you've used its result.
-- Not to run something yourself: work in your own workspace instead.
+  prompt after `--`.
+- Run inside a workspace, the new one is that workspace's child and is
+  removed with it; `--parent none` makes it top-level.
+- Remove it with `ws rm` once its work is pushed.
 
 With a prompt, `ws` returns as soon as Claude Code has accepted the
 session; the agent keeps working in the background. Without a prompt, on a

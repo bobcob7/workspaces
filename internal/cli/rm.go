@@ -27,6 +27,7 @@ func (a *App) newRmCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm [OPTIONS] <WORKSPACE>...",
 		Short: "Remove workspaces and their sessions now",
+		Long:  "Remove workspaces and their sessions now.\n\nFor people and the desktop app. Agents use ws machine rm instead; see `ws llm machine rm`.",
 		Args:  atLeastOneArg("a workspace"),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			opts.workspaces = args

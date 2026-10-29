@@ -13,9 +13,13 @@ ws machine rm [--dry-run] [--keep-children] (<WORKSPACE>... | --all)
 
 ## Description
 
-`ws machine` is for agents running in a workspace; people and the desktop
-app use [`ws claude`](ws-claude.md), [`ws list`](ws-list.md), and
-[`ws rm`](ws-rm.md) ([0046](../adrs/0046-ws-machine.md)).
+`ws machine` is for agents running in a workspace, and is the only part of
+`ws` they run, apart from [`ws review`](ws-review.md) to get their work
+reviewed. People and the desktop app use [`ws claude`](ws-claude.md),
+[`ws list`](ws-list.md), [`ws rm`](ws-rm.md), and the other commands
+([0046](../adrs/0046-ws-machine.md)). `ws llm` tells agents not to run
+those, and `ws --help` lists them under "Commands for people and the
+desktop app".
 
 Every `ws machine` command acts for the **caller**: the workspace
 containing the working directory. Outside a workspace, it fails with

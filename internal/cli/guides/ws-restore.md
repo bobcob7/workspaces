@@ -9,6 +9,8 @@ process, with `claude respawn`. Each comes back with its conversation and
 the options it was started with, waiting for input; reply with
 `claude attach <session>` to have it carry on.
 
+`ws restore` is for people and the desktop app. Agents don't run it: use `ws machine` (see `ws llm machine`), or tell a person what you need.
+
 ## When to use it
 
 - After a reboot, or when Claude Code's background service was down for

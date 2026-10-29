@@ -28,7 +28,9 @@ Agents run as Claude Code background sessions, so `claude agents`,
 as its session: an agent's workspace is removed when its session is deleted
 (`claude rm` or `ws rm`), so its conversation can be reviewed next to the
 code until then, and a shell's workspace is removed when the shell exits.
-Agents learn the tool by running `ws llm`. A [desktop app](desktop/README.md)
+Agents learn the tool by running `ws llm`, which tells them to use only
+[`ws machine`](docs/tools/ws-machine.md) (and `ws review`); the other
+commands are for people and the desktop app. A [desktop app](desktop/README.md)
 shows every agent's status, attaches to them, and starts new ones. Common questions, including how to
 set up Claude Code's folder trust, are in the [Q&A](docs/qa.md).
 
@@ -104,6 +106,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws hide`](docs/tools/ws-hide.md)       | Hide a workspace from default views, or `unhide` it  |
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |
 | [`ws review`](docs/tools/ws-review.md)   | Start structured reviews and triage their reports    |
+| [`ws machine`](docs/tools/ws-machine.md) | For agents: start, list, and remove their child workspaces |
 | [`ws llm`](docs/tools/ws-llm.md)         | Print guidance for AI agents                         |
 
 Commands are non-interactive, write results to stdout and diagnostics to

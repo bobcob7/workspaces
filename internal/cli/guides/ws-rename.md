@@ -8,6 +8,8 @@ Changes a workspace's display name: the name `ws list` and the desktop
 app show. The workspace's id, its directory, and its session don't
 change, so a workspace can be renamed any number of times.
 
+`ws rename` is for people and the desktop app. Agents don't run it: use `ws machine` (see `ws llm machine`), or tell a person what you need.
+
 ## When to use it
 
 - To give a workspace you created a clearer name once its task is known.

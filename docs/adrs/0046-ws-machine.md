@@ -85,13 +85,20 @@ no flag to act for another workspace.
   children the caller's, not top-level, so they stay in its subtree. Its
   output is `ws rm --json`'s.
 
-**Guidance.** `ws llm`'s rules send agents to `ws machine` to start,
-list, and remove helpers, and `ws llm machine` documents it. The guides
-for `ws claude`, `ws list`, and `ws rm` say they are for people and the
-desktop app, and point agents to `ws machine`. The top-level commands
-keep working for agents; nothing is removed.
+**Guidance.** `ws llm`'s rules tell agents to use only `ws machine`,
+apart from `ws review` to get their work reviewed, and to tell a person
+when `ws machine` can't do what they need rather than reach for another
+command. `ws llm machine` documents it, and `ws llm` lists its commands
+for agents apart from those for people. Every other command's guide says
+it is for people and the desktop app; those for `ws claude`, `ws list`,
+and `ws rm` point agents to their `ws machine` counterparts. The
+workspace root's `CLAUDE.md` says the same. The top-level commands keep
+working for agents; nothing is removed or blocked.
 
-**`ws --help`** lists `machine` in its own group, "Commands for agents".
+**`ws --help`** lists `machine` in its own group, "Commands for agents",
+and the top-level commands but `review` and `llm` in "Commands for people
+and the desktop app". The help for `ws`, `ws claude`, `ws list`, and
+`ws rm` sends agents to `ws machine`.
 
 **What else goes here.** Later commands written for agents, and only for
 them, go under `ws machine`. `ws review start`, `wait`, and the reviewer's
@@ -147,8 +154,11 @@ same command would behave two ways depending on where it runs.
   [0016](0016-output-contract.md) (`outside_workspace` under exit 2,
   `not_descendant` under exit 4).
 - `docs/tools/ws-machine.md`, `docs/tools/README.md`, and `ws llm` (the
-  overview, `ws llm machine`, and the `claude`, `list`, and `rm` guides)
-  describe it.
+  overview, `ws llm machine`, and every other command's guide) describe
+  it.
+- An agent that needs something `ws machine` lacks, such as continuing a
+  child stopped by a usage limit or starting work meant to outlive it,
+  asks a person until a `ws machine` command covers it.
 - Conformance: Go tests that each `ws machine` command fails with
   `outside_workspace` outside a workspace; that `spawn` sets the parent
   to the caller and refuses a missing prompt; that `children` lists only

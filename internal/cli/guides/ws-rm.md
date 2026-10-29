@@ -14,14 +14,10 @@ remove their helpers; see `ws llm machine rm`.
 
 ## When to use it
 
-- To remove a workspace you created, once its work is pushed or no longer
-  needed. Never one you didn't create, unless told to.
+- To remove a workspace once its work is pushed or no longer needed.
 - Everything in the workspace is deleted, whatever its git state:
   uncommitted changes, unpushed commits, and stashes are lost. Check with
   `git status` and `git log @{u}..` in each repo first, and push.
-- To clean up after yourself: remove each child (a helper from
-  `ws claude`, a review) as soon as you've used its result. Find them with
-  `ws list --json --parent <your workspace>`.
 - Not needed after `claude rm <session>`: the workspace then goes on its
   own, with its descendants, at the start of a later `ws` command.
 - Run `--dry-run` first on a workspace with children: they go too.

@@ -9,12 +9,13 @@ carry on once the limit has reset. It types "Your usage limit has reset.
 Continue where you left off." into each such session, as a person
 replying would.
 
+`ws continue` is for people and the desktop app. Agents don't run it: if a child of yours shows the limit message, tell a person.
+
 ## When to use it
 
-- A child of yours shows the limit message ("You've hit your 5-hour
-  limit · resets …") and the reset time has passed. Name it:
-  `ws continue --json <child>`. Don't continue other agents unless told
-  to.
+- An agent shows the limit message ("You've hit your 5-hour limit ·
+  resets …") and the reset time has passed. Without arguments it
+  continues every such agent; name workspaces to continue only those.
 - A session is continued only when it is `idle`, its last message is the
   limit, and the reset was at least a minute ago. Anything else is left
   alone, including a `stopped` session: `ws restore` it first.

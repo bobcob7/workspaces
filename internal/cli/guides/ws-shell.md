@@ -13,7 +13,8 @@ exits, the workspace is removed, whatever its git state.
 
 It's for people at a terminal. An agent shouldn't use it: it needs an
 interactive terminal, blocks until the shell exits, and everything in the
-workspace is lost then. To give work to an agent, use `ws claude`.
+workspace is lost then. To give work to an agent, a person uses
+`ws claude`, and an agent `ws machine spawn`.
 
 The shell starts in the workspace, or in the repo's directory when there is
 exactly one repo. Inside the shell, `WS_ID` is the workspace id and

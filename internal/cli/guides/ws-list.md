@@ -14,8 +14,8 @@ reviews from `ws review start` and agents started with `ws claude
 
 ## When to use it
 
-- To find your workspaces, check on agents you started, or find the
-  workspace a session id or repo belongs to.
+- To find workspaces, check on agents, or find the workspace a session
+  id or repo belongs to.
 - To make `ws` notice now that a session was deleted with `claude rm`:
   `ws list` always runs the removal check, other commands at most once a
   minute.
@@ -25,7 +25,7 @@ reviews from `ws review start` and agents started with `ws claude
 | Flag            | Meaning                                                     |
 | --------------- | ----------------------------------------------------------- |
 | `-a`, `--all`   | Include hidden workspaces                                   |
-| `--parent <id>` | Only the workspaces that workspace started, its direct children; find your helpers and reviews with your own id |
+| `--parent <id>` | Only the workspaces that workspace started, its direct children |
 | `--repo <spec>` | Only workspaces holding this repo, matched by the parts the spec gives: `api` matches any owner and host, `o/api` any host, `@ref` the ref checked out. No cache lookup |
 | `-q`, `--ids`   | Print only workspace ids, one per line; not with `--json`   |
 | `--json`        | Print the result as JSON                                    |

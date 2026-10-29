@@ -14,6 +14,9 @@ func TestClaudeMD(t *testing.T) {
 	t.Run("tells agents to run ws llm", func(t *testing.T) {
 		assert.Contains(t, string(claudeMD), "run `ws llm`")
 	})
+	t.Run("tells agents to use only ws machine", func(t *testing.T) {
+		assert.Contains(t, string(claudeMD), "Use only `ws machine` commands")
+	})
 	t.Run("ends with a newline", func(t *testing.T) {
 		assert.True(t, strings.HasSuffix(string(claudeMD), "\n"))
 	})
