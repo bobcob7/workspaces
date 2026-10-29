@@ -77,6 +77,9 @@ created, and lives exactly as long as it:
   checks every time, and `ws llm`, which never does.
 - After a reboot, agents are stopped, not gone; `ws restore` brings them
   back with their conversations.
+- An agent that hits a 5-hour or weekly usage limit waits; `ws continue`
+  tells it to carry on once the limit resets. Run it for your own
+  children only, unless told to.
 - A session starts in the workspace, or in its repo's directory when the
   workspace has exactly one repo.
 - Each repo in a workspace is a full clone with two remotes: `origin`
@@ -140,7 +143,7 @@ messages aren't.
   `{"error": {"code": "repo_not_found", "message": "…", "details": {…}}}`.
   `details` is `null` or an object, such as `{"stderr": "…"}` when git or
   claude failed, or `{"candidates": [...]}` for an ambiguous name.
-- Commands that act on several items (`ws rm`, `ws machine rm`, `ws restore`, `ws restart`,
+- Commands that act on several items (`ws rm`, `ws machine rm`, `ws restore`, `ws restart`, `ws continue`,
   `ws cache add`, `update`, `remove`) still print a result when some items
   fail: each item has its own `error` (`{"code", "message"}` or `null`),
   and the exit code is the first failure's.
@@ -170,6 +173,7 @@ everything.
 - `ws llm unhide`: show a hidden workspace again
 - `ws llm restore`: restart agents that stopped, after a reboot or crash
 - `ws llm restart`: restart Claude Code's background service and every agent; only when told to
+- `ws llm continue`: tell agents stopped by a usage limit to carry on once it resets
 - `ws llm cache`: the repo cache, and its subcommands:
   - `ws llm cache add`: clone repos into the cache
   - `ws llm cache update`: fetch cached repos from upstream

@@ -448,11 +448,17 @@ var _ claudeClient = &claudeClientMock{}
 //			RunDaemonFunc: func(ctx context.Context) (int, error) {
 //				panic("mock out the RunDaemon method")
 //			},
+//			SendFunc: func(ctx context.Context, s *claude.Session, message string) error {
+//				panic("mock out the Send method")
+//			},
 //			StopFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the Stop method")
 //			},
 //			StopDaemonFunc: func(ctx context.Context) error {
 //				panic("mock out the StopDaemon method")
+//			},
+//			UsageLimitFunc: func(s *claude.Session, message string) (*claude.Limit, error) {
+//				panic("mock out the UsageLimit method")
 //			},
 //		}
 //
@@ -479,11 +485,17 @@ type claudeClientMock struct {
 	// RunDaemonFunc mocks the RunDaemon method.
 	RunDaemonFunc func(ctx context.Context) (int, error)
 
+	// SendFunc mocks the Send method.
+	SendFunc func(ctx context.Context, s *claude.Session, message string) error
+
 	// StopFunc mocks the Stop method.
 	StopFunc func(ctx context.Context, id string) error
 
 	// StopDaemonFunc mocks the StopDaemon method.
 	StopDaemonFunc func(ctx context.Context) error
+
+	// UsageLimitFunc mocks the UsageLimit method.
+	UsageLimitFunc func(s *claude.Session, message string) (*claude.Limit, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -523,6 +535,15 @@ type claudeClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// Send holds details about calls to the Send method.
+		Send []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// S is the s argument value.
+			S *claude.Session
+			// Message is the message argument value.
+			Message string
+		}
 		// Stop holds details about calls to the Stop method.
 		Stop []struct {
 			// Ctx is the ctx argument value.
@@ -535,6 +556,13 @@ type claudeClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// UsageLimit holds details about calls to the UsageLimit method.
+		UsageLimit []struct {
+			// S is the s argument value.
+			S *claude.Session
+			// Message is the message argument value.
+			Message string
+		}
 	}
 	lockAgents       sync.RWMutex
 	lockDaemonStatus sync.RWMutex
@@ -542,8 +570,10 @@ type claudeClientMock struct {
 	lockRemove       sync.RWMutex
 	lockRespawn      sync.RWMutex
 	lockRunDaemon    sync.RWMutex
+	lockSend         sync.RWMutex
 	lockStop         sync.RWMutex
 	lockStopDaemon   sync.RWMutex
+	lockUsageLimit   sync.RWMutex
 }
 
 // Agents calls AgentsFunc.
@@ -750,6 +780,46 @@ func (mock *claudeClientMock) RunDaemonCalls() []struct {
 	return calls
 }
 
+// Send calls SendFunc.
+func (mock *claudeClientMock) Send(ctx context.Context, s *claude.Session, message string) error {
+	if mock.SendFunc == nil {
+		panic("claudeClientMock.SendFunc: method is nil but claudeClient.Send was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		S       *claude.Session
+		Message string
+	}{
+		Ctx:     ctx,
+		S:       s,
+		Message: message,
+	}
+	mock.lockSend.Lock()
+	mock.calls.Send = append(mock.calls.Send, callInfo)
+	mock.lockSend.Unlock()
+	return mock.SendFunc(ctx, s, message)
+}
+
+// SendCalls gets all the calls that were made to Send.
+// Check the length with:
+//
+//	len(mockedclaudeClient.SendCalls())
+func (mock *claudeClientMock) SendCalls() []struct {
+	Ctx     context.Context
+	S       *claude.Session
+	Message string
+} {
+	var calls []struct {
+		Ctx     context.Context
+		S       *claude.Session
+		Message string
+	}
+	mock.lockSend.RLock()
+	calls = mock.calls.Send
+	mock.lockSend.RUnlock()
+	return calls
+}
+
 // Stop calls StopFunc.
 func (mock *claudeClientMock) Stop(ctx context.Context, id string) error {
 	if mock.StopFunc == nil {
@@ -818,6 +888,42 @@ func (mock *claudeClientMock) StopDaemonCalls() []struct {
 	return calls
 }
 
+// UsageLimit calls UsageLimitFunc.
+func (mock *claudeClientMock) UsageLimit(s *claude.Session, message string) (*claude.Limit, error) {
+	if mock.UsageLimitFunc == nil {
+		panic("claudeClientMock.UsageLimitFunc: method is nil but claudeClient.UsageLimit was just called")
+	}
+	callInfo := struct {
+		S       *claude.Session
+		Message string
+	}{
+		S:       s,
+		Message: message,
+	}
+	mock.lockUsageLimit.Lock()
+	mock.calls.UsageLimit = append(mock.calls.UsageLimit, callInfo)
+	mock.lockUsageLimit.Unlock()
+	return mock.UsageLimitFunc(s, message)
+}
+
+// UsageLimitCalls gets all the calls that were made to UsageLimit.
+// Check the length with:
+//
+//	len(mockedclaudeClient.UsageLimitCalls())
+func (mock *claudeClientMock) UsageLimitCalls() []struct {
+	S       *claude.Session
+	Message string
+} {
+	var calls []struct {
+		S       *claude.Session
+		Message string
+	}
+	mock.lockUsageLimit.RLock()
+	calls = mock.calls.UsageLimit
+	mock.lockUsageLimit.RUnlock()
+	return calls
+}
+
 // Ensure, that processReaderMock does implement processReader.
 // If this is not the case, regenerate this file with moq.
 var _ processReader = &processReaderMock{}
@@ -881,6 +987,72 @@ func (mock *processReaderMock) StartTimeCalls() []struct {
 	mock.lockStartTime.RLock()
 	calls = mock.calls.StartTime
 	mock.lockStartTime.RUnlock()
+	return calls
+}
+
+// Ensure, that powerReaderMock does implement powerReader.
+// If this is not the case, regenerate this file with moq.
+var _ powerReader = &powerReaderMock{}
+
+// powerReaderMock is a mock implementation of powerReader.
+//
+//	func TestSomethingThatUsespowerReader(t *testing.T) {
+//
+//		// make and configure a mocked powerReader
+//		mockedpowerReader := &powerReaderMock{
+//			AwakeFunc: func(ctx context.Context) (bool, error) {
+//				panic("mock out the Awake method")
+//			},
+//		}
+//
+//		// use mockedpowerReader in code that requires powerReader
+//		// and then make assertions.
+//
+//	}
+type powerReaderMock struct {
+	// AwakeFunc mocks the Awake method.
+	AwakeFunc func(ctx context.Context) (bool, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Awake holds details about calls to the Awake method.
+		Awake []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+	}
+	lockAwake sync.RWMutex
+}
+
+// Awake calls AwakeFunc.
+func (mock *powerReaderMock) Awake(ctx context.Context) (bool, error) {
+	if mock.AwakeFunc == nil {
+		panic("powerReaderMock.AwakeFunc: method is nil but powerReader.Awake was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockAwake.Lock()
+	mock.calls.Awake = append(mock.calls.Awake, callInfo)
+	mock.lockAwake.Unlock()
+	return mock.AwakeFunc(ctx)
+}
+
+// AwakeCalls gets all the calls that were made to Awake.
+// Check the length with:
+//
+//	len(mockedpowerReader.AwakeCalls())
+func (mock *powerReaderMock) AwakeCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockAwake.RLock()
+	calls = mock.calls.Awake
+	mock.lockAwake.RUnlock()
 	return calls
 }
 

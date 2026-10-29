@@ -229,7 +229,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   `ws review start`, `wait`, `report`, and `profiles`, so agents can
   review each other's work from a terminal; and `ws review decide`,
   `acted`, and `report --decided`, so they can triage it too
-- [ ] **`ws continue`** ([0047](docs/adrs/0047-ws-continue-after-usage-limit.md),
+- [x] **`ws continue`** ([0047](docs/adrs/0047-ws-continue-after-usage-limit.md),
   proposed): carries on agents stopped by a 5-hour or weekly limit once it
   resets, only while the Mac is fully awake
 
@@ -255,12 +255,13 @@ internal/
   cli/                        # cobra commands and the output contract (0005, 0016)
   config/                     # CONFIG_DIR and config.toml (0011)
   git/                        # the only place git is executed (0003)
-  claude/                     # the only place claude is executed (0015, 0018, 0024)
+  claude/                     # the only place claude is executed, and its transcripts read (0015, 0018, 0024, 0047)
   repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
   cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
   workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)
-  lifetime/                   # removing workspaces whose session is gone; ws list, ws rm, ws restore (0015, 0025, 0027)
+  lifetime/                   # removing workspaces whose session is gone; ws list, ws rm, ws restore, ws continue (0015, 0025, 0027, 0047)
   proc/                       # when processes started, from the operating system (0018, 0026)
+  power/                      # whether the Mac is fully awake, not in a dark wake; the only place ioreg runs (0047)
   shell/                      # ws shell's interactive shell: lock, signals, exit status (0015, 0023)
   lockfile/                   # flock locks, exclusive and shared (0008)
   writeonce/                  # files written once, never overwritten: config.toml, workspaces/CLAUDE.md

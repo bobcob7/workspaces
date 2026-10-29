@@ -33,6 +33,7 @@ func guideTopics() []string {
 		"unhide",
 		"restore",
 		"restart",
+		"continue",
 		"cache",
 		"cache add",
 		"cache update",

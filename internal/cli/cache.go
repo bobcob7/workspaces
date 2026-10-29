@@ -648,6 +648,7 @@ func codedDomainError(err error) *cliError {
 		{claude.ErrTooOld, codeClaudeFailed},
 		{claude.ErrNoSession, codeClaudeFailed},
 		{claude.ErrUnexpectedOutput, codeClaudeFailed},
+		{claude.ErrNotDelivered, codeClaudeFailed},
 		{lifetime.ErrServiceFailed, codeClaudeFailed},
 		{gh.ErrNotInstalled, codeGhMissing},
 		{gh.ErrAuth, codeGhAuth},

@@ -64,6 +64,7 @@ type lifetimeManager interface {
 	RemoveTree(ctx context.Context, ws *workspace.Workspace, opts lifetime.TreeOptions) ([]lifetime.TreeItem, error)
 	Restore(ctx context.Context, opts lifetime.RestoreOptions) ([]lifetime.Restored, error)
 	Restart(ctx context.Context, opts lifetime.RestartOptions) ([]lifetime.Restarted, error)
+	Continue(ctx context.Context, opts lifetime.ContinueOptions) ([]lifetime.Continued, error)
 	Warnings() []string
 }
 
@@ -89,6 +90,8 @@ type claudeClient interface {
 	DaemonStatus(ctx context.Context) (claude.DaemonStatus, error)
 	StopDaemon(ctx context.Context) error
 	RunDaemon(ctx context.Context) (int, error)
+	UsageLimit(s *claude.Session, message string) (*claude.Limit, error)
+	Send(ctx context.Context, s *claude.Session, message string) error
 }
 
 // ghClient runs the GitHub CLI; nothing else in ws does (ADR 0039).
