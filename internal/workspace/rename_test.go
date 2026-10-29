@@ -122,7 +122,7 @@ func TestStore_SetHidden(t *testing.T) {
 	})
 }
 
-func TestStore_ClearParent(t *testing.T) {
+func TestStore_SetParent(t *testing.T) {
 	t.Parallel()
 	t.Run("makes a child a root", func(t *testing.T) {
 		t.Parallel()
@@ -132,7 +132,7 @@ func TestStore_ClearParent(t *testing.T) {
 		require.NoError(t, os.MkdirAll(ws.Path, 0o750))
 		require.NoError(t, os.MkdirAll(s.stateOf(ws.ID), 0o750))
 		require.NoError(t, writeRecord(s.recordPath(ws.ID), &ws))
-		got, err := s.ClearParent(ws.ID)
+		got, err := s.SetParent(ws.ID, "")
 		require.NoError(t, err)
 		assert.Empty(t, got.Parent)
 		read, err := readRecord(s.recordPath(ws.ID))
@@ -140,17 +140,33 @@ func TestStore_ClearParent(t *testing.T) {
 		assert.Empty(t, read.Parent)
 		assert.Equal(t, visibleVersion, read.Version)
 	})
+	t.Run("moves a child to another parent", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := sampleRecord(s.root, "child-d8efb24f")
+		ws.Parent = "parent-1f0c33d8"
+		require.NoError(t, os.MkdirAll(ws.Path, 0o750))
+		require.NoError(t, os.MkdirAll(s.stateOf(ws.ID), 0o750))
+		require.NoError(t, writeRecord(s.recordPath(ws.ID), &ws))
+		got, err := s.SetParent(ws.ID, "grandparent-5c01e7a2")
+		require.NoError(t, err)
+		assert.Equal(t, "grandparent-5c01e7a2", got.Parent)
+		read, err := readRecord(s.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "grandparent-5c01e7a2", read.Parent)
+		assert.Equal(t, parentVersion, read.Version)
+	})
 	t.Run("a root stays as it is", func(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
 		ws := putWorkspace(t, s, "x-d8efb24f", testNow())
-		got, err := s.ClearParent(ws.ID)
+		got, err := s.SetParent(ws.ID, "")
 		require.NoError(t, err)
 		assert.Equal(t, ws, got)
 	})
 	t.Run("an unknown workspace", func(t *testing.T) {
 		t.Parallel()
-		_, err := newTestStore(t, nil, nil).ClearParent("nope")
+		_, err := newTestStore(t, nil, nil).SetParent("nope", "")
 		assert.ErrorIs(t, err, ErrNotFound)
 	})
 }

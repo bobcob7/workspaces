@@ -58,6 +58,10 @@ func guideTopics() []string {
 		"review prime",
 		"review describe",
 		"review submit",
+		"machine",
+		"machine spawn",
+		"machine children",
+		"machine rm",
 		"llm",
 	}
 }

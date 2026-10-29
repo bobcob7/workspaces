@@ -878,6 +878,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			FindFunc: func(arg string) (workspace.Workspace, error) {
 //				panic("mock out the Find method")
 //			},
+//			ListFunc: func() ([]workspace.Workspace, error) {
+//				panic("mock out the List method")
+//			},
 //			RecordSessionFunc: func(id string, kind workspace.SessionKind, claudeSessionID string) error {
 //				panic("mock out the RecordSession method")
 //			},
@@ -914,6 +917,9 @@ type workspaceStoreMock struct {
 
 	// FindFunc mocks the Find method.
 	FindFunc func(arg string) (workspace.Workspace, error)
+
+	// ListFunc mocks the List method.
+	ListFunc func() ([]workspace.Workspace, error)
 
 	// RecordSessionFunc mocks the RecordSession method.
 	RecordSessionFunc func(id string, kind workspace.SessionKind, claudeSessionID string) error
@@ -954,6 +960,9 @@ type workspaceStoreMock struct {
 		Find []struct {
 			// Arg is the arg argument value.
 			Arg string
+		}
+		// List holds details about calls to the List method.
+		List []struct {
 		}
 		// RecordSession holds details about calls to the RecordSession method.
 		RecordSession []struct {
@@ -1008,6 +1017,7 @@ type workspaceStoreMock struct {
 	lockContaining    sync.RWMutex
 	lockCreate        sync.RWMutex
 	lockFind          sync.RWMutex
+	lockList          sync.RWMutex
 	lockRecordSession sync.RWMutex
 	lockRecordTrust   sync.RWMutex
 	lockRemove        sync.RWMutex
@@ -1114,6 +1124,33 @@ func (mock *workspaceStoreMock) FindCalls() []struct {
 	mock.lockFind.RLock()
 	calls = mock.calls.Find
 	mock.lockFind.RUnlock()
+	return calls
+}
+
+// List calls ListFunc.
+func (mock *workspaceStoreMock) List() ([]workspace.Workspace, error) {
+	if mock.ListFunc == nil {
+		panic("workspaceStoreMock.ListFunc: method is nil but workspaceStore.List was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockList.Lock()
+	mock.calls.List = append(mock.calls.List, callInfo)
+	mock.lockList.Unlock()
+	return mock.ListFunc()
+}
+
+// ListCalls gets all the calls that were made to List.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.ListCalls())
+func (mock *workspaceStoreMock) ListCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockList.RLock()
+	calls = mock.calls.List
+	mock.lockList.RUnlock()
 	return calls
 }
 

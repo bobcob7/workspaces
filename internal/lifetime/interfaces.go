@@ -21,7 +21,7 @@ type workspaceStore interface {
 	Abandoned(id string) (bool, error)
 	GuardedDir(id string) (string, error)
 	Remove(id string, opts workspace.RemoveOptions) error
-	ClearParent(id string) (workspace.Workspace, error)
+	SetParent(id, parent string) (workspace.Workspace, error)
 }
 
 // claudeClient runs the Claude Code CLI (ADR 0024).

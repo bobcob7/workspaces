@@ -9,6 +9,9 @@ started (their descendants), deepest first. For an agent workspace it
 runs `claude stop` and `claude rm` on the session, then deletes the
 workspace and its records.
 
+`ws rm` is for people and the desktop app. Agents use `ws machine rm` to
+remove their helpers; see `ws llm machine rm`.
+
 ## When to use it
 
 - To remove a workspace you created, once its work is pushed or no longer

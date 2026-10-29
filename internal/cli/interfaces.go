@@ -44,6 +44,7 @@ type repoCache interface {
 type workspaceStore interface {
 	UsesCommit(id, commit string) (bool, error)
 	Create(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error)
+	List() ([]workspace.Workspace, error)
 	Find(arg string) (workspace.Workspace, error)
 	Containing(dir string) (workspace.Workspace, error)
 	RecordSession(id string, kind workspace.SessionKind, claudeSessionID string) error

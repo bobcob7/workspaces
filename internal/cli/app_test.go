@@ -292,7 +292,14 @@ func TestApp_newRootCmd(t *testing.T) {
 		for _, cmd := range root.Commands() {
 			names = append(names, cmd.Name())
 		}
-		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "list", "rm", "rename", "hide", "unhide", "cache", "review", "llm"}, names)
+		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "list", "rm", "rename", "hide", "unhide", "cache", "review", "llm", "machine"}, names)
+	})
+	t.Run("lists machine under Commands for agents", func(t *testing.T) {
+		require.True(t, root.ContainsGroup(agentsGroup))
+		machine, _, err := root.Find([]string{"machine"})
+		require.NoError(t, err)
+		assert.Equal(t, agentsGroup, machine.GroupID)
+		assert.Contains(t, root.UsageString(), "Commands for agents:\n  machine")
 	})
 	t.Run("flag errors are usage errors", func(t *testing.T) {
 		requireUsageError(t, root.FlagErrorFunc()(root, errTest))
@@ -303,6 +310,22 @@ func TestApp_newRootCmd(t *testing.T) {
 		app.global.verbose = true
 		root.PersistentPreRun(root, nil)
 		assert.True(t, app.log.Enabled(t.Context(), slog.LevelDebug))
+	})
+	t.Run("commands for agents print JSON without --json", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		root := app.newRootCmd()
+		machine, _, err := root.Find([]string{"machine", "children"})
+		require.NoError(t, err)
+		root.PersistentPreRun(machine, nil)
+		assert.True(t, app.global.json)
+	})
+	t.Run("other commands keep --json off", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		root := app.newRootCmd()
+		rm, _, err := root.Find([]string{"rm"})
+		require.NoError(t, err)
+		root.PersistentPreRun(rm, nil)
+		assert.False(t, app.global.json)
 	})
 	t.Run("logging stays off without verbose", func(t *testing.T) {
 		app, _, _ := newTestApp()

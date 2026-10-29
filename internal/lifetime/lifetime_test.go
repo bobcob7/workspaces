@@ -84,10 +84,10 @@ func newFixture(t *testing.T) *fixture {
 		AbandonedFunc:  func(id string) (bool, error) { return f.abandoned[id], nil },
 		GuardedDirFunc: func(id string) (string, error) { return "/cfg/workspaces/" + id, nil },
 		RemoveFunc:     func(string, workspace.RemoveOptions) error { return nil },
-		ClearParentFunc: func(id string) (workspace.Workspace, error) {
+		SetParentFunc: func(id, parent string) (workspace.Workspace, error) {
 			for i := range f.workspaces {
 				if f.workspaces[i].ID == id {
-					f.workspaces[i].Parent = ""
+					f.workspaces[i].Parent = parent
 					return f.workspaces[i], nil
 				}
 			}

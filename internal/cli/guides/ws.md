@@ -9,10 +9,15 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 
 ## Rules for agents
 
-- To hand work to another agent, use `ws claude --json <spec>... -- "<prompt>"`
-  and keep the returned session id. Follow it with `claude logs <id>`.
-- Don't remove, stop, or work in a workspace you didn't create unless told
-  to.
+- Use `ws machine` to start, list, and remove your helpers; see `ws llm
+  machine`. It acts only for your workspace and the ones it started, and
+  always prints JSON. `ws claude`, `ws list`, and `ws rm` are for people
+  and the desktop app.
+- To hand work to another agent, use `ws machine spawn <spec>... --
+  "<prompt>"` and keep the returned session id. Follow it with
+  `claude logs <id>`.
+- Don't remove, stop, or work in a workspace you didn't create unless
+  told to; `ws machine rm` enforces this, `ws rm` doesn't.
 - Parse `--json` output, never the tables.
 - To get a pull request reviewed, use `ws review start --json --pr <n>
   <repo>` and run its `wait_command` as a background command; see `ws llm
@@ -20,31 +25,33 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   reviewer has reported; its report stays readable.
 - Never run `ws restart` unless told to: it interrupts every background
   agent on the machine, not only yours.
-- What you start from your workspace (`ws claude`, `ws review start`) is
-  your child, and is removed with your workspace. Remove each child with
-  `ws rm` as soon as you've used its result; `ws list --json --parent
-  <your workspace id>` lists them. Use `--parent none` only for work meant
-  to outlive you.
+- What you start from your workspace (`ws machine spawn`, `ws review
+  start`) is your child, and is removed with your workspace. Remove each
+  child with `ws machine rm` as soon as you've used its result;
+  `ws machine children` lists them. For work meant to outlive you, and
+  only when told to, use `ws claude --json --parent none`.
 - Removing a workspace discards everything in it, whatever its git state.
-  Push, or copy out, anything worth keeping before `ws rm` or `claude rm`.
+  Push, or copy out, anything worth keeping before `ws machine rm` or
+  `claude rm`.
 
 ## Use cases
 
 ```console
-# Hand a task to a new agent in a new workspace, and keep its ids
-$ ws claude --json --name fix-login buff-bear -- "Fix the login bug"
-{"id":"fix-login-d8efb24f","session":"e8cdf5d8","path":"/…/workspaces/fix-login-d8efb24f","repos":[…],"warnings":[]}
+# Hand a task to a helper agent in a new workspace, and keep its ids
+$ ws machine spawn --name fix-login buff-bear -- "Fix the login bug"
+{"id":"fix-login-d8efb24f","session":"e8cdf5d8","path":"/…/workspaces/fix-login-d8efb24f","parent":"plan-auth-1a2b3c4d","repos":[…],"warnings":[]}
 $ claude logs e8cdf5d8
+
+# List the workspaces you started, and their sessions
+$ ws machine children
 
 # Get your pull request reviewed; run wait_command in the background
 $ ws review start --json --pr 42 buff-bear
 {"id":"review-buff-bear-42-3f2a9c1-d8efb24f",…,"wait_command":"ws review wait --json review-buff-bear-42-3f2a9c1-d8efb24f"}
 
-# See every workspace and its session; -a includes hidden ones, such as reviews
-$ ws list --json -a
-
-# Remove a workspace you created, once its work is pushed
-$ ws rm --json fix-login-d8efb24f
+# Remove a helper once its work is pushed, or every one you started
+$ ws machine rm fix-login-d8efb24f
+$ ws machine rm --all
 ```
 
 A person also uses `ws shell [<spec>...]` for a throwaway shell, and
@@ -133,7 +140,7 @@ messages aren't.
   `{"error": {"code": "repo_not_found", "message": "…", "details": {…}}}`.
   `details` is `null` or an object, such as `{"stderr": "…"}` when git or
   claude failed, or `{"candidates": [...]}` for an ambiguous name.
-- Commands that act on several items (`ws rm`, `ws restore`, `ws restart`,
+- Commands that act on several items (`ws rm`, `ws machine rm`, `ws restore`, `ws restart`,
   `ws cache add`, `update`, `remove`) still print a result when some items
   fail: each item has its own `error` (`{"code", "message"}` or `null`),
   and the exit code is the first failure's.
@@ -142,9 +149,9 @@ messages aren't.
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -188,4 +195,8 @@ everything.
   - `ws llm review prime`: how to write and submit a review, and a profile's guide
   - `ws llm review describe`: the review document, a field, check, or topic at a time
   - `ws llm review submit`: check a review and store it
+- `ws llm machine`: commands for agents: start, list, and remove the workspaces yours started:
+  - `ws llm machine spawn`: new child workspace with a Claude Code background agent
+  - `ws llm machine children`: list the workspaces yours started
+  - `ws llm machine rm`: remove workspaces yours started, and theirs
 - `ws llm llm`: this guide

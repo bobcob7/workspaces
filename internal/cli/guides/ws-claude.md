@@ -7,6 +7,9 @@ ws claude [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--json] [
 Creates a workspace from the repo specs, or an empty one with none, then
 starts a Claude Code background session in it. This is how to hand work to another agent.
 
+`ws claude` is for people and the desktop app. Agents use
+`ws machine spawn` to start a helper; see `ws llm machine spawn`.
+
 ## When to use it
 
 - To give a task to a new agent in its own copy of the repos. Put the

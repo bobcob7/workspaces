@@ -145,12 +145,16 @@ func (a *App) Run(ctx context.Context, args []string) int {
 // execute runs root with args and turns its error into output on stderr and
 // an exit code. A shell's exit status from ws shell is the exit code as it
 // is. Errors without a code come from cobra rejecting the command line, so
-// they are usage errors.
+// they are usage errors. A command for agents reports every error as JSON
+// (ADR 0046).
 func (a *App) execute(ctx context.Context, root *cobra.Command, args []string) int {
 	root.SetArgs(args)
-	err := root.ExecuteContext(ctx)
+	cmd, err := root.ExecuteContextC(ctx)
 	if err == nil {
 		return exitOK
+	}
+	if isAgentCommand(cmd) {
+		a.global.json = true
 	}
 	if se, ok := errors.AsType[*shellExitError](err); ok {
 		return se.status
@@ -172,9 +176,13 @@ func (a *App) newRootCmd() *cobra.Command {
 		Version:       a.version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRun: func(*cobra.Command, []string) {
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			if a.global.verbose {
 				a.level.Set(slog.LevelDebug)
+			}
+			// Commands for agents always print JSON (ADR 0046).
+			if isAgentCommand(cmd) {
+				a.global.json = true
 			}
 		},
 	}
@@ -188,6 +196,7 @@ func (a *App) newRootCmd() *cobra.Command {
 	flags.BoolVar(&a.global.json, "json", false, "machine-readable JSON on stdout")
 	flags.BoolVar(&a.global.quiet, "quiet", false, "no progress output on stderr")
 	flags.BoolVarP(&a.global.verbose, "verbose", "v", false, "show git and claude commands and timings on stderr")
+	root.AddGroup(&cobra.Group{ID: agentsGroup, Title: "Commands for agents:"})
 	root.AddCommand(
 		a.newClaudeCmd(),
 		a.newShellCmd(),
@@ -201,6 +210,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newCacheCmd(),
 		a.newReviewCmd(),
 		a.newLLMCmd(),
+		a.newMachineCmd(),
 	)
 	return root
 }
