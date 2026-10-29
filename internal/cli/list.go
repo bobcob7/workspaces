@@ -28,6 +28,7 @@ func (a *App) newListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list [OPTIONS]",
 		Short: "List workspaces and their sessions",
+		Long:  "List workspaces and their sessions.\n\nFor people and the desktop app. Agents use ws machine children instead; see `ws llm machine children`.",
 		Args:  noArgs,
 		RunE: runE(a.withConfigUnswept(func(cmd *cobra.Command, _ []string) error {
 			return a.runList(cmd.Context(), &opts)

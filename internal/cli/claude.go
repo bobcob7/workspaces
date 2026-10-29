@@ -27,6 +27,7 @@ func (a *App) newClaudeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "claude [OPTIONS] [<SPEC>...] [-- <CLAUDE ARGS>...]",
 		Short: "New workspace with a Claude Code background agent",
+		Long:  "New workspace with a Claude Code background agent.\n\nFor people and the desktop app. Agents use ws machine spawn instead; see `ws llm machine spawn`.",
 		Args:  allArgs(specsBeforeDash, claudeArgsAfterDash),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			opts.specs, opts.claudeArgs = splitAtDash(cmd, args)

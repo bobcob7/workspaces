@@ -11,8 +11,8 @@ on disk.
 
 - `ws llm`: the overview: rules, use cases, lifetime, specs, output, and
   the list of commands.
-- `ws llm <command>`: one command's guide, such as `ws llm claude` or
-  `ws llm cache search`.
+- `ws llm <command>`: one command's guide, such as `ws llm machine` or
+  `ws llm machine spawn`.
 - `ws llm --all`: the overview followed by every command's guide, for
   example to save into a project's agent instructions.
 
@@ -34,6 +34,6 @@ on disk.
 
 ```console
 $ ws llm
-$ ws llm claude
+$ ws llm machine
 $ ws llm --all > docs/ws-for-agents.md
 ```

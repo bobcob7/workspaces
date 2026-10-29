@@ -9,27 +9,32 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 
 ## Rules for agents
 
-- Use `ws machine` to start, list, and remove your helpers; see `ws llm
-  machine`. It acts only for your workspace and the ones it started, and
-  always prints JSON. `ws claude`, `ws list`, and `ws rm` are for people
-  and the desktop app.
+- Use only `ws machine` commands; see `ws llm machine`. They act only for
+  your workspace and the ones it started, and always print JSON. The other
+  commands (`ws claude`, `ws list`, `ws rm`, `ws continue`, `ws restore`,
+  `ws restart`, `ws cache`, …) are for people and the desktop app: don't
+  run them, even when one seems to do what you need.
+- The one exception is `ws review`: to get a pull request reviewed, run
+  `ws review start --json --pr <n> <repo>` and run its `wait_command` as a
+  background command; see `ws llm review`. A reviewer agent also runs the
+  `ws review` commands its prompt names. A review removes its own agent
+  and workspace once every reviewer has reported; its report stays
+  readable.
+- If a `ws machine` command can't do what you need, stop and tell a
+  person what you wanted to run, rather than reaching for another `ws`
+  command. Above all never run `ws restart`: it interrupts every
+  background agent on the machine, not only yours.
+- Parse JSON output, never tables; pass `--json` to `ws review`.
 - To hand work to another agent, use `ws machine spawn <spec>... --
   "<prompt>"` and keep the returned session id. Follow it with
   `claude logs <id>`.
 - Don't remove, stop, or work in a workspace you didn't create unless
-  told to; `ws machine rm` enforces this, `ws rm` doesn't.
-- Parse `--json` output, never the tables.
-- To get a pull request reviewed, use `ws review start --json --pr <n>
-  <repo>` and run its `wait_command` as a background command; see `ws llm
-  review`. A review removes its own agent and workspace once every
-  reviewer has reported; its report stays readable.
-- Never run `ws restart` unless told to: it interrupts every background
-  agent on the machine, not only yours.
+  told to; `ws machine rm` enforces this.
 - What you start from your workspace (`ws machine spawn`, `ws review
   start`) is your child, and is removed with your workspace. Remove each
   child with `ws machine rm` as soon as you've used its result;
-  `ws machine children` lists them. For work meant to outlive you, and
-  only when told to, use `ws claude --json --parent none`.
+  `ws machine children` lists them. If work must outlive you, ask a
+  person to start it.
 - Removing a workspace discards everything in it, whatever its git state.
   Push, or copy out, anything worth keeping before `ws machine rm` or
   `claude rm`.
@@ -54,8 +59,9 @@ $ ws machine rm fix-login-d8efb24f
 $ ws machine rm --all
 ```
 
-A person also uses `ws shell [<spec>...]` for a throwaway shell, and
-`ws restore` after a reboot.
+A person uses the other commands: `ws claude` and `ws shell` to start
+workspaces, `ws list` and `ws rm` to manage them, `ws restore` after a
+reboot, and `ws continue` for agents stopped by a usage limit.
 
 ## Sessions and lifetime
 
@@ -77,9 +83,8 @@ created, and lives exactly as long as it:
   checks every time, and `ws llm`, which never does.
 - After a reboot, agents are stopped, not gone; `ws restore` brings them
   back with their conversations.
-- An agent that hits a 5-hour or weekly usage limit waits; `ws continue`
-  tells it to carry on once the limit resets. Run it for your own
-  children only, unless told to.
+- An agent that hits a 5-hour or weekly usage limit waits; a person runs
+  `ws continue` to tell it to carry on once the limit resets.
 - A session starts in the workspace, or in its repo's directory when the
   workspace has exactly one repo.
 - Each repo in a workspace is a full clone with two remotes: `origin`
@@ -106,8 +111,9 @@ created, and lives exactly as long as it:
 - Local paths and `file://` URLs aren't specs, and URLs with a password are
   rejected.
 
-Use `ws cache resolve <spec>` to see what a spec resolves to, and
-`ws cache search <text>` to find a repo already cached.
+A spec that doesn't resolve fails `ws machine spawn` with
+`repo_not_found` or `repo_ambiguous`; `details.candidates` lists the
+matches for an ambiguous name.
 
 ## Workspace arguments
 
@@ -164,26 +170,12 @@ instead. `ws claude` that attached a terminal exits with `claude attach`'s.
 Run `ws llm <command>` for one command's guide, or `ws llm --all` for
 everything.
 
-- `ws llm claude`: new workspace with a Claude Code background agent
-- `ws llm shell`: new workspace with an interactive shell, for people
-- `ws llm list`: list workspaces and their sessions
-- `ws llm rm`: remove workspaces and their sessions now
-- `ws llm rename`: change a workspace's display name
-- `ws llm hide`: hide a workspace from `ws list` and the desktop app's default views
-- `ws llm unhide`: show a hidden workspace again
-- `ws llm restore`: restart agents that stopped, after a reboot or crash
-- `ws llm restart`: restart Claude Code's background service and every agent; only when told to
-- `ws llm continue`: tell agents stopped by a usage limit to carry on once it resets
-- `ws llm cache`: the repo cache, and its subcommands:
-  - `ws llm cache add`: clone repos into the cache
-  - `ws llm cache update`: fetch cached repos from upstream
-  - `ws llm cache list`: list cached repos
-  - `ws llm cache search`: search cached repos, branches, and tags
-  - `ws llm cache refs`: a cached repo's branches and tags, with their last commits
-  - `ws llm cache resolve`: resolve specs to canonical repo ids
-  - `ws llm cache path`: a cached repo's directory
-  - `ws llm cache remove`: delete cached repos
-  - `ws llm cache prune`: delete commit refs no workspace uses
+For agents:
+
+- `ws llm machine`: the commands to use: start, list, and remove the workspaces yours started:
+  - `ws llm machine spawn`: new child workspace with a Claude Code background agent
+  - `ws llm machine children`: list the workspaces yours started
+  - `ws llm machine rm`: remove workspaces yours started, and theirs
 - `ws llm review`: structured reviews: getting your work reviewed, and the reviewer's commands:
   - `ws llm review start`: start a review of a pull request or commit
   - `ws llm review wait`: wait for a review, then print its report
@@ -199,8 +191,27 @@ everything.
   - `ws llm review prime`: how to write and submit a review, and a profile's guide
   - `ws llm review describe`: the review document, a field, check, or topic at a time
   - `ws llm review submit`: check a review and store it
-- `ws llm machine`: commands for agents: start, list, and remove the workspaces yours started:
-  - `ws llm machine spawn`: new child workspace with a Claude Code background agent
-  - `ws llm machine children`: list the workspaces yours started
-  - `ws llm machine rm`: remove workspaces yours started, and theirs
 - `ws llm llm`: this guide
+
+For people and the desktop app, not agents:
+
+- `ws llm claude`: new workspace with a Claude Code background agent
+- `ws llm shell`: new workspace with an interactive shell
+- `ws llm list`: list workspaces and their sessions
+- `ws llm rm`: remove workspaces and their sessions now
+- `ws llm rename`: change a workspace's display name
+- `ws llm hide`: hide a workspace from `ws list` and the desktop app's default views
+- `ws llm unhide`: show a hidden workspace again
+- `ws llm restore`: restart agents that stopped, after a reboot or crash
+- `ws llm restart`: restart Claude Code's background service and every agent
+- `ws llm continue`: tell agents stopped by a usage limit to carry on once it resets
+- `ws llm cache`: the repo cache, and its subcommands:
+  - `ws llm cache add`: clone repos into the cache
+  - `ws llm cache update`: fetch cached repos from upstream
+  - `ws llm cache list`: list cached repos
+  - `ws llm cache search`: search cached repos, branches, and tags
+  - `ws llm cache refs`: a cached repo's branches and tags, with their last commits
+  - `ws llm cache resolve`: resolve specs to canonical repo ids
+  - `ws llm cache path`: a cached repo's directory
+  - `ws llm cache remove`: delete cached repos
+  - `ws llm cache prune`: delete commit refs no workspace uses

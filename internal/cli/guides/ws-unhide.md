@@ -8,6 +8,8 @@ Shows a hidden workspace again: `ws list` lists it without `-a`, and the
 desktop app's Agents list shows it in its usual group. Unhiding a visible
 workspace does nothing. See `ws llm hide`.
 
+`ws unhide` is for people and the desktop app. Agents don't run it: use `ws machine` (see `ws llm machine`), or tell a person what you need.
+
 ## When to use it
 
 - When the user should follow a hidden workspace, such as a review they

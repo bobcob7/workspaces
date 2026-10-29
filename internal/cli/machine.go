@@ -15,6 +15,10 @@ import (
 // agentsGroup is ws --help's group for the commands agents run (ADR 0046).
 const agentsGroup = "agents"
 
+// peopleGroup is ws --help's group for the commands people and the desktop
+// app run, which agents are told to leave alone (ADR 0046).
+const peopleGroup = "people"
+
 var errOutsideWorkspace = errors.New("not inside a workspace: ws machine acts for the workspace containing the working directory; cd back into yours")
 
 func (a *App) newMachineCmd() *cobra.Command {

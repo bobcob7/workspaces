@@ -175,8 +175,12 @@ func (a *App) execute(ctx context.Context, root *cobra.Command, args []string) i
 
 func (a *App) newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "ws",
-		Short:         "Disposable workspaces for AI agents and shells",
+		Use:   "ws",
+		Short: "Disposable workspaces for AI agents and shells",
+		Long: "Disposable workspaces for AI agents and shells.\n\n" +
+			"Agents: read `ws llm` first, then use only the ws machine commands, " +
+			"and ws review to get your work reviewed. The commands for people " +
+			"and the desktop app aren't yours to run.",
 		Version:       a.version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -200,8 +204,11 @@ func (a *App) newRootCmd() *cobra.Command {
 	flags.BoolVar(&a.global.json, "json", false, "machine-readable JSON on stdout")
 	flags.BoolVar(&a.global.quiet, "quiet", false, "no progress output on stderr")
 	flags.BoolVarP(&a.global.verbose, "verbose", "v", false, "show git and claude commands and timings on stderr")
-	root.AddGroup(&cobra.Group{ID: agentsGroup, Title: "Commands for agents:"})
-	root.AddCommand(
+	root.AddGroup(
+		&cobra.Group{ID: agentsGroup, Title: "Commands for agents:"},
+		&cobra.Group{ID: peopleGroup, Title: "Commands for people and the desktop app:"},
+	)
+	for _, cmd := range []*cobra.Command{
 		a.newClaudeCmd(),
 		a.newShellCmd(),
 		a.newRestoreCmd(),
@@ -213,10 +220,11 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newHideCmd(),
 		a.newUnhideCmd(),
 		a.newCacheCmd(),
-		a.newReviewCmd(),
-		a.newLLMCmd(),
-		a.newMachineCmd(),
-	)
+	} {
+		cmd.GroupID = peopleGroup
+		root.AddCommand(cmd)
+	}
+	root.AddCommand(a.newMachineCmd(), a.newReviewCmd(), a.newLLMCmd())
 	return root
 }
 

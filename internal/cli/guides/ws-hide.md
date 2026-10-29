@@ -11,12 +11,13 @@ and `ws rm`, `ws restore`, `ws restart`, and `ws rename` work on it as
 before. `ws unhide` shows it again. Hiding a hidden workspace does
 nothing.
 
+`ws hide` is for people and the desktop app. Agents don't run it: use `ws machine` (see `ws llm machine`), or tell a person what you need.
+
 ## When to use it
 
-- To hide a helper workspace you started for yourself once you no longer
-  need the user to follow it. To hide one from the start, use
-  `ws claude --hidden` instead.
-- Never hide a workspace you didn't create unless told to.
+- To hide a workspace you no longer need to follow. To hide one from the
+  start, use `ws claude --hidden`; an agent uses
+  `ws machine spawn --hidden`.
 - Review workspaces from `ws review start` are already hidden.
 
 A workspace is named by its id, path, or agent session id.

@@ -9,6 +9,8 @@ shell, then respawns every background session that has a process, so they
 pick up new environment variables, MCP servers, or a Claude Code update.
 Sessions keep their conversations.
 
+`ws restart` is for people and the desktop app. Agents don't run it: use `ws machine` (see `ws llm machine`), or tell a person what you need.
+
 ## When to use it
 
 **Never run `ws restart` unless a person told you to.** It interrupts

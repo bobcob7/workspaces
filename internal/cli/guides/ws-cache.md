@@ -18,6 +18,8 @@ from it, and short repo names are resolved against it. `ws claude` and
 `ws shell` add and fetch repos on their own, so you rarely need these
 commands to create a workspace.
 
+`ws cache` is for people and the desktop app. Agents don't run it: use `ws machine` (see `ws llm machine`), or tell a person what you need.
+
 ## When to use it
 
 - `ws cache search` and `ws cache resolve` to find the right spec before

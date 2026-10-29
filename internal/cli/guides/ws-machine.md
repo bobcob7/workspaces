@@ -7,8 +7,11 @@ ws machine rm [--dry-run] [--keep-children] (<workspace>... | --all)
 ```
 
 Commands for agents: start, list, and remove the workspaces your own
-workspace started. People and the desktop app use `ws claude`, `ws list`,
-and `ws rm` instead.
+workspace started. These are the only `ws` commands an agent runs, apart
+from `ws review` to get its work reviewed. People and the desktop app use
+`ws claude`, `ws list`, and `ws rm` instead; don't run those, or any other
+`ws` command, even when one seems to fit. If `ws machine` can't do what
+you need, tell a person.
 
 Every `ws machine` command acts for the **caller**: the workspace
 containing the working directory, which is yours. There is no flag to act
