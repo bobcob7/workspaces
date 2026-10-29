@@ -22,6 +22,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `state/<id>/building/` | the workspace while it's being built ([0022](adrs/0022-workspace-record-before-rename.md)) | by creation, then moved |
 | `state/.removal-pass` | its modification time is when the removal pass last started ([0026](adrs/0026-removal-pass-timing.md)) | by the removal pass |
 | `state/.respawn.lock` | the respawn lock ([0027](adrs/0027-respawn-lock-and-record-versions.md)) | by `ws restore` and `ws restart` |
+| `state/.continue.lock` | held by a `ws continue` pass while it sends messages ([0047](adrs/0047-ws-continue-after-usage-limit.md)) | by `ws continue` |
 
 - **Workspace contents.** Nothing `ws` writes goes inside
   `workspaces/<id>/`.

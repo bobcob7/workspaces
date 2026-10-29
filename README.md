@@ -97,6 +97,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws shell`](docs/tools/ws-shell.md)     | New workspace with an interactive shell              |
 | [`ws restore`](docs/tools/ws-restore.md) | Restart agents after a reboot or crash               |
 | [`ws restart`](docs/tools/ws-restart.md) | Restart all agents with a fresh environment          |
+| [`ws continue`](docs/tools/ws-continue.md) | Carry on agents stopped by a usage limit once it resets |
 | [`ws list`](docs/tools/ws-list.md)       | List workspaces and their sessions                   |
 | [`ws rm`](docs/tools/ws-rm.md)           | Remove workspaces and their sessions now             |
 | [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
@@ -228,6 +229,9 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   `ws review start`, `wait`, `report`, and `profiles`, so agents can
   review each other's work from a terminal; and `ws review decide`,
   `acted`, and `report --decided`, so they can triage it too
+- [ ] **`ws continue`** ([0047](docs/adrs/0047-ws-continue-after-usage-limit.md),
+  proposed): carries on agents stopped by a 5-hour or weekly limit once it
+  resets, only while the Mac is fully awake
 
 ## Development
 

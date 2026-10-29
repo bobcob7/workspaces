@@ -5,6 +5,7 @@
 | [`ws claude`](ws-claude.md)   | New workspace with a Claude Code background agent        |
 | [`ws shell`](ws-shell.md)     | New workspace with an interactive shell                  |
 | [`ws restore`](ws-restore.md) | Restart agents that aren't running, after a reboot or crash |
+| [`ws continue`](ws-continue.md) | Tell agents stopped by a 5-hour or weekly usage limit to carry on once it resets |
 | [`ws restart`](ws-restart.md) | Restart Claude Code's background service and every running agent, to pick up new environment variables, MCP servers, or a Claude Code update |
 | [`ws list`](ws-list.md)       | List workspaces and their sessions                       |
 | [`ws rm`](ws-rm.md)           | Remove workspaces and their sessions now                 |
