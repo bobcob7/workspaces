@@ -1,16 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Entry } from "../../api";
 import { entry, fakeApi, fakeHost, testStore } from "../../test/fixtures";
 import { openTerminal } from "../terminals/terminalsSlice";
 import { selected } from "../ui/uiSlice";
 import {
   agentsReducer,
   createAgent,
+  editorDir,
   fetchEntries,
+  openWorkspace,
   removeEntry,
   renameEntry,
   stopAgent,
   type AgentsState,
 } from "./agentsSlice";
+
+const repo = (path: string): Entry["repos"][number] => ({
+  id: `github.com/bobcob7/${path}`,
+  path,
+  ref: "main",
+  refKind: "branch",
+});
 
 const initial = (): AgentsState => agentsReducer(undefined, { type: "init" });
 
@@ -125,5 +135,40 @@ describe("thunks", () => {
     const store = testStore({ api });
     await store.dispatch(stopAgent(entry()));
     expect(store.getState().ui.notice).toEqual({ severity: "error", message: "boom" });
+  });
+});
+
+describe("editorDir", () => {
+  it("opens the workspace when it has no repos", () => {
+    expect(editorDir(entry({ path: "/w/fix-login", repos: [] }))).toBe("/w/fix-login");
+  });
+
+  it("opens the only repo when the workspace has one", () => {
+    expect(editorDir(entry({ path: "/w/fix-login", repos: [repo("buff-bear")] }))).toBe("/w/fix-login/buff-bear");
+  });
+
+  it("opens the workspace when it has several repos", () => {
+    expect(editorDir(entry({ path: "/w/fix-login", repos: [repo("buff-bear"), repo("api")] }))).toBe("/w/fix-login");
+  });
+});
+
+describe("openWorkspace", () => {
+  it("passes the workspace path and repo paths", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(openWorkspace({ entry: entry({ repos: [repo("buff-bear"), repo("api")] }), with: "editor" }));
+    expect(api.workspaceOpen).toHaveBeenCalledWith("editor", "/w/fix-login", ["buff-bear", "api"]);
+  });
+
+  it("shows a failure as an error notice", async () => {
+    const api = fakeApi({
+      workspaceOpen: vi.fn(async () => Promise.reject({ code: "open_program_missing", message: "`code` isn't on the app's PATH." })),
+    });
+    const store = testStore({ api });
+    await store.dispatch(openWorkspace({ entry: entry(), with: "editor" }));
+    expect(store.getState().ui.notice).toEqual({
+      severity: "error",
+      message: "Couldn't open fix-login: `code` isn't on the app's PATH.",
+    });
   });
 });
