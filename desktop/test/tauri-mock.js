@@ -231,8 +231,8 @@
     open_defaults: () => data.openDefaults,
     versions: () => data.versions,
     loops_list: () => ({ loops: [], warnings: [] }),
-    read_transcript: () => ({
-      items: [
+    read_transcript: ({ offset }) => ({
+      items: offset > 0 ? [] : [
         { id: "u1", at: "2026-10-24T09:01:00Z", kind: "user", text: "Check the login rate limit." },
         { id: "a1", at: "2026-10-24T09:01:20Z", kind: "assistant", text: "The limiter is per-IP; I'll look at the middleware." },
       ],

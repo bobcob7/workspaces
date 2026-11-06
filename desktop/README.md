@@ -123,6 +123,12 @@ backend every 5 minutes by default
 | ![](docs/reviews-watched.png) | ![](docs/settings.png) |
 | **A review agent in Agents** | **Nothing watched yet, gh signed out** |
 | ![](docs/review-agent.png) | ![](docs/reviews-empty.png) |
+
+| Open folder and Open in editor on a workspace | Settings, Workspaces group |
+| --- | --- |
+| ![](docs/workspace-open.png) | ![](docs/settings-workspaces.png) |
+| **Ask Claude on a pull request** | **The Q&A agent it starts** |
+| ![](docs/reviews-ask.png) | ![](docs/reviews-ask-started.png) |
 | **A repo's Pull request reviews card, in Repos** | **Renaming a workspace** |
 | ![](docs/repos-reviews.png) | ![](docs/rename.png) |
 
