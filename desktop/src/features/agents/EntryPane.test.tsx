@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { entry, fakeApi, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { fetchEntries } from "./agentsSlice";
@@ -138,3 +138,39 @@ describe("EntryPane", () => {
   });
 });
 
+describe("EntryPane opening a workspace", () => {
+  const oneRepo = entry({
+    key: "fix-login",
+    repos: [{ id: "github.com/bobcob7/buff-bear", path: "buff-bear", ref: "main", refKind: "branch" }],
+  });
+
+  it("opens the workspace folder in the file manager", async () => {
+    const api = fakeApi();
+    renderWithStore(<EntryPane entry={entry()} />, testStore({ api }));
+    await userEvent.click(screen.getByRole("button", { name: "Open folder" }));
+    expect(api.workspaceOpen).toHaveBeenCalledWith("fileManager", "/w/fix-login", []);
+  });
+
+  it("opens a one-repo workspace's repo in the editor", async () => {
+    const api = fakeApi();
+    renderWithStore(<EntryPane entry={oneRepo} />, testStore({ api }));
+    const button = screen.getByRole("button", { name: "Open in editor" });
+    expect(button.getAttribute("title")).toContain("/w/fix-login/buff-bear");
+    await userEvent.click(button);
+    expect(api.workspaceOpen).toHaveBeenCalledWith("editor", "/w/fix-login", ["buff-bear"]);
+  });
+
+  it("disables the open buttons while the workspace is pending", () => {
+    renderWithStore(<EntryPane entry={entry({ kind: "pending" })} />, testStore());
+    expect(screen.getByRole("button", { name: "Open folder" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open in editor" })).toBeDisabled();
+  });
+
+  it("the path link opens through the file manager setting", async () => {
+    const api = fakeApi({ openExternal: vi.fn(async () => undefined) });
+    renderWithStore(<EntryPane entry={entry()} />, testStore({ api }));
+    await userEvent.click(screen.getByRole("button", { name: "/w/fix-login" }));
+    expect(api.workspaceOpen).toHaveBeenCalledWith("fileManager", "/w/fix-login", []);
+    expect(api.openExternal).not.toHaveBeenCalled();
+  });
+});

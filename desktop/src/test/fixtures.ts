@@ -9,6 +9,8 @@ import type {
   Loop,
   NewLoop,
   NotificationSettings,
+  OpenSettings,
+  OpenWith,
   ProfileDetail,
   PullRequest,
   RepoRef,
@@ -251,6 +253,12 @@ export const notificationSettings = (overrides: Partial<NotificationSettings> = 
   ...overrides,
 });
 
+export const openSettings = (overrides: Partial<OpenSettings> = {}): OpenSettings => ({
+  fileManager: "",
+  editor: "",
+  ...overrides,
+});
+
 export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   listEntries: vi.fn(async () => ({ entries: [], warnings: [] })),
   cacheRepos: vi.fn(async () => []),
@@ -294,7 +302,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewsProfileShow: vi.fn(async (name: string) => profileDetail({ name })),
   reviewsProfileAdd: vi.fn(async (name: string) => profileDetail({ name, builtin: false, source: "user" })),
   reviewsProfileEdit: vi.fn(async (name: string) => profileDetail({ name })),
-  reviewsProfileRemove: vi.fn(async () => ({ restored: false, settings: { reviews: reviewSettings(), notifications: notificationSettings() } })),
+  reviewsProfileRemove: vi.fn(async () => ({ restored: false, settings: { reviews: reviewSettings(), notifications: notificationSettings(), open: openSettings() } })),
   reviewsStart: vi.fn(async () => ({ id: "review-buff-bear-42-3f2a9c1", already: false })),
   reviewReport: vi.fn(async () => reviewReport()),
   reviewDecide: vi.fn(async () => reviewReport()),
@@ -309,9 +317,13 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
     ws: { version: "v0.3.0-4-gdc313a2", path: "/usr/local/bin/ws", error: null },
     claude: { version: "2.1.303", path: "/opt/homebrew/bin/claude", error: null },
   })),
-  settingsGet: vi.fn(async () => ({ reviews: reviewSettings(), notifications: notificationSettings() })),
-  settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews, notifications: notificationSettings() })),
-  settingsSetNotifications: vi.fn(async (notifications: NotificationSettings) => ({ reviews: reviewSettings(), notifications })),
+  settingsGet: vi.fn(async () => ({ reviews: reviewSettings(), notifications: notificationSettings(), open: openSettings() })),
+  settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews, notifications: notificationSettings(), open: openSettings() })),
+  settingsSetNotifications: vi.fn(async (notifications: NotificationSettings) => ({ reviews: reviewSettings(), notifications, open: openSettings() })),
+  workspaceOpen: vi.fn(async (_with: OpenWith, path: string) => ({ dir: path, command: ["code", path] })),
+  openDefaults: vi.fn(async () => ({ fileManager: "open", editor: "code" })),
+  settingsSetOpen: vi.fn(async (open: OpenSettings) => ({ reviews: reviewSettings(), notifications: notificationSettings(), open })),
+  reviewsAsk: vi.fn(async () => ({ id: "ask-buff-bear-42-3f2a9c1-0a1b2c3d", session: "5f6e7d8c", path: "/w/ask-buff-bear-42-3f2a9c1-0a1b2c3d", already: false })),
   onTraySelect: vi.fn(async () => () => undefined),
   loopsList: vi.fn(async () => ({ loops: [], warnings: [] })),
   loopsAdd: vi.fn(async (request: NewLoop) =>

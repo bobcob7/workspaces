@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fakeApi, head, pullRequest, reviewPlan, reviewsView, testStore } from "../../test/fixtures";
 import {
+  askAboutPr,
   dismissPr,
   dismissedToggled,
   fetchReviews,
@@ -79,5 +80,46 @@ describe("thunks", () => {
     await store.dispatch(openStartDialog(pullRequest()));
     await store.dispatch(startReview({ pr: pullRequest(), plan: reviewPlan() }));
     expect(store.getState().reviews.startDialog).toBeNull();
+  });
+});
+
+describe("askAboutPr", () => {
+  it("selects the new agent in Agents", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(askAboutPr(pullRequest()));
+    expect(api.reviewsAsk).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", 42);
+    expect(api.listEntries).toHaveBeenCalled();
+    expect(store.getState().ui.section).toBe("agents");
+    expect(store.getState().ui.selectedKey).toBe("ask-buff-bear-42-3f2a9c1-0a1b2c3d");
+    expect(store.getState().ui.notice).toEqual({
+      severity: "success",
+      message: "Started ask-buff-bear-42-3f2a9c1-0a1b2c3d to answer questions about bobcob7/buff-bear#42",
+    });
+  });
+
+  it("says when the agent already exists", async () => {
+    const api = fakeApi({
+      reviewsAsk: vi.fn(async () => ({ id: "ask-buff-bear-42-3f2a9c1-0a1b2c3d", session: null, path: "/w/a", already: true })),
+    });
+    const store = testStore({ api });
+    await store.dispatch(askAboutPr(pullRequest()));
+    expect(store.getState().ui.notice).toEqual({
+      severity: "info",
+      message: "ask-buff-bear-42-3f2a9c1-0a1b2c3d already answers questions about bobcob7/buff-bear#42",
+    });
+  });
+
+  it("shows a failure and stops holding the pull request", async () => {
+    const api = fakeApi({ reviewsAsk: vi.fn(async () => Promise.reject({ code: "pr_not_found", message: "gone" })) });
+    const store = testStore({ api });
+    await store.dispatch(askAboutPr(pullRequest()));
+    expect(store.getState().ui.notice).toEqual({ severity: "error", message: "gone" });
+    expect(store.getState().reviews.asking).toEqual([]);
+  });
+
+  it("holds the pull request while it starts", () => {
+    const state = reviewsReducer(initial(), askAboutPr.pending("req", pullRequest()));
+    expect(state.asking).toContain("github.com/bobcob7/buff-bear#42");
   });
 });

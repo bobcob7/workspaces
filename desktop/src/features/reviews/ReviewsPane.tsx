@@ -10,7 +10,7 @@ import { PrDot } from "./PrDot";
 import { ReportView } from "./ReportView";
 import { defaultTriage, fetchReport, reportKey, reviewViewed, tabChosen, type DetailTab } from "./reportsSlice";
 import { ReviewCard } from "./ReviewCard";
-import { dismissPr, fetchPlan, openStartDialog, restorePr, startReview, watchedOpened } from "./reviewsSlice";
+import { askAboutPr, dismissPr, fetchPlan, openStartDialog, restorePr, startReview, watchedOpened } from "./reviewsSlice";
 import styles from "./ReviewsPane.module.css";
 
 const commands = /(brew install gh|gh auth login)/;
@@ -77,6 +77,7 @@ const PrHeader = ({ pr, review }: PrHeaderProps): JSX.Element => {
       : review.requester ?? s.reports.byKey[reportKey(pr.repo, review.sha)]?.report?.review?.requester ?? null,
   );
   const busy = useAppSelector((s) => s.reviews.busy.includes(pr.key));
+  const asking = useAppSelector((s) => s.reviews.asking.includes(pr.key));
   const reviewedAtHead = pr.group === "reviewed" && !pr.outOfDate;
   const primary = pr.group === "reviewing" || reviewedAtHead ? null : pr.outOfDate ? "Review again" : "Review";
   const updatedLater = age(pr.updatedAt) !== age(pr.createdAt);
@@ -93,6 +94,19 @@ const PrHeader = ({ pr, review }: PrHeaderProps): JSX.Element => {
         <span className={styles.spacer} />
         <Button size="small" onClick={() => void api.openExternal(pr.url)}>
           Open on GitHub
+        </Button>
+        <Button
+          size="small"
+          title="Start a read-only Claude Code agent at this pull request's head that reads it and answers your questions. It can't change code or post to GitHub."
+          disabled={asking}
+          startIcon={
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.9A8 8 0 1 1 21 12Z" />
+            </svg>
+          }
+          onClick={() => void dispatch(askAboutPr(pr))}
+        >
+          {asking ? "Starting…" : "Ask Claude"}
         </Button>
         {pr.group === "reviewing" && review !== undefined && (
           <Button size="small" onClick={() => openAgent(dispatch, review.workspaceId)}>

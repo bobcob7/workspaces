@@ -573,9 +573,33 @@ export interface NotificationSettings {
   readonly done: boolean;
 }
 
+/** Which program opens a workspace (ADR 0051). */
+export type OpenWith = "fileManager" | "editor";
+
+/** The commands that open a workspace; "" uses the platform default. */
+export interface OpenSettings {
+  readonly fileManager: string;
+  readonly editor: string;
+}
+
+/** The directory opened and the command run. */
+export interface Opened {
+  readonly dir: string;
+  readonly command: readonly string[];
+}
+
+/** A pull request Q&A agent, started or found (ADR 0051). */
+export interface AskStarted {
+  readonly id: string;
+  readonly session: string | null;
+  readonly path: string;
+  readonly already: boolean;
+}
+
 export interface Settings {
   readonly reviews: ReviewSettings;
   readonly notifications: NotificationSettings;
+  readonly open: OpenSettings;
 }
 
 export interface LoopError {
@@ -746,6 +770,11 @@ export const api = {
     call<Settings>("settings_set_reviews", { reviews }),
   settingsSetNotifications: async (notifications: NotificationSettings): Promise<Settings> =>
     call<Settings>("settings_set_notifications", { notifications }),
+  workspaceOpen: async (openWith: OpenWith, path: string, repos: readonly string[]): Promise<Opened> =>
+    call<Opened>("workspace_open", { with: openWith, path, repos }),
+  openDefaults: async (): Promise<OpenSettings> => call<OpenSettings>("open_defaults"),
+  settingsSetOpen: async (open: OpenSettings): Promise<Settings> => call<Settings>("settings_set_open", { open }),
+  reviewsAsk: async (repo: string, number: number): Promise<AskStarted> => call<AskStarted>("reviews_ask", { repo, number }),
   /** Calls handler with the agent's key each time the tray menu selects one; resolves to an unsubscribe. */
   onTraySelect: async (handler: (key: string) => void): Promise<() => void> =>
     listen<{ readonly key: string }>("tray-select", (event) => handler(event.payload.key)),

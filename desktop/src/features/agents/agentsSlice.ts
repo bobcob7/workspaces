@@ -1,5 +1,14 @@
 import { createSlice, isAnyOf, type PayloadAction } from "@reduxjs/toolkit";
-import { toAppError, type AppError, type Created, type Entry, type Listing, type NewAgent } from "../../api";
+import {
+  toAppError,
+  type AppError,
+  type Created,
+  type Entry,
+  type Listing,
+  type NewAgent,
+  type Opened,
+  type OpenWith,
+} from "../../api";
 import { createAppThunk } from "../../thunk";
 import { closeTerminal } from "../terminals/terminalsSlice";
 import { dialogClosed, noticeShown, sectionChosen, selected } from "../ui/uiSlice";
@@ -74,6 +83,29 @@ export const stopAgent = createAppThunk<void, Entry>(
       return rejectWithValue(error);
     } finally {
       void dispatch(fetchEntries());
+    }
+  },
+);
+
+/** The directory the editor opens: the repo's own when a workspace has exactly one, so VS Code gets its git root and .vscode/ (ADR 0051). */
+export const editorDir = (entry: Entry): string => {
+  const [onlyRepo] = entry.repos;
+  return entry.repos.length === 1 && onlyRepo !== undefined ? `${entry.path}/${onlyRepo.path}` : entry.path;
+};
+
+export const openWorkspace = createAppThunk<Opened, { readonly entry: Entry; readonly with: OpenWith }>(
+  "agents/open",
+  async ({ entry, with: openWith }, { extra, dispatch, rejectWithValue }) => {
+    try {
+      return await extra.api.workspaceOpen(
+        openWith,
+        entry.path,
+        entry.repos.map((repo) => repo.path),
+      );
+    } catch (err: unknown) {
+      const error = toAppError(err);
+      dispatch(noticeShown({ severity: "error", message: `Couldn't open ${entry.name}: ${error.message}` }));
+      return rejectWithValue(error);
     }
   },
 );

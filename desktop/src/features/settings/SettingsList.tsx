@@ -7,6 +7,7 @@ import styles from "./SettingsList.module.css";
 const groups: readonly { readonly id: SettingsGroup; readonly title: string }[] = [
   { id: "reviews", title: "Reviews" },
   { id: "notifications", title: "Notifications" },
+  { id: "workspaces", title: "Workspaces" },
   { id: "about", title: "About" },
 ];
 

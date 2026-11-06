@@ -127,4 +127,16 @@ describe("ReviewsPane", () => {
     await userEvent.click(screen.getAllByRole("button", { name: "Remove" }).at(-1) as HTMLElement);
     expect(api.removeEntry).toHaveBeenCalledWith("review-buff-bear-42-3f2a9c1", "e8cdf5d8", false);
   });
+
+  it("asks Claude about the pull request", async () => {
+    const api = fakeApi();
+    renderPane(reviewsView(), api);
+    await userEvent.click(screen.getByRole("button", { name: "Ask Claude" }));
+    expect(api.reviewsAsk).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", 42);
+  });
+
+  it("offers Ask Claude on a dismissed pull request too", () => {
+    renderPane(reviewsView({ prs: [pullRequest({ group: "dismissed" })] }));
+    expect(screen.getByRole("button", { name: "Ask Claude" })).toBeInTheDocument();
+  });
 });

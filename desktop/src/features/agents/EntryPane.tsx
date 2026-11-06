@@ -10,7 +10,7 @@ import {
   ToggleButtonGroup,
 } from "@mui/material";
 import { useEffect, useState, type FormEvent, type JSX } from "react";
-import { api, type Entry } from "../../api";
+import { api, type Entry, type OpenWith } from "../../api";
 import { repoLabel } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { ConversationView } from "../conversation/ConversationView";
@@ -20,7 +20,7 @@ import { attachKey, closeTerminal, openTerminal, terminalShown, type TerminalInf
 import { ownerRepo } from "../reviews/groups";
 import { reviewSelected } from "../reviews/reviewsSlice";
 import { agentViewChosen, sectionChosen, selected, type AgentView } from "../ui/uiSlice";
-import { renameEntry, setEntryHidden, stopAgent } from "./agentsSlice";
+import { editorDir, openWorkspace, renameEntry, setEntryHidden, stopAgent } from "./agentsSlice";
 import { ChildrenCard } from "./ChildrenCard";
 import { RemoveDialog } from "./RemoveDialog";
 import { isLive } from "./status";
@@ -58,6 +58,39 @@ const EyeOffIcon = (): JSX.Element => (
     <path d="M10.6 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.8 3.7M6.6 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.6 9.6 0 0 0 5.4-1.6" />
     <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
     <path d="m3 3 18 18" />
+  </svg>
+);
+
+const FolderIcon = (): JSX.Element => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </svg>
+);
+
+const CodeIcon = (): JSX.Element => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="m8 7-5 5 5 5" />
+    <path d="m16 7 5 5-5 5" />
   </svg>
 );
 
@@ -126,6 +159,11 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   );
   const [confirming, setConfirming] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [opening, setOpening] = useState<OpenWith | null>(null);
+  const openIn = (openWith: OpenWith): void => {
+    setOpening(openWith);
+    void dispatch(openWorkspace({ entry, with: openWith })).finally(() => setOpening(null));
+  };
   const renamable = entry.workspaceId !== null && entry.kind !== "unknown";
   const attach = (): void => {
     if (entry.sessionId === null) {
@@ -166,6 +204,24 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
           )}
           <span className={styles.spacer} />
+          <Button
+            size="small"
+            startIcon={<FolderIcon />}
+            title={`Open ${entry.path} in the file manager (Settings › Workspaces)`}
+            disabled={entry.kind === "pending" || busy || opening === "fileManager"}
+            onClick={() => openIn("fileManager")}
+          >
+            Open folder
+          </Button>
+          <Button
+            size="small"
+            startIcon={<CodeIcon />}
+            title={`Open ${editorDir(entry)} in the editor (Settings › Workspaces)`}
+            disabled={entry.kind === "pending" || busy || opening === "editor"}
+            onClick={() => openIn("editor")}
+          >
+            Open in editor
+          </Button>
           {isAgent && (
             <ToggleButtonGroup
               size="small"
@@ -218,7 +274,12 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           )}
         </div>
         <div className={styles.meta}>
-          <button type="button" className={styles.path} title="Open in Finder" onClick={() => void api.openExternal(entry.path)}>
+          <button
+            type="button"
+            className={styles.path}
+            title="Open in the file manager"
+            onClick={() => void dispatch(openWorkspace({ entry, with: "fileManager" }))}
+          >
             {entry.path}
           </button>
           {entry.sessionId !== null && <span className={styles.mono}>session {entry.sessionId}</span>}

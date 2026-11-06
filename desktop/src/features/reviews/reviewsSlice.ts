@@ -1,8 +1,9 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import { toAppError, type AppError, type PullRequest, type ReviewPlan, type ReviewsView, type Started } from "../../api";
+import { toAppError, type AppError, type AskStarted, type PullRequest, type ReviewPlan, type ReviewsView, type Started } from "../../api";
 import { createAppThunk } from "../../thunk";
 import { fetchEntries } from "../agents/agentsSlice";
-import { noticeShown } from "../ui/uiSlice";
+import { noticeShown, sectionChosen, selected } from "../ui/uiSlice";
+import { ownerRepo } from "./groups";
 
 /** The Edit before starting dialog: the pull request and the plan being edited. */
 export interface StartDialog {
@@ -24,6 +25,8 @@ export interface ReviewsState {
   readonly plans: Readonly<Record<string, ReviewPlan>>;
   /** Keys of pull requests with an action in flight. */
   readonly busy: readonly string[];
+  /** Keys of pull requests whose Ask Claude agent is starting. */
+  readonly asking: readonly string[];
 }
 
 const initialState: ReviewsState = {
@@ -37,6 +40,7 @@ const initialState: ReviewsState = {
   startDialog: null,
   plans: {},
   busy: [],
+  asking: [],
 };
 
 const failed = (err: unknown, dispatch: (action: ReturnType<typeof noticeShown>) => unknown): AppError => {
@@ -163,6 +167,28 @@ export const startReview = createAppThunk<Started, StartRequest>(
   },
 );
 
+/** Starts a read-only agent that answers questions about the pull request, and shows it in Agents. */
+export const askAboutPr = createAppThunk<AskStarted, PullRequest>(
+  "reviews/ask",
+  async (pr, { extra, dispatch, rejectWithValue }) => {
+    try {
+      const started = await extra.api.reviewsAsk(pr.repo, pr.number);
+      await dispatch(fetchEntries());
+      dispatch(sectionChosen("agents"));
+      dispatch(selected(started.id));
+      const about = `${ownerRepo(pr.repo)}#${pr.number}`;
+      dispatch(
+        started.already
+          ? noticeShown({ severity: "info", message: `${started.id} already answers questions about ${about}` })
+          : noticeShown({ severity: "success", message: `Started ${started.id} to answer questions about ${about}` }),
+      );
+      return started;
+    } catch (err: unknown) {
+      return rejectWithValue(failed(err, dispatch));
+    }
+  },
+);
+
 const reviewsSlice = createSlice({
   name: "reviews",
   initialState,
@@ -250,6 +276,15 @@ const reviewsSlice = createSlice({
             error: action.payload ?? { code: "internal", message: action.error.message ?? "failed" },
           };
         }
+      })
+      .addCase(askAboutPr.pending, (state, action) => {
+        state.asking = [...state.asking, action.meta.arg.key];
+      })
+      .addCase(askAboutPr.fulfilled, (state, action) => {
+        state.asking = state.asking.filter((key) => key !== action.meta.arg.key);
+      })
+      .addCase(askAboutPr.rejected, (state, action) => {
+        state.asking = state.asking.filter((key) => key !== action.meta.arg.key);
       });
   },
 });

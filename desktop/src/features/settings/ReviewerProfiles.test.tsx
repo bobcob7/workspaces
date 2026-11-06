@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Api, ListedProfile } from "../../api";
-import { fakeApi, listedProfile, listedProfiles, notificationSettings, reviewSettings, testStore } from "../../test/fixtures";
+import { fakeApi, listedProfile, listedProfiles, notificationSettings, openSettings, reviewSettings, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { SettingsPane } from "./SettingsPane";
 
@@ -62,11 +62,11 @@ describe("Reviewer profiles actions", () => {
     const api = await open({
       settingsGet: vi.fn(async () => ({
         reviews: reviewSettings({ profiles: { docs: { runs: "off", model: "" }, go: { runs: "always", model: "" } } }),
-        notifications: notificationSettings(),
+        notifications: notificationSettings(), open: openSettings(),
       })),
       reviewsProfileRemove: vi.fn(async () => ({
         restored: false,
-        settings: { reviews: reviewSettings({ profiles: { go: { runs: "always", model: "" } } }), notifications: notificationSettings() },
+        settings: { reviews: reviewSettings({ profiles: { go: { runs: "always", model: "" } } }), notifications: notificationSettings(), open: openSettings() },
       })),
     });
     expect(screen.getByLabelText("Runs for docs")).toHaveTextContent("Off");
@@ -82,7 +82,7 @@ describe("Reviewer profiles actions", () => {
 
   it("asks before resetting, saying the built-in comes back", async () => {
     const api = await open({
-      reviewsProfileRemove: vi.fn(async () => ({ restored: true, settings: { reviews: reviewSettings(), notifications: notificationSettings() } })),
+      reviewsProfileRemove: vi.fn(async () => ({ restored: true, settings: { reviews: reviewSettings(), notifications: notificationSettings(), open: openSettings() } })),
     });
     await userEvent.click(screen.getByRole("button", { name: "Reset tests to built-in" }));
     const dialog = screen.getByRole("dialog", { name: "Reset tests to built-in?" });
