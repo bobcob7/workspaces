@@ -1,8 +1,8 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Api } from "../../api";
-import { fakeApi, notificationSettings, reviewSettings, testStore } from "../../test/fixtures";
+import { fakeApi, notificationSettings, openSettings, reviewSettings, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { SettingsList } from "./SettingsList";
 import { groupChosen, saveReviewSettings, settingsReducer } from "./settingsSlice";
@@ -94,7 +94,7 @@ describe("Reviewer profiles", () => {
     const api = fakeApi({
       settingsGet: vi.fn(async () => ({
         reviews: reviewSettings({ profiles: { security: { runs: "always", model: "claude-opus-5-5" } } }),
-        notifications: notificationSettings(),
+        notifications: notificationSettings(), open: openSettings(),
       })),
     });
     await open(api);
@@ -107,7 +107,7 @@ describe("Reviewer profiles", () => {
         reviews: reviewSettings({
           profiles: { go: { runs: "always", model: "" }, tests: { runs: "off", model: "haiku" } },
         }),
-        notifications: notificationSettings(),
+        notifications: notificationSettings(), open: openSettings(),
       })),
     });
     await open(api);
@@ -127,7 +127,7 @@ describe("Reviewer profiles", () => {
     const api = fakeApi({
       settingsGet: vi.fn(async () => ({
         reviews: reviewSettings({ model: "opus", profiles: { go: { runs: "always", model: "sonnet" } } }),
-        notifications: notificationSettings(),
+        notifications: notificationSettings(), open: openSettings(),
       })),
     });
     await open(api);
@@ -156,7 +156,7 @@ describe("settingsReducer", () => {
       saveReviewSettings.rejected(null, "r1", { skipDrafts: false }, { code: "x", message: "nope" }),
     );
     expect(failed.fieldErrors.skipDrafts).toBe("nope");
-    const saved = settingsReducer(failed, saveReviewSettings.fulfilled({ reviews: reviewSettings(), notifications: notificationSettings() }, "r2", { skipDrafts: false }));
+    const saved = settingsReducer(failed, saveReviewSettings.fulfilled({ reviews: reviewSettings(), notifications: notificationSettings(), open: openSettings() }, "r2", { skipDrafts: false }));
     expect(saved.fieldErrors.skipDrafts).toBeUndefined();
   });
 });
@@ -184,7 +184,7 @@ describe("Notifications", () => {
   });
 
   it("disables the other two checkboxes when notifications are off", async () => {
-    await open(fakeApi({ settingsGet: vi.fn(async () => ({ reviews: reviewSettings(), notifications: notificationSettings({ enabled: false }) })) }));
+    await open(fakeApi({ settingsGet: vi.fn(async () => ({ reviews: reviewSettings(), notifications: notificationSettings({ enabled: false }), open: openSettings() })) }));
     expect(screen.getByRole("checkbox", { name: "Show notifications" })).toBeEnabled();
     expect(screen.getByRole("checkbox", { name: "When an agent needs input" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "When an agent is done" })).toBeDisabled();
@@ -197,10 +197,48 @@ describe("Notifications", () => {
   });
 });
 
+describe("Workspaces", () => {
+  const open = async (api = fakeApi()): Promise<Api> => {
+    const store = testStore({ api });
+    store.dispatch(groupChosen("workspaces"));
+    renderWithStore(<SettingsPane />, store);
+    await screen.findByRole("group", { name: "File manager" });
+    return api;
+  };
+
+  it("shows the default commands as placeholders", async () => {
+    await open();
+    await waitFor(() => expect(screen.getByLabelText("File manager command")).toHaveAttribute("placeholder", "open"));
+    expect(screen.getByLabelText("Editor command")).toHaveAttribute("placeholder", "code");
+  });
+
+  it("saves the editor command on blur, trimmed", async () => {
+    const api = await open();
+    await userEvent.type(screen.getByLabelText("Editor command"), "  zed  ");
+    await userEvent.tab();
+    expect(api.settingsSetOpen).toHaveBeenCalledWith({ fileManager: "", editor: "zed" });
+  });
+
+  it("shows a rejected command under its field and reverts it", async () => {
+    await open(
+      fakeApi({
+        settingsSetOpen: vi.fn(async () =>
+          Promise.reject({ code: "setting_invalid", message: 'the editor command has an unclosed "' }),
+        ),
+      }),
+    );
+    const editor = screen.getByLabelText("Editor command");
+    await userEvent.type(editor, '"');
+    await userEvent.tab();
+    expect(await screen.findByRole("alert")).toHaveTextContent('the editor command has an unclosed "');
+    expect(editor).toHaveValue("");
+  });
+});
+
 describe("SettingsList", () => {
-  it("lists Reviews, Notifications, and About in that order", () => {
+  it("lists Workspaces between Notifications and About", () => {
     renderWithStore(<SettingsList />, testStore());
     const items = within(screen.getByRole("navigation", { name: "Settings groups" })).getAllByRole("button");
-    expect(items.map((item) => item.textContent)).toEqual(["Reviews", "Notifications", "About"]);
+    expect(items.map((item) => item.textContent)).toEqual(["Reviews", "Notifications", "Workspaces", "About"]);
   });
 });

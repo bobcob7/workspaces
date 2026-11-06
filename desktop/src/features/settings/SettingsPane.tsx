@@ -1,14 +1,16 @@
 import { Alert, Checkbox, CircularProgress, FormControlLabel, MenuItem, TextField } from "@mui/material";
 import { useEffect, useState, type JSX, type ReactNode } from "react";
-import type { NotificationSettings, ReviewSettings } from "../../api";
+import type { NotificationSettings, OpenSettings, ReviewSettings } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { models, permissionModes } from "../create/NewAgentDialog";
 import { AboutGroup } from "./AboutGroup";
 import { ReviewerProfiles } from "./ReviewerProfiles";
 import {
+  fetchOpenDefaults,
   fetchProfiles,
   fetchSettings,
   saveNotificationSettings,
+  saveOpenSettings,
   saveReviewSettings,
   type ReviewSettingKey,
 } from "./settingsSlice";
@@ -235,6 +237,88 @@ const NotificationsGroup = ({ settings }: { readonly settings: NotificationSetti
   );
 };
 
+interface OpenCommandRowProps {
+  readonly label: string;
+  readonly inputLabel: string;
+  readonly help: ReactNode;
+  readonly field: keyof OpenSettings;
+  readonly value: string;
+  readonly placeholder: string;
+  readonly error: string | undefined;
+}
+
+/** One command, saved on blur when it changed. A rejected save puts back the saved value. */
+const OpenCommandRow = ({ label, inputLabel, help, field, value, placeholder, error }: OpenCommandRowProps): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const [draft, setDraft] = useDraft(value);
+  const save = (): void => {
+    const next = draft.trim();
+    setDraft(next);
+    if (next === value) {
+      return;
+    }
+    void dispatch(saveOpenSettings({ [field]: next })).then((result) => {
+      if (saveOpenSettings.rejected.match(result)) {
+        setDraft(value);
+      }
+    });
+  };
+  return (
+    <Row label={label} help={help} errors={[error]}>
+      <TextField
+        size="small"
+        fullWidth
+        className={styles.mono}
+        value={draft}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        slotProps={{ htmlInput: { "aria-label": inputLabel } }}
+      />
+    </Row>
+  );
+};
+
+const WorkspacesGroup = ({ settings }: { readonly settings: OpenSettings }): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const defaults = useAppSelector((s) => s.settings.openDefaults);
+  const errors = useAppSelector((s) => s.settings.openErrors);
+  useEffect(() => {
+    if (defaults === null) {
+      void dispatch(fetchOpenDefaults());
+    }
+  }, [dispatch, defaults]);
+  return (
+    <section className={styles.group} aria-label="Workspaces">
+      <h1 className={styles.title}>Workspaces</h1>
+      <OpenCommandRow
+        label="File manager"
+        inputLabel="File manager command"
+        help="Opens a workspace's folder. Empty uses the system's. The folder is added at the end, or where {path} is."
+        field="fileManager"
+        value={settings.fileManager}
+        placeholder={defaults?.fileManager ?? ""}
+        error={errors.fileManager}
+      />
+      <OpenCommandRow
+        label="Editor"
+        inputLabel="Editor command"
+        help={
+          <>
+            Opens a workspace in your editor: its repo when it has exactly one, otherwise the workspace folder. Empty uses VS Code's{" "}
+            <code>code</code>. Try <code>open -a "Visual Studio Code"</code>, <code>cursor</code> or <code>zed</code>; use full paths,
+            since ~ and $VARS aren't expanded.
+          </>
+        }
+        field="editor"
+        value={settings.editor}
+        placeholder={defaults?.editor ?? ""}
+        error={errors.editor}
+      />
+    </section>
+  );
+};
+
 /** The chosen settings group. Changes save as they're made. */
 export const SettingsPane = (): JSX.Element => {
   const dispatch = useAppDispatch();
@@ -262,6 +346,13 @@ export const SettingsPane = (): JSX.Element => {
     return (
       <div className={styles.root}>
         <NotificationsGroup settings={settings.notifications} />
+      </div>
+    );
+  }
+  if (group === "workspaces") {
+    return (
+      <div className={styles.root}>
+        <WorkspacesGroup settings={settings.open} />
       </div>
     );
   }

@@ -4,6 +4,7 @@ import {
   type AppError,
   type ListedProfile,
   type NotificationSettings,
+  type OpenSettings,
   type ProfileDetail,
   type ProfileDraft,
   type ProfileRemoved,
@@ -14,7 +15,7 @@ import {
 import { createAppThunk } from "../../thunk";
 
 /** Settings groups; a group is listed once it has settings. */
-export type SettingsGroup = "reviews" | "notifications" | "about";
+export type SettingsGroup = "reviews" | "notifications" | "workspaces" | "about";
 
 export type ReviewSettingKey = keyof ReviewSettings;
 
@@ -26,6 +27,10 @@ export interface SettingsState {
   readonly fieldErrors: Readonly<Partial<Record<ReviewSettingKey, string>>>;
   /** The error under the Notifications group when its last change failed to save. */
   readonly notificationsError: string | null;
+  /** Where Settings > Workspaces gets its placeholders; null until fetched. */
+  readonly openDefaults: OpenSettings | null;
+  /** The error under each command whose last change failed to save. */
+  readonly openErrors: Readonly<Partial<Record<keyof OpenSettings, string>>>;
   /** Every reviewer profile, from `ws review profiles`. */
   readonly profiles: readonly ListedProfile[] | null;
   readonly profilesError: AppError | null;
@@ -40,6 +45,8 @@ const initialState: SettingsState = {
   group: "reviews",
   fieldErrors: {},
   notificationsError: null,
+  openDefaults: null,
+  openErrors: {},
   profiles: null,
   profilesError: null,
   versions: null,
@@ -154,8 +161,36 @@ export const saveNotificationSettings = createAppThunk<Settings, Partial<Notific
   },
 );
 
+export const fetchOpenDefaults = createAppThunk<OpenSettings, void>(
+  "settings/fetchOpenDefaults",
+  async (_arg, { extra, rejectWithValue }) => {
+    try {
+      return await extra.api.openDefaults();
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+/** Saves a change to the Workspaces commands as it's made. */
+export const saveOpenSettings = createAppThunk<Settings, Partial<OpenSettings>>(
+  "settings/saveOpen",
+  async (change, { extra, getState, rejectWithValue }) => {
+    const current = getState().settings.settings;
+    try {
+      const base = current ?? (await extra.api.settingsGet());
+      return await extra.api.settingsSetOpen({ ...base.open, ...change });
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
 const changedKeys = (change: Partial<ReviewSettings>): readonly ReviewSettingKey[] =>
   Object.keys(change).filter((key): key is ReviewSettingKey => key in change);
+
+const changedOpenKeys = (change: Partial<OpenSettings>): readonly (keyof OpenSettings)[] =>
+  Object.keys(change) as (keyof OpenSettings)[];
 
 const settingsSlice = createSlice({
   name: "settings",
@@ -208,6 +243,22 @@ const settingsSlice = createSlice({
       }))
       .addCase(saveNotificationSettings.rejected, (state, action) => {
         state.notificationsError = action.payload?.message ?? action.error.message ?? "saving failed";
+      })
+      .addCase(fetchOpenDefaults.fulfilled, (state, action) => {
+        state.openDefaults = action.payload;
+      })
+      .addCase(saveOpenSettings.fulfilled, (state, action): SettingsState => {
+        const openErrors = { ...state.openErrors };
+        for (const key of changedOpenKeys(action.meta.arg)) {
+          delete openErrors[key];
+        }
+        return { ...state, settings: action.payload, openErrors };
+      })
+      .addCase(saveOpenSettings.rejected, (state, action) => {
+        const message = action.payload?.message ?? action.error.message ?? "saving failed";
+        for (const key of changedOpenKeys(action.meta.arg)) {
+          state.openErrors[key] = message;
+        }
       })
       .addCase(saveReviewSettings.rejected, (state, action) => {
         const message = action.payload?.message ?? action.error.message ?? "saving failed";
