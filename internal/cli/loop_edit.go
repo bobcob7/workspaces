@@ -8,11 +8,11 @@ import (
 
 // loopEditOptions holds the flag values of ws loop edit.
 type loopEditOptions struct {
-	every, prompt, model, permissionMode string
-	script, scriptTimeout                string
-	vars                                 []string
-	keep                                 int
-	noScript, noVars, noSpecs            bool
+	title, every, prompt, model, permissionMode string
+	script, scriptTimeout                       string
+	vars                                        []string
+	keep                                        int
+	noScript, noVars, noSpecs                   bool
 }
 
 // newLoopEditCmd builds the ws loop edit command and its flags.
@@ -26,6 +26,7 @@ func (a *App) newLoopEditCmd() *cobra.Command {
 			return a.runLoopEdit(cmd, args, &opts)
 		})),
 	}
+	cmd.Flags().StringVar(&opts.title, "title", "", "a display name, such as \"Nightly deps bump\"; up to 80 characters; \"\" clears it")
 	cmd.Flags().StringVar(&opts.every, "every", "", "how often a run starts: whole minutes from 5m to 168h, such as 15m or 24h")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "the prompt each run starts with")
 	cmd.Flags().IntVar(&opts.keep, "keep", 0, "how many runs' workspaces to keep, 1 to 50")
@@ -65,9 +66,12 @@ func loopEditOf(cmd *cobra.Command, specs []string, opts *loopEditOptions) (loop
 }
 
 // loopEditFields sets the fields of the edit that were given as flags: the
-// period, prompt, keep, model, permission mode, and script.
+// title, period, prompt, keep, model, permission mode, and script.
 func loopEditFields(set func(string) bool, opts *loopEditOptions) loop.Edit {
 	var e loop.Edit
+	if set("title") {
+		e.Title = &opts.title
+	}
 	if set("every") {
 		e.Every = &opts.every
 	}

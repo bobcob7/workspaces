@@ -65,6 +65,20 @@ func TestApp_loopEdit(t *testing.T) {
 			})
 		}
 	})
+	t.Run("sets and clears the title", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		withLoopStore(t, app)
+		addEditLoop(t, app, stdout)
+
+		code, out := runLoop(t, app, stdout, "edit", "deps", "--title", "Nightly deps bump", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, "Nightly deps bump", out["title"])
+		assert.Equal(t, "hi", out["prompt"])
+
+		code, out = runLoop(t, app, stdout, "edit", "deps", "--title", "", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Empty(t, out["title"])
+	})
 	t.Run("sets and removes the script", func(t *testing.T) {
 		app, stdout, _ := newTestApp()
 		store := withLoopStore(t, app)
@@ -128,6 +142,7 @@ func TestApp_loopEdit(t *testing.T) {
 			{"period under five minutes", []string{"edit", "deps", "--every", "2m"}, exitUsage, "loop_invalid"},
 			{"keep over the maximum", []string{"edit", "deps", "--keep", "51"}, exitUsage, "loop_invalid"},
 			{"bad var key", []string{"edit", "deps", "--var", "1A=x"}, exitUsage, "loop_invalid"},
+			{"title with a tab", []string{"edit", "deps", "--title", "a\tb"}, exitUsage, "loop_invalid"},
 			{"bad spec", []string{"edit", "deps", "/abs/path"}, exitUsage, "spec_invalid"},
 			{"script timeout without a script", []string{"edit", "deps", "--script-timeout", "30s"}, exitUsage, "loop_invalid"},
 			{"missing loop", []string{"edit", "missing", "--every", "6h"}, exitNotFound, "loop_not_found"},

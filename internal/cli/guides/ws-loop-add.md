@@ -1,7 +1,7 @@
 # ws loop add
 
 ```
-ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... <NAME> [<SPEC>...]
+ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... <NAME> [<SPEC>...]
 ```
 
 Adds a loop. Its first run starts one period after it's added; `ws loop run`
@@ -13,6 +13,9 @@ workspace.
 
 ## Flags
 
+- `--title <TITLE>`: a display name, such as `"Nightly deps bump"`, up to 80
+  characters, with no control characters such as newlines. It is trimmed of
+  spaces, and `<NAME>` stays the loop's ID. Unset, the name is shown.
 - `--every <PERIOD>`: required. Whole minutes from `5m` to `168h`, as a Go
   duration: `15m`, `1h30m`, `24h`.
 - `--prompt <TEXT>`: required. The prompt each run starts with.
@@ -37,6 +40,7 @@ The prompt is a Go `text/template`. These values are available:
 | Value | What it is |
 | ----- | ---------- |
 | `{{.Name}}` | The loop's name |
+| `{{.Title}}` | The loop's title, or its name when it has none |
 | `{{.Vars.KEY}}` | The value of `--var KEY=…` |
 | `{{.Stdout}}` | The script's stdout; only with `--script` |
 | `{{.Stderr}}` | The script's stderr; only with `--script` |
@@ -50,7 +54,7 @@ now, not at the first run. To change a loop later, use `ws loop edit`.
 ## JSON output
 
 ```json
-{"name": "deps-bump", "every": "24h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T18:00:00Z", "last_run": null, "script": "gh issue list --label needs-triage --json number | grep .", "script_timeout": "2m", "vars": {"REPO": "buff-bear"}, "last_gate": null, "warnings": []}
+{"name": "deps-bump", "title": "Dependency bump", "every": "24h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T18:00:00Z", "last_run": null, "script": "gh issue list --label needs-triage --json number | grep .", "script_timeout": "2m", "vars": {"REPO": "buff-bear"}, "last_gate": null, "warnings": []}
 ```
 
 `model` and `permission_mode` are `null` when not set, and `last_run` is
@@ -61,7 +65,7 @@ now, not at the first run. To change a loop later, use `ws loop edit`.
 | Situation                                       | Error code       | Exit |
 | ----------------------------------------------- | ---------------- | ---- |
 | Missing `--every` or `--prompt`, or a flag error | `usage`         | 2    |
-| Bad name, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
+| Bad name, title, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
 | `--script-timeout` without `--script`           | `usage`          | 2    |
 | A spec that can't be parsed                     | `spec_invalid`   | 2    |
 | A loop with that name already exists            | `loop_exists`    | 4    |
@@ -71,6 +75,7 @@ now, not at the first run. To change a loop later, use `ws loop edit`.
 ```console
 $ ws loop add deps-bump --every 24h --permission-mode acceptEdits \
     --prompt "Update the Go and npm dependencies, run the tests, and open a PR" buff-bear
+$ ws loop add deps-bump --title "Dependency bump" --every 24h --prompt "Update the Go and npm dependencies"
 $ ws loop add deploy-watch --every 15m --keep 2 --prompt "Check the status page and summarize anything new"
 $ ws loop add --paused triage --every 1h --prompt "Triage new issues" buff-bear
 $ ws loop add triage --every 1h --var REPO=buff-bear \

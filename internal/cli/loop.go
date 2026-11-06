@@ -34,11 +34,11 @@ func (a *App) newLoopCmd() *cobra.Command {
 }
 
 type loopAddOptions struct {
-	every, prompt, model, permissionMode string
-	script, scriptTimeout                string
-	vars                                 []string
-	keep                                 int
-	paused                               bool
+	title, every, prompt, model, permissionMode string
+	script, scriptTimeout                       string
+	vars                                        []string
+	keep                                        int
+	paused                                      bool
 }
 
 func (a *App) newLoopAddCmd() *cobra.Command {
@@ -51,6 +51,7 @@ func (a *App) newLoopAddCmd() *cobra.Command {
 			return a.runLoopAdd(cmd, args, &opts)
 		})),
 	}
+	cmd.Flags().StringVar(&opts.title, "title", "", "a display name, such as \"Nightly deps bump\"; up to 80 characters")
 	cmd.Flags().StringVar(&opts.every, "every", "", "how often a run starts: whole minutes from 5m to 168h, such as 15m or 24h (required)")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "the prompt each run starts with (required)")
 	cmd.Flags().IntVar(&opts.keep, "keep", loop.DefaultKeep, "how many runs' workspaces to keep, 1 to 50")
@@ -110,6 +111,7 @@ func (a *App) newLoopRmCmd() *cobra.Command {
 // loopJSON is a loop in ws loop's output (docs/tools/ws-loop.md).
 type loopJSON struct {
 	Name           string            `json:"name"`
+	Title          string            `json:"title"`
 	Every          string            `json:"every"`
 	Prompt         string            `json:"prompt"`
 	Specs          []string          `json:"specs"`
@@ -161,6 +163,7 @@ func loopJSONOf(l *loop.Loop) loopJSON {
 	}
 	out := loopJSON{
 		Name:           l.Name,
+		Title:          l.Title,
 		Every:          l.Every,
 		Prompt:         l.Prompt,
 		Specs:          specs,
@@ -246,7 +249,11 @@ func loopLine(l *loop.Loop) string {
 	if r := l.LastRun(); r != nil && r.Workspace != "" {
 		last = r.Workspace
 	}
-	return fmt.Sprintf("%-9s  every %-4s  %-6s  next %-20s  last %s", l.Name, l.Every, state, next, last)
+	name := l.Name
+	if l.Title != "" {
+		name = fmt.Sprintf("%s (%s)", l.Title, l.Name)
+	}
+	return fmt.Sprintf("%-9s  every %-4s  %-6s  next %-20s  last %s", name, l.Every, state, next, last)
 }
 
 func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions) error {
@@ -271,6 +278,7 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 	l := loop.Loop{
 		Version:        loop.FormatVersion,
 		Name:           args[0],
+		Title:          strings.TrimSpace(opts.title),
 		Every:          loop.FormatEvery(interval),
 		Prompt:         opts.prompt,
 		Specs:          args[1:],

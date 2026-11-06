@@ -77,6 +77,7 @@ Go [`text/template`](https://pkg.go.dev/text/template):
 | Value | What it is |
 | ----- | ---------- |
 | `{{.Name}}` | The loop's name |
+| `{{.Title}}` | The loop's title, or its name when it has none |
 | `{{.Vars.KEY}}` | The value of `--var KEY=…` |
 | `{{.Stdout}}` | The script's stdout; only in a loop with `--script` |
 | `{{.Stderr}}` | The script's stderr; only in a loop with `--script` |
@@ -103,6 +104,7 @@ empty workspace.
 
 | Option | Description |
 | ------ | ----------- |
+| `--title <TITLE>` | A display name, such as `Nightly deps bump`: up to 80 characters, no control characters, trimmed of spaces. The name stays the ID; unset, the name is shown |
 | `--every <PERIOD>` | Required. Whole minutes from `5m` to `168h`, as a Go duration: `15m`, `1h30m`, `24h` |
 | `--prompt <TEXT>` | Required. The prompt each run starts with |
 | `--keep <N>` | How many runs' workspaces to keep, 1–50; default 5 |
@@ -133,6 +135,7 @@ option and no spec is a usage error.
 
 | Option | Description |
 | ------ | ----------- |
+| `--title <TITLE>` | A new display name, as for `add`; `--title ""` clears it |
 | `--every <PERIOD>` | A new period, as for `add` |
 | `--prompt <TEXT>` | A new prompt, as for `add` |
 | `--keep <N>` | How many runs' workspaces to keep, 1–50 |
@@ -147,7 +150,8 @@ option and no spec is a usage error.
 | `<SPEC>...` | Replace the loop's specs |
 
 - **The name can't be changed**: it names the record and every run's
-  workspace. To rename, `rm` the loop and `add` it again.
+  workspace. To rename, `rm` the loop and `add` it again. The title can be
+  changed with `--title`.
 - **Pausing** is `pause` and `resume`, not an edit.
 - **Schedule.** When the period's length changes, `next_run_at` becomes
   the last run's start (or `created_at`, if it never ran) plus the new
@@ -169,7 +173,8 @@ option and no spec is a usage error.
 
 ### ws loop list
 
-Lists every loop, by name. A loop file that can't be read, or is from a
+Lists every loop: its title and then its name in parentheses when it has a
+title, else its name. A loop file that can't be read, or is from a
 newer `ws`, is a warning and isn't listed.
 
 ### ws loop pause, ws loop resume
@@ -217,6 +222,7 @@ A loop (`add`, `edit`, `pause`, `resume`, `rm`, and each item of `list`):
 ```json
 {
   "name": "deps-bump",
+  "title": "Dependency bump",
   "every": "24h",
   "prompt": "Update the Go and npm dependencies, run the tests, and open a PR",
   "specs": ["buff-bear"],
@@ -320,6 +326,9 @@ $ ws loop add deps-bump --every 24h --permission-mode acceptEdits \
 # Try it now instead of waiting a day
 $ ws loop run deps-bump
 
+# Give it a display name, shown in `ws loop list`
+$ ws loop edit deps-bump --title "Dependency bump"
+
 # Every 15 minutes, in an empty workspace, keeping only the last 2 runs
 $ ws loop add deploy-watch --every 15m --keep 2 --prompt "Check https://status.example.com and summarize anything new"
 
@@ -379,7 +388,7 @@ can't start reports.
 
 | Situation | Error code | Exit |
 | --------- | ---------- | ---- |
-| Bad name, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
+| Bad name, title, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
 | `--script-timeout` without `--script` (`add`) | `usage` | 2 |
 | `edit` with nothing to change; `--no-script` with `--script` or `--script-timeout`; `--no-vars` with `--var`; `--no-specs` with specs | `usage` | 2 |
 | `edit`: `--script-timeout` on a loop left without a script | `loop_invalid` | 2 |

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // FormatVersion is the newest loop record version this ws reads and writes.
@@ -24,8 +26,9 @@ const (
 	DefaultKeep = 5
 	MaxKeep     = 50
 	// MaxRuns is how many runs a record keeps, oldest dropped first.
-	MaxRuns    = 20
-	maxNameLen = 40
+	MaxRuns     = 20
+	maxNameLen  = 40
+	maxTitleLen = 80
 )
 
 // Bounds of a loop's script timeout and vars (ADR 0049).
@@ -82,6 +85,7 @@ type Gate struct {
 type Loop struct {
 	Version        int               `toml:"version"`
 	Name           string            `toml:"name"`
+	Title          string            `toml:"title,omitempty"`
 	Every          string            `toml:"every"`
 	Prompt         string            `toml:"prompt"`
 	Specs          []string          `toml:"specs"`
@@ -111,6 +115,26 @@ func ValidateName(name string) error {
 		case c == '-' && i > 0:
 		default:
 			return fmt.Errorf("%w: name %q must be a-z, 0-9, or '-', starting with a letter or digit", ErrInvalid, name)
+		}
+	}
+	return nil
+}
+
+// ValidateTitle checks a loop's display title: "" (no title), or up to
+// 80 characters with no control characters, already trimmed of spaces.
+func ValidateTitle(title string) error {
+	if title == "" {
+		return nil
+	}
+	if title != strings.TrimSpace(title) {
+		return fmt.Errorf("%w: title %q has leading or trailing spaces", ErrInvalid, title)
+	}
+	if utf8.RuneCountInString(title) > maxTitleLen {
+		return fmt.Errorf("%w: title %q is over %d characters", ErrInvalid, title, maxTitleLen)
+	}
+	for _, r := range title {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("%w: title %q has a control character", ErrInvalid, title)
 		}
 	}
 	return nil
@@ -250,10 +274,13 @@ func (l *Loop) Templated() bool {
 	return l.Version != Version1
 }
 
-// Validate checks Name, Every, Prompt (not empty after strings.TrimSpace),
+// Validate checks Name, Title, Every, Prompt (not empty after strings.TrimSpace),
 // Keep (1..MaxKeep), Vars, the script timeout, and the prompt template.
 func (l *Loop) Validate() error {
 	if err := ValidateName(l.Name); err != nil {
+		return err
+	}
+	if err := ValidateTitle(l.Title); err != nil {
 		return err
 	}
 	if _, err := l.Interval(); err != nil {

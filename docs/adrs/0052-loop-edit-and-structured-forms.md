@@ -195,6 +195,19 @@ editor, always has the full set, and a merge flag can be added later.
   from the mock after T6 are the check that the cards and blocks read
   well.
 
+## Addendum: titles
+
+A loop's `name` stays its stable ID: the record file name, the workspace
+prefix `loop-<name>`, and the CLI argument, with the same `a-z0-9-` rule.
+A new optional `title` is the display name: free text with upper case and
+spaces, 1–80 characters after trimming, with no control characters (no
+newlines or tabs), and editable later. An unset title is left out of the
+TOML record and is `""` in JSON. Displays use the title when it is set and
+the name otherwise. `ws loop add --title` and `ws loop edit --title` set it
+(`--title ""` clears it), and the prompt template gets `{{.Title}}`, which
+is the title or the name. The record's format version doesn't change. The
+desktop form asks for the title and derives the ID from it.
+
 ## References
 
 [^code]: Read on 2026-11-06 at commit 624089f: `internal/cli/loop.go`, `internal/loop/store.go`, `internal/cli/loop_tick.go`, `desktop/src-tauri/src/loops.rs`, `desktop/src/features/loops/LoopsList.tsx`.

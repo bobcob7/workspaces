@@ -26,6 +26,7 @@ func TestEdit_Empty(t *testing.T) {
 		empty bool
 	}{
 		{name: "zero", edit: Edit{}, empty: true},
+		{name: "title", edit: Edit{Title: new("")}},
 		{name: "every", edit: Edit{Every: new("1h")}},
 		{name: "prompt", edit: Edit{Prompt: new("x")}},
 		{name: "specs", edit: Edit{Specs: &[]string{}}},
@@ -100,6 +101,7 @@ func TestLoop_Apply(t *testing.T) {
 			name string
 			edit Edit
 		}{
+			{name: "bad title", edit: Edit{Title: new("two\nlines")}},
 			{name: "bad every", edit: Edit{Every: new("2m")}},
 			{name: "blank prompt", edit: Edit{Prompt: new(" ")}},
 			{name: "keep zero", edit: Edit{Keep: new(0)}},
@@ -133,6 +135,21 @@ func TestLoop_Apply(t *testing.T) {
 		l.Specs = []string{"repo-a"}
 		require.NoError(t, l.Apply(&Edit{Specs: &[]string{}}, editNow))
 		assert.Nil(t, l.Specs)
+	})
+
+	t.Run("title is set trimmed", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		require.NoError(t, l.Apply(&Edit{Title: new("  Nightly deps bump ")}, editNow))
+		assert.Equal(t, "Nightly deps bump", l.Title)
+	})
+
+	t.Run("blank title clears it", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Title = "Nightly deps bump"
+		require.NoError(t, l.Apply(&Edit{Title: new("")}, editNow))
+		assert.Empty(t, l.Title)
 	})
 
 	t.Run("blank model clears it", func(t *testing.T) {

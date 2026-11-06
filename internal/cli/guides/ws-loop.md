@@ -1,8 +1,8 @@
 # ws loop
 
 ```
-ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] <NAME> [<SPEC>...]
-ws loop edit [--json] <NAME> [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [<SPEC>...]
+ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] <NAME> [<SPEC>...]
+ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [<SPEC>...]
 ws loop list [--json]
 ws loop pause [--json] <NAME>
 ws loop resume [--json] <NAME>
@@ -41,13 +41,15 @@ loop: remove it and add it again.
 - `ws loop rm`: delete a loop; see `ws llm loop rm`.
 
 A name is 1 to 40 characters of `a-z`, `0-9`, and `-`, starting with a letter
-or digit.
+or digit. It is the loop's ID. A loop may also have a title, up to 80
+characters with upper case and spaces, which is shown in place of the name
+when it is set.
 
 ## Exit codes
 
 | Situation                                   | Error code       | Exit |
 | ------------------------------------------- | ---------------- | ---- |
-| Bad name, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
+| Bad name, title, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
 | A spec that can't be parsed                 | `spec_invalid`   | 2    |
 | Missing or extra arguments, or a flag error | `usage`          | 2    |
 | No loop has that name                       | `loop_not_found` | 3    |

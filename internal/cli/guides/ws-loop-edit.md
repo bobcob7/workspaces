@@ -1,7 +1,7 @@
 # ws loop edit
 
 ```
-ws loop edit [--json] <NAME> [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [<SPEC>...]
+ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [<SPEC>...]
 ```
 
 Changes a loop in place. Only what's given changes: the loop's runs,
@@ -13,6 +13,8 @@ Giving no option and no spec is a usage error.
 
 ## Flags
 
+- `--title <TITLE>`: a new display name, checked as for `add`. `--title ""`
+  clears it, and the name is shown again.
 - `--every <PERIOD>`: a new period, as for `add`: whole minutes from `5m` to
   `168h`, as a Go duration. When its length changes, `next_run_at` becomes the
   last run's start (or `created_at`, if it never ran) plus the new period; if
@@ -39,6 +41,7 @@ Giving no option and no spec is a usage error.
 - `<SPEC>...`: replace the loop's specs.
 
 The name can't be changed: it names the record and every run's workspace.
+The title can be, with `--title`.
 To rename, `ws loop rm` the loop and `ws loop add` it again. Pausing is
 `ws loop pause` and `ws loop resume`, not an edit.
 
@@ -63,7 +66,7 @@ as a template: write a literal `{{` as `{{"{{"}}`.
 The loop, as `ws loop add --json` prints it, with `warnings`:
 
 ```json
-{"name": "deps", "every": "6h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T00:00:00Z", "last_run": null, "script": null, "script_timeout": null, "vars": {}, "last_gate": null, "warnings": []}
+{"name": "deps", "title": "", "every": "6h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T00:00:00Z", "last_run": null, "script": null, "script_timeout": null, "vars": {}, "last_gate": null, "warnings": []}
 ```
 
 `model` and `permission_mode` are `null` when not set, and `last_run` is
@@ -74,7 +77,7 @@ The loop, as `ws loop add --json` prints it, with `warnings`:
 | Situation                                       | Error code       | Exit |
 | ----------------------------------------------- | ---------------- | ---- |
 | No option and no spec given, a flag error, or conflicting flags (`--no-script` with `--script`, `--no-vars` with `--var`, `--no-specs` with specs) | `usage` | 2 |
-| A bad period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value; `--script-timeout` on a loop with no script | `loop_invalid` | 2 |
+| A bad title, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value; `--script-timeout` on a loop with no script | `loop_invalid` | 2 |
 | A spec that can't be parsed                     | `spec_invalid`   | 2    |
 | No loop has that name                           | `loop_not_found` | 3    |
 
@@ -82,6 +85,8 @@ The loop, as `ws loop add --json` prints it, with `warnings`:
 
 ```console
 $ ws loop edit deps --every 6h
+$ ws loop edit deps --title "Dependency bump"
+$ ws loop edit deps --title ""
 $ ws loop edit deps --prompt "Update the Go dependencies and open a PR" --keep 3
 $ ws loop edit deps --model opus --permission-mode acceptEdits
 $ ws loop edit deps buff-bear api

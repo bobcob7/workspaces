@@ -57,6 +57,16 @@ func TestApp_loopAdd(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "buff-bear", stored.Specs[0])
 	})
+	t.Run("adds a trimmed title", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		store := withLoopStore(t, app)
+		code, out := runLoop(t, app, stdout, "add", "deps", "--every", "24h", "--prompt", "hi", "--title", "  Nightly deps bump ", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, "Nightly deps bump", out["title"])
+		stored, err := store.Get("deps")
+		require.NoError(t, err)
+		assert.Equal(t, "Nightly deps bump", stored.Title)
+	})
 	t.Run("prints the text line", func(t *testing.T) {
 		app, stdout, _ := newTestApp()
 		withLoopStore(t, app)
@@ -88,6 +98,7 @@ func TestApp_loopAdd(t *testing.T) {
 			exit     int
 			wantCode string
 		}{
+			{"title with a newline", []string{"add", "deps", "--every", "1h", "--prompt", "hi", "--title", "a\nb"}, exitUsage, "loop_invalid"},
 			{"period under five minutes", []string{"add", "deps", "--every", "2m", "--prompt", "hi"}, exitUsage, "loop_invalid"},
 			{"period that isn't whole minutes", []string{"add", "deps", "--every", "90s", "--prompt", "hi"}, exitUsage, "loop_invalid"},
 			{"name with a slash", []string{"add", "a/b", "--every", "1h", "--prompt", "hi"}, exitUsage, "loop_invalid"},
@@ -353,6 +364,10 @@ func TestLoopLine(t *testing.T) {
 		l := loop.Loop{Name: "deps", Every: "1h", Runs: []loop.Run{{Workspace: "loop-deps-1a2b3c4d"}}}
 		assert.Contains(t, loopLine(&l), "last loop-deps-1a2b3c4d")
 	})
+	t.Run("the title is shown before the name", func(t *testing.T) {
+		l := loop.Loop{Name: "deps", Title: "Nightly deps bump", Every: "1h", NextRunAt: testNow()}
+		assert.Equal(t, "Nightly deps bump (deps)  every 1h    active  next 2026-10-19T12:00:00Z  last -", loopLine(&l))
+	})
 }
 
 func TestLoopJSONOf(t *testing.T) {
@@ -372,6 +387,12 @@ func TestLoopJSONOf(t *testing.T) {
 		assert.Equal(t, "not-a-duration", *loopJSONOf(&l).ScriptTimeout)
 		l.Script = ""
 		assert.Nil(t, loopJSONOf(&l).ScriptTimeout)
+	})
+	t.Run("the title is never null", func(t *testing.T) {
+		l := loop.Loop{Name: "deps", Every: "1h"}
+		assert.Empty(t, loopJSONOf(&l).Title)
+		l.Title = "Nightly deps bump"
+		assert.Equal(t, "Nightly deps bump", loopJSONOf(&l).Title)
 	})
 	t.Run("a failed run carries its error", func(t *testing.T) {
 		l := loop.Loop{Name: "deps", Every: "1h", Runs: []loop.Run{{

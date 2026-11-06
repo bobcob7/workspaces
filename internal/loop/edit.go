@@ -11,6 +11,7 @@ import (
 // Edit is a change to a loop, for ws loop edit (ADR 0052). A nil field is
 // left as it is.
 type Edit struct {
+	Title          *string // "" clears it
 	Every          *string
 	Prompt         *string
 	Specs          *[]string // replaces the specs; an empty slice clears them
@@ -24,7 +25,7 @@ type Edit struct {
 
 // Empty reports whether e changes nothing.
 func (e *Edit) Empty() bool {
-	return e.Every == nil && e.Prompt == nil && e.Specs == nil && e.Keep == nil &&
+	return e.Title == nil && e.Every == nil && e.Prompt == nil && e.Specs == nil && e.Keep == nil &&
 		e.Model == nil && e.PermissionMode == nil && e.Script == nil &&
 		e.ScriptTimeout == nil && e.Vars == nil
 }
@@ -67,9 +68,12 @@ func (e *Edit) applyTo(c, old *Loop, now time.Time) error {
 	return nil
 }
 
-// applyFields sets the plain fields of c that e changes: prompt, specs,
-// keep, model, permission mode, and vars.
+// applyFields sets the plain fields of c that e changes: title, prompt,
+// specs, keep, model, permission mode, and vars.
 func (e *Edit) applyFields(c *Loop) {
+	if e.Title != nil {
+		c.Title = strings.TrimSpace(*e.Title)
+	}
 	if e.Prompt != nil {
 		c.Prompt = *e.Prompt
 	}
