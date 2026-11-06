@@ -97,7 +97,7 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
           helperText={messageFor("keep") ?? "How many runs' workspaces to keep"}
           slotProps={{ htmlInput: { min: 1, max: 50 } }}
           size="small"
-          className={styles.keep}
+          fullWidth
         />
       </fieldset>
       <fieldset className={styles.section}>
@@ -106,7 +106,7 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
           label="Prompt"
           required
           multiline
-          minRows={4}
+          minRows={6}
           maxRows={16}
           value={values.prompt}
           onChange={(e) => patch("prompt", e.target.value)}
@@ -159,7 +159,7 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
         <TextField
           label="Script"
           multiline
-          minRows={3}
+          minRows={4}
           maxRows={12}
           value={values.script}
           onChange={(e) => patch("script", e.target.value)}

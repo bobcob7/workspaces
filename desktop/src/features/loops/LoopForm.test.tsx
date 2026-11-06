@@ -104,7 +104,13 @@ describe("LoopForm", () => {
     for (const section of ["Schedule", "Prompt", "Repos", "Agent", "Gate script"]) {
       expect(screen.getByRole("group", { name: section })).toBeInTheDocument();
     }
-    expect(screen.getAllByRole("group", { name: "Variables" }).length).toBeGreaterThan(0);
+    expect(screen.getByText("Variables", { selector: "legend" }).closest("fieldset")).toBeInTheDocument();
+  });
+
+  it("sets the prompt and script in a monospace font", () => {
+    renderForm();
+    expect(screen.getByRole("textbox", { name: /Prompt/ })).toHaveClass("mono");
+    expect(screen.getByRole("textbox", { name: /Script/ })).toHaveClass("mono");
   });
 
   it("shows the error and disables submit while submitting", () => {

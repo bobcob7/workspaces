@@ -2,7 +2,7 @@
 
 ```
 ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] <NAME> [<SPEC>...]
-ws loop edit [--json] <NAME> [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [<SPEC>...]
+ws loop edit [--json] <NAME> [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [<SPEC>...]
 ws loop list [--json]
 ws loop pause [--json] <NAME>
 ws loop resume [--json] <NAME>

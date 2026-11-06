@@ -6,6 +6,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/loop"
 )
 
+// loopEditOptions holds the flag values of ws loop edit.
 type loopEditOptions struct {
 	every, prompt, model, permissionMode string
 	script, scriptTimeout                string
@@ -14,6 +15,7 @@ type loopEditOptions struct {
 	noScript, noVars, noSpecs            bool
 }
 
+// newLoopEditCmd builds the ws loop edit command and its flags.
 func (a *App) newLoopEditCmd() *cobra.Command {
 	var opts loopEditOptions
 	cmd := &cobra.Command{
@@ -125,6 +127,7 @@ func checkLoopEditFlags(cmd *cobra.Command, specs []string) error {
 	return validSpecs(cmd, specs)
 }
 
+// runLoopEdit applies the flags and specs to the loop named by args[0] and prints it.
 func (a *App) runLoopEdit(cmd *cobra.Command, args []string, opts *loopEditOptions) error {
 	edit, err := loopEditOf(cmd, args[1:], opts)
 	if err != nil {
