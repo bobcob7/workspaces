@@ -20,6 +20,11 @@ type claudeOptions struct {
 	parent     string
 	specs      []string
 	claudeArgs []string
+	// started, when set, runs after the session is recorded and before the
+	// result is printed (ADR 0050).
+	started func(ws *workspace.Workspace, session string)
+	// result, when set, is what --json prints instead of r.
+	result func(r claudeResult) any
 }
 
 func (a *App) newClaudeCmd() *cobra.Command {
@@ -87,10 +92,13 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 		return err
 	}
 	lock.Unlock()
+	if opts.started != nil {
+		opts.started(&ws, started.ID)
+	}
 	if a.shouldAttach(ctx, started, hungUp) && a.attach(ctx, &ws, started.ID) {
 		return nil
 	}
-	return a.printClaudeResult(&ws, started.ID)
+	return a.printClaudeResult(&ws, started.ID, opts.result)
 }
 
 // handOff runs startAgent while catching SIGHUP, so closing the terminal
@@ -201,10 +209,15 @@ func (a *App) attach(ctx context.Context, ws *workspace.Workspace, id string) bo
 }
 
 // printClaudeResult prints the workspace id, the session id, and the
-// workspace path, or with --json the result object.
-func (a *App) printClaudeResult(ws *workspace.Workspace, session string) error {
+// workspace path, or with --json the result object, which result, when
+// set, turns into the object to print.
+func (a *App) printClaudeResult(ws *workspace.Workspace, session string, result func(claudeResult) any) error {
 	if a.global.json {
-		return a.writeJSON(a.claudeResultOf(ws, session))
+		r := a.claudeResultOf(ws, session)
+		if result != nil {
+			return a.writeJSON(result(r))
+		}
+		return a.writeJSON(r)
 	}
 	for _, w := range a.warnings() {
 		fmt.Fprintf(a.stderr, "ws: warning: %s\n", w)

@@ -20,6 +20,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -39,7 +40,8 @@ func machineTree() []workspace.Workspace {
 
 // newMachineApp is a test App run inside workspace plan, whose stores know
 // machineTree, and whose lifetime manager removes each workspace alone.
-func newMachineApp() *mockedApp {
+func newMachineApp(t *testing.T) *mockedApp {
+	t.Helper()
 	e := newMockedApp()
 	tree := machineTree()
 	e.store.ListFunc = func() ([]workspace.Workspace, error) { return tree, nil }
@@ -53,6 +55,7 @@ func newMachineApp() *mockedApp {
 	}
 	e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return tree[1], nil }
 	e.app.getwd = func() (string, error) { return "/cfg/workspaces/plan/buff-bear", nil }
+	e.app.paths = config.NewPaths(t.TempDir())
 	e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) {
 		entries := make([]lifetime.Entry, 0, len(tree))
 		for i := range tree {
@@ -100,12 +103,12 @@ func TestApp_newMachineCmd(t *testing.T) {
 	t.Run("is in the group for agents", func(t *testing.T) {
 		assert.Equal(t, agentsGroup, cmd.GroupID)
 	})
-	t.Run("has spawn, children, and rm", func(t *testing.T) {
+	t.Run("has spawn, result, wait, children, rm, and roles", func(t *testing.T) {
 		var names []string
 		for _, sub := range cmd.Commands() {
 			names = append(names, sub.Name())
 		}
-		assert.ElementsMatch(t, []string{"spawn", "children", "rm"}, names)
+		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "rm", "roles"}, names)
 	})
 	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"nope"}))
@@ -180,7 +183,7 @@ func TestApp_newMachineChildrenCmd(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"x"}))
 	})
 	t.Run("prints JSON without --json, without a removal pass first", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "children"), e.stderr.String())
 		assert.True(t, json.Valid(e.stdout.Bytes()), e.stdout.String())
 		assert.Empty(t, e.lifetime.SweepCalls())
@@ -203,7 +206,7 @@ func TestApp_newMachineRmCmd(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"a"}))
 	})
 	t.Run("prints JSON without --json, after the removal pass", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "rm", "--dry-run", "a"), e.stderr.String())
 		assert.Len(t, e.lifetime.SweepCalls(), 1)
 		assert.Equal(t, []string{"a"}, rmResultIDs(t, e.stdout.String()))
@@ -274,21 +277,21 @@ func TestCheckMachineRmArgs(t *testing.T) {
 
 func TestApp_caller(t *testing.T) {
 	t.Run("the workspace containing the working directory", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		id, err := e.app.caller()
 		require.NoError(t, err)
 		assert.Equal(t, "plan", id)
 		assert.Equal(t, "/cfg/workspaces/plan/buff-bear", e.store.ContainingCalls()[0].Dir)
 	})
 	t.Run("outside_workspace outside one", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.outside()
 		_, err := e.app.caller()
 		requireCode(t, codeOutsideWorkspace, err)
 		assert.ErrorIs(t, err, errOutsideWorkspace)
 	})
 	t.Run("a working directory that can't be read", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.app.getwd = func() (string, error) { return "", errTest }
 		_, err := e.app.caller()
 		assert.ErrorIs(t, err, errTest)
@@ -302,7 +305,7 @@ func TestApp_runMachineSpawn(t *testing.T) {
 			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
 		}
 		e.app.global.json = true
-		require.NoError(t, e.app.runMachineSpawn(t.Context(), &claudeOptions{specs: []string{"buff-bear"}, claudeArgs: []string{"fix it"}}))
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), spawnOptions("fix it")))
 		require.Len(t, e.store.CreateCalls(), 1)
 		assert.Equal(t, "fix-login-d8efb24f", e.store.CreateCalls()[0].Opts.Parent)
 		assert.Equal(t, []string{"fix it"}, e.claude.StartCalls()[0].Opts.Args)
@@ -323,10 +326,180 @@ func TestApp_runMachineSpawn(t *testing.T) {
 	})
 	t.Run("outside a workspace, creates nothing", func(t *testing.T) {
 		e := newClaudeEnv(t)
-		err := e.app.runMachineSpawn(t.Context(), &claudeOptions{claudeArgs: []string{"fix it"}})
+		err := e.app.runMachineSpawn(t.Context(), spawnOptions("fix it"))
 		requireCode(t, codeOutsideWorkspace, err)
 		assert.Empty(t, e.store.CreateCalls())
 		assert.Empty(t, e.claude.CheckCalls())
+	})
+	t.Run("with a role, renders its prompt and records the role", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), roleSpawnOptions()))
+		require.Len(t, e.claude.StartCalls(), 1)
+		args := e.claude.StartCalls()[0].Opts.Args
+		require.Len(t, args, 5)
+		assert.Contains(t, args[0], "feat/x-t1")
+		assert.Contains(t, args[0], "ws machine result PASS")
+		assert.Equal(t, []string{"--model", "haiku", "--permission-mode", "auto"}, args[1:])
+		assert.Contains(t, e.stdout.String(), `"role":"implementer"`)
+		rec, err := machine.NewStore(e.app.paths.State).Read("boss", "x")
+		require.NoError(t, err)
+		require.NotNil(t, rec.Spawn)
+		assert.Equal(t, "implementer", rec.Spawn.Role)
+		assert.Equal(t, "haiku", rec.Spawn.Model)
+		assert.Equal(t, []string{"PASS"}, rec.Spawn.Pass)
+		assert.Equal(t, []string{"FAIL"}, rec.Spawn.Fail)
+		assert.Equal(t, map[string]string{"TASK": "T1", "TASKS": "t.md", "BASE": "feat/x", "BRANCH": "feat/x-t1"}, rec.Spawn.Vars)
+		assert.Equal(t, []string{"plan", "boss"}, rec.Spawn.Ancestors)
+	})
+	t.Run("with a role, the prompt after -- follows the rendered prompt", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		opts := roleSpawnOptions()
+		opts.claudeArgs = []string{"Fix item 1.", "--model", "opus"}
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+		args := e.claude.StartCalls()[0].Opts.Args
+		assert.True(t, strings.HasSuffix(args[0], "\n\nFix item 1."), args[0])
+		assert.Equal(t, []string{"--model", "haiku", "--permission-mode", "auto", "--model", "opus"}, args[1:])
+	})
+	t.Run("with a role, a refusal creates nothing", func(t *testing.T) {
+		cases := []struct {
+			name string
+			code errorCode
+			edit func(*machineSpawnOptions)
+		}{
+			{"--var without --role", codeUsage, func(o *machineSpawnOptions) { o.role, o.vars = "", []string{"TASK=T1"} }},
+			{"a var the role doesn't have", codeUsage, func(o *machineSpawnOptions) { o.vars = append(o.vars, "NOPE=1") }},
+			{"a var given twice", codeUsage, func(o *machineSpawnOptions) { o.vars = append(o.vars, "TASK=T2") }},
+			{"a var missing", codeUsage, func(o *machineSpawnOptions) { o.vars = o.vars[:3] }},
+			{"an unknown role", codeRoleUnknown, func(o *machineSpawnOptions) { o.role = "nope" }},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				e := roleSpawnEnv(t)
+				opts := roleSpawnOptions()
+				tc.edit(opts)
+				requireCode(t, tc.code, e.app.runMachineSpawn(t.Context(), opts))
+				assert.Empty(t, e.store.CreateCalls())
+			})
+		}
+	})
+	t.Run("without a role, the result says role null and records nothing", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), spawnOptions("fix it")))
+		assert.Contains(t, e.stdout.String(), `"role":null`)
+		_, err := os.Stat(filepath.Join(e.app.paths.State, "boss", "machine", "x", "spawn.toml"))
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("a record that can't be written is a warning, and the child starts", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		require.NoError(t, os.MkdirAll(e.app.paths.State, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.State, "boss"), nil, 0o644))
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), roleSpawnOptions()))
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Contains(t, e.stdout.String(), "couldn't record role implementer for x")
+	})
+}
+
+// implementerVars are the --var flags for the built-in implementer role.
+var implementerVars = []string{"TASK=T1", "TASKS=t.md", "BASE=feat/x", "BRANCH=feat/x-t1"}
+
+// roleSpawnOptions is ws machine spawn --role implementer for implementerVars
+// with buff-bear, and no prompt after --.
+func roleSpawnOptions() *machineSpawnOptions {
+	opts := spawnOptions()
+	opts.role = "implementer"
+	opts.vars = implementerVars
+	return opts
+}
+
+// spawnOptions is ws machine spawn with buff-bear and claudeArgs, and no role.
+func spawnOptions(claudeArgs ...string) *machineSpawnOptions {
+	var opts machineSpawnOptions
+	opts.specs = []string{"buff-bear"}
+	opts.claudeArgs = claudeArgs
+	return &opts
+}
+
+// roleSpawnEnv is a claude env run inside plan, under boss, where the new
+// workspace is x: so x's root is boss, and its ancestors are plan and boss.
+// Its state directory is a fresh one.
+func roleSpawnEnv(t *testing.T) *claudeEnv {
+	t.Helper()
+	e := newClaudeEnv(t)
+	e.app.paths = config.NewPaths(t.TempDir())
+	tree := []workspace.Workspace{
+		{ID: "boss", Path: "/cfg/workspaces/boss"},
+		{ID: "plan", Path: "/cfg/workspaces/plan", Parent: "boss"},
+		{ID: "x", Path: "/cfg/workspaces/x", Parent: "plan"},
+	}
+	e.store.ListFunc = func() ([]workspace.Workspace, error) { return tree, nil }
+	e.store.FindFunc = func(arg string) (workspace.Workspace, error) {
+		for i := range tree {
+			if tree[i].ID == arg {
+				return tree[i], nil
+			}
+		}
+		return workspace.Workspace{}, workspace.ErrNotFound
+	}
+	e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+		return workspace.Workspace{ID: "plan"}, nil
+	}
+	return e
+}
+
+func TestMachineSpawnArgs(t *testing.T) {
+	app, _, _ := newTestApp()
+	validate := func(t *testing.T, args ...string) error {
+		t.Helper()
+		cmd := app.newMachineSpawnCmd()
+		require.NoError(t, cmd.ParseFlags(args))
+		return cmd.Args(cmd, cmd.Flags().Args())
+	}
+	t.Run("without --role, needs a prompt after --", func(t *testing.T) {
+		requireUsageError(t, validate(t, "buff-bear"))
+		requireUsageError(t, validate(t, "buff-bear", "--"))
+		assert.NoError(t, validate(t, "buff-bear", "--", "fix it"))
+	})
+	t.Run("with --role, the prompt is optional", func(t *testing.T) {
+		assert.NoError(t, validate(t, "--role", "implementer", "buff-bear"))
+		assert.NoError(t, validate(t, "--role", "implementer", "buff-bear", "--"))
+	})
+	t.Run("refuses --settings after -- either way", func(t *testing.T) {
+		requireUsageError(t, validate(t, "--role", "implementer", "buff-bear", "--", "", "--settings", "{}"))
+		requireUsageError(t, validate(t, "buff-bear", "--", "fix it", "--settings", "{}"))
+	})
+}
+
+func TestApp_spawnRole(t *testing.T) {
+	app, _, _ := newTestApp()
+	app.paths = config.NewPaths(t.TempDir())
+	t.Run("renders the prompt and sets claude's arguments", func(t *testing.T) {
+		opts := roleSpawnOptions()
+		opts.claudeArgs = []string{"", "--effort", "high"}
+		ro, vars, err := app.spawnRole(opts)
+		require.NoError(t, err)
+		assert.Equal(t, "implementer", ro.Name)
+		assert.Equal(t, "T1", vars["TASK"])
+		assert.NotContains(t, opts.claudeArgs[0], "--effort")
+		assert.Equal(t, []string{"--model", "haiku", "--permission-mode", "auto", "--effort", "high"}, opts.claudeArgs[1:])
+	})
+	t.Run("an unknown role is role_unknown", func(t *testing.T) {
+		_, _, err := app.spawnRole(&machineSpawnOptions{role: "nope"})
+		requireCode(t, codeRoleUnknown, err)
+	})
+	t.Run("a bad var is usage", func(t *testing.T) {
+		opts := roleSpawnOptions()
+		opts.vars = []string{"TASK"}
+		_, _, err := app.spawnRole(opts)
+		requireUsageError(t, err)
+	})
+	t.Run("a prompt that doesn't render is usage", func(t *testing.T) {
+		opts := roleSpawnOptions()
+		opts.vars = implementerVars[:3]
+		_, _, err := app.spawnRole(opts)
+		requireUsageError(t, err)
 	})
 }
 
@@ -343,7 +516,7 @@ func TestApp_runMachineChildren(t *testing.T) {
 		return ids
 	}
 	t.Run("lists the direct children, hidden ones included", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.app.global.json = true
 		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
 		assert.Equal(t, []string{"a", "b"}, ids(t, e.stdout.String()))
@@ -351,34 +524,68 @@ func TestApp_runMachineChildren(t *testing.T) {
 		assert.Contains(t, e.stdout.String(), `"parent":"plan"`)
 	})
 	t.Run("--all lists every descendant, oldest first", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.app.global.json = true
 		require.NoError(t, e.app.runMachineChildren(t.Context(), true))
 		assert.Equal(t, []string{"a", "b", "a1"}, ids(t, e.stdout.String()))
 	})
 	t.Run("nothing but descendants, not unknown directories", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.app.global.json = true
 		require.NoError(t, e.app.runMachineChildren(t.Context(), true))
 		assert.NotContains(t, e.stdout.String(), "junk")
 		assert.NotContains(t, e.stdout.String(), `"other"`)
 		assert.NotContains(t, e.stdout.String(), `"boss"`)
 	})
+	t.Run("each child's role and result, or null", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		store := machine.NewStore(e.app.paths.State)
+		require.NoError(t, store.WriteSpawn("boss", "a", &machine.Spawn{Role: "implementer", Pass: []string{"PASS"}, Fail: []string{"FAIL"}}))
+		require.NoError(t, store.WriteResult("boss", "a", &machine.Result{Verdict: "FAIL", RecordedAt: testNow()}, nil))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 2)
+		a, b := got.Workspaces[0], got.Workspaces[1]
+		assert.Equal(t, "a", *a.ID)
+		require.NotNil(t, a.Role)
+		assert.Equal(t, "implementer", *a.Role)
+		require.NotNil(t, a.Result)
+		assert.Equal(t, "FAIL", a.Result.Verdict)
+		assert.Equal(t, "fail", a.Result.Outcome)
+		assert.Nil(t, a.Result.Report)
+		assert.Equal(t, "b", *b.ID)
+		assert.Nil(t, b.Role)
+		assert.Nil(t, b.Result)
+		assert.Contains(t, e.stdout.String(), `"role":"implementer","result":{"verdict":"FAIL"`)
+		assert.Contains(t, e.stdout.String(), `"role":null,"result":null`)
+	})
+	t.Run("a record that can't be read is a warning", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		dir := machine.NewStore(e.app.paths.State).Dir("boss", "a")
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "result.toml"), []byte("verdict = [\n"), 0o600))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		assert.Contains(t, e.stdout.String(), `"role":null,"result":null`)
+		assert.Contains(t, e.stdout.String(), "couldn't read a's machine record")
+	})
 	t.Run("none is an empty list", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return machineTree()[5], nil }
 		e.app.global.json = true
 		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
 		assert.JSONEq(t, `{"workspaces":[],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("outside a workspace", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.outside()
 		requireCode(t, codeOutsideWorkspace, e.app.runMachineChildren(t.Context(), false))
 		assert.Empty(t, e.lifetime.ListCalls())
 	})
 	t.Run("a listing that fails", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) { return lifetime.Listing{}, errTest }
 		assert.ErrorIs(t, e.app.runMachineChildren(t.Context(), false), errTest)
 	})
@@ -451,12 +658,12 @@ func TestApp_runMachineRm(t *testing.T) {
 		return e.app.runMachineRm(t.Context(), opts)
 	}
 	t.Run("removes a descendant", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		require.NoError(t, run(t, e, &machineRmOptions{workspaces: []string{"a1"}}))
 		assert.JSONEq(t, `{"workspaces":[{"id":"a1","parent":null,"removed":true,"error":null}],"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("refuses the caller, its ancestors, and unrelated workspaces, and removes the rest", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		err := run(t, e, &machineRmOptions{workspaces: []string{"plan", "a", "boss", "other", "b"}})
 		requireCode(t, codeNotDescendant, err)
 		assert.Equal(t, exitRefused, asCLIError(err).exitCode())
@@ -474,57 +681,57 @@ func TestApp_runMachineRm(t *testing.T) {
 		assert.Equal(t, []string{"a", "b"}, removed)
 	})
 	t.Run("a refused workspace is reported by its id, not the argument", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		requireCode(t, codeNotDescendant, run(t, e, &machineRmOptions{workspaces: []string{"/cfg/workspaces/plan"}}))
 		assert.Equal(t, []string{"plan"}, rmResultIDs(t, e.stdout.String()))
 	})
 	t.Run("a workspace not found is its item's error", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		requireCode(t, codeWorkspaceNotFound, run(t, e, &machineRmOptions{workspaces: []string{"nope", "a"}}))
 		assert.Equal(t, []string{"nope", "a"}, rmResultIDs(t, e.stdout.String()))
 	})
 	t.Run("--all removes every direct child", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		require.NoError(t, run(t, e, &machineRmOptions{all: true}))
 		assert.Equal(t, []string{"a", "b"}, rmResultIDs(t, e.stdout.String()))
 	})
 	t.Run("--all without children removes nothing", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return machineTree()[5], nil }
 		require.NoError(t, run(t, e, &machineRmOptions{all: true}))
 		assert.JSONEq(t, `{"workspaces":[],"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--keep-children gives the children to the caller", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		require.NoError(t, run(t, e, &machineRmOptions{workspaces: []string{"a"}, keepChildren: true}))
 		opts := e.lifetime.RemoveTreeCalls()[0].Opts
 		assert.True(t, opts.KeepChildren)
 		assert.Equal(t, "plan", opts.Caller)
 	})
 	t.Run("--dry-run is passed on", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		require.NoError(t, run(t, e, &machineRmOptions{workspaces: []string{"a"}, dryRun: true}))
 		assert.True(t, e.lifetime.RemoveTreeCalls()[0].Opts.DryRun)
 	})
 	t.Run("a descendant the removal pass just removed counts as removed", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.app.swept = []lifetime.Removed{{Workspace: workspace.Workspace{ID: "c", Path: "/cfg/workspaces/c", Parent: "a"}, SessionID: "s-c"}}
 		require.NoError(t, run(t, e, &machineRmOptions{workspaces: []string{"s-c"}}))
 		assert.JSONEq(t, `{"workspaces":[{"id":"c","parent":null,"removed":true,"error":null}],"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("one the removal pass removed that wasn't a descendant is refused", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.app.swept = []lifetime.Removed{{Workspace: workspace.Workspace{ID: "c", Parent: "other"}, SessionID: "s-c"}}
 		requireCode(t, codeNotDescendant, run(t, e, &machineRmOptions{workspaces: []string{"s-c"}}))
 	})
 	t.Run("outside a workspace, removes nothing", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.outside()
 		requireCode(t, codeOutsideWorkspace, run(t, e, &machineRmOptions{workspaces: []string{"a"}}))
 		assert.Empty(t, e.lifetime.RemoveTreeCalls())
 	})
 	t.Run("workspaces that can't be listed", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.store.ListFunc = func() ([]workspace.Workspace, error) { return nil, errTest }
 		require.ErrorIs(t, run(t, e, &machineRmOptions{workspaces: []string{"a"}}), errTest)
 		assert.Empty(t, e.lifetime.RemoveTreeCalls())
@@ -542,7 +749,7 @@ func TestMachine_endToEnd(t *testing.T) {
 			{"machine", "rm", "a"},
 			{"machine", "rm", "--all"},
 		} {
-			e := newMachineApp()
+			e := newMachineApp(t)
 			e.outside()
 			assert.Equal(t, exitUsage, runMachine(t, e, args...), args)
 			assert.Empty(t, e.stdout.String(), args)
@@ -550,22 +757,22 @@ func TestMachine_endToEnd(t *testing.T) {
 		}
 	})
 	t.Run("a usage error is JSON", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		assert.Equal(t, exitUsage, runMachine(t, e, "machine", "spawn", "buff-bear"))
 		assert.Contains(t, e.stderr.String(), `{"error":{"code":"usage"`)
 	})
 	t.Run("a flag error is JSON", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		assert.Equal(t, exitUsage, runMachine(t, e, "machine", "rm", "--nope"))
 		assert.Contains(t, e.stderr.String(), `{"error":{"code":"usage"`)
 	})
 	t.Run("children prints JSON", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "children"), e.stderr.String())
 		assert.True(t, json.Valid(e.stdout.Bytes()), e.stdout.String())
 	})
 	t.Run("rm refuses a tree that a cycle of parents leads back to the caller", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		cycle := []workspace.Workspace{{ID: "plan", Parent: "b"}, {ID: "b", Parent: "plan"}}
 		e.store.ListFunc = func() ([]workspace.Workspace, error) { return cycle, nil }
 		e.store.FindFunc = func(arg string) (workspace.Workspace, error) {
@@ -585,13 +792,13 @@ func TestMachine_endToEnd(t *testing.T) {
 		assert.Contains(t, e.stdout.String(), `"code":"not_descendant"`)
 	})
 	t.Run("rm refuses with exit 4 and prints JSON", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		assert.Equal(t, exitRefused, runMachine(t, e, "machine", "rm", "plan"))
 		assert.Contains(t, e.stdout.String(), `"code":"not_descendant"`)
 		assert.Empty(t, e.stderr.String())
 	})
 	t.Run("spawn prints JSON", func(t *testing.T) {
-		e := newMachineApp()
+		e := newMachineApp(t)
 		e.app.claude = &claudeClientMock{
 			CheckFunc: func(context.Context) error { return nil },
 			StartFunc: func(context.Context, claude.StartOptions) (claude.Started, error) {

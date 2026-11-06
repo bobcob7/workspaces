@@ -45,6 +45,7 @@ CONFIG_DIR/
   reviews/             submitted reviews, by repo and commit (0039)
   review/profiles/     your review profiles, <name>.md (0038, 0042)
   loops/               agent loops, <name>.toml (0048)
+  machine/roles/       your ws machine roles, <name>.md (0050)
 ```
 
 What `ws` keeps under `state/` and `reviews/`, and when, is described in
@@ -52,6 +53,10 @@ What `ws` keeps under `state/` and `reviews/`, and when, is described in
 and writes it only when you run `ws review profiles add`, `edit`, or `rm`
 ([0042](adrs/0042-review-profile-management.md));
 [`ws review`](tools/ws-review.md#ws-review-prime) describes the files.
+`machine/roles/` is yours too: `ws` writes it only for `ws machine roles
+add`, `edit`, and `rm`
+([0050](adrs/0050-machine-wait-results-and-roles.md));
+[`ws machine`](tools/ws-machine.md#ws-machine-roles) describes the files.
 
 `CONFIG_DIR` and `config.toml` are created by the first command that needs
 them. The other entries are created by the commands that use them. On

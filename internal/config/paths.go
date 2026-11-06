@@ -17,6 +17,8 @@ type Paths struct {
 	ReviewProfiles string
 	// Loops holds the agent loops (ADR 0048).
 	Loops string
+	// MachineRoles holds the user's ws machine roles (ADR 0050).
+	MachineRoles string
 }
 
 // NewPaths lays out the files and directories under root.
@@ -31,5 +33,6 @@ func NewPaths(root string) Paths {
 		// review/ is config the user writes; reviews/ is data ws writes.
 		ReviewProfiles: filepath.Join(root, "review", "profiles"),
 		Loops:          filepath.Join(root, "loops"),
+		MachineRoles:   filepath.Join(root, "machine", "roles"),
 	}
 }

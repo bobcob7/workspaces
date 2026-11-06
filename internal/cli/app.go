@@ -70,6 +70,8 @@ type App struct {
 	getwd func() (string, error)
 	// reviewPoll is how often ws review wait reads the review's session.
 	reviewPoll time.Duration
+	// machinePoll is how often ws machine wait reads the sessions.
+	machinePoll time.Duration
 	// continuePoll is how often ws continue --watch runs a pass.
 	continuePoll time.Duration
 	// awake tells whether the Mac is fully awake, for ws loop tick (ADR 0047).
@@ -129,6 +131,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		homeDir:      os.UserHomeDir,
 		getwd:        os.Getwd,
 		reviewPoll:   defaultReviewPoll,
+		machinePoll:  defaultMachinePoll,
 		continuePoll: defaultContinuePoll,
 		awake:        power.Reader{},
 		loopPoll:     defaultLoopPoll,

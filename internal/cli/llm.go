@@ -69,8 +69,15 @@ func guideTopics() []string {
 		"review submit",
 		"machine",
 		"machine spawn",
+		"machine result",
+		"machine wait",
 		"machine children",
 		"machine rm",
+		"machine roles",
+		"machine roles show",
+		"machine roles add",
+		"machine roles edit",
+		"machine roles rm",
 		"llm",
 	}
 }
