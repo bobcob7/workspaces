@@ -46,7 +46,7 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   never count or notify. Closing the window leaves the app in the tray;
   ⌘Q or Quit ends it. Settings, Notifications turns them off
   ([ADR 0050](../docs/adrs/0050-desktop-tray-notifications.md),
-  [design](../docs/design/tray/README.md); planned).
+  [design](../docs/design/tray/README.md)).
 - **Finished reviews clean up after themselves**: once every reviewer has
   reported, `ws` removes the review agent and its workspace. The app reads
   `ws review list`, so the pull request stays in Reviewed with its report,
@@ -192,3 +192,7 @@ src/
 
 Working, starting, and stopped come from `ws list`. The job state is
 undocumented, so if Claude Code changes it, idle agents show as Waiting.
+
+| **Settings, Notifications group** | **Notifications turned off** |
+| --- | --- |
+| ![](docs/settings-notifications.png) | ![](docs/settings-notifications-off.png) |
