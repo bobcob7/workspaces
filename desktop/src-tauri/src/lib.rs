@@ -7,6 +7,7 @@ mod cache;
 mod commands;
 mod env;
 mod jobs;
+mod loops;
 mod model;
 mod pty;
 mod reviews;
@@ -42,6 +43,7 @@ pub fn run() {
                 jobs_dir: state.jobs_dir.clone(),
             };
             tauri::async_runtime::spawn(state.reviews.clone().run(deps));
+            tauri::async_runtime::spawn(loops::tick_forever(state.runner.clone()));
             app.manage(state);
             Ok(())
         })
@@ -90,6 +92,11 @@ pub fn run() {
             reviews::review_fix_sent,
             reviews::settings_get,
             reviews::settings_set_reviews,
+            loops::loops_list,
+            loops::loops_add,
+            loops::loops_set_paused,
+            loops::loops_remove,
+            loops::loops_run_now,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")

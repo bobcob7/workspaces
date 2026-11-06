@@ -15,6 +15,9 @@ import { ReposList } from "./features/repos/ReposList";
 import { ReposPane } from "./features/repos/ReposPane";
 import { CommentDialog } from "./features/reviews/CommentDialog";
 import { FixDialog } from "./features/reviews/FixDialog";
+import { LoopsActions } from "./features/loops/LoopsActions";
+import { LoopsList } from "./features/loops/LoopsList";
+import { LoopsPane } from "./features/loops/LoopsPane";
 import { ReviewsActions } from "./features/reviews/ReviewsActions";
 import { ReviewsList } from "./features/reviews/ReviewsList";
 import { ReviewsPane } from "./features/reviews/ReviewsPane";
@@ -108,6 +111,7 @@ const sectionViews: Readonly<Partial<Record<Section, SectionView>>> = {
   agents: agentsView,
   repos: { actions: ReposActions, list: ReposList, pane: ReposPane },
   reviews: { actions: ReviewsActions, list: ReviewsList, pane: ReviewsPane },
+  loops: { actions: LoopsActions, list: LoopsList, pane: LoopsPane },
   settings: { actions: () => null, list: SettingsList, pane: SettingsPane },
 };
 
@@ -120,6 +124,8 @@ const Warnings = ({ section }: { readonly section: Section }): JSX.Element | nul
         return s.agents.warnings;
       case "repos":
         return s.repos.warnings;
+      case "loops":
+        return s.loops.warnings;
       case "reviews":
       case "settings":
         return noWarnings;

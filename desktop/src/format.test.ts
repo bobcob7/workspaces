@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { age, count, formatSize, repoLabel } from "./format";
+import { age, count, formatSize, repoLabel, until } from "./format";
 
 const now = Date.parse("2026-10-18T12:00:00Z");
 
@@ -18,6 +18,25 @@ describe("age", () => {
 
   it("is empty for an unparseable timestamp", () => {
     expect(age("yesterday", now)).toBe("");
+  });
+});
+
+describe("until", () => {
+  it("is empty without a timestamp", () => {
+    expect(until(null, now)).toBe("");
+  });
+
+  it("says due once the time has passed", () => {
+    expect(until("2026-10-18T11:59:00Z", now)).toBe("due");
+  });
+
+  it("says under a minute for the next few seconds", () => {
+    expect(until("2026-10-18T12:00:30Z", now)).toBe("in under a minute");
+  });
+
+  it("uses the largest whole unit", () => {
+    expect(until("2026-10-18T14:30:00Z", now)).toBe("in 2h");
+    expect(until("2026-10-18T12:45:00Z", now)).toBe("in 45m");
   });
 });
 

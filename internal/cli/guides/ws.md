@@ -150,7 +150,7 @@ messages aren't.
   `details` is `null` or an object, such as `{"stderr": "…"}` when git or
   claude failed, or `{"candidates": [...]}` for an ambiguous name.
 - Commands that act on several items (`ws rm`, `ws machine rm`, `ws restore`, `ws restart`, `ws continue`,
-  `ws cache add`, `update`, `remove`) still print a result when some items
+  `ws loop tick`, `ws cache add`, `update`, `remove`) still print a result when some items
   fail: each item has its own `error` (`{"code", "message"}` or `null`),
   and the exit code is the first failure's.
 
@@ -158,9 +158,9 @@ messages aren't.
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -205,6 +205,14 @@ For people and the desktop app, not agents:
 - `ws llm restore`: restart agents that stopped, after a reboot or crash
 - `ws llm restart`: restart Claude Code's background service and every agent
 - `ws llm continue`: tell agents stopped by a usage limit to carry on once it resets
+- `ws llm loop`: start an agent in a new workspace every period, with the same prompt, and its subcommands:
+  - `ws llm loop add`: add a loop
+  - `ws llm loop list`: list loops
+  - `ws llm loop pause`: stop a loop from starting runs
+  - `ws llm loop resume`: start a paused loop again
+  - `ws llm loop rm`: delete a loop
+  - `ws llm loop run`: start a run of a loop now
+  - `ws llm loop tick`: start every loop that is due, as the scheduler does
 - `ws llm cache`: the repo cache, and its subcommands:
   - `ws llm cache add`: clone repos into the cache
   - `ws llm cache update`: fetch cached repos from upstream

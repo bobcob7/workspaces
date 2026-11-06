@@ -16,5 +16,6 @@ func TestNewPaths(t *testing.T) {
 		State:          "/cfg/state",
 		Reviews:        "/cfg/reviews",
 		ReviewProfiles: "/cfg/review/profiles",
+		Loops:          "/cfg/loops",
 	}, paths)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
+	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/shell"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -97,4 +98,20 @@ type claudeClient interface {
 // ghClient runs the GitHub CLI; nothing else in ws does (ADR 0039).
 type ghClient interface {
 	PRView(ctx context.Context, repo string, number int) (gh.PR, error)
+}
+
+// awakeReader reports whether the Mac is fully awake (ADR 0047).
+type awakeReader interface {
+	Awake(ctx context.Context) (bool, error)
+}
+
+// loopStore keeps agent loops (ADR 0048).
+type loopStore interface {
+	Lock(ctx context.Context) (func(), error)
+	RLock(ctx context.Context) (func(), error)
+	List() ([]loop.Loop, []string, error)
+	Get(name string) (loop.Loop, error)
+	Create(l *loop.Loop) error
+	Save(l *loop.Loop) error
+	Remove(name string) error
 }

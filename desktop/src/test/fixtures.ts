@@ -6,6 +6,8 @@ import type {
   Entry,
   FixPlan,
   ListedProfile,
+  Loop,
+  NewLoop,
   ProfileDetail,
   PullRequest,
   RepoRef,
@@ -222,6 +224,21 @@ export const fixPlan = (overrides: Partial<FixPlan> = {}): FixPlan => ({
   ...overrides,
 });
 
+export const loop = (overrides: Partial<Loop> = {}): Loop => ({
+  name: "deps",
+  every: "1h",
+  prompt: "Update the dependencies and open a PR.",
+  specs: ["buff-bear"],
+  model: null,
+  permissionMode: null,
+  keep: 5,
+  paused: false,
+  createdAt: "2026-10-24T08:00:00Z",
+  nextRunAt: "2026-10-24T11:00:00Z",
+  lastRun: null,
+  ...overrides,
+});
+
 export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   listEntries: vi.fn(async () => ({ entries: [], warnings: [] })),
   cacheRepos: vi.fn(async () => []),
@@ -282,6 +299,11 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   })),
   settingsGet: vi.fn(async () => ({ reviews: reviewSettings() })),
   settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews })),
+  loopsList: vi.fn(async () => ({ loops: [], warnings: [] })),
+  loopsAdd: vi.fn(async (request: NewLoop) => loop({ ...request })),
+  loopsSetPaused: vi.fn(async (name: string, paused: boolean) => loop({ name, paused })),
+  loopsRemove: vi.fn(async (name: string) => loop({ name })),
+  loopsRunNow: vi.fn(async (name: string) => ({ name, workspace: `loop-${name}-1`, session: "9a8b7c6d", path: `/w/loop-${name}-1` })),
   ...overrides,
 });
 

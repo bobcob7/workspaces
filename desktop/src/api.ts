@@ -569,6 +569,54 @@ export interface Settings {
   readonly reviews: ReviewSettings;
 }
 
+export interface LoopError {
+  readonly code: string;
+  readonly message: string;
+}
+
+/** A loop's run: the workspace and session it started, or why it couldn't. */
+export interface LoopRun {
+  readonly startedAt: string;
+  readonly workspace: string | null;
+  readonly session: string | null;
+  readonly error: LoopError | null;
+}
+
+/** An agent loop, from `ws loop list --json` (ADR 0048). */
+export interface Loop {
+  readonly name: string;
+  readonly every: string;
+  readonly prompt: string;
+  readonly specs: readonly string[];
+  readonly model: string | null;
+  readonly permissionMode: string | null;
+  readonly keep: number;
+  readonly paused: boolean;
+  readonly createdAt: string;
+  readonly nextRunAt: string | null;
+  readonly lastRun: LoopRun | null;
+}
+
+export interface LoopListing {
+  readonly loops: readonly Loop[];
+  readonly warnings: readonly string[];
+}
+
+export interface NewLoop {
+  readonly name: string;
+  readonly every: string;
+  readonly prompt: string;
+  readonly specs: readonly string[];
+}
+
+/** The workspace a loop run started. */
+export interface LoopStarted {
+  readonly name: string;
+  readonly workspace: string;
+  readonly session: string;
+  readonly path: string;
+}
+
 const isAppError = (value: unknown): value is AppError =>
   typeof value === "object" && value !== null && "code" in value && "message" in value;
 
@@ -667,6 +715,11 @@ export const api = {
   versions: async (): Promise<Versions> => call<Versions>("versions"),
   settingsSetReviews: async (reviews: ReviewSettings): Promise<Settings> =>
     call<Settings>("settings_set_reviews", { reviews }),
+  loopsList: async (): Promise<LoopListing> => call<LoopListing>("loops_list"),
+  loopsAdd: async (request: NewLoop): Promise<Loop> => call<Loop>("loops_add", { request }),
+  loopsSetPaused: async (name: string, paused: boolean): Promise<Loop> => call<Loop>("loops_set_paused", { name, paused }),
+  loopsRemove: async (name: string): Promise<Loop> => call<Loop>("loops_remove", { name }),
+  loopsRunNow: async (name: string): Promise<LoopStarted> => call<LoopStarted>("loops_run_now", { name }),
 };
 
 export type Api = typeof api;

@@ -26,6 +26,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/gittest"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
+	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -59,6 +60,19 @@ func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 // testNow is newTestApp's clock.
 func testNow() time.Time {
 	return time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+}
+
+// withLoopStore makes app's commands use a real loop store in a temp dir.
+func withLoopStore(t *testing.T, app *App) *loop.Store {
+	t.Helper()
+	store := loop.NewStore(t.TempDir())
+	prev := app.newStores
+	app.newStores = func(p config.Paths, c config.Config) stores {
+		s := prev(p, c)
+		s.loops = store
+		return s
+	}
+	return store
 }
 
 // stubWorkspaces is a workspace store with no workspaces.
@@ -292,7 +306,7 @@ func TestApp_newRootCmd(t *testing.T) {
 		for _, cmd := range root.Commands() {
 			names = append(names, cmd.Name())
 		}
-		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "continue", "list", "rm", "rename", "hide", "unhide", "cache", "review", "llm", "machine"}, names)
+		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "continue", "loop", "list", "rm", "rename", "hide", "unhide", "cache", "review", "llm", "machine"}, names)
 	})
 	t.Run("lists machine under Commands for agents", func(t *testing.T) {
 		require.True(t, root.ContainsGroup(agentsGroup))
