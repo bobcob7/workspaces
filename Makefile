@@ -19,6 +19,8 @@ lint:
 	@! grep -rnE 'exec\.Command(Context)?\([^)]*"claude"' --include='*.go' . | grep -v '^\./internal/claude/'
 	@# ADR 0039: gh runs only through internal/gh.
 	@! grep -rnE 'exec\.Command(Context)?\([^)]*"gh"' --include='*.go' . | grep -v '^\./internal/gh/'
+	@# ADR 0049: loop scripts run only through internal/gate.
+	@! grep -rnE 'exec\.Command(Context)?\([^)]*"/bin/sh"' --include='*.go' . | grep -v '_test\.go:' | grep -v '^\./internal/gate/'
 	@# ADR 0025: only the Claude Code client replaces ws, with claude attach.
 	@! grep -rnE '(syscall|unix)\.Exec\b' --include='*.go' . | grep -v '^\./internal/claude/'
 

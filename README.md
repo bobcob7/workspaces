@@ -268,6 +268,7 @@ internal/
   workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)
   lifetime/                   # removing workspaces whose session is gone; ws list, ws rm, ws restore, ws continue (0015, 0025, 0027, 0047)
   loop/                       # agent loops: records, schedule, store (0048)
+  gate/                       # runs a loop's gate script (0049)
   proc/                       # when processes started, from the operating system (0018, 0026)
   power/                      # whether the Mac is fully awake, not in a dark wake; the only place ioreg runs (0047)
   shell/                      # ws shell's interactive shell: lock, signals, exit status (0015, 0023)
