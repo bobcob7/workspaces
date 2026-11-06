@@ -305,7 +305,7 @@ func TestApp_runMachineSpawn(t *testing.T) {
 			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
 		}
 		e.app.global.json = true
-		require.NoError(t, e.app.runMachineSpawn(t.Context(), &claudeOptions{specs: []string{"buff-bear"}, claudeArgs: []string{"fix it"}}))
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), spawnOptions("fix it")))
 		require.Len(t, e.store.CreateCalls(), 1)
 		assert.Equal(t, "fix-login-d8efb24f", e.store.CreateCalls()[0].Opts.Parent)
 		assert.Equal(t, []string{"fix it"}, e.claude.StartCalls()[0].Opts.Args)
@@ -326,10 +326,180 @@ func TestApp_runMachineSpawn(t *testing.T) {
 	})
 	t.Run("outside a workspace, creates nothing", func(t *testing.T) {
 		e := newClaudeEnv(t)
-		err := e.app.runMachineSpawn(t.Context(), &claudeOptions{claudeArgs: []string{"fix it"}})
+		err := e.app.runMachineSpawn(t.Context(), spawnOptions("fix it"))
 		requireCode(t, codeOutsideWorkspace, err)
 		assert.Empty(t, e.store.CreateCalls())
 		assert.Empty(t, e.claude.CheckCalls())
+	})
+	t.Run("with a role, renders its prompt and records the role", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), roleSpawnOptions()))
+		require.Len(t, e.claude.StartCalls(), 1)
+		args := e.claude.StartCalls()[0].Opts.Args
+		require.Len(t, args, 5)
+		assert.Contains(t, args[0], "feat/x-t1")
+		assert.Contains(t, args[0], "ws machine result PASS")
+		assert.Equal(t, []string{"--model", "haiku", "--permission-mode", "auto"}, args[1:])
+		assert.Contains(t, e.stdout.String(), `"role":"implementer"`)
+		rec, err := machine.NewStore(e.app.paths.State).Read("boss", "x")
+		require.NoError(t, err)
+		require.NotNil(t, rec.Spawn)
+		assert.Equal(t, "implementer", rec.Spawn.Role)
+		assert.Equal(t, "haiku", rec.Spawn.Model)
+		assert.Equal(t, []string{"PASS"}, rec.Spawn.Pass)
+		assert.Equal(t, []string{"FAIL"}, rec.Spawn.Fail)
+		assert.Equal(t, map[string]string{"TASK": "T1", "TASKS": "t.md", "BASE": "feat/x", "BRANCH": "feat/x-t1"}, rec.Spawn.Vars)
+		assert.Equal(t, []string{"plan", "boss"}, rec.Spawn.Ancestors)
+	})
+	t.Run("with a role, the prompt after -- follows the rendered prompt", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		opts := roleSpawnOptions()
+		opts.claudeArgs = []string{"Fix item 1.", "--model", "opus"}
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+		args := e.claude.StartCalls()[0].Opts.Args
+		assert.True(t, strings.HasSuffix(args[0], "\n\nFix item 1."), args[0])
+		assert.Equal(t, []string{"--model", "haiku", "--permission-mode", "auto", "--model", "opus"}, args[1:])
+	})
+	t.Run("with a role, a refusal creates nothing", func(t *testing.T) {
+		cases := []struct {
+			name string
+			code errorCode
+			edit func(*machineSpawnOptions)
+		}{
+			{"--var without --role", codeUsage, func(o *machineSpawnOptions) { o.role, o.vars = "", []string{"TASK=T1"} }},
+			{"a var the role doesn't have", codeUsage, func(o *machineSpawnOptions) { o.vars = append(o.vars, "NOPE=1") }},
+			{"a var given twice", codeUsage, func(o *machineSpawnOptions) { o.vars = append(o.vars, "TASK=T2") }},
+			{"a var missing", codeUsage, func(o *machineSpawnOptions) { o.vars = o.vars[:3] }},
+			{"an unknown role", codeRoleUnknown, func(o *machineSpawnOptions) { o.role = "nope" }},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				e := roleSpawnEnv(t)
+				opts := roleSpawnOptions()
+				tc.edit(opts)
+				requireCode(t, tc.code, e.app.runMachineSpawn(t.Context(), opts))
+				assert.Empty(t, e.store.CreateCalls())
+			})
+		}
+	})
+	t.Run("without a role, the result says role null and records nothing", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), spawnOptions("fix it")))
+		assert.Contains(t, e.stdout.String(), `"role":null`)
+		_, err := os.Stat(filepath.Join(e.app.paths.State, "boss", "machine", "x", "spawn.toml"))
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("a record that can't be written is a warning, and the child starts", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		require.NoError(t, os.MkdirAll(e.app.paths.State, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.State, "boss"), nil, 0o644))
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), roleSpawnOptions()))
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Contains(t, e.stdout.String(), "couldn't record role implementer for x")
+	})
+}
+
+// implementerVars are the --var flags for the built-in implementer role.
+var implementerVars = []string{"TASK=T1", "TASKS=t.md", "BASE=feat/x", "BRANCH=feat/x-t1"}
+
+// roleSpawnOptions is ws machine spawn --role implementer for implementerVars
+// with buff-bear, and no prompt after --.
+func roleSpawnOptions() *machineSpawnOptions {
+	opts := spawnOptions()
+	opts.role = "implementer"
+	opts.vars = implementerVars
+	return opts
+}
+
+// spawnOptions is ws machine spawn with buff-bear and claudeArgs, and no role.
+func spawnOptions(claudeArgs ...string) *machineSpawnOptions {
+	var opts machineSpawnOptions
+	opts.specs = []string{"buff-bear"}
+	opts.claudeArgs = claudeArgs
+	return &opts
+}
+
+// roleSpawnEnv is a claude env run inside plan, under boss, where the new
+// workspace is x: so x's root is boss, and its ancestors are plan and boss.
+// Its state directory is a fresh one.
+func roleSpawnEnv(t *testing.T) *claudeEnv {
+	t.Helper()
+	e := newClaudeEnv(t)
+	e.app.paths = config.NewPaths(t.TempDir())
+	tree := []workspace.Workspace{
+		{ID: "boss", Path: "/cfg/workspaces/boss"},
+		{ID: "plan", Path: "/cfg/workspaces/plan", Parent: "boss"},
+		{ID: "x", Path: "/cfg/workspaces/x", Parent: "plan"},
+	}
+	e.store.ListFunc = func() ([]workspace.Workspace, error) { return tree, nil }
+	e.store.FindFunc = func(arg string) (workspace.Workspace, error) {
+		for i := range tree {
+			if tree[i].ID == arg {
+				return tree[i], nil
+			}
+		}
+		return workspace.Workspace{}, workspace.ErrNotFound
+	}
+	e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+		return workspace.Workspace{ID: "plan"}, nil
+	}
+	return e
+}
+
+func TestMachineSpawnArgs(t *testing.T) {
+	app, _, _ := newTestApp()
+	validate := func(t *testing.T, args ...string) error {
+		t.Helper()
+		cmd := app.newMachineSpawnCmd()
+		require.NoError(t, cmd.ParseFlags(args))
+		return cmd.Args(cmd, cmd.Flags().Args())
+	}
+	t.Run("without --role, needs a prompt after --", func(t *testing.T) {
+		requireUsageError(t, validate(t, "buff-bear"))
+		requireUsageError(t, validate(t, "buff-bear", "--"))
+		assert.NoError(t, validate(t, "buff-bear", "--", "fix it"))
+	})
+	t.Run("with --role, the prompt is optional", func(t *testing.T) {
+		assert.NoError(t, validate(t, "--role", "implementer", "buff-bear"))
+		assert.NoError(t, validate(t, "--role", "implementer", "buff-bear", "--"))
+	})
+	t.Run("refuses --settings after -- either way", func(t *testing.T) {
+		requireUsageError(t, validate(t, "--role", "implementer", "buff-bear", "--", "", "--settings", "{}"))
+		requireUsageError(t, validate(t, "buff-bear", "--", "fix it", "--settings", "{}"))
+	})
+}
+
+func TestApp_spawnRole(t *testing.T) {
+	app, _, _ := newTestApp()
+	app.paths = config.NewPaths(t.TempDir())
+	t.Run("renders the prompt and sets claude's arguments", func(t *testing.T) {
+		opts := roleSpawnOptions()
+		opts.claudeArgs = []string{"", "--effort", "high"}
+		ro, vars, err := app.spawnRole(opts)
+		require.NoError(t, err)
+		assert.Equal(t, "implementer", ro.Name)
+		assert.Equal(t, "T1", vars["TASK"])
+		assert.NotContains(t, opts.claudeArgs[0], "--effort")
+		assert.Equal(t, []string{"--model", "haiku", "--permission-mode", "auto", "--effort", "high"}, opts.claudeArgs[1:])
+	})
+	t.Run("an unknown role is role_unknown", func(t *testing.T) {
+		_, _, err := app.spawnRole(&machineSpawnOptions{role: "nope"})
+		requireCode(t, codeRoleUnknown, err)
+	})
+	t.Run("a bad var is usage", func(t *testing.T) {
+		opts := roleSpawnOptions()
+		opts.vars = []string{"TASK"}
+		_, _, err := app.spawnRole(opts)
+		requireUsageError(t, err)
+	})
+	t.Run("a prompt that doesn't render is usage", func(t *testing.T) {
+		opts := roleSpawnOptions()
+		opts.vars = implementerVars[:3]
+		_, _, err := app.spawnRole(opts)
+		requireUsageError(t, err)
 	})
 }
 

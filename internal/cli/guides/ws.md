@@ -26,8 +26,13 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   background agent on the machine, not only yours.
 - Parse JSON output, never tables; pass `--json` to `ws review`.
 - To hand work to another agent, use `ws machine spawn <spec>... --
-  "<prompt>"` and keep the returned session id. Follow it with
-  `claude logs <id>`.
+  "<prompt>"`, or `--role <name> --var KEY=VALUE...` for a stored role
+  (`ws machine roles`), and keep the returned id. Wait for it with
+  `ws machine wait <id>` as a background command, not by polling;
+  follow it with `claude logs <session>`.
+- If an agent started you to do a task, finish with `ws machine result
+  <VERDICT> --file <report>`: the verdicts your prompt names, else
+  `PASS` or `FAIL`.
 - Don't remove, stop, or work in a workspace you didn't create unless
   told to; `ws machine rm` enforces this.
 - What you start from your workspace (`ws machine spawn`, `ws review
@@ -46,6 +51,12 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 $ ws machine spawn --name fix-login buff-bear -- "Fix the login bug"
 {"id":"fix-login-d8efb24f","session":"e8cdf5d8","path":"/…/workspaces/fix-login-d8efb24f","parent":"plan-auth-1a2b3c4d","repos":[…],"warnings":[]}
 $ claude logs e8cdf5d8
+
+$ ws machine wait fix-login-d8efb24f     # as a background command
+
+# Start a child from a stored role, and record a verdict as a child
+$ ws machine spawn --name t1-impl --role implementer --var TASK=T1 --var TASKS=docs/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t1 buff-bear@feat/x
+$ ws machine result PASS --file ../report.md
 
 # List the workspaces you started, and their sessions
 $ ws machine children
@@ -172,7 +183,7 @@ everything.
 
 For agents:
 
-- `ws llm machine`: the commands to use: start, list, and remove the workspaces yours started:
+- `ws llm machine`: the commands to use: start, wait for, list, and remove the workspaces yours started, and record your verdict:
   - `ws llm machine spawn`: new child workspace with a Claude Code background agent
   - `ws llm machine result`: record your verdict and report for the agent that started you
   - `ws llm machine wait`: wait for children to finish, then print each one's verdict

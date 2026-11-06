@@ -748,14 +748,14 @@ func TestApp_printClaudeResult(t *testing.T) {
 		c := stubCache()
 		c.WarningsFunc = func() []string { return []string{"cached elsewhere"} }
 		e.app.cache = c
-		require.NoError(t, e.app.printClaudeResult(&e.ws, "e8cdf5d8"))
+		require.NoError(t, e.app.printClaudeResult(&e.ws, "e8cdf5d8", nil))
 		assert.Equal(t, "x  e8cdf5d8  /cfg/workspaces/x\n", e.stdout.String())
 		assert.Equal(t, "ws: warning: cached elsewhere\n", e.stderr.String())
 	})
 	t.Run("JSON with no repos or warnings has empty arrays", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.app.global.json = true
-		require.NoError(t, e.app.printClaudeResult(&workspace.Workspace{ID: "x", Path: "/p"}, "e8cdf5d8"))
+		require.NoError(t, e.app.printClaudeResult(&workspace.Workspace{ID: "x", Path: "/p"}, "e8cdf5d8", nil))
 		assert.JSONEq(t, `{"id":"x","session":"e8cdf5d8","path":"/p","parent":null,"repos":[],"warnings":[]}`, e.stdout.String())
 	})
 }
