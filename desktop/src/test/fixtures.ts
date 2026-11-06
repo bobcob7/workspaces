@@ -329,6 +329,17 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   loopsAdd: vi.fn(async (request: NewLoop) =>
     loop({ name: request.name, every: request.every, prompt: request.prompt, specs: request.specs, script: request.script ?? null }),
   ),
+  loopsEdit: vi.fn(async (request: NewLoop) =>
+    loop({
+      name: request.name,
+      every: request.every,
+      prompt: request.prompt,
+      specs: request.specs,
+      script: request.script ?? null,
+      scriptTimeout: request.scriptTimeout ?? null,
+      keep: request.keep ?? 5,
+    }),
+  ),
   loopsSetPaused: vi.fn(async (name: string, paused: boolean) => loop({ name, paused })),
   loopsRemove: vi.fn(async (name: string) => loop({ name })),
   loopsRunNow: vi.fn(async (name: string) => ({ name, workspace: `loop-${name}-1`, session: "9a8b7c6d", path: `/w/loop-${name}-1` })),

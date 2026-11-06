@@ -657,6 +657,9 @@ export interface NewLoop {
   readonly every: string;
   readonly prompt: string;
   readonly specs: readonly string[];
+  readonly keep?: number;
+  readonly model?: string;
+  readonly permissionMode?: string;
   readonly script?: string;
   readonly scriptTimeout?: string;
   readonly vars?: readonly LoopVar[];
@@ -780,6 +783,7 @@ export const api = {
     listen<{ readonly key: string }>("tray-select", (event) => handler(event.payload.key)),
   loopsList: async (): Promise<LoopListing> => call<LoopListing>("loops_list"),
   loopsAdd: async (request: NewLoop): Promise<Loop> => call<Loop>("loops_add", { request }),
+  loopsEdit: async (request: NewLoop): Promise<Loop> => call<Loop>("loops_edit", { request }),
   loopsSetPaused: async (name: string, paused: boolean): Promise<Loop> => call<Loop>("loops_set_paused", { name, paused }),
   loopsRemove: async (name: string): Promise<Loop> => call<Loop>("loops_remove", { name }),
   loopsRunNow: async (name: string): Promise<LoopStarted> => call<LoopStarted>("loops_run_now", { name }),

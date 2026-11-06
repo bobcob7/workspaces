@@ -94,7 +94,85 @@
     ...overrides,
   });
 
+  const depsPrompt = [
+    "Update the dependencies of every repo in the workspace and open one pull request per repo.",
+    "",
+    "Work in the checked-out branch named by BRANCH. Keep each change small and focused:",
+    "one module or one major bump per commit, so a reviewer can read them one at a time.",
+    "",
+    "Before you change anything, read the lock files and the CI configuration, and note which",
+    "tests run on pull requests. Do not bump a dependency that CI cannot exercise without asking.",
+    "",
+    "For each outdated module:",
+    "1. Read its changelog and release notes for breaking changes since the current version.",
+    "2. Bump it to the newest release that keeps the public API the repo uses.",
+    "3. Run the test suite and the linter. Fix what the bump breaks, in the same commit.",
+    "4. If a bump needs a code change you cannot make safely, leave that module alone and say why.",
+    "",
+    "Open the pull request against main with a title starting \"deps:\" and a body that lists",
+    "each bump with its old and new version, the changelog link, and any code you changed.",
+    "Label the pull request LABEL so the weekly review can find it.",
+    "",
+    "Do not merge anything. Do not touch the release configuration or the Go toolchain version.",
+    "When the run is done, reply with the list of pull requests you opened and any module you skipped.",
+  ].join("\n");
+
   const data = {
+    loops: [
+      {
+        name: "deps-bump",
+        every: "24h",
+        prompt: depsPrompt,
+        specs: ["buff-bear", "api"],
+        model: null,
+        permissionMode: "acceptEdits",
+        keep: 5,
+        paused: false,
+        createdAt: "2026-10-24T08:00:00Z",
+        nextRunAt: "2026-10-25T08:00:00Z",
+        lastRun: {
+          startedAt: "2026-10-24T08:00:00Z",
+          workspace: "loop-deps-bump-1a2b3c4d",
+          session: "e8cdf5d8",
+          error: null,
+        },
+        script: [
+          "go list -m -u -f '{{if .Update}}{{.Path}}{{end}}' all | grep .",
+          "# Prints one module per outdated dependency; no output skips the run.",
+          "exit 0",
+        ].join("\n"),
+        scriptTimeout: "2m",
+        vars: { BRANCH: "main", LABEL: "deps" },
+        lastGate: {
+          at: "2026-10-24T08:00:02Z",
+          outcome: "passed",
+          exitCode: 0,
+          message: null,
+        },
+      },
+      {
+        name: "triage",
+        every: "1h",
+        prompt: "Label new issues.",
+        specs: [],
+        model: null,
+        permissionMode: null,
+        keep: 5,
+        paused: true,
+        createdAt: "2026-10-23T09:00:00Z",
+        nextRunAt: null,
+        lastRun: {
+          startedAt: "2026-10-24T07:00:00Z",
+          workspace: null,
+          session: null,
+          error: { code: "claude_untrusted", message: "the workspace is not trusted by Claude Code" },
+        },
+        script: null,
+        scriptTimeout: null,
+        vars: {},
+        lastGate: null,
+      },
+    ],
     entries: [
       entry({
         workspaceId: "fix-login-d8efb24f",
@@ -145,6 +223,31 @@
 
   let nextId = 1;
   const callbacks = {};
+
+  const findLoop = (name) => {
+    const found = data.loops.find((loop) => loop.name === name);
+    if (found === undefined) {
+      throw new Error(`no loop named ${name}`);
+    }
+    return found;
+  };
+
+  // The fields a NewLoop request sets. Absent script means no script; a script
+  // without a timeout gets the default; "" model and permission mode mean default.
+  const loopFields = (request) => {
+    const script = request.script ?? null;
+    return {
+      every: request.every,
+      prompt: request.prompt,
+      specs: request.specs,
+      keep: request.keep ?? 5,
+      model: request.model || null,
+      permissionMode: request.permissionMode || null,
+      script,
+      scriptTimeout: script === null ? null : request.scriptTimeout ?? "1m",
+      vars: Object.fromEntries((request.vars ?? []).map(({ key, value }) => [key, value])),
+    };
+  };
 
   const reviewPlan = () => ({
     name: "review-buff-bear-42-3f2a9c1",
@@ -230,7 +333,33 @@
     },
     open_defaults: () => data.openDefaults,
     versions: () => data.versions,
-    loops_list: () => ({ loops: [], warnings: [] }),
+    loops_list: () => ({ loops: data.loops, warnings: [] }),
+    loops_add: ({ request }) => {
+      const added = { ...loopFields(request), name: request.name, paused: false, createdAt: "2026-10-24T12:00:00Z", nextRunAt: "2026-10-24T13:00:00Z", lastRun: null, lastGate: null };
+      data.loops = [...data.loops, added];
+      return added;
+    },
+    loops_edit: ({ request }) => {
+      const edited = { ...findLoop(request.name), ...loopFields(request) };
+      data.loops = data.loops.map((loop) => (loop.name === request.name ? edited : loop));
+      return edited;
+    },
+    loops_set_paused: ({ name, paused }) => {
+      const updated = { ...findLoop(name), paused };
+      data.loops = data.loops.map((loop) => (loop.name === name ? updated : loop));
+      return updated;
+    },
+    loops_remove: ({ name }) => {
+      const removed = findLoop(name);
+      data.loops = data.loops.filter((loop) => loop.name !== name);
+      return removed;
+    },
+    loops_run_now: ({ name }) => ({
+      name,
+      workspace: `loop-${name}-1a2b3c4d`,
+      session: "e8cdf5d8",
+      path: `/w/loop-${name}-1a2b3c4d`,
+    }),
     read_transcript: ({ offset }) => ({
       items: offset > 0 ? [] : [
         { id: "u1", at: "2026-10-24T09:01:00Z", kind: "user", text: "Check the login rate limit." },
