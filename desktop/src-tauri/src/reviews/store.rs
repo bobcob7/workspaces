@@ -111,10 +111,33 @@ fn is_profile_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// Which native notifications the app sends (ADR 0050). All on by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NotificationSettings {
+    /// Off sends none; the tray still updates.
+    pub enabled: bool,
+    /// When a top-level agent starts needing input.
+    pub needs_input: bool,
+    /// When a top-level agent finishes.
+    pub done: bool,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            needs_input: true,
+            done: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub reviews: ReviewSettings,
+    pub notifications: NotificationSettings,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -533,5 +556,71 @@ mod tests {
             ..ReviewSettings::default()
         };
         assert_eq!(settings.validate().unwrap_err().code, "setting_invalid");
+    }
+
+    #[test]
+    fn notifications_default_to_all_on() {
+        let notifications = Settings::default().notifications;
+        assert!(notifications.enabled);
+        assert!(notifications.needs_input);
+        assert!(notifications.done);
+    }
+
+    #[test]
+    fn file_without_notifications_opens_with_them_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"settings":{"reviews":{"skipDrafts":false}}}"#,
+        )
+        .unwrap();
+        let data = Store::open(Some(path)).get();
+        assert_eq!(data.settings.notifications, NotificationSettings::default());
+        assert!(!data.settings.reviews.skip_drafts);
+    }
+
+    #[test]
+    fn partial_notifications_keep_other_keys_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"settings":{"notifications":{"done":false}}}"#,
+        )
+        .unwrap();
+        let data = Store::open(Some(path)).get();
+        assert!(data.settings.notifications.enabled);
+        assert!(data.settings.notifications.needs_input);
+        assert!(!data.settings.notifications.done);
+        assert_eq!(data.settings.reviews, ReviewSettings::default());
+    }
+
+    #[test]
+    fn notifications_serialize_in_camel_case_and_round_trip() {
+        let notifications = NotificationSettings {
+            enabled: false,
+            needs_input: true,
+            done: false,
+        };
+        let json = serde_json::to_value(notifications).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"enabled": false, "needsInput": true, "done": false})
+        );
+        let back: NotificationSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back, notifications);
+    }
+
+    #[test]
+    fn update_notifications_writes_file_that_reopens_the_same() {
+        let (dir, store) = temp_store();
+        store
+            .update(|d| d.settings.notifications.done = false)
+            .unwrap();
+        let path = dir.path().join("app").join(FILE_NAME);
+        let reopened = Store::open(Some(path)).get();
+        assert!(!reopened.settings.notifications.done);
+        assert_eq!(reopened, store.get());
     }
 }

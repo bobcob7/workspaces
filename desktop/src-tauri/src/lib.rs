@@ -95,6 +95,7 @@ pub fn run() {
             reviews::review_fix_sent,
             reviews::settings_get,
             reviews::settings_set_reviews,
+            reviews::settings_set_notifications,
             loops::loops_list,
             loops::loops_add,
             loops::loops_set_paused,

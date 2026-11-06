@@ -24,7 +24,7 @@ use profiles::{ListedProfile, ProfileDetail, ProfileDraft};
 use report::DecideRequest;
 use serde::Serialize;
 use serde_json::Value;
-use store::{PrHead, RepoWatch, ReviewSettings, Settings};
+use store::{NotificationSettings, PrHead, RepoWatch, ReviewSettings, Settings};
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use view::ReviewsView;
@@ -354,4 +354,16 @@ pub fn settings_set_reviews(
         d.settings.clone()
     })?;
     Ok(settings)
+}
+
+/// Saves the Notifications settings group (ADR 0050).
+#[tauri::command]
+pub fn settings_set_notifications(
+    state: State<'_, AppState>,
+    notifications: NotificationSettings,
+) -> CmdResult<Settings> {
+    state.store.update(|d| {
+        d.settings.notifications = notifications;
+        d.settings.clone()
+    })
 }
