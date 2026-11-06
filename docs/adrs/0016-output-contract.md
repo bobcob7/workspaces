@@ -1,6 +1,6 @@
 # 0016. Output contract: one JSON object on stdout, errors as JSON on stderr, five exit codes
 
-- Status: Accepted (2026-10-18); shell exit status amended by [0023](0023-shell-session-keeps-creation-lock.md) (2026-10-19); `ws claude` attached exit status amended by [0025](0025-ws-claude-session-hand-off.md) (2026-10-19); `workspace_busy` and `session_mismatch` added by [0026](0026-removal-pass-timing.md) (2026-10-19); review error codes added by [0039](0039-ws-review-command.md) (2026-10-27); `outside_workspace` and `not_descendant` added by [0046](0046-ws-machine.md) (proposed); `loop_invalid`, `loop_not_found`, and `loop_exists` added by [0048](0048-agent-loop-scheduler.md) (proposed)
+- Status: Accepted (2026-10-18); shell exit status amended by [0023](0023-shell-session-keeps-creation-lock.md) (2026-10-19); `ws claude` attached exit status amended by [0025](0025-ws-claude-session-hand-off.md) (2026-10-19); `workspace_busy` and `session_mismatch` added by [0026](0026-removal-pass-timing.md) (2026-10-19); review error codes added by [0039](0039-ws-review-command.md) (2026-10-27); `outside_workspace` and `not_descendant` added by [0046](0046-ws-machine.md) (proposed); `loop_invalid`, `loop_not_found`, and `loop_exists` added by [0048](0048-agent-loop-scheduler.md) (proposed); `loop_skipped` and `loop_script_failed` added by [0049](0049-loop-scripts-and-variables.md) (proposed)
 - Date: 2026-10-18
 
 ## Context

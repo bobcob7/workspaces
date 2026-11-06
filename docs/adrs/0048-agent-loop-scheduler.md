@@ -1,6 +1,6 @@
 # 0048. `ws loop` starts an agent in a new workspace every period, from a record in `CONFIG_DIR/loops/`, when `ws loop tick` runs from launchd or the desktop app
 
-- Status: Proposed
+- Status: Proposed; gate scripts, variables, prompt templates, and record version 2 added by [0049](0049-loop-scripts-and-variables.md) (proposed)
 - Date: 2026-11-05
 
 ## Context
