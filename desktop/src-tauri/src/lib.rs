@@ -13,6 +13,9 @@ mod pty;
 mod reviews;
 mod runner;
 mod transcript;
+// Wired up in T4 and T5 of docs/design/tray/tasks.md (ADR 0050).
+#[allow(dead_code)]
+mod tray;
 
 use commands::AppState;
 use reviews::checker::{Checker, Deps};
