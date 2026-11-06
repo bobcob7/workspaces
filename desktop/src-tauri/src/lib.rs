@@ -26,6 +26,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let path = app
                 .path()
@@ -39,6 +40,7 @@ pub fn run() {
                 store: Arc::new(Store::open(path)),
                 reviews: Arc::new(Checker::default()),
                 reports: reviews::report::Cache::default(),
+                watcher: Arc::new(tray::watcher::Watcher::default()),
             };
             let deps = Deps {
                 runner: state.runner.clone(),
@@ -48,6 +50,7 @@ pub fn run() {
             tauri::async_runtime::spawn(state.reviews.clone().run(deps));
             tauri::async_runtime::spawn(loops::tick_forever(state.runner.clone()));
             app.manage(state);
+            tauri::async_runtime::spawn(tray::watcher::watch_forever(app.handle().clone()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

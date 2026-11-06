@@ -133,7 +133,7 @@ The screenshots use sample data.
 - The workspace root trusted in Claude Code once (see
   [`ws claude`](../docs/tools/ws-claude.md#trust)); the New agent dialog
   says how if it isn't.
-- To build: Rust 1.80+, Node.js 20+, and Tauri's
+- To build: Rust 1.90+, Node.js 20+, and Tauri's
   [system dependencies](https://tauri.app/start/prerequisites/).
 
 ## Build and run
