@@ -36,6 +36,7 @@ type tickJSON struct {
 	Session   *string        `json:"session"`
 	NextRunAt *string        `json:"next_run_at"`
 	Error     *itemErrorJSON `json:"error"`
+	Gate      *gateJSON      `json:"gate"`
 }
 
 // loopRunResult is ws loop run's output.
@@ -48,14 +49,17 @@ type loopRunResult struct {
 }
 
 func (a *App) newLoopRunCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "run <NAME>",
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "run [--force] <NAME>",
 		Short: "Start a run of a loop now",
 		Args:  cobra.ExactArgs(1),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
-			return a.runLoopRun(cmd.Context(), args[0])
+			return a.runLoopRun(cmd.Context(), args[0], force)
 		})),
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "start the run without running the loop's script")
+	return cmd
 }
 
 func (a *App) newLoopTickCmd() *cobra.Command {
@@ -107,7 +111,7 @@ func (c *claudeCheck) ready(ctx context.Context, client claudeClient) error {
 
 // runLoopRun starts a run of the loop now, whether or not it is paused,
 // due, or busy. next_run_at stays as it is (ADR 0048, decision 4).
-func (a *App) runLoopRun(ctx context.Context, name string) error {
+func (a *App) runLoopRun(ctx context.Context, name string, force bool) error {
 	unlock, err := a.loops.Lock(ctx)
 	if err != nil {
 		return domainError(err)
@@ -118,8 +122,10 @@ func (a *App) runLoopRun(ctx context.Context, name string) error {
 		return domainError(err)
 	}
 	var check claudeCheck
-	run, ws, startErr := a.attemptRun(ctx, &l, &check)
-	l.AddRun(run)
+	run, ws, startErr := a.attemptRun(ctx, &l, &check, force)
+	if !errors.Is(startErr, loop.ErrSkipped) {
+		l.AddRun(run)
+	}
 	saveErr := a.loops.Save(&l)
 	if err := errors.Join(startErr, saveErr); err != nil {
 		return domainError(err)
@@ -195,18 +201,29 @@ func (a *App) tickLoop(ctx context.Context, l *loop.Loop, p *loopPass, results *
 	case p.dryRun:
 		return addTick(results, newTickJSON(l, loopWouldStart), nil), nil
 	}
-	run, _, startErr := a.attemptRun(ctx, l, &p.check)
-	l.AddRun(run)
+	prev := l.LastGate
+	run, _, startErr := a.attemptRun(ctx, l, &p.check, false)
+	skipped := errors.Is(startErr, loop.ErrSkipped)
+	if !skipped {
+		l.AddRun(run)
+	}
 	if err := l.Advance(p.now); err != nil {
 		return tickJSON{}, err
 	}
 	if err := a.loops.Save(l); err != nil {
 		return tickJSON{}, domainError(err)
 	}
+	item := newTickJSON(l, loopStarted)
+	if l.LastGate != prev {
+		item.Gate = gateJSONOf(l.LastGate)
+	}
+	if skipped {
+		item.Action = loopSkipped
+		return addTick(results, item, nil), nil
+	}
 	if startErr == nil {
 		a.pruneRuns(ctx, l, p.listing)
 	}
-	item := newTickJSON(l, loopStarted)
 	if startErr != nil {
 		item.Action = loopFailed
 	}
@@ -255,25 +272,42 @@ func listedEntry(listing lifetime.Listing, id string) *lifetime.Entry {
 	return nil
 }
 
-// attemptRun starts a run of l, after Claude Code's check. A run that can't
-// start is returned with its error, to be recorded.
-func (a *App) attemptRun(ctx context.Context, l *loop.Loop, check *claudeCheck) (loop.Run, workspace.Workspace, error) {
+// attemptRun starts a run of l, after Claude Code's check and, unless
+// force, l's script. A run that can't start is returned with its error, to
+// be recorded. A script that exits non-zero starts nothing, so its error
+// has no run to record.
+func (a *App) attemptRun(ctx context.Context, l *loop.Loop, check *claudeCheck, force bool) (loop.Run, workspace.Workspace, error) {
 	if err := check.ready(ctx, a.claude); err != nil {
 		return failedRun(a.now(), err), workspace.Workspace{}, err
 	}
-	return a.startLoopRun(ctx, l)
+	data := loop.PromptData{}
+	if !force {
+		var err error
+		data, err = a.runGate(ctx, l)
+		if errors.Is(err, loop.ErrSkipped) {
+			return loop.Run{}, workspace.Workspace{}, err
+		}
+		if err != nil {
+			return failedRun(a.now(), err), workspace.Workspace{}, err
+		}
+	}
+	prompt, err := l.RenderPrompt(data)
+	if err != nil {
+		return failedRun(a.now(), err), workspace.Workspace{}, err
+	}
+	return a.startLoopRun(ctx, l, prompt)
 }
 
 // startLoopRun creates the run's workspace and starts its agent, as ws
 // claude does, and returns the run to record. A failure is in the Run's
 // ErrorCode/ErrorMessage and also returned.
-func (a *App) startLoopRun(ctx context.Context, l *loop.Loop) (loop.Run, workspace.Workspace, error) {
+func (a *App) startLoopRun(ctx context.Context, l *loop.Loop, prompt string) (loop.Run, workspace.Workspace, error) {
 	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: "loop-" + l.Name, Specs: parseSpecs(l.Specs)})
 	if err != nil {
 		return failedRun(a.now(), err), workspace.Workspace{}, domainError(err)
 	}
 	defer lock.Unlock()
-	started, err := a.startAgent(ctx, &ws, loopClaudeArgs(l))
+	started, err := a.startAgent(ctx, &ws, loopClaudeArgs(l, prompt))
 	if err != nil {
 		return failedRun(a.now(), err), ws, err
 	}
@@ -287,8 +321,8 @@ func failedRun(at time.Time, err error) loop.Run {
 }
 
 // loopClaudeArgs are the arguments after `--` for ws claude: the loop's
-// --model and --permission-mode if set, then its prompt.
-func loopClaudeArgs(l *loop.Loop) []string {
+// --model and --permission-mode if set, then the run's prompt.
+func loopClaudeArgs(l *loop.Loop, prompt string) []string {
 	var args []string
 	if l.Model != "" {
 		args = append(args, "--model", l.Model)
@@ -296,7 +330,7 @@ func loopClaudeArgs(l *loop.Loop) []string {
 	if l.PermissionMode != "" {
 		args = append(args, "--permission-mode", l.PermissionMode)
 	}
-	return append(args, l.Prompt)
+	return append(args, prompt)
 }
 
 // pruneRuns removes the workspaces of l's runs beyond the newest l.Keep,

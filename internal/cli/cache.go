@@ -654,6 +654,8 @@ func codedDomainError(err error) *cliError {
 		{gh.ErrNotInstalled, codeGhMissing},
 		{gh.ErrAuth, codeGhAuth},
 		{gh.ErrPRNotFound, codePRNotFound},
+		{loop.ErrSkipped, codeLoopSkipped},
+		{loop.ErrScriptFailed, codeLoopScriptFailed},
 		{loop.ErrInvalid, codeLoopInvalid},
 		{loop.ErrNotFound, codeLoopNotFound},
 		{loop.ErrExists, codeLoopExists},
