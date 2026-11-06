@@ -12,7 +12,7 @@ newer `ws`, is a warning and isn't listed.
 ## JSON output
 
 ```json
-{"loops": [{"name": "deps-bump", "every": "24h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T18:00:00Z", "last_run": null}], "warnings": []}
+{"loops": [{"name": "deps-bump", "every": "24h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T18:00:00Z", "last_run": null, "script": null, "script_timeout": null, "vars": {}, "last_gate": null}], "warnings": []}
 ```
 
 ## Exit codes

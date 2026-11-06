@@ -4,6 +4,7 @@ import type { Loop } from "../../api";
 import { age, until } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { sectionChosen, selected } from "../ui/uiSlice";
+import { gateText } from "./gate";
 import { LoopForm } from "./LoopForm";
 import { removeLoop, runLoopNow, setLoopPaused } from "./loopsSlice";
 import styles from "./LoopsPane.module.css";
@@ -84,12 +85,34 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
         <dd>{loop.specs.length === 0 ? "none" : loop.specs.join(" ")}</dd>
         <dt>Keep</dt>
         <dd>{loop.keep}</dd>
+        <dt>Script</dt>
+        <dd className={styles.prompt}>{loop.script ?? "none"}</dd>
+        {loop.script !== null && (
+          <>
+            <dt>Script timeout</dt>
+            <dd>{loop.scriptTimeout ?? "default"}</dd>
+          </>
+        )}
+        <dt>Variables</dt>
+        <dd className={styles.prompt}>
+          {Object.keys(loop.vars).length === 0
+            ? "none"
+            : Object.entries(loop.vars)
+                .map(([key, value]) => `${key}=${value}`)
+                .join("\n")}
+        </dd>
         <dt>Next run</dt>
         <dd>{nextRun(loop)}</dd>
         <dt>Last run</dt>
         <dd>
           <LastRun loop={loop} disabled={busy} />
         </dd>
+        {loop.script !== null && (
+          <>
+            <dt>Last check</dt>
+            <dd>{gateText(loop.lastGate)}</dd>
+          </>
+        )}
       </dl>
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
         <DialogTitle>Delete loop {loop.name}?</DialogTitle>

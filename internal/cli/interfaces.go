@@ -6,6 +6,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
@@ -114,4 +115,9 @@ type loopStore interface {
 	Create(l *loop.Loop) error
 	Save(l *loop.Loop) error
 	Remove(name string) error
+}
+
+// gateRunner runs a loop's gate script (ADR 0049).
+type gateRunner interface {
+	Run(ctx context.Context, req gate.Request) (gate.Result, error)
 }

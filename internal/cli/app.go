@@ -17,6 +17,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
@@ -61,6 +62,10 @@ type App struct {
 	gh ghClient
 	// environ is the environment git, claude, and the shell run with.
 	environ []string
+	// gate runs loop scripts, for ws loop tick and run (ADR 0049).
+	gate gateRunner
+	// homeDir is os.UserHomeDir: a loop's script runs in it.
+	homeDir func() (string, error)
 	// getwd is os.Getwd: ws review finds its workspace from it.
 	getwd func() (string, error)
 	// reviewPoll is how often ws review wait reads the review's session.
@@ -120,6 +125,8 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		progress:     isTerminal(stderr),
 		interactive:  isTerminal(stdin) && isTerminal(stdout),
 		environ:      environ,
+		gate:         gate.New(environ),
+		homeDir:      os.UserHomeDir,
 		getwd:        os.Getwd,
 		reviewPoll:   defaultReviewPoll,
 		continuePoll: defaultContinuePoll,

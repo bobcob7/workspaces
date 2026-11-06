@@ -22,6 +22,15 @@ desktop app or a launchd agent does; this guide covers the records.
 - A loop's runs are ordinary workspaces: `ws list`, `ws rm`, and
   `ws continue` work on them.
 
+## Scripts and variables
+
+`ws loop add --script` gives a loop a gate: a shell script that must exit 0
+for a run to start. Its stdout and stderr can be used in the prompt as
+`{{.Stdout}}` and `{{.Stderr}}`. `--var KEY=VALUE` sets a variable for the
+prompt (`{{.Vars.KEY}}`) and for the script (`$WS_LOOP_VAR_KEY`). See
+`ws llm loop add` for the template values, the limits, and how to change a
+loop: remove it and add it again.
+
 ## Subcommands
 
 - `ws loop add`: add a loop; see `ws llm loop add`.
@@ -37,7 +46,7 @@ or digit.
 
 | Situation                                   | Error code       | Exit |
 | ------------------------------------------- | ---------------- | ---- |
-| Bad name, period, prompt, or `--keep`       | `loop_invalid`   | 2    |
+| Bad name, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
 | A spec that can't be parsed                 | `spec_invalid`   | 2    |
 | Missing or extra arguments, or a flag error | `usage`          | 2    |
 | No loop has that name                       | `loop_not_found` | 3    |

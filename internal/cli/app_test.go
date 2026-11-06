@@ -23,6 +23,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/exectest"
+	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/gittest"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
@@ -54,7 +55,21 @@ func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 	app.newStores = func(config.Paths, config.Config) stores { return s }
 	app.lifetime = s.lifetime
 	app.now = testNow
+	app.gate = &fakeGate{}
+	app.homeDir = func() (string, error) { return "/home/me", nil }
 	return app, stdout, stderr
+}
+
+// fakeGate is a gateRunner that records each request and returns result, err.
+type fakeGate struct {
+	result   gate.Result
+	err      error
+	requests []gate.Request
+}
+
+func (f *fakeGate) Run(_ context.Context, req gate.Request) (gate.Result, error) {
+	f.requests = append(f.requests, req)
+	return f.result, f.err
 }
 
 // testNow is newTestApp's clock.
