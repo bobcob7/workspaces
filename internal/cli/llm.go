@@ -40,6 +40,8 @@ func guideTopics() []string {
 		"loop pause",
 		"loop resume",
 		"loop rm",
+		"loop run",
+		"loop tick",
 		"cache",
 		"cache add",
 		"cache update",

@@ -100,6 +100,11 @@ type ghClient interface {
 	PRView(ctx context.Context, repo string, number int) (gh.PR, error)
 }
 
+// awakeReader reports whether the Mac is fully awake (ADR 0047).
+type awakeReader interface {
+	Awake(ctx context.Context) (bool, error)
+}
+
 // loopStore keeps agent loops (ADR 0048).
 type loopStore interface {
 	Lock(ctx context.Context) (func(), error)

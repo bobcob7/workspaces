@@ -150,7 +150,7 @@ messages aren't.
   `details` is `null` or an object, such as `{"stderr": "…"}` when git or
   claude failed, or `{"candidates": [...]}` for an ambiguous name.
 - Commands that act on several items (`ws rm`, `ws machine rm`, `ws restore`, `ws restart`, `ws continue`,
-  `ws cache add`, `update`, `remove`) still print a result when some items
+  `ws loop tick`, `ws cache add`, `update`, `remove`) still print a result when some items
   fail: each item has its own `error` (`{"code", "message"}` or `null`),
   and the exit code is the first failure's.
 
@@ -211,6 +211,8 @@ For people and the desktop app, not agents:
   - `ws llm loop pause`: stop a loop from starting runs
   - `ws llm loop resume`: start a paused loop again
   - `ws llm loop rm`: delete a loop
+  - `ws llm loop run`: start a run of a loop now
+  - `ws llm loop tick`: start every loop that is due, as the scheduler does
 - `ws llm cache`: the repo cache, and its subcommands:
   - `ws llm cache add`: clone repos into the cache
   - `ws llm cache update`: fetch cached repos from upstream

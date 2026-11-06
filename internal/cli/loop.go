@@ -25,6 +25,8 @@ func (a *App) newLoopCmd() *cobra.Command {
 		a.newLoopPauseCmd(),
 		a.newLoopResumeCmd(),
 		a.newLoopRmCmd(),
+		a.newLoopRunCmd(),
+		a.newLoopTickCmd(),
 	)
 	return cmd
 }

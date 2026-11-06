@@ -67,6 +67,10 @@ type App struct {
 	reviewPoll time.Duration
 	// continuePoll is how often ws continue --watch runs a pass.
 	continuePoll time.Duration
+	// awake tells whether the Mac is fully awake, for ws loop tick (ADR 0047).
+	awake awakeReader
+	// loopPoll is how often ws loop tick --watch runs a pass.
+	loopPoll time.Duration
 	// indentJSON is set when stdout is a terminal (ADR 0016).
 	indentJSON bool
 	// progress is set when stderr is a terminal, where progress may be
@@ -119,6 +123,8 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		getwd:        os.Getwd,
 		reviewPoll:   defaultReviewPoll,
 		continuePoll: defaultContinuePoll,
+		awake:        power.Reader{},
+		loopPoll:     defaultLoopPoll,
 		notify:       signal.Notify,
 		stopNotify:   signal.Stop,
 	}
