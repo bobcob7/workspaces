@@ -8,6 +8,7 @@ import type {
   ListedProfile,
   Loop,
   NewLoop,
+  NotificationSettings,
   ProfileDetail,
   PullRequest,
   RepoRef,
@@ -243,6 +244,13 @@ export const loop = (overrides: Partial<Loop> = {}): Loop => ({
   ...overrides,
 });
 
+export const notificationSettings = (overrides: Partial<NotificationSettings> = {}): NotificationSettings => ({
+  enabled: true,
+  needsInput: true,
+  done: true,
+  ...overrides,
+});
+
 export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   listEntries: vi.fn(async () => ({ entries: [], warnings: [] })),
   cacheRepos: vi.fn(async () => []),
@@ -286,7 +294,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewsProfileShow: vi.fn(async (name: string) => profileDetail({ name })),
   reviewsProfileAdd: vi.fn(async (name: string) => profileDetail({ name, builtin: false, source: "user" })),
   reviewsProfileEdit: vi.fn(async (name: string) => profileDetail({ name })),
-  reviewsProfileRemove: vi.fn(async () => ({ restored: false, settings: { reviews: reviewSettings() } })),
+  reviewsProfileRemove: vi.fn(async () => ({ restored: false, settings: { reviews: reviewSettings(), notifications: notificationSettings() } })),
   reviewsStart: vi.fn(async () => ({ id: "review-buff-bear-42-3f2a9c1", already: false })),
   reviewReport: vi.fn(async () => reviewReport()),
   reviewDecide: vi.fn(async () => reviewReport()),
@@ -301,8 +309,10 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
     ws: { version: "v0.3.0-4-gdc313a2", path: "/usr/local/bin/ws", error: null },
     claude: { version: "2.1.303", path: "/opt/homebrew/bin/claude", error: null },
   })),
-  settingsGet: vi.fn(async () => ({ reviews: reviewSettings() })),
-  settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews })),
+  settingsGet: vi.fn(async () => ({ reviews: reviewSettings(), notifications: notificationSettings() })),
+  settingsSetReviews: vi.fn(async (reviews: ReviewSettings) => ({ reviews, notifications: notificationSettings() })),
+  settingsSetNotifications: vi.fn(async (notifications: NotificationSettings) => ({ reviews: reviewSettings(), notifications })),
+  onTraySelect: vi.fn(async () => () => undefined),
   loopsList: vi.fn(async () => ({ loops: [], warnings: [] })),
   loopsAdd: vi.fn(async (request: NewLoop) =>
     loop({ name: request.name, every: request.every, prompt: request.prompt, specs: request.specs, script: request.script ?? null }),

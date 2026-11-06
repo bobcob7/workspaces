@@ -13,6 +13,7 @@ mod pty;
 mod reviews;
 mod runner;
 mod transcript;
+mod tray;
 
 use commands::AppState;
 use reviews::checker::{Checker, Deps};
@@ -23,6 +24,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let path = app
                 .path()
@@ -36,6 +38,7 @@ pub fn run() {
                 store: Arc::new(Store::open(path)),
                 reviews: Arc::new(Checker::default()),
                 reports: reviews::report::Cache::default(),
+                watcher: Arc::new(tray::watcher::Watcher::default()),
             };
             let deps = Deps {
                 runner: state.runner.clone(),
@@ -45,7 +48,19 @@ pub fn run() {
             tauri::async_runtime::spawn(state.reviews.clone().run(deps));
             tauri::async_runtime::spawn(loops::tick_forever(state.runner.clone()));
             app.manage(state);
+            tray::menu::create(app.handle())?;
+            tauri::async_runtime::spawn(tray::watcher::watch_forever(app.handle().clone()));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == tray::menu::MAIN_WINDOW {
+                    api.prevent_close();
+                    if let Err(err) = window.hide() {
+                        eprintln!("tray: hiding the window failed: {err}");
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_entries,
@@ -92,6 +107,7 @@ pub fn run() {
             reviews::review_fix_sent,
             reviews::settings_get,
             reviews::settings_set_reviews,
+            reviews::settings_set_notifications,
             loops::loops_list,
             loops::loops_add,
             loops::loops_set_paused,
@@ -100,9 +116,10 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                app.state::<AppState>().terminals.close_all();
-            }
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => app.state::<AppState>().terminals.close_all(),
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => tray::menu::show_main(app),
+            _ => {}
         });
 }

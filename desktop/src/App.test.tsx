@@ -11,6 +11,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 describe("App", () => {
+  it("follows the tray menu's agent choices", () => {
+    const api = fakeApi();
+    renderWithStore(<App />, testStore({ api }));
+    expect(api.onTraySelect).toHaveBeenCalledTimes(1);
+  });
+
   it("opens on Agents with its actions", () => {
     renderWithStore(<App />, testStore());
     expect(screen.getByRole("button", { name: "Restore stopped" })).toBeInTheDocument();

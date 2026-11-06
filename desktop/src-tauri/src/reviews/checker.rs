@@ -212,7 +212,7 @@ impl Checker {
                 deps.store.get().settings.reviews.check_interval_minutes,
                 self.with_state(|s| s.backoff).unwrap_or(0),
             );
-            let due = last.map_or(true, |t| t.elapsed() >= next_delay(interval, backoff));
+            let due = last.is_none_or(|t| t.elapsed() >= next_delay(interval, backoff));
             if self.forced.swap(false, Ordering::SeqCst) || due {
                 last = Some(Instant::now());
                 self.check(&deps).await;

@@ -64,7 +64,10 @@ pub struct RefListing {
 /// A cached repo's branches and tags (ADR 0033).
 #[tauri::command]
 pub async fn cache_refs(state: State<'_, AppState>, id: String) -> CmdResult<RefListing> {
-    state.runner.ws_json(&strings(&["cache", "refs", &id])).await
+    state
+        .runner
+        .ws_json(&strings(&["cache", "refs", &id]))
+        .await
 }
 
 /// What a repo spec resolves to, from `ws cache resolve`.
@@ -334,9 +337,7 @@ mod tests {
         let (_dir, runner) = fake_ws(
             r#"echo '{"error":{"code":"repo_not_found","message":"not cached"}}' >&2; exit 3"#,
         );
-        let err = fetch(&runner, &["x".to_string()], false)
-            .await
-            .unwrap_err();
+        let err = fetch(&runner, &["x".to_string()], false).await.unwrap_err();
         assert_eq!(err.code, "repo_not_found");
     }
 

@@ -2,9 +2,10 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Api } from "../../api";
-import { fakeApi, reviewSettings, testStore } from "../../test/fixtures";
+import { fakeApi, notificationSettings, reviewSettings, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
-import { saveReviewSettings, settingsReducer } from "./settingsSlice";
+import { SettingsList } from "./SettingsList";
+import { groupChosen, saveReviewSettings, settingsReducer } from "./settingsSlice";
 import { SettingsPane } from "./SettingsPane";
 
 describe("SettingsPane", () => {
@@ -93,6 +94,7 @@ describe("Reviewer profiles", () => {
     const api = fakeApi({
       settingsGet: vi.fn(async () => ({
         reviews: reviewSettings({ profiles: { security: { runs: "always", model: "claude-opus-5-5" } } }),
+        notifications: notificationSettings(),
       })),
     });
     await open(api);
@@ -105,6 +107,7 @@ describe("Reviewer profiles", () => {
         reviews: reviewSettings({
           profiles: { go: { runs: "always", model: "" }, tests: { runs: "off", model: "haiku" } },
         }),
+        notifications: notificationSettings(),
       })),
     });
     await open(api);
@@ -124,6 +127,7 @@ describe("Reviewer profiles", () => {
     const api = fakeApi({
       settingsGet: vi.fn(async () => ({
         reviews: reviewSettings({ model: "opus", profiles: { go: { runs: "always", model: "sonnet" } } }),
+        notifications: notificationSettings(),
       })),
     });
     await open(api);
@@ -152,7 +156,51 @@ describe("settingsReducer", () => {
       saveReviewSettings.rejected(null, "r1", { skipDrafts: false }, { code: "x", message: "nope" }),
     );
     expect(failed.fieldErrors.skipDrafts).toBe("nope");
-    const saved = settingsReducer(failed, saveReviewSettings.fulfilled({ reviews: reviewSettings() }, "r2", { skipDrafts: false }));
+    const saved = settingsReducer(failed, saveReviewSettings.fulfilled({ reviews: reviewSettings(), notifications: notificationSettings() }, "r2", { skipDrafts: false }));
     expect(saved.fieldErrors.skipDrafts).toBeUndefined();
+  });
+});
+
+describe("Notifications", () => {
+  const open = async (api = fakeApi()): Promise<Api> => {
+    const store = testStore({ api });
+    store.dispatch(groupChosen("notifications"));
+    renderWithStore(<SettingsPane />, store);
+    await screen.findByRole("group", { name: "Notify me" });
+    return api;
+  };
+
+  it("shows the three checkboxes, checked by default", async () => {
+    await open();
+    for (const name of ["Show notifications", "When an agent needs input", "When an agent is done"]) {
+      expect(screen.getByRole("checkbox", { name })).toBeChecked();
+    }
+  });
+
+  it("saves a change to When an agent is done", async () => {
+    const api = await open();
+    await userEvent.click(screen.getByRole("checkbox", { name: "When an agent is done" }));
+    expect(api.settingsSetNotifications).toHaveBeenCalledWith({ enabled: true, needsInput: true, done: false });
+  });
+
+  it("disables the other two checkboxes when notifications are off", async () => {
+    await open(fakeApi({ settingsGet: vi.fn(async () => ({ reviews: reviewSettings(), notifications: notificationSettings({ enabled: false }) })) }));
+    expect(screen.getByRole("checkbox", { name: "Show notifications" })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: "When an agent needs input" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "When an agent is done" })).toBeDisabled();
+  });
+
+  it("shows why a change didn't save as an alert", async () => {
+    await open(fakeApi({ settingsSetNotifications: vi.fn(async () => Promise.reject({ code: "state_newer", message: "newer" })) }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "When an agent is done" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("newer");
+  });
+});
+
+describe("SettingsList", () => {
+  it("lists Reviews, Notifications, and About in that order", () => {
+    renderWithStore(<SettingsList />, testStore());
+    const items = within(screen.getByRole("navigation", { name: "Settings groups" })).getAllByRole("button");
+    expect(items.map((item) => item.textContent)).toEqual(["Reviews", "Notifications", "About"]);
   });
 });

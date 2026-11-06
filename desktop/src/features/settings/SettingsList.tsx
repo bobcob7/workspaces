@@ -6,6 +6,7 @@ import styles from "./SettingsList.module.css";
 /** Groups with settings, in list order. General and Agents join once they have some. */
 const groups: readonly { readonly id: SettingsGroup; readonly title: string }[] = [
   { id: "reviews", title: "Reviews" },
+  { id: "notifications", title: "Notifications" },
   { id: "about", title: "About" },
 ];
 

@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export type Status =
   | "working"
@@ -565,8 +566,16 @@ export interface FixStarted {
   readonly warning: string | null;
 }
 
+/** Which native notifications the app sends (ADR 0050). */
+export interface NotificationSettings {
+  readonly enabled: boolean;
+  readonly needsInput: boolean;
+  readonly done: boolean;
+}
+
 export interface Settings {
   readonly reviews: ReviewSettings;
+  readonly notifications: NotificationSettings;
 }
 
 export interface LoopError {
@@ -735,6 +744,11 @@ export const api = {
   versions: async (): Promise<Versions> => call<Versions>("versions"),
   settingsSetReviews: async (reviews: ReviewSettings): Promise<Settings> =>
     call<Settings>("settings_set_reviews", { reviews }),
+  settingsSetNotifications: async (notifications: NotificationSettings): Promise<Settings> =>
+    call<Settings>("settings_set_notifications", { notifications }),
+  /** Calls handler with the agent's key each time the tray menu selects one; resolves to an unsubscribe. */
+  onTraySelect: async (handler: (key: string) => void): Promise<() => void> =>
+    listen<{ readonly key: string }>("tray-select", (event) => handler(event.payload.key)),
   loopsList: async (): Promise<LoopListing> => call<LoopListing>("loops_list"),
   loopsAdd: async (request: NewLoop): Promise<Loop> => call<Loop>("loops_add", { request }),
   loopsSetPaused: async (name: string, paused: boolean): Promise<Loop> => call<Loop>("loops_set_paused", { name, paused }),

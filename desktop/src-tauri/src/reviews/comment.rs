@@ -214,9 +214,7 @@ fn escape_line(line: &str, out: &mut String) {
             rest = &rest[take..];
             continue;
         }
-        let starts_word = prev.map_or(true, |p| {
-            !(p.is_ascii_alphanumeric() || p == '_' || p == '`')
-        });
+        let starts_word = prev.is_none_or(|p| !(p.is_ascii_alphanumeric() || p == '_' || p == '`'));
         if c == '@' && starts_word {
             let len = mention_len(&rest[1..]);
             if len > 0 {
@@ -325,7 +323,7 @@ pub fn place_findings(report: &Value, diff: &Diff) -> Result<Placed, AppError> {
         .iter()
         .filter(|f| {
             f.decision.as_ref().is_some_and(|d| {
-                d.decision == "comment" && d.done.as_ref().map_or(true, Value::is_null)
+                d.decision == "comment" && d.done.as_ref().is_none_or(Value::is_null)
             })
         })
         .collect();

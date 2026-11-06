@@ -29,6 +29,7 @@ import { SettingsPane } from "./features/settings/SettingsPane";
 import { fetchSettings } from "./features/settings/settingsSlice";
 import { TerminalView } from "./features/terminals/TerminalView";
 import { closeTerminal } from "./features/terminals/terminalsSlice";
+import { followTray } from "./features/ui/tray";
 import { noticeDismissed, sectionChosen, selected, type NoticeAction, type Section } from "./features/ui/uiSlice";
 import { useAppDispatch, useAppSelector } from "./store";
 import styles from "./App.module.css";
@@ -175,6 +176,12 @@ export const App = (): JSX.Element => {
     void dispatch(fetchSettings());
     const timer = window.setInterval(() => void poll(), pollInterval);
     return () => window.clearInterval(timer);
+  }, [dispatch]);
+  useEffect(() => {
+    const stop = dispatch(followTray());
+    return () => {
+      void stop.then((unlisten) => unlisten());
+    };
   }, [dispatch]);
   useEffect(() => {
     document.title = attention > 0 ? `Workspaces (${attention} need${attention === 1 ? "s" : ""} input)` : "Workspaces";

@@ -25,6 +25,8 @@ pub struct AppState {
     pub reviews: Arc<Checker>,
     /// Review reports read this session (ADR 0040).
     pub reports: report::Cache,
+    /// Tracks agents for the tray's notifications (ADR 0050).
+    pub watcher: Arc<crate::tray::watcher::Watcher>,
 }
 
 type CmdResult<T> = Result<T, AppError>;
@@ -33,17 +35,20 @@ fn strings(args: &[&str]) -> Vec<String> {
     args.iter().map(|s| (*s).to_string()).collect()
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
-/// Lists workspaces and background sessions.
+/// Lists workspaces and background sessions, and hands the listing to the
+/// tray's watcher (ADR 0050).
 #[tauri::command]
-pub async fn list_entries(state: State<'_, AppState>) -> CmdResult<Listing> {
+pub async fn list_entries(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdResult<Listing> {
     let listing = list(&state.runner, state.jobs_dir.as_deref()).await?;
     state.reviews.set_entries(listing.entries.clone());
+    let observed = state.watcher.observe(&listing.entries, now_ms());
+    crate::tray::publish(&app, &observed);
     Ok(listing)
 }
 

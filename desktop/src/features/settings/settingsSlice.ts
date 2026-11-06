@@ -3,6 +3,7 @@ import {
   toAppError,
   type AppError,
   type ListedProfile,
+  type NotificationSettings,
   type ProfileDetail,
   type ProfileDraft,
   type ProfileRemoved,
@@ -13,7 +14,7 @@ import {
 import { createAppThunk } from "../../thunk";
 
 /** Settings groups; a group is listed once it has settings. */
-export type SettingsGroup = "reviews" | "about";
+export type SettingsGroup = "reviews" | "notifications" | "about";
 
 export type ReviewSettingKey = keyof ReviewSettings;
 
@@ -23,6 +24,8 @@ export interface SettingsState {
   readonly group: SettingsGroup;
   /** The error under each control whose last change failed to save. */
   readonly fieldErrors: Readonly<Partial<Record<ReviewSettingKey, string>>>;
+  /** The error under the Notifications group when its last change failed to save. */
+  readonly notificationsError: string | null;
   /** Every reviewer profile, from `ws review profiles`. */
   readonly profiles: readonly ListedProfile[] | null;
   readonly profilesError: AppError | null;
@@ -36,6 +39,7 @@ const initialState: SettingsState = {
   error: null,
   group: "reviews",
   fieldErrors: {},
+  notificationsError: null,
   profiles: null,
   profilesError: null,
   versions: null,
@@ -136,6 +140,20 @@ export const saveReviewSettings = createAppThunk<Settings, Partial<ReviewSetting
   },
 );
 
+/** Saves a change to the Notifications settings as it's made. */
+export const saveNotificationSettings = createAppThunk<Settings, Partial<NotificationSettings>>(
+  "settings/saveNotifications",
+  async (change, { extra, getState, rejectWithValue }) => {
+    const current = getState().settings.settings;
+    try {
+      const base = current ?? (await extra.api.settingsGet());
+      return await extra.api.settingsSetNotifications({ ...base.notifications, ...change });
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
 const changedKeys = (change: Partial<ReviewSettings>): readonly ReviewSettingKey[] =>
   Object.keys(change).filter((key): key is ReviewSettingKey => key in change);
 
@@ -182,6 +200,14 @@ const settingsSlice = createSlice({
           delete fieldErrors[key];
         }
         return { ...state, settings: action.payload, fieldErrors };
+      })
+      .addCase(saveNotificationSettings.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        settings: action.payload,
+        notificationsError: null,
+      }))
+      .addCase(saveNotificationSettings.rejected, (state, action) => {
+        state.notificationsError = action.payload?.message ?? action.error.message ?? "saving failed";
       })
       .addCase(saveReviewSettings.rejected, (state, action) => {
         const message = action.payload?.message ?? action.error.message ?? "saving failed";
