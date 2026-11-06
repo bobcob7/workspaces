@@ -25,15 +25,17 @@ describe("LoopsPane", () => {
     store.dispatch(creatingStarted());
     renderWithStore(<LoopsPane />, store);
     await userEvent.type(screen.getByRole("textbox", { name: /Name/ }), "nightly");
-    await userEvent.type(screen.getByRole("textbox", { name: /Every/ }), "1h");
     await userEvent.type(screen.getByRole("textbox", { name: /Prompt/ }), "Lint the repo.");
-    await userEvent.type(screen.getByRole("textbox", { name: /Repos/ }), "buff-bear  api");
+    await userEvent.type(screen.getByRole("textbox", { name: /Repos/ }), "buff-bear{Enter}api{Enter}");
     await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
     expect(api.loopsAdd).toHaveBeenCalledWith({
       name: "nightly",
       every: "1h",
       prompt: "Lint the repo.",
       specs: ["buff-bear", "api"],
+      keep: 5,
+      model: "",
+      permissionMode: "",
     });
     expect(await screen.findByRole("heading", { name: "nightly" })).toBeInTheDocument();
   });
@@ -48,7 +50,11 @@ describe("LoopsPane", () => {
     store.dispatch(creatingStarted());
     renderWithStore(<LoopsPane />, store);
     await userEvent.type(screen.getByRole("textbox", { name: /Name/ }), "deps");
-    await userEvent.type(screen.getByRole("textbox", { name: /Every/ }), "2m");
+    const every = screen.getByRole("spinbutton", { name: "Every" });
+    await userEvent.clear(every);
+    await userEvent.type(every, "5");
+    await userEvent.click(screen.getByRole("combobox", { name: "Every unit" }));
+    await userEvent.click(screen.getByRole("option", { name: "minutes" }));
     await userEvent.type(screen.getByRole("textbox", { name: /Prompt/ }), "Update.");
     await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
     expect(await screen.findByText('period "2m" is under 5m')).toBeInTheDocument();
@@ -85,7 +91,6 @@ describe("LoopsPane", () => {
     store.dispatch(creatingStarted());
     renderWithStore(<LoopsPane />, store);
     await userEvent.type(screen.getByRole("textbox", { name: /Name/ }), "issues");
-    await userEvent.type(screen.getByRole("textbox", { name: /Every/ }), "1h");
     await userEvent.type(screen.getByRole("textbox", { name: /Prompt/ }), "Triage.");
     await userEvent.type(screen.getByRole("textbox", { name: /Script/ }), "gh issue list | grep .");
     await userEvent.click(screen.getByRole("button", { name: "Add variable" }));
@@ -97,7 +102,11 @@ describe("LoopsPane", () => {
       every: "1h",
       prompt: "Triage.",
       specs: [],
+      keep: 5,
+      model: "",
+      permissionMode: "",
       script: "gh issue list | grep .",
+      scriptTimeout: "1m",
       vars: [{ key: "REPO", value: "buff-bear" }],
     });
   });
@@ -106,9 +115,9 @@ describe("LoopsPane", () => {
     const store = testStore();
     store.dispatch(creatingStarted());
     renderWithStore(<LoopsPane />, store);
-    expect(screen.queryByRole("textbox", { name: /Script timeout/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton", { name: /Timeout/ })).not.toBeInTheDocument();
     await userEvent.type(screen.getByRole("textbox", { name: /Script/ }), "check");
-    expect(screen.getByRole("textbox", { name: /Script timeout/ })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /Timeout/ })).toBeInTheDocument();
   });
 
   it("shows a loop's script, timeout, variables, and last check", () => {

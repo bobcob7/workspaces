@@ -6,7 +6,7 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { sectionChosen, selected } from "../ui/uiSlice";
 import { gateText } from "./gate";
 import { LoopForm } from "./LoopForm";
-import { removeLoop, runLoopNow, setLoopPaused } from "./loopsSlice";
+import { addLoop, creatingCancelled, removeLoop, runLoopNow, setLoopPaused } from "./loopsSlice";
 import styles from "./LoopsPane.module.css";
 
 const nextRun = (loop: Loop): string => {
@@ -138,11 +138,21 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
 
 /** The new-loop form, the selected loop, or what Loops is for when there's none. */
 export const LoopsPane = (): JSX.Element => {
+  const dispatch = useAppDispatch();
   const creating = useAppSelector((s) => s.loops.creating);
+  const formError = useAppSelector((s) => s.loops.formError);
+  const submitting = useAppSelector((s) => s.loops.submitting);
   const selectedName = useAppSelector((s) => s.loops.selected);
   const loop = useAppSelector((s) => s.loops.loops.find((l) => l.name === selectedName));
   if (creating) {
-    return <LoopForm />;
+    return (
+      <LoopForm
+        error={formError}
+        submitting={submitting}
+        onSubmit={(request) => void dispatch(addLoop(request))}
+        onCancel={() => dispatch(creatingCancelled())}
+      />
+    );
   }
   if (loop !== undefined) {
     return <LoopDetail key={loop.name} loop={loop} />;

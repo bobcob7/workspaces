@@ -69,9 +69,66 @@
 .form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
+  box-sizing: border-box;
+  height: 100%;
   max-width: 560px;
+  overflow-y: auto;
   padding: 18px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.keep {
+  width: 120px;
+}
+
+.amount {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.amountNumber {
+  width: 120px;
+}
+
+.amountUnit {
+  width: 140px;
+}
+
+.specs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .formTitle {
