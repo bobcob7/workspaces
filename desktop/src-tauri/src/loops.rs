@@ -5,6 +5,7 @@ use crate::commands::AppState;
 use crate::runner::{AppError, Runner};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use tauri::State;
 
@@ -31,6 +32,15 @@ pub struct LoopRun {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopGate {
+    pub at: String,
+    pub outcome: String,
+    pub exit_code: Option<i64>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
 pub struct Loop {
     pub name: String,
     pub every: String,
@@ -43,6 +53,14 @@ pub struct Loop {
     pub created_at: String,
     pub next_run_at: Option<String>,
     pub last_run: Option<LoopRun>,
+    #[serde(default)]
+    pub script: Option<String>,
+    #[serde(default)]
+    pub script_timeout: Option<String>,
+    #[serde(default)]
+    pub vars: BTreeMap<String, String>,
+    #[serde(default)]
+    pub last_gate: Option<LoopGate>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -60,6 +78,13 @@ pub struct LoopStarted {
     pub path: String,
 }
 
+/// One row of the form's variables.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LoopVar {
+    pub key: String,
+    pub value: String,
+}
+
 /// What the Loops form sends.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +97,10 @@ pub struct NewLoop {
     pub model: Option<String>,
     pub permission_mode: Option<String>,
     pub keep: Option<u32>,
+    pub script: Option<String>,
+    pub script_timeout: Option<String>,
+    #[serde(default)]
+    pub vars: Vec<LoopVar>,
 }
 
 fn non_blank(value: Option<&str>) -> Option<&str> {
@@ -79,9 +108,13 @@ fn non_blank(value: Option<&str>) -> Option<&str> {
 }
 
 /// `ws loop add` without `--json`, which the runner adds:
+/// `ws loop add` without `--json`, which the runner adds:
 /// ["loop", "add", "--every=<every>", "--prompt=<prompt>", ("--keep=<n>"),
-///  ("--model=<m>"), ("--permission-mode=<p>"), "--", <name>, <specs...>].
-/// Blank optional values, and blank specs, are left out; values are trimmed.
+///  ("--model=<m>"), ("--permission-mode=<p>"), ("--script=<s>"),
+///  ("--script-timeout=<t>"), ("--var=<k>=<v>")..., "--", <name>, <specs...>].
+/// Blank optional values, and blank specs, are left out; values are trimmed,
+/// except the script (whose whitespace matters) and a var's value.
+/// A script timeout needs a script; a var needs a non-blank key.
 pub fn add_args(req: &NewLoop) -> Vec<String> {
     let mut args = vec![
         "loop".to_string(),
@@ -97,6 +130,17 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
     }
     if let Some(mode) = non_blank(req.permission_mode.as_deref()) {
         args.push(format!("--permission-mode={mode}"));
+    }
+    if let Some(script) = req.script.as_deref().filter(|s| !s.trim().is_empty()) {
+        args.push(format!("--script={script}"));
+        if let Some(timeout) = non_blank(req.script_timeout.as_deref()) {
+            args.push(format!("--script-timeout={timeout}"));
+        }
+    }
+    for var in &req.vars {
+        if let Some(key) = non_blank(Some(var.key.as_str())) {
+            args.push(format!("--var={key}={}", var.value));
+        }
     }
     args.push("--".to_string());
     args.push(req.name.trim().to_string());
@@ -214,6 +258,9 @@ mod tests {
             model: None,
             permission_mode: None,
             keep: None,
+            script: None,
+            script_timeout: None,
+            vars: vec![],
         }
     }
 
@@ -266,6 +313,52 @@ mod tests {
     }
 
     #[test]
+    fn add_args_passes_script_timeout_and_vars() {
+        let req = NewLoop {
+            script: Some("gh issue list | grep .\n".into()),
+            script_timeout: Some(" 2m ".into()),
+            vars: vec![
+                LoopVar {
+                    key: " REPO ".into(),
+                    value: "a b".into(),
+                },
+                LoopVar {
+                    key: " ".into(),
+                    value: "x".into(),
+                },
+            ],
+            ..request()
+        };
+        assert_eq!(
+            add_args(&req),
+            [
+                "loop",
+                "add",
+                "--every=24h",
+                "--prompt=hi",
+                "--script=gh issue list | grep .\n",
+                "--script-timeout=2m",
+                "--var=REPO=a b",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn add_args_skips_script_timeout_without_script() {
+        let req = NewLoop {
+            script: Some("  ".into()),
+            script_timeout: Some("2m".into()),
+            ..request()
+        };
+        assert_eq!(
+            add_args(&req),
+            ["loop", "add", "--every=24h", "--prompt=hi", "--", "deps"]
+        );
+    }
+
+    #[test]
     fn pause_args_pause_or_resume() {
         assert_eq!(pause_args("deps", true), ["loop", "pause", "--", "deps"]);
         assert_eq!(pause_args("deps", false), ["loop", "resume", "--", "deps"]);
@@ -288,6 +381,36 @@ mod tests {
         assert_eq!(value["nextRunAt"], "2026-11-06T18:00:00Z");
         assert_eq!(value["permissionMode"], "acceptEdits");
         assert_eq!(value["lastRun"]["startedAt"], "2026-11-05T18:00:04Z");
+    }
+
+    #[tokio::test]
+    async fn list_parses_script_vars_and_last_gate() {
+        let dir = fake_ws(
+            r#"while IFS= read -r line; do printf '%s\n' "$line"; done <<'EOF'
+{"loops":[{"name":"deps-bump","every":"24h","prompt":"Update the Go and npm dependencies, run the tests, and open a PR","specs":["buff-bear"],"model":null,"permission_mode":"acceptEdits","keep":5,"paused":false,"created_at":"2026-11-05T18:00:00Z","next_run_at":"2026-11-06T18:00:00Z","last_run":{"started_at":"2026-11-05T18:00:04Z","workspace":"loop-deps-bump-1a2b3c4d","session":"e8cdf5d8","error":null},"script":"go list -m -u -f '{{if .Update}}{{.Path}}{{end}}' all | grep .","script_timeout":"2m","vars":{"BRANCH":"main"},"last_gate":{"at":"2026-11-05T18:00:02Z","outcome":"passed","exit_code":0,"message":null}}],"warnings":[]}
+EOF"#,
+        );
+        let runner = Runner::new(dir.path().display().to_string());
+        let loops: Loops = runner
+            .ws_json(&["loop".to_string(), "list".to_string()])
+            .await
+            .unwrap();
+
+        let value = serde_json::to_value(&loops.loops[0]).unwrap();
+        assert_eq!(value["scriptTimeout"], "2m");
+        assert_eq!(value["lastGate"]["exitCode"], 0);
+        assert_eq!(value["vars"]["BRANCH"], "main");
+        assert_eq!(value["lastGate"]["outcome"], "passed");
+    }
+
+    #[test]
+    fn loop_without_script_fields_parses_with_defaults() {
+        let json = r#"{"name":"deps-bump","every":"24h","prompt":"hi","specs":[],"model":null,"permission_mode":null,"keep":5,"paused":false,"created_at":"2026-11-05T18:00:00Z","next_run_at":null,"last_run":null}"#;
+        let parsed: Loop = serde_json::from_str(json).unwrap();
+        assert!(parsed.vars.is_empty());
+        assert_eq!(parsed.script, None);
+        assert_eq!(parsed.script_timeout, None);
+        assert_eq!(parsed.last_gate, None);
     }
 
     #[tokio::test]
