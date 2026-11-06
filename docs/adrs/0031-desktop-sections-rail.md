@@ -1,6 +1,6 @@
 # 0031. The desktop app is split into sections chosen from a left rail: Agents, Repos, Reviews, and Settings
 
-- Status: Proposed
+- Status: Proposed; the Loops section added by [0048](0048-agent-loop-scheduler.md) (proposed)
 - Date: 2026-10-24
 
 ## Context

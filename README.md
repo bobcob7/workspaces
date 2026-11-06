@@ -235,6 +235,10 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **`ws continue`** ([0047](docs/adrs/0047-ws-continue-after-usage-limit.md),
   proposed): carries on agents stopped by a 5-hour or weekly limit once it
   resets, only while the Mac is fully awake
+- [ ] **`ws loop`** ([0048](docs/adrs/0048-agent-loop-scheduler.md),
+  proposed): starts an agent with the same prompt in a new workspace
+  every period, from launchd or the desktop app's Loops section
+  ([tasks](docs/design/agent-loop-scheduler/tasks.md))
 
 ## Development
 

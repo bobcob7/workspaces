@@ -44,6 +44,7 @@ CONFIG_DIR/
   state/<id>/          ws's records and locks per workspace
   reviews/             submitted reviews, by repo and commit (0039)
   review/profiles/     your review profiles, <name>.md (0038, 0042)
+  loops/               agent loops, <name>.toml (0048)
 ```
 
 What `ws` keeps under `state/` and `reviews/`, and when, is described in
