@@ -7,6 +7,7 @@ prompt.
 
 ```
 ws loop add <NAME> --every <PERIOD> --prompt <TEXT> [OPTIONS] [<SPEC>...]
+ws loop edit <NAME> [OPTIONS] [<SPEC>...]
 ws loop list
 ws loop pause <NAME>
 ws loop resume <NAME>
@@ -119,8 +120,52 @@ template or a missing variable is `loop_invalid` now, not at the first
 run. A key used only inside `{{if}}`, or through `index`, can still be
 missing at a run, which then fails with `loop_invalid`.
 
-There is no `ws loop edit`: to change a loop's script, variables, or
-prompt, `ws loop rm` it and add it again.
+To change a loop, use `ws loop edit`.
+
+### ws loop edit
+
+Changes a loop in place ([0052](../adrs/0052-loop-edit-and-structured-forms.md)).
+Only what's given changes; the loop's runs, `created_at`, and paused
+state are kept. The edited loop is checked exactly as `add` checks a new
+one (period, prompt template, keep, script timeout, variables, specs),
+under the loops lock, and an edit that fails changes nothing. Giving no
+option and no spec is a usage error.
+
+| Option | Description |
+| ------ | ----------- |
+| `--every <PERIOD>` | A new period, as for `add` |
+| `--prompt <TEXT>` | A new prompt, as for `add` |
+| `--keep <N>` | How many runs' workspaces to keep, 1–50 |
+| `--model <M>` | Passed to `claude --model`; `--model ""` clears it |
+| `--permission-mode <P>` | Passed to `claude --permission-mode`; `""` clears it |
+| `--script <TEXT>` | A new gate script; blank is the same as `--no-script` |
+| `--script-timeout <DUR>` | As for `add`. Needs a script: the loop's, or `--script` |
+| `--var <KEY>=<VALUE>` | Replaces **all** the loop's variables with the ones given; repeat for more, as for `add` |
+| `--no-script` | Remove the script, its timeout, and `last_gate` |
+| `--no-vars` | Remove every variable |
+| `--no-specs` | Remove every spec, so runs get an empty workspace |
+| `<SPEC>...` | Replace the loop's specs |
+
+- **The name can't be changed**: it names the record and every run's
+  workspace. To rename, `rm` the loop and `add` it again.
+- **Pausing** is `pause` and `resume`, not an edit.
+- **Schedule.** When the period's length changes, `next_run_at` becomes
+  the last run's start (or `created_at`, if it never ran) plus the new
+  period; if that isn't after now, it's now plus the new period. So an
+  edit never starts a run by itself. A period of the same length written
+  differently (`60m` for `1h`) leaves `next_run_at` as it is. `every` is
+  saved as `add` saves it (`90m` becomes `1h30m`).
+- **Script.** Setting a script on a loop that had none gives it the
+  default `1m` timeout, unless `--script-timeout` is given; changing the
+  script keeps its timeout. Changing or removing the script clears
+  `last_gate`.
+- **Old records.** A loop added before scripts existed (record version 1)
+  stays version 1, with a literal prompt, unless the edit gives
+  `--prompt`, `--script`, `--no-script`, `--var`, or `--no-vars`. Then it
+  becomes version 2 and its prompt is checked as a template: write a
+  literal `{{` as `{{"{{"}}`.
+- `--no-script` with `--script` or `--script-timeout`, `--no-vars` with
+  `--var`, and `--no-specs` with specs are usage errors.
 
 ### ws loop list
 
@@ -167,7 +212,7 @@ Exits 0 when nothing was due.
 
 Every subcommand accepts `--json`, except `tick --watch`.
 
-A loop (`add`, `pause`, `resume`, `rm`, and each item of `list`):
+A loop (`add`, `edit`, `pause`, `resume`, `rm`, and each item of `list`):
 
 ```json
 {
@@ -199,8 +244,9 @@ A loop (`add`, `pause`, `resume`, `rm`, and each item of `list`):
 }
 ```
 
-- `add`, `pause`, `resume`, and `rm` print the loop's fields at the top
-  level, plus `"warnings": []`. `rm` prints the loop as it was.
+- `add`, `edit`, `pause`, `resume`, and `rm` print the loop's fields at
+  the top level, plus `"warnings": []`. `edit` prints the loop as saved;
+  `rm` prints the loop as it was.
 - `list` prints `{"loops": [<loop>...], "warnings": []}`.
 - `model` and `permission_mode` are `null` when not set.
 - `next_run_at` is `null` while the loop is paused.
@@ -277,6 +323,12 @@ $ ws loop run deps-bump
 # Every 15 minutes, in an empty workspace, keeping only the last 2 runs
 $ ws loop add deploy-watch --every 15m --keep 2 --prompt "Check https://status.example.com and summarize anything new"
 
+# Check every 30 minutes instead, keep 4 runs, and drop the script
+$ ws loop edit deploy-watch --every 30m --keep 4 --no-script
+
+# Point it at different repos
+$ ws loop edit deps-bump buff-bear api
+
 $ ws loop pause deploy-watch
 $ ws loop resume deploy-watch
 $ ws loop rm deploy-watch
@@ -328,7 +380,9 @@ can't start reports.
 | Situation | Error code | Exit |
 | --------- | ---------- | ---- |
 | Bad name, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
-| `--script-timeout` without `--script` | `usage` | 2 |
+| `--script-timeout` without `--script` (`add`) | `usage` | 2 |
+| `edit` with nothing to change; `--no-script` with `--script` or `--script-timeout`; `--no-vars` with `--var`; `--no-specs` with specs | `usage` | 2 |
+| `edit`: `--script-timeout` on a loop left without a script | `loop_invalid` | 2 |
 | A spec that can't be parsed | `spec_invalid` | 2 |
 | `--json` with `tick --watch` | `usage` | 2 |
 | No loop has that name | `loop_not_found` | 3 |
