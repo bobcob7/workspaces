@@ -2,3 +2,4 @@
 //! need input or are done (ADR 0050).
 
 pub mod attention;
+pub mod view;
