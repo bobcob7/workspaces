@@ -68,6 +68,8 @@ const (
 	codeLoopScriptFailed errorCode = "loop_script_failed"
 	// Machine codes from ADR 0050.
 	codeResultInvalid errorCode = "result_invalid"
+	codeChildFailed   errorCode = "child_failed"
+	codeWaitTimeout   errorCode = "wait_timeout"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -111,7 +113,7 @@ func (c errorCode) exitCode() int {
 	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing,
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
-		codeLoopScriptFailed:
+		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid:

@@ -70,6 +70,7 @@ func guideTopics() []string {
 		"machine",
 		"machine spawn",
 		"machine result",
+		"machine wait",
 		"machine children",
 		"machine rm",
 		"llm",

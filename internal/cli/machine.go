@@ -35,6 +35,7 @@ func (a *App) newMachineCmd() *cobra.Command {
 	cmd.AddCommand(
 		a.newMachineSpawnCmd(),
 		a.newMachineResultCmd(),
+		a.newMachineWaitCmd(),
 		a.newMachineChildrenCmd(),
 		a.newMachineRmCmd(),
 	)
