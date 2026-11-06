@@ -595,6 +595,23 @@ export interface Loop {
   readonly createdAt: string;
   readonly nextRunAt: string | null;
   readonly lastRun: LoopRun | null;
+  readonly script: string | null;
+  readonly scriptTimeout: string | null;
+  readonly vars: Readonly<Record<string, string>>;
+  readonly lastGate: LoopGate | null;
+}
+
+/** A loop's last gate check, from `ws loop list --json` (ADR 0049). */
+export interface LoopGate {
+  readonly at: string;
+  readonly outcome: "passed" | "skipped" | "timed_out" | "failed";
+  readonly exitCode: number | null;
+  readonly message: string | null;
+}
+
+export interface LoopVar {
+  readonly key: string;
+  readonly value: string;
 }
 
 export interface LoopListing {
@@ -607,6 +624,9 @@ export interface NewLoop {
   readonly every: string;
   readonly prompt: string;
   readonly specs: readonly string[];
+  readonly script?: string;
+  readonly scriptTimeout?: string;
+  readonly vars?: readonly LoopVar[];
 }
 
 /** The workspace a loop run started. */

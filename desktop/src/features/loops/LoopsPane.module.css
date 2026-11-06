@@ -91,3 +91,15 @@
   padding: 16px;
   margin: 0;
 }
+
+.vars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.varRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

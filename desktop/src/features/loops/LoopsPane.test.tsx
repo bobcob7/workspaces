@@ -79,6 +79,70 @@ describe("LoopsPane", () => {
     expect(api.loopsRemove).toHaveBeenCalledWith("deps");
   });
 
+  it("adds a loop with a script and variables", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    store.dispatch(creatingStarted());
+    renderWithStore(<LoopsPane />, store);
+    await userEvent.type(screen.getByRole("textbox", { name: /Name/ }), "issues");
+    await userEvent.type(screen.getByRole("textbox", { name: /Every/ }), "1h");
+    await userEvent.type(screen.getByRole("textbox", { name: /Prompt/ }), "Triage.");
+    await userEvent.type(screen.getByRole("textbox", { name: /Script/ }), "gh issue list | grep .");
+    await userEvent.click(screen.getByRole("button", { name: "Add variable" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Key 1" }), "REPO");
+    await userEvent.type(screen.getByRole("textbox", { name: "Value 1" }), "buff-bear");
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(api.loopsAdd).toHaveBeenCalledWith({
+      name: "issues",
+      every: "1h",
+      prompt: "Triage.",
+      specs: [],
+      script: "gh issue list | grep .",
+      vars: [{ key: "REPO", value: "buff-bear" }],
+    });
+  });
+
+  it("shows the script timeout only while there is a script", async () => {
+    const store = testStore();
+    store.dispatch(creatingStarted());
+    renderWithStore(<LoopsPane />, store);
+    expect(screen.queryByRole("textbox", { name: /Script timeout/ })).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: /Script/ }), "check");
+    expect(screen.getByRole("textbox", { name: /Script timeout/ })).toBeInTheDocument();
+  });
+
+  it("shows a loop's script, timeout, variables, and last check", () => {
+    const store = testStore();
+    store.dispatch(
+      fetchLoops.fulfilled(
+        {
+          loops: [
+            loop({
+              script: "check",
+              scriptTimeout: "1m",
+              vars: { REPO: "x" },
+              lastGate: { at: new Date().toISOString(), outcome: "skipped", exitCode: 1, message: "no new issues" },
+            }),
+          ],
+          warnings: [],
+        },
+        "req",
+      ),
+    );
+    store.dispatch(loopSelected("deps"));
+    renderWithStore(<LoopsPane />, store);
+    expect(screen.getByText("check")).toBeInTheDocument();
+    expect(screen.getByText("1m")).toBeInTheDocument();
+    expect(screen.getByText("REPO=x")).toBeInTheDocument();
+    expect(screen.getByText(/skipped \(exit 1\): no new issues/)).toBeInTheDocument();
+  });
+
+  it("shows no script or last check for a loop without a script", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop());
+    expect(screen.getByText("Script").nextElementSibling).toHaveTextContent("none");
+    expect(screen.queryByText("Last check")).not.toBeInTheDocument();
+  });
+
   it("asks to select a loop when none is selected", () => {
     renderWithStore(<LoopsPane />, testStore());
     expect(screen.getByText("Select a loop, or add one.")).toBeInTheDocument();
