@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Loop } from "../../api";
 import { fakeApi, loop, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
+import { LoopsList } from "./LoopsList";
 import { creatingStarted, fetchLoops, loopSelected } from "./loopsSlice";
 import { LoopsPane } from "./LoopsPane";
 
@@ -27,10 +28,11 @@ describe("LoopsPane", () => {
     renderWithStore(<LoopsPane />, store);
     await userEvent.type(screen.getByRole("textbox", { name: /Name/ }), "nightly");
     await userEvent.type(screen.getByRole("textbox", { name: /Prompt/ }), "Lint the repo.");
-    await userEvent.type(screen.getByRole("textbox", { name: /Repos/ }), "buff-bear{Enter}api{Enter}");
+    await userEvent.type(screen.getByRole("combobox", { name: /Repositories/ }), "buff-bear{Enter}api{Enter}");
     await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
     expect(api.loopsAdd).toHaveBeenCalledWith({
       name: "nightly",
+      title: "nightly",
       every: "1h",
       prompt: "Lint the repo.",
       specs: ["buff-bear", "api"],
@@ -100,6 +102,7 @@ describe("LoopsPane", () => {
     await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
     expect(api.loopsAdd).toHaveBeenCalledWith({
       name: "issues",
+      title: "issues",
       every: "1h",
       prompt: "Triage.",
       specs: [],
@@ -177,7 +180,7 @@ describe("LoopsPane", () => {
     renderWithStore(<LoopsPane />, storeWithLoop(api));
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
     const form = screen.getByRole("form", { name: "Edit loop" });
-    expect(within(form).getByRole("textbox", { name: /Name/ })).toBeDisabled();
+    expect(within(form).getByRole("textbox", { name: /Name/ })).toHaveValue("deps");
     const every = within(form).getByRole("spinbutton", { name: "Every" });
     await userEvent.clear(every);
     await userEvent.type(every, "6");
@@ -209,6 +212,36 @@ describe("LoopsPane", () => {
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(api.loopsEdit).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "deps" })).toBeInTheDocument();
+  });
+
+  it("shows a loop's title in the list, with the ID muted in the detail", async () => {
+    const api = fakeApi({
+      loopsList: vi.fn(async () => ({
+        loops: [loop({ name: "deps-bump", title: "Dependency bumps" }), loop({ name: "triage", title: "" })],
+        warnings: [],
+      })),
+    });
+    const store = testStore({ api });
+    renderWithStore(
+      <>
+        <LoopsList />
+        <LoopsPane />
+      </>,
+      store,
+    );
+    const list = await screen.findByRole("list", { name: "Loops" });
+    expect(within(list).getByText("Dependency bumps")).toBeInTheDocument();
+    expect(within(list).getByText("triage")).toBeInTheDocument();
+    store.dispatch(loopSelected("deps-bump"));
+    expect(await screen.findByRole("heading", { name: "Dependency bumps" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Dependency bumps" })).toBeInTheDocument();
+    expect(screen.getByText("deps-bump")).toHaveClass("muted");
+  });
+
+  it("shows the name in the detail, with no ID line, when a loop has no title", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop());
+    expect(screen.getByRole("heading", { name: "deps" })).toBeInTheDocument();
+    expect(screen.queryByText("deps", { selector: "span" })).not.toBeInTheDocument();
   });
 
   it("asks to select a loop when none is selected", () => {

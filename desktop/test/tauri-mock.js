@@ -6,6 +6,7 @@
   const head = "3f2a9c1e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c";
   const buffBear = "github.com/bobcob7/buff-bear";
   const api = "github.com/bobcob7/api";
+  const workspaces = "github.com/bobcob7/workspaces";
 
   const defaultSettings = () => ({
     reviews: {
@@ -121,6 +122,7 @@
     loops: [
       {
         name: "deps-bump",
+        title: "Dependency bumps",
         every: "24h",
         prompt: depsPrompt,
         specs: ["buff-bear", "api"],
@@ -152,6 +154,7 @@
       },
       {
         name: "triage",
+        title: "",
         every: "1h",
         prompt: "Label new issues.",
         specs: [],
@@ -237,6 +240,7 @@
   const loopFields = (request) => {
     const script = request.script ?? null;
     return {
+      title: request.title ?? "",
       every: request.every,
       prompt: request.prompt,
       specs: request.specs,
@@ -280,7 +284,7 @@
 
   Object.assign(mock.handlers, {
     list_entries: () => ({ entries: data.entries, warnings: [] }),
-    cache_repos: () => [buffBear, api],
+    cache_repos: () => [buffBear, api, workspaces],
     cache_list: () => ({
       repos: [
         cachedRepo(buffBear, `/c/cache/repos/${buffBear}.git`, `https://${buffBear}.git`, 3, 1, 18432000),

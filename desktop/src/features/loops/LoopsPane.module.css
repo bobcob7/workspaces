@@ -196,12 +196,6 @@
   width: 140px;
 }
 
-.specs {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .chips {
   display: flex;
   flex-wrap: wrap;

@@ -5,6 +5,7 @@ import { age, until } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { sectionChosen, selected } from "../ui/uiSlice";
 import { gateText } from "./gate";
+import { loopLabel } from "./formValues";
 import { LoopForm } from "./LoopForm";
 import {
   addLoop,
@@ -181,9 +182,10 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   const busy = useAppSelector((s) => s.loops.busy === loop.name);
   const [confirming, setConfirming] = useState(false);
   return (
-    <section className={styles.root} aria-label={loop.name}>
+    <section className={styles.root} aria-label={loopLabel(loop)}>
       <header className={styles.header}>
-        <h1 className={styles.title}>{loop.name}</h1>
+        <h1 className={styles.title}>{loopLabel(loop)}</h1>
+        {loop.title.trim() !== "" && <span className={styles.muted}>{loop.name}</span>}
         <Chip size="small" label={loop.paused ? "Paused" : "Active"} />
         <span className={styles.spacer} />
         <Button size="small" disabled={busy} onClick={() => dispatch(editingStarted())}>
@@ -212,7 +214,7 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
         <VarsCard loop={loop} />
       </div>
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
-        <DialogTitle>Delete loop {loop.name}?</DialogTitle>
+        <DialogTitle>Delete loop {loopLabel(loop)}?</DialogTitle>
         <DialogContent>
           <DialogContentText>Its runs' workspaces stay.</DialogContentText>
         </DialogContent>

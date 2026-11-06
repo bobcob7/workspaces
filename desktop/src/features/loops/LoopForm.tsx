@@ -2,24 +2,26 @@ import { Alert, Button, FormHelperText, MenuItem, TextField } from "@mui/materia
 import { useState, type FormEvent, type JSX } from "react";
 import type { AppError, Loop, NewLoop } from "../../api";
 import { models, permissionModes } from "../create/NewAgentDialog";
+import { RepoSpecsField } from "../create/RepoSpecsField";
 import { AmountInput } from "./AmountInput";
 import {
+  emptyValues,
   formErrors,
   isValid,
-  loopValues,
-  newLoopValues,
+  loopLabel,
   requestOf,
+  slugOf,
+  valuesOf,
   type LoopFormErrors,
   type LoopFormValues,
 } from "./formValues";
 import { periodUnits, timeoutUnits } from "./period";
-import { SpecsInput } from "./SpecsInput";
 import styles from "./LoopsPane.module.css";
 import { VarsEditor } from "./VarsEditor";
 
 /** The value field each error belongs to, so an error shows once that field is changed. */
 const errorFields: Readonly<Record<keyof LoopFormErrors, keyof LoopFormValues>> = {
-  name: "name",
+  title: "title",
   every: "period",
   keep: "keep",
   prompt: "prompt",
@@ -45,11 +47,13 @@ export interface LoopFormProps {
 /** The loop form for add and edit: sections for schedule, prompt, repos, agent, gate script, and variables. */
 export const LoopForm = (props: LoopFormProps): JSX.Element => {
   const { loop, error, submitting, onSubmit, onCancel } = props;
-  const [values, setValues] = useState<LoopFormValues>(() => (loop === undefined ? newLoopValues : loopValues(loop)));
+  const [values, setValues] = useState<LoopFormValues>(() => (loop === undefined ? emptyValues : valuesOf(loop)));
   const [touched, setTouched] = useState<ReadonlySet<keyof LoopFormValues>>(new Set());
   const [submitted, setSubmitted] = useState(false);
   const errors = formErrors(values);
   const hasScript = values.script.trim() !== "";
+  const slug = slugOf(values.title);
+  const idHelp = loop ? `ID: ${loop.name}; the ID can't be changed` : slug === "" ? undefined : `ID: ${slug}`;
   const patch = <K extends keyof LoopFormValues>(field: K, value: LoopFormValues[K]): void => {
     setValues((current) => ({ ...current, [field]: value }));
     setTouched((current) => new Set(current).add(field));
@@ -66,17 +70,17 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
   };
   return (
     <form className={styles.form} onSubmit={submit} aria-label={loop ? "Edit loop" : "New loop"} noValidate>
-      <h2 className={styles.formTitle}>{loop ? `Edit ${loop.name}` : "New loop"}</h2>
+      <h2 className={styles.formTitle}>{loop ? `Edit ${loopLabel(loop)}` : "New loop"}</h2>
       <fieldset className={styles.section}>
         <legend className={styles.legend}>Schedule</legend>
         <TextField
           label="Name"
           required
-          disabled={loop !== undefined}
-          value={values.name}
-          onChange={(e) => patch("name", e.target.value)}
-          error={messageFor("name") !== undefined}
-          helperText={messageFor("name") ?? (loop ? "A loop's name can't be changed" : undefined)}
+          placeholder="Nightly deps bump"
+          value={values.title}
+          onChange={(e) => patch("title", e.target.value)}
+          error={messageFor("title") !== undefined}
+          helperText={messageFor("title") ?? idHelp}
           size="small"
           fullWidth
         />
@@ -111,7 +115,7 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
           value={values.prompt}
           onChange={(e) => patch("prompt", e.target.value)}
           error={messageFor("prompt") !== undefined}
-          helperText={messageFor("prompt") ?? "A Go template: {{.Vars.KEY}}, {{.Stdout}}, {{.Stderr}}, {{.Name}}"}
+          helperText={messageFor("prompt") ?? "A Go template: {{.Vars.KEY}}, {{.Stdout}}, {{.Stderr}}, {{.Name}}, {{.Title}}"}
           slotProps={{ htmlInput: { className: styles.mono } }}
           size="small"
           fullWidth
@@ -119,7 +123,7 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
       </fieldset>
       <fieldset className={styles.section}>
         <legend className={styles.legend}>Repos</legend>
-        <SpecsInput value={values.specs} onChange={(specs) => patch("specs", specs)} />
+        <RepoSpecsField value={values.specs} onChange={(specs) => patch("specs", specs)} />
       </fieldset>
       <fieldset className={styles.section}>
         <legend className={styles.legend}>Agent</legend>

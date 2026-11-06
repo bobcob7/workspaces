@@ -618,6 +618,8 @@ export interface LoopRun {
 /** An agent loop, from `ws loop list --json` (ADR 0048). */
 export interface Loop {
   readonly name: string;
+  /** The display name; "" when the loop has none. */
+  readonly title: string;
   readonly every: string;
   readonly prompt: string;
   readonly specs: readonly string[];
@@ -654,6 +656,7 @@ export interface LoopListing {
 
 export interface NewLoop {
   readonly name: string;
+  readonly title?: string;
   readonly every: string;
   readonly prompt: string;
   readonly specs: readonly string[];
