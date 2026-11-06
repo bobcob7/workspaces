@@ -101,6 +101,12 @@ backend every 5 minutes by default
 | **A repo's Pull request reviews card, in Repos** | **Renaming a workspace** |
 | ![](docs/repos-reviews.png) | ![](docs/rename.png) |
 
+![A loop that starts an agent every day, in Loops](docs/loops.png)
+
+| **Adding a loop** | **A paused loop whose last run failed** |
+| --- | --- |
+| ![](docs/loops-new.png) | ![](docs/loops-paused.png) |
+
 The screenshots use sample data.
 
 ## Requirements
