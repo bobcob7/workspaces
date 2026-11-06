@@ -158,9 +158,9 @@ messages aren't.
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -178,6 +178,11 @@ For agents:
   - `ws llm machine wait`: wait for children to finish, then print each one's verdict
   - `ws llm machine children`: list the workspaces yours started
   - `ws llm machine rm`: remove workspaces yours started, and theirs
+  - `ws llm machine roles`: the roles children can be started as
+  - `ws llm machine roles show`: one role, with its prompt template
+  - `ws llm machine roles add`: add a role
+  - `ws llm machine roles edit`: edit a role, or override a built-in
+  - `ws llm machine roles rm`: remove a role, or restore a built-in
 - `ws llm review`: structured reviews: getting your work reviewed, and the reviewer's commands:
   - `ws llm review start`: start a review of a pull request or commit
   - `ws llm review wait`: wait for a review, then print its report

@@ -70,6 +70,10 @@ const (
 	codeResultInvalid errorCode = "result_invalid"
 	codeChildFailed   errorCode = "child_failed"
 	codeWaitTimeout   errorCode = "wait_timeout"
+	codeRoleInvalid   errorCode = "role_invalid"
+	codeRoleUnknown   errorCode = "role_unknown"
+	codeRoleExists    errorCode = "role_exists"
+	codeRoleBuiltin   errorCode = "role_builtin"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -116,14 +120,14 @@ func (c errorCode) exitCode() int {
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
-		codeLoopInvalid, codeResultInvalid:
+		codeLoopInvalid, codeResultInvalid, codeRoleInvalid:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
-		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound:
+		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
-		codeLoopSkipped:
+		codeLoopSkipped, codeRoleExists, codeRoleBuiltin:
 		return exitRefused
 	}
 	return exitFailed
