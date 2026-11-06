@@ -13,8 +13,6 @@ mod pty;
 mod reviews;
 mod runner;
 mod transcript;
-// Wired up in T4 and T5 of docs/design/tray/tasks.md (ADR 0050).
-#[allow(dead_code)]
 mod tray;
 
 use commands::AppState;
@@ -50,8 +48,19 @@ pub fn run() {
             tauri::async_runtime::spawn(state.reviews.clone().run(deps));
             tauri::async_runtime::spawn(loops::tick_forever(state.runner.clone()));
             app.manage(state);
+            tray::menu::create(app.handle())?;
             tauri::async_runtime::spawn(tray::watcher::watch_forever(app.handle().clone()));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == tray::menu::MAIN_WINDOW {
+                    api.prevent_close();
+                    if let Err(err) = window.hide() {
+                        eprintln!("tray: hiding the window failed: {err}");
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_entries,
@@ -107,9 +116,10 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                app.state::<AppState>().terminals.close_all();
-            }
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => app.state::<AppState>().terminals.close_all(),
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => tray::menu::show_main(app),
+            _ => {}
         });
 }

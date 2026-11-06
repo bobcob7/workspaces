@@ -2,6 +2,7 @@
 //! frontend hasn't for a while, as when the window is closed (ADR 0050).
 
 use super::attention::{self, Attention, Candidate, Event, Snapshot};
+use super::view::TrayView;
 use crate::commands::AppState;
 use crate::model::Entry;
 use crate::reviews::store::NotificationSettings;
@@ -33,6 +34,7 @@ pub struct Watcher {
 struct Inner {
     snapshot: Snapshot,
     last_observed_ms: Option<i64>,
+    last_view: Option<TrayView>,
 }
 
 impl Watcher {
@@ -44,6 +46,16 @@ impl Watcher {
         inner.snapshot = snapshot;
         inner.last_observed_ms = Some(now_ms);
         Observed { candidates, events }
+    }
+
+    /// True, and remembers `view`, when it differs from the last one.
+    pub fn view_changed(&self, view: &TrayView) -> bool {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if inner.last_view.as_ref() == Some(view) {
+            return false;
+        }
+        inner.last_view = Some(view.clone());
+        true
     }
 
     /// No listing yet, or none in the last WATCH_INTERVAL.
@@ -101,6 +113,7 @@ mod tests {
     use super::*;
     use crate::model::Status;
     use crate::tray::attention::testing::entry;
+    use crate::tray::view::tray_view;
 
     fn settings(enabled: bool, needs_input: bool, done: bool) -> NotificationSettings {
         NotificationSettings {
@@ -132,6 +145,24 @@ mod tests {
         watcher.observe(&[], 10_000);
         assert!(!watcher.is_stale(13_999));
         assert!(watcher.is_stale(14_000));
+    }
+
+    #[test]
+    fn view_changed_tracks_the_last_view() {
+        let watcher = Watcher::default();
+        let empty = tray_view(&[]);
+        let waiting = Candidate {
+            key: "a".to_string(),
+            name: "a".to_string(),
+            snippet: String::new(),
+            attention: Attention::NeedsInput,
+            active_at: String::new(),
+        };
+        let busy = tray_view(&[waiting]);
+
+        assert!(watcher.view_changed(&empty));
+        assert!(!watcher.view_changed(&empty));
+        assert!(watcher.view_changed(&busy));
     }
 
     #[test]
