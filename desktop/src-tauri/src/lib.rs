@@ -115,6 +115,7 @@ pub fn run() {
             open::settings_set_open,
             loops::loops_list,
             loops::loops_add,
+            loops::loops_edit,
             loops::loops_set_paused,
             loops::loops_remove,
             loops::loops_run_now,

@@ -153,6 +153,63 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
     args
 }
 
+/// `ws loop edit` without `--json`, which the runner adds. Every field is
+/// sent, so the request replaces the loop's editable fields (ADR 0052):
+/// ["loop", "edit", "--every=<every>", "--prompt=<prompt>", ("--keep=<n>"),
+///  "--model=<m>", "--permission-mode=<p>",
+///  ("--script=<s>", ("--script-timeout=<t>")) | "--no-script",
+///  ("--var=<k>=<v>")... | "--no-vars", ("--no-specs"),
+///  "--", <name>, <specs...>].
+/// Values are trimmed as in add_args (not the script or a var's value);
+/// a blank model or permission mode is sent as "" to clear it.
+pub fn edit_args(req: &NewLoop) -> Vec<String> {
+    let mut args = vec![
+        "loop".to_string(),
+        "edit".to_string(),
+        format!("--every={}", req.every.trim()),
+        format!("--prompt={}", req.prompt.trim()),
+    ];
+    if let Some(keep) = req.keep {
+        args.push(format!("--keep={keep}"));
+    }
+    let model = non_blank(req.model.as_deref()).unwrap_or("");
+    args.push(format!("--model={model}"));
+    let mode = non_blank(req.permission_mode.as_deref()).unwrap_or("");
+    args.push(format!("--permission-mode={mode}"));
+    match req.script.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(script) => {
+            args.push(format!("--script={script}"));
+            if let Some(timeout) = non_blank(req.script_timeout.as_deref()) {
+                args.push(format!("--script-timeout={timeout}"));
+            }
+        }
+        None => args.push("--no-script".to_string()),
+    }
+    let vars: Vec<String> = req
+        .vars
+        .iter()
+        .filter_map(|var| {
+            non_blank(Some(var.key.as_str())).map(|key| format!("--var={key}={}", var.value))
+        })
+        .collect();
+    if vars.is_empty() {
+        args.push("--no-vars".to_string());
+    }
+    args.extend(vars);
+    let specs: Vec<String> = req
+        .specs
+        .iter()
+        .filter_map(|s| non_blank(Some(s)).map(str::to_string))
+        .collect();
+    if specs.is_empty() {
+        args.push("--no-specs".to_string());
+    }
+    args.push("--".to_string());
+    args.push(req.name.trim().to_string());
+    args.extend(specs);
+    args
+}
+
 /// ["loop", "pause" | "resume", "--", <name>]
 pub fn pause_args(name: &str, paused: bool) -> Vec<String> {
     let action = if paused { "pause" } else { "resume" };
@@ -195,6 +252,11 @@ pub async fn loops_list(state: State<'_, AppState>) -> CmdResult<Loops> {
 #[tauri::command]
 pub async fn loops_add(state: State<'_, AppState>, request: NewLoop) -> CmdResult<Loop> {
     state.runner.ws_json(&add_args(&request)).await
+}
+
+#[tauri::command]
+pub async fn loops_edit(state: State<'_, AppState>, request: NewLoop) -> CmdResult<Loop> {
+    state.runner.ws_json(&edit_args(&request)).await
 }
 
 #[tauri::command]
@@ -356,6 +418,105 @@ mod tests {
             add_args(&req),
             ["loop", "add", "--every=24h", "--prompt=hi", "--", "deps"]
         );
+    }
+
+    #[test]
+    fn edit_args_clears_blank_fields_and_sends_no_flags() {
+        assert_eq!(
+            edit_args(&request()),
+            [
+                "loop",
+                "edit",
+                "--every=24h",
+                "--prompt=hi",
+                "--model=",
+                "--permission-mode=",
+                "--no-script",
+                "--no-vars",
+                "--no-specs",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn edit_args_sends_every_field() {
+        let req = NewLoop {
+            specs: vec!["buff-bear".into(), " ".into()],
+            model: Some(" opus ".into()),
+            permission_mode: Some("acceptEdits".into()),
+            keep: Some(3),
+            script: Some("gh issue list | grep .\n".into()),
+            script_timeout: Some(" 2m ".into()),
+            vars: vec![
+                LoopVar {
+                    key: "REPO".into(),
+                    value: "a b".into(),
+                },
+                LoopVar {
+                    key: " ".into(),
+                    value: "x".into(),
+                },
+            ],
+            ..request()
+        };
+        assert_eq!(
+            edit_args(&req),
+            [
+                "loop",
+                "edit",
+                "--every=24h",
+                "--prompt=hi",
+                "--keep=3",
+                "--model=opus",
+                "--permission-mode=acceptEdits",
+                "--script=gh issue list | grep .\n",
+                "--script-timeout=2m",
+                "--var=REPO=a b",
+                "--",
+                "deps",
+                "buff-bear",
+            ]
+        );
+    }
+
+    #[test]
+    fn edit_args_blank_script_ignores_timeout() {
+        let req = NewLoop {
+            script: Some("  ".into()),
+            script_timeout: Some("2m".into()),
+            ..request()
+        };
+        assert_eq!(
+            edit_args(&req),
+            [
+                "loop",
+                "edit",
+                "--every=24h",
+                "--prompt=hi",
+                "--model=",
+                "--permission-mode=",
+                "--no-script",
+                "--no-vars",
+                "--no-specs",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_args_parse_ws_loop_edit_json() {
+        let dir = fake_ws(
+            r#"while IFS= read -r line; do printf '%s\n' "$line"; done <<'EOF'
+{"name":"deps","every":"24h","prompt":"hi","specs":[],"model":null,"permission_mode":null,"keep":5,"paused":false,"created_at":"2026-11-05T18:00:00Z","next_run_at":null,"last_run":null}
+EOF"#,
+        );
+        let runner = Runner::new(dir.path().display().to_string());
+        let loop_: Loop = runner.ws_json(&edit_args(&request())).await.unwrap();
+        assert_eq!(loop_.name, "deps");
+        assert_eq!(loop_.prompt, "hi");
     }
 
     #[test]
