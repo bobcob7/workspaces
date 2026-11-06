@@ -22,6 +22,7 @@ func (a *App) newLoopCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		a.newLoopAddCmd(),
+		a.newLoopEditCmd(),
 		a.newLoopListCmd(),
 		a.newLoopPauseCmd(),
 		a.newLoopResumeCmd(),

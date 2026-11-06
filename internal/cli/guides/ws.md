@@ -225,6 +225,7 @@ For people and the desktop app, not agents:
 - `ws llm continue`: tell agents stopped by a usage limit to carry on once it resets
 - `ws llm loop`: start an agent in a new workspace every period, with the same prompt, and its subcommands:
   - `ws llm loop add`: add a loop
+  - `ws llm loop edit`: change a loop
   - `ws llm loop list`: list loops
   - `ws llm loop pause`: stop a loop from starting runs
   - `ws llm loop resume`: start a paused loop again

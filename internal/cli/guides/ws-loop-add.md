@@ -45,8 +45,7 @@ A missing value is an error. `add` refuses `{{.Stdout}}` without `--script`,
 and `{{.Vars.X}}` without `--var X=…`. Write a literal `{{` as `{{"{{"}}`.
 
 The prompt is checked when the loop is added, so a bad template is refused
-now, not at the first run. There is no `ws loop edit`: to change a loop's
-script, variables, or prompt, `ws loop rm` it and add it again.
+now, not at the first run. To change a loop later, use `ws loop edit`.
 
 ## JSON output
 
