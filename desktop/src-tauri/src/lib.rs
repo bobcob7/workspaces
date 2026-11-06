@@ -9,6 +9,7 @@ mod env;
 mod jobs;
 mod loops;
 mod model;
+mod open;
 mod pty;
 mod reviews;
 mod runner;
@@ -108,6 +109,9 @@ pub fn run() {
             reviews::settings_get,
             reviews::settings_set_reviews,
             reviews::settings_set_notifications,
+            open::workspace_open,
+            open::open_defaults,
+            open::settings_set_open,
             loops::loops_list,
             loops::loops_add,
             loops::loops_set_paused,

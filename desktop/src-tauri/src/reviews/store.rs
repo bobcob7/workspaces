@@ -133,11 +133,21 @@ impl Default for NotificationSettings {
     }
 }
 
+/// The commands that open a workspace (ADR 0051). "" uses the platform's
+/// default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OpenSettings {
+    pub file_manager: String,
+    pub editor: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub reviews: ReviewSettings,
     pub notifications: NotificationSettings,
+    pub open: OpenSettings,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -622,5 +632,36 @@ mod tests {
         let reopened = Store::open(Some(path)).get();
         assert!(!reopened.settings.notifications.done);
         assert_eq!(reopened, store.get());
+    }
+
+    #[test]
+    fn file_without_open_settings_opens_with_empty_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        let raw = r#"{"version":1,"settings":{"reviews":{"skipDrafts":false}}}"#;
+        std::fs::write(&path, raw).unwrap();
+        let data = Store::open(Some(path.clone())).get();
+        assert_eq!(data.settings.open, OpenSettings::default());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), raw);
+    }
+
+    #[test]
+    fn open_settings_serialize_in_camel_case_and_round_trip() {
+        let raw = r#"{"fileManager":"open -R","editor":"zed"}"#;
+        let open: OpenSettings = serde_json::from_str(raw).unwrap();
+        assert_eq!(open.file_manager, "open -R");
+        assert_eq!(open.editor, "zed");
+        let json = serde_json::to_value(&open).unwrap();
+        assert_eq!(
+            json,
+            serde_json::from_str::<serde_json::Value>(raw).unwrap()
+        );
+    }
+
+    #[test]
+    fn partial_open_settings_keep_the_other_key_empty() {
+        let settings: Settings = serde_json::from_str(r#"{"open":{"editor":"zed"}}"#).unwrap();
+        assert_eq!(settings.open.file_manager, "");
+        assert_eq!(settings.open.editor, "zed");
     }
 }
