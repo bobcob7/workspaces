@@ -39,6 +39,14 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   (`ws rm --keep-children`)
   ([ADR 0044](../docs/adrs/0044-workspace-trees.md),
   [design](../docs/design/workspace-trees/README.md)).
+- **Menu-bar tray and notifications**: the menu bar shows how many of
+  your top-level agents need input, and its menu lists them, and the
+  finished ones, to open with a click. A native notification says when
+  one starts needing input or finishes. Children and hidden workspaces
+  never count or notify. Closing the window leaves the app in the tray;
+  ⌘Q or Quit ends it. Settings, Notifications turns them off
+  ([ADR 0050](../docs/adrs/0050-desktop-tray-notifications.md),
+  [design](../docs/design/tray/README.md); planned).
 - **Finished reviews clean up after themselves**: once every reviewer has
   reported, `ws` removes the review agent and its workspace. The app reads
   `ws review list`, so the pull request stays in Reviewed with its report,
