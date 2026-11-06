@@ -44,7 +44,7 @@ func TestErrorCode_exitCode(t *testing.T) {
 			codeClaudeMissing, codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid)
 	})
 	t.Run("usage errors exit 2", func(t *testing.T) {
-		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace)
+		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace, codeResultInvalid)
 	})
 	t.Run("not found or ambiguous exits 3", func(t *testing.T) {
 		assertExit(t, exitNotFound, codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound)

@@ -158,7 +158,7 @@ messages aren't.
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found` |
 | 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped` |
 
@@ -174,6 +174,7 @@ For agents:
 
 - `ws llm machine`: the commands to use: start, list, and remove the workspaces yours started:
   - `ws llm machine spawn`: new child workspace with a Claude Code background agent
+  - `ws llm machine result`: record your verdict and report for the agent that started you
   - `ws llm machine children`: list the workspaces yours started
   - `ws llm machine rm`: remove workspaces yours started, and theirs
 - `ws llm review`: structured reviews: getting your work reviewed, and the reviewer's commands:

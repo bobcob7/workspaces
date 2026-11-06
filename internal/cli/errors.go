@@ -66,6 +66,8 @@ const (
 	// From ADR 0049.
 	codeLoopSkipped      errorCode = "loop_skipped"
 	codeLoopScriptFailed errorCode = "loop_script_failed"
+	// Machine codes from ADR 0050.
+	codeResultInvalid errorCode = "result_invalid"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -112,7 +114,7 @@ func (c errorCode) exitCode() int {
 		codeLoopScriptFailed:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
-		codeLoopInvalid:
+		codeLoopInvalid, codeResultInvalid:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound:

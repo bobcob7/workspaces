@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -33,6 +34,7 @@ func (a *App) newMachineCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		a.newMachineSpawnCmd(),
+		a.newMachineResultCmd(),
 		a.newMachineChildrenCmd(),
 		a.newMachineRmCmd(),
 	)
@@ -165,17 +167,29 @@ func (a *App) runMachineChildren(ctx context.Context, all bool) error {
 	if all {
 		entries = descendantEntries(listing.Workspaces, caller)
 	}
-	return a.writeJSON(listJSON{Workspaces: a.listWorkspaces(entries, nil), Warnings: a.warnings()})
+	root := machine.Root(entryWorkspaces(listing.Workspaces), caller)
+	store := machine.NewStore(a.paths.State)
+	listed := a.listWorkspaces(entries, nil)
+	children := make([]machineChildJSON, 0, len(listed))
+	for i := range listed {
+		children = append(children, a.machineChild(store, root, &listed[i]))
+	}
+	return a.writeJSON(machineChildrenJSON{Workspaces: children, Warnings: a.warnings()})
+}
+
+// entryWorkspaces is the workspaces in entries, in their order.
+func entryWorkspaces(entries []lifetime.Entry) []workspace.Workspace {
+	list := make([]workspace.Workspace, 0, len(entries))
+	for i := range entries {
+		list = append(list, entries[i].Workspace)
+	}
+	return list
 }
 
 // descendantEntries keeps the entries that descend from workspace id, in
 // their order.
 func descendantEntries(entries []lifetime.Entry, id string) []lifetime.Entry {
-	list := make([]workspace.Workspace, 0, len(entries))
-	for i := range entries {
-		list = append(list, entries[i].Workspace)
-	}
-	below := descendants(list, id)
+	below := descendants(entryWorkspaces(entries), id)
 	var kept []lifetime.Entry
 	for i := range entries {
 		if below[entries[i].Workspace.ID] {
