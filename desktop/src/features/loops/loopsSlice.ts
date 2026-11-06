@@ -19,7 +19,11 @@ export interface LoopsState {
   readonly selected: string | null;
   /** The form is shown in the pane. */
   readonly creating: boolean;
-  /** The last add failed. */
+  /** The selected loop's edit form is shown in the pane. */
+  readonly editing: boolean;
+  /** An add or edit is running. */
+  readonly submitting: boolean;
+  /** The last add or edit failed. */
   readonly formError: AppError | null;
   /** The name of the loop an action is running on. */
   readonly busy: string | null;
@@ -31,6 +35,8 @@ const initialState: LoopsState = {
   error: null,
   selected: null,
   creating: false,
+  editing: false,
+  submitting: false,
   formError: null,
   busy: null,
 };
@@ -49,6 +55,17 @@ export const addLoop = createAppThunk<Loop, NewLoop>("loops/add", async (request
     const added = await extra.api.loopsAdd(request);
     void dispatch(fetchLoops());
     return added;
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** Edits a loop, then lists the loops again. ws checks the period, specs, and vars. */
+export const editLoop = createAppThunk<Loop, NewLoop>("loops/edit", async (request, { extra, dispatch, rejectWithValue }) => {
+  try {
+    const edited = await extra.api.loopsEdit(request);
+    void dispatch(fetchLoops());
+    return edited;
   } catch (err: unknown) {
     return rejectWithValue(toAppError(err));
   }
@@ -105,13 +122,24 @@ const loopsSlice = createSlice({
     loopSelected: (state, action: PayloadAction<string | null>) => {
       state.selected = action.payload;
       state.creating = false;
+      state.editing = false;
     },
     creatingStarted: (state) => {
       state.creating = true;
+      state.editing = false;
       state.formError = null;
     },
     creatingCancelled: (state) => {
       state.creating = false;
+      state.formError = null;
+    },
+    editingStarted: (state) => {
+      state.editing = true;
+      state.creating = false;
+      state.formError = null;
+    },
+    editingCancelled: (state) => {
+      state.editing = false;
       state.formError = null;
     },
   },
@@ -125,13 +153,32 @@ const loopsSlice = createSlice({
       .addCase(fetchLoops.rejected, (state, action) => {
         state.error = action.payload ?? { code: "internal", message: action.error.message ?? "listing loops failed" };
       })
+      .addCase(addLoop.pending, (state) => {
+        state.submitting = true;
+      })
       .addCase(addLoop.fulfilled, (state, action) => {
+        state.submitting = false;
         state.creating = false;
         state.formError = null;
         state.selected = action.payload.name;
       })
       .addCase(addLoop.rejected, (state, action) => {
+        state.submitting = false;
         state.formError = action.payload ?? { code: "internal", message: action.error.message ?? "adding loop failed" };
+      })
+      .addCase(editLoop.pending, (state) => {
+        state.submitting = true;
+      })
+      .addCase(editLoop.fulfilled, (state, action): LoopsState => ({
+        ...state,
+        submitting: false,
+        editing: false,
+        formError: null,
+        loops: state.loops.map((loop) => (loop.name === action.payload.name ? action.payload : loop)),
+      }))
+      .addCase(editLoop.rejected, (state, action) => {
+        state.submitting = false;
+        state.formError = action.payload ?? { code: "internal", message: action.error.message ?? "editing loop failed" };
       })
       .addCase(setLoopPaused.pending, (state, action) => {
         state.busy = busyName(action.meta.arg);
@@ -166,5 +213,5 @@ const loopsSlice = createSlice({
   },
 });
 
-export const { loopSelected, creatingStarted, creatingCancelled } = loopsSlice.actions;
+export const { loopSelected, creatingStarted, creatingCancelled, editingStarted, editingCancelled } = loopsSlice.actions;
 export const loopsReducer = loopsSlice.reducer;

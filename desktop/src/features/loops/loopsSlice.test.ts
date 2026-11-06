@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { fakeApi, loop, testStore } from "../../test/fixtures";
-import { addLoop, creatingStarted, fetchLoops, loopSelected, runLoopNow } from "./loopsSlice";
+import { addLoop, creatingStarted, editingStarted, editLoop, fetchLoops, loopSelected, runLoopNow } from "./loopsSlice";
+
+const editRequest = { name: "deps", every: "2h", prompt: "Update.", specs: [], keep: 3 };
 
 describe("loops", () => {
   it("fills the loops and warnings when a fetch succeeds", async () => {
@@ -53,5 +55,51 @@ describe("loops", () => {
       message: "Started loop-deps-1",
       action: { label: "Open", agent: "loop-deps-1" },
     });
+  });
+
+  it("replaces the loop, closes the edit form, and clears formError when an edit succeeds", async () => {
+    const edited = loop({ name: "deps", every: "2h", keep: 3 });
+    const api = fakeApi({
+      loopsEdit: vi.fn(async () => edited),
+      loopsList: vi
+        .fn()
+        .mockResolvedValueOnce({ loops: [loop({ name: "deps" })], warnings: [] })
+        .mockResolvedValue({ loops: [edited], warnings: [] }),
+    });
+    const store = testStore({ api });
+    await store.dispatch(fetchLoops());
+    store.dispatch(editingStarted());
+    await store.dispatch(editLoop(editRequest));
+    expect(store.getState().loops.loops).toEqual([edited]);
+    expect(store.getState().loops.editing).toBe(false);
+    expect(store.getState().loops.formError).toBeNull();
+  });
+
+  it("keeps the edit form open and sets formError when an edit is rejected", async () => {
+    const error = { code: "loop_invalid", message: 'period "2m" is under 5m' };
+    const api = fakeApi({
+      loopsEdit: vi.fn(async () => {
+        throw error;
+      }),
+    });
+    const store = testStore({ api });
+    store.dispatch(editingStarted());
+    await store.dispatch(editLoop(editRequest));
+    expect(store.getState().loops.formError).toEqual(error);
+    expect(store.getState().loops.editing).toBe(true);
+    expect(store.getState().loops.submitting).toBe(false);
+  });
+
+  it("marks the form submitting while an edit is pending", () => {
+    const store = testStore({ api: fakeApi({ loopsEdit: vi.fn(() => new Promise<never>(() => undefined)) }) });
+    void store.dispatch(editLoop(editRequest));
+    expect(store.getState().loops.submitting).toBe(true);
+  });
+
+  it("clears editing when a loop is selected after the edit form opened", () => {
+    const store = testStore();
+    store.dispatch(editingStarted());
+    store.dispatch(loopSelected("deps"));
+    expect(store.getState().loops.editing).toBe(false);
   });
 });

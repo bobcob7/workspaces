@@ -1,103 +1,198 @@
-import { Alert, Button, TextField } from "@mui/material";
+import { Alert, Button, FormHelperText, MenuItem, TextField } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
-import type { LoopVar, NewLoop } from "../../api";
-import { useAppDispatch, useAppSelector } from "../../store";
-import { addLoop, creatingCancelled } from "./loopsSlice";
-import { VarsEditor } from "./VarsEditor";
+import type { AppError, Loop, NewLoop } from "../../api";
+import { models, permissionModes } from "../create/NewAgentDialog";
+import { RepoSpecsField } from "../create/RepoSpecsField";
+import { AmountInput } from "./AmountInput";
+import {
+  emptyValues,
+  formErrors,
+  isValid,
+  loopLabel,
+  requestOf,
+  slugOf,
+  valuesOf,
+  type LoopFormErrors,
+  type LoopFormValues,
+} from "./formValues";
+import { periodUnits, timeoutUnits } from "./period";
 import styles from "./LoopsPane.module.css";
+import { VarsEditor } from "./VarsEditor";
 
-/** New loop: the fields ws add takes. ws checks the period, the specs, and the script timeout. */
-export const LoopForm = (): JSX.Element => {
-  const dispatch = useAppDispatch();
-  const formError = useAppSelector((s) => s.loops.formError);
-  const [name, setName] = useState("");
-  const [every, setEvery] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [repos, setRepos] = useState("");
-  const [script, setScript] = useState("");
-  const [scriptTimeout, setScriptTimeout] = useState("");
-  const [vars, setVars] = useState<readonly LoopVar[]>([]);
-  const ready = name.trim() !== "" && every.trim() !== "" && prompt.trim() !== "";
-  const hasScript = script.trim() !== "";
-  const namedVars = vars
-    .filter((row) => row.key.trim() !== "")
-    .map((row) => ({ key: row.key.trim(), value: row.value }));
+/** The value field each error belongs to, so an error shows once that field is changed. */
+const errorFields: Readonly<Record<keyof LoopFormErrors, keyof LoopFormValues>> = {
+  title: "title",
+  every: "period",
+  keep: "keep",
+  prompt: "prompt",
+  scriptTimeout: "scriptTimeout",
+  vars: "vars",
+};
+
+/** Adds the current value to the choices, so a loop's own setting is never lost. */
+const choicesWith = (choices: readonly string[], current: string): readonly string[] =>
+  choices.includes(current) ? choices : [...choices, current];
+
+const choiceLabel = (choice: string): string => (choice === "" ? "Default" : choice);
+
+export interface LoopFormProps {
+  /** The loop to edit; absent for a new loop. */
+  readonly loop?: Loop;
+  readonly error: AppError | null;
+  readonly submitting: boolean;
+  readonly onSubmit: (request: NewLoop) => void;
+  readonly onCancel: () => void;
+}
+
+/** The loop form for add and edit: sections for schedule, prompt, repos, agent, gate script, and variables. */
+export const LoopForm = (props: LoopFormProps): JSX.Element => {
+  const { loop, error, submitting, onSubmit, onCancel } = props;
+  const [values, setValues] = useState<LoopFormValues>(() => (loop === undefined ? emptyValues : valuesOf(loop)));
+  const [touched, setTouched] = useState<ReadonlySet<keyof LoopFormValues>>(new Set());
+  const [submitted, setSubmitted] = useState(false);
+  const errors = formErrors(values);
+  const hasScript = values.script.trim() !== "";
+  const slug = slugOf(values.title);
+  const idHelp = loop ? `ID: ${loop.name}; the ID can't be changed` : slug === "" ? undefined : `ID: ${slug}`;
+  const patch = <K extends keyof LoopFormValues>(field: K, value: LoopFormValues[K]): void => {
+    setValues((current) => ({ ...current, [field]: value }));
+    setTouched((current) => new Set(current).add(field));
+  };
+  const messageFor = (field: keyof LoopFormErrors): string | undefined =>
+    submitted || touched.has(errorFields[field]) ? errors[field] : undefined;
   const submit = (event: FormEvent): void => {
     event.preventDefault();
-    if (!ready) {
+    setSubmitted(true);
+    if (!isValid(values)) {
       return;
     }
-    const request: NewLoop = {
-      name: name.trim(),
-      every: every.trim(),
-      prompt: prompt.trim(),
-      specs: repos.split(/\s+/).filter(Boolean),
-      ...(hasScript ? { script } : {}),
-      ...(hasScript && scriptTimeout.trim() !== "" ? { scriptTimeout: scriptTimeout.trim() } : {}),
-      ...(namedVars.length > 0 ? { vars: namedVars } : {}),
-    };
-    void dispatch(addLoop(request));
+    onSubmit(requestOf(values));
   };
   return (
-    <form className={styles.form} onSubmit={submit} aria-label="New loop">
-      <h2 className={styles.formTitle}>New loop</h2>
-      <TextField label="Name" required value={name} onChange={(e) => setName(e.target.value)} size="small" fullWidth />
-      <TextField
-        label="Every"
-        required
-        value={every}
-        onChange={(e) => setEvery(e.target.value)}
-        placeholder="15m, 1h, 24h"
-        helperText="Whole minutes, 5m to 168h"
-        size="small"
-        fullWidth
-      />
-      <TextField
-        label="Prompt"
-        required
-        multiline
-        rows={4}
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        helperText="A Go template: {{.Vars.KEY}}, {{.Stdout}}, {{.Stderr}}, {{.Name}}"
-        size="small"
-        fullWidth
-      />
-      <TextField
-        label="Repos"
-        value={repos}
-        onChange={(e) => setRepos(e.target.value)}
-        helperText="Repo specs, separated by spaces"
-        size="small"
-        fullWidth
-      />
-      <TextField
-        label="Script"
-        multiline
-        rows={3}
-        value={script}
-        onChange={(e) => setScript(e.target.value)}
-        helperText="Runs with /bin/sh -c at each run; the run starts only if it exits 0. Its output is {{.Stdout}} and {{.Stderr}} in the prompt"
-        size="small"
-        fullWidth
-      />
-      {hasScript && (
+    <form className={styles.form} onSubmit={submit} aria-label={loop ? "Edit loop" : "New loop"} noValidate>
+      <h2 className={styles.formTitle}>{loop ? `Edit ${loopLabel(loop)}` : "New loop"}</h2>
+      <fieldset className={styles.section}>
+        <legend className={styles.legend}>Schedule</legend>
         <TextField
-          label="Script timeout"
-          value={scriptTimeout}
-          onChange={(e) => setScriptTimeout(e.target.value)}
-          placeholder="1m"
-          helperText="1s to 10m"
+          label="Name"
+          required
+          placeholder="Nightly deps bump"
+          value={values.title}
+          onChange={(e) => patch("title", e.target.value)}
+          error={messageFor("title") !== undefined}
+          helperText={messageFor("title") ?? idHelp}
           size="small"
           fullWidth
         />
-      )}
-      <VarsEditor rows={vars} onChange={setVars} />
-      {formError !== null && <Alert severity="error">{formError.message}</Alert>}
+        <AmountInput
+          label="Every"
+          value={values.period}
+          units={periodUnits}
+          onChange={(period) => patch("period", period)}
+          error={messageFor("every")}
+          helperText="5 minutes to 7 days"
+        />
+        <TextField
+          label="Keep runs"
+          type="number"
+          value={values.keep}
+          onChange={(e) => patch("keep", e.target.value)}
+          error={messageFor("keep") !== undefined}
+          helperText={messageFor("keep") ?? "How many runs' workspaces to keep"}
+          slotProps={{ htmlInput: { min: 1, max: 50 } }}
+          size="small"
+          fullWidth
+        />
+      </fieldset>
+      <fieldset className={styles.section}>
+        <legend className={styles.legend}>Prompt</legend>
+        <TextField
+          label="Prompt"
+          required
+          multiline
+          minRows={6}
+          maxRows={16}
+          value={values.prompt}
+          onChange={(e) => patch("prompt", e.target.value)}
+          error={messageFor("prompt") !== undefined}
+          helperText={messageFor("prompt") ?? "A Go template: {{.Vars.KEY}}, {{.Stdout}}, {{.Stderr}}, {{.Name}}, {{.Title}}"}
+          slotProps={{ htmlInput: { className: styles.mono } }}
+          size="small"
+          fullWidth
+        />
+      </fieldset>
+      <fieldset className={styles.section}>
+        <legend className={styles.legend}>Repos</legend>
+        <RepoSpecsField value={values.specs} onChange={(specs) => patch("specs", specs)} />
+      </fieldset>
+      <fieldset className={styles.section}>
+        <legend className={styles.legend}>Agent</legend>
+        <TextField
+          select
+          label="Model"
+          value={values.model}
+          onChange={(e) => patch("model", e.target.value)}
+          slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+          size="small"
+          fullWidth
+        >
+          {choicesWith(models, values.model).map((model) => (
+            <MenuItem key={model} value={model}>
+              {choiceLabel(model)}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          label="Permission mode"
+          value={values.permissionMode}
+          onChange={(e) => patch("permissionMode", e.target.value)}
+          slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+          size="small"
+          fullWidth
+        >
+          {choicesWith(permissionModes, values.permissionMode).map((mode) => (
+            <MenuItem key={mode} value={mode}>
+              {choiceLabel(mode)}
+            </MenuItem>
+          ))}
+        </TextField>
+      </fieldset>
+      <fieldset className={styles.section}>
+        <legend className={styles.legend}>Gate script</legend>
+        <TextField
+          label="Script"
+          multiline
+          minRows={4}
+          maxRows={12}
+          value={values.script}
+          onChange={(e) => patch("script", e.target.value)}
+          helperText="Runs with /bin/sh -c at each run; the run starts only if it exits 0. Its output is {{.Stdout}} and {{.Stderr}} in the prompt"
+          slotProps={{ htmlInput: { className: styles.mono } }}
+          size="small"
+          fullWidth
+        />
+        {hasScript && (
+          <AmountInput
+            label="Timeout"
+            value={values.scriptTimeout}
+            units={timeoutUnits}
+            onChange={(timeout) => patch("scriptTimeout", timeout)}
+            error={messageFor("scriptTimeout")}
+            helperText="1 second to 10 minutes"
+          />
+        )}
+      </fieldset>
+      <fieldset className={styles.section}>
+        <legend className={styles.legend}>Variables</legend>
+        <VarsEditor rows={values.vars} onChange={(vars) => patch("vars", vars)} />
+        {messageFor("vars") !== undefined && <FormHelperText error>{messageFor("vars")}</FormHelperText>}
+      </fieldset>
+      {error !== null && <Alert severity="error">{error.message}</Alert>}
       <div className={styles.formButtons}>
-        <Button onClick={() => dispatch(creatingCancelled())}>Cancel</Button>
-        <Button type="submit" variant="contained" disabled={!ready}>
-          Add loop
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button type="submit" variant="contained" disabled={submitting}>
+          {loop ? "Save changes" : "Add loop"}
         </Button>
       </div>
     </form>

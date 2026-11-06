@@ -17,7 +17,8 @@ type PromptData struct {
 // RenderPrompt is the prompt a run starts with. A Version1 prompt is
 // returned as it is. Otherwise the prompt is parsed with text/template,
 // Option("missingkey=error"), and executed with a map holding "Name",
-// "Vars" (a map[string]string, never nil), and, only when l.Script != "",
+// "Title" (the title, or the name when there is none), "Vars" (a
+// map[string]string, never nil), and, only when l.Script != "",
 // "Stdout" and "Stderr" from data. A parse or execute error, or a result
 // that is blank after strings.TrimSpace, is ErrInvalid.
 func (l *Loop) RenderPrompt(data PromptData) (string, error) {
@@ -44,7 +45,11 @@ func (l *Loop) render(data PromptData, allowBlank bool) (string, error) {
 	if vars == nil {
 		vars = map[string]string{}
 	}
-	values := map[string]any{"Name": l.Name, "Vars": vars}
+	title := l.Title
+	if title == "" {
+		title = l.Name
+	}
+	values := map[string]any{"Name": l.Name, "Title": title, "Vars": vars}
 	if l.Script != "" {
 		values["Stdout"] = data.Stdout
 		values["Stderr"] = data.Stderr

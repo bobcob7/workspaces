@@ -43,6 +43,8 @@ pub struct LoopGate {
 #[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
 pub struct Loop {
     pub name: String,
+    #[serde(default)]
+    pub title: String,
     pub every: String,
     pub prompt: String,
     pub specs: Vec<String>,
@@ -90,6 +92,8 @@ pub struct LoopVar {
 #[serde(rename_all = "camelCase")]
 pub struct NewLoop {
     pub name: String,
+    #[serde(default)]
+    pub title: Option<String>,
     pub every: String,
     pub prompt: String,
     #[serde(default)]
@@ -108,20 +112,20 @@ fn non_blank(value: Option<&str>) -> Option<&str> {
 }
 
 /// `ws loop add` without `--json`, which the runner adds:
-/// `ws loop add` without `--json`, which the runner adds:
-/// ["loop", "add", "--every=<every>", "--prompt=<prompt>", ("--keep=<n>"),
-///  ("--model=<m>"), ("--permission-mode=<p>"), ("--script=<s>"),
-///  ("--script-timeout=<t>"), ("--var=<k>=<v>")..., "--", <name>, <specs...>].
+/// ["loop", "add", ("--title=<t>"), "--every=<every>", "--prompt=<prompt>",
+///  ("--keep=<n>"), ("--model=<m>"), ("--permission-mode=<p>"),
+///  ("--script=<s>"), ("--script-timeout=<t>"), ("--var=<k>=<v>")...,
+///  "--", <name>, <specs...>].
 /// Blank optional values, and blank specs, are left out; values are trimmed,
 /// except the script (whose whitespace matters) and a var's value.
 /// A script timeout needs a script; a var needs a non-blank key.
 pub fn add_args(req: &NewLoop) -> Vec<String> {
-    let mut args = vec![
-        "loop".to_string(),
-        "add".to_string(),
-        format!("--every={}", req.every.trim()),
-        format!("--prompt={}", req.prompt.trim()),
-    ];
+    let mut args = vec!["loop".to_string(), "add".to_string()];
+    if let Some(title) = non_blank(req.title.as_deref()) {
+        args.push(format!("--title={title}"));
+    }
+    args.push(format!("--every={}", req.every.trim()));
+    args.push(format!("--prompt={}", req.prompt.trim()));
     if let Some(keep) = req.keep {
         args.push(format!("--keep={keep}"));
     }
@@ -150,6 +154,65 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
             .filter_map(|s| non_blank(Some(s)))
             .map(str::to_string),
     );
+    args
+}
+
+/// `ws loop edit` without `--json`, which the runner adds. Every field is
+/// sent, so the request replaces the loop's editable fields (ADR 0052):
+/// ["loop", "edit", "--title=<t>", "--every=<every>", "--prompt=<prompt>",
+///  ("--keep=<n>"), "--model=<m>", "--permission-mode=<p>",
+///  ("--script=<s>", ("--script-timeout=<t>")) | "--no-script",
+///  ("--var=<k>=<v>")... | "--no-vars", ("--no-specs"),
+///  "--", <name>, <specs...>].
+/// Values are trimmed as in add_args (not the script or a var's value);
+/// a blank title, model or permission mode is sent as "" to clear it.
+pub fn edit_args(req: &NewLoop) -> Vec<String> {
+    let title = non_blank(req.title.as_deref()).unwrap_or("");
+    let mut args = vec![
+        "loop".to_string(),
+        "edit".to_string(),
+        format!("--title={title}"),
+        format!("--every={}", req.every.trim()),
+        format!("--prompt={}", req.prompt.trim()),
+    ];
+    if let Some(keep) = req.keep {
+        args.push(format!("--keep={keep}"));
+    }
+    let model = non_blank(req.model.as_deref()).unwrap_or("");
+    args.push(format!("--model={model}"));
+    let mode = non_blank(req.permission_mode.as_deref()).unwrap_or("");
+    args.push(format!("--permission-mode={mode}"));
+    match req.script.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(script) => {
+            args.push(format!("--script={script}"));
+            if let Some(timeout) = non_blank(req.script_timeout.as_deref()) {
+                args.push(format!("--script-timeout={timeout}"));
+            }
+        }
+        None => args.push("--no-script".to_string()),
+    }
+    let vars: Vec<String> = req
+        .vars
+        .iter()
+        .filter_map(|var| {
+            non_blank(Some(var.key.as_str())).map(|key| format!("--var={key}={}", var.value))
+        })
+        .collect();
+    if vars.is_empty() {
+        args.push("--no-vars".to_string());
+    }
+    args.extend(vars);
+    let specs: Vec<String> = req
+        .specs
+        .iter()
+        .filter_map(|s| non_blank(Some(s)).map(str::to_string))
+        .collect();
+    if specs.is_empty() {
+        args.push("--no-specs".to_string());
+    }
+    args.push("--".to_string());
+    args.push(req.name.trim().to_string());
+    args.extend(specs);
     args
 }
 
@@ -195,6 +258,11 @@ pub async fn loops_list(state: State<'_, AppState>) -> CmdResult<Loops> {
 #[tauri::command]
 pub async fn loops_add(state: State<'_, AppState>, request: NewLoop) -> CmdResult<Loop> {
     state.runner.ws_json(&add_args(&request)).await
+}
+
+#[tauri::command]
+pub async fn loops_edit(state: State<'_, AppState>, request: NewLoop) -> CmdResult<Loop> {
+    state.runner.ws_json(&edit_args(&request)).await
 }
 
 #[tauri::command]
@@ -252,6 +320,7 @@ mod tests {
     fn request() -> NewLoop {
         NewLoop {
             name: "deps".into(),
+            title: None,
             every: "24h".into(),
             prompt: "hi".into(),
             specs: vec![],
@@ -356,6 +425,174 @@ mod tests {
             add_args(&req),
             ["loop", "add", "--every=24h", "--prompt=hi", "--", "deps"]
         );
+    }
+
+    #[test]
+    fn edit_args_clears_blank_fields_and_sends_no_flags() {
+        assert_eq!(
+            edit_args(&request()),
+            [
+                "loop",
+                "edit",
+                "--title=",
+                "--every=24h",
+                "--prompt=hi",
+                "--model=",
+                "--permission-mode=",
+                "--no-script",
+                "--no-vars",
+                "--no-specs",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn edit_args_sends_every_field() {
+        let req = NewLoop {
+            specs: vec!["buff-bear".into(), " ".into()],
+            model: Some(" opus ".into()),
+            permission_mode: Some("acceptEdits".into()),
+            keep: Some(3),
+            script: Some("gh issue list | grep .\n".into()),
+            script_timeout: Some(" 2m ".into()),
+            vars: vec![
+                LoopVar {
+                    key: "REPO".into(),
+                    value: "a b".into(),
+                },
+                LoopVar {
+                    key: " ".into(),
+                    value: "x".into(),
+                },
+            ],
+            ..request()
+        };
+        assert_eq!(
+            edit_args(&req),
+            [
+                "loop",
+                "edit",
+                "--title=",
+                "--every=24h",
+                "--prompt=hi",
+                "--keep=3",
+                "--model=opus",
+                "--permission-mode=acceptEdits",
+                "--script=gh issue list | grep .\n",
+                "--script-timeout=2m",
+                "--var=REPO=a b",
+                "--",
+                "deps",
+                "buff-bear",
+            ]
+        );
+    }
+
+    #[test]
+    fn edit_args_blank_script_ignores_timeout() {
+        let req = NewLoop {
+            script: Some("  ".into()),
+            script_timeout: Some("2m".into()),
+            ..request()
+        };
+        assert_eq!(
+            edit_args(&req),
+            [
+                "loop",
+                "edit",
+                "--title=",
+                "--every=24h",
+                "--prompt=hi",
+                "--model=",
+                "--permission-mode=",
+                "--no-script",
+                "--no-vars",
+                "--no-specs",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn add_args_passes_trimmed_title_before_every() {
+        let req = NewLoop {
+            title: Some("  Nightly deps bump ".into()),
+            ..request()
+        };
+        assert_eq!(
+            add_args(&req),
+            [
+                "loop",
+                "add",
+                "--title=Nightly deps bump",
+                "--every=24h",
+                "--prompt=hi",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn add_args_skips_blank_title() {
+        let req = NewLoop {
+            title: Some("   ".into()),
+            ..request()
+        };
+        assert_eq!(
+            add_args(&req),
+            ["loop", "add", "--every=24h", "--prompt=hi", "--", "deps"]
+        );
+    }
+
+    #[test]
+    fn edit_args_sends_trimmed_title() {
+        let req = NewLoop {
+            title: Some(" Nightly deps bump ".into()),
+            ..request()
+        };
+        let args = edit_args(&req);
+        assert_eq!(args[2], "--title=Nightly deps bump");
+        assert_eq!(args[3], "--every=24h");
+    }
+
+    #[test]
+    fn edit_args_blank_title_clears_it() {
+        let req = NewLoop {
+            title: Some("  ".into()),
+            ..request()
+        };
+        let args = edit_args(&req);
+        assert_eq!(args[2], "--title=");
+    }
+
+    #[test]
+    fn loop_title_round_trips_and_defaults_to_empty() {
+        let titled = r#"{"name":"deps-bump","title":"Nightly deps","every":"24h","prompt":"hi","specs":[],"model":null,"permission_mode":null,"keep":5,"paused":false,"created_at":"2026-11-05T18:00:00Z","next_run_at":null,"last_run":null}"#;
+        let parsed: Loop = serde_json::from_str(titled).unwrap();
+        assert_eq!(parsed.title, "Nightly deps");
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["title"], "Nightly deps");
+
+        let untitled = r#"{"name":"deps-bump","every":"24h","prompt":"hi","specs":[],"model":null,"permission_mode":null,"keep":5,"paused":false,"created_at":"2026-11-05T18:00:00Z","next_run_at":null,"last_run":null}"#;
+        let parsed: Loop = serde_json::from_str(untitled).unwrap();
+        assert_eq!(parsed.title, "");
+    }
+
+    #[tokio::test]
+    async fn edit_args_parse_ws_loop_edit_json() {
+        let dir = fake_ws(
+            r#"while IFS= read -r line; do printf '%s\n' "$line"; done <<'EOF'
+{"name":"deps","every":"24h","prompt":"hi","specs":[],"model":null,"permission_mode":null,"keep":5,"paused":false,"created_at":"2026-11-05T18:00:00Z","next_run_at":null,"last_run":null}
+EOF"#,
+        );
+        let runner = Runner::new(dir.path().display().to_string());
+        let loop_: Loop = runner.ws_json(&edit_args(&request())).await.unwrap();
+        assert_eq!(loop_.name, "deps");
+        assert_eq!(loop_.prompt, "hi");
     }
 
     #[test]

@@ -36,6 +36,7 @@ func guideTopics() []string {
 		"continue",
 		"loop",
 		"loop add",
+		"loop edit",
 		"loop list",
 		"loop pause",
 		"loop resume",

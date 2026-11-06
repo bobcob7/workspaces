@@ -229,6 +229,7 @@ export const fixPlan = (overrides: Partial<FixPlan> = {}): FixPlan => ({
 
 export const loop = (overrides: Partial<Loop> = {}): Loop => ({
   name: "deps",
+  title: "",
   every: "1h",
   prompt: "Update the dependencies and open a PR.",
   specs: ["buff-bear"],
@@ -327,7 +328,19 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   onTraySelect: vi.fn(async () => () => undefined),
   loopsList: vi.fn(async () => ({ loops: [], warnings: [] })),
   loopsAdd: vi.fn(async (request: NewLoop) =>
-    loop({ name: request.name, every: request.every, prompt: request.prompt, specs: request.specs, script: request.script ?? null }),
+    loop({ name: request.name, title: request.title ?? "", every: request.every, prompt: request.prompt, specs: request.specs, script: request.script ?? null }),
+  ),
+  loopsEdit: vi.fn(async (request: NewLoop) =>
+    loop({
+      name: request.name,
+      title: request.title ?? "",
+      every: request.every,
+      prompt: request.prompt,
+      specs: request.specs,
+      script: request.script ?? null,
+      scriptTimeout: request.scriptTimeout ?? null,
+      keep: request.keep ?? 5,
+    }),
   ),
   loopsSetPaused: vi.fn(async (name: string, paused: boolean) => loop({ name, paused })),
   loopsRemove: vi.fn(async (name: string) => loop({ name })),

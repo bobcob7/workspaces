@@ -109,6 +109,52 @@ func validLoop() Loop {
 	return Loop{Name: "deps-bump", Every: "24h", Prompt: "bump deps", Keep: DefaultKeep}
 }
 
+func TestValidateTitle(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		title string
+		ok    bool
+	}{
+		{name: "empty is no title", title: "", ok: true},
+		{name: "spaces and upper case", title: "Nightly deps bump", ok: true},
+		{name: "80 runes", title: strings.Repeat("é", maxTitleLen), ok: true},
+		{name: "leading space", title: " Nightly", ok: false},
+		{name: "trailing space", title: "Nightly ", ok: false},
+		{name: "81 runes", title: strings.Repeat("é", maxTitleLen+1), ok: false},
+		{name: "newline", title: "Nightly\nbump", ok: false},
+		{name: "tab", title: "Nightly\tbump", ok: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateTitle(tt.title)
+			if tt.ok {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, ErrInvalid)
+		})
+	}
+}
+
+func TestLoopRenderPromptTitle(t *testing.T) {
+	t.Parallel()
+	t.Run("the title, or the name without one", func(t *testing.T) {
+		t.Parallel()
+		l := validLoop()
+		l.Name = "deps"
+		l.Prompt = "{{.Title}}"
+		got, err := l.RenderPrompt(PromptData{})
+		require.NoError(t, err)
+		assert.Equal(t, "deps", got)
+		l.Title = "Nightly deps bump"
+		got, err = l.RenderPrompt(PromptData{})
+		require.NoError(t, err)
+		assert.Equal(t, "Nightly deps bump", got)
+	})
+}
+
 func TestValidateVarKey(t *testing.T) {
 	t.Parallel()
 	valid := []string{"A", "REPO", "_x", "a1", strings.Repeat("a", 64)}
@@ -232,6 +278,8 @@ func TestLoopValidate(t *testing.T) {
 	}{
 		{name: "valid", mutate: func(*Loop) {}},
 		{name: "bad name", mutate: func(l *Loop) { l.Name = "A" }, want: ErrInvalid},
+		{name: "bad title", mutate: func(l *Loop) { l.Title = "A\nB" }, want: ErrInvalid},
+		{name: "title", mutate: func(l *Loop) { l.Title = "Nightly deps bump" }},
 		{name: "bad period", mutate: func(l *Loop) { l.Every = "4m" }, want: ErrInvalid},
 		{name: "empty prompt", mutate: func(l *Loop) { l.Prompt = " \n\t" }, want: ErrInvalid},
 		{name: "keep zero", mutate: func(l *Loop) { l.Keep = 0 }, want: ErrInvalid},

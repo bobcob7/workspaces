@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import type { Loop } from "../../api";
 import { until } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
+import { loopLabel } from "./formValues";
 import { fetchLoops, loopSelected } from "./loopsSlice";
 import styles from "./LoopsList.module.css";
 
@@ -44,7 +45,7 @@ export const LoopsList = (): JSX.Element => {
                 aria-current={loop.name === selected ? "true" : undefined}
                 onClick={() => dispatch(loopSelected(loop.name))}
               >
-                <span className={styles.name}>{loop.name}</span>
+                <span className={styles.name}>{loopLabel(loop)}</span>
                 <span className={styles.meta}>
                   every {loop.every}
                   {loop.paused && <span className={styles.paused}> · Paused</span>}
