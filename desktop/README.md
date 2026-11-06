@@ -26,6 +26,15 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   confirming), and Restore stopped (`ws restore`). A workspace's name is
   the one it was created with until renamed; its id, and directory, end
   with a random suffix ([ADR 0036](../docs/adrs/0036-workspace-id-suffix-and-rename.md)).
+- **Open a workspace in your tools**: Open folder shows the workspace in
+  Finder (Explorer on Windows, the default file manager on Linux), and
+  Open in editor opens it in VS Code (`code`): the repo when the workspace
+  has exactly one, otherwise the workspace folder. Both commands are set
+  in Settings, Workspaces. A command like `open -a "Visual Studio Code"`
+  or `zed` works, and `{path}` puts the folder somewhere other than the
+  end. If a command fails, the app shows why
+  ([ADR 0051](../docs/adrs/0051-desktop-open-workspace-and-ask-about-pr.md),
+  [design](../docs/design/ws-open/README.md)).
 - **Hidden workspaces**: reviews, agents started with `ws claude
   --hidden`, and anything you Hide (`ws hide`) sit in a collapsed Hidden
   group at the end of the Agents list and don't count as waiting for you.
@@ -69,6 +78,14 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   shows under the pull request, which moves from To review to Reviewing and
   Reviewed, and is flagged when new commits arrive. Auto-review starts
   reviews by itself, within the rules and limit in Settings.
+- **Ask about a pull request**: Ask Claude, on any pull request in
+  Reviews, starts an agent in a new workspace at the PR's head commit
+  (`ask-<repo>-<n>-<sha7>`). It reads the PR's description, discussion
+  and diff with `gh`, and the code around the changes. Then it replies
+  with a summary and waits for your questions. It can't edit files,
+  commit, push, or post to GitHub. Asking again about the same commit
+  opens the same agent
+  ([ADR 0051](../docs/adrs/0051-desktop-open-workspace-and-ask-about-pr.md)).
 
 The sections are chosen from the rail on the left, or with ⌘1–⌘4, and are
 designed in
@@ -165,7 +182,8 @@ src-tauri/src/
   pty.rs        # claude attach / ws shell in a pseudo-terminal
   runner.rs     # running ws and claude, and reading ws's JSON errors
   env.rs        # the login shell's PATH
-  reviews/      # Reviews: desktop.json, gh, review names, the checker, auto-review
+  open.rs       # Open folder and Open in editor: the commands from Settings, launched on that PATH
+  reviews/      # Reviews: desktop.json, gh, review names, the checker, auto-review, Ask Claude (ask.rs)
 src/
   api.ts                    # typed invoke wrappers
   features/rail/            # the section rail and ⌘1–⌘4
@@ -175,9 +193,24 @@ src/
   features/terminals/       # xterm.js registry, terminal view, message box, terminals slice
   features/create/          # new agent and new shell dialogs
   features/reviews/         # pull request list and detail, dialogs, the Repos slots, reviews slice
-  features/settings/        # settings groups and the Reviews group
+  features/settings/        # settings groups: Reviews, Notifications, Workspaces, About
   features/ui/              # section, agent selection, dialogs, notices
 ```
+
+## Screenshots without the backend
+
+`test/tauri-mock.js` stands in for the Rust backend in a browser, with
+sample data for every command the app calls. It logs `tauri-mock:
+unhandled command` for anything it doesn't know. Run `npx vite --port
+1420` here, then load the mock before the app in Playwright:
+
+```js
+await page.addInitScript({ path: "test/tauri-mock.js" });
+await page.goto("http://localhost:1420");
+```
+
+`window.__TAURI_MOCK__` holds the calls made, the sample data and the
+handlers, which a later init script can change.
 
 ## Status
 
