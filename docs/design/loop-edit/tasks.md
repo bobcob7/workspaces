@@ -909,3 +909,61 @@ Changes:
 Acceptance: no behaviour changes; all existing tests pass; a test asserts the prompt field's computed or inline font-family includes `monospace` (or that it has the mono class).
 
 Verify: `cd desktop && npx tsc --noEmit && npx vitest run src/features/loops`; `make fmt && git diff --exit-code -- internal`; `make lint`; `go test ./internal/cli/...`.
+
+---
+
+# Follow-up: loop titles and repo autocomplete
+
+User feedback on the first version: "The repo input can be autofilled like the New agent modal does. Also, the loop name should be user friendly and include upper case and spaces."
+
+Decision: a loop's `name` stays the stable ID (record file name `loops/<name>.toml`, workspace prefix `loop-<name>`, the CLI argument), with the same `a-z0-9-` rule. A new optional **title** is the display name: free text with upper case and spaces, 1-80 characters after trimming, no control characters (no newlines or tabs), and editable later. Unset titles are omitted from TOML and shown as `""` in JSON. Displays use the title when it isn't empty, and the name otherwise. The desktop form asks for the title and derives the ID from it. T8 ∥ T9 ∥ T10 touch disjoint files.
+
+## T8. Loop title in Go (record, add, edit, JSON, docs)
+
+- Depends on: T7. Size: small. Parallel: T9, T10.
+- Read: internal/loop/loop.go, internal/loop/edit.go, internal/loop/edit_test.go, internal/loop/loop_test.go, internal/cli/loop.go, internal/cli/loop_edit.go, internal/cli/loop_edit_test.go, the add tests in internal/cli (grep TestApp_loopAdd), internal/cli/guides/ws-loop.md, ws-loop-add.md, ws-loop-edit.md, docs/tools/ws-loop.md.
+- Files: internal/loop/loop.go, internal/loop/loop_test.go, internal/loop/edit.go, internal/loop/edit_test.go, internal/cli/loop.go, internal/cli/loop_edit.go, internal/cli/loop_edit_test.go, the add test file, internal/cli/guides/ws-loop.md, ws-loop-add.md, ws-loop-edit.md, docs/tools/ws-loop.md, docs/adrs/0052-loop-edit-and-structured-forms.md (append a short "Addendum: titles" section with the decision above).
+
+Spec:
+1. `Loop` gains `Title string \`toml:"title,omitempty"\`` right after Name. Add `const maxTitleLen = 80` and `func ValidateTitle(title string) error`: "" is valid (no title). Otherwise the title must equal `strings.TrimSpace(title)`, be at most 80 runes, and contain no `unicode.IsControl` rune. Errors wrap ErrInvalid, for example `name: title %q ...`. `Validate` calls it. Adding a title does not change the record's format version.
+2. `Edit` gains `Title *string` ("" clears it). `Empty` counts it, and `Apply` sets it, trimmed with `strings.TrimSpace`, before validating.
+3. `loopJSON` gains `Title string \`json:"title"\`` right after Name, set from l.Title (always present, "" when unset).
+4. `ws loop add` and `ws loop edit` gain `--title string` ("a display name, such as \"Nightly deps bump\"; up to 80 characters"). For add, the value is trimmed and stored. For edit, the flag applies only when Changed; `--title ""` clears it.
+5. In `ws loop list`'s text output, use the title in place of the name when one is set: `<title> (<name>)`.
+6. The prompt template gets `{{.Title}}` (the title, or the name if there isn't one) next to `{{.Name}}`, in internal/loop/prompt.go. Document it in the guides and in the desktop prompt helper text (that's T10's file, so mention it only in the docs here).
+7. Tests (table-driven, like the existing ones): ValidateTitle (empty, ok with spaces and upper case, leading space, 81 runes, a newline, a tab); Apply with Title set, cleared and invalid; the CLI adds with --title and the JSON shows it; edit --title changes it; edit --title "" clears it; list text output shows the title.
+
+Verify: `make fmt && git diff --exit-code`; `make lint`; `go test ./internal/loop/... ./internal/cli/...`.
+
+## T9. Loop title in Tauri
+
+- Depends on: T7. Size: small. Parallel: T8, T10.
+- Read: desktop/src-tauri/src/loops.rs (whole file, including tests).
+- Files: desktop/src-tauri/src/loops.rs only.
+
+Spec:
+1. `Loop` gains `#[serde(default)] pub title: String` after `name` (serialized camelCase like the rest).
+2. `NewLoop` gains `#[serde(default)] pub title: Option<String>` after `name`.
+3. `add_args`: `--title <trimmed>` right after the name positional (before `--every`) when the title is non-blank. Otherwise there's no flag.
+4. `edit_args`: always send `--title=<trimmed or empty>` right after the name, so a blank title clears it (the same pattern as `--model=`).
+5. Update the existing exact-output tests for add_args and edit_args, and add one test each with a title. Add a parse test showing that `"title":"Nightly deps"` round-trips, and that JSON with no title parses as "".
+6. While in the file, remove the duplicated first line of add_args's doc comment.
+
+Verify: `cd desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test loops`.
+
+## T10. Desktop: title field, derived ID, repo autocomplete
+
+- Depends on: T7. Size: large. Parallel: T8, T9.
+- Read: desktop/src/api.ts (Loop, NewLoop), desktop/src/features/loops/formValues.ts and its test, LoopForm.tsx, LoopForm.test.tsx, SpecsInput.tsx, LoopsList.tsx, LoopsPane.tsx, LoopsPane.test.tsx, desktop/src/features/create/RepoSpecsField.tsx, desktop/src/test/fixtures.ts, desktop/test/tauri-mock.js (loops handlers and sample loops; it must also answer cache_repos, see what RepoSpecsField calls).
+- Files: api.ts, formValues.ts, formValues.test.ts, LoopForm.tsx, LoopForm.test.tsx, LoopsList.tsx, LoopsPane.tsx, LoopsPane.test.tsx, loopsSlice.test.ts if fixtures need a title, test/fixtures.ts, desktop/test/tauri-mock.js. Delete SpecsInput.tsx (and its tests, if it has its own file).
+
+Spec:
+1. api.ts: `Loop` gains `readonly title: string` after name. `NewLoop` gains `readonly title?: string`. Add the exported helper `loopLabel(loop: Pick<Loop, "name" | "title">): string`, which returns the title if it isn't blank and the name otherwise. Put it in formValues.ts if api.ts holds types only.
+2. formValues.ts: `FormValues` gains `title`. Add the exported `slugOf(title: string): string`: lower-case it, NFKD-normalize and strip combining marks, replace each run of characters outside [a-z0-9] with "-", trim "-" from both ends, cut to 40 characters, and trim a trailing "-" again. `emptyValues` has title "" and name "". `valuesOf(loop)` sets title to `loop.title` (or loop.name if that's empty) and name to loop.name. Validation: the title is required, 1-80 characters after trimming, with no control characters. On create, the name used is `slugOf(title)`, and if that's empty the title gets the error "Use at least one letter or digit". `requestOf` sends `name` (the slug on create, loop.name on edit) and `title` (trimmed).
+3. LoopForm: the Schedule card's first field is **Name**, bound to the title (placeholder "Nightly deps bump"). Its helper text shows the ID: on create `ID: <slug>` (or the error); on edit `ID: <name>; the ID can't be changed`. Remove the separate ID/name text field. The form heading is `Edit <loopLabel(loop)>`. The prompt helper text adds `{{.Title}}`.
+4. Repos card: replace SpecsInput with `RepoSpecsField` from ../create/RepoSpecsField (cached repo suggestions, free text allowed, chips). Delete SpecsInput.tsx and its CSS classes if nothing else uses them.
+5. Show `loopLabel(loop)` everywhere a name is displayed: the LoopsList item, the detail header h1, the section aria-label, and the delete dialog title. The detail header also shows the ID in muted text after the title when a title is set (for example `deps-bump`). Dispatches and keys keep using loop.name.
+6. Fixtures and the mock: sample loops get titles ("Dependency bumps" for deps-bump; leave triage untitled to show the fallback). The mock's loops_add and loops_edit store the title. Make sure the mock answers whatever RepoSpecsField calls (api.cacheRepos → its Tauri command) with a few repos, for example ["github.com/bobcob7/buff-bear", "github.com/bobcob7/api", "github.com/bobcob7/workspaces"].
+7. Tests: slugOf ("Nightly Deps Bump!" → "nightly-deps-bump", "  Café  Run " → "cafe-run", "!!!" → "", a long title cut to 40 with no trailing "-"); create submits {name: slug, title}; edit keeps the name and changes the title; an empty slug shows the error; the list and detail show the title, or the name when there isn't one; Repos suggestions come from the cache (mock api.cacheRepos in the test, pick an option, and it appears as a chip and in the request).
+
+Verify: `cd desktop && npx tsc --noEmit && npx vitest run src/features/loops src/features/create`; `node --check desktop/test/tauri-mock.js`.
