@@ -107,6 +107,12 @@ backend every 5 minutes by default
 | --- | --- |
 | ![](docs/loops-new.png) | ![](docs/loops-paused.png) |
 
+![A loop whose script lists outdated modules, passed to the prompt as {{.Stdout}} next to its variables](docs/loops-script.png)
+
+| **Adding a loop with a script and a variable** | **A loop whose last script check skipped the run** |
+| --- | --- |
+| ![](docs/loops-new-script.png) | ![](docs/loops-skipped.png) |
+
 The screenshots use sample data.
 
 ## Requirements
