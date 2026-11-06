@@ -169,8 +169,10 @@
   text-transform: uppercase;
 }
 
-.mono {
+/* Beats MUI's InputBase `font: inherit` on the textarea. */
+.form textarea.mono {
   font-family: var(--font-mono);
+  font-size: 13px;
 }
 
 .amount {
