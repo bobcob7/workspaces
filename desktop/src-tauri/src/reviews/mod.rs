@@ -1,6 +1,7 @@
 //! The Reviews section: open pull requests in watched repos, and review
 //! agents for them (ADRs 0032, 0034, 0035, 0038, 0039).
 
+pub mod ask;
 pub mod auto;
 pub mod checker;
 pub mod comment;
@@ -110,6 +111,33 @@ pub async fn reviews_plan(
     })?;
     let settings = state.store.get().settings.reviews;
     plan::build(&state.runner, &repo, &pr, &settings).await
+}
+
+/// Starts, or finds, a read-only agent that answers questions about the
+/// pull request (ADR 0051).
+#[tauri::command]
+pub async fn reviews_ask(
+    state: State<'_, AppState>,
+    repo: String,
+    number: u64,
+) -> CmdResult<ask::AskStarted> {
+    let pr = state.reviews.pull_request(&repo, number).ok_or_else(|| {
+        AppError::new(
+            "pr_not_found",
+            format!("{repo}#{number} isn't among the open pull requests"),
+        )
+    })?;
+    let about = ask::About {
+        repo: &repo,
+        number,
+        title: &pr.title,
+        url: &pr.url,
+        head: &pr.head_ref_oid,
+        head_branch: &pr.head_ref_name,
+        base_branch: &pr.base_ref_name,
+    };
+    let model = state.store.get().settings.reviews.model;
+    ask::start(&state.runner, &about, &model, &state.reviews.entries()).await
 }
 
 /// Every reviewer profile `ws review profiles` lists, for Settings.

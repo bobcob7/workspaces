@@ -8,6 +8,7 @@ use crate::model::Repo;
 const MAX_NAME_LEN: usize = 55;
 const PREFIX: &str = "review-";
 const FIX_PREFIX: &str = "fix-";
+const ASK_PREFIX: &str = "ask-";
 const SHA_LEN: usize = 7;
 
 /// Lowercases and replaces every run of characters other than ASCII letters
@@ -72,6 +73,16 @@ pub fn fix_name(repo_id: &str, number: u64, sha: &str) -> String {
     )
 }
 
+/// `ask-<repo>-<number>-<sha7>`: the `--name` of a pull request Q&A agent
+/// (ADR 0051), which `ws` makes the id from by adding a random suffix.
+pub fn ask_name(repo_id: &str, number: u64, sha: &str) -> String {
+    format!(
+        "{ASK_PREFIX}{}-{number}-{}",
+        short_repo(ASK_PREFIX, repo_id, number),
+        sanitize(short_sha(sha))
+    )
+}
+
 /// Whether a workspace is a review of the pull request: its id has the
 /// review prefix and it has exactly one repo, the pull request's.
 pub fn is_review_of(workspace_id: &str, repos: &[Repo], repo_id: &str, number: u64) -> bool {
@@ -121,6 +132,20 @@ mod tests {
             git_ref: Some(HEAD.to_string()),
             ref_kind: Some("commit".to_string()),
         }
+    }
+
+    #[test]
+    fn ask_name_has_repo_number_and_short_sha() {
+        assert_eq!(
+            ask_name("github.com/bobcob7/buff-bear", 42, "3f2a9c1e0b6d"),
+            "ask-buff-bear-42-3f2a9c1"
+        );
+    }
+
+    #[test]
+    fn ask_name_fits_in_55_characters() {
+        let long = format!("github.com/o/{}", "x".repeat(60));
+        assert_eq!(ask_name(&long, 42, "3f2a9c1e0b6d").len(), 55);
     }
 
     #[test]

@@ -98,6 +98,7 @@ pub fn run() {
             reviews::reviews_profile_edit,
             reviews::reviews_profile_remove,
             reviews::reviews_start,
+            reviews::reviews_ask,
             reviews::review_report,
             reviews::review_decide,
             reviews::review_open_report,
