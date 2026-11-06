@@ -889,3 +889,23 @@ cd desktop && npx tsc --noEmit
 cd desktop && npx vitest run src/features/loops
 cd desktop && npx vitest run
 ```
+
+## T7. Polish the loop form and fix review notes
+
+- Depends on: T6. Size: small. Parallel: none.
+- Read: desktop/src/features/loops/LoopForm.tsx, AmountInput.tsx, LoopsPane.tsx, LoopsPane.module.css, LoopForm.test.tsx, internal/cli/guides/ws-loop.md, internal/cli/guides/ws-loop-edit.md, internal/cli/loop_edit.go.
+- Files: desktop/src/features/loops/LoopForm.tsx, AmountInput.tsx, LoopsPane.module.css, LoopForm.test.tsx; internal/cli/guides/ws-loop.md; internal/cli/loop_edit.go.
+
+Changes:
+1. Each form section (the six fieldsets) is styled as a card matching the detail view's `.card` / `.cardTitle` (same border, radius, padding, uppercase legend). Reuse the existing classes or compose them; no new colours.
+2. Raise the form's max width so the cards line up with the detail view's cards (the detail view fills the pane; the form should use the same width, with a sensible cap of about 900px).
+3. AmountInput: helper text must not wrap into 2-3 short lines. Render the helper text once under the number+unit row, spanning the row's full width (not under the narrow number field). Same for "Keep runs": give it a full-width helper or put the hint beside the field.
+4. Prompt and Script textareas use a monospace font (the same font stack as the detail view's `.code`), minRows 6 and maxRows 16 for prompt, minRows 4 and maxRows 12 for script, so long text scrolls inside the field.
+5. Detail view: add a gap (8px) between the gate-script code block and the rows under it (Timeout, Last check).
+6. internal/cli/guides/ws-loop.md: the `ws loop edit` synopsis line lists every flag the ws-loop-edit.md guide lists (including --script, --script-timeout, --var, --no-script, --no-vars, --no-specs).
+7. internal/cli/loop_edit.go: one-line doc comments on newLoopEditCmd, runLoopEdit and loopEditOptions.
+8. LoopForm.test.tsx: tighten the "Variables" group assertion to the Variables fieldset by its name, instead of `getAllByRole(...).length > 0`.
+
+Acceptance: no behaviour changes; all existing tests pass; a test asserts the prompt field's computed or inline font-family includes `monospace` (or that it has the mono class).
+
+Verify: `cd desktop && npx tsc --noEmit && npx vitest run src/features/loops`; `make fmt && git diff --exit-code -- internal`; `make lint`; `go test ./internal/cli/...`.
