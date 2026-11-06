@@ -11,8 +11,11 @@ gone, as `ws list` does.
 
 ## When to use it
 
-- To find your helpers and reviews, and check each one's session state.
+- To find your helpers and reviews, and check each one's session state,
+  role, and result.
 - Before you finish, to see what's left to remove with `ws machine rm`.
+- To wait for a child to finish, use `ws machine wait`, not a loop over
+  `children`.
 
 ## Flags
 
@@ -36,7 +39,11 @@ Output is always JSON; `--json` changes nothing.
       "hidden": false,
       "parent": "plan-auth-1a2b3c4d",
       "repos": [{"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch"}],
-      "review": null
+      "review": null,
+      "role": "implementer",
+      "result": {"verdict": "PASS", "outcome": "pass",
+                 "report": "/…/state/plan-auth-1a2b3c4d/machine/fix-login-d8efb24f/report.md",
+                 "recorded_at": "2026-10-28T08:40:00Z"}
     }
   ],
   "hidden_count": 0,
@@ -45,7 +52,10 @@ Output is always JSON; `--json` changes nothing.
 ```
 
 `ws list --json -a`'s object, with only your descendants; see
-`ws llm list` for each field. `hidden_count` is always 0.
+`ws llm list` for each field. `hidden_count` is always 0. `role` is the
+role the workspace was spawned with, or `null`. `result` is its verdict
+from `ws machine result`, or `null` until it records one: `outcome` is
+`pass` or `fail`, and `report` the kept report's path, or `null`.
 
 ## Exit codes
 

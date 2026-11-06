@@ -26,8 +26,13 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   background agent on the machine, not only yours.
 - Parse JSON output, never tables; pass `--json` to `ws review`.
 - To hand work to another agent, use `ws machine spawn <spec>... --
-  "<prompt>"` and keep the returned session id. Follow it with
-  `claude logs <id>`.
+  "<prompt>"`, or `--role <name> --var KEY=VALUE...` for a stored role
+  (`ws machine roles`), and keep the returned id. Wait for it with
+  `ws machine wait <id>` as a background command, not by polling;
+  follow it with `claude logs <session>`.
+- If an agent started you to do a task, finish with `ws machine result
+  <VERDICT> --file <report>`: the verdicts your prompt names, else
+  `PASS` or `FAIL`.
 - Don't remove, stop, or work in a workspace you didn't create unless
   told to; `ws machine rm` enforces this.
 - What you start from your workspace (`ws machine spawn`, `ws review
@@ -46,6 +51,12 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
 $ ws machine spawn --name fix-login buff-bear -- "Fix the login bug"
 {"id":"fix-login-d8efb24f","session":"e8cdf5d8","path":"/…/workspaces/fix-login-d8efb24f","parent":"plan-auth-1a2b3c4d","repos":[…],"warnings":[]}
 $ claude logs e8cdf5d8
+
+$ ws machine wait fix-login-d8efb24f     # as a background command
+
+# Start a child from a stored role, and record a verdict as a child
+$ ws machine spawn --name t1-impl --role implementer --var TASK=T1 --var TASKS=docs/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t1 buff-bear@feat/x
+$ ws machine result PASS --file ../report.md
 
 # List the workspaces you started, and their sessions
 $ ws machine children
@@ -157,10 +168,10 @@ messages aren't.
 | Exit | Meaning                       | Error codes |
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
-| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped` |
+| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -172,10 +183,17 @@ everything.
 
 For agents:
 
-- `ws llm machine`: the commands to use: start, list, and remove the workspaces yours started:
+- `ws llm machine`: the commands to use: start, wait for, list, and remove the workspaces yours started, and record your verdict:
   - `ws llm machine spawn`: new child workspace with a Claude Code background agent
+  - `ws llm machine result`: record your verdict and report for the agent that started you
+  - `ws llm machine wait`: wait for children to finish, then print each one's verdict
   - `ws llm machine children`: list the workspaces yours started
   - `ws llm machine rm`: remove workspaces yours started, and theirs
+  - `ws llm machine roles`: the roles children can be started as
+  - `ws llm machine roles show`: one role, with its prompt template
+  - `ws llm machine roles add`: add a role
+  - `ws llm machine roles edit`: edit a role, or override a built-in
+  - `ws llm machine roles rm`: remove a role, or restore a built-in
 - `ws llm review`: structured reviews: getting your work reviewed, and the reviewer's commands:
   - `ws llm review start`: start a review of a pull request or commit
   - `ws llm review wait`: wait for a review, then print its report

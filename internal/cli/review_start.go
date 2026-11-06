@@ -393,7 +393,7 @@ func (a *App) startReview(ctx context.Context, rec *record.Record, target *revie
 // --json the result object.
 func (a *App) printReviewStart(ws *workspace.Workspace, session string, rec *record.Record) error {
 	if !a.global.json {
-		if err := a.printClaudeResult(ws, session); err != nil {
+		if err := a.printClaudeResult(ws, session, nil); err != nil {
 			return err
 		}
 		fmt.Fprintf(a.stdout, "wait for the report: ws review wait %s\n", ws.ID)
