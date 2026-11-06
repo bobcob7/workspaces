@@ -134,6 +134,8 @@ backend every 5 minutes by default
 
 ![A loop that starts an agent every day, in Loops](docs/loops.png)
 
+A loop is edited with **Edit** in its header, in the same form that adds it.
+
 | **Adding a loop** | **A paused loop whose last run failed** |
 | --- | --- |
 | ![](docs/loops-new.png) | ![](docs/loops-paused.png) |
