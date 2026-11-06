@@ -1,0 +1,93 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px 18px;
+  margin: 0;
+  padding: 16px 18px;
+  font-size: 13px;
+}
+
+.rows dt {
+  color: var(--text-muted);
+}
+
+.rows dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.prompt {
+  white-space: pre-wrap;
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+  padding: 18px;
+}
+
+.formTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.formButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.empty {
+  color: var(--text-muted);
+  padding: 16px;
+  margin: 0;
+}

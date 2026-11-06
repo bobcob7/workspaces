@@ -21,7 +21,7 @@ describe("Rail", () => {
   it("shows every section, Settings last", () => {
     renderWithStore(<Rail />, testStore());
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(labels).toEqual(["Agents", "Repos", "Reviews", "Settings"]);
+    expect(labels).toEqual(["Agents", "Repos", "Reviews", "Loops", "Settings"]);
   });
 
   it("marks the current section", () => {
@@ -51,10 +51,17 @@ describe("Rail", () => {
     expect(screen.getByRole("button", { name: "Reviews, 2" })).toBeInTheDocument();
   });
 
-  it("chooses Settings on ⌘4", () => {
+  it("chooses Loops on ⌘4", () => {
     const store = testStore();
     renderWithStore(<Rail />, store);
     fireEvent.keyDown(window, { key: "4", metaKey: true });
+    expect(store.getState().ui.section).toBe("loops");
+  });
+
+  it("chooses Settings on ⌘5", () => {
+    const store = testStore();
+    renderWithStore(<Rail />, store);
+    fireEvent.keyDown(window, { key: "5", metaKey: true });
     expect(store.getState().ui.section).toBe("settings");
   });
 
@@ -76,7 +83,7 @@ describe("shortcutSection", () => {
   });
 
   it("ignores digits past the last section", () => {
-    expect(shortcutSection(key("5"))).toBeNull();
+    expect(shortcutSection(key("6"))).toBeNull();
   });
 
   it("ignores the key without ⌘", () => {

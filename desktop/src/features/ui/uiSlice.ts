@@ -3,7 +3,7 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 export type Dialog = "agent" | "shell";
 
 /** The app's sections, in rail order (ADR 0031). */
-export type Section = "agents" | "repos" | "reviews" | "settings";
+export type Section = "agents" | "repos" | "reviews" | "loops" | "settings";
 
 /** How an agent is shown: its conversation, or the claude attach terminal. */
 export type AgentView = "conversation" | "terminal";

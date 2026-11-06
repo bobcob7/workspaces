@@ -22,6 +22,27 @@ export const age = (iso: string | null, now: number = Date.now()): string => {
   return "just now";
 };
 
+/** "in 45m" style time until an ISO timestamp, or "" when there is none; "due" once it has passed. */
+export const until = (iso: string | null, now: number = Date.now()): string => {
+  if (iso === null) {
+    return "";
+  }
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) {
+    return "";
+  }
+  const seconds = Math.round((then - now) / 1000);
+  if (seconds <= 0) {
+    return "due";
+  }
+  for (const [unit, size] of units) {
+    if (seconds >= size) {
+      return `in ${Math.floor(seconds / size)}${unit[0] ?? ""}`;
+    }
+  }
+  return "in under a minute";
+};
+
 /** `name@ref`, with a full commit hash shortened to 7 characters. */
 export const repoLabel = (id: string, ref: string | null): string => {
   const name = id.split("/").at(-1) ?? id;
