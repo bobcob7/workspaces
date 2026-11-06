@@ -69,9 +69,22 @@ const uiSlice = createSlice({
     agentViewChosen: (state, action: PayloadAction<AgentView>) => {
       state.agentView = action.payload;
     },
+    /** Shows Agents with key selected, as the tray menu asks (ADR 0050). */
+    agentFocused: (state, action: PayloadAction<string>) => {
+      state.section = "agents";
+      state.selectedKey = action.payload;
+    },
   },
 });
 
-export const { sectionChosen, selected, dialogOpened, dialogClosed, noticeShown, noticeDismissed, agentViewChosen } =
-  uiSlice.actions;
+export const {
+  sectionChosen,
+  selected,
+  dialogOpened,
+  dialogClosed,
+  noticeShown,
+  noticeDismissed,
+  agentViewChosen,
+  agentFocused,
+} = uiSlice.actions;
 export const uiReducer = uiSlice.reducer;

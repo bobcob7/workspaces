@@ -1,11 +1,17 @@
 import { Alert, Checkbox, CircularProgress, FormControlLabel, MenuItem, TextField } from "@mui/material";
 import { useEffect, useState, type JSX, type ReactNode } from "react";
-import type { ReviewSettings } from "../../api";
+import type { NotificationSettings, ReviewSettings } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { models, permissionModes } from "../create/NewAgentDialog";
 import { AboutGroup } from "./AboutGroup";
 import { ReviewerProfiles } from "./ReviewerProfiles";
-import { fetchProfiles, fetchSettings, saveReviewSettings, type ReviewSettingKey } from "./settingsSlice";
+import {
+  fetchProfiles,
+  fetchSettings,
+  saveNotificationSettings,
+  saveReviewSettings,
+  type ReviewSettingKey,
+} from "./settingsSlice";
 import styles from "./SettingsPane.module.css";
 
 export const checkIntervals: readonly number[] = [1, 2, 5, 10, 15, 30, 60];
@@ -187,6 +193,48 @@ const ReviewsGroup = ({ settings }: { readonly settings: ReviewSettings }): JSX.
   );
 };
 
+const NotificationsGroup = ({ settings }: { readonly settings: NotificationSettings }): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const error = useAppSelector((s) => s.settings.notificationsError);
+  const save = (change: Partial<NotificationSettings>): void => {
+    void dispatch(saveNotificationSettings(change));
+  };
+  return (
+    <section className={styles.group} aria-label="Notifications">
+      <h1 className={styles.title}>Notifications</h1>
+      <Row
+        label="Notify me"
+        help="When one of your agents needs input or is done. Children and hidden workspaces never notify."
+        errors={[error ?? undefined]}
+      >
+        <div className={styles.checks}>
+          <FormControlLabel
+            control={<Checkbox size="small" checked={settings.enabled} onChange={(e) => save({ enabled: e.target.checked })} />}
+            label="Show notifications"
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                size="small"
+                checked={settings.needsInput}
+                disabled={!settings.enabled}
+                onChange={(e) => save({ needsInput: e.target.checked })}
+              />
+            }
+            label="When an agent needs input"
+          />
+          <FormControlLabel
+            control={
+              <Checkbox size="small" checked={settings.done} disabled={!settings.enabled} onChange={(e) => save({ done: e.target.checked })} />
+            }
+            label="When an agent is done"
+          />
+        </div>
+      </Row>
+    </section>
+  );
+};
+
 /** The chosen settings group. Changes save as they're made. */
 export const SettingsPane = (): JSX.Element => {
   const dispatch = useAppDispatch();
@@ -207,6 +255,13 @@ export const SettingsPane = (): JSX.Element => {
     return (
       <div className={styles.loading}>
         {error === null ? <CircularProgress size={20} aria-label="Loading settings" /> : <Alert severity="error">{error.message}</Alert>}
+      </div>
+    );
+  }
+  if (group === "notifications") {
+    return (
+      <div className={styles.root}>
+        <NotificationsGroup settings={settings.notifications} />
       </div>
     );
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dialogClosed, dialogOpened, sectionChosen, uiReducer, type UiState } from "./uiSlice";
+import { agentFocused, dialogClosed, dialogOpened, sectionChosen, uiReducer, type UiState } from "./uiSlice";
 
 const initial = (): UiState => uiReducer(undefined, { type: "init" });
 
@@ -15,6 +15,11 @@ describe("uiReducer", () => {
   it("keeps the selected agent when the section changes", () => {
     const state = uiReducer({ ...initial(), selectedKey: "fix-login" }, sectionChosen("repos"));
     expect(state.selectedKey).toBe("fix-login");
+  });
+
+  it("shows the tray's agent on Agents", () => {
+    const state = uiReducer({ ...initial(), section: "repos" }, agentFocused("fix-login"));
+    expect(state).toMatchObject({ section: "agents", selectedKey: "fix-login" });
   });
 
   it("opens a dialog without specs by default", () => {
