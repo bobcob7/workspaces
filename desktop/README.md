@@ -134,14 +134,16 @@ backend every 5 minutes by default
 
 ![A loop's detail view: Schedule, Prompt, Repos, Agent, Gate script and Variables cards](docs/loops.png)
 
-A loop is edited with **Edit** in its header, in the same form that adds it.
+A loop's name can be any text, such as "Nightly deps bump"; its ID (`nightly-deps-bump`) is derived from it when the loop is added and names its workspaces. A loop is edited with **Edit** in its header, in the same form that adds it.
 The prompt and the gate script show in scrollable monospace blocks.
 
 | **Editing a loop** | **Choosing the period** |
 | --- | --- |
 | ![](docs/loops-edit.png) | ![](docs/loops-edit-period.png) |
-| **The gate script and variables, in the form** | **Adding a loop** |
+| **The gate script and variables, in the form** | **Adding a loop: the ID comes from its name** |
 | ![](docs/loops-edit-script.png) | ![](docs/loops-new.png) |
+| **Repos suggested from the cache** | |
+| ![](docs/loops-new-repos.png) | |
 
 | **A loop's gate script, last check and variables** | **A paused loop with no gate script** |
 | --- | --- |
