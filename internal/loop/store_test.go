@@ -156,7 +156,7 @@ func TestStoreListSortsAndSkipsBadFiles(t *testing.T) {
 		require.NoError(t, s.Create(&l))
 	}
 	writeFile(t, dir, "bad.toml", "this is = = not toml")
-	writeFile(t, dir, "future.toml", "version = 2\nname = \"future\"\n")
+	writeFile(t, dir, "future.toml", "version = 3\nname = \"future\"\n")
 	writeFile(t, dir, ".lock", "")
 	writeFile(t, dir, ".hidden.toml", "version = 1\n")
 	writeFile(t, dir, "x.toml.tmp", "version = 1\n")
@@ -177,13 +177,81 @@ func TestStoreListSortsAndSkipsBadFiles(t *testing.T) {
 func TestStoreReadRefusesNewerVersionWithoutRewriting(t *testing.T) {
 	t.Parallel()
 	s, dir := newTestStore(t)
-	writeFile(t, dir, "future.toml", "version = 2\nname = \"future\"\n")
+	writeFile(t, dir, "future.toml", "version = 3\nname = \"future\"\n")
 	_, err := s.Get("future")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "newer ws")
 	data, err := os.ReadFile(filepath.Join(dir, "future.toml"))
 	require.NoError(t, err)
-	assert.Equal(t, "version = 2\nname = \"future\"\n", string(data))
+	assert.Equal(t, "version = 3\nname = \"future\"\n", string(data))
+}
+
+func TestStoreVersion2RoundTrip(t *testing.T) {
+	t.Parallel()
+	s, _ := newTestStore(t)
+	created := time.Date(2026, 11, 5, 18, 0, 0, 0, time.UTC)
+	in := validLoop()
+	in.Script = "gh issue list --json number"
+	in.ScriptTimeout = "2m"
+	in.Vars = map[string]string{"REPO": "buff-bear", "EMPTY": ""}
+	in.LastGate = &Gate{
+		At:       created,
+		Outcome:  GateFailed,
+		ExitCode: -1,
+		Message:  "timed out after 2m0s",
+	}
+	require.NoError(t, s.Create(&in))
+
+	got, err := s.Get(in.Name)
+	require.NoError(t, err)
+	assert.Equal(t, FormatVersion, got.Version)
+	assert.Equal(t, in.Script, got.Script)
+	assert.Equal(t, in.ScriptTimeout, got.ScriptTimeout)
+	assert.Equal(t, in.Vars, got.Vars)
+	require.NotNil(t, got.LastGate)
+	assert.True(t, created.Equal(got.LastGate.At))
+	assert.Equal(t, GateFailed, got.LastGate.Outcome)
+	assert.Equal(t, -1, got.LastGate.ExitCode)
+	assert.Equal(t, "timed out after 2m0s", got.LastGate.Message)
+}
+
+func TestStoreVersion1SaveKeepsVersion(t *testing.T) {
+	t.Parallel()
+	s, _ := newTestStore(t)
+	l := validLoop()
+	l.Version = Version1
+	require.NoError(t, s.Save(&l))
+
+	got, err := s.Get(l.Name)
+	require.NoError(t, err)
+	assert.Equal(t, Version1, got.Version)
+}
+
+func TestStoreOmitsEmptyVersion2Keys(t *testing.T) {
+	t.Parallel()
+	s, dir := newTestStore(t)
+	l := validLoop()
+	require.NoError(t, s.Create(&l))
+
+	data, err := os.ReadFile(filepath.Join(dir, l.Name+".toml"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.NotContains(t, content, "script")
+	assert.NotContains(t, content, "[vars]")
+	assert.NotContains(t, content, "[last_gate]")
+}
+
+func TestStoreListSkipsVersion1WithVersion2Keys(t *testing.T) {
+	t.Parallel()
+	s, dir := newTestStore(t)
+	writeFile(t, dir, "old.toml", "version = 1\nname = \"old\"\nevery = \"24h\"\nprompt = \"x\"\nkeep = 5\nscript = \"true\"\n")
+
+	loops, warnings, err := s.List()
+	require.NoError(t, err)
+	assert.Empty(t, loops)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "old.toml")
+	assert.Contains(t, warnings[0], "version 1 record has version 2 keys")
 }
 
 func TestStoreLockCreatesDirAndUnlocks(t *testing.T) {

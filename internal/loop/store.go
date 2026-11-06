@@ -103,17 +103,21 @@ func (s *Store) Create(l *Loop) error {
 	if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("checking loop %s: %w", l.Name, err)
 	}
+	l.Version = FormatVersion
 	return s.Save(l)
 }
 
-// Save overwrites a record. Both Create and Save set Version to
-// FormatVersion, then write <name>.toml.tmp and rename it into place.
+// Save overwrites a record, then writes <name>.toml.tmp and renames it into
+// place. A Version of 0 becomes FormatVersion; any other Version is kept, so
+// a Version1 record stays version 1 when tick rewrites it.
 func (s *Store) Save(l *Loop) error {
 	path, err := s.path(l.Name)
 	if err != nil {
 		return err
 	}
-	l.Version = FormatVersion
+	if l.Version == 0 {
+		l.Version = FormatVersion
+	}
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(l); err != nil {
 		return fmt.Errorf("encoding loop %s: %w", l.Name, err)
@@ -175,8 +179,17 @@ func readLoop(path string) (Loop, error) {
 	if l.Version < 1 {
 		return Loop{}, fmt.Errorf("parsing %s: unsupported version %d", path, l.Version)
 	}
+	if l.Version == Version1 && hasVersion2Keys(&l) {
+		return Loop{}, fmt.Errorf("parsing %s: version 1 record has version 2 keys", path)
+	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		return Loop{}, fmt.Errorf("parsing %s: unknown key %s", path, undecoded[0])
 	}
 	return l, nil
+}
+
+// hasVersion2Keys reports whether a record sets a key that only version 2
+// records have.
+func hasVersion2Keys(l *Loop) bool {
+	return l.Script != "" || l.ScriptTimeout != "" || len(l.Vars) > 0 || l.LastGate != nil
 }
