@@ -132,19 +132,20 @@ backend every 5 minutes by default
 | **A repo's Pull request reviews card, in Repos** | **Renaming a workspace** |
 | ![](docs/repos-reviews.png) | ![](docs/rename.png) |
 
-![A loop that starts an agent every day, in Loops](docs/loops.png)
+![A loop's detail view: Schedule, Prompt, Repos, Agent, Gate script and Variables cards](docs/loops.png)
 
 A loop is edited with **Edit** in its header, in the same form that adds it.
+The prompt and the gate script show in scrollable monospace blocks.
 
-| **Adding a loop** | **A paused loop whose last run failed** |
+| **Editing a loop** | **Choosing the period** |
 | --- | --- |
-| ![](docs/loops-new.png) | ![](docs/loops-paused.png) |
+| ![](docs/loops-edit.png) | ![](docs/loops-edit-period.png) |
+| **The gate script and variables, in the form** | **Adding a loop** |
+| ![](docs/loops-edit-script.png) | ![](docs/loops-new.png) |
 
-![A loop whose script lists outdated modules, passed to the prompt as {{.Stdout}} next to its variables](docs/loops-script.png)
-
-| **Adding a loop with a script and a variable** | **A loop whose last script check skipped the run** |
+| **A loop's gate script, last check and variables** | **A paused loop with no gate script** |
 | --- | --- |
-| ![](docs/loops-new-script.png) | ![](docs/loops-skipped.png) |
+| ![](docs/loops-script.png) | ![](docs/loops-paused.png) |
 
 The screenshots use sample data.
 
