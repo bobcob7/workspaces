@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -33,6 +34,8 @@ func (a *App) newLoopCmd() *cobra.Command {
 
 type loopAddOptions struct {
 	every, prompt, model, permissionMode string
+	script, scriptTimeout                string
+	vars                                 []string
 	keep                                 int
 	paused                               bool
 }
@@ -53,6 +56,9 @@ func (a *App) newLoopAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.model, "model", "", "passed to claude --model")
 	cmd.Flags().StringVar(&opts.permissionMode, "permission-mode", "", "passed to claude --permission-mode")
 	cmd.Flags().BoolVar(&opts.paused, "paused", false, "add the loop paused")
+	cmd.Flags().StringVar(&opts.script, "script", "", "a shell script, run with /bin/sh -c, that must exit 0 for a run to start; its output is {{.Stdout}} and {{.Stderr}} in the prompt")
+	cmd.Flags().StringVar(&opts.scriptTimeout, "script-timeout", "", "how long the script may run, 1s to 10m (default 1m)")
+	cmd.Flags().StringArrayVar(&opts.vars, "var", nil, "KEY=VALUE for {{.Vars.KEY}} in the prompt and $WS_LOOP_VAR_KEY in the script; repeatable")
 	return cmd
 }
 
@@ -102,17 +108,29 @@ func (a *App) newLoopRmCmd() *cobra.Command {
 
 // loopJSON is a loop in ws loop's output (docs/tools/ws-loop.md).
 type loopJSON struct {
-	Name           string       `json:"name"`
-	Every          string       `json:"every"`
-	Prompt         string       `json:"prompt"`
-	Specs          []string     `json:"specs"`
-	Model          *string      `json:"model"`
-	PermissionMode *string      `json:"permission_mode"`
-	Keep           int          `json:"keep"`
-	Paused         bool         `json:"paused"`
-	CreatedAt      string       `json:"created_at"`
-	NextRunAt      *string      `json:"next_run_at"`
-	LastRun        *loopRunJSON `json:"last_run"`
+	Name           string            `json:"name"`
+	Every          string            `json:"every"`
+	Prompt         string            `json:"prompt"`
+	Specs          []string          `json:"specs"`
+	Model          *string           `json:"model"`
+	PermissionMode *string           `json:"permission_mode"`
+	Keep           int               `json:"keep"`
+	Paused         bool              `json:"paused"`
+	CreatedAt      string            `json:"created_at"`
+	NextRunAt      *string           `json:"next_run_at"`
+	LastRun        *loopRunJSON      `json:"last_run"`
+	Script         *string           `json:"script"`
+	ScriptTimeout  *string           `json:"script_timeout"`
+	Vars           map[string]string `json:"vars"`
+	LastGate       *gateJSON         `json:"last_gate"`
+}
+
+// gateJSON is a loop's last_gate, and a tick item's gate.
+type gateJSON struct {
+	At       string  `json:"at"`
+	Outcome  string  `json:"outcome"`
+	ExitCode *int    `json:"exit_code"`
+	Message  *string `json:"message"`
 }
 
 type loopRunJSON struct {
@@ -151,9 +169,50 @@ func loopJSONOf(l *loop.Loop) loopJSON {
 		Paused:         l.Paused,
 		CreatedAt:      formatTime(l.CreatedAt),
 		LastRun:        loopRunJSONOf(l.LastRun()),
+		Script:         optional(l.Script),
+		ScriptTimeout:  scriptTimeoutJSONOf(l),
+		Vars:           varsJSONOf(l.Vars),
+		LastGate:       gateJSONOf(l.LastGate),
 	}
 	if !l.Paused {
 		out.NextRunAt = optionalTime(l.NextRunAt)
+	}
+	return out
+}
+
+// scriptTimeoutJSONOf is nil without a script. Otherwise it is the script's
+// timeout as FormatScriptTimeout prints it, or the record's own text when
+// that doesn't parse.
+func scriptTimeoutJSONOf(l *loop.Loop) *string {
+	if l.Script == "" {
+		return nil
+	}
+	d, err := l.Timeout()
+	if err != nil {
+		s := l.ScriptTimeout
+		return &s
+	}
+	s := loop.FormatScriptTimeout(d)
+	return &s
+}
+
+// varsJSONOf is never nil.
+func varsJSONOf(vars map[string]string) map[string]string {
+	if vars == nil {
+		return map[string]string{}
+	}
+	return vars
+}
+
+// gateJSONOf is nil for nil.
+func gateJSONOf(g *loop.Gate) *gateJSON {
+	if g == nil {
+		return nil
+	}
+	out := &gateJSON{At: formatTime(g.At), Outcome: g.Outcome, Message: optional(g.Message)}
+	if g.ExitCode >= 0 {
+		code := g.ExitCode
+		out.ExitCode = &code
 	}
 	return out
 }
@@ -196,6 +255,10 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 	if opts.prompt == "" {
 		return usageErrorf("--prompt is required")
 	}
+	script, scriptTimeout, vars, err := scriptOptions(opts)
+	if err != nil {
+		return err
+	}
 	interval, err := loop.ParseEvery(opts.every)
 	if err != nil {
 		return domainError(err)
@@ -205,6 +268,7 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 	}
 	now := a.now().UTC()
 	l := loop.Loop{
+		Version:        loop.FormatVersion,
 		Name:           args[0],
 		Every:          loop.FormatEvery(interval),
 		Prompt:         opts.prompt,
@@ -215,11 +279,41 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 		Paused:         opts.paused,
 		CreatedAt:      now,
 		NextRunAt:      now.Add(interval),
+		Script:         script,
+		ScriptTimeout:  scriptTimeout,
+		Vars:           vars,
 	}
 	if err := l.Validate(); err != nil {
 		return domainError(err)
 	}
 	return a.createLoop(cmd.Context(), &l)
+}
+
+// scriptOptions checks --script, --script-timeout, and --var. A blank script
+// is no script, and then the timeout is "" too.
+func scriptOptions(opts *loopAddOptions) (script, scriptTimeout string, vars map[string]string, err error) {
+	script = opts.script
+	if strings.TrimSpace(script) == "" {
+		script = ""
+	}
+	if opts.scriptTimeout != "" && script == "" {
+		return "", "", nil, usageErrorf("--script-timeout needs --script")
+	}
+	vars, err = loop.ParseVars(opts.vars)
+	if err != nil {
+		return "", "", nil, domainError(err)
+	}
+	if script == "" {
+		return script, "", vars, nil
+	}
+	d := loop.DefaultScriptTimeout
+	if opts.scriptTimeout != "" {
+		d, err = loop.ParseScriptTimeout(opts.scriptTimeout)
+		if err != nil {
+			return "", "", nil, domainError(err)
+		}
+	}
+	return script, loop.FormatScriptTimeout(d), vars, nil
 }
 
 // createLoop adds l under the loops lock and prints it.

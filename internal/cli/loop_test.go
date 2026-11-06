@@ -133,6 +133,80 @@ func TestApp_loopAdd(t *testing.T) {
 		assert.Equal(t, exitRefused, code)
 		assert.Contains(t, stderr.String(), `"code":"loop_exists"`)
 	})
+	t.Run("adds a script with its timeout and vars", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		store := withLoopStore(t, app)
+		code, out := runLoop(t, app, stdout, "add", "deps", "--every", "24h",
+			"--script", "gh issue list | grep .", "--var", "REPO=buff-bear", "--var", "Q=a,b=c",
+			"--prompt", "Triage {{.Vars.REPO}}: {{.Stdout}}", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, "gh issue list | grep .", out["script"])
+		assert.Equal(t, "1m", out["script_timeout"])
+		assert.Equal(t, map[string]any{"REPO": "buff-bear", "Q": "a,b=c"}, out["vars"])
+		assert.Nil(t, out["last_gate"])
+		stored, err := store.Get("deps")
+		require.NoError(t, err)
+		assert.Equal(t, loop.FormatVersion, stored.Version)
+	})
+	t.Run("--script-timeout sets the timeout", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		withLoopStore(t, app)
+		code, out := runLoop(t, app, stdout, "add", "deps", "--every", "1h", "--script", "true",
+			"--script-timeout", "90s", "--prompt", "hi", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, "1m30s", out["script_timeout"])
+	})
+	t.Run("a loop without a script or vars prints nulls and an empty object", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		withLoopStore(t, app)
+		require.Equal(t, exitOK, runLoopCode(t, app, "add", "deps", "--every", "1h", "--prompt", "hi", "--json"))
+		code := app.Run(t.Context(), []string{"loop", "list", "--json"})
+		require.Equal(t, exitOK, code)
+		assert.Contains(t, stdout.String(), `"vars":{}`)
+		assert.Contains(t, stdout.String(), `"script":null`)
+		assert.Contains(t, stdout.String(), `"script_timeout":null`)
+		assert.Contains(t, stdout.String(), `"last_gate":null`)
+	})
+	t.Run("a blank script is no script", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		withLoopStore(t, app)
+		code, out := runLoop(t, app, stdout, "add", "deps", "--every", "1h", "--script", "   ", "--prompt", "hi", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Nil(t, out["script"])
+		assert.Nil(t, out["script_timeout"])
+	})
+	t.Run("--script-timeout without --script is a usage error", func(t *testing.T) {
+		app, stdout, stderr := newTestApp()
+		withLoopStore(t, app)
+		code := app.Run(t.Context(), []string{"loop", "add", "deps", "--every", "1h", "--script-timeout", "1m", "--prompt", "hi", "--json"})
+		assert.Equal(t, exitUsage, code)
+		assert.Empty(t, stdout.String())
+		assert.Contains(t, stderr.String(), `"code":"usage"`)
+	})
+	t.Run("refuses bad script options and templates", func(t *testing.T) {
+		tests := []struct {
+			name string
+			args []string
+		}{
+			{"timeout over ten minutes", []string{"--script", "true", "--script-timeout", "11m", "--prompt", "hi"}},
+			{"var key with a dash", []string{"--var", "my-key=x", "--prompt", "hi"}},
+			{"var key given twice", []string{"--var", "A=1", "--var", "A=2", "--prompt", "hi"}},
+			{"stdout without a script", []string{"--prompt", "{{.Stdout}}"}},
+			{"unknown var", []string{"--prompt", "{{.Vars.NOPE}}"}},
+			{"template that doesn't parse", []string{"--prompt", "a {{"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				app, stdout, stderr := newTestApp()
+				withLoopStore(t, app)
+				args := append([]string{"loop", "add", "deps", "--every", "1h"}, tt.args...)
+				code := app.Run(t.Context(), append(args, "--json"))
+				assert.Equal(t, exitUsage, code)
+				assert.Empty(t, stdout.String())
+				assert.Contains(t, stderr.String(), `"code":"loop_invalid"`)
+			})
+		}
+	})
 }
 
 // runLoopCode runs ws loop with args, discarding its output.
@@ -219,6 +293,33 @@ func TestApp_loopPauseResume(t *testing.T) {
 	})
 }
 
+func TestApp_loopListGate(t *testing.T) {
+	t.Run("shows each loop's last gate, with a null exit code when it timed out", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		store := withLoopStore(t, app)
+		require.NoError(t, store.Create(&loop.Loop{
+			Version: loop.FormatVersion, Name: "new-issues", Every: "1h", Prompt: "hi", Keep: 5,
+			Script: "true", ScriptTimeout: "1m", CreatedAt: testNow(), NextRunAt: testNow(),
+			LastGate: &loop.Gate{At: testNow(), Outcome: loop.GateSkipped, ExitCode: 1, Message: "no new issues"},
+		}))
+		require.NoError(t, store.Create(&loop.Loop{
+			Version: loop.FormatVersion, Name: "slow", Every: "1h", Prompt: "hi", Keep: 5,
+			Script: "sleep 9", ScriptTimeout: "1s", CreatedAt: testNow(), NextRunAt: testNow(),
+			LastGate: &loop.Gate{At: testNow(), Outcome: loop.GateTimedOut, ExitCode: -1, Message: "timed out"},
+		}))
+		code, out := runLoop(t, app, stdout, "list", "--json")
+		require.Equal(t, exitOK, code)
+		loops := listedLoops(t, out)
+		require.Len(t, loops, 2)
+		assert.Equal(t, map[string]any{
+			"at": testNow().Format(time.RFC3339), "outcome": "skipped", "exit_code": float64(1), "message": "no new issues",
+		}, loops[0]["last_gate"])
+		assert.Equal(t, map[string]any{
+			"at": testNow().Format(time.RFC3339), "outcome": "timed_out", "exit_code": nil, "message": "timed out",
+		}, loops[1]["last_gate"])
+	})
+}
+
 func TestApp_loopRm(t *testing.T) {
 	t.Run("removes the loop and prints it as it was", func(t *testing.T) {
 		app, stdout, _ := newTestApp()
@@ -258,6 +359,19 @@ func TestLoopJSONOf(t *testing.T) {
 	t.Run("specs are never null", func(t *testing.T) {
 		l := loop.Loop{Name: "deps", Every: "1h"}
 		assert.Equal(t, []string{}, loopJSONOf(&l).Specs)
+	})
+	t.Run("vars are never null", func(t *testing.T) {
+		l := loop.Loop{Name: "deps", Every: "1h"}
+		assert.Equal(t, map[string]string{}, loopJSONOf(&l).Vars)
+	})
+	t.Run("the script timeout is the record's, or the default", func(t *testing.T) {
+		l := loop.Loop{Name: "deps", Every: "1h", Script: "true"}
+		require.NotNil(t, loopJSONOf(&l).ScriptTimeout)
+		assert.Equal(t, "1m", *loopJSONOf(&l).ScriptTimeout)
+		l.ScriptTimeout = "not-a-duration"
+		assert.Equal(t, "not-a-duration", *loopJSONOf(&l).ScriptTimeout)
+		l.Script = ""
+		assert.Nil(t, loopJSONOf(&l).ScriptTimeout)
 	})
 	t.Run("a failed run carries its error", func(t *testing.T) {
 		l := loop.Loop{Name: "deps", Every: "1h", Runs: []loop.Run{{
