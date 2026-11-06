@@ -20,6 +20,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/power"
 	"github.com/bobcob7/workspaces/internal/proc"
 	"github.com/bobcob7/workspaces/internal/review/store"
@@ -45,6 +46,7 @@ type App struct {
 	cache      repoCache
 	workspaces workspaceStore
 	lifetime   lifetimeManager
+	loops      loopStore
 	// swept is what the removal pass removed before the command ran.
 	swept []lifetime.Removed
 	// warned are the command's own warnings, reported after the stores'.
@@ -128,7 +130,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		if cfg.Review.RemovesFinished() {
 			lm.RemoveFinishedReviews(reviewJudge{state: paths.State, store: store.New(paths.Reviews)})
 		}
-		return stores{cache: c, workspaces: ws, lifetime: lm}
+		return stores{cache: c, workspaces: ws, lifetime: lm, loops: loop.NewStore(paths.Loops)}
 	}
 	return a
 }
@@ -138,6 +140,7 @@ type stores struct {
 	cache      repoCache
 	workspaces workspaceStore
 	lifetime   lifetimeManager
+	loops      loopStore
 }
 
 // Run executes ws with args, excluding the program name, and returns the
@@ -214,6 +217,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newRestoreCmd(),
 		a.newRestartCmd(),
 		a.newContinueCmd(),
+		a.newLoopCmd(),
 		a.newListCmd(),
 		a.newRmCmd(),
 		a.newRenameCmd(),
@@ -263,7 +267,7 @@ func (a *App) configured(sweep bool, fn func(cmd *cobra.Command, args []string) 
 		}
 		a.paths, a.config = paths, cfg
 		s := a.newStores(paths, cfg)
-		a.cache, a.workspaces, a.lifetime = s.cache, s.workspaces, s.lifetime
+		a.cache, a.workspaces, a.lifetime, a.loops = s.cache, s.workspaces, s.lifetime, s.loops
 		a.log.Debug("config loaded", slog.String("root", paths.Root))
 		if sweep {
 			a.swept = a.lifetime.Sweep(cmd.Context())

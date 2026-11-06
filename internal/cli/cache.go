@@ -14,6 +14,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -653,6 +654,9 @@ func codedDomainError(err error) *cliError {
 		{gh.ErrNotInstalled, codeGhMissing},
 		{gh.ErrAuth, codeGhAuth},
 		{gh.ErrPRNotFound, codePRNotFound},
+		{loop.ErrInvalid, codeLoopInvalid},
+		{loop.ErrNotFound, codeLoopNotFound},
+		{loop.ErrExists, codeLoopExists},
 	} {
 		if errors.Is(err, m.target) {
 			return newError(m.code, err)

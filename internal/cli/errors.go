@@ -59,6 +59,10 @@ const (
 	// From ADR 0046.
 	codeOutsideWorkspace errorCode = "outside_workspace"
 	codeNotDescendant    errorCode = "not_descendant"
+	// From ADR 0048.
+	codeLoopInvalid  errorCode = "loop_invalid"
+	codeLoopNotFound errorCode = "loop_not_found"
+	codeLoopExists   errorCode = "loop_exists"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -103,13 +107,14 @@ func (c errorCode) exitCode() int {
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth:
 		return exitFailed
-	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace:
+	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
+		codeLoopInvalid:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
-		codeReviewNotFound, codePRNotFound, codeFindingNotFound:
+		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
-		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant:
+		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists:
 		return exitRefused
 	}
 	return exitFailed
