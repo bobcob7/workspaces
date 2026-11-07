@@ -22,12 +22,32 @@ const renderRoot = (): void => {
 describe("WebRoot", () => {
   beforeEach(() => {
     Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    class SilentSocket {}
+    vi.stubGlobal("WebSocket", SilentSocket);
   });
 
   it("shows a spinner until the session is known", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)));
     renderRoot();
     expect(screen.getByRole("progressbar", { name: "Loading" })).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("doesn't open the socket while the login page is showing", async () => {
+    const opened: string[] = [];
+    class RecordingSocket {
+      constructor(url: string) {
+        opened.push(url);
+      }
+    }
+    vi.stubGlobal("WebSocket", RecordingSocket);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => session(false)),
+    );
+    renderRoot();
+    expect(await screen.findByRole("heading", { name: "Workspaces" })).toBeInTheDocument();
+    expect(opened).toHaveLength(0);
     vi.unstubAllGlobals();
   });
 

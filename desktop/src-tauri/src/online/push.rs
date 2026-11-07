@@ -117,13 +117,10 @@ impl Subscriptions {
         }
     }
 
-    /// Validates by deserializing a WebPushBuilder; replaces one with the same endpoint.
+    /// Checks the shape, then deserializes a WebPushBuilder; replaces one with the same endpoint.
     pub fn add(&self, subscription: Value, label: &str, now_ms: i64) -> Result<String, AppError> {
-        let endpoint = subscription
-            .get("endpoint")
-            .and_then(Value::as_str)
-            .ok_or_else(bad_subscription)?
-            .to_string();
+        let subscription = unpadded_keys(subscription);
+        let endpoint = check_shape(&subscription)?.to_string();
         serde_json::from_value::<WebPushBuilder>(subscription.clone())
             .map_err(|_| bad_subscription())?;
         let id = subscription_id(&endpoint);
@@ -159,6 +156,7 @@ impl Subscriptions {
         Ok(true)
     }
 
+    /// A copy of every stored subscription.
     pub fn list(&self) -> Vec<StoredSubscription> {
         self.lock().clone()
     }
@@ -179,6 +177,47 @@ impl Subscriptions {
 
 fn bad_subscription() -> AppError {
     AppError::new("bad_subscription", "the push subscription is malformed")
+}
+
+/// Checks what WebPushBuilder would panic on: an https endpoint, a 65-byte p256dh point and a 16-byte auth secret.
+fn check_shape(subscription: &Value) -> Result<&str, AppError> {
+    let endpoint = subscription
+        .get("endpoint")
+        .and_then(Value::as_str)
+        .filter(|endpoint| endpoint.starts_with("https://"))
+        .ok_or_else(bad_subscription)?;
+    let keys = subscription.get("keys").ok_or_else(bad_subscription)?;
+    let p256dh = decode_key(keys, "p256dh")?;
+    if p256dh.len() != 65 || p256dh[0] != 0x04 {
+        return Err(bad_subscription());
+    }
+    if decode_key(keys, "auth")?.len() != 16 {
+        return Err(bad_subscription());
+    }
+    Ok(endpoint)
+}
+
+/// Strips the `=` padding from the keys, which WebPushBuilder only reads unpadded.
+fn unpadded_keys(mut subscription: Value) -> Value {
+    let Some(keys) = subscription.get_mut("keys") else {
+        return subscription;
+    };
+    for name in ["p256dh", "auth"] {
+        if let Some(text) = keys.get(name).and_then(Value::as_str) {
+            let trimmed = text.trim_end_matches('=').to_string();
+            keys[name] = Value::from(trimmed);
+        }
+    }
+    subscription
+}
+
+/// Decodes a base64url key, padded or not.
+fn decode_key(keys: &Value, name: &str) -> Result<Vec<u8>, AppError> {
+    let text = keys
+        .get(name)
+        .and_then(Value::as_str)
+        .ok_or_else(bad_subscription)?;
+    Base64UrlUnpadded::decode_vec(text.trim_end_matches('=')).map_err(|_| bad_subscription())
 }
 
 fn save_failed(e: std::io::Error) -> AppError {
@@ -249,8 +288,11 @@ fn percent_encode(text: &str) -> String {
 /// What a push service said.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Delivery {
+    /// The push service accepted the message.
     Sent,
+    /// The subscription no longer exists and should be dropped.
     Gone,
+    /// The message wasn't delivered; the string says why.
     Failed(String),
 }
 
@@ -272,6 +314,7 @@ pub struct Pusher {
 }
 
 impl Pusher {
+    /// Builds the HTTP client with the send timeout.
     pub fn new(keys: VapidKeys, subject: String, subscriptions: Subscriptions) -> Self {
         let client = reqwest::Client::builder()
             .timeout(SEND_TIMEOUT)
@@ -285,10 +328,12 @@ impl Pusher {
         }
     }
 
+    /// The public key the browser needs as applicationServerKey.
     pub fn public_key(&self) -> &str {
         self.keys.public_key()
     }
 
+    /// The stored subscriptions this pusher sends to.
     pub fn subscriptions(&self) -> &Subscriptions {
         &self.subscriptions
     }
@@ -444,6 +489,59 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, "bad_subscription");
         assert!(subscriptions.list().is_empty());
+    }
+
+    fn add_with_edited_keys(edit: impl FnOnce(&mut Value)) -> Result<String, AppError> {
+        let dir = tempfile::tempdir().unwrap();
+        let subscriptions = Subscriptions::load(dir.path().join("subscriptions.json"));
+        let mut subscription = sample_subscription();
+        edit(&mut subscription);
+        subscriptions.add(subscription, "laptop", 1_000)
+    }
+
+    #[test]
+    fn add_rejects_a_short_p256dh_key() {
+        let error = add_with_edited_keys(|subscription| {
+            let short = subscription["keys"]["p256dh"].as_str().unwrap()[..40].to_string();
+            subscription["keys"]["p256dh"] = Value::from(short);
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "bad_subscription");
+    }
+
+    #[test]
+    fn add_rejects_a_short_auth_secret() {
+        let error = add_with_edited_keys(|subscription| {
+            subscription["keys"]["auth"] = Value::from("_ordMnz7uTCmrpBTeUV4");
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "bad_subscription");
+    }
+
+    #[test]
+    fn add_rejects_keys_that_are_not_base64url() {
+        let error = add_with_edited_keys(|subscription| {
+            subscription["keys"]["auth"] = Value::from("_ordMnz7uTCmrpBTeUV4B+w");
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "bad_subscription");
+    }
+
+    #[test]
+    fn add_rejects_an_http_endpoint() {
+        let error = add_with_edited_keys(|subscription| {
+            subscription["endpoint"] = Value::from("http://push.example.com/abc");
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "bad_subscription");
+    }
+
+    #[test]
+    fn add_accepts_padded_keys() {
+        let result = add_with_edited_keys(|subscription| {
+            subscription["keys"]["auth"] = Value::from("_ordMnz7uTCmrpBTeUV4Bw==");
+        });
+        assert!(result.is_ok());
     }
 
     #[test]

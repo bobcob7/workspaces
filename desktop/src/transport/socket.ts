@@ -9,6 +9,7 @@ interface PendingInvoke {
 
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+const PING_MS = 30000;
 
 /** The `/api/ws` connection: channels, invoke frames and server events (ADR 0053). */
 export class Socket {
@@ -16,6 +17,7 @@ export class Socket {
   private readonly create: (url: string) => WebSocket;
   private socket: WebSocket | null = null;
   private open = false;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
   private connection: string | null = null;
   private connectionWaiters: ((id: string) => void)[] = [];
   private readonly channels = new Map<number, Handler>();
@@ -35,6 +37,7 @@ export class Socket {
     this.socket = socket;
     socket.onopen = () => {
       this.open = true;
+      this.pingTimer = setInterval(() => this.send({ type: "ping" }), PING_MS);
     };
     socket.onmessage = (event: MessageEvent<string>) => this.receive(event.data);
     socket.onclose = () => this.close();
@@ -125,6 +128,10 @@ export class Socket {
 
   private close(): void {
     this.open = false;
+    if (this.pingTimer !== null) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
     this.connection = null;
     this.socket = null;
     this.exitChannels();

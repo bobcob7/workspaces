@@ -42,7 +42,7 @@ a working, authenticated, persistent server?
   `desktop/src/api.ts`, which wraps Tauri's `invoke`; the only stream is
   the `Channel<TermEvent>` passed to `terminal_open`, and the only event
   is `tray-select`[^read-api].
-- 56 commands are registered in `desktop/src-tauri/src/lib.rs`. Four
+- 55 commands are registered in `desktop/src-tauri/src/lib.rs`. Four
   take a `tauri::AppHandle` (`list_entries`, `versions`, `open_external`,
   `review_open_report`); the rest take only `State<'_, AppState>` and
   JSON-able arguments. Outside `lib.rs`, `tauri` is used in `commands.rs`,

@@ -69,7 +69,7 @@ Read once at start by `Config::from_env`. Errors name the variable.
 | `WS_ONLINE_TRUST_PROXY` | `false` | `true`: the client address for rate limiting is the first `X-Forwarded-For` entry |
 | `WS_ONLINE_DATA_DIR` | `$WS_CONFIG_DIR/online`, else `./ws-online-data` | created if missing |
 | `WS_ONLINE_WEB_DIR` | `./dist` | must contain `index.html` |
-| `WS_ONLINE_VAPID_SUBJECT` | public URL if set, else `mailto:ws-online@localhost` | must start with `mailto:` or `https://` |
+| `WS_ONLINE_VAPID_SUBJECT` | public URL if it starts with `https://`, else `mailto:ws-online@localhost` | must start with `mailto:` or `https://` |
 
 ## HTTP API
 
@@ -116,7 +116,7 @@ returns: `{"endpoint":string,"expirationTime":number|null,"keys":{"p256dh":strin
 
 ### Commands over `/api/invoke`
 
-The 56 command names in `lib.rs`'s `generate_handler!` are the names
+The 55 command names in `lib.rs`'s `generate_handler!` are the names
 here, with the same camelCase argument keys Tauri uses (`workspaceId`,
 `sessionId`, `keepChildren`, `gitRef`, `autoReview`, `onEvent`, …) and the
 same results. Online differences:

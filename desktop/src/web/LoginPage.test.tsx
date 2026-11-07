@@ -53,6 +53,16 @@ describe("LoginPage", () => {
     expect(onLoggedIn).not.toHaveBeenCalled();
   });
 
+  it("clears the previous error when a new attempt is submitted", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    fetchMock.mockReturnValueOnce(new Promise(() => undefined));
+    renderLogin();
+    await fillAndSubmit();
+    expect(await screen.findByText("Wrong username or password.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
+    await waitFor(() => expect(screen.queryByText("Wrong username or password.")).not.toBeInTheDocument());
+  });
+
   it("disables the button while the login is sent", async () => {
     fetchMock.mockReturnValueOnce(new Promise(() => undefined));
     renderLogin();

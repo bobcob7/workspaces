@@ -9,10 +9,9 @@ import { App } from "./App";
 import { TerminalRegistryContext } from "./features/terminals/context";
 import { TerminalRegistry } from "./features/terminals/registry";
 import { isWeb } from "./platform";
-import { transport } from "./transport";
 import { createStore } from "./store";
 import { theme } from "./theme";
-import { registerServiceWorker, showInPage, type PushPayload } from "./web/push";
+import { registerServiceWorker } from "./web/push";
 import { WebRoot } from "./web/WebRoot";
 
 const terminals = new TerminalRegistry(api);
@@ -23,7 +22,6 @@ if (root === null) {
 }
 if (isWeb()) {
   void registerServiceWorker();
-  void transport().listen<PushPayload>("notify", (payload) => void showInPage(payload));
 }
 createRoot(root).render(
   <StrictMode>

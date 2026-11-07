@@ -18,6 +18,7 @@ export const LoginPage = ({ onLoggedIn }: { readonly onLoggedIn: () => void }): 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     setSubmitting(true);
+    setError(null);
     const result = await login(username, password);
     setSubmitting(false);
     if (result === "ok") {

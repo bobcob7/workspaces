@@ -99,6 +99,16 @@ describe("Socket", () => {
     await expect(pending).rejects.toEqual({ code: "disconnected", message: "the connection closed" });
   });
 
+  it("pings every thirty seconds while open and stops when closed", () => {
+    const { sockets } = connected();
+    const first = latest(sockets);
+    vi.advanceTimersByTime(30000);
+    expect(first.sent.map((frame) => JSON.parse(frame))).toEqual([{ type: "ping" }]);
+    first.drop();
+    vi.advanceTimersByTime(30000);
+    expect(first.sent).toHaveLength(1);
+  });
+
   it("reconnects after one second, doubling the wait up to thirty", () => {
     const { sockets } = connected();
     latest(sockets).drop();

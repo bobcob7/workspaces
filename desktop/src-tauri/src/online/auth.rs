@@ -28,6 +28,7 @@ pub struct Credentials {
 }
 
 impl Credentials {
+    /// Pairs the configured username with its password or hash.
     pub fn new(username: String, password: Password) -> Self {
         Self { username, password }
     }

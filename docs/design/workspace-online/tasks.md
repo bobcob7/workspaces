@@ -336,7 +336,7 @@ cargo fmt --check
 cargo test && cargo clippy --all-targets -- -D warnings
 cargo test --no-default-features --features online
 cargo clippy --no-default-features --features online --all-targets -- -D warnings
-test "$(cargo tree --no-default-features --features online -e normal | grep -c tauri)" = 0
+test "$(cargo tree --no-default-features --features online -e normal --prefix none | grep -c '^tauri')" = 0
 ! cargo check --features online 2>/dev/null
 cd ../.. && make desktop-test
 ```

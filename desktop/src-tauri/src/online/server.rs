@@ -670,6 +670,9 @@ async fn subscribe(State(online): State<Arc<Online>>, body: Bytes) -> Response {
         .add(form.subscription, &form.label, commands::now_ms())
     {
         Ok(id) => Json(json!({"id": id})).into_response(),
+        Err(e) if e.code == "bad_subscription" => {
+            (StatusCode::BAD_REQUEST, Json(e)).into_response()
+        }
         Err(e) => (StatusCode::UNPROCESSABLE_ENTITY, Json(e)).into_response(),
     }
 }
@@ -1033,6 +1036,35 @@ mod tests {
             .unwrap();
         assert_eq!(removed.status(), 204);
         assert_eq!(test.stored_subscriptions(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn subscribe_rejects_a_short_p256dh_key() {
+        let test = Test::start().await;
+        let cookie = test.login().await;
+        let subscription = r#"{"label":"phone","subscription":{"endpoint":"https://push.example.com/abc","expirationTime":null,"keys":{"p256dh":"BLn9b","auth":"_ordMnz7uTCmrpBTeUV4Bw"}}}"#;
+        let response = test
+            .post("/api/push/subscribe", subscription)
+            .header("Cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["code"], "bad_subscription");
+        assert!(body["message"].is_string());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ws_upgrade_without_a_cookie_is_refused() {
+        let test = Test::start().await;
+        let response = test
+            .get("/api/ws")
+            .header("Origin", &test.base)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401);
     }
 
     #[tokio::test(flavor = "multi_thread")]

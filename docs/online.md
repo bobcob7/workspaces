@@ -59,7 +59,7 @@ If agents started in the container don't pick the token up (see
 | `WS_ONLINE_SECURE_COOKIE` | no | `auto` | `auto` marks the cookie `Secure` when the public URL is `https://`; or `true` / `false` |
 | `WS_ONLINE_SESSION_DAYS` | no | `30` | How long a login lasts (1–365) |
 | `WS_ONLINE_TRUST_PROXY` | no | `false` | `true` to rate-limit logins by `X-Forwarded-For` (only behind a proxy you control) |
-| `WS_ONLINE_VAPID_SUBJECT` | no | public URL, else `mailto:ws-online@localhost` | Contact sent to push services; Apple wants a real `mailto:` or `https://` |
+| `WS_ONLINE_VAPID_SUBJECT` | no | public URL if it starts with `https://`, else `mailto:ws-online@localhost` | Contact sent to push services; Apple wants a real `mailto:` or `https://` |
 | `WS_ONLINE_ADDR` | no | `0.0.0.0:8080` | Listen address inside the container (the health check assumes port 8080) |
 | `WS_CONFIG_DIR` | no | `/data/ws` | `ws`'s directory: config, cache, workspaces |
 | `WS_ONLINE_DATA_DIR` | no | `/data/online` | The server's settings, push keys, subscriptions, sessions |

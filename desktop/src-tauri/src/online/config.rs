@@ -16,7 +16,9 @@ const DEFAULT_VAPID_SUBJECT: &str = "mailto:ws-online@localhost";
 /// How the login password is configured.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Password {
+    /// The password as configured, compared in constant time.
     Plain(String),
+    /// An argon2id PHC string from `hash-password`.
     Hash(String),
 }
 
@@ -256,6 +258,7 @@ fn vapid_subject(
             "must start with mailto: or https://",
         )),
         None => Ok(public_url
+            .filter(|url| url.starts_with("https://"))
             .map(|url| url.trim_end_matches('/').to_string())
             .unwrap_or_else(|| DEFAULT_VAPID_SUBJECT.to_string())),
     }
@@ -478,6 +481,12 @@ mod tests {
             Some("https://ws.example.com")
         );
         assert_eq!(config.vapid_subject, "https://ws.example.com");
+    }
+
+    #[test]
+    fn http_public_url_leaves_the_default_vapid_subject() {
+        let config = config_with(&[("WS_ONLINE_PUBLIC_URL", "http://localhost:8080")]).unwrap();
+        assert_eq!(config.vapid_subject, DEFAULT_VAPID_SUBJECT);
     }
 
     #[test]

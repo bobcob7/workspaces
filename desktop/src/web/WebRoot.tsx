@@ -1,7 +1,9 @@
 import { CircularProgress } from "@mui/material";
 import { useEffect, useState, type JSX, type ReactNode } from "react";
+import { transport } from "../transport";
 import { getSession } from "./session";
 import { LoginPage } from "./LoginPage";
+import { showInPage, type PushPayload } from "./push";
 import styles from "./WebRoot.module.css";
 
 type Phase = "loading" | "anonymous" | "authenticated";
@@ -9,6 +11,13 @@ type Phase = "loading" | "anonymous" | "authenticated";
 /** Shows the login page until the server says the browser is signed in. */
 export const WebRoot = ({ children }: { readonly children: ReactNode }): JSX.Element => {
   const [phase, setPhase] = useState<Phase>("loading");
+  useEffect(() => {
+    if (phase !== "authenticated") {
+      return undefined;
+    }
+    const unlisten = transport().listen<PushPayload>("notify", (payload) => void showInPage(payload));
+    return () => void unlisten.then((stop) => stop());
+  }, [phase]);
   useEffect(() => {
     let active = true;
     const decide = (authenticated: boolean): void => {
