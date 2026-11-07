@@ -18,6 +18,7 @@ mood, for example `feat: add ws-online auth (ADR 0053)`).
 | T6 | Docker image, entrypoint, compose, smoke test, CI job | T5 | large | T7, T8 |
 | T7 | Frontend: transport, login page, web mode, web mock | nothing (the contract is in the design README) | large | T1–T6 |
 | T8 | Frontend: PWA manifest, service worker, push, notification settings | T7 | large | T1–T6 |
+| T9 | Frontend: narrow (phone) layout | T8 | large | T5, T6 |
 
 Backend files are all under `desktop/src-tauri/`; frontend files under
 `desktop/src/`, `desktop/public/` and `desktop/test/`; T6 under `deploy/`,
@@ -1252,4 +1253,80 @@ for f in manifest.webmanifest sw.js icons/icon-192.png icons/icon-256.png icons/
 jq -e '[.icons[].sizes] | index("192x192") and index("512x512")' dist/manifest.webmanifest
 file dist/icons/icon-192.png | grep -q '192 x 192'
 cd .. && make desktop-test
+```
+
+## T9. Frontend: narrow (phone) layout
+
+Added by the orchestrator after the web-mode screenshots: at 390x844 the
+Agents view is 479px wide, the top bar's "New agent" button is clipped,
+the "N waiting for you" badge wraps onto three lines, and the detail pane
+is off-screen. A PWA is used on phones, so the app needs a one-pane layout
+below 720px. It applies in both web and Tauri mode (the desktop window can
+be narrow too); above 720px nothing changes.
+
+**Depends on:** T8. **Parallel with:** T5, T6 (disjoint files).
+
+**Read:** `desktop/src/App.tsx`, `desktop/src/App.module.css`,
+`desktop/src/features/ui/uiSlice.ts`, `desktop/src/features/rail/Rail.module.css`,
+and the list components of each section (`Sidebar`, `ReposList`,
+`ReviewsList`, `LoopsList`, `SettingsList`) only as far as needed to find
+the action each one dispatches when the user picks an item.
+
+**Files:** modify `desktop/src/features/ui/uiSlice.ts` (+ its test),
+`desktop/src/App.tsx`, `desktop/src/App.module.css`,
+`desktop/src/App.test.tsx`, and at most `desktop/src/features/rail/Rail.module.css`.
+No new dependencies.
+
+**Behavior:**
+
+1. `uiSlice` gains `narrowPane: "list" | "detail"` (initial `"list"`) and a
+   `narrowBack` action that sets it to `"list"`. `sectionChosen` sets it to
+   `"list"`. Picking an item sets it to `"detail"`: `selected` with a
+   non-null key, `traySelected` (or whatever the tray/notification select
+   action is called), and, via `extraReducers` with `addMatcher`/`addCase`,
+   `repoSelected`, `loopSelected`, `creatingStarted` (new loop), the
+   reviews/PR selection action, and the settings section choice. Selecting
+   `null` sets `"list"`.
+2. `App.tsx` puts `data-narrow-pane={narrowPane}` on `.body`, and renders,
+   as the first child of `<main>`, a back bar (`<div className={styles.backBar}>`
+   holding an MUI `Button` with `startIcon` arrow-back and text "Back",
+   accessible name "Back") that dispatches `narrowBack()`.
+3. CSS: `.backBar` is `display: none` by default. Under
+   `@media (max-width: 720px)`:
+   - `.topBar` gets `flex-wrap: wrap; row-gap: 6px; padding: 6px 10px`;
+     `.brand` and `.badge` get `white-space: nowrap`; the actions wrap onto
+     a second row instead of overflowing.
+   - `.body[data-narrow-pane="list"] .main { display: none }` and the
+     sidebar becomes `flex: 1; width: auto; min-width: 0` (also for
+     `data-section="settings"`).
+   - `.body[data-narrow-pane="detail"] .sidebar { display: none }` and
+     `.backBar { display: flex }` with a bottom border.
+   - Nothing may overflow horizontally: `.root`, `.body` get
+     `min-width: 0; max-width: 100vw; overflow-x: hidden` if needed.
+4. The terminal (xterm) in the detail pane must refit when it becomes
+   visible; if the existing terminal code already refits on resize via a
+   ResizeObserver, nothing is needed, otherwise note it in the report.
+
+**Acceptance:**
+
+- uiSlice tests: `narrowPane` transitions for `selected("k")`,
+  `selected(null)`, `sectionChosen`, `narrowBack`, `repoSelected`,
+  `loopSelected`.
+- `App.test.tsx`: the body has `data-narrow-pane="list"` initially and
+  `"detail"` after clicking an agent in the list; clicking "Back" returns
+  it to `"list"`.
+- In a real browser (Playwright with chromium, the web mock as in
+  `desktop/README.md`, `npx vite --port 1420`), at 390x844 for Agents,
+  Repos, Loops and Settings, in both list and detail state:
+  `document.documentElement.scrollWidth <= document.documentElement.clientWidth`,
+  every visible button's `getBoundingClientRect()` lies inside the
+  viewport, and the badge is one line tall (height < 30px). At 1280x820
+  the layout is unchanged (Back bar not displayed, sidebar 300px wide per
+  `getComputedStyle`). Put the check results in the report; do not
+  commit the script.
+
+**Verify:**
+
+```sh
+cd desktop && npx tsc --noEmit && npx vitest run src/App.test.tsx src/features/ui && npm run build
 ```
