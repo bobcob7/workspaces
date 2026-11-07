@@ -151,6 +151,12 @@ The prompt and the gate script show in scrollable monospace blocks.
 
 The screenshots use sample data.
 
+## Workspace Online
+
+The same backend can run on a server and serve the frontend to a browser
+behind a username and password (`ws-online`, feature `online`). See
+[the operator guide](../docs/online.md).
+
 ## Requirements
 
 - `ws` and Claude Code (2.1.302 or newer) on the PATH your login shell
@@ -195,6 +201,7 @@ src-tauri/src/
   env.rs        # the login shell's PATH
   open.rs       # Open folder and Open in editor: the commands from Settings, launched on that PATH
   reviews/      # Reviews: desktop.json, gh, review names, the checker, auto-review, Ask Claude (ask.rs)
+  online/       # Workspace Online (feature `online`): config, auth, push, dispatch, wire, and the server (ADR 0053)
 src/
   api.ts                    # typed invoke wrappers
   features/rail/            # the section rail and ⌘1–⌘4
