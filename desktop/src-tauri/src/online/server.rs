@@ -744,6 +744,19 @@ mod tests {
         _dir: TempDir,
     }
 
+    fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                found.extend(walk(&path));
+            } else {
+                found.push(path);
+            }
+        }
+        found
+    }
+
     impl Test {
         async fn start() -> Self {
             let dir = tempfile::tempdir().unwrap();
@@ -762,6 +775,15 @@ mod tests {
                     .unwrap(),
                 _dir: dir,
             }
+        }
+
+        /// Counts the subscriptions persisted under the data dir.
+        fn stored_subscriptions(&self) -> usize {
+            let path = walk(self._dir.path())
+                .into_iter()
+                .find(|p| p.file_name().is_some_and(|n| n == "subscriptions.json"))
+                .expect("subscriptions.json written");
+            crate::online::push::Subscriptions::load(path).list().len()
         }
 
         fn get(&self, path: &str) -> reqwest::RequestBuilder {
@@ -1003,13 +1025,14 @@ mod tests {
         let removed = test
             .post(
                 "/api/push/unsubscribe",
-                r#"{"endpoint":"https://push.example/abc"}"#,
+                r#"{"endpoint":"https://push.example.com/abc"}"#,
             )
             .header("Cookie", &cookie)
             .send()
             .await
             .unwrap();
         assert_eq!(removed.status(), 204);
+        assert_eq!(test.stored_subscriptions(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread")]
