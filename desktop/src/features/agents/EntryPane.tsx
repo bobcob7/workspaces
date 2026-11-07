@@ -12,6 +12,7 @@ import {
 import { useEffect, useState, type FormEvent, type JSX } from "react";
 import { api, type Entry, type OpenWith } from "../../api";
 import { repoLabel } from "../../format";
+import { isWeb } from "../../platform";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { ConversationView } from "../conversation/ConversationView";
 import { ReplyBox } from "../terminals/ReplyBox";
@@ -204,24 +205,28 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
           )}
           <span className={styles.spacer} />
-          <Button
-            size="small"
-            startIcon={<FolderIcon />}
-            title={`Open ${entry.path} in the file manager (Settings › Workspaces)`}
-            disabled={entry.kind === "pending" || busy || opening === "fileManager"}
-            onClick={() => openIn("fileManager")}
-          >
-            Open folder
-          </Button>
-          <Button
-            size="small"
-            startIcon={<CodeIcon />}
-            title={`Open ${editorDir(entry)} in the editor (Settings › Workspaces)`}
-            disabled={entry.kind === "pending" || busy || opening === "editor"}
-            onClick={() => openIn("editor")}
-          >
-            Open in editor
-          </Button>
+          {!isWeb() && (
+            <>
+              <Button
+                size="small"
+                startIcon={<FolderIcon />}
+                title={`Open ${entry.path} in the file manager (Settings › Workspaces)`}
+                disabled={entry.kind === "pending" || busy || opening === "fileManager"}
+                onClick={() => openIn("fileManager")}
+              >
+                Open folder
+              </Button>
+              <Button
+                size="small"
+                startIcon={<CodeIcon />}
+                title={`Open ${editorDir(entry)} in the editor (Settings › Workspaces)`}
+                disabled={entry.kind === "pending" || busy || opening === "editor"}
+                onClick={() => openIn("editor")}
+              >
+                Open in editor
+              </Button>
+            </>
+          )}
           {isAgent && (
             <ToggleButtonGroup
               size="small"

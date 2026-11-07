@@ -1,5 +1,5 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { isWeb } from "./platform";
+import { transport } from "./transport";
 
 export type Status =
   | "working"
@@ -692,7 +692,7 @@ export const toAppError = (value: unknown): AppError => {
 
 const call = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
   try {
-    return await invoke<T>(command, args);
+    return await transport().invoke<T>(command, args);
   } catch (err: unknown) {
     throw toAppError(err);
   }
@@ -717,7 +717,14 @@ export const api = {
     call<HiddenSet>("set_workspace_hidden", { workspaceId, hidden }),
   stopAgent: async (sessionId: string): Promise<void> => call<void>("stop_agent", { sessionId }),
   restoreAgents: async (): Promise<readonly string[]> => call<string[]>("restore_agents"),
-  openExternal: async (target: string): Promise<void> => call<void>("open_external", { target }),
+  openExternal: async (target: string): Promise<void> => {
+    if (!isWeb()) {
+      return call<void>("open_external", { target });
+    }
+    if (/^https?:\/\//.test(target)) {
+      window.open(target, "_blank", "noopener");
+    }
+  },
   readTranscript: async (sessionId: string, offset: number): Promise<TranscriptChunk> =>
     call<TranscriptChunk>("read_transcript", { sessionId, offset }),
   terminalOpen: async (
@@ -726,9 +733,8 @@ export const api = {
     rows: number,
     onEvent: (event: TermEvent) => void,
   ): Promise<number> => {
-    const channel = new Channel<TermEvent>();
-    channel.onmessage = onEvent;
-    return call<number>("terminal_open", { spec, cols, rows, onEvent: channel });
+    const channel = transport().channel<TermEvent>(onEvent);
+    return call<number>("terminal_open", { spec, cols, rows, onEvent: channel.arg });
   },
   terminalWrite: async (id: number, data: string): Promise<void> => call<void>("terminal_write", { id, data }),
   terminalResize: async (id: number, cols: number, rows: number): Promise<void> =>
@@ -758,8 +764,22 @@ export const api = {
     call<ReviewReport>("review_report", { repo, gitRef, refresh }),
   reviewDecide: async (repo: string, gitRef: string, request: DecideRequest): Promise<ReviewReport> =>
     call<ReviewReport>("review_decide", { repo, gitRef, request }),
-  reviewOpenReport: async (repo: string, gitRef: string): Promise<string> =>
-    call<string>("review_open_report", { repo, gitRef }),
+  reviewOpenReport: async (repo: string, gitRef: string): Promise<string> => {
+    if (!isWeb()) {
+      return call<string>("review_open_report", { repo, gitRef });
+    }
+    const tab = window.open("about:blank", "_blank");
+    try {
+      const path = await call<string>("review_open_report", { repo, gitRef });
+      if (tab !== null) {
+        tab.location.href = path;
+      }
+      return path;
+    } catch (err: unknown) {
+      tab?.close();
+      throw err;
+    }
+  },
   reviewCommentPlan: async (repo: string, gitRef: string, number: number): Promise<CommentPlan> =>
     call<CommentPlan>("review_comment_plan", { repo, gitRef, number }),
   reviewCommentPost: async (repo: string, gitRef: string, request: PostRequest): Promise<Posted> =>
@@ -782,8 +802,12 @@ export const api = {
   settingsSetOpen: async (open: OpenSettings): Promise<Settings> => call<Settings>("settings_set_open", { open }),
   reviewsAsk: async (repo: string, number: number): Promise<AskStarted> => call<AskStarted>("reviews_ask", { repo, number }),
   /** Calls handler with the agent's key each time the tray menu selects one; resolves to an unsubscribe. */
-  onTraySelect: async (handler: (key: string) => void): Promise<() => void> =>
-    listen<{ readonly key: string }>("tray-select", (event) => handler(event.payload.key)),
+  onTraySelect: async (handler: (key: string) => void): Promise<() => void> => {
+    if (isWeb()) {
+      return () => undefined;
+    }
+    return transport().listen<{ readonly key: string }>("tray-select", (payload) => handler(payload.key));
+  },
   loopsList: async (): Promise<LoopListing> => call<LoopListing>("loops_list"),
   loopsAdd: async (request: NewLoop): Promise<Loop> => call<Loop>("loops_add", { request }),
   loopsEdit: async (request: NewLoop): Promise<Loop> => call<Loop>("loops_edit", { request }),

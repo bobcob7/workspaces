@@ -1,6 +1,8 @@
 import { Alert, Button, CircularProgress } from "@mui/material";
 import { useEffect, type JSX } from "react";
 import type { ToolVersion } from "../../api";
+import { isWeb } from "../../platform";
+import { logout } from "../../web/session";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { fetchVersions } from "./settingsSlice";
 import styles from "./SettingsPane.module.css";
@@ -71,6 +73,13 @@ export const AboutGroup = (): JSX.Element => {
             </Button>
           </div>
         </>
+      )}
+      {isWeb() && (
+        <div>
+          <Button size="small" onClick={() => void logout()}>
+            Log out
+          </Button>
+        </div>
       )}
     </section>
   );

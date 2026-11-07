@@ -223,6 +223,19 @@ await page.goto("http://localhost:1420");
 `window.__TAURI_MOCK__` holds the calls made, the sample data and the
 handlers, which a later init script can change.
 
+For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
+mock. It serves `/api` and a WebSocket from the same handlers, and
+`window.__WEB_MOCK__.authenticated` decides whether the login page shows:
+
+```js
+await page.addInitScript({ path: "test/tauri-mock.js" });
+await page.addInitScript({ path: "test/web-mock.js" });
+await page.addInitScript(() => { window.__WEB_MOCK__.authenticated = false; });
+await page.goto("http://localhost:1420");
+```
+
+Login accepts `me` / `secret`.
+
 ## Status
 
 | Shown        | When                                                            |
