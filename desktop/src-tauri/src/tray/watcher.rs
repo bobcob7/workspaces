@@ -3,11 +3,13 @@
 
 use super::attention::{self, Attention, Candidate, Event, Snapshot};
 use super::view::TrayView;
+#[cfg(feature = "desktop")]
 use crate::commands::AppState;
 use crate::model::Entry;
 use crate::reviews::store::NotificationSettings;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
+#[cfg(feature = "desktop")]
 use tauri::{AppHandle, Manager};
 
 /// How often the watcher wakes, the same as the frontend's poll.
@@ -87,6 +89,7 @@ pub fn wanted(events: &[Event], settings: &NotificationSettings) -> Vec<Event> {
 /// Every WATCH_INTERVAL, when the watcher is stale, runs `commands::list`
 /// and publishes what it observed. Listing errors are logged with
 /// `eprintln!("tray: listing failed: {}: {}", err.code, err.message)` and skipped.
+#[cfg(feature = "desktop")]
 pub async fn watch_forever(app: AppHandle) {
     let mut interval = tokio::time::interval(WATCH_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

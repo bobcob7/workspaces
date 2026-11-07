@@ -13,5 +13,6 @@ fn main() {
     println!("cargo:rustc-env=WS_DESKTOP_COMMIT={describe}");
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/index");
-    tauri_build::build()
+    #[cfg(feature = "desktop")]
+    tauri_build::build();
 }

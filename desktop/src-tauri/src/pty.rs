@@ -1,6 +1,7 @@
 //! Terminals: `claude attach <id>` or `ws shell` in a pseudo-terminal,
 //! streamed to an xterm.js view in the frontend.
 
+use crate::ipc::Channel;
 use crate::runner::AppError;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,6 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::ipc::Channel;
 
 /// What a terminal runs.
 #[derive(Debug, Clone, Deserialize)]
@@ -290,6 +290,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "desktop")]
     fn terminal_streams_output_takes_input_and_reports_exit() {
         use std::os::unix::fs::PermissionsExt;
         use std::sync::mpsc;
@@ -345,9 +346,61 @@ mod tests {
         assert_eq!(exit, Some(serde_json::json!(3)));
     }
 
+    #[test]
+    #[cfg(not(feature = "desktop"))]
+    fn terminal_streams_output_through_the_shim_channel() {
+        use crate::ipc::ChannelClosed;
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().join("ws");
+        std::fs::write(
+            &ws,
+            "#!/bin/sh\necho \"args: $*\"\nread line\necho \"got: $line\"\nexit 3\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&ws, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (tx, rx) = mpsc::channel::<serde_json::Value>();
+        let channel = Channel::new(move |value| tx.send(value).map_err(|_| ChannelClosed));
+        let terminals = Terminals::default();
+        let spec = TermSpec::Shell {
+            name: Some("t".into()),
+            specs: vec!["r@main".into()],
+        };
+        let id = terminals
+            .open(
+                &spec,
+                &format!("{}:/bin:/usr/bin", dir.path().display()),
+                80,
+                24,
+                channel,
+            )
+            .unwrap();
+        terminals.write(id, "hello\r").unwrap();
+        let mut output = String::new();
+        let mut exit = None;
+        while let Ok(event) = rx.recv_timeout(Duration::from_secs(5)) {
+            match event["event"].as_str() {
+                Some("data") => output.push_str(event["data"].as_str().unwrap()),
+                _ => {
+                    exit = Some(event["code"].clone());
+                    break;
+                }
+            }
+        }
+        assert!(
+            output.contains("args: shell --name t r@main"),
+            "output: {output:?}"
+        );
+        assert!(output.contains("got: hello"), "output: {output:?}");
+        assert_eq!(exit, Some(serde_json::json!(3)));
+    }
+
     /// Attaches to a real session for a few seconds, then detaches:
     /// `WS_DESKTOP_ATTACH=<id> cargo test attach_live -- --ignored`.
     #[test]
+    #[cfg(feature = "desktop")]
     #[ignore = "attaches to a real Claude Code session"]
     fn attach_live() {
         use std::time::Duration;

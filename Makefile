@@ -53,6 +53,7 @@ desktop-dev:
 desktop-test:
 	cd desktop && npm ci && npm run typecheck && npm test
 	cd desktop/src-tauri && cargo test && cargo clippy --all-targets -- -D warnings
+	cd desktop/src-tauri && cargo test --no-default-features --features online && cargo clippy --no-default-features --features online --all-targets -- -D warnings
 
 clean:
 	rm -rf $(BIN) dist

@@ -9,17 +9,45 @@ rust-version = "1.90"
 name = "ws_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "ws-desktop"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "ws-online"
+path = "src/bin/ws-online.rs"
+required-features = ["online"]
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-plugin-opener", "dep:tauri-plugin-notification", "dep:tauri-build"]
+online = [
+  "dep:axum", "dep:tower-http", "dep:argon2", "dep:sha2", "dep:subtle",
+  "dep:getrandom", "dep:base64ct", "dep:web-push-native", "dep:reqwest",
+  "tokio/rt-multi-thread", "tokio/net", "tokio/signal",
+]
+
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-opener = "2"
-tauri-plugin-notification = "2.8"
+tauri = { version = "2", features = ["tray-icon"], optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-notification = { version = "2.8", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "macros", "rt", "sync", "time", "io-util"] }
 portable-pty = "0.9"
+axum = { version = "0.8", features = ["ws"], optional = true }
+tower-http = { version = "0.7", features = ["fs"], optional = true }
+argon2 = { version = "0.6", features = ["getrandom"], optional = true }
+sha2 = { version = "0.11", optional = true }
+subtle = { version = "2", optional = true }
+getrandom = { version = "0.4", optional = true }
+base64ct = { version = "1.8", features = ["alloc"], optional = true }
+web-push-native = { version = "0.5", optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

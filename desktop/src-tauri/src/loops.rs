@@ -2,12 +2,12 @@
 //! minute while the app is open.
 
 use crate::commands::AppState;
+use crate::ipc::State;
 use crate::runner::{AppError, Runner};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Duration;
-use tauri::State;
 
 type CmdResult<T> = Result<T, AppError>;
 
@@ -247,7 +247,7 @@ fn run_args(name: &str) -> Vec<String> {
     ]
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_list(state: State<'_, AppState>) -> CmdResult<Loops> {
     state
         .runner
@@ -255,17 +255,17 @@ pub async fn loops_list(state: State<'_, AppState>) -> CmdResult<Loops> {
         .await
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_add(state: State<'_, AppState>, request: NewLoop) -> CmdResult<Loop> {
     state.runner.ws_json(&add_args(&request)).await
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_edit(state: State<'_, AppState>, request: NewLoop) -> CmdResult<Loop> {
     state.runner.ws_json(&edit_args(&request)).await
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_set_paused(
     state: State<'_, AppState>,
     name: String,
@@ -274,12 +274,12 @@ pub async fn loops_set_paused(
     state.runner.ws_json(&pause_args(&name, paused)).await
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_remove(state: State<'_, AppState>, name: String) -> CmdResult<Loop> {
     state.runner.ws_json(&rm_args(&name)).await
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_run_now(state: State<'_, AppState>, name: String) -> CmdResult<LoopStarted> {
     state.runner.ws_json(&run_args(&name)).await
 }

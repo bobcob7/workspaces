@@ -15,7 +15,21 @@ pub fn resolve_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let from_shell = shell_path(&shell).unwrap_or_default();
-    let fallbacks = [
+    merge_paths(&[&from_shell, &current, &fallbacks(&home).join(":")])
+}
+
+/// This process's PATH followed by the usual install locations, without
+/// asking a login shell: for ws-online, whose environment is the
+/// container's.
+#[cfg(feature = "online")]
+pub fn fallback_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let current = std::env::var("PATH").unwrap_or_default();
+    merge_paths(&[&current, &fallbacks(&home).join(":")])
+}
+
+fn fallbacks(home: &str) -> [String; 7] {
+    [
         format!("{home}/.local/bin"),
         format!("{home}/go/bin"),
         format!("{home}/.cargo/bin"),
@@ -23,8 +37,7 @@ pub fn resolve_path() -> String {
         "/usr/local/bin".to_string(),
         "/usr/bin".to_string(),
         "/bin".to_string(),
-    ];
-    merge_paths(&[&from_shell, &current, &fallbacks.join(":")])
+    ]
 }
 
 /// Asks an interactive login shell for its PATH, since tools such as nvm set
@@ -89,5 +102,20 @@ mod tests {
     #[test]
     fn extract_marked_without_markers_is_none() {
         assert_eq!(extract_marked("no markers here"), None);
+    }
+
+    #[test]
+    fn fallbacks_start_with_the_user_bin_directory() {
+        assert_eq!(fallbacks("/home/ws")[0], "/home/ws/.local/bin");
+    }
+
+    #[test]
+    #[cfg(feature = "online")]
+    fn fallback_path_lists_each_directory_once() {
+        let path = fallback_path();
+        let dirs: Vec<&str> = path.split(':').collect();
+        let unique: std::collections::HashSet<&str> = dirs.iter().copied().collect();
+        assert_eq!(dirs.len(), unique.len());
+        assert!(dirs.contains(&"/usr/local/bin"));
     }
 }
