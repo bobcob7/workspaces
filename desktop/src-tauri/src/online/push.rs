@@ -1,5 +1,6 @@
 //! VAPID keys, push subscriptions, payloads and sending (ADR 0053).
 
+use crate::online::wire::PushPayload;
 use crate::online::write_private;
 use crate::runner::AppError;
 use crate::tray::attention::{Attention, Event};
@@ -348,19 +349,6 @@ impl Pusher {
             eprintln!("push: couldn't remove a subscription: {e}");
         }
     }
-}
-
-/// One notification, sent by Web Push and as the `notify` event.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PushPayload {
-    pub title: String,
-    pub body: String,
-    /// `needsInput:<key>`, `done:<key>`, or `agents` for a summary.
-    pub tag: String,
-    /// The agent's entry key, or `None` for a summary.
-    pub key: Option<String>,
-    /// Where a click opens: `/?agent=<key>` or `/`.
-    pub url: String,
 }
 
 #[cfg(test)]
