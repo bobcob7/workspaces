@@ -19,6 +19,7 @@ mood, for example `feat: add ws-online auth (ADR 0053)`).
 | T7 | Frontend: transport, login page, web mode, web mock | nothing (the contract is in the design README) | large | T1–T6 |
 | T8 | Frontend: PWA manifest, service worker, push, notification settings | T7 | large | T1–T6 |
 | T9 | Frontend: narrow (phone) layout | T8 | large | T5, T6 |
+| T10 | Follow-ups from review: push key validation, keepalive, docs | T6, T9 | large | none |
 
 Backend files are all under `desktop/src-tauri/`; frontend files under
 `desktop/src/`, `desktop/public/` and `desktop/test/`; T6 under `deploy/`,
@@ -1329,4 +1330,73 @@ No new dependencies.
 
 ```sh
 cd desktop && npx tsc --noEmit && npx vitest run src/App.test.tsx src/features/ui && npm run build
+```
+
+## T10. Follow-ups from review
+
+Added by the orchestrator: the reviewers' and implementers' notes from
+T1-T9, gathered into one task. Each item is small; do them all.
+
+**Depends on:** T6, T9. **Parallel with:** none.
+
+**Files:** `desktop/src-tauri/src/online/{push,config,auth,server}.rs`,
+`desktop/src/transport/socket.ts` (+ `socket.test.ts`),
+`desktop/src/main.tsx`, `desktop/src/web/{session.ts,LoginPage.tsx,LoginPage.test.tsx}`,
+`desktop/src/platform.ts`, `docs/design/workspace-online/README.md`,
+`docs/adrs/0053-workspace-online.md`, this file (T1's verify line only),
+`docs/online.md`.
+
+1. **Push key validation (bug).** `Subscriptions::add` in `online/push.rs`
+   deserializes a `WebPushBuilder`, which panics on keys of the wrong
+   length (generic-array "Slice must be the same length as the array"),
+   so `POST /api/push/subscribe` with a bad key drops the connection.
+   Before deserializing, decode `keys.p256dh` and `keys.auth` as base64url
+   (no padding; also accept padded) and require 65 bytes starting with
+   `0x04` and 16 bytes respectively, else return `bad_subscription`. Also
+   require `endpoint` to start with `https://`. Tests: short p256dh, short
+   auth, bad base64, http endpoint each give `bad_subscription`; and a
+   server test in `server.rs` that subscribing with a short p256dh returns
+   400 `{"code":"bad_subscription",...}` (the existing error JSON shape).
+2. **VAPID subject default.** In `online/config.rs` `vapid_subject`, use
+   the public URL as the default only when it starts with `https://`;
+   otherwise use `DEFAULT_VAPID_SUBJECT`. Test both cases. Update
+   `docs/online.md`'s env table text for `WS_ONLINE_VAPID_SUBJECT`.
+3. **Client keepalive.** The server drops a socket silent for 90 s. In
+   `transport/socket.ts`, while the socket is open, send `{"type":"ping"}`
+   every 30 s; clear the timer on close. Test with fake timers.
+4. **No socket before login.** `main.tsx` calls `transport().listen(...)`
+   at startup, which opens `/api/ws` before the user has logged in. In web
+   mode, register that listener only after the session is authenticated
+   (e.g. from `WebRoot` once logged in, or make the socket connect lazily
+   only after `getSession()` reports a session). Keep Tauri mode unchanged.
+   Add or adjust a test proving no WebSocket is constructed while on the
+   login page.
+5. **LoginPage** clears the previous error when a new attempt is
+   submitted (test it).
+6. **Doc comments** on every exported/`pub` item that lacks one:
+   `web/session.ts` (`Session`, `LoginResult`, `getSession`, `login`,
+   `logout`), `platform.ts` (`isWeb`), `online/auth.rs`
+   (`Credentials::new`, `Password` variants), `online/push.rs`
+   (`Subscriptions::list`, `Pusher::new`, `Pusher::public_key`,
+   `Pusher::subscriptions`, `Delivery` variants).
+7. **WebSocket test.** In `online/server.rs` tests, add one test that
+   logs in, opens `/api/ws` with the cookie and a matching Origin
+   (`tokio-tungstenite` only if it is already a dependency; otherwise use
+   reqwest's upgrade or axum's test utilities that are already available;
+   do not add a dependency), reads the hello frame, sends an invoke frame
+   for a harmless command (one the dispatch table answers without the
+   network, e.g. `settings_get` against the temp config), and checks the
+   reply frame's id and ok flag. Also check that an upgrade without the
+   cookie is refused with 401. If no WebSocket client is available
+   without a new dependency, write the 401 check only and say so.
+8. **Docs.** Fix "56" to "55" command names in the design README and the
+   ADR. Fix T1's verify line in this file to
+   `cargo tree --no-default-features --features online -e normal --prefix none | grep -c '^tauri'`
+   (expects 0).
+
+**Verify:**
+
+```sh
+cd desktop/src-tauri && cargo fmt --check && cargo clippy --no-default-features --features online --all-targets -- -D warnings && cargo clippy --all-targets -- -D warnings && cargo test --no-default-features --features online online::
+cd desktop && npx tsc --noEmit && npx vitest run src/transport src/web src/App.test.tsx && npm run build
 ```
