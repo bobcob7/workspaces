@@ -20,6 +20,7 @@ mood, for example `feat: add ws-online auth (ADR 0053)`).
 | T8 | Frontend: PWA manifest, service worker, push, notification settings | T7 | large | T1–T6 |
 | T9 | Frontend: narrow (phone) layout | T8 | large | T5, T6 |
 | T10 | Follow-ups from review: push key validation, keepalive, docs | T6, T9 | large | none |
+| T11 | Terminal copy, paste and links in the browser | T10 | large | none |
 
 Backend files are all under `desktop/src-tauri/`; frontend files under
 `desktop/src/`, `desktop/public/` and `desktop/test/`; T6 under `deploy/`,
@@ -1399,4 +1400,99 @@ T1-T9, gathered into one task. Each item is small; do them all.
 ```sh
 cd desktop/src-tauri && cargo fmt --check && cargo clippy --no-default-features --features online --all-targets -- -D warnings && cargo clippy --all-targets -- -D warnings && cargo test --no-default-features --features online online::
 cd desktop && npx tsc --noEmit && npx vitest run src/transport src/web src/App.test.tsx && npm run build
+```
+
+## T11. Terminal copy, paste and links in the browser
+
+Added by the orchestrator after the first deployment: in the web app the
+user can't copy text out of a terminal or paste into it, so they can't
+complete an MCP server's OAuth sign-in (`/mcp` prints a URL to open, and
+some flows want a code or URL pasted back). The terminal is plain xterm.js
+(`desktop/src/features/terminals/registry.ts`) with no clipboard or link
+handling. Desktop browsers half-work (Cmd+C/Cmd+V via xterm's hidden
+textarea); phones and tablets don't work at all: there is no way to select
+terminal text or to reach a paste menu. It must work on iOS Safari (an
+installed PWA) and Android Chrome as well as desktop browsers, and keep
+working in the Tauri app.
+
+**Depends on:** T10. **Parallel with:** none.
+
+**Read:** `desktop/src/features/terminals/{registry.ts,TerminalView.tsx,TerminalView.module.css,ReplyBox.tsx,terminalsSlice.ts}`,
+the components that render `TerminalView` (find them with grep), `desktop/src/api.ts`
+(`openExternal`, `terminalWrite`), `desktop/src/platform.ts`.
+
+**Files:** modify the files above as needed, plus their tests; create
+`desktop/src/features/terminals/TerminalTools.tsx` (+ test) and, if
+useful, `desktop/src/features/terminals/clipboard.ts` (+ test). New npm
+dependency allowed: `@xterm/addon-web-links` (the stable version that
+matches the installed `@xterm/xterm` 6.x; check its peer range). No
+other new dependencies.
+
+**Behavior:**
+
+1. **Links.** Load `WebLinksAddon` in `registry.ts`. Activating a link
+   calls `api.openExternal(url)` (which opens a new tab in web mode and
+   the system browser in Tauri). URLs that wrap across lines must still
+   work as far as the addon supports.
+2. **Registry API.** Add `registry.selection(key): string` (xterm
+   `getSelection()`), `registry.text(key, lines?: number): string`
+   (the last `lines` lines of the buffer, default 200, trailing spaces
+   trimmed, wrapped lines joined without a newline, using
+   `buffer.active.getLine(i).translateToString(true)` and `isWrapped`),
+   and `registry.paste(key, text)`, which sends text to the pty the way
+   xterm's own paste does: `term.paste(text)` (it applies bracketed
+   paste when the app enabled it).
+3. **Toolbar** (`TerminalTools`): a small row of icon buttons with
+   accessible names, shown above each terminal in both web and Tauri
+   mode:
+   - **Copy** (enabled when there is a selection; listen to
+     `term.onSelectionChange`): `navigator.clipboard.writeText(selection)`,
+     then a short "Copied" notice (the existing notice/snackbar
+     mechanism). On failure, fall back to the text dialog below with the
+     selection preselected.
+   - **Paste**: `navigator.clipboard.readText()` and `registry.paste`.
+     If the API is missing, or throws (iOS and Firefox often deny it),
+     open a **Paste dialog**: an MUI Dialog with a multiline TextField
+     (autofocused, so the native long-press / Cmd+V paste menu works on
+     every device) and a "Send" button that calls `registry.paste` with
+     its contents. "Send" must not add a newline of its own.
+   - **Select text**: opens a **Text dialog** showing `registry.text(key)`
+     in a read-only multiline TextField (monospace, full width, scrolled
+     to the bottom), where native selection and the OS copy menu work on
+     phones. It also lists every http(s) URL found in that text as
+     clickable links (each calling `api.openExternal`) with a copy
+     button per URL. This is what makes the OAuth link usable on a phone.
+4. **Keyboard.** With `term.attachCustomKeyEventHandler`, let the browser
+   handle Cmd+V / Ctrl+Shift+V (paste) and Cmd+C / Ctrl+Shift+C when
+   there is a selection (copy) instead of sending them to the pty: return
+   false for those keydown events, and for copy write the selection with
+   `navigator.clipboard.writeText`. Plain Ctrl+C must still send SIGINT
+   (`\x03`) to the pty.
+5. **Phone layout.** Under the existing 720px media query the toolbar
+   buttons stay at least 40px tall, and the dialogs are full-screen
+   (`fullScreen` prop driven by `useMediaQuery("(max-width:720px)")`).
+
+**Acceptance:**
+
+- Unit tests: `registry.text` joins wrapped lines and trims (using a
+  real xterm `Terminal` written to in jsdom, or the registry's existing
+  test approach); URL extraction finds `https://` URLs including ones
+  with query strings and stops at whitespace and closing brackets/quotes;
+  the Paste button falls back to the dialog when `readText` rejects, and
+  "Send" calls `terminalWrite` with the pasted text; Copy is disabled
+  without a selection; the custom key handler returns false for Cmd+V
+  and Ctrl+Shift+V and true for plain Ctrl+C.
+- In a real browser (Playwright chromium, vite on 1420 with the web mock
+  as in `desktop/README.md`; extend the mock's `terminal_open` to emit
+  a line containing `https://claude.ai/oauth/authorize?code=true&client_id=abc&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback`
+  if it doesn't already emit data): at 1280x820 and 390x844, open a
+  terminal, open Select text, check the URL is listed as a link, the
+  Paste dialog opens when clipboard read is denied and sending
+  "hello" writes it, and no control is outside the viewport. Report the
+  results; don't commit the script. Commit the mock change.
+
+**Verify:**
+
+```sh
+cd desktop && npx tsc --noEmit && npx vitest run src/features/terminals && npm run build
 ```
