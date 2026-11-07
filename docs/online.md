@@ -9,6 +9,15 @@ subscription through a long-lived token. Decided in
 [0053](adrs/0053-workspace-online.md); the API is in the
 [design](design/workspace-online/README.md).
 
+## Screenshots
+
+| Login | Agents | Phone |
+| ----- | ------ | ----- |
+| ![Login](../desktop/docs/online-login.png) | ![Agents](../desktop/docs/online-agents.png) | ![Agent on a phone](../desktop/docs/online-agent-mobile.png) |
+
+Notifications for this browser are under Settings › Notifications:
+![This browser row](../desktop/docs/online-settings-push.png)
+
 ## Quick start
 
 ```console
