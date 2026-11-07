@@ -102,3 +102,65 @@
     display: none;
   }
 }
+
+@media (max-width: 720px) {
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  }
+
+  .table td {
+    height: auto;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    overflow: visible;
+  }
+
+  .table td.name,
+  .table td.subject {
+    flex: 1 1 100%;
+  }
+
+  .table td.updated {
+    flex: 0 0 auto;
+  }
+
+  .table .workspaces {
+    flex: 1 1 100%;
+    width: 100%;
+    text-align: left;
+  }
+
+  .chips {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+
+  .chip {
+    max-width: 100%;
+  }
+}
