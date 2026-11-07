@@ -6,3 +6,21 @@
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
+
+@media (max-width: 720px) {
+  .root {
+    gap: 6px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  }
+
+  .root :global(.MuiInputBase-root) {
+    padding: 6px 10px;
+  }
+
+  .send {
+    flex: none;
+    min-width: 0 !important;
+    min-height: 40px;
+    padding: 0 12px !important;
+  }
+}

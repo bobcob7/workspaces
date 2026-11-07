@@ -14,7 +14,10 @@ const items: readonly ConversationItem[] = [
 ];
 
 const show = (status: Status = "idle", onShowTerminal = vi.fn()): ReturnType<typeof testStore> => {
-  const readTranscript = vi.fn(async () => ({ items, next: 100, reset: false, dropped: 0, found: true }));
+  const readTranscript = vi
+    .fn()
+    .mockResolvedValueOnce({ items, next: 100, reset: false, dropped: 0, found: true })
+    .mockResolvedValue({ items: [], next: 100, reset: false, dropped: 0, found: true });
   const store = testStore({ api: fakeApi({ readTranscript }) });
   renderWithStore(
     <ConversationView sessionId="s1" status={status} detail="Running tests" onShowTerminal={onShowTerminal} />,

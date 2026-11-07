@@ -44,4 +44,25 @@ describe("ReplyBox", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "  {Enter}");
     expect(terminals.send).not.toHaveBeenCalled();
   });
+
+  it("uses a short placeholder and Enter adds a line on a phone", async () => {
+    const terminals = fakeHost();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    }));
+    try {
+      renderWithStore(<ReplyBox terminalKey="attach:a" disabled={false} />, testStore({ terminals }));
+      const box = screen.getByRole("textbox", { name: "Message" });
+      expect(box).toHaveAttribute("placeholder", "Message");
+      await userEvent.type(box, "a{Enter}b");
+      expect(terminals.send).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
