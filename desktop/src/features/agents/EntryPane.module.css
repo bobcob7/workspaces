@@ -119,7 +119,7 @@
 
   .compact .titleRow {
     flex-wrap: nowrap;
-    gap: 6px;
+    gap: 8px;
   }
 
   .compact .title {
@@ -132,9 +132,20 @@
   }
 
   .compact .titleRow :global(.MuiToggleButton-root) {
+    min-height: 40px;
     padding: 2px 8px;
     font-size: 12px;
     text-transform: none;
+  }
+
+  .compact .titleRow :global(.MuiToggleButtonGroup-root) {
+    margin: -6px 0;
+  }
+
+  .compact .titleRow :global(.MuiIconButton-root) {
+    min-width: 40px;
+    min-height: 40px;
+    margin: -6px 0;
   }
 }
 

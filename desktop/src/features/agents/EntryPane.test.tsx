@@ -208,5 +208,10 @@ describe("EntryPane opening a workspace", () => {
       await userEvent.click(toggle);
       expect(toggle).toHaveAttribute("aria-expanded", "true");
     });
+
+    it("names the status dot, which has no label on a phone", () => {
+      renderWithStore(<EntryPane entry={{ ...shellWorkspace, status: "needsInput" }} />, testStore());
+      expect(screen.getByRole("img", { name: "Needs input" })).toBeInTheDocument();
+    });
   });
 });

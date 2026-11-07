@@ -162,4 +162,9 @@
     min-height: 36px;
     border-bottom: 1px solid var(--border);
   }
+
+  .backBar :global(.MuiButton-root) {
+    min-height: 40px;
+    margin: -2px 0;
+  }
 }

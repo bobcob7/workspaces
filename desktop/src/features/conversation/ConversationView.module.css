@@ -278,6 +278,12 @@
     padding: 0 0 0 8px;
   }
 
+  .waiting :global(.MuiAlert-action .MuiButton-root) {
+    min-height: 40px;
+    min-width: 40px;
+    margin: -6px 0;
+  }
+
   .waitingMore {
     display: none;
   }

@@ -9,7 +9,13 @@ export interface StatusDotProps {
 }
 
 export const StatusDot = ({ status, withLabel = false }: StatusDotProps): JSX.Element => (
-  <span className={styles.root} data-status={status} title={statusLabels[status]}>
+  <span
+    className={styles.root}
+    data-status={status}
+    title={statusLabels[status]}
+    role={withLabel ? undefined : "img"}
+    aria-label={withLabel ? undefined : statusLabels[status]}
+  >
     <span className={styles.dot} />
     {withLabel && <span className={styles.label}>{statusLabels[status]}</span>}
   </span>

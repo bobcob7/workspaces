@@ -20,7 +20,7 @@
   .send {
     flex: none;
     min-width: 0 !important;
-    height: 34px;
+    min-height: 40px;
     padding: 0 12px !important;
   }
 }
