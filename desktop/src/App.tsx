@@ -194,7 +194,7 @@ export const App = (): JSX.Element => {
     document.title = attention > 0 ? `Workspaces (${attention} need${attention === 1 ? "s" : ""} input)` : "Workspaces";
   }, [attention]);
   return (
-    <div className={styles.root}>
+    <div className={styles.root} data-narrow-pane={narrowPane}>
       <header className={styles.topBar}>
         <span className={styles.brand}>Workspaces</span>
         {attention > 0 && <span className={styles.badge}>{attention} waiting for you</span>}
@@ -212,6 +212,7 @@ export const App = (): JSX.Element => {
             <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => dispatch(narrowBack())}>
               Back
             </Button>
+            {attention > 0 && <span className={styles.badge}>{attention} waiting</span>}
           </div>
           <view.pane />
         </main>

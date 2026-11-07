@@ -218,3 +218,71 @@
   left: 50%;
   transform: translateX(-50%);
 }
+
+@media (max-width: 720px) {
+  .column {
+    gap: 6px;
+    padding: 8px 8px 12px;
+  }
+
+  .scroller {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .user {
+    max-width: 92%;
+    padding: 6px 10px;
+  }
+
+  .assistant {
+    line-height: 1.45;
+  }
+
+  .tool {
+    font-size: 12px;
+  }
+
+  .tool summary {
+    padding: 3px 8px;
+  }
+
+  .toolInput,
+  .toolOutput {
+    max-height: 200px;
+    padding: 6px 8px;
+  }
+
+  .waiting {
+    margin-top: 0;
+    padding: 0 8px;
+    font-size: 12px;
+    align-items: center;
+  }
+
+  .waiting :global(.MuiAlert-icon) {
+    padding: 4px 0;
+    margin-right: 6px;
+    font-size: 16px;
+  }
+
+  .waiting :global(.MuiAlert-message) {
+    padding: 4px 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .waiting :global(.MuiAlert-action) {
+    margin-right: -4px;
+    padding: 0 0 0 8px;
+  }
+
+  .waitingMore {
+    display: none;
+  }
+
+  .jump {
+    bottom: 8px;
+  }
+}

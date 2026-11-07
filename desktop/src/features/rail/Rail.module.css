@@ -92,7 +92,7 @@
     width: auto;
     flex-direction: row;
     justify-content: space-around;
-    padding: 4px 6px;
+    padding: 2px 6px calc(2px + env(safe-area-inset-bottom));
     border-right: 0;
     border-top: 1px solid var(--border);
   }
@@ -102,6 +102,14 @@
     flex: 1;
     max-width: 72px;
     padding: 6px 0;
+  }
+
+  .item > span:not(.badge) {
+    display: none;
+  }
+
+  .badge {
+    right: calc(50% - 20px);
   }
 
   .item[aria-current="page"]::before {

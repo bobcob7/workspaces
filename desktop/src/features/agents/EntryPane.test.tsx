@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { entry, fakeApi, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { fetchEntries } from "./agentsSlice";
@@ -172,5 +172,41 @@ describe("EntryPane opening a workspace", () => {
     await userEvent.click(screen.getByRole("button", { name: "/w/fix-login" }));
     expect(api.workspaceOpen).toHaveBeenCalledWith("fileManager", "/w/fix-login", []);
     expect(api.openExternal).not.toHaveBeenCalled();
+  });
+
+  describe("on a phone", () => {
+    const original = window.matchMedia;
+    beforeEach(() => {
+      window.matchMedia = ((query: string) => ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+    });
+    afterEach(() => {
+      window.matchMedia = original;
+    });
+
+    it("moves the actions into a menu", async () => {
+      const api = fakeApi();
+      renderWithStore(<EntryPane entry={shellWorkspace} />, testStore({ api }));
+      expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+      await userEvent.click(screen.getByRole("menuitem", { name: "Hide" }));
+      expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true);
+    });
+
+    it("keeps the path behind a collapsed details toggle", async () => {
+      renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+      const toggle = screen.getByRole("button", { name: "Details" });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+    });
   });
 });

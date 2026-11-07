@@ -1,4 +1,4 @@
-import { Button, TextField } from "@mui/material";
+import { Button, TextField, useMediaQuery } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
 import { useAppDispatch } from "../../store";
 import { messageKeys, sendMessage } from "./terminalsSlice";
@@ -11,6 +11,7 @@ export interface ReplyBoxProps {
 
 export const ReplyBox = ({ terminalKey, disabled }: ReplyBoxProps): JSX.Element => {
   const dispatch = useAppDispatch();
+  const phone = useMediaQuery("(max-width:720px)");
   const [message, setMessage] = useState("");
   const submit = (event: FormEvent): void => {
     event.preventDefault();
@@ -27,18 +28,21 @@ export const ReplyBox = ({ terminalKey, disabled }: ReplyBoxProps): JSX.Element 
         fullWidth
         multiline
         maxRows={6}
-        placeholder="Message the agent (Enter to send, Shift+Enter for a new line)"
+        placeholder={phone ? "Message" : "Message the agent (Enter to send, Shift+Enter for a new line)"}
         value={message}
         disabled={disabled}
         onChange={(e) => setMessage(e.target.value)}
         onKeyDown={(e) => {
+          if (phone) {
+            return;
+          }
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             submit(e);
           }
         }}
         slotProps={{ htmlInput: { "aria-label": "Message" } }}
       />
-      <Button type="submit" variant="contained" disabled={disabled || message.trim() === ""}>
+      <Button type="submit" size={phone ? "small" : "medium"} className={styles.send} variant="contained" disabled={disabled || message.trim() === ""}>
         Send
       </Button>
     </form>

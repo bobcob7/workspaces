@@ -155,7 +155,7 @@ export const ConversationView = ({ sessionId, status, detail, onShowTerminal }: 
       <div ref={scroller} className={styles.scroller} onScroll={onScroll} role="log" aria-label="Conversation">
         <div className={styles.column}>
           {conversation.error !== null && (
-            <Alert severity="warning" action={<Button onClick={onShowTerminal}>Terminal</Button>}>
+            <Alert severity="warning" className={styles.waiting} action={<Button size="small" onClick={onShowTerminal}>Terminal</Button>}>
               {conversation.error.message}
             </Alert>
           )}
@@ -175,8 +175,8 @@ export const ConversationView = ({ sessionId, status, detail, onShowTerminal }: 
             </div>
           )}
           {status === "needsInput" && (
-            <Alert severity="info" className={styles.waiting} action={<Button onClick={onShowTerminal}>Terminal</Button>}>
-              Waiting for you. A permission prompt or question shows only in the terminal.
+            <Alert severity="info" className={styles.waiting} action={<Button size="small" onClick={onShowTerminal}>Terminal</Button>}>
+              Waiting for you.<span className={styles.waitingMore}> A permission prompt or question shows only in the terminal.</span>
             </Alert>
           )}
         </div>

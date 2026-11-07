@@ -5,9 +5,13 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
+  Menu,
+  MenuItem,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
+  useMediaQuery,
 } from "@mui/material";
 import { useEffect, useState, type FormEvent, type JSX } from "react";
 import { api, type Entry, type OpenWith } from "../../api";
@@ -27,6 +31,8 @@ import { RemoveDialog } from "./RemoveDialog";
 import { isLive } from "./status";
 import { StatusDot } from "./StatusDot";
 import styles from "./EntryPane.module.css";
+
+const PHONE_QUERY = "(max-width:720px)";
 
 export interface EntryPaneProps {
   readonly entry: Entry;
@@ -158,6 +164,9 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const parent = useAppSelector((s) =>
     entry.parentId === null ? undefined : s.agents.entries.find((e) => e.workspaceId === entry.parentId),
   );
+  const phone = useMediaQuery(PHONE_QUERY);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [opening, setOpening] = useState<OpenWith | null>(null);
@@ -195,16 +204,108 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
       dispatch(terminalShown(termKey));
     }
   }, [showConversation, termKey, terminal?.generation]);
+  const removable = entry.kind !== "shell" && entry.kind !== "unknown";
+  const closeMenu = (): void => setMenuAnchor(null);
+  const fromMenu = (action: () => void) => (): void => {
+    closeMenu();
+    action();
+  };
+  const canStop = isAgent && isLive(entry.status);
+  const canDetach = isAgent && attached && termKey !== null;
+  const hasMenu = canDetach || canStop || renamable || removable || !isWeb();
+  const viewToggle = isAgent && (
+    <ToggleButtonGroup
+      size="small"
+      exclusive
+      value={view}
+      onChange={(_event, value: AgentView | null) => {
+        if (value !== null) {
+          dispatch(agentViewChosen(value));
+        }
+      }}
+      aria-label="View"
+    >
+      <ToggleButton value="conversation">Conversation</ToggleButton>
+      <ToggleButton value="terminal">Terminal</ToggleButton>
+    </ToggleButtonGroup>
+  );
+  const attachButton = isAgent && !attached && (
+    <Button size="small" variant="contained" onClick={attach}>
+      {isLive(entry.status) ? "Attach" : "Resume"}
+    </Button>
+  );
   return (
     <section className={styles.root} aria-label={entry.name}>
-      <header className={styles.header}>
+      <header className={`${styles.header} ${phone ? styles.compact : ""}`}>
         <div className={styles.titleRow}>
           <h1 className={styles.title}>{entry.name}</h1>
-          <StatusDot status={entry.status} withLabel />
-          {entry.stale === true && (
+          <StatusDot status={entry.status} withLabel={!phone} />
+          {!phone && entry.stale === true && (
             <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
           )}
           <span className={styles.spacer} />
+          {phone ? (
+            <>
+              {viewToggle}
+              {attachButton}
+              {hasMenu && (
+                <IconButton size="small" aria-label="More actions" onClick={(e) => setMenuAnchor(e.currentTarget)}>
+                  <span aria-hidden="true">⋯</span>
+                </IconButton>
+              )}
+              <IconButton
+                size="small"
+                aria-label="Details"
+                aria-expanded={detailsOpen}
+                onClick={() => setDetailsOpen((o) => !o)}
+              >
+                <span aria-hidden="true">{detailsOpen ? "▴" : "▾"}</span>
+              </IconButton>
+              <Menu anchorEl={menuAnchor} open={menuAnchor !== null} onClose={closeMenu}>
+                {!isWeb() && (
+                  <MenuItem
+                    disabled={entry.kind === "pending" || busy || opening === "fileManager"}
+                    onClick={fromMenu(() => openIn("fileManager"))}
+                  >
+                    Open folder
+                  </MenuItem>
+                )}
+                {!isWeb() && (
+                  <MenuItem
+                    disabled={entry.kind === "pending" || busy || opening === "editor"}
+                    onClick={fromMenu(() => openIn("editor"))}
+                  >
+                    Open in editor
+                  </MenuItem>
+                )}
+                {canDetach && <MenuItem onClick={fromMenu(() => void dispatch(closeTerminal(termKey)))}>Detach</MenuItem>}
+                {canStop && (
+                  <MenuItem disabled={busy} onClick={fromMenu(() => void dispatch(stopAgent(entry)))}>
+                    Stop
+                  </MenuItem>
+                )}
+                {renamable && (
+                  <MenuItem disabled={busy} onClick={fromMenu(() => setRenaming(true))}>
+                    Rename
+                  </MenuItem>
+                )}
+                {renamable && (
+                  <MenuItem
+                    disabled={busy}
+                    onClick={fromMenu(() => void dispatch(setEntryHidden({ entry, hidden: !entry.hidden })))}
+                  >
+                    {entry.hidden ? "Unhide" : "Hide"}
+                  </MenuItem>
+                )}
+                {removable && (
+                  <MenuItem disabled={busy} onClick={fromMenu(() => setConfirming(true))}>
+                    Remove
+                  </MenuItem>
+                )}
+              </Menu>
+            </>
+          ) : (
+            <>
           {!isWeb() && (
             <>
               <Button
@@ -227,27 +328,8 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
               </Button>
             </>
           )}
-          {isAgent && (
-            <ToggleButtonGroup
-              size="small"
-              exclusive
-              value={view}
-              onChange={(_event, value: AgentView | null) => {
-                if (value !== null) {
-                  dispatch(agentViewChosen(value));
-                }
-              }}
-              aria-label="View"
-            >
-              <ToggleButton value="conversation">Conversation</ToggleButton>
-              <ToggleButton value="terminal">Terminal</ToggleButton>
-            </ToggleButtonGroup>
-          )}
-          {isAgent && !attached && (
-            <Button size="small" variant="contained" onClick={attach}>
-              {isLive(entry.status) ? "Attach" : "Resume"}
-            </Button>
-          )}
+          {viewToggle}
+          {attachButton}
           {isAgent && attached && termKey !== null && (
             <Button size="small" onClick={() => void dispatch(closeTerminal(termKey))}>
               Detach
@@ -277,7 +359,13 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
               Remove
             </Button>
           )}
+            </>
+          )}
         </div>
+        <div className={phone && !detailsOpen ? styles.collapsed : undefined}>
+        {phone && entry.stale === true && (
+          <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
+        )}
         <div className={styles.meta}>
           <button
             type="button"
@@ -346,6 +434,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             ))}
           </div>
         )}
+        </div>
       </header>
       <ChildrenCard entry={entry} />
       {showConversation && entry.sessionId !== null ? (
