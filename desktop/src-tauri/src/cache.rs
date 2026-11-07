@@ -1,11 +1,11 @@
 //! The commands behind the Repos section: `ws cache` and its subcommands.
 
 use crate::commands::AppState;
+use crate::ipc::State;
 use crate::runner::{self, AppError, Runner};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::State;
 
 type CmdResult<T> = Result<T, AppError>;
 
@@ -37,7 +37,7 @@ pub struct CacheListing {
 }
 
 /// Every cached repo, with its size, fetch time, and ref counts.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn cache_list(state: State<'_, AppState>) -> CmdResult<CacheListing> {
     state.runner.ws_json(&strings(&["cache", "list"])).await
 }
@@ -62,7 +62,7 @@ pub struct RefListing {
 }
 
 /// A cached repo's branches and tags (ADR 0033).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn cache_refs(state: State<'_, AppState>, id: String) -> CmdResult<RefListing> {
     state
         .runner
@@ -88,7 +88,7 @@ struct Resolutions {
 
 /// Resolves a spec without cloning, for the Add repo preview. An ambiguous
 /// name fails with `repo_ambiguous` and its candidates in the details.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn cache_resolve(state: State<'_, AppState>, spec: String) -> CmdResult<Resolution> {
     resolve(&state.runner, &spec).await
 }
@@ -149,7 +149,7 @@ struct UpdateItem {
 
 /// Fetches the given cached repos, or every one with `all`: `ws cache
 /// update`. Returns each repo's outcome.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn cache_fetch(
     state: State<'_, AppState>,
     ids: Vec<String>,
@@ -193,7 +193,7 @@ struct AddItem {
 
 /// Clones a repo into the cache: `ws cache add`. A repo that's already
 /// cached comes back with `added: false`.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn cache_add(state: State<'_, AppState>, spec: String) -> CmdResult<AddedRepo> {
     add(&state.runner, &spec).await
 }
@@ -215,7 +215,7 @@ struct RemoveItem {
 }
 
 /// Deletes a repo from the cache: `ws cache remove`.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn cache_remove(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     remove(&state.runner, &id).await
 }

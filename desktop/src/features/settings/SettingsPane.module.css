@@ -107,3 +107,23 @@
   font-family: var(--font-mono);
   font-size: 12px;
 }
+
+@media (max-width: 720px) {
+  .root {
+    padding: 16px 14px 24px;
+  }
+
+  .row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .text {
+    width: auto;
+  }
+
+  .control {
+    flex: none;
+    width: 100%;
+  }
+}

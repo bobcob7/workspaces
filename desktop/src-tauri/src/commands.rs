@@ -1,5 +1,7 @@
 //! The commands the frontend invokes.
 
+use crate::ipc::Channel;
+use crate::ipc::State;
 use crate::jobs::{self, JobState};
 use crate::model::{self, ClaudeAgent, Listing, WsList};
 use crate::pty::{TermEvent, TermSpec, Terminals};
@@ -13,8 +15,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::ipc::Channel;
-use tauri::State;
+#[cfg(feature = "desktop")]
 use tauri_plugin_opener::OpenerExt;
 
 pub struct AppState {
@@ -43,6 +44,7 @@ pub(crate) fn now_ms() -> i64 {
 
 /// Lists workspaces and background sessions, and hands the listing to the
 /// tray's watcher (ADR 0050).
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn list_entries(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdResult<Listing> {
     let listing = list(&state.runner, state.jobs_dir.as_deref()).await?;
@@ -95,7 +97,7 @@ struct CacheRepo {
 }
 
 /// The cached repos' ids, for suggesting repo specs.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn cache_repos(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
     let list: CacheList = state.runner.ws_json(&strings(&["cache", "list"])).await?;
     Ok(list.repos.into_iter().map(|r| r.id).collect())
@@ -158,7 +160,7 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
 }
 
 /// Creates a workspace with a background agent in it: `ws claude`.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn create_agent(state: State<'_, AppState>, request: NewAgent) -> CmdResult<Created> {
     state.runner.ws_json(&new_agent_args(&request)).await
 }
@@ -216,7 +218,7 @@ pub fn rm_args(workspace_id: &str, keep_children: bool) -> Vec<&str> {
 /// Removes a workspace, its session, and the workspaces it started
 /// (`ws rm`), or, for a session outside any workspace, deletes the session
 /// (`claude rm`).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn remove_entry(
     state: State<'_, AppState>,
     workspace_id: Option<String>,
@@ -243,7 +245,7 @@ pub struct Renamed {
 
 /// Changes a workspace's display name: `ws rename`. Its id and directory
 /// stay as they are (ADR 0036).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn rename_workspace(
     state: State<'_, AppState>,
     workspace_id: String,
@@ -269,7 +271,7 @@ pub fn set_hidden_args(workspace_id: &str, hidden: bool) -> Vec<String> {
 }
 
 /// Hides or shows a workspace.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn set_workspace_hidden(
     state: State<'_, AppState>,
     workspace_id: String,
@@ -283,6 +285,7 @@ pub async fn set_workspace_hidden(
 
 /// The app's version, and the `ws` and `claude` it runs, for Settings >
 /// About.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn versions(
     app: tauri::AppHandle,
@@ -292,7 +295,7 @@ pub async fn versions(
     Ok(crate::about::versions(&state.runner, crate::about::app_version(&version)).await)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn stop_agent(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
     state
         .runner
@@ -303,12 +306,13 @@ pub async fn stop_agent(state: State<'_, AppState>, session_id: String) -> CmdRe
 
 /// Respawns every stopped agent workspace: `ws restore`. Returns the ids
 /// restored.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn restore_agents(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
     ws_items(&state.runner, &["restore"]).await
 }
 
 /// Opens a URL in the browser, or a directory in the file manager.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn open_external(app: tauri::AppHandle, target: String) -> CmdResult<()> {
     let opener = app.opener();
@@ -322,7 +326,7 @@ pub fn open_external(app: tauri::AppHandle, target: String) -> CmdResult<()> {
 
 /// Reads a background session's conversation from offset on, so the
 /// frontend can follow it by asking again from the `next` it returns.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn read_transcript(
     state: State<'_, AppState>,
     session_id: String,
@@ -332,7 +336,7 @@ pub async fn read_transcript(
         .jobs_dir
         .clone()
         .ok_or_else(|| AppError::new("transcript_missing", "no Claude Code config directory"))?;
-    tauri::async_runtime::spawn_blocking(move || conversation(&jobs_dir, &session_id, offset))
+    tokio::task::spawn_blocking(move || conversation(&jobs_dir, &session_id, offset))
         .await
         .map_err(|e| AppError::new("internal", e.to_string()))?
 }
@@ -355,7 +359,7 @@ fn conversation(jobs_dir: &Path, session_id: &str, offset: u64) -> CmdResult<Chu
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn terminal_open(
     state: State<'_, AppState>,
     spec: TermSpec,
@@ -368,17 +372,17 @@ pub fn terminal_open(
         .open(&spec, state.runner.path(), cols, rows, on_event)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn terminal_write(state: State<'_, AppState>, id: u32, data: String) -> CmdResult<()> {
     state.terminals.write(id, &data)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn terminal_resize(state: State<'_, AppState>, id: u32, cols: u16, rows: u16) -> CmdResult<()> {
     state.terminals.resize(id, cols, rows)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn terminal_close(state: State<'_, AppState>, id: u32) -> CmdResult<()> {
     state.terminals.close(id)
 }

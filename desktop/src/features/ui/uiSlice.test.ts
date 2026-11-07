@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { agentFocused, dialogClosed, dialogOpened, sectionChosen, uiReducer, type UiState } from "./uiSlice";
+import { creatingStarted, loopSelected } from "../loops/loopsSlice";
+import { repoSelected } from "../repos/reposSlice";
+import { reviewSelected } from "../reviews/reviewsSlice";
+import { groupChosen } from "../settings/settingsSlice";
+import { agentFocused, dialogClosed, dialogOpened, narrowBack, sectionChosen, selected, uiReducer, type UiState } from "./uiSlice";
 
 const initial = (): UiState => uiReducer(undefined, { type: "init" });
 
@@ -34,5 +38,47 @@ describe("uiReducer", () => {
   it("forgets the specs when the dialog closes", () => {
     const open = uiReducer(initial(), dialogOpened("agent", ["github.com/o/n"]));
     expect(uiReducer(open, dialogClosed()).dialogSpecs).toEqual([]);
+  });
+
+  it("shows the list pane initially", () => {
+    expect(initial().narrowPane).toBe("list");
+  });
+
+  it("shows the detail pane when an agent is selected", () => {
+    expect(uiReducer(initial(), selected("k")).narrowPane).toBe("detail");
+  });
+
+  it("shows the list pane when the selection is cleared", () => {
+    const state = uiReducer({ ...initial(), narrowPane: "detail" }, selected(null));
+    expect(state.narrowPane).toBe("list");
+  });
+
+  it("shows the list pane when a section is chosen", () => {
+    const state = uiReducer({ ...initial(), narrowPane: "detail" }, sectionChosen("repos"));
+    expect(state.narrowPane).toBe("list");
+  });
+
+  it("returns to the list pane on back", () => {
+    expect(uiReducer({ ...initial(), narrowPane: "detail" }, narrowBack()).narrowPane).toBe("list");
+  });
+
+  it.each([
+    ["repoSelected", repoSelected("r"), "repos/repoSelected", "detail"],
+    ["loopSelected", loopSelected("l"), "loops/loopSelected", "detail"],
+    ["reviewSelected", reviewSelected("p"), "reviews/reviewSelected", "detail"],
+    ["creatingStarted", creatingStarted(), "loops/creatingStarted", "detail"],
+    ["groupChosen", groupChosen("reviews"), "settings/groupChosen", "detail"],
+  ])("shows the detail pane on %s", (_name, action, type, pane) => {
+    expect(action.type).toBe(type);
+    expect(uiReducer(initial(), action).narrowPane).toBe(pane);
+  });
+
+  it.each([
+    ["repoSelected", repoSelected(null), "repos/repoSelected"],
+    ["loopSelected", loopSelected(null), "loops/loopSelected"],
+    ["reviewSelected", reviewSelected(null), "reviews/reviewSelected"],
+  ])("shows the list pane when %s clears the selection", (_name, action, type) => {
+    expect(action.type).toBe(type);
+    expect(uiReducer({ ...initial(), narrowPane: "detail" }, action).narrowPane).toBe("list");
   });
 });

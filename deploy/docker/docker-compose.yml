@@ -1,0 +1,16 @@
+services:
+  ws-online:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: ws-online
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file: .env
+    volumes:
+      - ws-home:/home/ws:z
+      - ws-data:/data:z
+volumes:
+  ws-home:
+  ws-data:

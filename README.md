@@ -31,7 +31,8 @@ code until then, and a shell's workspace is removed when the shell exits.
 Agents learn the tool by running `ws llm`, which tells them to use only
 [`ws machine`](docs/tools/ws-machine.md) (and `ws review`); the other
 commands are for people and the desktop app. A [desktop app](desktop/README.md)
-shows every agent's status, attaches to them, and starts new ones. Common questions, including how to
+shows every agent's status, attaches to them, and starts new ones. [Workspace Online](docs/online.md)
+runs the same app on a server, in Docker, for any browser. Common questions, including how to
 set up Claude Code's folder trust, are in the [Q&A](docs/qa.md).
 
 > **Status:** in progress; see the [roadmap](#roadmap). The commands

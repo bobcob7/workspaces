@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from "react";
 import { useAppDispatch } from "../../store";
 import { useTerminalRegistry } from "./context";
+import { TerminalTools } from "./TerminalTools";
 import { terminalShown } from "./terminalsSlice";
 import styles from "./TerminalView.module.css";
 
@@ -28,5 +29,10 @@ export const TerminalView = ({ terminalKey, generation }: TerminalViewProps): JS
       registry.unmount(terminalKey);
     };
   }, [registry, dispatch, terminalKey, generation]);
-  return <div ref={container} className={styles.root} data-testid="terminal" />;
+  return (
+    <>
+      <TerminalTools terminalKey={terminalKey} generation={generation} />
+      <div ref={container} className={styles.root} data-testid="terminal" />
+    </>
+  );
 };

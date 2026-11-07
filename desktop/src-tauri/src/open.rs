@@ -1,6 +1,7 @@
 //! Opening a workspace in the file manager or an editor (ADR 0051).
 
 use crate::commands::AppState;
+use crate::ipc::State;
 use crate::reviews::store::{OpenSettings, Settings};
 use crate::runner::AppError;
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use tauri::State;
 
 /// Which program opens the workspace. JSON: "fileManager" | "editor".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -364,7 +364,7 @@ pub fn open(
 }
 
 /// Opens a workspace or a repo in the file manager or the editor.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn workspace_open(
     state: State<'_, AppState>,
     with: OpenWith,
@@ -373,7 +373,7 @@ pub async fn workspace_open(
 ) -> Result<Opened, AppError> {
     let settings = state.store.get().settings.open;
     let path_env = state.runner.path().to_string();
-    tauri::async_runtime::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         open(
             &SystemLauncher::default(),
             &path_env,
@@ -388,13 +388,13 @@ pub async fn workspace_open(
 }
 
 /// The platform defaults for the open commands.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn open_defaults() -> OpenSettings {
     defaults()
 }
 
 /// Saves the open commands, trimmed, after checking they split (ADR 0051).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn settings_set_open(
     state: State<'_, AppState>,
     open: OpenSettings,

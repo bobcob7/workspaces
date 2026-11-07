@@ -2,13 +2,20 @@
 //! agents. It runs `ws` and `claude` for everything it does, and reads
 //! Claude Code's job state for detail they don't print.
 
+#![cfg_attr(not(feature = "desktop"), allow(dead_code))]
+#[cfg(all(feature = "desktop", feature = "online"))]
+compile_error!("the desktop and online features can't be enabled together");
+
 mod about;
 mod cache;
 mod commands;
 mod env;
+mod ipc;
 mod jobs;
 mod loops;
 mod model;
+#[cfg(feature = "online")]
+pub mod online;
 mod open;
 mod pty;
 mod reviews;
@@ -16,12 +23,18 @@ mod runner;
 mod transcript;
 mod tray;
 
+#[cfg(feature = "desktop")]
 use commands::AppState;
+#[cfg(feature = "desktop")]
 use reviews::checker::{Checker, Deps};
+#[cfg(feature = "desktop")]
 use reviews::store::{self, Store};
+#[cfg(feature = "desktop")]
 use std::sync::Arc;
+#[cfg(feature = "desktop")]
 use tauri::Manager;
 
+#[cfg(feature = "desktop")]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

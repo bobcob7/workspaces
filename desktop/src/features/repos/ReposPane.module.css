@@ -152,3 +152,20 @@
   margin: 0;
   line-height: 1.5;
 }
+
+@media (max-width: 720px) {
+  .tabs {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .tabs > :last-child {
+    flex: 1 1 100%;
+    width: 100%;
+    margin: 4px 0 0;
+  }
+
+  .workspaces {
+    max-width: none;
+  }
+}

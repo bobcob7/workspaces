@@ -3,7 +3,10 @@ import { useEffect, useState, type JSX, type ReactNode } from "react";
 import type { NotificationSettings, OpenSettings, ReviewSettings } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { models, permissionModes } from "../create/NewAgentDialog";
+import { isWeb } from "../../platform";
+import { BrowserPushRow } from "../../web/BrowserPushRow";
 import { AboutGroup } from "./AboutGroup";
+import { Row } from "./Row";
 import { ReviewerProfiles } from "./ReviewerProfiles";
 import {
   fetchOpenDefaults,
@@ -20,35 +23,6 @@ export const checkIntervals: readonly number[] = [1, 2, 5, 10, 15, 30, 60];
 
 const intervalLabel = (minutes: number): string =>
   minutes === 60 ? "Every hour" : `Every ${minutes} minute${minutes === 1 ? "" : "s"}`;
-
-interface RowProps {
-  readonly label: string;
-  readonly help?: ReactNode;
-  readonly errors: readonly (string | undefined)[];
-  /** The control goes under the text, full width. */
-  readonly wide?: boolean;
-  readonly children: ReactNode;
-}
-
-const Row = ({ label, help, errors, wide = false, children }: RowProps): JSX.Element => {
-  const shown = errors.filter((e) => e !== undefined);
-  return (
-    <div className={wide ? styles.wideRow : styles.row} role="group" aria-label={label}>
-      <div className={wide ? styles.wideText : styles.text}>
-        <span className={styles.label}>{label}</span>
-        {help !== undefined && <span className={styles.help}>{help}</span>}
-      </div>
-      <div className={styles.control}>
-        {children}
-        {shown.length > 0 && (
-          <span className={styles.error} role="alert">
-            {shown[0]}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-};
 
 /** A text setting saved when it loses focus, so typing doesn't save every keystroke. */
 const useDraft = <T,>(value: T): [T, (next: T) => void] => {
@@ -206,7 +180,11 @@ const NotificationsGroup = ({ settings }: { readonly settings: NotificationSetti
       <h1 className={styles.title}>Notifications</h1>
       <Row
         label="Notify me"
-        help="When one of your agents needs input or is done. Children and hidden workspaces never notify."
+        help={
+          isWeb()
+            ? "When one of your agents needs input or is done. These switches apply to every browser."
+            : "When one of your agents needs input or is done. Children and hidden workspaces never notify."
+        }
         errors={[error ?? undefined]}
       >
         <div className={styles.checks}>
@@ -233,6 +211,7 @@ const NotificationsGroup = ({ settings }: { readonly settings: NotificationSetti
           />
         </div>
       </Row>
+      {isWeb() && <BrowserPushRow />}
     </section>
   );
 };

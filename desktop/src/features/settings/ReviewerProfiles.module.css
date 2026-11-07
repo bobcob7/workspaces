@@ -76,3 +76,50 @@
   display: flex;
   gap: 6px;
 }
+
+@media (max-width: 720px) {
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table td {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .table td:not(.name):not(.actions) {
+    flex: 1 1 140px;
+  }
+
+  .table :global(.MuiInputBase-root),
+  .modelId {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .actions {
+    text-align: left;
+  }
+}

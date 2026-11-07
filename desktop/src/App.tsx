@@ -1,4 +1,4 @@
-import { Alert, Button, Snackbar } from "@mui/material";
+import { Alert, Button, Snackbar, SvgIcon } from "@mui/material";
 import { useEffect, type JSX } from "react";
 import { api } from "./api";
 import { AgentsActions } from "./features/agents/AgentsActions";
@@ -30,9 +30,15 @@ import { fetchSettings } from "./features/settings/settingsSlice";
 import { TerminalView } from "./features/terminals/TerminalView";
 import { closeTerminal } from "./features/terminals/terminalsSlice";
 import { followTray } from "./features/ui/tray";
-import { noticeDismissed, sectionChosen, selected, type NoticeAction, type Section } from "./features/ui/uiSlice";
+import { narrowBack, noticeDismissed, sectionChosen, selected, type NoticeAction, type Section } from "./features/ui/uiSlice";
 import { useAppDispatch, useAppSelector } from "./store";
 import styles from "./App.module.css";
+
+const ArrowBackIcon = (): JSX.Element => (
+  <SvgIcon fontSize="small">
+    <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+  </SvgIcon>
+);
 
 /**
  * How often the list is refreshed. Each refresh runs ws list and claude
@@ -166,6 +172,7 @@ export const App = (): JSX.Element => {
   const section = useAppSelector((s) => s.ui.section);
   const attention = useAppSelector((s) => s.agents.entries.filter(needsAttention).length);
   const notice = useAppSelector((s) => s.ui.notice);
+  const narrowPane = useAppSelector((s) => s.ui.narrowPane);
   const view = sectionViews[section] ?? agentsView;
   useEffect(() => {
     const poll = async (): Promise<void> => {
@@ -195,12 +202,17 @@ export const App = (): JSX.Element => {
         <view.actions />
       </header>
       <Warnings section={section} />
-      <div className={styles.body}>
+      <div className={styles.body} data-narrow-pane={narrowPane}>
         <Rail />
         <aside className={styles.sidebar} data-section={section}>
           <view.list />
         </aside>
         <main className={styles.main}>
+          <div className={styles.backBar}>
+            <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => dispatch(narrowBack())}>
+              Back
+            </Button>
+          </div>
           <view.pane />
         </main>
       </div>

@@ -151,6 +151,12 @@ The prompt and the gate script show in scrollable monospace blocks.
 
 The screenshots use sample data.
 
+## Workspace Online
+
+The same backend can run on a server and serve the frontend to a browser
+behind a username and password (`ws-online`, feature `online`). See
+[the operator guide](../docs/online.md).
+
 ## Requirements
 
 - `ws` and Claude Code (2.1.302 or newer) on the PATH your login shell
@@ -195,6 +201,7 @@ src-tauri/src/
   env.rs        # the login shell's PATH
   open.rs       # Open folder and Open in editor: the commands from Settings, launched on that PATH
   reviews/      # Reviews: desktop.json, gh, review names, the checker, auto-review, Ask Claude (ask.rs)
+  online/       # Workspace Online (feature `online`): config, auth, push, dispatch, wire, and the server (ADR 0053)
 src/
   api.ts                    # typed invoke wrappers
   features/rail/            # the section rail and ⌘1–⌘4
@@ -222,6 +229,21 @@ await page.goto("http://localhost:1420");
 
 `window.__TAURI_MOCK__` holds the calls made, the sample data and the
 handlers, which a later init script can change.
+
+For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
+mock. It serves `/api` and a WebSocket from the same handlers, and
+`window.__WEB_MOCK__.authenticated` decides whether the login page shows:
+
+```js
+await page.addInitScript({ path: "test/tauri-mock.js" });
+await page.addInitScript({ path: "test/web-mock.js" });
+await page.addInitScript(() => { window.__WEB_MOCK__.authenticated = false; });
+await page.goto("http://localhost:1420");
+```
+
+Login accepts `me` / `secret`. `window.__WEB_MOCK__.push` sets the push
+state of This browser in Settings › Notifications: `"subscribed"` (the
+default), `"granted"`, `"default"`, `"denied"` or `"unsupported"`.
 
 ## Status
 

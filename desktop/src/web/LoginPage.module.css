@@ -1,0 +1,32 @@
+.root {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 360px;
+  padding: 28px 24px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-raised);
+}
+
+.icon {
+  align-self: center;
+  border-radius: 12px;
+}
+
+.title {
+  margin: 0;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 650;
+}

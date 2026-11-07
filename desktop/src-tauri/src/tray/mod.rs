@@ -2,17 +2,23 @@
 //! need input or are done (ADR 0050).
 
 pub mod attention;
+#[cfg(feature = "desktop")]
 pub mod menu;
 pub mod view;
 pub mod watcher;
 
+#[cfg(feature = "desktop")]
 use crate::commands::AppState;
+#[cfg(feature = "desktop")]
 use tauri::{AppHandle, Manager};
+#[cfg(feature = "desktop")]
 use tauri_plugin_notification::NotificationExt;
+#[cfg(feature = "desktop")]
 use watcher::Observed;
 
 /// Sends the notifications the settings allow for one listing. Native and
 /// thin: verified by cargo build and clippy, and by hand.
+#[cfg(feature = "desktop")]
 pub fn publish(app: &AppHandle, observed: &Observed) {
     let state = app.state::<AppState>();
     let view = view::tray_view(&observed.candidates);

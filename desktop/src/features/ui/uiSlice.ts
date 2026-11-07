@@ -1,5 +1,12 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
+/**
+ * Action types of other slices, matched by string: importing their action
+ * creators would make a cycle, since those slices import from this one.
+ */
+const pickedTypes: readonly string[] = ["repos/repoSelected", "loops/loopSelected", "reviews/reviewSelected"];
+const openedTypes: readonly string[] = ["loops/creatingStarted", "settings/groupChosen"];
+
 export type Dialog = "agent" | "shell";
 
 /** The app's sections, in rail order (ADR 0031). */
@@ -19,6 +26,9 @@ export interface Notice {
   readonly action?: NoticeAction;
 }
 
+/** Which pane shows below the narrow breakpoint: the section's list or the picked item. */
+export type NarrowPane = "list" | "detail";
+
 export interface UiState {
   readonly section: Section;
   readonly selectedKey: string | null;
@@ -27,6 +37,7 @@ export interface UiState {
   readonly dialogSpecs: readonly string[];
   readonly notice: Notice | null;
   readonly agentView: AgentView;
+  readonly narrowPane: NarrowPane;
 }
 
 const initialState: UiState = {
@@ -36,7 +47,10 @@ const initialState: UiState = {
   dialogSpecs: [],
   notice: null,
   agentView: "conversation",
+  narrowPane: "list",
 };
+
+const paneFor = (key: string | null): NarrowPane => (key === null ? "list" : "detail");
 
 const uiSlice = createSlice({
   name: "ui",
@@ -44,9 +58,14 @@ const uiSlice = createSlice({
   reducers: {
     sectionChosen: (state, action: PayloadAction<Section>) => {
       state.section = action.payload;
+      state.narrowPane = "list";
     },
     selected: (state, action: PayloadAction<string | null>) => {
       state.selectedKey = action.payload;
+      state.narrowPane = paneFor(action.payload);
+    },
+    narrowBack: (state) => {
+      state.narrowPane = "list";
     },
     dialogOpened: {
       reducer: (state, action: PayloadAction<{ readonly dialog: Dialog; readonly specs: readonly string[] }>): UiState => ({
@@ -73,13 +92,30 @@ const uiSlice = createSlice({
     agentFocused: (state, action: PayloadAction<string>) => {
       state.section = "agents";
       state.selectedKey = action.payload;
+      state.narrowPane = "detail";
     },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addMatcher(
+        (action) => pickedTypes.includes(action.type),
+        (state, action: PayloadAction<string | null>) => {
+          state.narrowPane = paneFor(action.payload);
+        },
+      )
+      .addMatcher(
+        (action) => openedTypes.includes(action.type),
+        (state) => {
+          state.narrowPane = "detail";
+        },
+      );
   },
 });
 
 export const {
   sectionChosen,
   selected,
+  narrowBack,
   dialogOpened,
   dialogClosed,
   noticeShown,

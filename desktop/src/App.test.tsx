@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { cachedRepo, fakeApi, testStore } from "./test/fixtures";
+import { cachedRepo, entry, fakeApi, testStore } from "./test/fixtures";
 import { renderWithStore } from "./test/render";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -46,5 +46,16 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Reviews/ }));
     expect(await screen.findByText("#42 Add rate limiting to login")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Watched repos" })).toBeInTheDocument();
+  });
+
+  it("shows one pane at a time on a narrow screen", async () => {
+    const api = fakeApi({ listEntries: vi.fn(async () => ({ entries: [entry()], warnings: [] })) });
+    const { container } = renderWithStore(<App />, testStore({ api }));
+    const body = (): Element | null => container.querySelector("[data-narrow-pane]");
+    expect(body()).toHaveAttribute("data-narrow-pane", "list");
+    await userEvent.click(await screen.findByRole("button", { name: /fix-login/ }));
+    expect(body()).toHaveAttribute("data-narrow-pane", "detail");
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(body()).toHaveAttribute("data-narrow-pane", "list");
   });
 });

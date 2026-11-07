@@ -16,6 +16,7 @@ pub mod store;
 pub mod view;
 
 use crate::commands::AppState;
+use crate::ipc::State;
 use crate::runner::AppError;
 use checker::Started;
 use comment::{CommentPlan, PostRequest, Posted};
@@ -26,7 +27,9 @@ use report::DecideRequest;
 use serde::Serialize;
 use serde_json::Value;
 use store::{NotificationSettings, PrHead, RepoWatch, ReviewSettings, Settings};
-use tauri::{Manager, State};
+#[cfg(feature = "desktop")]
+use tauri::Manager;
+#[cfg(feature = "desktop")]
 use tauri_plugin_opener::OpenerExt;
 use view::ReviewsView;
 
@@ -36,19 +39,19 @@ fn view(state: &AppState) -> ReviewsView {
     state.reviews.view(&state.store)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn reviews_view(state: State<'_, AppState>) -> ReviewsView {
     view(&state)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn reviews_check_now(state: State<'_, AppState>) -> ReviewsView {
     state.reviews.check_now();
     view(&state)
 }
 
 /// Re-reads the cached repos for the Watched repos dialog.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_load_repos(state: State<'_, AppState>) -> CmdResult<ReviewsView> {
     state.reviews.load_cached(&state.runner).await?;
     Ok(view(&state))
@@ -56,7 +59,7 @@ pub async fn reviews_load_repos(state: State<'_, AppState>) -> CmdResult<Reviews
 
 /// Sets a repo's Watch and Auto-review switches. Newly watching a repo
 /// checks it at once.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn reviews_set_watch(
     state: State<'_, AppState>,
     repo: String,
@@ -73,7 +76,7 @@ pub fn reviews_set_watch(
     Ok(view(&state))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn reviews_dismiss(
     state: State<'_, AppState>,
     repo: String,
@@ -86,7 +89,7 @@ pub fn reviews_dismiss(
     Ok(view(&state))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn reviews_restore(
     state: State<'_, AppState>,
     repo: String,
@@ -97,7 +100,7 @@ pub fn reviews_restore(
 }
 
 /// What reviewing the pull request would run, with the Settings defaults.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_plan(
     state: State<'_, AppState>,
     repo: String,
@@ -115,7 +118,7 @@ pub async fn reviews_plan(
 
 /// Starts, or finds, a read-only agent that answers questions about the
 /// pull request (ADR 0051).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_ask(
     state: State<'_, AppState>,
     repo: String,
@@ -141,13 +144,13 @@ pub async fn reviews_ask(
 }
 
 /// Every reviewer profile `ws review profiles` lists, for Settings.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_profiles(state: State<'_, AppState>) -> CmdResult<Vec<ListedProfile>> {
     profiles::list(&state.runner).await
 }
 
 /// One profile with its guide (`ws review profiles show`), for the editor.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_profile_show(
     state: State<'_, AppState>,
     name: String,
@@ -157,7 +160,7 @@ pub async fn reviews_profile_show(
 
 /// Adds a profile (`ws review profiles add`); the draft's Runs is its
 /// `--when` (ADR 0042).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_profile_add(
     state: State<'_, AppState>,
     name: String,
@@ -168,7 +171,7 @@ pub async fn reviews_profile_add(
 
 /// Changes the draft's fields of a profile (`ws review profiles edit`). A
 /// built-in becomes an override.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_profile_edit(
     state: State<'_, AppState>,
     name: String,
@@ -186,7 +189,7 @@ pub struct ProfileRemoved {
 
 /// Removes a profile's file (`ws review profiles rm`). A profile that's
 /// gone for good loses its Settings row; a restored built-in keeps it.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_profile_remove(
     state: State<'_, AppState>,
     name: String,
@@ -207,14 +210,14 @@ pub async fn reviews_profile_remove(
 
 /// Starts a review by hand (`ws review start`). Starting one that already
 /// exists isn't an error.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_start(state: State<'_, AppState>, plan: ReviewPlan) -> CmdResult<Started> {
     state.reviews.start_review(&state.runner, &plan).await
 }
 
 /// A review's report (`ws review report --json`), from the session's cache
 /// unless `refresh` asks to read it again (ADR 0040).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn review_report(
     state: State<'_, AppState>,
     repo: String,
@@ -226,7 +229,7 @@ pub async fn review_report(
 
 /// Decides one or more findings in one `ws review decide`, and returns the
 /// report with the new decisions.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn review_decide(
     state: State<'_, AppState>,
     repo: String,
@@ -238,6 +241,7 @@ pub async fn review_decide(
 
 /// Writes `ws review report --format html` to the app's cache directory and
 /// opens it in the browser.
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn review_open_report(
     app: tauri::AppHandle,
@@ -258,7 +262,7 @@ pub async fn review_open_report(
 
 /// What posting the findings decided `comment` would post, for the preview
 /// (ADR 0041). Nothing is posted.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn review_comment_plan(
     state: State<'_, AppState>,
     repo: String,
@@ -286,7 +290,7 @@ pub async fn review_comment_plan(
 
 /// Posts the review the person confirmed in the preview, as one GitHub
 /// review, and records the findings as commented.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn review_comment_post(
     state: State<'_, AppState>,
     repo: String,
@@ -297,7 +301,7 @@ pub async fn review_comment_post(
 }
 
 /// Whom the findings decided `fix` would go to, and the message.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn review_fix_plan(
     state: State<'_, AppState>,
     repo: String,
@@ -322,7 +326,7 @@ pub async fn review_fix_plan(
 
 /// Starts a fix agent with the message, and records the findings as sent
 /// to it.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn review_fix_start(
     state: State<'_, AppState>,
     repo: String,
@@ -347,7 +351,7 @@ pub async fn review_fix_start(
 
 /// Records findings as sent to an agent to fix, once the app has typed the
 /// message into its terminal.
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn review_fix_sent(
     state: State<'_, AppState>,
     repo: String,
@@ -366,12 +370,12 @@ pub async fn review_fix_sent(
     .await
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn settings_get(state: State<'_, AppState>) -> Settings {
     state.store.get().settings
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn settings_set_reviews(
     state: State<'_, AppState>,
     reviews: ReviewSettings,
@@ -385,7 +389,7 @@ pub fn settings_set_reviews(
 }
 
 /// Saves the Notifications settings group (ADR 0050).
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn settings_set_notifications(
     state: State<'_, AppState>,
     notifications: NotificationSettings,
