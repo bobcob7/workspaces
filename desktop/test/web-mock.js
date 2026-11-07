@@ -20,10 +20,28 @@
       ? error
       : { code: "internal", message: error?.message ?? String(error) };
 
+  let socket = null;
+  const oauthUrl =
+    "https://claude.ai/oauth/authorize?code=true&client_id=abc&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback";
+
+  // terminal_open's channel gets one line holding an OAuth URL, as `/mcp` prints.
+  const emitTerminalLine = (body) => {
+    const channel = Object.values(body).find(isChannel);
+    if (channel === undefined) {
+      return;
+    }
+    const data = `Open this URL to sign in:\r\n${oauthUrl}\r\n`;
+    setTimeout(() => socket?.emit({ type: "channel", id: channel.__channel, payload: { event: "data", data } }), 20);
+  };
+
   const invokeRoute = async (command, body) => {
     window.__WEB_MOCK__.calls.push({ command, args: body });
     try {
-      return json(200, await invokeCommand(command, withoutChannels(body)));
+      const value = await invokeCommand(command, withoutChannels(body));
+      if (command === "terminal_open") {
+        emitTerminalLine(body);
+      }
+      return json(200, value);
     } catch (error) {
       return json(422, asAppError(error));
     }
@@ -85,6 +103,7 @@
       this.onopen = null;
       this.onmessage = null;
       this.onclose = null;
+      socket = this;
       setTimeout(() => {
         this.readyState = 1;
         this.onopen?.(new Event("open"));

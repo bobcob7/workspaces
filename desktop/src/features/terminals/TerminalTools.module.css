@@ -1,0 +1,43 @@
+.root {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #14161c;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.root .tool,
+.link .tool {
+  min-height: 32px;
+}
+
+.links {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.url {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.mono {
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .root .tool,
+  .link .tool {
+    min-height: 40px;
+  }
+}
