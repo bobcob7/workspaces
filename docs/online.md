@@ -19,7 +19,7 @@ $ docker run -d --name ws-online -p 8080:8080 \
     -e WS_ONLINE_PASSWORD='a long passphrase' \
     -e CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-…' \
     -e GH_TOKEN='ghp_…' \
-    -v ws-home:/home/ws -v ws-data:/data \
+    -v ws-home:/home/ws:z -v ws-data:/data:z \
     ws-online
 ```
 
@@ -80,6 +80,14 @@ The image runs as user `ws`, uid 1000. Named volumes get the right owner
 automatically; for bind mounts, `chown -R 1000:1000` the host
 directories first.
 
+The `:z` suffix on the mounts above is for SELinux hosts (Fedora, RHEL).
+Without it, a container started on an existing volume can get
+`Permission denied` on `/home/ws`: the first container labels the volume
+with its own SELinux categories, and a container recreated by
+`docker compose up` after an upgrade gets different ones. `:z` gives the
+volume a shared label; it is ignored on hosts without SELinux. For bind
+mounts on SELinux, use `:z` as well.
+
 On first start the entrypoint copies Claude Code into the home volume
 if `~/.local/bin/claude` isn't there, marks Claude Code's onboarding as
 done, and trusts `/data/ws/workspaces` in `~/.claude.json`, so agents
@@ -102,8 +110,8 @@ services:
       - "127.0.0.1:8080:8080"
     env_file: .env
     volumes:
-      - ws-home:/home/ws
-      - ws-data:/data
+      - ws-home:/home/ws:z
+      - ws-data:/data:z
 volumes:
   ws-home:
   ws-data:

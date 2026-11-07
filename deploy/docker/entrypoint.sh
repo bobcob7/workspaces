@@ -27,6 +27,10 @@ seed_home() {
 mark_onboarded() {
   local file="$HOME/.claude.json" tmp
   [[ -s "$file" ]] || echo '{}' > "$file"
+  jq -e . "$file" >/dev/null 2>&1 || {
+    echo "ws-online-entrypoint: ~/.claude.json is not valid JSON" >&2
+    exit 1
+  }
   tmp="$(mktemp "$file.XXXXXX")"
   jq --arg dir "$WS_CONFIG_DIR/workspaces" \
     '.hasCompletedOnboarding = true | .projects[$dir].hasTrustDialogAccepted = true' \
