@@ -4,7 +4,7 @@
 (() => {
   const invokeCommand = window.__TAURI_INTERNALS__.invoke;
   delete window.__TAURI_INTERNALS__;
-  window.__WEB_MOCK__ = { authenticated: true, username: "me", calls: [] };
+  window.__WEB_MOCK__ = { authenticated: true, username: "me", calls: [], push: "subscribed" };
   const realFetch = window.fetch.bind(window);
   const vapidKey = "BMockWebPushPublicKey0000000000000000000000000000000000000000000000000000000000000000000000";
 
@@ -43,6 +43,12 @@
     }
     if (path === "/api/push/unsubscribe") {
       return noContent();
+    }
+    if (path === "/api/push/subscribe") {
+      return json(200, { id: "mock" });
+    }
+    if (path === "/api/push/test") {
+      return json(200, { sent: 2, failed: 0 });
     }
     return json(200, {});
   };
@@ -104,4 +110,63 @@
   }
 
   window.WebSocket = MockWebSocket;
+
+  // Push state is window.__WEB_MOCK__.push: "subscribed" (default), "granted", "default",
+  // "denied" or "unsupported" (which removes the APIs). Read at call time.
+  const pushMode = () => window.__WEB_MOCK__.push;
+  const permission = () => (pushMode() === "denied" ? "denied" : pushMode() === "default" ? "default" : "granted");
+  const whenSupported = (value) => () => (pushMode() === "unsupported" ? undefined : value);
+
+  const subscription = {
+    endpoint: "https://push.mock.test/subscription",
+    expirationTime: null,
+    keys: { p256dh: "mock-p256dh", auth: "mock-auth" },
+    toJSON() {
+      return { endpoint: this.endpoint, expirationTime: null, keys: this.keys };
+    },
+    async unsubscribe() {
+      if (pushMode() === "subscribed") {
+        window.__WEB_MOCK__.push = "granted";
+      }
+      return true;
+    },
+  };
+
+  const registration = {
+    pushManager: {
+      getSubscription: async () => (pushMode() === "subscribed" ? subscription : null),
+      subscribe: async () => {
+        window.__WEB_MOCK__.push = "subscribed";
+        return subscription;
+      },
+    },
+    showNotification: async () => undefined,
+  };
+
+  const serviceWorker = {
+    register: async () => registration,
+    getRegistration: async () => registration,
+    ready: Promise.resolve(registration),
+    addEventListener() {},
+    removeEventListener() {},
+  };
+
+  class MockNotification {
+    static get permission() {
+      return permission();
+    }
+
+    static requestPermission() {
+      if (pushMode() === "default") {
+        window.__WEB_MOCK__.push = "granted";
+      }
+      return Promise.resolve(permission());
+    }
+  }
+
+  class MockPushManager {}
+
+  Object.defineProperty(Navigator.prototype, "serviceWorker", { configurable: true, get: whenSupported(serviceWorker) });
+  Object.defineProperty(window, "Notification", { configurable: true, get: whenSupported(MockNotification) });
+  Object.defineProperty(window, "PushManager", { configurable: true, get: whenSupported(MockPushManager) });
 })();

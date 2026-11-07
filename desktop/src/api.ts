@@ -698,6 +698,36 @@ const call = async <T>(command: string, args?: Record<string, unknown>): Promise
   }
 };
 
+const selectedKey = (data: unknown): string | null => {
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+  const message = data as { readonly type?: unknown; readonly key?: unknown };
+  return message.type === "select" && typeof message.key === "string" ? message.key : null;
+};
+
+/** Agent choices in web mode: a ?agent= link on load (once) and notification clicks from the service worker. */
+const webTraySelect = (handler: (key: string) => void): (() => void) => {
+  const url = new URL(location.href);
+  const agent = url.searchParams.get("agent");
+  if (agent !== null) {
+    url.searchParams.delete("agent");
+    history.replaceState(null, "", url);
+    handler(agent);
+  }
+  if (navigator.serviceWorker === undefined) {
+    return () => undefined;
+  }
+  const onMessage = (event: MessageEvent<unknown>): void => {
+    const key = selectedKey(event.data);
+    if (key !== null) {
+      handler(key);
+    }
+  };
+  navigator.serviceWorker.addEventListener("message", onMessage);
+  return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+};
+
 export const api = {
   listEntries: async (): Promise<Listing> => call<Listing>("list_entries"),
   cacheRepos: async (): Promise<readonly string[]> => call<string[]>("cache_repos"),
@@ -804,7 +834,7 @@ export const api = {
   /** Calls handler with the agent's key each time the tray menu selects one; resolves to an unsubscribe. */
   onTraySelect: async (handler: (key: string) => void): Promise<() => void> => {
     if (isWeb()) {
-      return () => undefined;
+      return webTraySelect(handler);
     }
     return transport().listen<{ readonly key: string }>("tray-select", (payload) => handler(payload.key));
   },

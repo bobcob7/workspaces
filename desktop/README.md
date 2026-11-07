@@ -234,7 +234,9 @@ await page.addInitScript(() => { window.__WEB_MOCK__.authenticated = false; });
 await page.goto("http://localhost:1420");
 ```
 
-Login accepts `me` / `secret`.
+Login accepts `me` / `secret`. `window.__WEB_MOCK__.push` sets the push
+state of This browser in Settings › Notifications: `"subscribed"` (the
+default), `"granted"`, `"default"`, `"denied"` or `"unsupported"`.
 
 ## Status
 
