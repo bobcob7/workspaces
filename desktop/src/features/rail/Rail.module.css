@@ -85,3 +85,26 @@
 .spacer {
   flex: 1;
 }
+
+@media (max-width: 720px) {
+  .root {
+    order: 2;
+    width: auto;
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 4px 6px;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .item {
+    width: auto;
+    flex: 1;
+    max-width: 72px;
+    padding: 6px 0;
+  }
+
+  .spacer {
+    display: none;
+  }
+}

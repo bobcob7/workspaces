@@ -1,8 +1,11 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import { creatingStarted, loopSelected } from "../loops/loopsSlice";
-import { repoSelected } from "../repos/reposSlice";
-import { reviewSelected } from "../reviews/reviewsSlice";
-import { groupChosen } from "../settings/settingsSlice";
+
+/**
+ * Action types of other slices, matched by string: importing their action
+ * creators would make a cycle, since those slices import from this one.
+ */
+const pickedTypes: readonly string[] = ["repos/repoSelected", "loops/loopSelected", "reviews/reviewSelected"];
+const openedTypes: readonly string[] = ["loops/creatingStarted", "settings/groupChosen"];
 
 export type Dialog = "agent" | "shell";
 
@@ -94,21 +97,18 @@ const uiSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(repoSelected, (state, action) => {
-        state.narrowPane = paneFor(action.payload);
-      })
-      .addCase(loopSelected, (state, action) => {
-        state.narrowPane = paneFor(action.payload);
-      })
-      .addCase(reviewSelected, (state, action) => {
-        state.narrowPane = paneFor(action.payload);
-      })
-      .addCase(creatingStarted, (state) => {
-        state.narrowPane = "detail";
-      })
-      .addCase(groupChosen, (state) => {
-        state.narrowPane = "detail";
-      });
+      .addMatcher(
+        (action) => pickedTypes.includes(action.type),
+        (state, action: PayloadAction<string | null>) => {
+          state.narrowPane = paneFor(action.payload);
+        },
+      )
+      .addMatcher(
+        (action) => openedTypes.includes(action.type),
+        (state) => {
+          state.narrowPane = "detail";
+        },
+      );
   },
 });
 
