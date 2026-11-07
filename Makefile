@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
-.PHONY: build test lint fmt generate dist clean desktop desktop-dev desktop-test
+.PHONY: build test lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN)/ws ./cmd/ws
@@ -54,6 +54,17 @@ desktop-test:
 	cd desktop && npm ci && npm run typecheck && npm test
 	cd desktop/src-tauri && cargo test && cargo clippy --all-targets -- -D warnings
 	cd desktop/src-tauri && cargo test --no-default-features --features online && cargo clippy --no-default-features --features online --all-targets -- -D warnings
+
+# Workspace Online (ADR 0053): the server binary and the frontend, or the image.
+online:
+	cd desktop && npm ci && npm run build
+	cd desktop/src-tauri && cargo build --release --no-default-features --features online --bin ws-online
+
+online-image:
+	docker build -f deploy/docker/Dockerfile --build-arg VERSION=$(VERSION) -t ws-online .
+
+online-smoke: online-image
+	deploy/docker/smoke-test.sh ws-online
 
 clean:
 	rm -rf $(BIN) dist
