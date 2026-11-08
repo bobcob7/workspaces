@@ -9,7 +9,7 @@ use crate::open;
 use crate::pty::TermSpec;
 use crate::reviews;
 use crate::runner::AppError;
-use crate::{cache, loops};
+use crate::{cache, loops, ws_config};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -45,6 +45,8 @@ pub struct Ctx {
     pub reports_dir: PathBuf,
     /// Called with each listing `list_entries` returns (the notifier).
     pub on_listing: OnListing,
+    /// Workspace Online's settings for Settings › About.
+    pub online: Option<about::OnlineSettings>,
 }
 
 /// Why a command didn't run, or how it failed.
@@ -132,6 +134,11 @@ pub const COMMANDS: &[&str] = &[
     "workspace_open",
     "open_defaults",
     "settings_set_open",
+    "config_list",
+    "config_set",
+    "config_unset",
+    "cache_search",
+    "settings_environment",
     "loops_list",
     "loops_add",
     "loops_edit",
@@ -381,6 +388,20 @@ pub async fn dispatch(
             let settings = args!(args, { open: reviews::store::OpenSettings });
             result(open::settings_set_open(State::new(&ctx.state), settings))
         }
+        "config_list" => result(ws_config::config_list(State::new(&ctx.state)).await),
+        "config_set" => {
+            let (key, values) = args!(args, { key: String, values: Vec<String> });
+            result(ws_config::config_set(State::new(&ctx.state), key, values).await)
+        }
+        "config_unset" => {
+            let key = args!(args, { key: String });
+            result(ws_config::config_unset(State::new(&ctx.state), key).await)
+        }
+        "cache_search" => {
+            let (query, refs, limit) = args!(args, { query: String, refs: bool, limit: u32 });
+            result(cache::cache_search(State::new(&ctx.state), query, refs, limit).await)
+        }
+        "settings_environment" => json(about::environment(&ctx.state, ctx.online.clone())),
         "loops_list" => result(loops::loops_list(State::new(&ctx.state)).await),
         "loops_add" => {
             let request = args!(args, { request: loops::NewLoop });
@@ -511,6 +532,7 @@ mod tests {
             state,
             reports_dir: reports.path().to_path_buf(),
             on_listing,
+            online: None,
         };
         (programs, ctx)
     }
@@ -617,6 +639,28 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(value, serde_json::to_value(open::open_defaults()).unwrap());
+    }
+
+    #[tokio::test]
+    async fn settings_environment_includes_online() {
+        let (_dir, mut ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        ctx.online = Some(about::OnlineSettings {
+            username: "me".into(),
+            addr: "0.0.0.0:8080".into(),
+            public_url: None,
+            secure_cookie: false,
+            session_days: 30,
+            trust_proxy: false,
+            data_dir: "/data".into(),
+            web_dir: "/app".into(),
+            vapid_subject: "mailto:me@example.com".into(),
+            password: "hash",
+        });
+        let value = dispatch(&ctx, "settings_environment", Value::Null, None)
+            .await
+            .unwrap();
+        assert_eq!(value["online"]["username"], "me");
+        assert_eq!(value["online"]["password"], "hash");
     }
 
     #[tokio::test]

@@ -211,6 +211,17 @@
     ],
     settings: defaultSettings(),
     openDefaults: { fileManager: "open", editor: "code" },
+    config: {
+      path: "/Users/me/Library/Application Support/workspaces/config.toml",
+      settings: [
+        { key: "defaults.host", type: "string", value: "github.com", default: "github.com", set: true },
+        { key: "defaults.owners", type: "strings", value: ["bobcob7", "acme"], default: [], set: true },
+        { key: "review.timeout", type: "duration", value: "1h", default: "60m", set: false },
+        { key: "review.remove_finished", type: "bool", value: true, default: true, set: false },
+        { key: "review.profiles.security.when", type: "string", value: "", default: "", set: false },
+        { key: "review.profiles.security.model", type: "string", value: "opus", default: "", set: true },
+      ],
+    },
     versions: {
       app: { version: "0.1.0", commit: "v0.3.0-4-gdc313a2" },
       ws: { version: "v0.3.0-4-gdc313a2", path: "/usr/local/bin/ws", error: null },
@@ -282,6 +293,64 @@
     already: false,
   });
 
+  const cachedRepoIds = [buffBear, api, workspaces, "github.com/acme/api"];
+
+  const configKinds = {
+    "defaults.host": "string",
+    "defaults.owners": "strings",
+    "review.timeout": "duration",
+    "review.remove_finished": "bool",
+  };
+  const profileKey = /^review\.profiles\.[^.]+\.(when|model)$/;
+
+  const isConfigKey = (key) => key in configKinds || profileKey.test(key);
+
+  const unknownConfigKey = (key) => ({ code: "config_key_unknown", message: "unknown config key " + key });
+
+  // A profile's two rows appear together, as ws config set adds them.
+  const withProfileRows = (key, settings) => {
+    const name = key.split(".")[2];
+    const missing = [`review.profiles.${name}.when`, `review.profiles.${name}.model`]
+      .filter((rowKey) => !settings.some((setting) => setting.key === rowKey))
+      .map((rowKey) => ({ key: rowKey, type: "string", value: "", default: "", set: false }));
+    return [...settings, ...missing];
+  };
+
+  const configValue = (key, values) => {
+    switch (configKinds[key] ?? "string") {
+      case "strings":
+        return values.map((value) => value.toLowerCase());
+      case "bool":
+        return values[0] === "true";
+      case "duration":
+        return values[0] === "90m" ? "1h30m" : values[0];
+      default:
+        return key === "defaults.host" ? values[0].toLowerCase() : values[0];
+    }
+  };
+
+  const replaceSetting = (updated) => {
+    data.config = {
+      ...data.config,
+      settings: data.config.settings.map((setting) => (setting.key === updated.key ? updated : setting)),
+    };
+  };
+
+  const searchCache = ({ query, refs, limit }) => {
+    const needle = query.trim().toLowerCase();
+    if (needle === "") {
+      return [];
+    }
+    const found = cachedRepoIds.flatMap((id) => {
+      if (!id.toLowerCase().includes(needle)) {
+        return [];
+      }
+      const repoMatch = { id, ref: null };
+      return refs && id === buffBear ? [repoMatch, { id, ref: "feat/rate-limit" }] : [repoMatch];
+    });
+    return found.slice(0, limit);
+  };
+
   Object.assign(mock.handlers, {
     list_entries: () => ({ entries: data.entries, warnings: [] }),
     cache_repos: () => [buffBear, api, workspaces],
@@ -300,6 +369,20 @@
         { name: "feat/rate-limit", kind: "branch", commit: head.slice(0, 12), subject: "Add rate limiting", author: "alice", date: "2026-10-24T09:00:00Z" },
       ],
     }),
+    cache_search: searchCache,
+    cache_resolve: ({ spec }) => {
+      if (spec === "api") {
+        throw {
+          code: "repo_ambiguous",
+          message: "api matches 2 cached repos",
+          details: { candidates: ["github.com/bobcob7/api", "github.com/acme/api"] },
+        };
+      }
+      if (spec === "buff-bear") {
+        return { id: buffBear, ref: null, upstream: `https://${buffBear}.git`, cached: true, source: "cache" };
+      }
+      return { id: `github.com/bobcob7/${spec}`, ref: null, upstream: `https://github.com/bobcob7/${spec}.git`, cached: false, source: "probe" };
+    },
     reviews_view: reviewsView,
     reviews_check_now: reviewsView,
     reviews_load_repos: reviewsView,
@@ -336,6 +419,37 @@
       return data.settings;
     },
     open_defaults: () => data.openDefaults,
+    config_list: () => data.config,
+    config_set: ({ key, values }) => {
+      if (!isConfigKey(key)) {
+        throw unknownConfigKey(key);
+      }
+      if (key === "defaults.host" && /[/:@ ]/.test(values[0] ?? "")) {
+        throw { code: "config_value_invalid", message: `${values[0]} isn't a valid host` };
+      }
+      const settings = profileKey.test(key) ? withProfileRows(key, data.config.settings) : data.config.settings;
+      data.config = { ...data.config, settings };
+      const current = settings.find((setting) => setting.key === key);
+      const updated = { ...current, value: configValue(key, values), set: true };
+      replaceSetting(updated);
+      return { path: data.config.path, setting: updated, changed: true };
+    },
+    config_unset: ({ key }) => {
+      const current = data.config.settings.find((setting) => setting.key === key);
+      if (current === undefined) {
+        throw unknownConfigKey(key);
+      }
+      const updated = { ...current, value: current.default, set: false };
+      replaceSetting(updated);
+      return { path: data.config.path, setting: updated, changed: current.set };
+    },
+    settings_environment: () => ({
+      stateFile: "/Users/me/Library/Application Support/com.bobcob7.workspaces/desktop.json",
+      wsConfigDir: null,
+      claudeConfigDir: null,
+      path: "/opt/homebrew/bin:/usr/bin:/bin",
+      online: null,
+    }),
     versions: () => data.versions,
     loops_list: () => ({ loops: data.loops, warnings: [] }),
     loops_add: ({ request }) => {

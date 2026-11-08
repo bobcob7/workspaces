@@ -103,6 +103,54 @@ async fn resolve(runner: &Runner, spec: &str) -> CmdResult<Resolution> {
         .ok_or_else(|| AppError::new("unexpected_output", "ws cache resolve printed no repo"))
 }
 
+/// A `ws cache search` match: a repo, or a branch or tag of one.
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct SearchMatch {
+    pub id: String,
+    #[serde(rename = "ref")]
+    pub reference: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Matches {
+    matches: Vec<SearchMatch>,
+}
+
+/// Searches cached repos (and refs with `refs`) for Settings › Repos › Try a spec.
+/// A blank query finds nothing and doesn't run `ws`.
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn cache_search(
+    state: State<'_, AppState>,
+    query: String,
+    refs: bool,
+    limit: u32,
+) -> CmdResult<Vec<SearchMatch>> {
+    search(&state.runner, &query, refs, limit).await
+}
+
+async fn search(
+    runner: &Runner,
+    query: &str,
+    refs: bool,
+    limit: u32,
+) -> CmdResult<Vec<SearchMatch>> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut args = vec![
+        "cache".to_string(),
+        "search".to_string(),
+        format!("--limit={limit}"),
+    ];
+    if refs {
+        args.push("--refs".to_string());
+    }
+    args.push("--".to_string());
+    args.push(query.to_string());
+    let found: Matches = runner.ws_json(&args).await?;
+    Ok(found.matches)
+}
+
 /// One repo's outcome in a multi-repo `ws cache` command.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct RepoResult {
@@ -339,6 +387,36 @@ mod tests {
         );
         let err = fetch(&runner, &["x".to_string()], false).await.unwrap_err();
         assert_eq!(err.code, "repo_not_found");
+    }
+
+    #[tokio::test]
+    async fn search_passes_limit_and_refs() {
+        let (dir, runner) = fake_ws(
+            r#"echo '{"matches":[{"id":"github.com/o/bear","ref":null},{"id":"github.com/o/bear","ref":"main"}],"warnings":[]}'"#,
+        );
+        let found = search(&runner, "bear", true, 8).await.unwrap();
+        assert_eq!(args(&dir), "cache --json search --limit=8 --refs -- bear");
+        assert_eq!(
+            found,
+            [
+                SearchMatch {
+                    id: "github.com/o/bear".into(),
+                    reference: None
+                },
+                SearchMatch {
+                    id: "github.com/o/bear".into(),
+                    reference: Some("main".into())
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn blank_search_returns_nothing_without_running_ws() {
+        let (dir, runner) = fake_ws(r#"echo '{"matches":[],"warnings":[]}'"#);
+        let found = search(&runner, "  ", false, 8).await.unwrap();
+        assert!(found.is_empty());
+        assert!(!dir.path().join("args").exists());
     }
 
     #[tokio::test]
