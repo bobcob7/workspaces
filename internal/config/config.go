@@ -19,7 +19,7 @@ const defaultHost = "github.com"
 
 // defaultFile is written when config.toml is missing. It must parse to
 // Default().
-const defaultFile = `# ws configuration. ws writes this file once and never overwrites it.
+const defaultFile = `# ws configuration. Edit it by hand, or with ws config set; ws keeps your comments.
 
 [defaults]
 # Host for repo specs without one, such as "owner/name".
