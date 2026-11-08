@@ -1,21 +1,27 @@
-import { Alert, Checkbox, CircularProgress, FormControlLabel, MenuItem, TextField } from "@mui/material";
+import { Alert, Button, Checkbox, CircularProgress, FormControlLabel, MenuItem, TextField } from "@mui/material";
 import { useEffect, useState, type JSX, type ReactNode } from "react";
-import type { NotificationSettings, OpenSettings, ReviewSettings } from "../../api";
+import type { ListedProfile, NotificationSettings, OpenSettings, ReviewSettings, Runs } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { models, permissionModes } from "../create/NewAgentDialog";
 import { isWeb } from "../../platform";
 import { BrowserPushRow } from "../../web/BrowserPushRow";
 import { AboutGroup } from "./AboutGroup";
+import { ConfigSource } from "./ConfigSource";
 import { Row } from "./Row";
 import { RepoGroup } from "./RepoGroup";
-import { ReviewerProfiles } from "./ReviewerProfiles";
+import { profileKeys, ReviewerProfiles, setProfileKeys } from "./ReviewerProfiles";
 import {
+  fetchConfig,
   fetchOpenDefaults,
   fetchProfiles,
   fetchSettings,
+  moveProfileOverrides,
   saveNotificationSettings,
   saveOpenSettings,
   saveReviewSettings,
+  setConfig,
+  settingOf,
+  unsetConfig,
   type ReviewSettingKey,
 } from "./settingsSlice";
 import styles from "./SettingsPane.module.css";
@@ -32,15 +38,59 @@ const useDraft = <T,>(value: T): [T, (next: T) => void] => {
   return [draft, setDraft];
 };
 
+const reviewTimeouts: readonly { readonly value: string; readonly label: string }[] = [
+  { value: "15m", label: "15 minutes" },
+  { value: "30m", label: "30 minutes" },
+  { value: "1h", label: "1 hour" },
+  { value: "1h30m", label: "1½ hours" },
+  { value: "2h", label: "2 hours" },
+  { value: "4h", label: "4 hours" },
+];
+
+/** The wait timeouts, with the current value added when it isn't one of them. */
+const timeoutOptions = (current: string): readonly { readonly value: string; readonly label: string }[] =>
+  current === "" || reviewTimeouts.some((option) => option.value === current)
+    ? reviewTimeouts
+    : [...reviewTimeouts, { value: current, label: current }];
+
+interface ProfileRowChange {
+  readonly runs?: Runs;
+  readonly model?: string;
+}
+
+/** Saves a legacy desktop.json profile override as config.toml keys, then clears them (ADR 0054). */
+const LegacyProfileOverrides = ({ count }: { readonly count: number }): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const [failure, setFailure] = useState<string | null>(null);
+  const move = (): void => {
+    void dispatch(moveProfileOverrides()).then((result) => {
+      setFailure(moveProfileOverrides.rejected.match(result) ? (result.payload?.message ?? result.error.message ?? "moving failed") : null);
+    });
+  };
+  return (
+    <Alert severity="info" action={<Button size="small" onClick={move}>Move to ws config</Button>}>
+      This app still overrides {count} profile(s) for the reviews it starts. Move them to config.toml so the command line uses them too.
+      {failure !== null && <div>{failure}</div>}
+    </Alert>
+  );
+};
+
 const ReviewsGroup = ({ settings }: { readonly settings: ReviewSettings }): JSX.Element => {
   const dispatch = useAppDispatch();
   const errors = useAppSelector((s) => s.settings.fieldErrors);
   const profiles = useAppSelector((s) => s.settings.profiles);
   const profilesError = useAppSelector((s) => s.settings.profilesError);
+  const config = useAppSelector((s) => s.settings.config);
+  const configErrors = useAppSelector((s) => s.settings.configErrors);
   const [max, setMax] = useDraft(String(settings.maxAutoReviews));
   useEffect(() => {
     void dispatch(fetchProfiles());
   }, [dispatch]);
+  useEffect(() => {
+    if (config === null) {
+      void dispatch(fetchConfig());
+    }
+  }, [dispatch, config]);
   const save = (change: Partial<ReviewSettings>, revert?: () => void): void => {
     void dispatch(saveReviewSettings(change)).then((result) => {
       if (saveReviewSettings.rejected.match(result) && revert !== undefined) {
@@ -52,6 +102,38 @@ const ReviewsGroup = ({ settings }: { readonly settings: ReviewSettings }): JSX.
   const intervals = checkIntervals.includes(settings.checkIntervalMinutes)
     ? checkIntervals
     : [...checkIntervals, settings.checkIntervalMinutes].toSorted((a, b) => a - b);
+  const timeout = settingOf(config, "review.timeout");
+  const timeoutValue = typeof timeout?.value === "string" ? timeout.value : "";
+  const removeFinished = settingOf(config, "review.remove_finished");
+  const configPath = config?.path ?? "";
+  const profileErrors = Object.entries(configErrors)
+    .filter(([key]) => key.startsWith("review.profiles."))
+    .map(([, message]) => message);
+  const legacyCount = Object.keys(settings.profiles).length;
+  const unsetKeys = (keys: readonly string[]): void => {
+    void Promise.all(keys.map((key) => dispatch(unsetConfig(key)))).then(() => {
+      void dispatch(fetchProfiles());
+    });
+  };
+  const changeProfile = (profile: ListedProfile, change: ProfileRowChange): void => {
+    const keys = profileKeys(profile.name);
+    const refetchIfSaved = (saved: boolean): void => {
+      if (saved) {
+        void dispatch(fetchProfiles());
+      }
+    };
+    if (change.runs !== undefined) {
+      void dispatch(setConfig({ key: keys.when, values: [change.runs] })).then((result) => refetchIfSaved(setConfig.fulfilled.match(result)));
+    } else if (change.model === undefined || change.model === "") {
+      void dispatch(unsetConfig(keys.model)).then((result) => refetchIfSaved(unsetConfig.fulfilled.match(result)));
+    } else {
+      void dispatch(setConfig({ key: keys.model, values: [change.model] })).then((result) => refetchIfSaved(setConfig.fulfilled.match(result)));
+    }
+  };
+  const resetProfile = (profile: ListedProfile): void => {
+    const keys = profileKeys(profile.name);
+    unsetKeys(setProfileKeys(config).filter((key) => key === keys.when || key === keys.model));
+  };
   return (
     <section className={styles.group} aria-label="Reviews">
       <h1 className={styles.title}>Reviews</h1>
@@ -71,6 +153,56 @@ const ReviewsGroup = ({ settings }: { readonly settings: ReviewSettings }): JSX.
         </TextField>
       </Row>
       <Row
+        label="Wait for a review"
+        help={
+          <>
+            How long ws review wait waits without --timeout. <ConfigSource setting={timeout} path={configPath} />
+          </>
+        }
+        errors={[configErrors["review.timeout"]]}
+      >
+        <div className={styles.inline}>
+          <TextField
+            select
+            size="small"
+            value={timeoutValue}
+            onChange={(e) => void dispatch(setConfig({ key: "review.timeout", values: [e.target.value] }))}
+            slotProps={{ htmlInput: { "aria-label": "Review wait timeout" } }}
+          >
+            {timeoutOptions(timeoutValue).map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          {timeout?.set === true && (
+            <Button size="small" onClick={() => void dispatch(unsetConfig("review.timeout"))}>
+              Reset
+            </Button>
+          )}
+        </div>
+      </Row>
+      <Row
+        label="Clean up finished reviews"
+        help={
+          <>
+            The findings are kept. <ConfigSource setting={removeFinished} path={configPath} />
+          </>
+        }
+        errors={[configErrors["review.remove_finished"]]}
+      >
+        <FormControlLabel
+          control={
+            <Checkbox
+              size="small"
+              checked={removeFinished?.value === true}
+              onChange={(e) => void dispatch(setConfig({ key: "review.remove_finished", values: [String(e.target.checked)] }))}
+            />
+          }
+          label="Remove a review's agent and workspace once every reviewer has reported"
+        />
+      </Row>
+      <Row
         label="Reviewer profiles"
         wide
         help={
@@ -79,13 +211,16 @@ const ReviewsGroup = ({ settings }: { readonly settings: ReviewSettings }): JSX.
             <strong>When files match</strong> runs when the diff touches its files. From <code>ws review profiles</code>.
           </>
         }
-        errors={[error("profiles")]}
+        errors={[error("profiles"), ...profileErrors]}
       >
+        {legacyCount > 0 && <LegacyProfileOverrides count={legacyCount} />}
         <ReviewerProfiles
           profiles={profiles}
           error={profilesError?.message ?? null}
-          changed={settings.profiles}
-          onChange={(changed) => save({ profiles: changed })}
+          config={config}
+          onRowChange={changeProfile}
+          onRowReset={resetProfile}
+          onResetAll={() => unsetKeys(setProfileKeys(config))}
         />
       </Row>
       <Row
@@ -271,6 +406,7 @@ const WorkspacesGroup = ({ settings }: { readonly settings: OpenSettings }): JSX
   return (
     <section className={styles.group} aria-label="Workspaces">
       <h1 className={styles.title}>Workspaces</h1>
+      {isWeb() && <p className={styles.help}>The web app has no Open buttons. These commands are kept on the server for parity with the desktop app.</p>}
       <OpenCommandRow
         label="File manager"
         inputLabel="File manager command"

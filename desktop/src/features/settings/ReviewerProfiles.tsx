@@ -1,9 +1,10 @@
 import { Alert, Button, Chip, CircularProgress, MenuItem, TextField } from "@mui/material";
 import { useState, type JSX } from "react";
-import type { ListedProfile, ProfileSetting, ProfileSource, Runs } from "../../api";
+import type { ConfigListing, ListedProfile, ProfileSource, Runs } from "../../api";
 import { models } from "../create/NewAgentDialog";
 import { ProfileEditor, runsLabels } from "./ProfileEditor";
 import { RemoveProfileDialog } from "./RemoveProfileDialog";
+import { settingOf } from "./settingsSlice";
 import styles from "./ReviewerProfiles.module.css";
 
 /** The badge after a profile's name: none for a built-in (ADR 0042). */
@@ -18,22 +19,17 @@ type Editing = { readonly kind: "new" } | { readonly kind: "edit"; readonly prof
 /** The choice in the Model menu that switches to typing a model id. */
 const typeModel = "\u0000type";
 
-/** A profile's row: its changed setting, or as ws lists it. */
-export const rowOf = (profile: ListedProfile, changed: Readonly<Record<string, ProfileSetting>>): ProfileSetting =>
-  changed[profile.name] ?? { runs: profile.when, model: profile.model };
+/** The config.toml keys behind a profile's Runs and Model. */
+export const profileKeys = (name: string): { readonly when: string; readonly model: string } => ({
+  when: `review.profiles.${name}.when`,
+  model: `review.profiles.${name}.model`,
+});
 
-/**
- * The changed rows with `row` set for `profile`. A row set back to what ws
- * lists is dropped, so only real changes are kept.
- */
-export const withRow = (
-  changed: Readonly<Record<string, ProfileSetting>>,
-  profile: ListedProfile,
-  row: ProfileSetting,
-): Readonly<Record<string, ProfileSetting>> => {
-  const { [profile.name]: _old, ...rest } = changed;
-  return row.runs === profile.when && row.model === profile.model ? rest : { ...rest, [profile.name]: row };
-};
+/** Every review.profiles.* key that config.toml sets. */
+export const setProfileKeys = (config: ConfigListing | null): readonly string[] =>
+  config?.settings.filter((setting) => setting.key.startsWith("review.profiles.") && setting.set).map((setting) => setting.key) ?? [];
+
+const isSet = (config: ConfigListing | null, key: string): boolean => settingOf(config, key)?.set === true;
 
 interface ModelFieldProps {
   readonly profile: string;
@@ -99,11 +95,17 @@ const ModelField = ({ profile, value, disabled, onChange }: ModelFieldProps): JS
   );
 };
 
-interface ReviewerProfilesProps {
+export interface ReviewerProfilesProps {
   readonly profiles: readonly ListedProfile[] | null;
   readonly error: string | null;
-  readonly changed: Readonly<Record<string, ProfileSetting>>;
-  readonly onChange: (changed: Readonly<Record<string, ProfileSetting>>) => void;
+  /** config.toml's review.profiles.* settings, to know which rows are set. */
+  readonly config: ConfigListing | null;
+  /** Called with the row's new Runs or Model. */
+  readonly onRowChange: (profile: ListedProfile, change: { readonly runs?: Runs; readonly model?: string }) => void;
+  /** Called by a row's Reset: unset both keys. */
+  readonly onRowReset: (profile: ListedProfile) => void;
+  /** Called by Reset to defaults: unset every set review.profiles.* key. */
+  readonly onResetAll: () => void;
 }
 
 /**
@@ -112,7 +114,14 @@ interface ReviewerProfilesProps {
  * as --profile and --auto (ADR 0038). Profiles are added, edited, and
  * removed from here too (ADR 0042).
  */
-export const ReviewerProfiles = ({ profiles, error, changed, onChange }: ReviewerProfilesProps): JSX.Element => {
+export const ReviewerProfiles = ({
+  profiles,
+  error,
+  config,
+  onRowChange,
+  onRowReset,
+  onResetAll,
+}: ReviewerProfilesProps): JSX.Element => {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<ListedProfile | null>(null);
   if (profiles === null) {
@@ -136,9 +145,9 @@ export const ReviewerProfiles = ({ profiles, error, changed, onChange }: Reviewe
         </thead>
         <tbody>
           {profiles.map((profile) => {
-            const row = rowOf(profile, changed);
-            const off = row.runs === "off";
-            const save = (next: ProfileSetting): void => onChange(withRow(changed, profile, next));
+            const off = profile.when === "off";
+            const keys = profileKeys(profile.name);
+            const resettable = isSet(config, keys.when) || isSet(config, keys.model);
             const badge = badges[profile.source];
             return (
               <tr key={profile.name} className={off ? styles.off : undefined}>
@@ -150,8 +159,8 @@ export const ReviewerProfiles = ({ profiles, error, changed, onChange }: Reviewe
                   <TextField
                     select
                     size="small"
-                    value={row.runs}
-                    onChange={(e) => save({ ...row, runs: e.target.value as Runs })}
+                    value={profile.when}
+                    onChange={(e) => onRowChange(profile, { runs: e.target.value as Runs })}
                     slotProps={{ htmlInput: { "aria-label": `Runs for ${profile.name}` } }}
                   >
                     {(["always", "auto", "off"] as const).map((runs) => (
@@ -164,9 +173,9 @@ export const ReviewerProfiles = ({ profiles, error, changed, onChange }: Reviewe
                 <td>
                   <ModelField
                     profile={profile.name}
-                    value={row.model}
+                    value={profile.model}
                     disabled={off}
-                    onChange={(model) => save({ ...row, model })}
+                    onChange={(model) => onRowChange(profile, { model })}
                   />
                 </td>
                 <td className={styles.files}>{profile.patterns.join(", ")}</td>
@@ -174,6 +183,11 @@ export const ReviewerProfiles = ({ profiles, error, changed, onChange }: Reviewe
                   <Button size="small" aria-label={`Edit ${profile.name}`} onClick={() => setEditing({ kind: "edit", profile })}>
                     Edit
                   </Button>
+                  {resettable && (
+                    <Button size="small" aria-label={`Reset ${profile.name}`} onClick={() => onRowReset(profile)}>
+                      Reset
+                    </Button>
+                  )}
                   {profile.source === "user" && (
                     <Button size="small" color="error" aria-label={`Delete ${profile.name}`} onClick={() => setRemoving(profile)}>
                       Delete
@@ -194,7 +208,7 @@ export const ReviewerProfiles = ({ profiles, error, changed, onChange }: Reviewe
         <Button size="small" variant="outlined" onClick={() => setEditing({ kind: "new" })}>
           New profile
         </Button>
-        <Button size="small" disabled={Object.keys(changed).length === 0} onClick={() => onChange({})}>
+        <Button size="small" disabled={setProfileKeys(config).length === 0} onClick={onResetAll}>
           Reset to defaults
         </Button>
       </div>

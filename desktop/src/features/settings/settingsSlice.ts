@@ -244,6 +244,33 @@ export const unsetConfig = createAppThunk<ConfigChange, string>("settings/unsetC
   }
 });
 
+/**
+ * Writes each desktop.json profile override with ws config, then clears them
+ * (ADR 0054). Stops at the first error.
+ */
+export const moveProfileOverrides = createAppThunk<Settings, void>(
+  "settings/moveProfileOverrides",
+  async (_arg, { extra, getState, dispatch, rejectWithValue }) => {
+    try {
+      const base = getState().settings.settings ?? (await extra.api.settingsGet());
+      for (const [name, { runs, model }] of Object.entries(base.reviews.profiles)) {
+        await extra.api.configSet(`review.profiles.${name}.when`, [runs]);
+        if (model === "") {
+          await extra.api.configUnset(`review.profiles.${name}.model`);
+        } else {
+          await extra.api.configSet(`review.profiles.${name}.model`, [model]);
+        }
+      }
+      const cleared = await extra.api.settingsSetReviews({ ...base.reviews, profiles: {} });
+      void dispatch(fetchConfig());
+      void dispatch(fetchProfiles());
+      return cleared;
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
 export const resolveSpec = createAppThunk<Resolution, string>("settings/resolveSpec", async (spec, { extra, rejectWithValue }) => {
   try {
     return await extra.api.cacheResolve(spec);
@@ -385,6 +412,9 @@ const settingsSlice = createSlice({
       }))
       .addCase(unsetConfig.rejected, (state, action) => {
         state.configErrors[action.meta.arg] = action.payload?.message ?? action.error.message ?? "saving failed";
+      })
+      .addCase(moveProfileOverrides.fulfilled, (state, action) => {
+        state.settings = action.payload;
       })
       .addCase(resolveSpec.pending, (state, action) => {
         state.resolve = { spec: action.meta.arg, resolution: null, error: null, pending: true };
