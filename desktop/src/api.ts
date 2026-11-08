@@ -211,6 +211,12 @@ export interface AddedRepo {
   readonly added: boolean;
 }
 
+/** A cached repo that matches a search, from ws cache search. */
+export interface SearchMatch {
+  readonly id: string;
+  readonly ref: string | null;
+}
+
 export type ReviewGroup = "toReview" | "reviewing" | "reviewed" | "dismissed";
 
 /** A review workspace of a pull request (ADR 0032). */
@@ -602,6 +608,56 @@ export interface Settings {
   readonly open: OpenSettings;
 }
 
+export type ConfigType = "string" | "strings" | "duration" | "bool";
+export type ConfigValue = string | boolean | readonly string[];
+
+/** One key of config.toml, with its effective value and default (ws config). */
+export interface ConfigSetting {
+  readonly key: string;
+  readonly type: ConfigType;
+  readonly value: ConfigValue;
+  readonly default: ConfigValue;
+  readonly set: boolean;
+}
+
+export interface ConfigListing {
+  readonly path: string;
+  readonly settings: readonly ConfigSetting[];
+}
+
+export interface ConfigChange {
+  readonly path: string;
+  readonly setting: ConfigSetting;
+  readonly changed: boolean;
+}
+
+/** Workspace Online's WS_ONLINE_* settings; never the password itself. */
+export interface OnlineSettings {
+  readonly username: string;
+  readonly addr: string;
+  readonly publicUrl: string | null;
+  readonly secureCookie: boolean;
+  readonly sessionDays: number;
+  readonly trustProxy: boolean;
+  readonly dataDir: string;
+  readonly webDir: string;
+  readonly vapidSubject: string;
+  readonly password: "plain" | "hash";
+}
+
+export interface Environment {
+  /** desktop.json's path; null when the app keeps settings in memory only. */
+  readonly stateFile: string | null;
+  /** WS_CONFIG_DIR, or null when unset or empty. */
+  readonly wsConfigDir: string | null;
+  /** CLAUDE_CONFIG_DIR, or null when unset or empty. */
+  readonly claudeConfigDir: string | null;
+  /** The PATH the app runs ws and claude with. */
+  readonly path: string;
+  /** Set only by ws-online. */
+  readonly online: OnlineSettings | null;
+}
+
 export interface LoopError {
   readonly code: string;
   readonly message: string;
@@ -738,6 +794,12 @@ export const api = {
     call<RepoResult[]>("cache_fetch", { ids, all }),
   cacheAdd: async (spec: string): Promise<AddedRepo> => call<AddedRepo>("cache_add", { spec }),
   cacheRemove: async (id: string): Promise<void> => call<void>("cache_remove", { id }),
+  cacheSearch: async (query: string, refs: boolean, limit: number): Promise<readonly SearchMatch[]> =>
+    call<SearchMatch[]>("cache_search", { query, refs, limit }),
+  configList: async (): Promise<ConfigListing> => call<ConfigListing>("config_list"),
+  configSet: async (key: string, values: readonly string[]): Promise<ConfigChange> => call<ConfigChange>("config_set", { key, values }),
+  configUnset: async (key: string): Promise<ConfigChange> => call<ConfigChange>("config_unset", { key }),
+  settingsEnvironment: async (): Promise<Environment> => call<Environment>("settings_environment"),
   createAgent: async (request: NewAgent): Promise<Created> => call<Created>("create_agent", { request }),
   removeEntry: async (workspaceId: string | null, sessionId: string | null, keepChildren = false): Promise<void> =>
     call<void>("remove_entry", { workspaceId, sessionId, keepChildren }),

@@ -7,6 +7,7 @@ import { isWeb } from "../../platform";
 import { BrowserPushRow } from "../../web/BrowserPushRow";
 import { AboutGroup } from "./AboutGroup";
 import { Row } from "./Row";
+import { RepoGroup } from "./RepoGroup";
 import { ReviewerProfiles } from "./ReviewerProfiles";
 import {
   fetchOpenDefaults,
@@ -311,6 +312,22 @@ export const SettingsPane = (): JSX.Element => {
     return (
       <div className={styles.root}>
         <AboutGroup />
+      </div>
+    );
+  }
+  if (group === "repos") {
+    return (
+      <div className={styles.root}>
+        <RepoGroup />
+      </div>
+    );
+  }
+  if (group === "roles") {
+    return (
+      <div className={styles.root}>
+        <section aria-label="Agent roles">
+          <h1 className={styles.title}>Agent roles</h1>
+        </section>
       </div>
     );
   }

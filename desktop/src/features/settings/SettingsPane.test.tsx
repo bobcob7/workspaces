@@ -236,9 +236,19 @@ describe("Workspaces", () => {
 });
 
 describe("SettingsList", () => {
-  it("lists Workspaces between Notifications and About", () => {
-    renderWithStore(<SettingsList />, testStore());
+  const groupNames = (): (string | null)[] => {
     const items = within(screen.getByRole("navigation", { name: "Settings groups" })).getAllByRole("button");
-    expect(items.map((item) => item.textContent)).toEqual(["Reviews", "Notifications", "Workspaces", "About"]);
+    return items.map((item) => item.textContent);
+  };
+
+  it("lists the six groups in order", () => {
+    renderWithStore(<SettingsList />, testStore());
+    expect(groupNames()).toEqual(["Repos", "Reviews", "Agent roles", "Notifications", "Workspaces", "About"]);
+  });
+
+  it("still lists Workspaces in the web app", () => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    renderWithStore(<SettingsList />, testStore());
+    expect(groupNames()).toContain("Workspaces");
   });
 });

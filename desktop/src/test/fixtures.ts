@@ -3,6 +3,9 @@ import type {
   Api,
   CachedRepo,
   CommentPlan,
+  ConfigChange,
+  ConfigListing,
+  ConfigSetting,
   Entry,
   FixPlan,
   ListedProfile,
@@ -260,6 +263,36 @@ export const openSettings = (overrides: Partial<OpenSettings> = {}): OpenSetting
   ...overrides,
 });
 
+const configPath = "/home/me/.config/workspaces/config.toml";
+
+export const configListing = (): ConfigListing => ({
+  path: configPath,
+  settings: [
+    { key: "defaults.host", type: "string", value: "github.com", default: "github.com", set: false },
+    { key: "defaults.owners", type: "strings", value: ["bobcob7", "acme"], default: [], set: true },
+    { key: "review.timeout", type: "duration", value: "1h", default: "1h", set: false },
+    { key: "review.remove_finished", type: "bool", value: true, default: true, set: false },
+    { key: "review.profiles.security.when", type: "string", value: "", default: "", set: false },
+    { key: "review.profiles.security.model", type: "string", value: "opus", default: "", set: true },
+  ],
+});
+
+const configSettingFor = (key: string): ConfigSetting =>
+  configListing().settings.find((setting) => setting.key === key) ?? { key, type: "string", value: "", default: "", set: false };
+
+/** What `ws config set` answers: the key with its new value, as the file now says. */
+export const configSetChange = (key: string, values: readonly string[]): ConfigChange => {
+  const base = configSettingFor(key);
+  const value = base.type === "strings" ? values : (values[0] ?? "");
+  return { path: configPath, setting: { ...base, value, set: true }, changed: true };
+};
+
+/** What `ws config unset` answers: the key back at its default. */
+export const configUnsetChange = (key: string): ConfigChange => {
+  const base = configSettingFor(key);
+  return { path: configPath, setting: { ...base, value: base.default, set: false }, changed: true };
+};
+
 export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   listEntries: vi.fn(async () => ({ entries: [], warnings: [] })),
   cacheRepos: vi.fn(async () => []),
@@ -280,6 +313,11 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
     added: true,
   })),
   cacheRemove: vi.fn(async () => undefined),
+  cacheSearch: vi.fn(async () => []),
+  configList: vi.fn(async () => configListing()),
+  configSet: vi.fn(async (key: string, values: readonly string[]) => configSetChange(key, values)),
+  configUnset: vi.fn(async (key: string) => configUnsetChange(key)),
+  settingsEnvironment: vi.fn(async () => ({ stateFile: null, wsConfigDir: null, claudeConfigDir: null, path: "/usr/bin:/bin", online: null })),
   createAgent: vi.fn(async () => ({ id: "new", session: "abcd1234", path: "/w/new" })),
   removeEntry: vi.fn(async () => undefined),
   renameWorkspace: vi.fn(async (id: string, name: string) => ({ id, name })),
