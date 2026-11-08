@@ -123,7 +123,7 @@ func Set(data []byte, key string, values []string) ([]byte, bool, error) {
 // that isn't set leaves data as it is. A [review.profiles.<name>] table
 // left with no keys loses its header line too.
 func Unset(data []byte, key string) ([]byte, bool, error) {
-	rule, err := parseKey(key)
+	rule, err := parseUnsetKey(key)
 	if err != nil {
 		return nil, false, err
 	}
@@ -137,7 +137,8 @@ func Unset(data []byte, key string) ([]byte, bool, error) {
 	}
 	lines = dropEmptyProfile(slices.Delete(lines, sp.first, sp.last+1), rule.table)
 	out := []byte(strings.Join(lines, ""))
-	if s, err := Lookup(out, rule.key); err != nil || s.Set {
+	cfg, meta, err := load(out)
+	if err != nil || settingFor(rule, cfg, meta).Set {
 		return nil, false, fmt.Errorf("%w: %s", ErrUneditable, rule.key)
 	}
 	return out, !bytes.Equal(data, out), nil
@@ -199,6 +200,17 @@ func profileRule(name, leaf string) keyRule {
 
 // parseKey returns the rule for key, or an error wrapping ErrKeyUnknown.
 func parseKey(key string) (keyRule, error) {
+	return parseKeyWith(key, profileNameValid)
+}
+
+// parseUnsetKey is parseKey, but accepts any profile name, so unset can
+// clean up a hand-written profile whose name Set refuses.
+func parseUnsetKey(key string) (keyRule, error) {
+	return parseKeyWith(key, func(name string) bool { return name != "" })
+}
+
+// parseKeyWith is parseKey with the rule for profile names passed in.
+func parseKeyWith(key string, nameOK func(string) bool) (keyRule, error) {
 	for _, rule := range fixedRules() {
 		if rule.key == key {
 			return rule, nil
@@ -206,7 +218,7 @@ func parseKey(key string) (keyRule, error) {
 	}
 	if rest, ok := strings.CutPrefix(key, "review.profiles."); ok {
 		name, leaf, found := strings.Cut(rest, ".")
-		if found && profileNameValid(name) && (leaf == "when" || leaf == "model") {
+		if found && nameOK(name) && (leaf == "when" || leaf == "model") {
 			return profileRule(name, leaf), nil
 		}
 	}

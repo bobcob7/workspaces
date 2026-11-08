@@ -250,6 +250,12 @@ func TestUnset(t *testing.T) {
 			key:   "review.profiles.security.model",
 			want:  "[review.profiles.security]\nwhen = \"auto\"\n# keep me\n",
 		},
+		{
+			name:  "removes a key from a profile name Set refuses",
+			input: "[defaults]\nhost = \"a\"\n\n[review.profiles.Security]\nwhen = \"auto\"\n",
+			key:   "review.profiles.Security.when",
+			want:  "[defaults]\nhost = \"a\"\n",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -266,8 +272,11 @@ func TestUnset(t *testing.T) {
 		assert.False(t, changed)
 	})
 	t.Run("unknown key is ErrKeyUnknown", func(t *testing.T) {
-		_, _, err := Unset([]byte(defaultFile), "review.profiles.Bad.when")
-		assert.ErrorIs(t, err, ErrKeyUnknown)
+		tests := []string{"defaults.protocol", "review.profiles.x.color"}
+		for _, key := range tests {
+			_, _, err := Unset([]byte(defaultFile), key)
+			assert.ErrorIs(t, err, ErrKeyUnknown, key)
+		}
 	})
 }
 
