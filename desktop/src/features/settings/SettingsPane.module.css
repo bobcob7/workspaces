@@ -1,5 +1,6 @@
 .root {
   height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 20px 28px 32px;
   box-sizing: border-box;
@@ -68,6 +69,7 @@
 .help {
   color: var(--text-muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .control {
@@ -112,6 +114,7 @@
 .mono {
   font-family: var(--font-mono);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 720px) {
@@ -128,8 +131,22 @@
     width: auto;
   }
 
+  .inline {
+    flex-wrap: wrap;
+  }
+
   .control {
     flex: none;
     width: 100%;
+  }
+
+  .control :global(.MuiTextField-root) {
+    width: 100%;
+  }
+
+  .root :global(.MuiButton-root),
+  .root :global(.MuiIconButton-root) {
+    min-width: 40px;
+    min-height: 40px;
   }
 }

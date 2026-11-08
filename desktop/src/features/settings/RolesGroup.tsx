@@ -113,9 +113,9 @@ export const RolesGroup = (): JSX.Element => {
                       {role.name}
                       {badge !== null && <Chip size="small" label={badge.label} className={`${styles.badge} ${badge.className}`} />}
                     </td>
-                    <td>{role.description}</td>
-                    <td>{role.model === "" ? "Default" : role.model}</td>
-                    <td>
+                    <td className={styles.description}>{role.description}</td>
+                    <td className={styles.model}>{role.model === "" ? "Default" : role.model}</td>
+                    <td className={styles.verdicts}>
                       <div className={styles.chips}>
                         {role.pass.map((verdict) => (
                           <Chip key={`pass-${verdict}`} size="small" label={verdict} className={styles.verdict} />

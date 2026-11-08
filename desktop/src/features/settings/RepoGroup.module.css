@@ -56,3 +56,14 @@
   list-style: none;
   font-size: 13px;
 }
+
+@media (max-width: 720px) {
+  .owner,
+  .add {
+    flex-wrap: wrap;
+  }
+
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

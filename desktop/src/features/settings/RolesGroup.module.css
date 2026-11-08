@@ -97,3 +97,51 @@
   display: flex;
   gap: 6px;
 }
+
+@media (max-width: 720px) {
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table td {
+    min-width: 0;
+    padding: 0;
+    border-bottom: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .name {
+    flex: 1 1 auto;
+    white-space: normal;
+  }
+
+  .description,
+  .model {
+    flex: 1 0 100%;
+  }
+
+  .verdicts {
+    flex: 1 1 auto;
+  }
+
+  .actions {
+    flex: none;
+    margin-left: auto;
+  }
+}
