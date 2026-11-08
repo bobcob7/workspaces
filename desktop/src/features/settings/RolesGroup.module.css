@@ -145,3 +145,10 @@
     margin-left: auto;
   }
 }
+
+@media (max-width: 720px) {
+  :global(.MuiDialogActions-root) :global(.MuiButton-root) {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
