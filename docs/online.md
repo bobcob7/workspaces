@@ -15,6 +15,12 @@ subscription through a long-lived token. Decided in
 | ----- | ------ | ----- |
 | ![Login](../desktop/docs/online-login.png) | ![Agents](../desktop/docs/online-agents.png) | ![Agent on a phone](../desktop/docs/online-agent-mobile.png) |
 
+Terminal: Copy, Paste and Select text work in the browser and on a phone, and Select text lists links such as MCP sign-in URLs to open or copy.
+
+| Terminal | Select text (phone) |
+| -------- | ------------------- |
+| ![Terminal toolbar](../desktop/docs/online-terminal.png) | ![Select text on a phone](../desktop/docs/online-terminal-select-mobile.png) |
+
 Notifications for this browser are under Settings › Notifications:
 ![This browser row](../desktop/docs/online-settings-push.png)
 
