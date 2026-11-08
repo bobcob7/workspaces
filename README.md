@@ -106,6 +106,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
 | [`ws hide`](docs/tools/ws-hide.md)       | Hide a workspace from default views, or `unhide` it  |
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |
+| [`ws config`](docs/tools/ws-config.md)   | List, read, and change `config.toml`'s settings      |
 | [`ws review`](docs/tools/ws-review.md)   | Start structured reviews and triage their reports    |
 | [`ws machine`](docs/tools/ws-machine.md) | For agents: start, list, and remove their child workspaces |
 | [`ws llm`](docs/tools/ws-llm.md)         | Print guidance for AI agents                         |
