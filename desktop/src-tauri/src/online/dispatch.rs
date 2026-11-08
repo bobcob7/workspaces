@@ -9,7 +9,7 @@ use crate::open;
 use crate::pty::TermSpec;
 use crate::reviews;
 use crate::runner::AppError;
-use crate::{cache, loops, ws_config};
+use crate::{cache, loops, roles, ws_config};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -139,6 +139,11 @@ pub const COMMANDS: &[&str] = &[
     "config_unset",
     "cache_search",
     "settings_environment",
+    "roles_list",
+    "roles_show",
+    "roles_add",
+    "roles_edit",
+    "roles_remove",
     "loops_list",
     "loops_add",
     "loops_edit",
@@ -402,6 +407,23 @@ pub async fn dispatch(
             result(cache::cache_search(State::new(&ctx.state), query, refs, limit).await)
         }
         "settings_environment" => json(about::environment(&ctx.state, ctx.online.clone())),
+        "roles_list" => result(roles::roles_list(State::new(&ctx.state)).await),
+        "roles_show" => {
+            let name = args!(args, { name: String });
+            result(roles::roles_show(State::new(&ctx.state), name).await)
+        }
+        "roles_add" => {
+            let (name, draft) = args!(args, { name: String, draft: roles::RoleDraft });
+            result(roles::roles_add(State::new(&ctx.state), name, draft).await)
+        }
+        "roles_edit" => {
+            let (name, draft) = args!(args, { name: String, draft: roles::RoleDraft });
+            result(roles::roles_edit(State::new(&ctx.state), name, draft).await)
+        }
+        "roles_remove" => {
+            let name = args!(args, { name: String });
+            result(roles::roles_remove(State::new(&ctx.state), name).await)
+        }
         "loops_list" => result(loops::loops_list(State::new(&ctx.state)).await),
         "loops_add" => {
             let request = args!(args, { request: loops::NewLoop });

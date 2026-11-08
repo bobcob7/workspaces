@@ -9,6 +9,7 @@ import { AboutGroup } from "./AboutGroup";
 import { ConfigSource } from "./ConfigSource";
 import { Row } from "./Row";
 import { RepoGroup } from "./RepoGroup";
+import { RolesGroup } from "./RolesGroup";
 import { profileKeys, ReviewerProfiles, setProfileKeys } from "./ReviewerProfiles";
 import {
   fetchConfig,
@@ -461,9 +462,7 @@ export const SettingsPane = (): JSX.Element => {
   if (group === "roles") {
     return (
       <div className={styles.root}>
-        <section aria-label="Agent roles">
-          <h1 className={styles.title}>Agent roles</h1>
-        </section>
+        <RolesGroup />
       </div>
     );
   }

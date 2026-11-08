@@ -357,6 +357,47 @@ export interface ProfileRemoved {
   readonly settings: Settings;
 }
 
+/** Where an agent role comes from: built into `ws`, a user's file, or a user's file replacing a built-in (ADR 0050). */
+export type RoleSource = "builtin" | "user" | "override";
+
+/** A role as `ws machine roles` lists it. */
+export interface ListedRole {
+  readonly name: string;
+  readonly description: string;
+  /** "" for claude's default. */
+  readonly model: string;
+  readonly pass: readonly string[];
+  readonly fail: readonly string[];
+  readonly vars: readonly string[];
+  readonly claudeArgs: readonly string[];
+  readonly source: RoleSource;
+}
+
+/** A role with its prompt template, from `ws machine roles show`, `add`, or `edit`. */
+export interface RoleDetail extends ListedRole {
+  readonly prompt: string;
+  /** The user's file; null for a built-in. */
+  readonly path: string | null;
+}
+
+/** What the role editor saves; every field is sent. */
+export interface RoleDraft {
+  readonly description: string;
+  readonly model: string;
+  readonly pass: readonly string[];
+  readonly fail: readonly string[];
+  readonly vars: readonly string[];
+  readonly claudeArgs: readonly string[];
+  readonly prompt: string;
+}
+
+/** What `ws machine roles rm` did. `restored` is true when a built-in is back. */
+export interface RoleRemoved {
+  readonly name: string;
+  readonly path: string;
+  readonly restored: boolean;
+}
+
 /** A Reviewer profiles row changed from what ws lists. */
 export interface ProfileSetting {
   readonly runs: Runs;
@@ -851,6 +892,11 @@ export const api = {
     call<ProfileDetail>("reviews_profile_edit", { name, draft }),
   reviewsProfileRemove: async (name: string): Promise<ProfileRemoved> =>
     call<ProfileRemoved>("reviews_profile_remove", { name }),
+  rolesList: async (): Promise<readonly ListedRole[]> => call<ListedRole[]>("roles_list"),
+  rolesShow: async (name: string): Promise<RoleDetail> => call<RoleDetail>("roles_show", { name }),
+  rolesAdd: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_add", { name, draft }),
+  rolesEdit: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_edit", { name, draft }),
+  rolesRemove: async (name: string): Promise<RoleRemoved> => call<RoleRemoved>("roles_remove", { name }),
   reviewsStart: async (plan: ReviewPlan): Promise<Started> => call<Started>("reviews_start", { plan }),
   reviewReport: async (repo: string, gitRef: string, refresh: boolean): Promise<ReviewReport> =>
     call<ReviewReport>("review_report", { repo, gitRef, refresh }),

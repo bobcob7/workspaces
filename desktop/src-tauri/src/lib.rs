@@ -19,6 +19,7 @@ pub mod online;
 mod open;
 mod pty;
 mod reviews;
+mod roles;
 mod runner;
 mod transcript;
 mod tray;
@@ -132,6 +133,11 @@ pub fn run() {
             ws_config::config_unset,
             cache::cache_search,
             about::settings_environment,
+            roles::roles_list,
+            roles::roles_show,
+            roles::roles_add,
+            roles::roles_edit,
+            roles::roles_remove,
             loops::loops_list,
             loops::loops_add,
             loops::loops_edit,

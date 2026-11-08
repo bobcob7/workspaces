@@ -14,6 +14,10 @@ import {
   type ProfileRemoved,
   type Resolution,
   type ReviewSettings,
+  type RoleDetail,
+  type RoleDraft,
+  type RoleRemoved,
+  type ListedRole,
   type SearchMatch,
   type Settings,
   type Versions,
@@ -47,6 +51,9 @@ export interface SettingsState {
   /** Every reviewer profile, from `ws review profiles`. */
   readonly profiles: readonly ListedProfile[] | null;
   readonly profilesError: AppError | null;
+  /** Every agent role, from `ws machine roles`. */
+  readonly roles: readonly ListedRole[] | null;
+  readonly rolesError: AppError | null;
   /** The app's, ws's, and claude's versions, for About. */
   readonly versions: Versions | null;
   readonly versionsError: AppError | null;
@@ -71,6 +78,8 @@ const initialState: SettingsState = {
   openErrors: {},
   profiles: null,
   profilesError: null,
+  roles: null,
+  rolesError: null,
   versions: null,
   versionsError: null,
   config: null,
@@ -158,6 +167,53 @@ export const removeProfile = createAppThunk<ProfileRemoved, string>(
     }
   },
 );
+
+export const fetchRoles = createAppThunk<readonly ListedRole[], void>("settings/fetchRoles", async (_arg, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.rolesList();
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** One role with its prompt template, for the editor. */
+export const fetchRoleDetail = createAppThunk<RoleDetail, string>("settings/fetchRoleDetail", async (name, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.rolesShow(name);
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** A role to add or edit: `isNew` picks `add` over `edit`. */
+export interface SaveRole {
+  readonly name: string;
+  readonly draft: RoleDraft;
+  /** `ws machine roles add`, rather than `edit`. */
+  readonly isNew: boolean;
+}
+
+/** Adds or edits a role, then lists the roles again. */
+export const saveRole = createAppThunk<RoleDetail, SaveRole>("settings/saveRole", async ({ name, draft, isNew }, { extra, dispatch, rejectWithValue }) => {
+  try {
+    const saved = isNew ? await extra.api.rolesAdd(name, draft) : await extra.api.rolesEdit(name, draft);
+    void dispatch(fetchRoles());
+    return saved;
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** Deletes a role's file, then lists the roles again. An override's built-in comes back. */
+export const removeRole = createAppThunk<RoleRemoved, string>("settings/removeRole", async (name, { extra, dispatch, rejectWithValue }) => {
+  try {
+    const removed = await extra.api.rolesRemove(name);
+    void dispatch(fetchRoles());
+    return removed;
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
 
 /**
  * Saves a change to the Reviews settings as it's made. On failure the old
@@ -358,6 +414,14 @@ const settingsSlice = createSlice({
         ...state,
         settings: action.payload.settings,
       }))
+      .addCase(fetchRoles.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        roles: action.payload,
+        rolesError: null,
+      }))
+      .addCase(fetchRoles.rejected, (state, action) => {
+        state.rolesError = action.payload ?? { code: "internal", message: action.error.message ?? "listing roles failed" };
+      })
       .addCase(saveReviewSettings.fulfilled, (state, action): SettingsState => {
         const fieldErrors = { ...state.fieldErrors };
         for (const key of changedKeys(action.meta.arg)) {

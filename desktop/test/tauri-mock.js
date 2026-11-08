@@ -118,7 +118,53 @@
     "When the run is done, reply with the list of pull requests you opened and any module you skipped.",
   ].join("\n");
 
+  const roleDir = "/Users/me/Library/Application Support/workspaces/machine/roles";
+  const builtins = [
+    {
+      name: "implementer",
+      description: "Implements one task from a tasks file, pushes a branch, and records PASS or FAIL",
+      model: "haiku",
+      pass: ["PASS"],
+      fail: ["FAIL"],
+      vars: ["TASK", "TASKS", "BASE", "BRANCH"],
+      claudeArgs: ["--permission-mode", "auto"],
+      source: "builtin",
+      prompt: "You implement exactly one task, {{.Vars.TASK}}, in this repo. Push the branch {{.Vars.BRANCH}}.",
+      path: null,
+    },
+    {
+      name: "reviewer",
+      description: "Reviews one task's diff against its tasks file and records APPROVED or CHANGES_REQUESTED",
+      model: "sonnet",
+      pass: ["APPROVED"],
+      fail: ["CHANGES_REQUESTED"],
+      vars: ["TASK", "TASKS", "BASE", "KNOWN_ISSUES"],
+      claudeArgs: ["--permission-mode", "auto"],
+      source: "builtin",
+      prompt: "Review {{.Vars.TASK}} against {{.Vars.TASKS}}, diffed against {{.Vars.BASE}}.",
+      path: null,
+    },
+    {
+      name: "verifier",
+      description: "Runs the checks on a branch and records PASS, FLAKY, or FAIL",
+      model: "haiku",
+      pass: ["PASS", "FLAKY"],
+      fail: ["FAIL"],
+      vars: ["BRANCH", "CHECKS"],
+      claudeArgs: ["--permission-mode", "auto"],
+      source: "builtin",
+      prompt: "Run {{.Vars.CHECKS}} on {{.Vars.BRANCH}} and report what fails.",
+      path: null,
+    },
+  ];
+  const initialRoles = () => [
+    builtins[0],
+    { ...builtins[1], model: "opus", source: "override", path: `${roleDir}/reviewer.md` },
+    builtins[2],
+  ];
+
   const data = {
+    roles: initialRoles(),
     loops: [
       {
         name: "deps-bump",
@@ -237,6 +283,14 @@
 
   let nextId = 1;
   const callbacks = {};
+
+  const findRole = (name) => {
+    const role = data.roles.find((candidate) => candidate.name === name);
+    if (role === undefined) {
+      throw { code: "role_unknown", message: `no role named ${name}` };
+    }
+    return role;
+  };
 
   const findLoop = (name) => {
     const found = data.loops.find((loop) => loop.name === name);
@@ -451,6 +505,32 @@
       online: null,
     }),
     versions: () => data.versions,
+    roles_list: () => data.roles.map(({ prompt, path, ...role }) => role),
+    roles_show: ({ name }) => findRole(name),
+    roles_add: ({ name, draft }) => {
+      if (data.roles.some((role) => role.name === name)) {
+        throw { code: "role_exists", message: `a role named ${name} already exists` };
+      }
+      const added = { ...draft, name, source: "user", path: `${roleDir}/${name}.md` };
+      data.roles = [...data.roles, added];
+      return added;
+    },
+    roles_edit: ({ name, draft }) => {
+      const current = findRole(name);
+      const edited = { ...current, ...draft, source: current.source === "user" ? "user" : "override", path: `${roleDir}/${name}.md` };
+      data.roles = data.roles.map((role) => (role.name === name ? edited : role));
+      return edited;
+    },
+    roles_remove: ({ name }) => {
+      const current = findRole(name);
+      if (current.source === "builtin") {
+        throw { code: "usage", message: `${name} is built in; there is no file to remove` };
+      }
+      const builtin = builtins.find((role) => role.name === name);
+      const restored = current.source === "override" && builtin !== undefined;
+      data.roles = restored ? data.roles.map((role) => (role.name === name ? builtin : role)) : data.roles.filter((role) => role.name !== name);
+      return { name, path: `${roleDir}/${name}.md`, restored };
+    },
     loops_list: () => ({ loops: data.loops, warnings: [] }),
     loops_add: ({ request }) => {
       const added = { ...loopFields(request), name: request.name, paused: false, createdAt: "2026-10-24T12:00:00Z", nextRunAt: "2026-10-24T13:00:00Z", lastRun: null, lastGate: null };
