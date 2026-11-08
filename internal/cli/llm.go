@@ -22,6 +22,11 @@ var guideFiles embed.FS
 // --all prints them; "" is the overview. The coverage test keeps this list,
 // the guide files, and the command tree in step.
 func guideTopics() []string {
+	return slices.Concat(guideTopicsBeforeReview(), guideTopicsFromReview())
+}
+
+// guideTopicsBeforeReview are the first guides in ws llm --all's order.
+func guideTopicsBeforeReview() []string {
 	return []string{
 		"",
 		"claude",
@@ -53,6 +58,18 @@ func guideTopics() []string {
 		"cache path",
 		"cache remove",
 		"cache prune",
+		"config",
+		"config list",
+		"config get",
+		"config set",
+		"config unset",
+	}
+}
+
+// guideTopicsFromReview are the review, machine, and llm guides, in ws llm
+// --all's order.
+func guideTopicsFromReview() []string {
+	return []string{
 		"review",
 		"review start",
 		"review wait",
