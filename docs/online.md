@@ -88,7 +88,7 @@ invalid.
 
 | Mount | Suggested volume | What persists |
 | ----- | ---------------- | ------------- |
-| `/home/ws` | `ws-home` | Everything in the home directory: Claude Code's `~/.claude/` (settings.json, agents, commands, jobs, transcripts, credentials) and `~/.claude.json` (MCP servers, trust, onboarding); Claude Code itself in `~/.local/bin` and `~/.local/share/claude`, which updates itself there; anything you `npm install -g` (MCP servers), since npm's prefix is `~/.local`; `gh`'s login, `~/.ssh`, `~/.gitconfig` |
+| `/home/ws` | `ws-home` | Everything in the home directory: Claude Code's `~/.claude/` (settings.json, agents, commands, jobs, transcripts, credentials) and `~/.claude.json` (MCP servers, trust, onboarding); Claude Code itself in `~/.local/bin` and `~/.local/share/claude`, which updates itself there; anything you `npm install -g` (MCP servers) in the dev image, since npm's prefix is `~/.local`; the runtime image has no npm ([ADR 0055](adrs/0055-slim-online-runtime-image.md)); `gh`'s login, `~/.ssh`, `~/.gitconfig` |
 | `/data` | `ws-data` | `ws` (`/data/ws`: config.toml, the repo cache, workspaces and their state, reviews, loops) and the server (`/data/online`: `desktop.json`, `vapid.json`, `subscriptions.json`, `sessions.json`, review reports) |
 
 The image runs as user `ws`, uid 1000. Named volumes get the right owner

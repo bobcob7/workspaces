@@ -32,7 +32,7 @@ FROM debian:trixie-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl git openssh-client jq ripgrep make nodejs npm tini procps less bash gnupg \
+        ca-certificates curl git openssh-client jq ripgrep tini procps less bash gnupg \
     && install -d -m 0755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
