@@ -321,7 +321,7 @@ func TestApp_newRootCmd(t *testing.T) {
 		for _, cmd := range root.Commands() {
 			names = append(names, cmd.Name())
 		}
-		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "continue", "loop", "list", "rm", "rename", "hide", "unhide", "cache", "review", "llm", "machine"}, names)
+		assert.ElementsMatch(t, []string{"claude", "shell", "restore", "restart", "continue", "loop", "list", "rm", "rename", "hide", "unhide", "cache", "config", "review", "llm", "machine"}, names)
 	})
 	t.Run("lists machine under Commands for agents", func(t *testing.T) {
 		require.True(t, root.ContainsGroup(agentsGroup))

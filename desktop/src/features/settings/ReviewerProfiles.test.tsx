@@ -6,7 +6,7 @@ import { fakeApi, listedProfile, listedProfiles, notificationSettings, openSetti
 import { renderWithStore } from "../../test/render";
 import { SettingsPane } from "./SettingsPane";
 
-const docs = listedProfile({ name: "docs", description: "Docs", builtin: false, source: "user" });
+const docs = listedProfile({ name: "docs", description: "Docs", when: "off", builtin: false, source: "user" });
 const editedTests = listedProfile({ name: "tests", description: "Tests, ours", builtin: false, source: "override" });
 
 const profiles = (): readonly ListedProfile[] => [
@@ -44,7 +44,7 @@ describe("Reviewer profiles actions", () => {
     }
     expect(screen.getByRole("button", { name: "Delete docs" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset tests to built-in" })).toBeInTheDocument();
-    expect(within(rowOf("security")).queryByRole("button", { name: /Delete|Reset/ })).not.toBeInTheDocument();
+    expect(within(rowOf("security")).queryByRole("button", { name: /Delete|Reset to built-in/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete tests" })).not.toBeInTheDocument();
   });
 
@@ -60,13 +60,9 @@ describe("Reviewer profiles actions", () => {
 
   it("deletes a custom profile, lists the profiles again, and takes the settings rm left", async () => {
     const api = await open({
-      settingsGet: vi.fn(async () => ({
-        reviews: reviewSettings({ profiles: { docs: { runs: "off", model: "" }, go: { runs: "always", model: "" } } }),
-        notifications: notificationSettings(), open: openSettings(),
-      })),
       reviewsProfileRemove: vi.fn(async () => ({
         restored: false,
-        settings: { reviews: reviewSettings({ profiles: { go: { runs: "always", model: "" } } }), notifications: notificationSettings(), open: openSettings() },
+        settings: { reviews: reviewSettings(), notifications: notificationSettings(), open: openSettings() },
       })),
     });
     expect(screen.getByLabelText("Runs for docs")).toHaveTextContent("Off");

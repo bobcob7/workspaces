@@ -250,6 +250,7 @@ pub fn build(config: Config) -> Result<Arc<Online>, String> {
         state,
         reports_dir: data_dir.join("reports"),
         on_listing: Box::new(move |entries: &[Entry]| listing_notifier.observe(entries)),
+        online: Some(config.summary()),
     };
     Ok(Arc::new(Online {
         config,

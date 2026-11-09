@@ -168,8 +168,8 @@ messages aren't.
 | Exit | Meaning                       | Error codes |
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
-| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid` |
+| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `config_uneditable`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown` |
 | 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin` |
 
@@ -242,3 +242,8 @@ For people and the desktop app, not agents:
   - `ws llm cache path`: a cached repo's directory
   - `ws llm cache remove`: delete cached repos
   - `ws llm cache prune`: delete commit refs no workspace uses
+- `ws llm config`: config.toml's settings, and its subcommands:
+  - `ws llm config list`: every setting, with its value and default
+  - `ws llm config get`: one setting
+  - `ws llm config set`: change a setting, keeping the file's comments
+  - `ws llm config unset`: remove a setting, so its default applies

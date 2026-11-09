@@ -1,12 +1,13 @@
 import type { JSX } from "react";
-import { isWeb } from "../../platform";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { groupChosen, type SettingsGroup } from "./settingsSlice";
 import styles from "./SettingsList.module.css";
 
-/** Groups with settings, in list order. General and Agents join once they have some. */
+/** The settings groups, in list order. */
 const groups: readonly { readonly id: SettingsGroup; readonly title: string }[] = [
+  { id: "repos", title: "Repos" },
   { id: "reviews", title: "Reviews" },
+  { id: "roles", title: "Agent roles" },
   { id: "notifications", title: "Notifications" },
   { id: "workspaces", title: "Workspaces" },
   { id: "about", title: "About" },
@@ -15,11 +16,10 @@ const groups: readonly { readonly id: SettingsGroup; readonly title: string }[] 
 export const SettingsList = (): JSX.Element => {
   const dispatch = useAppDispatch();
   const current = useAppSelector((s) => s.settings.group);
-  const visible = groups.filter((group) => !(isWeb() && group.id === "workspaces"));
   return (
     <nav className={styles.root} aria-label="Settings groups">
       <ul className={styles.list}>
-        {visible.map((group) => (
+        {groups.map((group) => (
           <li key={group.id}>
             <button
               type="button"

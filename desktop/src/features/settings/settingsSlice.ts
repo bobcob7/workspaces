@@ -2,22 +2,39 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import {
   toAppError,
   type AppError,
+  type ConfigChange,
+  type ConfigListing,
+  type ConfigSetting,
+  type Environment,
   type ListedProfile,
   type NotificationSettings,
   type OpenSettings,
   type ProfileDetail,
   type ProfileDraft,
   type ProfileRemoved,
+  type Resolution,
   type ReviewSettings,
+  type RoleDetail,
+  type RoleDraft,
+  type RoleRemoved,
+  type ListedRole,
+  type SearchMatch,
   type Settings,
   type Versions,
 } from "../../api";
 import { createAppThunk } from "../../thunk";
 
-/** Settings groups; a group is listed once it has settings. */
-export type SettingsGroup = "reviews" | "notifications" | "workspaces" | "about";
+/** Settings groups, in list order. */
+export type SettingsGroup = "repos" | "reviews" | "roles" | "notifications" | "workspaces" | "about";
 
 export type ReviewSettingKey = keyof ReviewSettings;
+
+export interface ResolveState {
+  readonly spec: string;
+  readonly resolution: Resolution | null;
+  readonly error: AppError | null;
+  readonly pending: boolean;
+}
 
 export interface SettingsState {
   readonly settings: Settings | null;
@@ -34,9 +51,21 @@ export interface SettingsState {
   /** Every reviewer profile, from `ws review profiles`. */
   readonly profiles: readonly ListedProfile[] | null;
   readonly profilesError: AppError | null;
+  /** Every agent role, from `ws machine roles`. */
+  readonly roles: readonly ListedRole[] | null;
+  readonly rolesError: AppError | null;
   /** The app's, ws's, and claude's versions, for About. */
   readonly versions: Versions | null;
   readonly versionsError: AppError | null;
+  /** config.toml's keys, from `ws config list`. */
+  readonly config: ConfigListing | null;
+  readonly configError: AppError | null;
+  /** The error under each config.toml control whose last change failed, by key. */
+  readonly configErrors: Readonly<Record<string, string>>;
+  readonly resolve: ResolveState;
+  readonly searchMatches: readonly SearchMatch[];
+  readonly environment: Environment | null;
+  readonly environmentError: AppError | null;
 }
 
 const initialState: SettingsState = {
@@ -49,8 +78,17 @@ const initialState: SettingsState = {
   openErrors: {},
   profiles: null,
   profilesError: null,
+  roles: null,
+  rolesError: null,
   versions: null,
   versionsError: null,
+  config: null,
+  configError: null,
+  configErrors: {},
+  resolve: { spec: "", resolution: null, error: null, pending: false },
+  searchMatches: [],
+  environment: null,
+  environmentError: null,
 };
 
 export const fetchSettings = createAppThunk<Settings, void>("settings/fetch", async (_arg, { extra, rejectWithValue }) => {
@@ -130,6 +168,53 @@ export const removeProfile = createAppThunk<ProfileRemoved, string>(
   },
 );
 
+export const fetchRoles = createAppThunk<readonly ListedRole[], void>("settings/fetchRoles", async (_arg, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.rolesList();
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** One role with its prompt template, for the editor. */
+export const fetchRoleDetail = createAppThunk<RoleDetail, string>("settings/fetchRoleDetail", async (name, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.rolesShow(name);
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** A role to add or edit: `isNew` picks `add` over `edit`. */
+export interface SaveRole {
+  readonly name: string;
+  readonly draft: RoleDraft;
+  /** `ws machine roles add`, rather than `edit`. */
+  readonly isNew: boolean;
+}
+
+/** Adds or edits a role, then lists the roles again. */
+export const saveRole = createAppThunk<RoleDetail, SaveRole>("settings/saveRole", async ({ name, draft, isNew }, { extra, dispatch, rejectWithValue }) => {
+  try {
+    const saved = isNew ? await extra.api.rolesAdd(name, draft) : await extra.api.rolesEdit(name, draft);
+    void dispatch(fetchRoles());
+    return saved;
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** Deletes a role's file, then lists the roles again. An override's built-in comes back. */
+export const removeRole = createAppThunk<RoleRemoved, string>("settings/removeRole", async (name, { extra, dispatch, rejectWithValue }) => {
+  try {
+    const removed = await extra.api.rolesRemove(name);
+    void dispatch(fetchRoles());
+    return removed;
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
 /**
  * Saves a change to the Reviews settings as it's made. On failure the old
  * value stays and the error shows under the changed control.
@@ -186,6 +271,106 @@ export const saveOpenSettings = createAppThunk<Settings, Partial<OpenSettings>>(
   },
 );
 
+export const fetchConfig = createAppThunk<ConfigListing, void>("settings/fetchConfig", async (_arg, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.configList();
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** Sets one config.toml key to the values given, in order. */
+export const setConfig = createAppThunk<ConfigChange, { key: string; values: readonly string[] }>(
+  "settings/setConfig",
+  async ({ key, values }, { extra, rejectWithValue }) => {
+    try {
+      return await extra.api.configSet(key, values);
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+/** Removes one config.toml key, so its default applies. */
+export const unsetConfig = createAppThunk<ConfigChange, string>("settings/unsetConfig", async (key, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.configUnset(key);
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/**
+ * Writes each desktop.json profile override with ws config, then clears them
+ * (ADR 0054). Stops at the first error.
+ */
+export const moveProfileOverrides = createAppThunk<Settings, void>(
+  "settings/moveProfileOverrides",
+  async (_arg, { extra, getState, dispatch, rejectWithValue }) => {
+    try {
+      const base = getState().settings.settings ?? (await extra.api.settingsGet());
+      for (const [name, { runs, model }] of Object.entries(base.reviews.profiles)) {
+        await extra.api.configSet(`review.profiles.${name}.when`, [runs]);
+        if (model === "") {
+          await extra.api.configUnset(`review.profiles.${name}.model`);
+        } else {
+          await extra.api.configSet(`review.profiles.${name}.model`, [model]);
+        }
+      }
+      const cleared = await extra.api.settingsSetReviews({ ...base.reviews, profiles: {} });
+      void dispatch(fetchConfig());
+      void dispatch(fetchProfiles());
+      return cleared;
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+export const resolveSpec = createAppThunk<Resolution, string>("settings/resolveSpec", async (spec, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.cacheResolve(spec);
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** Cached repos that match the text typed, with their refs. */
+export const searchSpecs = createAppThunk<readonly SearchMatch[], string>("settings/searchSpecs", async (query, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.cacheSearch(query, true, 8);
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+export const fetchEnvironment = createAppThunk<Environment, void>("settings/fetchEnvironment", async (_arg, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.settingsEnvironment();
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** The listing's setting for key, or undefined. */
+export const settingOf = (config: ConfigListing | null, key: string): ConfigSetting | undefined =>
+  config?.settings.find((setting) => setting.key === key);
+
+const withoutError = (errors: Readonly<Record<string, string>>, key: string): Readonly<Record<string, string>> =>
+  Object.fromEntries(Object.entries(errors).filter(([errorKey]) => errorKey !== key));
+
+/** Puts a changed setting into the listing, replacing or appending it. */
+const withChange = (config: ConfigListing | null, change: ConfigChange): ConfigListing | null => {
+  if (config === null) {
+    return null;
+  }
+  const { key } = change.setting;
+  const settings = config.settings.some((setting) => setting.key === key)
+    ? config.settings.map((setting) => (setting.key === key ? change.setting : setting))
+    : [...config.settings, change.setting];
+  return { path: change.path, settings };
+};
+
 const changedKeys = (change: Partial<ReviewSettings>): readonly ReviewSettingKey[] =>
   Object.keys(change).filter((key): key is ReviewSettingKey => key in change);
 
@@ -229,6 +414,14 @@ const settingsSlice = createSlice({
         ...state,
         settings: action.payload.settings,
       }))
+      .addCase(fetchRoles.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        roles: action.payload,
+        rolesError: null,
+      }))
+      .addCase(fetchRoles.rejected, (state, action) => {
+        state.rolesError = action.payload ?? { code: "internal", message: action.error.message ?? "listing roles failed" };
+      })
       .addCase(saveReviewSettings.fulfilled, (state, action): SettingsState => {
         const fieldErrors = { ...state.fieldErrors };
         for (const key of changedKeys(action.meta.arg)) {
@@ -259,6 +452,62 @@ const settingsSlice = createSlice({
         for (const key of changedOpenKeys(action.meta.arg)) {
           state.openErrors[key] = message;
         }
+      })
+      .addCase(fetchConfig.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        config: action.payload,
+        configError: null,
+      }))
+      .addCase(fetchConfig.rejected, (state, action) => {
+        state.configError = action.payload ?? { code: "internal", message: action.error.message ?? "reading config failed" };
+      })
+      .addCase(setConfig.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        config: withChange(state.config, action.payload),
+        configErrors: withoutError(state.configErrors, action.meta.arg.key),
+      }))
+      .addCase(setConfig.rejected, (state, action) => {
+        state.configErrors[action.meta.arg.key] = action.payload?.message ?? action.error.message ?? "saving failed";
+      })
+      .addCase(unsetConfig.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        config: withChange(state.config, action.payload),
+        configErrors: withoutError(state.configErrors, action.meta.arg),
+      }))
+      .addCase(unsetConfig.rejected, (state, action) => {
+        state.configErrors[action.meta.arg] = action.payload?.message ?? action.error.message ?? "saving failed";
+      })
+      .addCase(moveProfileOverrides.fulfilled, (state, action) => {
+        state.settings = action.payload;
+      })
+      .addCase(resolveSpec.pending, (state, action) => {
+        state.resolve = { spec: action.meta.arg, resolution: null, error: null, pending: true };
+      })
+      .addCase(resolveSpec.fulfilled, (state, action) => {
+        if (action.meta.arg === state.resolve.spec) {
+          state.resolve = { spec: action.meta.arg, resolution: action.payload, error: null, pending: false };
+        }
+      })
+      .addCase(resolveSpec.rejected, (state, action) => {
+        if (action.meta.arg === state.resolve.spec) {
+          const error = action.payload ?? { code: "internal", message: action.error.message ?? "resolving failed" };
+          state.resolve = { spec: action.meta.arg, resolution: null, error, pending: false };
+        }
+      })
+      .addCase(searchSpecs.fulfilled, (state, action): SettingsState => ({
+        ...state,
+        searchMatches: action.payload,
+      }))
+      .addCase(searchSpecs.rejected, (state): SettingsState => ({
+        ...state,
+        searchMatches: [],
+      }))
+      .addCase(fetchEnvironment.fulfilled, (state, action) => {
+        state.environment = action.payload;
+        state.environmentError = null;
+      })
+      .addCase(fetchEnvironment.rejected, (state, action) => {
+        state.environmentError = action.payload ?? { code: "internal", message: action.error.message ?? "reading the environment failed" };
       })
       .addCase(saveReviewSettings.rejected, (state, action) => {
         const message = action.payload?.message ?? action.error.message ?? "saving failed";

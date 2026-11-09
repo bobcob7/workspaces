@@ -2,6 +2,8 @@
 //! built from, and the `ws` and `claude` the app runs, with their versions
 //! and where they are on its PATH.
 
+use crate::commands::AppState;
+use crate::ipc::State;
 use crate::runner::Runner;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -30,6 +32,56 @@ pub struct Versions {
     pub app: AppVersion,
     pub ws: ToolVersion,
     pub claude: ToolVersion,
+}
+
+/// Workspace Online's settings from WS_ONLINE_*, without the password.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineSettings {
+    pub username: String,
+    pub addr: String,
+    pub public_url: Option<String>,
+    pub secure_cookie: bool,
+    pub session_days: u32,
+    pub trust_proxy: bool,
+    pub data_dir: String,
+    pub web_dir: String,
+    pub vapid_subject: String,
+    /// "plain" or "hash".
+    pub password: &'static str,
+}
+
+/// Where the app's and ws's files are, and the environment it runs with.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Environment {
+    pub state_file: Option<String>,
+    pub ws_config_dir: Option<String>,
+    pub claude_config_dir: Option<String>,
+    pub path: String,
+    pub online: Option<OnlineSettings>,
+}
+
+/// The environment for Settings › About, with `online` as given.
+pub fn environment(state: &AppState, online: Option<OnlineSettings>) -> Environment {
+    Environment {
+        state_file: state.store.path().map(|p| p.display().to_string()),
+        ws_config_dir: env_dir(|name| std::env::var(name).ok(), "WS_CONFIG_DIR"),
+        claude_config_dir: env_dir(|name| std::env::var(name).ok(), "CLAUDE_CONFIG_DIR"),
+        path: state.runner.path().to_string(),
+        online,
+    }
+}
+
+/// Settings › About › Locations in the desktop app (`online` is null).
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub fn settings_environment(state: State<'_, AppState>) -> Environment {
+    environment(&state, None)
+}
+
+/// The value of `name` through `get`, or None when it is unset or empty.
+fn env_dir(get: impl Fn(&str) -> Option<String>, name: &str) -> Option<String> {
+    get(name).filter(|value| !value.is_empty())
 }
 
 pub fn app_version(version: &str) -> AppVersion {
@@ -124,6 +176,31 @@ mod tests {
             Some("2.1.303")
         );
         assert_eq!(parse_version("ws", "\n"), None);
+    }
+
+    #[test]
+    fn env_dir_is_none_when_unset_or_empty() {
+        assert_eq!(env_dir(|_| None, "WS_CONFIG_DIR"), None);
+        assert_eq!(env_dir(|_| Some(String::new()), "WS_CONFIG_DIR"), None);
+        assert_eq!(
+            env_dir(|_| Some("/c".to_string()), "WS_CONFIG_DIR").as_deref(),
+            Some("/c")
+        );
+    }
+
+    #[test]
+    fn environment_serializes_in_camel_case() {
+        let environment = Environment {
+            state_file: Some("/s/desktop.json".into()),
+            ws_config_dir: None,
+            claude_config_dir: None,
+            path: "/usr/bin".into(),
+            online: None,
+        };
+        let json = serde_json::to_value(&environment).unwrap();
+        assert_eq!(json["stateFile"], "/s/desktop.json");
+        assert_eq!(json["wsConfigDir"], serde_json::Value::Null);
+        assert_eq!(json["online"], serde_json::Value::Null);
     }
 
     #[test]

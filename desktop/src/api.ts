@@ -211,6 +211,12 @@ export interface AddedRepo {
   readonly added: boolean;
 }
 
+/** A cached repo that matches a search, from ws cache search. */
+export interface SearchMatch {
+  readonly id: string;
+  readonly ref: string | null;
+}
+
 export type ReviewGroup = "toReview" | "reviewing" | "reviewed" | "dismissed";
 
 /** A review workspace of a pull request (ADR 0032). */
@@ -349,6 +355,47 @@ export interface ProfileRemoved {
   /** The removed file was an edited built-in, which is back. */
   readonly restored: boolean;
   readonly settings: Settings;
+}
+
+/** Where an agent role comes from: built into `ws`, a user's file, or a user's file replacing a built-in (ADR 0050). */
+export type RoleSource = "builtin" | "user" | "override";
+
+/** A role as `ws machine roles` lists it. */
+export interface ListedRole {
+  readonly name: string;
+  readonly description: string;
+  /** "" for claude's default. */
+  readonly model: string;
+  readonly pass: readonly string[];
+  readonly fail: readonly string[];
+  readonly vars: readonly string[];
+  readonly claudeArgs: readonly string[];
+  readonly source: RoleSource;
+}
+
+/** A role with its prompt template, from `ws machine roles show`, `add`, or `edit`. */
+export interface RoleDetail extends ListedRole {
+  readonly prompt: string;
+  /** The user's file; null for a built-in. */
+  readonly path: string | null;
+}
+
+/** What the role editor saves; every field is sent. */
+export interface RoleDraft {
+  readonly description: string;
+  readonly model: string;
+  readonly pass: readonly string[];
+  readonly fail: readonly string[];
+  readonly vars: readonly string[];
+  readonly claudeArgs: readonly string[];
+  readonly prompt: string;
+}
+
+/** What `ws machine roles rm` did. `restored` is true when a built-in is back. */
+export interface RoleRemoved {
+  readonly name: string;
+  readonly path: string;
+  readonly restored: boolean;
 }
 
 /** A Reviewer profiles row changed from what ws lists. */
@@ -602,6 +649,56 @@ export interface Settings {
   readonly open: OpenSettings;
 }
 
+export type ConfigType = "string" | "strings" | "duration" | "bool";
+export type ConfigValue = string | boolean | readonly string[];
+
+/** One key of config.toml, with its effective value and default (ws config). */
+export interface ConfigSetting {
+  readonly key: string;
+  readonly type: ConfigType;
+  readonly value: ConfigValue;
+  readonly default: ConfigValue;
+  readonly set: boolean;
+}
+
+export interface ConfigListing {
+  readonly path: string;
+  readonly settings: readonly ConfigSetting[];
+}
+
+export interface ConfigChange {
+  readonly path: string;
+  readonly setting: ConfigSetting;
+  readonly changed: boolean;
+}
+
+/** Workspace Online's WS_ONLINE_* settings; never the password itself. */
+export interface OnlineSettings {
+  readonly username: string;
+  readonly addr: string;
+  readonly publicUrl: string | null;
+  readonly secureCookie: boolean;
+  readonly sessionDays: number;
+  readonly trustProxy: boolean;
+  readonly dataDir: string;
+  readonly webDir: string;
+  readonly vapidSubject: string;
+  readonly password: "plain" | "hash";
+}
+
+export interface Environment {
+  /** desktop.json's path; null when the app keeps settings in memory only. */
+  readonly stateFile: string | null;
+  /** WS_CONFIG_DIR, or null when unset or empty. */
+  readonly wsConfigDir: string | null;
+  /** CLAUDE_CONFIG_DIR, or null when unset or empty. */
+  readonly claudeConfigDir: string | null;
+  /** The PATH the app runs ws and claude with. */
+  readonly path: string;
+  /** Set only by ws-online. */
+  readonly online: OnlineSettings | null;
+}
+
 export interface LoopError {
   readonly code: string;
   readonly message: string;
@@ -738,6 +835,12 @@ export const api = {
     call<RepoResult[]>("cache_fetch", { ids, all }),
   cacheAdd: async (spec: string): Promise<AddedRepo> => call<AddedRepo>("cache_add", { spec }),
   cacheRemove: async (id: string): Promise<void> => call<void>("cache_remove", { id }),
+  cacheSearch: async (query: string, refs: boolean, limit: number): Promise<readonly SearchMatch[]> =>
+    call<SearchMatch[]>("cache_search", { query, refs, limit }),
+  configList: async (): Promise<ConfigListing> => call<ConfigListing>("config_list"),
+  configSet: async (key: string, values: readonly string[]): Promise<ConfigChange> => call<ConfigChange>("config_set", { key, values }),
+  configUnset: async (key: string): Promise<ConfigChange> => call<ConfigChange>("config_unset", { key }),
+  settingsEnvironment: async (): Promise<Environment> => call<Environment>("settings_environment"),
   createAgent: async (request: NewAgent): Promise<Created> => call<Created>("create_agent", { request }),
   removeEntry: async (workspaceId: string | null, sessionId: string | null, keepChildren = false): Promise<void> =>
     call<void>("remove_entry", { workspaceId, sessionId, keepChildren }),
@@ -789,6 +892,11 @@ export const api = {
     call<ProfileDetail>("reviews_profile_edit", { name, draft }),
   reviewsProfileRemove: async (name: string): Promise<ProfileRemoved> =>
     call<ProfileRemoved>("reviews_profile_remove", { name }),
+  rolesList: async (): Promise<readonly ListedRole[]> => call<ListedRole[]>("roles_list"),
+  rolesShow: async (name: string): Promise<RoleDetail> => call<RoleDetail>("roles_show", { name }),
+  rolesAdd: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_add", { name, draft }),
+  rolesEdit: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_edit", { name, draft }),
+  rolesRemove: async (name: string): Promise<RoleRemoved> => call<RoleRemoved>("roles_remove", { name }),
   reviewsStart: async (plan: ReviewPlan): Promise<Started> => call<Started>("reviews_start", { plan }),
   reviewReport: async (repo: string, gitRef: string, refresh: boolean): Promise<ReviewReport> =>
     call<ReviewReport>("review_report", { repo, gitRef, refresh }),

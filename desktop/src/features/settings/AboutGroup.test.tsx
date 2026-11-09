@@ -1,7 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { Versions } from "../../api";
+import type { Api, OnlineSettings, Versions } from "../../api";
 import { fakeApi, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { commitOf } from "./AboutGroup";
@@ -16,8 +16,22 @@ const versions = (overrides: Partial<Versions> = {}): Versions => ({
   ...overrides,
 });
 
-const renderAbout = (v: Versions): ReturnType<typeof fakeApi> => {
-  const api = fakeApi({ versions: vi.fn(async () => v) });
+const online = (overrides: Partial<OnlineSettings> = {}): OnlineSettings => ({
+  username: "alice",
+  addr: "0.0.0.0:8080",
+  publicUrl: "https://ws.example.com",
+  secureCookie: true,
+  sessionDays: 30,
+  trustProxy: true,
+  dataDir: "/data/ws",
+  webDir: "/app/web",
+  vapidSubject: "mailto:ops@example.com",
+  password: "hash",
+  ...overrides,
+});
+
+const renderAbout = (v: Versions, overrides: Partial<Api> = {}): Api => {
+  const api = fakeApi({ versions: vi.fn(async () => v), ...overrides });
   const store = testStore({ api });
   store.dispatch(groupChosen("about"));
   renderWithStore(<SettingsPane />, store);
@@ -76,5 +90,49 @@ describe("About", () => {
     const api = renderAbout(versions());
     await userEvent.click(await screen.findByRole("button", { name: "Check again" }));
     expect(api.versions).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows where config.toml and the app's settings are, and the env they read", async () => {
+    renderAbout(
+      versions(),
+      {
+        settingsEnvironment: vi.fn(async () => ({
+          stateFile: "/home/me/.local/state/desktop.json",
+          wsConfigDir: null,
+          claudeConfigDir: "/home/me/.claude-work",
+          path: "/usr/bin:/bin",
+          online: null,
+        })),
+      },
+    );
+    const configFile = await screen.findByRole("group", { name: "ws config file" });
+    expect(within(configFile).getByText("/home/me/.config/workspaces/config.toml")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "App settings file" })).getByText("/home/me/.local/state/desktop.json")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "WS_CONFIG_DIR" })).getByText("not set (the platform default)")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "CLAUDE_CONFIG_DIR" })).getByText("/home/me/.claude-work")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "PATH" })).getByText("/usr/bin:/bin")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy ws config file" })).toBeInTheDocument();
+  });
+
+  it("leaves out the server when the app isn't Workspace Online", async () => {
+    renderAbout(versions());
+    await screen.findByRole("group", { name: "ws config file" });
+    expect(screen.queryByRole("heading", { name: "Server" })).not.toBeInTheDocument();
+  });
+
+  it("shows Workspace Online's settings, with the password only as hash or plain", async () => {
+    renderAbout(versions(), {
+      settingsEnvironment: vi.fn(async () => ({
+        stateFile: null,
+        wsConfigDir: null,
+        claudeConfigDir: null,
+        path: "/usr/bin:/bin",
+        online: online(),
+      })),
+    });
+    expect(await screen.findByRole("heading", { name: "Server" })).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Username" })).getByText("alice")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Session length" })).getByText("30 days")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Password" })).getByText("Set as a hash")).toBeInTheDocument();
   });
 });

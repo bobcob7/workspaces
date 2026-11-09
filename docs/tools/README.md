@@ -17,6 +17,7 @@ for people and the desktop app ([0046](../adrs/0046-ws-machine.md)).
 | [`ws rename`](ws-rename.md)   | Change a workspace's display name                        |
 | [`ws hide`, `ws unhide`](ws-hide.md) | Hide a workspace from `ws list` and the desktop app's default views, or show it again |
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |
+| [`ws config`](ws-config.md)   | List, read, and change `config.toml`'s settings, keeping its comments |
 | [`ws review`](ws-review.md)   | Start structured reviews, wait for their reports, and check, store, and explain reviews |
 | [`ws machine`](ws-machine.md) | For agents, and the only commands they run besides `ws review`: start, wait for, list, and remove the workspaces your workspace started, record a verdict, and manage roles |
 | [`ws llm`](ws-llm.md)         | Print guidance for AI agents                             |

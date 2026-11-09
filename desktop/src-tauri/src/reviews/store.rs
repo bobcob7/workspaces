@@ -286,6 +286,11 @@ impl Store {
         }
     }
 
+    /// The file the store writes to, or None when it keeps changes in memory.
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
     pub fn get(&self) -> StateFile {
         self.data.lock().map(|d| d.clone()).unwrap_or_default()
     }

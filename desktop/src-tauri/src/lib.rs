@@ -19,9 +19,11 @@ pub mod online;
 mod open;
 mod pty;
 mod reviews;
+mod roles;
 mod runner;
 mod transcript;
 mod tray;
+mod ws_config;
 
 #[cfg(feature = "desktop")]
 use commands::AppState;
@@ -126,6 +128,16 @@ pub fn run() {
             open::workspace_open,
             open::open_defaults,
             open::settings_set_open,
+            ws_config::config_list,
+            ws_config::config_set,
+            ws_config::config_unset,
+            cache::cache_search,
+            about::settings_environment,
+            roles::roles_list,
+            roles::roles_show,
+            roles::roles_add,
+            roles::roles_edit,
+            roles::roles_remove,
             loops::loops_list,
             loops::loops_add,
             loops::loops_edit,

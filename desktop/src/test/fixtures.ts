@@ -3,6 +3,9 @@ import type {
   Api,
   CachedRepo,
   CommentPlan,
+  ConfigChange,
+  ConfigListing,
+  ConfigSetting,
   Entry,
   FixPlan,
   ListedProfile,
@@ -11,6 +14,7 @@ import type {
   NotificationSettings,
   OpenSettings,
   OpenWith,
+  ListedRole,
   ProfileDetail,
   PullRequest,
   RepoRef,
@@ -18,6 +22,7 @@ import type {
   ReviewRun,
   ReviewSettings,
   ReviewsView,
+  RoleDetail,
 } from "../api";
 import type { TerminalHost } from "../features/terminals/host";
 import { createStore, type RootState } from "../store";
@@ -161,6 +166,46 @@ export const listedProfiles = (): readonly ListedProfile[] => [
   listedProfile({ name: "efficiency", description: "Efficiency", when: "off" }),
 ];
 
+export const listedRole = (overrides: Partial<ListedRole> = {}): ListedRole => ({
+  name: "implementer",
+  description: "Implements one task from a tasks file, pushes a branch, and records PASS or FAIL",
+  model: "haiku",
+  pass: ["PASS"],
+  fail: ["FAIL"],
+  vars: ["TASK", "TASKS", "BASE", "BRANCH"],
+  claudeArgs: ["--permission-mode", "auto"],
+  source: "builtin",
+  ...overrides,
+});
+
+/** ws's three built-in roles. */
+export const listedRoles = (): readonly ListedRole[] => [
+  listedRole(),
+  listedRole({
+    name: "reviewer",
+    description: "Reviews one task's diff against its tasks file and records APPROVED or CHANGES_REQUESTED",
+    model: "sonnet",
+    pass: ["APPROVED"],
+    fail: ["CHANGES_REQUESTED"],
+    vars: ["TASK", "TASKS", "BASE", "KNOWN_ISSUES"],
+  }),
+  listedRole({
+    name: "verifier",
+    description: "Runs the checks on a branch and records PASS, FLAKY, or FAIL",
+    model: "haiku",
+    pass: ["PASS", "FLAKY"],
+    fail: ["FAIL"],
+    vars: ["BRANCH", "CHECKS"],
+  }),
+];
+
+export const roleDetail = (overrides: Partial<RoleDetail> = {}): RoleDetail => ({
+  ...listedRole(),
+  prompt: "You implement exactly one task, {{.Vars.TASK}}, in this repo.",
+  path: null,
+  ...overrides,
+});
+
 export const reviewSettings = (overrides: Partial<ReviewSettings> = {}): ReviewSettings => ({
   checkIntervalMinutes: 5,
   skipDrafts: true,
@@ -260,6 +305,36 @@ export const openSettings = (overrides: Partial<OpenSettings> = {}): OpenSetting
   ...overrides,
 });
 
+const configPath = "/home/me/.config/workspaces/config.toml";
+
+export const configListing = (): ConfigListing => ({
+  path: configPath,
+  settings: [
+    { key: "defaults.host", type: "string", value: "github.com", default: "github.com", set: false },
+    { key: "defaults.owners", type: "strings", value: ["bobcob7", "acme"], default: [], set: true },
+    { key: "review.timeout", type: "duration", value: "1h", default: "1h", set: false },
+    { key: "review.remove_finished", type: "bool", value: true, default: true, set: false },
+    { key: "review.profiles.security.when", type: "string", value: "", default: "", set: false },
+    { key: "review.profiles.security.model", type: "string", value: "opus", default: "", set: true },
+  ],
+});
+
+const configSettingFor = (key: string): ConfigSetting =>
+  configListing().settings.find((setting) => setting.key === key) ?? { key, type: "string", value: "", default: "", set: false };
+
+/** What `ws config set` answers: the key with its new value, as the file now says. */
+export const configSetChange = (key: string, values: readonly string[]): ConfigChange => {
+  const base = configSettingFor(key);
+  const value = base.type === "strings" ? values : (values[0] ?? "");
+  return { path: configPath, setting: { ...base, value, set: true }, changed: true };
+};
+
+/** What `ws config unset` answers: the key back at its default. */
+export const configUnsetChange = (key: string): ConfigChange => {
+  const base = configSettingFor(key);
+  return { path: configPath, setting: { ...base, value: base.default, set: false }, changed: true };
+};
+
 export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   listEntries: vi.fn(async () => ({ entries: [], warnings: [] })),
   cacheRepos: vi.fn(async () => []),
@@ -280,6 +355,11 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
     added: true,
   })),
   cacheRemove: vi.fn(async () => undefined),
+  cacheSearch: vi.fn(async () => []),
+  configList: vi.fn(async () => configListing()),
+  configSet: vi.fn(async (key: string, values: readonly string[]) => configSetChange(key, values)),
+  configUnset: vi.fn(async (key: string) => configUnsetChange(key)),
+  settingsEnvironment: vi.fn(async () => ({ stateFile: null, wsConfigDir: null, claudeConfigDir: null, path: "/usr/bin:/bin", online: null })),
   createAgent: vi.fn(async () => ({ id: "new", session: "abcd1234", path: "/w/new" })),
   removeEntry: vi.fn(async () => undefined),
   renameWorkspace: vi.fn(async (id: string, name: string) => ({ id, name })),
@@ -304,6 +384,11 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewsProfileAdd: vi.fn(async (name: string) => profileDetail({ name, builtin: false, source: "user" })),
   reviewsProfileEdit: vi.fn(async (name: string) => profileDetail({ name })),
   reviewsProfileRemove: vi.fn(async () => ({ restored: false, settings: { reviews: reviewSettings(), notifications: notificationSettings(), open: openSettings() } })),
+  rolesList: vi.fn(async () => listedRoles()),
+  rolesShow: vi.fn(async (name: string) => roleDetail({ name, ...listedRoles().find((role) => role.name === name) })),
+  rolesAdd: vi.fn(async (name: string) => roleDetail({ name, source: "user", path: `/c/machine/roles/${name}.md` })),
+  rolesEdit: vi.fn(async (name: string) => roleDetail({ name, source: "override", path: `/c/machine/roles/${name}.md` })),
+  rolesRemove: vi.fn(async (name: string) => ({ name, path: `/c/machine/roles/${name}.md`, restored: false })),
   reviewsStart: vi.fn(async () => ({ id: "review-buff-bear-42-3f2a9c1", already: false })),
   reviewReport: vi.fn(async () => reviewReport()),
   reviewDecide: vi.fn(async () => reviewReport()),

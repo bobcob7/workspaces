@@ -71,6 +71,15 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   it was built from, and the `ws` and `claude` it runs, with their versions
   and where they are on its PATH. A warning says when the app and `ws`
   were built from different commits, so one needs rebuilding.
+- **Repos settings** (Settings, Repos): the default host and owners in
+  `config.toml` (`ws config`), and a box that shows what a spec resolves
+  to with those settings (`ws cache resolve`, `ws cache search`).
+- **Agent roles** (Settings, Agent roles): the built-in and custom roles
+  that `ws machine spawn --role` starts, edited or removed in the app
+  (`ws machine roles`).
+- **About › Locations** (Settings, About): where the `ws` config file,
+  the app's settings file and the `WS_CONFIG_DIR`, `CLAUDE_CONFIG_DIR` and
+  `PATH` the app runs with are, each with a Copy button.
 - **Review pull requests** (the Reviews section): watch cached GitHub repos
   and the app checks them for open pull requests with `gh`. Review starts a
   `ws claude` agent on the PR's head commit
@@ -133,6 +142,18 @@ backend every 5 minutes by default
 | ![](docs/repos-reviews.png) | ![](docs/rename.png) |
 
 ![A loop's detail view: Schedule, Prompt, Repos, Agent, Gate script and Variables cards](docs/loops.png)
+
+| Settings, Repos, with a cached repo resolved | Settings, Repos: the ambiguous candidates |
+| --- | --- |
+| ![](docs/settings-repos.png) | ![](docs/settings-repos-ambiguous.png) |
+| **Settings, Reviews, with the move banner** | **Settings, Agent roles** |
+| ![](docs/settings-reviews-config.png) | ![](docs/settings-roles.png) |
+| **Settings, editing a role** | **Settings, About › Locations** |
+| ![](docs/settings-role-edit.png) | ![](docs/settings-about-locations.png) |
+| **Repos on a phone** | **Agent roles on a phone** |
+| ![](docs/online-settings-repos-mobile.png) | ![](docs/online-settings-roles-mobile.png) |
+| **About on a phone** | |
+| ![](docs/online-settings-about-mobile.png) | |
 
 A loop's name can be any text, such as "Nightly deps bump"; its ID (`nightly-deps-bump`) is derived from it when the loop is added and names its workspaces. A loop is edited with **Edit** in its header, in the same form that adds it.
 The prompt and the gate script show in scrollable monospace blocks.

@@ -74,6 +74,10 @@ const (
 	codeRoleUnknown   errorCode = "role_unknown"
 	codeRoleExists    errorCode = "role_exists"
 	codeRoleBuiltin   errorCode = "role_builtin"
+	// From ADR 0054.
+	codeConfigKeyUnknown   errorCode = "config_key_unknown"
+	codeConfigValueInvalid errorCode = "config_value_invalid"
+	codeConfigUneditable   errorCode = "config_uneditable"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -117,10 +121,10 @@ func (c errorCode) exitCode() int {
 	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing,
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
-		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout:
+		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
-		codeLoopInvalid, codeResultInvalid, codeRoleInvalid:
+		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown:

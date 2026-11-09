@@ -104,6 +104,25 @@ impl Config {
         })
     }
 
+    /// The settings Settings › About shows, without the password.
+    pub fn summary(&self) -> crate::about::OnlineSettings {
+        crate::about::OnlineSettings {
+            username: self.username.clone(),
+            addr: self.addr.to_string(),
+            public_url: self.public_origin.clone(),
+            secure_cookie: self.secure_cookie,
+            session_days: self.session_days,
+            trust_proxy: self.trust_proxy,
+            data_dir: self.data_dir.display().to_string(),
+            web_dir: self.web_dir.display().to_string(),
+            vapid_subject: self.vapid_subject.clone(),
+            password: match self.password {
+                Password::Plain(_) => "plain",
+                Password::Hash(_) => "hash",
+            },
+        }
+    }
+
     /// Creates the data directory (mode 0700) and checks `web_dir/index.html` exists.
     pub fn prepare(&self) -> Result<(), ConfigError> {
         if !self.web_dir.join("index.html").is_file() {
@@ -312,6 +331,21 @@ mod tests {
         assert_eq!(config.data_dir, PathBuf::from("ws-online-data"));
         assert_eq!(config.web_dir, PathBuf::from("./dist"));
         assert_eq!(config.vapid_subject, "mailto:ws-online@localhost");
+    }
+
+    #[test]
+    fn summary_of_a_hashed_password_leaves_the_hash_out() {
+        const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA";
+        let config = Config::from_lookup(lookup(&[
+            ("WS_ONLINE_USERNAME", "eric"),
+            ("WS_ONLINE_PASSWORD_HASH", HASH),
+        ]))
+        .unwrap();
+        let summary = config.summary();
+        let json = serde_json::to_string(&summary).unwrap();
+        assert_eq!(summary.password, "hash");
+        assert!(!json.contains(HASH));
+        assert!(!json.contains("WS_ONLINE_PASSWORD"));
     }
 
     #[test]

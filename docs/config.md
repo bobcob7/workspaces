@@ -3,8 +3,9 @@
 Where `ws` keeps its files, what `config.toml` may contain, and how both are
 found and checked. The decisions behind this are in
 [0011](adrs/0011-config-dir.md) (locations),
-[0007](adrs/0007-repo-spec-syntax-and-resolution.md) (what the keys do), and
-[0019](adrs/0019-https-upstream-urls.md) (why there's no protocol key).
+[0007](adrs/0007-repo-spec-syntax-and-resolution.md) (what the keys do),
+[0019](adrs/0019-https-upstream-urls.md) (why there's no protocol key), and
+[0054](adrs/0054-settings-all.md) (changing it with `ws config`).
 
 ## The config directory
 
@@ -81,7 +82,7 @@ Every command reads `config.toml` before doing anything else, except:
 If `config.toml` doesn't exist, `ws` writes this one:
 
 ```toml
-# ws configuration. ws writes this file once and never overwrites it.
+# ws configuration. Edit it by hand, or with ws config set; ws keeps your comments.
 
 [defaults]
 # Host for repo specs without one, such as "owner/name".
@@ -105,12 +106,35 @@ owners = []
 # model = "opus"
 ```
 
-- **It's never overwritten.** Edit it freely; `ws` only reads it from then
-  on. To get the default back, delete it.
+- **Only `ws config` changes it.** Edit it freely. Apart from creating
+  it, `ws` writes it only when you run `ws config set` or `ws config
+  unset`, and then changes only the lines of the key you named, keeping
+  every comment and other line (see below). To get the default back,
+  delete it.
 - **It appears whole or not at all.** `ws` writes a temporary file in
   `CONFIG_DIR` and links it into place, so two `ws` commands starting at once
   can't leave a partial file, and neither replaces a file that's already
   there.
+
+## Changing it with `ws config`
+
+[`ws config`](tools/ws-config.md) lists, reads, sets and unsets the keys
+below. It is also how the desktop app and Workspace Online edit them in
+Settings ([0054](adrs/0054-settings-all.md)).
+
+```console
+$ ws config set defaults.owners platform platform/tools me
+$ ws config set review.timeout 90m
+$ ws config unset review.profiles.security.model
+$ ws config list --json
+```
+
+A change is checked with the rules below before anything is written. It
+is made under a lock on `CONFIG_DIR/config.lock`, and written to a temp
+file that is renamed into place, so a reader never sees half a file. A
+key written in a form `ws config` doesn't edit, such as a dotted key or
+an inline table, fails with `config_uneditable` and leaves the file as
+it was.
 
 ## Schema
 
@@ -203,6 +227,7 @@ when = "auto"
 | --------- | ---------- | ---- |
 | `config.toml` isn't valid TOML, has a value of the wrong type, an unknown key, or a value that breaks the rules above | `config_invalid` | 1 |
 | `CONFIG_DIR` can't be found, created, or read, or the default file can't be written | `internal` | 1 |
+| `ws config`: an unknown key, a bad value, or a key set in a form it can't edit | `config_key_unknown`, `config_value_invalid` (exit 2), `config_uneditable` | 1 or 2 |
 
 The message starts with the path of the file at fault, for example:
 

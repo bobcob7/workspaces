@@ -34,12 +34,28 @@
     setTimeout(() => socket?.emit({ type: "channel", id: channel.__channel, payload: { event: "data", data } }), 20);
   };
 
+  const onlineSettings = {
+    username: "me",
+    addr: "0.0.0.0:8080",
+    publicUrl: "https://ws.example.com",
+    secureCookie: true,
+    sessionDays: 30,
+    trustProxy: true,
+    dataDir: "/data/online",
+    webDir: "/app/dist",
+    vapidSubject: "mailto:me@example.com",
+    password: "hash",
+  };
+
   const invokeRoute = async (command, body) => {
     window.__WEB_MOCK__.calls.push({ command, args: body });
     try {
       const value = await invokeCommand(command, withoutChannels(body));
       if (command === "terminal_open") {
         emitTerminalLine(body);
+      }
+      if (command === "settings_environment") {
+        return json(200, { ...value, online: onlineSettings });
       }
       return json(200, value);
     } catch (error) {
