@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn summary_of_a_hashed_password_leaves_the_hash_out() {
-        const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA";
+        const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNo";
         let config = Config::from_lookup(lookup(&[
             ("WS_ONLINE_USERNAME", "eric"),
             ("WS_ONLINE_PASSWORD_HASH", HASH),
@@ -389,7 +389,7 @@ mod tests {
             ("WS_ONLINE_PASSWORD", "secret"),
             (
                 "WS_ONLINE_PASSWORD_HASH",
-                "$argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA",
+                "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNo",
             ),
         ];
         let err = Config::from_lookup(lookup(&pairs)).unwrap_err();
