@@ -104,6 +104,10 @@ func (s *Store) Create(l *Loop) error {
 		return fmt.Errorf("checking loop %s: %w", l.Name, err)
 	}
 	l.Version = FormatVersion
+	if l.Hidden == nil {
+		hidden := true
+		l.Hidden = &hidden
+	}
 	return s.Save(l)
 }
 
@@ -181,6 +185,9 @@ func readLoop(path string) (Loop, error) {
 	}
 	if l.Version == Version1 && hasVersion2Keys(&l) {
 		return Loop{}, fmt.Errorf("parsing %s: version 1 record has version 2 keys", path)
+	}
+	if l.Version < 3 && l.Hidden != nil {
+		return Loop{}, fmt.Errorf("parsing %s: version %d record has version 3 keys", path, l.Version)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		return Loop{}, fmt.Errorf("parsing %s: unknown key %s", path, undecoded[0])

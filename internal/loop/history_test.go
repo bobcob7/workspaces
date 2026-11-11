@@ -28,6 +28,10 @@ func failVerdict(recordedAt time.Time) *Verdict {
 	return &Verdict{Verdict: "FAIL", Outcome: "fail", RecordedAt: recordedAt}
 }
 
+func blockedVerdict(recordedAt time.Time) *Verdict {
+	return &Verdict{Verdict: VerdictBlocked, Outcome: "blocked", RecordedAt: recordedAt}
+}
+
 func TestEntry_Open(t *testing.T) {
 	t.Run("an entry with a workspace that isn't closed is open", func(t *testing.T) {
 		e := openEntry(StatusRunning)
@@ -66,6 +70,22 @@ func TestEntry_Settle(t *testing.T) {
 		assert.True(t, e.Closed)
 		assert.Nil(t, e.FinishedAt)
 	})
+	t.Run("rule 2: an unlisted run that needed attention is done at now", func(t *testing.T) {
+		e := openEntry(StatusNeedsAttention)
+		assert.True(t, e.Settle(Observation{Listed: false}, historyTestNow))
+		assert.Equal(t, StatusDone, e.Status)
+		assert.True(t, e.Closed)
+		require.NotNil(t, e.FinishedAt)
+		assert.True(t, e.FinishedAt.Equal(historyTestNow))
+	})
+	t.Run("rule 2: an unlisted blocked run stays blocked and finishes at now", func(t *testing.T) {
+		e := openEntry(StatusBlocked)
+		assert.True(t, e.Settle(Observation{Listed: false}, historyTestNow))
+		assert.Equal(t, StatusBlocked, e.Status)
+		assert.True(t, e.Closed)
+		require.NotNil(t, e.FinishedAt)
+		assert.True(t, e.FinishedAt.Equal(historyTestNow))
+	})
 	t.Run("rule 3: a new verdict that passes is succeeded and finishes at its time", func(t *testing.T) {
 		e := openEntry(StatusRunning)
 		recorded := historyTestNow
@@ -97,6 +117,68 @@ func TestEntry_Settle(t *testing.T) {
 		assert.False(t, e.Settle(Observation{Listed: true, State: "working"}, historyTestNow))
 		assert.Equal(t, StatusSucceeded, e.Status)
 	})
+	t.Run("rule 4: a stored PASS and an idle session change nothing", func(t *testing.T) {
+		e := openEntry(StatusRunning)
+		require.True(t, e.Settle(Observation{Listed: true, Verdict: passVerdict(historyTestNow)}, historyTestNow))
+		assert.False(t, e.Settle(Observation{Listed: true, State: "idle"}, historyTestNow.Add(time.Hour)))
+		assert.Equal(t, StatusSucceeded, e.Status)
+	})
+	t.Run("rule 3: a new BLOCKED verdict while working is stored and the run keeps running", func(t *testing.T) {
+		e := openEntry(StatusRunning)
+		assert.True(t, e.Settle(Observation{Listed: true, State: "working", Verdict: blockedVerdict(historyTestNow)}, historyTestNow))
+		assert.Equal(t, StatusRunning, e.Status)
+		require.NotNil(t, e.Verdict)
+		assert.Equal(t, VerdictBlocked, e.Verdict.Verdict)
+		assert.Nil(t, e.FinishedAt)
+	})
+	t.Run("rule 5: an idle session after a BLOCKED verdict is blocked with no finish time", func(t *testing.T) {
+		e := openEntry(StatusRunning)
+		require.True(t, e.Settle(Observation{Listed: true, State: "working", Verdict: blockedVerdict(historyTestNow)}, historyTestNow))
+		assert.True(t, e.Settle(Observation{Listed: true, State: "idle", Verdict: blockedVerdict(historyTestNow)}, historyTestNow))
+		assert.Equal(t, StatusBlocked, e.Status)
+		assert.Nil(t, e.FinishedAt)
+	})
+	t.Run("rule 5: a blocked run whose session works again is running", func(t *testing.T) {
+		e := openEntry(StatusBlocked)
+		e.Verdict = blockedVerdict(historyTestNow)
+		assert.True(t, e.Settle(Observation{Listed: true, State: "working", Verdict: blockedVerdict(historyTestNow)}, historyTestNow))
+		assert.Equal(t, StatusRunning, e.Status)
+		assert.Nil(t, e.FinishedAt)
+	})
+	t.Run("rule 5: an idle session with the same BLOCKED verdict is blocked again", func(t *testing.T) {
+		e := openEntry(StatusRunning)
+		e.Verdict = blockedVerdict(historyTestNow)
+		assert.True(t, e.Settle(Observation{Listed: true, State: "idle", Verdict: blockedVerdict(historyTestNow)}, historyTestNow))
+		assert.Equal(t, StatusBlocked, e.Status)
+	})
+	t.Run("rule 3: a PASS after a BLOCKED verdict succeeds the run at its time", func(t *testing.T) {
+		e := openEntry(StatusBlocked)
+		e.Verdict = blockedVerdict(historyTestNow)
+		recorded := historyTestNow.Add(time.Hour)
+		assert.True(t, e.Settle(Observation{Listed: true, State: "idle", Verdict: passVerdict(recorded)}, recorded))
+		assert.Equal(t, StatusSucceeded, e.Status)
+		require.NotNil(t, e.FinishedAt)
+		assert.True(t, e.FinishedAt.Equal(recorded))
+	})
+	t.Run("rule 5: an idle session with no verdict needs attention with no finish time", func(t *testing.T) {
+		e := openEntry(StatusRunning)
+		assert.True(t, e.Settle(Observation{Listed: true, State: "idle"}, historyTestNow))
+		assert.Equal(t, StatusNeedsAttention, e.Status)
+		assert.Nil(t, e.FinishedAt)
+	})
+	t.Run("rule 5: a run that needs attention is running again when its session works", func(t *testing.T) {
+		e := openEntry(StatusNeedsAttention)
+		assert.True(t, e.Settle(Observation{Listed: true, State: "working"}, historyTestNow))
+		assert.Equal(t, StatusRunning, e.Status)
+		assert.Nil(t, e.FinishedAt)
+	})
+	t.Run("rule 6: a stopped session with no verdict is done at now", func(t *testing.T) {
+		e := openEntry(StatusNeedsAttention)
+		assert.True(t, e.Settle(Observation{Listed: true, State: "stopped"}, historyTestNow))
+		assert.Equal(t, StatusDone, e.Status)
+		require.NotNil(t, e.FinishedAt)
+		assert.True(t, e.FinishedAt.Equal(historyTestNow))
+	})
 	t.Run("rule 5: a working agent is running with no finish time", func(t *testing.T) {
 		e := openEntry(StatusDone)
 		finished := historyTestStart
@@ -110,13 +192,6 @@ func TestEntry_Settle(t *testing.T) {
 		assert.True(t, e.Settle(Observation{Listed: true, State: "starting"}, historyTestNow))
 		assert.Equal(t, StatusRunning, e.Status)
 	})
-	t.Run("rule 6: an idle agent is done at now", func(t *testing.T) {
-		e := openEntry(StatusRunning)
-		assert.True(t, e.Settle(Observation{Listed: true, State: "idle"}, historyTestNow))
-		assert.Equal(t, StatusDone, e.Status)
-		require.NotNil(t, e.FinishedAt)
-		assert.True(t, e.FinishedAt.Equal(historyTestNow))
-	})
 	t.Run("rule 6: a stopped agent keeps an earlier finish time", func(t *testing.T) {
 		e := openEntry(StatusRunning)
 		finished := historyTestStart
@@ -125,11 +200,11 @@ func TestEntry_Settle(t *testing.T) {
 		assert.Equal(t, StatusDone, e.Status)
 		assert.True(t, e.FinishedAt.Equal(historyTestStart))
 	})
-	t.Run("rule 6: an agent already done is unchanged", func(t *testing.T) {
+	t.Run("rule 6: a stopped agent already done is unchanged", func(t *testing.T) {
 		e := openEntry(StatusDone)
 		finished := historyTestStart
 		e.FinishedAt = &finished
-		assert.False(t, e.Settle(Observation{Listed: true, State: "idle"}, historyTestNow))
+		assert.False(t, e.Settle(Observation{Listed: true, State: "stopped"}, historyTestNow))
 	})
 	t.Run("rule 7: an unknown state changes nothing", func(t *testing.T) {
 		e := openEntry(StatusRunning)

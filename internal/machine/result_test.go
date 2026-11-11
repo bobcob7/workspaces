@@ -71,6 +71,17 @@ func TestOutcomeOf(t *testing.T) {
 		assert.Equal(t, OutcomePass, OutcomeOf(sp, "FLAKY"))
 		assert.Equal(t, OutcomeFail, OutcomeOf(sp, "APPROVED"))
 	})
+
+	t.Run("BLOCKED with no spawn is blocked", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, OutcomeBlocked, OutcomeOf(nil, VerdictBlocked))
+	})
+
+	t.Run("BLOCKED a spawn doesn't list is fail", func(t *testing.T) {
+		t.Parallel()
+		sp := &Spawn{Pass: []string{"PASS"}, Fail: []string{"FAIL"}}
+		assert.Equal(t, OutcomeFail, OutcomeOf(sp, VerdictBlocked))
+	})
 }
 
 func TestSpawnAllows(t *testing.T) {

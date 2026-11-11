@@ -469,6 +469,7 @@ func TestApp_loopTickGate(t *testing.T) {
 		l := e.addDueLoop(t)
 		l.Prompt = "literal {{ .Stdout }}"
 		l.Version = loop.Version1
+		l.Hidden = nil
 		require.NoError(t, e.loops.Save(&l))
 		g := &fakeGate{}
 		e.app.gate = g
@@ -632,15 +633,15 @@ func TestApp_loopTick_settle(t *testing.T) {
 		l.Paused = true
 		require.NoError(t, e.loops.Save(&l))
 	}
-	t.Run("an idle run with no record is done", func(t *testing.T) {
+	t.Run("an idle run with no record needs attention", func(t *testing.T) {
 		e := newTickEnv(t)
 		pausedWithRun(t, e)
 		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) { return idleListing("loop-deps-old"), nil }
 		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
 		h := e.history(t)
 		require.Len(t, h.Entries, 1)
-		assert.Equal(t, loop.StatusDone, h.Entries[0].Status)
-		assert.NotNil(t, h.Entries[0].FinishedAt)
+		assert.Equal(t, loop.StatusNeedsAttention, h.Entries[0].Status)
+		assert.Nil(t, h.Entries[0].FinishedAt)
 	})
 	t.Run("a verdict succeeds the run and saves its report", func(t *testing.T) {
 		e := newTickEnv(t)
