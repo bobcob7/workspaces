@@ -178,11 +178,11 @@ rows, and its buttons are at least 40 px tall.
 
 | **Loop history** | **A run's report** |
 | --- | --- |
-| ![](docs/loops-history.png) | ![](docs/loops-run-report.png) |
+| ![](docs/loops-history.png) | ![](docs/loops-history-run.png) |
 | **Loop memory** | **Editing a memory value** |
 | ![](docs/loops-memory.png) | ![](docs/loops-memory-edit.png) |
 | **History on a phone** | **Memory on a phone** |
-| ![](docs/online-loops-history-mobile.png) | ![](docs/online-loops-memory-mobile.png) |
+| ![](docs/mobile-loops-history.png) | ![](docs/mobile-loops-memory.png) |
 
 The screenshots use sample data.
 
