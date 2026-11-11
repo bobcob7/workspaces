@@ -253,4 +253,11 @@ describe("LoopsPane", () => {
     expect(screen.getByRole("region", { name: "History" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Memory" })).toBeInTheDocument();
   });
+
+  it("puts the History card last, after Memory", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop());
+    const titles = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+    expect(titles.at(-1)).toBe("History");
+    expect(titles.indexOf("Memory")).toBeLessThan(titles.indexOf("History"));
+  });
 });
