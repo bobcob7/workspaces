@@ -183,6 +183,10 @@ rows, and its buttons are at least 40 px tall.
 | ![](docs/loops-memory.png) | ![](docs/loops-memory-edit.png) |
 | **History on a phone** | **Memory on a phone** |
 | ![](docs/mobile-loops-history.png) | ![](docs/mobile-loops-memory.png) |
+| **A blocked loop run in Agents** | **Loop history with a blocked run** |
+| ![](docs/agents-loop-blocked.png) | ![](docs/loops-history-blocked.png) |
+| **Hiding a loop's runs, in its form** | **A blocked loop run on a phone** |
+| ![](docs/loops-edit-hidden.png) | ![](docs/mobile-agents-loop-blocked.png) |
 
 The screenshots use sample data.
 

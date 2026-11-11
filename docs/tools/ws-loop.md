@@ -6,8 +6,8 @@ prompt.
 ## Synopsis
 
 ```
-ws loop add <NAME> --every <PERIOD> --prompt <TEXT> [OPTIONS] [<SPEC>...]
-ws loop edit <NAME> [OPTIONS] [<SPEC>...]
+ws loop add <NAME> --every <PERIOD> --prompt <TEXT> [--hidden[=BOOL] | --show] [OPTIONS] [<SPEC>...]
+ws loop edit <NAME> [--hidden[=BOOL] | --show] [OPTIONS] [<SPEC>...]
 ws loop list
 ws loop pause <NAME>
 ws loop resume <NAME>
@@ -113,6 +113,40 @@ reports of the newest 50 that have one. Its runs share a memory,
 and 256 KiB in all. `ws loop rm` deletes both. See
 [`ws loop history`](#ws-loop-history) and [`ws loop memory`](#ws-loop-memory).
 
+**Visibility.** A run's workspace is hidden unless the loop shows its runs
+(`--show`), so `ws list` and the desktop app's Agents list leave it out
+([0057](../adrs/0057-loop-visibility-and-blocked-runs.md)). A hidden run that
+is blocked, or needs attention, is listed and counted as waiting until it is
+resolved, and notifies once. A change to `--hidden` or `--show` applies to
+runs that start afterwards. A loop record without a `hidden` key, which every
+record made before ADR 0057 is, counts as hidden.
+
+### Ending a run, and asking for help
+
+A run's agent should end by recording a verdict with `ws machine result`,
+so the run's history says how it went:
+
+- `ws machine result PASS --file ../report.md` when it did its job, or
+  `FAIL` when it couldn't.
+- To ask a person, write the question to a file and run
+  `ws machine result BLOCKED --file ../question.md`, then stop. The run
+  is shown in the Agents list, even when its loop hides runs, and the
+  app notifies once. When the person answers in the conversation, the
+  agent carries on and records `PASS`, `FAIL` or `BLOCKED` again; until
+  it does, the run stays blocked.
+
+A run that goes idle without recording a verdict needs attention: it is
+shown and notified the same way. End the prompt with the verdict step,
+for example:
+
+> When you're done, write a short report to ../report.md and run
+> `ws machine result PASS --file ../report.md`, or `FAIL` if you
+> couldn't finish. If you need a decision from a person, write your
+> question to ../question.md, run
+> `ws machine result BLOCKED --file ../question.md`, and stop.
+
+Runs start hidden unless the loop was added with `--show`; see `--hidden`.
+
 ### ws loop add
 
 Adds a loop. Specs are checked now and resolved at each run, so a run
@@ -128,6 +162,8 @@ empty workspace.
 | `--model <M>` | Passed to `claude --model` |
 | `--permission-mode <P>` | Passed to `claude --permission-mode` |
 | `--paused` | Add it paused |
+| `--hidden[=BOOL]` | Start each run's workspace hidden; a blocked run, or one that needs attention, is shown anyway. Default `true` |
+| `--show` | Start each run's workspace visible; the same as `--hidden=false` |
 | `--script <TEXT>` | A shell script that must exit 0 for a run to start; run with `/bin/sh -c`. Blank is no script |
 | `--script-timeout <DUR>` | How long the script may run: whole seconds from `1s` to `10m`, as a Go duration; default `1m`. Only with `--script` |
 | `--var <KEY>=<VALUE>` | A value for the prompt (`{{.Vars.KEY}}`) and the script (`$WS_LOOP_VAR_KEY`). Repeat for more, up to 32. `KEY` is `[A-Za-z_][A-Za-z0-9_]*`, at most 64 bytes; `VALUE` at most 4096 bytes and may be empty or contain `=` |
@@ -158,6 +194,8 @@ option and no spec is a usage error.
 | `--keep <N>` | How many runs' workspaces to keep, 1–50 |
 | `--model <M>` | Passed to `claude --model`; `--model ""` clears it |
 | `--permission-mode <P>` | Passed to `claude --permission-mode`; `""` clears it |
+| `--hidden[=BOOL]` | Whether runs that start afterwards are hidden, as for `add` |
+| `--show` | Runs that start afterwards are visible; the same as `--hidden=false` |
 | `--script <TEXT>` | A new gate script; blank is the same as `--no-script` |
 | `--script-timeout <DUR>` | As for `add`. Needs a script: the loop's, or `--script` |
 | `--var <KEY>=<VALUE>` | Replaces **all** the loop's variables with the ones given; repeat for more, as for `add` |
@@ -250,12 +288,17 @@ lag the agent by one tick.
 | Status | Meaning |
 | ------ | ------- |
 | `running` | Its agent is working or starting |
-| `done` | Its agent finished without a verdict |
+| `done` | Its agent stopped without a verdict |
 | `succeeded` | Its verdict's outcome is `pass` |
 | `failed` | Its verdict's outcome is `fail` |
 | `start_failed` | It couldn't start; `error` says why |
 | `skipped` | Its gate script exited non-zero; `repeats` counts the skips, and `started_at` and `finished_at` are the first and latest |
 | `gone` | Its workspace was removed while it was running |
+| `blocked` | Its agent recorded `BLOCKED` and is waiting for an answer; it stays `blocked` after its workspace is removed, with the question as its report |
+| `needs_attention` | Its agent went idle without recording a verdict, and is waiting for a person |
+
+`done` now means an agent that stopped without a verdict, or a run whose
+workspace was removed while it needed attention.
 
 Text output, one line per run:
 
@@ -264,6 +307,13 @@ $ ws loop history deps-bump
 42  succeeded     2026-11-10T08:00:00Z  14m30s  loop-deps-bump-1a2b3c4d  PASS
 41  skipped ×12   2026-11-09T20:00:00Z  -       -                        exit 1: no outdated modules
 40  start_failed  2026-11-09T08:00:00Z  -       -                        claude_missing: …
+```
+
+A run that is waiting for a person shows its status and verdict the same way:
+
+```console
+45  blocked          2026-11-11T08:00:00Z  -       loop-deps-bump-2b3c4d5e  BLOCKED
+44  needs_attention  2026-11-10T20:00:00Z  -       loop-deps-bump-1f2e3d4c  -
 ```
 
 With `--run`, text output prints the run's line, a blank line, then the
@@ -316,6 +366,7 @@ A loop (`add`, `edit`, `pause`, `resume`, `rm`, and each item of `list`):
   "permission_mode": "acceptEdits",
   "keep": 5,
   "paused": false,
+  "hidden": true,
   "created_at": "2026-11-05T18:00:00Z",
   "next_run_at": "2026-11-06T18:00:00Z",
   "last_run": {
@@ -341,6 +392,7 @@ A loop (`add`, `edit`, `pause`, `resume`, `rm`, and each item of `list`):
   `rm` prints the loop as it was.
 - `list` prints `{"loops": [<loop>...], "warnings": []}`.
 - `model` and `permission_mode` are `null` when not set.
+- `hidden` is `false` only when the loop shows its runs (`--show`).
 - `next_run_at` is `null` while the loop is paused.
 - `last_run` is `null` before the first run. Its `error` is `null` or
   `{"code", "message"}` when that run couldn't start; `workspace` and
@@ -429,12 +481,14 @@ triage     every 1h   paused  next -                     last -
 ```
 
 - `duration_seconds` is the whole seconds from `started_at` to
-  `finished_at`, for `done`, `succeeded`, `failed`, and `gone` runs that
-  have a `finished_at`; else `null`.
+  `finished_at`, for `done`, `succeeded`, `failed`, `gone`, and `blocked`
+  runs that have a `finished_at`; else `null`.
 - `workspace` and `session` are `null` when empty. `workspace_exists` is
   true when there is a workspace and it isn't closed.
 - `error` is `{"code", "message"}` when the run has an error code, else
   `null`. `gate` is the `last_gate` object, or `null`.
+- `verdict.outcome` is `pass`, `fail`, or `blocked` (a `BLOCKED` verdict,
+  whose report is the question).
 - `verdict.report` is the absolute path of `reports/<seq>.md` when that
   file exists, else `null`.
 
@@ -527,6 +581,9 @@ $ ws loop history --run 42 deps-bump
 # Every hour, triage the issues not yet seen; the prompt reads and extends the memory
 $ ws loop add new-issues --every 1h --prompt 'Triage the open issues in buff-bear that are not in {{memory "seen"}}. Then run `ws machine memory set seen ...` with every number seen so far, and finish with `ws machine result PASS --file ../report.md`.' buff-bear
 
+# Show a loop's runs in Agents as they start, instead of hiding them
+$ ws loop edit deps-bump --show
+
 # Run the scheduler in a terminal
 $ ws loop tick --watch
 ```
@@ -568,6 +625,7 @@ can't start reports.
 | `edit` with nothing to change; `--no-script` with `--script` or `--script-timeout`; `--no-vars` with `--var`; `--no-specs` with specs | `usage` | 2 |
 | `edit`: `--script-timeout` on a loop left without a script | `loop_invalid` | 2 |
 | A spec that can't be parsed | `spec_invalid` | 2 |
+| `add` or `edit`: both `--hidden` and `--show` | `usage` | 2 |
 | `--json` with `tick --watch` | `usage` | 2 |
 | No loop has that name | `loop_not_found` | 3 |
 | `add` with a name already used | `loop_exists` | 4 |

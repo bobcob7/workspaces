@@ -243,7 +243,11 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   ([tasks](docs/design/agent-loop-scheduler/tasks.md))
   Each loop also keeps a run history and a memory its runs share
   ([0056](docs/adrs/0056-loop-history-and-memory.md), proposed); see
-  [`ws loop`](docs/tools/ws-loop.md).
+  [`ws loop`](docs/tools/ws-loop.md). Its runs are hidden in Agents by
+  default (`--show` changes that). A run that is blocked, recording a
+  `BLOCKED` verdict for a question, or idle without a verdict, is shown and
+  notified once ([0057](docs/adrs/0057-loop-visibility-and-blocked-runs.md),
+  proposed).
 
 ## Development
 
