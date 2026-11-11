@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { LoopHistory } from "../../api";
@@ -53,6 +53,33 @@ describe("HistoryCard", () => {
     renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
     await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
     expect(api.loopsHistory).toHaveBeenLastCalledWith("deps", 40);
+  });
+
+  it("loads the first page for another loop after Show more on this one", async () => {
+    const api = fakeApi({ loopsHistory: vi.fn(async () => history({ total: 25 })) });
+    const store = testStore({ api });
+    const first = renderWithStore(<HistoryCard loop={loop()} />, store);
+    await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
+    await waitFor(() => expect(store.getState().loopData.historyLimit).toBe(40));
+    first.unmount();
+    renderWithStore(<HistoryCard loop={loop({ name: "nightly" })} />, store);
+    await waitFor(() => expect(api.loopsHistory).toHaveBeenLastCalledWith("nightly", 20));
+  });
+
+  it("closes a run's report with Close", async () => {
+    const api = fakeApi({
+      loopsHistory: vi.fn(async () => history()),
+      loopsHistoryRun: vi.fn(async (name: string, seq: number) => ({
+        loop: name,
+        run: loopHistoryRun({ seq, status: "succeeded" }),
+        reportText: null,
+        warnings: [],
+      })),
+    });
+    renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: /Run 56/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("clears the history once confirmed", async () => {

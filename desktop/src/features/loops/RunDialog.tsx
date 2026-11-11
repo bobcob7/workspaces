@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogTitle } from "@mui/material";
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { useEffect, type JSX } from "react";
 import type { LoopHistoryRun } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
@@ -45,7 +45,7 @@ export const RunDialog = ({ name, seq, onClose }: { readonly name: string; reado
   }, [dispatch, name, seq]);
 
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open onClose={onClose} fullWidth maxWidth="md" className={styles.dialog}>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         {loaded !== null && <RunDetails run={loaded.run} />}
@@ -58,6 +58,9 @@ export const RunDialog = ({ name, seq, onClose }: { readonly name: string; reado
           </div>
         )}
       </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
     </Dialog>
   );
 };

@@ -64,7 +64,9 @@ export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   const error = held ? data.historyError : null;
 
   useEffect(() => {
-    void dispatch(fetchLoopHistory({ name: loop.name, limit: store.getState().loopData.historyLimit }));
+    const current = store.getState().loopData;
+    const limit = current.loop === loop.name ? current.historyLimit : historyPageSize;
+    void dispatch(fetchLoopHistory({ name: loop.name, limit }));
   }, [dispatch, store, loop.name, lastStarted]);
 
   const refresh = (): void => {
@@ -119,7 +121,7 @@ export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
           }}
         />
       )}
-      <Dialog open={confirming} onClose={() => setConfirming(false)}>
+      <Dialog open={confirming} onClose={() => setConfirming(false)} className={styles.dialog}>
         <DialogTitle>Clear the history of {loopLabel(loop)}?</DialogTitle>
         <DialogContent>
           <DialogContentText>Saved reports are deleted too.</DialogContentText>

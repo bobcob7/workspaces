@@ -105,7 +105,13 @@
     gap: 6px;
   }
 
+  .table td:nth-child(2) {
+    order: 1;
+    grid-column: 1 / -1;
+  }
+
   .updated {
+    order: 2;
     grid-column: 1 / -1;
     white-space: normal;
   }

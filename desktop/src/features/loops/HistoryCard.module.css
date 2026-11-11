@@ -123,6 +123,7 @@
 
 @media (max-width: 720px) {
   .content button,
+  .dialog button,
   .runButton,
   .link {
     min-height: 40px;
