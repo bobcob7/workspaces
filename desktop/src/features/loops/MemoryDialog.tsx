@@ -1,5 +1,5 @@
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from "@mui/material";
-import { useState, type JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
 import type { LoopMemoryEntry } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { fetchLoopMemory, saveErrorCleared, saveLoopMemory } from "./loopDataSlice";
@@ -30,6 +30,13 @@ export const MemoryDialog = ({
   const tooLarge = bytes > valueLimit;
   const conflict = saveError?.code === "memory_conflict";
 
+  useEffect(
+    () => () => {
+      dispatch(saveErrorCleared());
+    },
+    [dispatch],
+  );
+
   const save = async (): Promise<void> => {
     const result = await dispatch(saveLoopMemory({ name: loopName, key, value, expectRev: rev }));
     if (saveLoopMemory.fulfilled.match(result)) {
@@ -49,7 +56,7 @@ export const MemoryDialog = ({
   };
 
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm" className={styles.dialog}>
       <DialogTitle>{entry === null ? "Add memory" : `Edit ${entry.key}`}</DialogTitle>
       <DialogContent className={styles.form}>
         {conflict && (

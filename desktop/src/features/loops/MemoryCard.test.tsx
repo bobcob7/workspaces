@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { LoopMemory } from "../../api";
@@ -44,8 +44,10 @@ describe("MemoryCard", () => {
     expect(api.loopsMemorySet).toHaveBeenCalledWith("deps", "seen", "#412 #415 #420", 3);
   });
 
-  it("shows a conflict and reloads the entry's value", async () => {
+  it("shows a conflict, and Reload clears it and reloads the entry's value and rev", async () => {
+    let stored = memory();
     const api = apiWith({
+      loopsMemory: vi.fn(async () => stored),
       loopsMemorySet: vi.fn(async () => {
         throw { code: "memory_conflict", message: "changed" };
       }),
@@ -55,8 +57,29 @@ describe("MemoryCard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("A run changed seen since you opened it.")).toBeInTheDocument();
     const callsBefore = vi.mocked(api.loopsMemory).mock.calls.length;
+    stored = memory({ entries: [loopMemoryEntry({ key: "seen", value: "#999", rev: 7 })] });
     await userEvent.click(screen.getByRole("button", { name: "Reload" }));
+    await waitFor(() => expect(screen.queryByText("A run changed seen since you opened it.")).not.toBeInTheDocument());
     expect(api.loopsMemory).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveValue("#999");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(api.loopsMemorySet).toHaveBeenLastCalledWith("deps", "seen", "#999", 7);
+  });
+
+  it("does not show a stale conflict when the dialog is cancelled and reopened", async () => {
+    const api = apiWith({
+      loopsMemorySet: vi.fn(async () => {
+        throw { code: "memory_conflict", message: "changed" };
+      }),
+    });
+    renderWithStore(<MemoryCard loop={loop()} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: "Edit seen" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("A run changed seen since you opened it.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("textbox", { name: "Key" })).toHaveValue("");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("deletes an entry", async () => {

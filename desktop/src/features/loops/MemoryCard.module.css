@@ -73,7 +73,8 @@
 }
 
 @media (max-width: 720px) {
-  .content button {
+  .content button,
+  .dialog button {
     min-height: 40px;
   }
 

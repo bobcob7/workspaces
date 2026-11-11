@@ -106,7 +106,7 @@ export const MemoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
           onClose={() => setEditing(null)}
         />
       )}
-      <Dialog open={confirming} onClose={() => setConfirming(false)}>
+      <Dialog open={confirming} onClose={() => setConfirming(false)} className={styles.dialog}>
         <DialogTitle>Clear the memory of {loopLabel(loop)}?</DialogTitle>
         <DialogContent>
           <DialogContentText>Every remembered key is deleted.</DialogContentText>
