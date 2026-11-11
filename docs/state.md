@@ -25,7 +25,12 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `state/.respawn.lock` | the respawn lock ([0027](adrs/0027-respawn-lock-and-record-versions.md)) | by `ws restore` and `ws restart` |
 | `state/.continue.lock` | held by a `ws continue` pass while it sends messages ([0047](adrs/0047-ws-continue-after-usage-limit.md)) | by `ws continue` |
 | `loops/<name>.toml` | an agent loop: its prompt, period, schedule, and runs ([0048](adrs/0048-agent-loop-scheduler.md)); in `CONFIG_DIR`, not `state/` | by `ws loop add`, `pause`, `resume`, `run`, and `tick`; removed by `ws loop rm` |
-| `loops/.lock` | held by every `ws loop` command that writes a loop, and for the whole of `ws loop tick` and `ws loop run` ([0048](adrs/0048-agent-loop-scheduler.md)) | by `ws loop` |
+| `loops/.lock` | held by every `ws loop` command that writes a loop, by `ws loop history --clear`, and for the whole of `ws loop tick` and `ws loop run` ([0048](adrs/0048-agent-loop-scheduler.md)); `ws loop memory` doesn't take it ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop` |
+| `state/.loops/<name>/history.json` | a loop's runs, newest first, up to 200 ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop tick` and `ws loop run`, under `loops/.lock`; emptied by `ws loop history --clear`; deleted by `ws loop rm`, and by `ws loop add` when a leftover one is there |
+| `state/.loops/<name>/reports/<seq>.md` | the report of run `<seq>`, copied from the run's `machine/` record when the run settles; kept for the newest 50 runs with a verdict ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop tick`; emptied by `ws loop history --clear`; deleted by `ws loop rm` |
+| `state/.loops/<name>/memory.json` | a loop's shared memory: each key's value, revision, time and writer ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop memory` and `ws machine memory`, under `.memory.lock`; deleted by `ws loop rm` |
+| `state/.loops/<name>/.memory.lock` | the memory lock, for memory writes only; never `loops/.lock` ([0056](adrs/0056-loop-history-and-memory.md)) | by the memory writers |
+| `state/<id>/loop.toml` | the run mark: the loop a workspace is a run of, and when the run started ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop tick` and `ws loop run`, after the workspace is created and before its agent starts |
 
 - **Workspace contents.** Nothing `ws` writes goes inside
   `workspaces/<id>/`.
@@ -84,6 +89,15 @@ know), or can't be parsed, is left alone
 - nothing removes it;
 - commands warn about it, naming the file;
 - `ws cache prune` removes no commit while it exists.
+
+**Loop history and memory** are JSON, not TOML. `history.json` and
+`memory.json` are each `{"version": 1, …}`, written atomically. A file
+from a newer `ws` is `loop_invalid`, and `ws` leaves it alone. Limits:
+the newest 200 history entries; a report, up to 1 MiB, for the newest 50
+of them that have one (older entries keep their verdict and lose the
+text); 100 memory keys; 64 KiB per value; 256 KiB across all values. When
+a loop is removed, `ws loop rm` deletes its `state/.loops/<name>/`
+([0056](adrs/0056-loop-history-and-memory.md)).
 
 ## Locks
 

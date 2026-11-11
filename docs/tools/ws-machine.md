@@ -17,6 +17,10 @@ ws machine roles show <name>
 ws machine roles add <name> --description <d> [ROLE FLAGS] (--prompt-file <f> | -)
 ws machine roles edit <name> [ROLE FLAGS] [--prompt-file <f> | -]
 ws machine roles rm <name>
+ws machine memory list
+ws machine memory get <KEY>
+ws machine memory set [--expect-rev <N>] [--file <PATH> | --file -] <KEY> [<VALUE>]
+ws machine memory rm [--expect-rev <N>] <KEY>
 ```
 
 ## Description
@@ -367,6 +371,26 @@ Deletes your role file. For an `override`, the built-in is back.
 Every write is a temp file, parsed back, then renamed into place, under a
 lock on the directory, so a role that wouldn't load is never left behind.
 
+## ws machine memory
+
+Reads and changes the memory of the loop the caller is a run of: the
+key–value pairs that [`ws loop memory`](ws-loop.md#ws-loop-memory) also
+shows. The loop is the one whose run is the root of the caller's tree;
+a caller whose root isn't a loop run, or whose loop was removed, gets
+`not_loop_run`.
+
+Output is always JSON, in the same shapes as `ws loop memory`, with
+`"loop"` set to the caller's loop. `updated_by` is the caller's workspace
+id. There's no `clear`. Keys follow the same rules, and `--expect-rev` and
+`--file` work as they do for `ws loop memory`.
+
+```console
+$ ws machine memory get seen
+{"loop":"deps-bump","entry":{"key":"seen","value":"#412 #415","rev":3,"updated_at":"2026-11-10T08:14:00Z","updated_by":"loop-deps-bump-1a2b3c4d"},"warnings":[]}
+
+$ ws machine memory set --expect-rev 3 seen "#412 #415 #418"
+```
+
 ## Errors
 
 | Situation                                       | Error code          | Exit |
@@ -383,6 +407,13 @@ lock on the directory, so a role that wouldn't load is never left behind.
 | `wait`: a finished child whose outcome is `fail` or `missing` (an item's error) | `child_failed` | 1 |
 | `wait`: a child not finished at the timeout (an item's error) | `wait_timeout` | 1 |
 | `roles`: your role file can't be parsed, for `edit` | `config_invalid` | 1  |
+| `memory`: a key that isn't valid | `memory_invalid` | 2 |
+| `memory set`: neither or both of `<VALUE>` and `--file` | `usage` | 2 |
+| `memory`: a data file from a newer `ws` | `loop_invalid` | 2 |
+| `memory get` or `rm`: no such key | `memory_not_found` | 3 |
+| `memory set` or `rm`: `--expect-rev` didn't match | `memory_conflict` | 4 |
+| `memory set`: a value over 64 KiB, over 100 keys, or over 256 KiB in all | `memory_full` | 4 |
+| `memory`: the caller's root isn't a loop run, or its loop was removed | `not_loop_run` | 4 |
 
 `spawn` fails as [`ws claude`](ws-claude.md) does, and `rm`'s items as
 [`ws rm`](ws-rm.md)'s do.
