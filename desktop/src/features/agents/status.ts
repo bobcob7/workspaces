@@ -36,7 +36,7 @@ const liveStatuses: ReadonlySet<Status> = new Set(["working", "needsInput", "idl
 
 export const isLive = (status: Status): boolean => liveStatuses.has(status);
 
-/** Hidden entries never count: they wait in the Hidden group (ADR 0043). */
+/** Hidden entries never count; they're in the tree only with Show hidden (ADR 0057). */
 export const needsAttention = (entry: Entry): boolean =>
   !entry.hidden && entry.kind === "agent" && (entry.status === "needsInput" || entry.status === "idle");
 
@@ -66,7 +66,21 @@ export const groupOf = (entry: Entry): GroupId => {
 
 const recency = (entry: Entry): string => entry.updatedAt ?? entry.createdAt ?? "";
 
-const byRecency = (a: Entry, b: Entry): number => recency(b).localeCompare(recency(a)) || a.name.localeCompare(b.name);
+/** Most recently active first, then by name (ADR 0057 orders roots and siblings by it). */
+export const byRecency = (a: Entry, b: Entry): number => recency(b).localeCompare(recency(a)) || a.name.localeCompare(b.name);
+
+/** What the Agents list's status filter can be set to: everything, or one group (ADR 0057). */
+export type StatusFilter = "all" | GroupId;
+
+/** The status filter's choices in display order: All statuses, then each group. */
+export const statusFilterOptions: readonly { readonly value: StatusFilter; readonly label: string }[] = [
+  { value: "all", label: "All statuses" },
+  ...groupOrder.map((id) => ({ value: id, label: groupTitles[id] })),
+];
+
+/** The Needs input group: every entry needsAttention accepts, children included, most recent first. */
+export const attentionEntries = (entries: readonly Entry[]): readonly Entry[] =>
+  entries.filter(needsAttention).toSorted(byRecency);
 
 /** Groups the visible entries the way agent view does, most recently active first. */
 export const groupEntries = (entries: readonly Entry[]): readonly Group[] =>

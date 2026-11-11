@@ -52,6 +52,18 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   ...overrides,
 });
 
+/** A sample tree for the Agents list (ADR 0057); keys equal workspace ids. */
+export const treeEntries = (): readonly Entry[] => [
+  entry({ key: "orch", workspaceId: "orch", name: "orchestrate", status: "working", updatedAt: "2026-11-11T09:00:00Z" }),
+  entry({ key: "t1", workspaceId: "t1", name: "t1-impl", parentId: "orch", status: "done", updatedAt: "2026-11-11T08:00:00Z" }),
+  entry({ key: "t1r", workspaceId: "t1r", name: "t1-review", parentId: "t1", status: "needsInput", updatedAt: "2026-11-11T08:30:00Z" }),
+  entry({ key: "rev", workspaceId: "rev", name: "review-42", parentId: "orch", hidden: true, status: "working", updatedAt: "2026-11-11T08:45:00Z" }),
+  entry({ key: "solo", workspaceId: "solo", name: "solo", status: "stopped", updatedAt: "2026-11-11T07:00:00Z" }),
+  entry({ key: "hid", workspaceId: "hid", name: "lint-sweep", hidden: true, status: "idle", updatedAt: "2026-11-11T06:00:00Z" }),
+  entry({ key: "hidkid", workspaceId: "hidkid", name: "lint-fix", parentId: "hid", status: "working", updatedAt: "2026-11-11T06:30:00Z" }),
+  entry({ key: "shell", workspaceId: "shell", name: "scratch", kind: "shell", status: "running", updatedAt: "2026-11-11T05:00:00Z" }),
+];
+
 export const cachedRepo = (overrides: Partial<CachedRepo> = {}): CachedRepo => ({
   id: "github.com/bobcob7/buff-bear",
   path: "/c/cache/repos/github.com/bobcob7/buff-bear.git",

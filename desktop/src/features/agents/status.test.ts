@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { entry } from "../../test/fixtures";
-import { childrenOf, descendantsOf, groupEntries, groupOf, hiddenEntries, needsAttention } from "./status";
+import { entry, treeEntries } from "../../test/fixtures";
+import {
+  attentionEntries,
+  childrenOf,
+  descendantsOf,
+  groupEntries,
+  groupOf,
+  hiddenEntries,
+  needsAttention,
+  statusFilterOptions,
+} from "./status";
 
 describe("groupOf", () => {
   it("puts agents waiting for an answer in the attention group", () => {
@@ -98,6 +107,38 @@ describe("trees", () => {
     const x = entry({ key: "x", workspaceId: "x", parentId: "y" });
     const y = entry({ key: "y", workspaceId: "y", parentId: "x" });
     expect(descendantsOf([x, y], x).map(({ entry: e }) => e.key)).toEqual(["y"]);
+  });
+});
+
+describe("attentionEntries", () => {
+  it("lists a needs-input child and leaves out a hidden one", () => {
+    expect(attentionEntries(treeEntries()).map((e) => e.key)).toEqual(["t1r"]);
+  });
+
+  it("lists the most recent first", () => {
+    const entries = [
+      ...treeEntries(),
+      entry({ key: "w", status: "idle", updatedAt: "2026-11-11T10:00:00Z" }),
+    ];
+    expect(attentionEntries(entries).map((e) => e.key)).toEqual(["w", "t1r"]);
+  });
+});
+
+describe("statusFilterOptions", () => {
+  it("lists every status filter in display order", () => {
+    expect(statusFilterOptions.map((o) => o.value)).toEqual([
+      "all",
+      "attention",
+      "working",
+      "done",
+      "stopped",
+      "shells",
+      "other",
+    ]);
+  });
+
+  it("labels the first option All statuses", () => {
+    expect(statusFilterOptions[0]?.label).toBe("All statuses");
   });
 });
 
