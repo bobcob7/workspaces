@@ -150,6 +150,13 @@ pub const COMMANDS: &[&str] = &[
     "loops_set_paused",
     "loops_remove",
     "loops_run_now",
+    "loops_history",
+    "loops_history_run",
+    "loops_history_clear",
+    "loops_memory",
+    "loops_memory_set",
+    "loops_memory_remove",
+    "loops_memory_clear",
 ];
 
 /// Runs `command` with Tauri-style camelCase `args` (`Value::Null` = `{}`).
@@ -444,6 +451,41 @@ pub async fn dispatch(
         "loops_run_now" => {
             let name = args!(args, { name: String });
             result(loops::loops_run_now(State::new(&ctx.state), name).await)
+        }
+        "loops_history" => {
+            let (name, limit) = args!(args, { name: String, limit: Option<u32> });
+            result(loops::loops_history(State::new(&ctx.state), name, limit).await)
+        }
+        "loops_history_run" => {
+            let (name, seq) = args!(args, { name: String, seq: u32 });
+            result(loops::loops_history_run(State::new(&ctx.state), name, seq).await)
+        }
+        "loops_history_clear" => {
+            let name = args!(args, { name: String });
+            result(loops::loops_history_clear(State::new(&ctx.state), name).await)
+        }
+        "loops_memory" => {
+            let name = args!(args, { name: String });
+            result(loops::loops_memory(State::new(&ctx.state), name).await)
+        }
+        "loops_memory_set" => {
+            let (name, key, value, expect_rev) = args!(args, {
+                name: String,
+                key: String,
+                value: String,
+                expect_rev: Option<i64>,
+            });
+            result(
+                loops::loops_memory_set(State::new(&ctx.state), name, key, value, expect_rev).await,
+            )
+        }
+        "loops_memory_remove" => {
+            let (name, key) = args!(args, { name: String, key: String });
+            result(loops::loops_memory_remove(State::new(&ctx.state), name, key).await)
+        }
+        "loops_memory_clear" => {
+            let name = args!(args, { name: String });
+            result(loops::loops_memory_clear(State::new(&ctx.state), name).await)
         }
         _ => Err(DispatchError::UnknownCommand(command.to_string())),
     }

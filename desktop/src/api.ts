@@ -773,6 +773,82 @@ export interface LoopStarted {
   readonly path: string;
 }
 
+export type LoopRunStatus = "running" | "done" | "succeeded" | "failed" | "start_failed" | "skipped" | "gone";
+
+/** A run's verdict, from its report (ADR 0056). */
+export interface LoopRunVerdict {
+  readonly verdict: string;
+  readonly outcome: "pass" | "fail";
+  readonly recordedAt: string;
+  readonly report: string | null;
+}
+
+/** One run in a loop's history, from `ws loop history --json`. */
+export interface LoopHistoryRun {
+  readonly seq: number;
+  readonly status: LoopRunStatus;
+  readonly trigger: string;
+  readonly startedAt: string;
+  readonly finishedAt: string | null;
+  readonly durationSeconds: number | null;
+  readonly workspace: string | null;
+  readonly workspaceExists: boolean;
+  readonly session: string | null;
+  readonly error: LoopError | null;
+  readonly gate: LoopGate | null;
+  readonly repeats: number;
+  readonly verdict: LoopRunVerdict | null;
+}
+
+export interface LoopHistory {
+  readonly loop: string;
+  readonly runs: readonly LoopHistoryRun[];
+  readonly total: number;
+  readonly warnings: readonly string[];
+}
+
+export interface LoopRunDetail {
+  readonly loop: string;
+  readonly run: LoopHistoryRun;
+  readonly reportText: string | null;
+  readonly warnings: readonly string[];
+}
+
+/** One key of a loop's memory (ADR 0056). */
+export interface LoopMemoryEntry {
+  readonly key: string;
+  readonly value: string;
+  readonly rev: number;
+  readonly updatedAt: string;
+  readonly updatedBy: string | null;
+}
+
+export interface LoopMemory {
+  readonly loop: string;
+  readonly entries: readonly LoopMemoryEntry[];
+  readonly bytes: number;
+  readonly warnings: readonly string[];
+}
+
+export interface LoopMemorySet {
+  readonly loop: string;
+  readonly entry: LoopMemoryEntry;
+  readonly warnings: readonly string[];
+}
+
+export interface LoopMemoryRemoved {
+  readonly loop: string;
+  readonly key: string;
+  readonly removed: boolean;
+  readonly warnings: readonly string[];
+}
+
+export interface LoopCleared {
+  readonly loop: string;
+  readonly removed: number;
+  readonly warnings: readonly string[];
+}
+
 const isAppError = (value: unknown): value is AppError =>
   typeof value === "object" && value !== null && "code" in value && "message" in value;
 
@@ -952,6 +1028,14 @@ export const api = {
   loopsSetPaused: async (name: string, paused: boolean): Promise<Loop> => call<Loop>("loops_set_paused", { name, paused }),
   loopsRemove: async (name: string): Promise<Loop> => call<Loop>("loops_remove", { name }),
   loopsRunNow: async (name: string): Promise<LoopStarted> => call<LoopStarted>("loops_run_now", { name }),
+  loopsHistory: async (name: string, limit: number | null): Promise<LoopHistory> => call<LoopHistory>("loops_history", { name, limit }),
+  loopsHistoryRun: async (name: string, seq: number): Promise<LoopRunDetail> => call<LoopRunDetail>("loops_history_run", { name, seq }),
+  loopsHistoryClear: async (name: string): Promise<LoopCleared> => call<LoopCleared>("loops_history_clear", { name }),
+  loopsMemory: async (name: string): Promise<LoopMemory> => call<LoopMemory>("loops_memory", { name }),
+  loopsMemorySet: async (name: string, key: string, value: string, expectRev: number | null): Promise<LoopMemorySet> =>
+    call<LoopMemorySet>("loops_memory_set", { name, key, value, expectRev }),
+  loopsMemoryRemove: async (name: string, key: string): Promise<LoopMemoryRemoved> => call<LoopMemoryRemoved>("loops_memory_remove", { name, key }),
+  loopsMemoryClear: async (name: string): Promise<LoopCleared> => call<LoopCleared>("loops_memory_clear", { name }),
 };
 
 export type Api = typeof api;

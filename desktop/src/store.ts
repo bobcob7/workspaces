@@ -4,6 +4,7 @@ import type { Api } from "./api";
 import { agentsReducer } from "./features/agents/agentsSlice";
 import { actionsReducer } from "./features/reviews/actionsSlice";
 import { conversationsReducer } from "./features/conversation/conversationSlice";
+import { loopDataReducer } from "./features/loops/loopDataSlice";
 import { loopsReducer } from "./features/loops/loopsSlice";
 import { reposReducer } from "./features/repos/reposSlice";
 import { reportsReducer } from "./features/reviews/reportsSlice";
@@ -24,6 +25,7 @@ export const rootReducer = combineReducers({
   actions: actionsReducer,
   agents: agentsReducer,
   conversations: conversationsReducer,
+  loopData: loopDataReducer,
   loops: loopsReducer,
   repos: reposReducer,
   reports: reportsReducer,
