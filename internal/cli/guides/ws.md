@@ -169,9 +169,9 @@ messages aren't.
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `config_uneditable`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid`, `memory_invalid` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown`, `memory_not_found` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin`, `memory_conflict`, `memory_full`, `not_loop_run` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -194,6 +194,11 @@ For agents:
   - `ws llm machine roles add`: add a role
   - `ws llm machine roles edit`: edit a role, or override a built-in
   - `ws llm machine roles rm`: remove a role, or restore a built-in
+  - `ws llm machine memory`: read and change your loop's memory
+  - `ws llm machine memory list`: list your loop's memory
+  - `ws llm machine memory get`: print one memory value of your loop
+  - `ws llm machine memory set`: set one memory value of your loop
+  - `ws llm machine memory rm`: remove one memory value of your loop
 - `ws llm review`: structured reviews: getting your work reviewed, and the reviewer's commands:
   - `ws llm review start`: start a review of a pull request or commit
   - `ws llm review wait`: wait for a review, then print its report
@@ -227,6 +232,12 @@ For people and the desktop app, not agents:
   - `ws llm loop add`: add a loop
   - `ws llm loop edit`: change a loop
   - `ws llm loop history`: show a loop's runs and their verdicts
+  - `ws llm loop memory`: read and change a loop's memory
+  - `ws llm loop memory list`: list a loop's memory
+  - `ws llm loop memory get`: print one memory value
+  - `ws llm loop memory set`: set one memory value
+  - `ws llm loop memory rm`: remove one memory value
+  - `ws llm loop memory clear`: remove all of a loop's memory
   - `ws llm loop list`: list loops
   - `ws llm loop pause`: stop a loop from starting runs
   - `ws llm loop resume`: start a paused loop again

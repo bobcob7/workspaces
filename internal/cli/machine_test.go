@@ -103,12 +103,12 @@ func TestApp_newMachineCmd(t *testing.T) {
 	t.Run("is in the group for agents", func(t *testing.T) {
 		assert.Equal(t, agentsGroup, cmd.GroupID)
 	})
-	t.Run("has spawn, result, wait, children, rm, and roles", func(t *testing.T) {
+	t.Run("has spawn, result, wait, children, rm, roles, and memory", func(t *testing.T) {
 		var names []string
 		for _, sub := range cmd.Commands() {
 			names = append(names, sub.Name())
 		}
-		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "rm", "roles"}, names)
+		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "rm", "roles", "memory"}, names)
 	})
 	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"nope"}))

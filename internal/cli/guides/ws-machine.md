@@ -7,6 +7,7 @@ ws machine result <VERDICT> [--file <path> | --file -]
 ws machine children [--all]
 ws machine rm [--dry-run] [--keep-children] (<workspace>... | --all)
 ws machine roles [show | add | edit | rm] …
+ws machine memory [list | get | set | rm] …
 ```
 
 Commands for agents: start, wait for, list, and remove the workspaces your
@@ -40,6 +41,8 @@ changes nothing. Errors are one JSON line on stderr.
   finish and get each one's verdict and report.
 - `ws machine result` as your own last step, when an agent started you
   and waits on you: record your verdict and report.
+- `ws machine memory` as a loop run, to keep notes for the loop's next runs:
+  `set` a value, then `get` or `list` it; use `--expect-rev` when runs overlap.
 - `ws machine children` to find your helpers and reviews, and check on
   their sessions and results.
 - `ws machine rm` to remove each helper as soon as you've used its
@@ -60,6 +63,9 @@ Run `ws llm machine <op>` for each one's guide.
 | `roles add`: the name is taken; `roles rm`: a built-in | `role_exists`, `role_builtin` | 4 |
 | `wait`: a child failed, or had no verdict       | `child_failed`        | 1    |
 | `wait`: a child hadn't finished at the timeout  | `wait_timeout`        | 1    |
+| `memory`: a bad key, or a value over the limits | `memory_invalid`, `memory_full` | 2, 4 |
+| `memory`: your workspace isn't a loop run       | `not_loop_run`        | 4    |
+| `memory`: a key that isn't set, or `--expect-rev` didn't match | `memory_not_found`, `memory_conflict` | 3, 4 |
 
 ## Examples
 
