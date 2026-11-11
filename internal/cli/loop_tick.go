@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -122,7 +125,13 @@ func (a *App) runLoopRun(ctx context.Context, name string, force bool) error {
 		return domainError(err)
 	}
 	var check claudeCheck
+	trigger := loop.TriggerRun
+	if force {
+		trigger = loop.TriggerForce
+	}
 	run, ws, startErr := a.attemptRun(ctx, &l, &check, force)
+	entry := historyEntry(&l, &run, startErr, trigger, a.now())
+	a.recordAttempt(&l, &entry)
 	if !errors.Is(startErr, loop.ErrSkipped) {
 		l.AddRun(run)
 	}
@@ -168,9 +177,17 @@ func (a *App) tick(ctx context.Context, dryRun bool) ([]tickJSON, *itemResults, 
 	}
 	a.warned = append(a.warned, warnings...)
 	p := &loopPass{now: a.now(), dryRun: dryRun}
+	if !dryRun && a.hasOpenEntries(loops) {
+		if err := a.readPass(ctx, p); err != nil {
+			return nil, nil, err
+		}
+	}
 	var results itemResults
 	items := make([]tickJSON, 0, len(loops))
 	for i := range loops {
+		if !dryRun {
+			a.settleHistory(&loops[i], p.listing)
+		}
 		item, err := a.tickLoop(ctx, &loops[i], p, &results)
 		if err != nil {
 			return nil, nil, err
@@ -204,6 +221,8 @@ func (a *App) tickLoop(ctx context.Context, l *loop.Loop, p *loopPass, results *
 	prev := l.LastGate
 	run, _, startErr := a.attemptRun(ctx, l, &p.check, false)
 	skipped := errors.Is(startErr, loop.ErrSkipped)
+	entry := historyEntry(l, &run, startErr, loop.TriggerTick, p.now)
+	a.recordAttempt(l, &entry)
 	if !skipped {
 		l.AddRun(run)
 	}
@@ -291,11 +310,23 @@ func (a *App) attemptRun(ctx context.Context, l *loop.Loop, check *claudeCheck, 
 			return failedRun(a.now(), err), workspace.Workspace{}, err
 		}
 	}
+	data.Memory = a.memoryValues(l)
 	prompt, err := l.RenderPrompt(data)
 	if err != nil {
 		return failedRun(a.now(), err), workspace.Workspace{}, err
 	}
 	return a.startLoopRun(ctx, l, prompt)
+}
+
+// memoryValues is l's memory as a prompt sees it. A memory that can't be
+// read is a warning, and the prompt sees none.
+func (a *App) memoryValues(l *loop.Loop) map[string]string {
+	mem, err := a.loopData.ReadMemory(l.Name)
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("reading the memory of loop %s: %v", l.Name, err))
+		return nil
+	}
+	return mem.Values()
 }
 
 // startLoopRun creates the run's workspace and starts its agent, as ws
@@ -307,6 +338,7 @@ func (a *App) startLoopRun(ctx context.Context, l *loop.Loop, prompt string) (lo
 		return failedRun(a.now(), err), workspace.Workspace{}, domainError(err)
 	}
 	defer lock.Unlock()
+	a.writeRunMark(ws.ID, l.Name)
 	started, err := a.startAgent(ctx, &ws, loopClaudeArgs(l, prompt))
 	if err != nil {
 		return failedRun(a.now(), err), ws, err
@@ -338,6 +370,12 @@ func loopClaudeArgs(l *loop.Loop, prompt string) []string {
 // decision 5). The newest run counts as kept even though the listing was
 // read before it started. A failure is a warning.
 func (a *App) pruneRuns(ctx context.Context, l *loop.Loop, listing lifetime.Listing) {
+	h, err := a.historyOf(l)
+	if err != nil {
+		a.warnHistory(l.Name, err)
+	}
+	now := a.now()
+	historyChanged := false
 	newest := len(l.Runs) - 1
 	kept := 0
 	for i := newest; i >= 0; i-- {
@@ -356,10 +394,30 @@ func (a *App) pruneRuns(ctx context.Context, l *loop.Loop, listing lifetime.List
 		if e == nil || e.Session == nil || e.Session.State == lifetime.StateWorking || e.Session.State == lifetime.StateStarting {
 			continue
 		}
-		if _, err := a.lifetime.RemoveTree(ctx, &e.Workspace, lifetime.TreeOptions{}); err != nil {
-			a.warned = append(a.warned, fmt.Sprintf("removing run %s of loop %s: %v", r.Workspace, l.Name, err))
+		if a.removeRun(ctx, l.Name, &h, listing, e, now) {
+			historyChanged = true
 		}
 	}
+	if historyChanged {
+		a.writeHistory(l.Name, &h)
+	}
+}
+
+// removeRun settles the history entry of e's run, removes its workspace, and
+// marks the entry closed. It reports whether h changed. A failed removal is a
+// warning, and the entry stays open.
+func (a *App) removeRun(ctx context.Context, name string, h *loop.History, listing lifetime.Listing, e *lifetime.Entry, now time.Time) bool {
+	entry := h.FindWorkspace(e.Workspace.ID)
+	changed := entry != nil && a.settleEntry(name, entry, listing, now)
+	if _, err := a.lifetime.RemoveTree(ctx, &e.Workspace, lifetime.TreeOptions{}); err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("removing run %s of loop %s: %v", e.Workspace.ID, name, err))
+		return changed
+	}
+	if entry != nil {
+		entry.Closed = true
+		return true
+	}
+	return changed
 }
 
 // watchLoops runs a pass every loopPoll until ctx ends. Each pass prints
@@ -429,4 +487,168 @@ func orDash(s *string) string {
 		return "-"
 	}
 	return *s
+}
+
+// historyOf is l's history: its history.json, or, when there is none yet,
+// one seeded from l's runs. It writes nothing.
+func (a *App) historyOf(l *loop.Loop) (loop.History, error) {
+	h, found, err := a.loopData.ReadHistory(l.Name)
+	if err != nil {
+		return loop.History{}, err
+	}
+	if !found {
+		return loop.SeedHistory(l.Runs), nil
+	}
+	return h, nil
+}
+
+// hasOpenEntries reports whether any of loops has a run to settle. A history
+// that can't be read counts as none; settleHistory warns about it.
+func (a *App) hasOpenEntries(loops []loop.Loop) bool {
+	for i := range loops {
+		h, err := a.historyOf(&loops[i])
+		if err != nil {
+			continue
+		}
+		for j := range h.Entries {
+			if h.Entries[j].Open() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// historyEntry is the entry for an attempt: skipped (Gate = l.LastGate),
+// start_failed (ErrorCode/Message from run, FinishedAt = StartedAt), or
+// running (Workspace, Session from run).
+func historyEntry(l *loop.Loop, run *loop.Run, startErr error, trigger loop.Trigger, now time.Time) loop.Entry {
+	switch {
+	case errors.Is(startErr, loop.ErrSkipped):
+		at := now
+		if l.LastGate != nil {
+			at = l.LastGate.At
+		}
+		return loop.Entry{Status: loop.StatusSkipped, Trigger: trigger, StartedAt: at, FinishedAt: &at, Gate: l.LastGate}
+	case startErr != nil:
+		at := run.StartedAt
+		return loop.Entry{Status: loop.StatusStartFailed, Trigger: trigger, StartedAt: at, FinishedAt: &at, ErrorCode: run.ErrorCode, ErrorMessage: run.ErrorMessage}
+	}
+	return loop.Entry{Status: loop.StatusRunning, Trigger: trigger, StartedAt: run.StartedAt, Workspace: run.Workspace, Session: run.Session}
+}
+
+// recordAttempt appends e to l's history. A failure is a warning.
+func (a *App) recordAttempt(l *loop.Loop, e *loop.Entry) {
+	h, err := a.historyOf(l)
+	if err != nil {
+		a.warnHistory(l.Name, err)
+		return
+	}
+	h.Append(*e)
+	a.writeHistory(l.Name, &h)
+}
+
+// settleHistory settles l's open runs against listing and their machine
+// records, copies new reports, and writes the history if anything changed.
+// A failure is a warning.
+func (a *App) settleHistory(l *loop.Loop, listing lifetime.Listing) {
+	h, err := a.historyOf(l)
+	if err != nil {
+		a.warnHistory(l.Name, err)
+		return
+	}
+	now := a.now()
+	changed := false
+	for i := range h.Entries {
+		if h.Entries[i].Open() && a.settleEntry(l.Name, &h.Entries[i], listing, now) {
+			changed = true
+		}
+	}
+	if changed {
+		a.writeHistory(l.Name, &h)
+	}
+}
+
+// settleEntry applies what listing and e's machine record say to e, and
+// reports whether e changed. A new verdict's report is copied out.
+func (a *App) settleEntry(name string, e *loop.Entry, listing lifetime.Listing, now time.Time) bool {
+	obs, reportPath := a.observe(e, listing)
+	newVerdict := obs.Verdict != nil && (e.Verdict == nil || !e.Verdict.RecordedAt.Equal(obs.Verdict.RecordedAt))
+	if !e.Settle(obs, now) {
+		return false
+	}
+	if newVerdict && reportPath != "" {
+		a.copyReport(name, e, reportPath)
+	}
+	return true
+}
+
+// observe is what listing and the run's machine record say about e, and the
+// path of the record's report. A record that can't be read is a warning, and
+// leaves the verdict out.
+func (a *App) observe(e *loop.Entry, listing lifetime.Listing) (loop.Observation, string) {
+	listed := listedEntry(listing, e.Workspace)
+	if listed == nil {
+		return loop.Observation{}, ""
+	}
+	obs := loop.Observation{Listed: true}
+	if listed.Session != nil {
+		obs.State = string(listed.Session.State)
+	}
+	rec, err := machine.NewStore(a.loopData.StateDir()).Read(e.Workspace, e.Workspace)
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("reading the result of run %s: %v", e.Workspace, err))
+		return obs, ""
+	}
+	if rec.Result != nil {
+		outcome, _ := rec.Outcome()
+		obs.Verdict = &loop.Verdict{Verdict: rec.Result.Verdict, Outcome: string(outcome), RecordedAt: rec.Result.RecordedAt}
+	}
+	return obs, rec.ReportPath
+}
+
+// copyReport saves the report at path as reports/<seq>.md and marks e's
+// verdict as kept with it. A failure is a warning, and the verdict is kept
+// without its report.
+func (a *App) copyReport(name string, e *loop.Entry, path string) {
+	report, err := readCapped(path, loop.MaxReportSize)
+	if err == nil {
+		err = a.loopData.WriteReport(name, e.Seq, report)
+	}
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("saving the report of run %d of loop %s: %v", e.Seq, name, err))
+		return
+	}
+	e.Verdict.Report = true
+}
+
+// readCapped reads at most limit bytes of the file at path.
+func readCapped(path string, limit int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, limit))
+}
+
+// writeRunMark records that the workspace id is a run of loop name. A failure
+// is a warning.
+func (a *App) writeRunMark(id, name string) {
+	mark := loop.RunMark{Loop: name, StartedAt: a.now().UTC()}
+	if err := a.loopData.WriteRunMark(id, mark); err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("recording run %s of loop %s: %v", id, name, err))
+	}
+}
+
+// writeHistory writes l's history. A failure is a warning.
+func (a *App) writeHistory(name string, h *loop.History) {
+	if err := a.loopData.WriteHistory(name, h); err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("writing the history of loop %s: %v", name, err))
+	}
+}
+
+// warnHistory is the warning for a history that couldn't be read.
+func (a *App) warnHistory(name string, err error) {
+	a.warned = append(a.warned, fmt.Sprintf("reading the history of loop %s: %v", name, err))
 }

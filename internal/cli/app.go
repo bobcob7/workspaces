@@ -48,6 +48,8 @@ type App struct {
 	workspaces workspaceStore
 	lifetime   lifetimeManager
 	loops      loopStore
+	// loopData is the history, memory, and run marks of loops (ADR 0056).
+	loopData *loop.DataStore
 	// swept is what the removal pass removed before the command ran.
 	swept []lifetime.Removed
 	// warned are the command's own warnings, reported after the stores'.
@@ -146,7 +148,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		if cfg.Review.RemovesFinished() {
 			lm.RemoveFinishedReviews(reviewJudge{state: paths.State, store: store.New(paths.Reviews)})
 		}
-		return stores{cache: c, workspaces: ws, lifetime: lm, loops: loop.NewStore(paths.Loops)}
+		return stores{cache: c, workspaces: ws, lifetime: lm, loops: loop.NewStore(paths.Loops), loopData: loop.NewDataStore(paths.State)}
 	}
 	return a
 }
@@ -157,6 +159,7 @@ type stores struct {
 	workspaces workspaceStore
 	lifetime   lifetimeManager
 	loops      loopStore
+	loopData   *loop.DataStore
 }
 
 // Run executes ws with args, excluding the program name, and returns the
@@ -285,6 +288,7 @@ func (a *App) configured(sweep bool, fn func(cmd *cobra.Command, args []string) 
 		a.paths, a.config = paths, cfg
 		s := a.newStores(paths, cfg)
 		a.cache, a.workspaces, a.lifetime, a.loops = s.cache, s.workspaces, s.lifetime, s.loops
+		a.loopData = s.loopData
 		a.log.Debug("config loaded", slog.String("root", paths.Root))
 		if sweep {
 			a.swept = a.lifetime.Sweep(cmd.Context())

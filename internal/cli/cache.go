@@ -659,6 +659,7 @@ func codedDomainError(err error) *cliError {
 		{loop.ErrInvalid, codeLoopInvalid},
 		{loop.ErrNotFound, codeLoopNotFound},
 		{loop.ErrExists, codeLoopExists},
+		{loop.ErrNewerData, codeLoopInvalid},
 	} {
 		if errors.Is(err, m.target) {
 			return newError(m.code, err)

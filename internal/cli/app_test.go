@@ -51,9 +51,10 @@ func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 		},
 	}
 	app = New("test", nil, stdout, stderr, configs, nil)
-	s := stores{cache: stubCache(), workspaces: stubWorkspaces(), lifetime: stubLifetime()}
+	s := stores{cache: stubCache(), workspaces: stubWorkspaces(), lifetime: stubLifetime(), loopData: loop.NewDataStore(testPaths().State)}
 	app.newStores = func(config.Paths, config.Config) stores { return s }
 	app.lifetime = s.lifetime
+	app.loopData = s.loopData
 	app.now = testNow
 	app.gate = &fakeGate{}
 	app.homeDir = func() (string, error) { return "/home/me", nil }
@@ -77,10 +78,12 @@ func testNow() time.Time {
 	return time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 }
 
-// withLoopStore makes app's commands use a real loop store in a temp dir.
+// withLoopStore makes app's commands use a real loop store and loop data in
+// temp dirs.
 func withLoopStore(t *testing.T, app *App) *loop.Store {
 	t.Helper()
 	store := loop.NewStore(t.TempDir())
+	withLoopData(t, app)
 	prev := app.newStores
 	app.newStores = func(p config.Paths, c config.Config) stores {
 		s := prev(p, c)
@@ -88,6 +91,20 @@ func withLoopStore(t *testing.T, app *App) *loop.Store {
 		return s
 	}
 	return store
+}
+
+// withLoopData makes app's commands keep loop history, reports, and memory in
+// a temp dir, and returns that dir's store.
+func withLoopData(t *testing.T, app *App) *loop.DataStore {
+	t.Helper()
+	data := loop.NewDataStore(t.TempDir())
+	prev := app.newStores
+	app.newStores = func(p config.Paths, c config.Config) stores {
+		s := prev(p, c)
+		s.loopData = data
+		return s
+	}
+	return data
 }
 
 // stubWorkspaces is a workspace store with no workspaces.
@@ -127,8 +144,9 @@ func newMockedApp() *mockedApp {
 	app, stdout, stderr := newTestApp()
 	e := &mockedApp{app: app, stdout: stdout, stderr: stderr, cache: stubCache(), store: stubWorkspaces(), lifetime: stubLifetime()}
 	app.cache, app.workspaces, app.lifetime = e.cache, e.store, e.lifetime
+	app.loopData = loop.NewDataStore(testPaths().State)
 	app.newStores = func(config.Paths, config.Config) stores {
-		return stores{cache: e.cache, workspaces: e.store, lifetime: e.lifetime}
+		return stores{cache: e.cache, workspaces: e.store, lifetime: e.lifetime, loopData: loop.NewDataStore(testPaths().State)}
 	}
 	return e
 }

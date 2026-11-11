@@ -42,6 +42,7 @@ func guideTopicsBeforeReview() []string {
 		"loop",
 		"loop add",
 		"loop edit",
+		"loop history",
 		"loop list",
 		"loop pause",
 		"loop resume",

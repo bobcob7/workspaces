@@ -20,9 +20,15 @@ const loopSkipped loopAction = "skipped"
 const maxGateMessage = 200
 
 // gateEnv is the environment a loop's script gets beyond ws's own:
-// WS_LOOP_NAME=<name>, then WS_LOOP_VAR_<KEY>=<value> per var, by key.
-func gateEnv(l *loop.Loop) []string {
-	env := []string{"WS_LOOP_NAME=" + l.Name}
+// WS_LOOP_NAME=<name>, WS_LOOP_HISTORY and WS_LOOP_MEMORY (the paths of the
+// loop's history.json and memory.json, ADR 0056), then WS_LOOP_VAR_<KEY>=<value>
+// per var, by key.
+func gateEnv(l *loop.Loop, data *loop.DataStore) []string {
+	env := []string{
+		"WS_LOOP_NAME=" + l.Name,
+		"WS_LOOP_HISTORY=" + data.HistoryPath(l.Name),
+		"WS_LOOP_MEMORY=" + data.MemoryPath(l.Name),
+	}
 	for _, key := range slices.Sorted(maps.Keys(l.Vars)) {
 		env = append(env, "WS_LOOP_VAR_"+key+"="+l.Vars[key])
 	}
@@ -86,7 +92,7 @@ func (a *App) gateRequest(l *loop.Loop) (gate.Request, error) {
 	if err != nil {
 		return gate.Request{}, err
 	}
-	return gate.Request{Script: l.Script, Dir: dir, Env: gateEnv(l), Timeout: timeout}, nil
+	return gate.Request{Script: l.Script, Dir: dir, Env: gateEnv(l, a.loopData), Timeout: timeout}, nil
 }
 
 // gateError records a script that didn't finish as l's gate and returns
