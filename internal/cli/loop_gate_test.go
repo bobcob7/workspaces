@@ -15,13 +15,24 @@ import (
 )
 
 func TestGateEnv(t *testing.T) {
-	t.Run("name then vars by key", func(t *testing.T) {
+	data := loop.NewDataStore("/state")
+	t.Run("name, history and memory, then vars by key", func(t *testing.T) {
 		l := loop.Loop{Name: "deps", Vars: map[string]string{"B": "2", "A": "1"}}
-		assert.Equal(t, []string{"WS_LOOP_NAME=deps", "WS_LOOP_VAR_A=1", "WS_LOOP_VAR_B=2"}, gateEnv(&l))
+		assert.Equal(t, []string{
+			"WS_LOOP_NAME=deps",
+			"WS_LOOP_HISTORY=/state/.loops/deps/history.json",
+			"WS_LOOP_MEMORY=/state/.loops/deps/memory.json",
+			"WS_LOOP_VAR_A=1",
+			"WS_LOOP_VAR_B=2",
+		}, gateEnv(&l, data))
 	})
 	t.Run("no vars", func(t *testing.T) {
 		l := loop.Loop{Name: "deps"}
-		assert.Equal(t, []string{"WS_LOOP_NAME=deps"}, gateEnv(&l))
+		assert.Equal(t, []string{
+			"WS_LOOP_NAME=deps",
+			"WS_LOOP_HISTORY=/state/.loops/deps/history.json",
+			"WS_LOOP_MEMORY=/state/.loops/deps/memory.json",
+		}, gateEnv(&l, data))
 	})
 }
 

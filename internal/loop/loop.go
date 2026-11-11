@@ -75,10 +75,10 @@ type Run struct {
 
 // Gate is the outcome of the last time a loop's script ran.
 type Gate struct {
-	At       time.Time `toml:"at"`
-	Outcome  string    `toml:"outcome"`
-	ExitCode int       `toml:"exit_code"` // -1 when it timed out, was killed by a signal, or couldn't start
-	Message  string    `toml:"message"`
+	At       time.Time `toml:"at" json:"at"`
+	Outcome  string    `toml:"outcome" json:"outcome"`
+	ExitCode int       `toml:"exit_code" json:"exit_code"` // -1 when it timed out, was killed by a signal, or couldn't start
+	Message  string    `toml:"message" json:"message"`
 }
 
 // Loop is CONFIG_DIR/loops/<Name>.toml.

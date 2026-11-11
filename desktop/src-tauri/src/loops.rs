@@ -80,6 +80,110 @@ pub struct LoopStarted {
     pub path: String,
 }
 
+/// A run's verdict, from its report (ADR 0056).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopRunVerdict {
+    pub verdict: String,
+    pub outcome: String,
+    pub recorded_at: String,
+    pub report: Option<String>,
+}
+
+/// One run in a loop's history, from `ws loop history --json`.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopHistoryRun {
+    pub seq: u32,
+    pub status: String,
+    pub trigger: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub duration_seconds: Option<u64>,
+    pub workspace: Option<String>,
+    pub workspace_exists: bool,
+    pub session: Option<String>,
+    pub error: Option<LoopError>,
+    pub gate: Option<LoopGate>,
+    pub repeats: u32,
+    pub verdict: Option<LoopRunVerdict>,
+}
+
+/// A loop's run history, newest first.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopHistory {
+    #[serde(rename = "loop")]
+    pub loop_name: String,
+    pub runs: Vec<LoopHistoryRun>,
+    pub total: u32,
+    pub warnings: Vec<String>,
+}
+
+/// One run, with its report's text when it has one.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopRunDetail {
+    #[serde(rename = "loop")]
+    pub loop_name: String,
+    pub run: LoopHistoryRun,
+    pub report_text: Option<String>,
+    pub warnings: Vec<String>,
+}
+
+/// One key of a loop's memory.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopMemoryEntry {
+    pub key: String,
+    pub value: String,
+    pub rev: u32,
+    pub updated_at: String,
+    pub updated_by: Option<String>,
+}
+
+/// A loop's memory, sorted by key.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopMemory {
+    #[serde(rename = "loop")]
+    pub loop_name: String,
+    pub entries: Vec<LoopMemoryEntry>,
+    pub bytes: u64,
+    pub warnings: Vec<String>,
+}
+
+/// The entry a memory set wrote.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopMemorySet {
+    #[serde(rename = "loop")]
+    pub loop_name: String,
+    pub entry: LoopMemoryEntry,
+    pub warnings: Vec<String>,
+}
+
+/// The result of removing one memory key.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopMemoryRemoved {
+    #[serde(rename = "loop")]
+    pub loop_name: String,
+    pub key: String,
+    pub removed: bool,
+    pub warnings: Vec<String>,
+}
+
+/// The result of clearing a loop's history or memory.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
+pub struct LoopCleared {
+    #[serde(rename = "loop")]
+    pub loop_name: String,
+    pub removed: u32,
+    pub warnings: Vec<String>,
+}
+
 /// One row of the form's variables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoopVar {
@@ -247,6 +351,94 @@ fn run_args(name: &str) -> Vec<String> {
     ]
 }
 
+/// `ws loop history` without `--json`, which the runner adds:
+/// ["loop", "history", ("--limit=<n>"), "--", <name>].
+pub fn history_args(name: &str, limit: Option<u32>) -> Vec<String> {
+    let mut args = vec!["loop".to_string(), "history".to_string()];
+    if let Some(limit) = limit {
+        args.push(format!("--limit={limit}"));
+    }
+    args.push("--".to_string());
+    args.push(name.to_string());
+    args
+}
+
+/// ["loop", "history", "--run=<seq>", "--", <name>]
+pub fn history_run_args(name: &str, seq: u32) -> Vec<String> {
+    vec![
+        "loop".to_string(),
+        "history".to_string(),
+        format!("--run={seq}"),
+        "--".to_string(),
+        name.to_string(),
+    ]
+}
+
+/// ["loop", "history", "--clear", "--", <name>]
+pub fn history_clear_args(name: &str) -> Vec<String> {
+    vec![
+        "loop".to_string(),
+        "history".to_string(),
+        "--clear".to_string(),
+        "--".to_string(),
+        name.to_string(),
+    ]
+}
+
+/// ["loop", "memory", "list", "--", <name>]
+pub fn memory_list_args(name: &str) -> Vec<String> {
+    vec![
+        "loop".to_string(),
+        "memory".to_string(),
+        "list".to_string(),
+        "--".to_string(),
+        name.to_string(),
+    ]
+}
+
+/// The value goes on stdin, so the args name `--file=-` and carry `--json`
+/// themselves: ["loop", "memory", "set", "--json", ("--expect-rev=<n>"),
+/// "--file=-", "--", <name>, <key>].
+pub fn memory_set_args(name: &str, key: &str, expect_rev: Option<i64>) -> Vec<String> {
+    let mut args = vec![
+        "loop".to_string(),
+        "memory".to_string(),
+        "set".to_string(),
+        "--json".to_string(),
+    ];
+    if let Some(rev) = expect_rev {
+        args.push(format!("--expect-rev={rev}"));
+    }
+    args.push("--file=-".to_string());
+    args.push("--".to_string());
+    args.push(name.to_string());
+    args.push(key.to_string());
+    args
+}
+
+/// ["loop", "memory", "rm", "--", <name>, <key>]
+pub fn memory_remove_args(name: &str, key: &str) -> Vec<String> {
+    vec![
+        "loop".to_string(),
+        "memory".to_string(),
+        "rm".to_string(),
+        "--".to_string(),
+        name.to_string(),
+        key.to_string(),
+    ]
+}
+
+/// ["loop", "memory", "clear", "--", <name>]
+pub fn memory_clear_args(name: &str) -> Vec<String> {
+    vec![
+        "loop".to_string(),
+        "memory".to_string(),
+        "clear".to_string(),
+        "--".to_string(),
+        name.to_string(),
+    ]
+}
+
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_list(state: State<'_, AppState>) -> CmdResult<Loops> {
     state
@@ -282,6 +474,71 @@ pub async fn loops_remove(state: State<'_, AppState>, name: String) -> CmdResult
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_run_now(state: State<'_, AppState>, name: String) -> CmdResult<LoopStarted> {
     state.runner.ws_json(&run_args(&name)).await
+}
+
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn loops_history(
+    state: State<'_, AppState>,
+    name: String,
+    limit: Option<u32>,
+) -> CmdResult<LoopHistory> {
+    state.runner.ws_json(&history_args(&name, limit)).await
+}
+
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn loops_history_run(
+    state: State<'_, AppState>,
+    name: String,
+    seq: u32,
+) -> CmdResult<LoopRunDetail> {
+    state.runner.ws_json(&history_run_args(&name, seq)).await
+}
+
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn loops_history_clear(
+    state: State<'_, AppState>,
+    name: String,
+) -> CmdResult<LoopCleared> {
+    state.runner.ws_json(&history_clear_args(&name)).await
+}
+
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn loops_memory(state: State<'_, AppState>, name: String) -> CmdResult<LoopMemory> {
+    state.runner.ws_json(&memory_list_args(&name)).await
+}
+
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn loops_memory_set(
+    state: State<'_, AppState>,
+    name: String,
+    key: String,
+    value: String,
+    expect_rev: Option<i64>,
+) -> CmdResult<LoopMemorySet> {
+    state
+        .runner
+        .ws_json_with_input(
+            &memory_set_args(&name, &key, expect_rev),
+            Some(value.as_bytes()),
+        )
+        .await
+}
+
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn loops_memory_remove(
+    state: State<'_, AppState>,
+    name: String,
+    key: String,
+) -> CmdResult<LoopMemoryRemoved> {
+    state.runner.ws_json(&memory_remove_args(&name, &key)).await
+}
+
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn loops_memory_clear(
+    state: State<'_, AppState>,
+    name: String,
+) -> CmdResult<LoopCleared> {
+    state.runner.ws_json(&memory_clear_args(&name)).await
 }
 
 /// Runs `ws loop tick --quiet --json` now and then every TICK_INTERVAL,
@@ -660,5 +917,98 @@ EOF"#,
             .unwrap_err();
         assert_eq!(err.code, "loop_exists");
         assert_eq!(err.message, "x");
+    }
+
+    #[test]
+    fn history_args_takes_optional_limit() {
+        assert_eq!(
+            history_args("deps", Some(20)),
+            ["loop", "history", "--limit=20", "--", "deps"]
+        );
+        assert_eq!(
+            history_args("deps", None),
+            ["loop", "history", "--", "deps"]
+        );
+    }
+
+    #[test]
+    fn history_run_args_names_the_seq() {
+        assert_eq!(
+            history_run_args("deps", 56),
+            ["loop", "history", "--run=56", "--", "deps"]
+        );
+    }
+
+    #[test]
+    fn history_clear_args_clears_history() {
+        assert_eq!(
+            history_clear_args("deps"),
+            ["loop", "history", "--clear", "--", "deps"]
+        );
+    }
+
+    #[test]
+    fn memory_list_args_lists_the_loop() {
+        assert_eq!(
+            memory_list_args("deps"),
+            ["loop", "memory", "list", "--", "deps"]
+        );
+    }
+
+    #[test]
+    fn memory_set_args_reads_the_value_from_stdin() {
+        assert_eq!(
+            memory_set_args("deps", "seen", Some(3)),
+            [
+                "loop",
+                "memory",
+                "set",
+                "--json",
+                "--expect-rev=3",
+                "--file=-",
+                "--",
+                "deps",
+                "seen",
+            ]
+        );
+        assert_eq!(
+            memory_set_args("deps", "seen", None),
+            ["loop", "memory", "set", "--json", "--file=-", "--", "deps", "seen",]
+        );
+    }
+
+    #[test]
+    fn memory_remove_args_removes_one_key() {
+        assert_eq!(
+            memory_remove_args("deps", "seen"),
+            ["loop", "memory", "rm", "--", "deps", "seen"]
+        );
+    }
+
+    #[test]
+    fn memory_clear_args_clears_the_loop() {
+        assert_eq!(
+            memory_clear_args("deps"),
+            ["loop", "memory", "clear", "--", "deps"]
+        );
+    }
+
+    #[test]
+    fn history_sample_round_trips_camel_case() {
+        let json = r#"{"loop": "deps-bump", "runs": [{"seq": 42, "status": "succeeded", "trigger": "tick", "started_at": "2026-11-10T08:00:00Z", "finished_at": "2026-11-10T08:14:30Z", "duration_seconds": 870, "workspace": "loop-deps-bump-1a2b3c4d", "workspace_exists": true, "session": "e8cdf5d8", "error": null, "gate": {"at": "2026-11-10T07:59:58Z", "outcome": "passed", "exit_code": 0, "message": null}, "repeats": 1, "verdict": {"verdict": "PASS", "outcome": "pass", "recorded_at": "2026-11-10T08:14:30Z", "report": "/x/reports/42.md"}}], "total": 57, "warnings": []}"#;
+        let history: LoopHistory = serde_json::from_str(json).unwrap();
+        assert_eq!(history.loop_name, "deps-bump");
+        assert_eq!(history.runs[0].duration_seconds, Some(870));
+
+        let value = serde_json::to_value(&history).unwrap();
+        assert_eq!(value["loop"], "deps-bump");
+        assert_eq!(value["total"], 57);
+        assert_eq!(value["runs"][0]["workspaceExists"], true);
+        assert_eq!(value["runs"][0]["durationSeconds"], 870);
+        assert_eq!(value["runs"][0]["gate"]["exitCode"], 0);
+        assert_eq!(
+            value["runs"][0]["verdict"]["recordedAt"],
+            "2026-11-10T08:14:30Z"
+        );
     }
 }

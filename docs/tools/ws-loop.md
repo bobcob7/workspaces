@@ -14,6 +14,12 @@ ws loop resume <NAME>
 ws loop rm <NAME>
 ws loop run [--force] <NAME>
 ws loop tick [--dry-run] [--watch]
+ws loop history [--json] [--limit <N>] [--run <SEQ> | --clear] <NAME>
+ws loop memory list  [--json] <NAME>
+ws loop memory get   [--json] <NAME> <KEY>
+ws loop memory set   [--json] [--expect-rev <N>] [--file <PATH> | --file -] <NAME> <KEY> [<VALUE>]
+ws loop memory rm    [--json] [--expect-rev <N>] <NAME> <KEY>
+ws loop memory clear [--json] <NAME>
 ```
 
 ## Description
@@ -64,8 +70,10 @@ the run's workspace:
   recorded.
 
 The script is run as `/bin/sh -c <SCRIPT>`, from your home directory,
-with stdin empty and `ws`'s environment plus `WS_LOOP_NAME=<NAME>` and
-`WS_LOOP_VAR_<KEY>=<VALUE>` for each variable. At the timeout its whole
+with stdin empty and `ws`'s environment plus `WS_LOOP_NAME=<NAME>`,
+`WS_LOOP_HISTORY=<path of history.json>` and `WS_LOOP_MEMORY=<path of
+memory.json>` (both absolute), and `WS_LOOP_VAR_<KEY>=<VALUE>` for each
+variable. At the timeout its whole
 process group is killed. Stdout and stderr are each kept up to 64 KiB
 (the rest is dropped, with a warning), invalid UTF-8 becomes `�`, and
 trailing newlines are trimmed. They're used only in the prompt; the
@@ -81,6 +89,7 @@ Go [`text/template`](https://pkg.go.dev/text/template):
 | `{{.Vars.KEY}}` | The value of `--var KEY=…` |
 | `{{.Stdout}}` | The script's stdout; only in a loop with `--script` |
 | `{{.Stderr}}` | The script's stderr; only in a loop with `--script` |
+| `{{memory "KEY"}}` | The value of the loop's memory key `KEY`, or empty when it has none; see [`ws loop memory`](#ws-loop-memory) |
 
 A missing key is an error: `add` refuses a prompt that uses `{{.Stdout}}`
 without `--script`, or `{{.Vars.X}}` without `--var X=…`. Write a
@@ -94,7 +103,15 @@ runs' workspaces alone.
 
 **Locking.** `tick`, `run`, and every command that changes a loop hold
 `CONFIG_DIR/loops/.lock`, so launchd and the desktop app can both tick
-without starting a run twice.
+without starting a run twice. `ws loop history --clear` holds it too;
+`ws loop memory` takes only its own lock.
+
+**History and memory.** Each loop keeps its runs in
+`CONFIG_DIR/state/.loops/<NAME>/history.json`: the newest 200, with the
+reports of the newest 50 that have one. Its runs share a memory,
+`memory.json` in the same directory: up to 100 keys, 64 KiB per value,
+and 256 KiB in all. `ws loop rm` deletes both. See
+[`ws loop history`](#ws-loop-history) and [`ws loop memory`](#ws-loop-memory).
 
 ### ws loop add
 
@@ -186,8 +203,9 @@ a running one, changes nothing.
 
 ### ws loop rm
 
-Deletes the loop. Its runs' workspaces stay until they're removed as any
-workspace is.
+Deletes the loop, with its run history, saved reports, and memory
+(`state/.loops/<NAME>/`). Its runs' workspaces stay until they're removed
+as any workspace is.
 
 ### ws loop run
 
@@ -212,6 +230,74 @@ Exits 0 when nothing was due.
 | ------ | ----------- |
 | `--dry-run` | Report what would start; start, write, and remove nothing, and run no script. A due loop with a script is `would_start` |
 | `--watch` | Run a pass every minute until interrupted, printing only what started or failed. Text only: `--json` with `--watch` is a usage error |
+
+### ws loop history
+
+Shows a loop's runs, newest first, from `history.json`. Each run is
+recorded when its attempt starts, is skipped, or fails to start, and
+`tick` settles it once its agent has finished, so the newest run can
+lag the agent by one tick.
+
+| Option | Description |
+| ------ | ----------- |
+| `--clear` | Delete the loop's run history and its saved reports |
+| `--limit <N>` | How many runs to show, 1–200; default 20 |
+| `--run <SEQ>` | Show one run, with its report |
+
+`--run` can't be combined with `--clear` or `--limit`. Each run has a
+`seq` number, which `--run` takes.
+
+| Status | Meaning |
+| ------ | ------- |
+| `running` | Its agent is working or starting |
+| `done` | Its agent finished without a verdict |
+| `succeeded` | Its verdict's outcome is `pass` |
+| `failed` | Its verdict's outcome is `fail` |
+| `start_failed` | It couldn't start; `error` says why |
+| `skipped` | Its gate script exited non-zero; `repeats` counts the skips, and `started_at` and `finished_at` are the first and latest |
+| `gone` | Its workspace was removed while it was running |
+
+Text output, one line per run:
+
+```console
+$ ws loop history deps-bump
+42  succeeded     2026-11-10T08:00:00Z  14m30s  loop-deps-bump-1a2b3c4d  PASS
+41  skipped ×12   2026-11-09T20:00:00Z  -       -                        exit 1: no outdated modules
+40  start_failed  2026-11-09T08:00:00Z  -       -                        claude_missing: …
+```
+
+With `--run`, text output prints the run's line, a blank line, then the
+report.
+
+### ws loop memory
+
+A loop's memory is a set of key–value pairs that all its runs share. A
+run reads a key with `{{memory "KEY"}}` in its prompt, and changes it
+with [`ws machine memory`](ws-machine.md#ws-machine-memory). People and
+gate scripts use this command.
+
+A key is 1–64 characters of `A-Za-z0-9_`, not starting with a digit. The
+limits are in [state](../state.md#records).
+
+| Subcommand | Description |
+| ---------- | ----------- |
+| `list` | List the loop's memory |
+| `get <KEY>` | Print one memory value |
+| `set <KEY> [<VALUE>]` | Set one memory value |
+| `rm <KEY>` | Remove one memory value |
+| `clear` | Remove all of the loop's memory |
+
+| Option | Description |
+| ------ | ----------- |
+| `--expect-rev <N>` | Fail with `memory_conflict` unless the key's revision is N; `0` means the key must not exist. Default: don't check |
+| `--file <PATH>` | Read the value from this file; `-` reads stdin. `set` needs exactly one of `<VALUE>` and `--file` |
+
+`set` bumps the key's `rev`. Without `--expect-rev`, the last writer wins.
+
+Text output: `list` prints `KEY  rev N  <updated_at>  <first line of the
+value, cut to 60 characters>`; `get` prints the value exactly; `set`
+prints `KEY  rev N`; `rm` prints `KEY removed`; `clear` prints `N keys
+removed`.
 
 ## Output
 
@@ -316,6 +402,88 @@ deps-bump  every 24h  active  next 2026-11-06T18:00:00Z  last loop-deps-bump-1a2
 triage     every 1h   paused  next -                     last -
 ```
 
+`history`, a list:
+
+```json
+{"loop": "deps-bump", "runs": [RunJSON…], "total": 57, "warnings": []}
+```
+
+`RunJSON`:
+
+```json
+{
+  "seq": 42,
+  "status": "succeeded",
+  "trigger": "tick",
+  "started_at": "2026-11-10T08:00:00Z",
+  "finished_at": "2026-11-10T08:14:30Z",
+  "duration_seconds": 870,
+  "workspace": "loop-deps-bump-1a2b3c4d",
+  "workspace_exists": true,
+  "session": "e8cdf5d8",
+  "error": null,
+  "gate": {"at": "2026-11-10T07:59:58Z", "outcome": "passed", "exit_code": 0, "message": null},
+  "repeats": 1,
+  "verdict": {"verdict": "PASS", "outcome": "pass", "recorded_at": "2026-11-10T08:14:30Z", "report": "/…/state/.loops/deps-bump/reports/42.md"}
+}
+```
+
+- `duration_seconds` is the whole seconds from `started_at` to
+  `finished_at`, for `done`, `succeeded`, `failed`, and `gone` runs that
+  have a `finished_at`; else `null`.
+- `workspace` and `session` are `null` when empty. `workspace_exists` is
+  true when there is a workspace and it isn't closed.
+- `error` is `{"code", "message"}` when the run has an error code, else
+  `null`. `gate` is the `last_gate` object, or `null`.
+- `verdict.report` is the absolute path of `reports/<seq>.md` when that
+  file exists, else `null`.
+
+`history --run <SEQ>`:
+
+```json
+{"loop": "deps-bump", "run": RunJSON, "report_text": "# Bumped 3 modules\n…", "warnings": []}
+```
+
+`report_text` is `null` when the run has no report.
+
+`history --clear`:
+
+```json
+{"loop": "deps-bump", "removed": 57, "warnings": []}
+```
+
+`memory list`:
+
+```json
+{"loop": "deps-bump", "entries": [MemoryEntryJSON…], "bytes": 1234, "warnings": []}
+```
+
+`memory get` and `memory set`:
+
+```json
+{"loop": "deps-bump", "entry": MemoryEntryJSON, "warnings": []}
+```
+
+`memory rm`:
+
+```json
+{"loop": "deps-bump", "key": "seen", "removed": true, "warnings": []}
+```
+
+`memory clear`:
+
+```json
+{"loop": "deps-bump", "removed": 4, "warnings": []}
+```
+
+`MemoryEntryJSON` (entries are sorted by key):
+
+```json
+{"key": "seen", "value": "#412 #415", "rev": 3, "updated_at": "2026-11-10T08:14:00Z", "updated_by": "loop-deps-bump-1a2b3c4d"}
+```
+
+`updated_by` is `null` when a person or a gate script wrote the value.
+
 ## Examples
 
 ```console
@@ -351,6 +519,13 @@ $ ws loop add triage --every 15m --var REPO=bobcob7/buff-bear --var LABEL=needs-
 
 # Run it now even if the script would say there's nothing to do
 $ ws loop run --force triage
+
+# The last 5 runs of deps-bump, then one of them with its report
+$ ws loop history --limit 5 deps-bump
+$ ws loop history --run 42 deps-bump
+
+# Every hour, triage the issues not yet seen; the prompt reads and extends the memory
+$ ws loop add new-issues --every 1h --prompt 'Triage the open issues in buff-bear that are not in {{memory "seen"}}. Then run `ws machine memory set seen ...` with every number seen so far, and finish with `ws machine result PASS --file ../report.md`.' buff-bear
 
 # Run the scheduler in a terminal
 $ ws loop tick --watch
@@ -401,6 +576,14 @@ can't start reports.
 | `run` or `tick`: the script timed out or couldn't start | `loop_script_failed` | 1 |
 | `run` or `tick`: the prompt couldn't be rendered | `loop_invalid` | 2 |
 | `tick`: a run couldn't start; the others still start | `ws claude`'s code, in its item | 1–4 |
+| `history`: `--run` with `--clear` or `--limit`, a `--limit` outside 1–200, or a `--run` below 1 | `usage` | 2 |
+| `history`: `--run` with a seq that isn't in the history | `loop_not_found` | 3 |
+| `memory set`: neither or both of `<VALUE>` and `--file` | `usage` | 2 |
+| `memory`: a key that isn't valid | `memory_invalid` | 2 |
+| `memory get` or `rm`: no such key | `memory_not_found` | 3 |
+| `memory set` or `rm`: `--expect-rev` didn't match | `memory_conflict` | 4 |
+| `memory set`: a value over 64 KiB, over 100 keys, or over 256 KiB in all | `memory_full` | 4 |
+| `history` or `memory`: a data file from a newer `ws` | `loop_invalid` | 2 |
 
 ## See also
 

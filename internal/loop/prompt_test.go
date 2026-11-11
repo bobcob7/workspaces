@@ -68,4 +68,35 @@ func TestCheckPrompt(t *testing.T) {
 		l := Loop{Version: FormatVersion, Name: "deps", Prompt: "{{.Stdout}}"}
 		assert.ErrorIs(t, l.CheckPrompt(), ErrInvalid)
 	})
+	t.Run("memory function is ok", func(t *testing.T) {
+		l := Loop{Version: FormatVersion, Name: "deps", Prompt: `seen {{memory "seen"}}`}
+		assert.NoError(t, l.CheckPrompt())
+	})
+}
+
+func TestLoop_RenderPrompt(t *testing.T) {
+	t.Run("memory function renders a set key's value", func(t *testing.T) {
+		l := Loop{Version: FormatVersion, Name: "deps", Prompt: `seen: {{memory "seen"}}`}
+		got, err := l.RenderPrompt(PromptData{Memory: map[string]string{"seen": "#412 #415"}})
+		require.NoError(t, err)
+		assert.Equal(t, "seen: #412 #415", got)
+	})
+	t.Run("memory function renders an unset key as empty", func(t *testing.T) {
+		l := Loop{Version: FormatVersion, Name: "deps", Prompt: `seen: [{{memory "seen"}}] {{.Name}}`}
+		got, err := l.RenderPrompt(PromptData{Memory: map[string]string{"other": "x"}})
+		require.NoError(t, err)
+		assert.Equal(t, "seen: [] deps", got)
+	})
+	t.Run("memory function with a nil map renders empty", func(t *testing.T) {
+		l := Loop{Version: FormatVersion, Name: "deps", Prompt: `[{{memory "seen"}}] {{.Name}}`}
+		got, err := l.RenderPrompt(PromptData{})
+		require.NoError(t, err)
+		assert.Equal(t, "[] deps", got)
+	})
+	t.Run("version 1 prompt ignores memory", func(t *testing.T) {
+		l := Loop{Version: Version1, Name: "old", Prompt: `literal {{memory "seen"}}`}
+		got, err := l.RenderPrompt(PromptData{Memory: map[string]string{"seen": "x"}})
+		require.NoError(t, err)
+		assert.Equal(t, `literal {{memory "seen"}}`, got)
+	})
 }

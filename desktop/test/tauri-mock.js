@@ -165,6 +165,169 @@
 
   const data = {
     roles: initialRoles(),
+    // Run history per loop: runs newest first, reports by seq (reportText).
+    loopHistory: {
+      "deps-bump": {
+        total: 57,
+        runs: [
+          {
+            seq: 57,
+            status: "running",
+            trigger: "tick",
+            startedAt: "2026-10-24T08:00:00Z",
+            finishedAt: null,
+            durationSeconds: null,
+            workspace: "loop-deps-bump-1a2b3c4d",
+            workspaceExists: true,
+            session: "e8cdf5d8",
+            error: null,
+            gate: null,
+            repeats: 1,
+            verdict: null,
+          },
+          {
+            seq: 56,
+            status: "succeeded",
+            trigger: "tick",
+            startedAt: "2026-10-23T08:00:00Z",
+            finishedAt: "2026-10-23T08:14:30Z",
+            durationSeconds: 870,
+            workspace: "loop-deps-bump-9f8e7d6c",
+            workspaceExists: true,
+            session: "b41c0e7a",
+            error: null,
+            gate: { at: "2026-10-23T07:59:58Z", outcome: "passed", exitCode: 0, message: null },
+            repeats: 1,
+            verdict: {
+              verdict: "PASS",
+              outcome: "pass",
+              recordedAt: "2026-10-23T08:14:30Z",
+              report: "/w/.loops/deps-bump/reports/56.md",
+            },
+          },
+          {
+            seq: 55,
+            status: "failed",
+            trigger: "tick",
+            startedAt: "2026-10-22T08:00:00Z",
+            finishedAt: "2026-10-22T08:25:20Z",
+            durationSeconds: 1520,
+            workspace: "loop-deps-bump-5a4b3c2d",
+            workspaceExists: false,
+            session: "7c2d9e1f",
+            error: null,
+            gate: { at: "2026-10-22T07:59:57Z", outcome: "passed", exitCode: 0, message: null },
+            repeats: 1,
+            verdict: {
+              verdict: "FAIL",
+              outcome: "fail",
+              recordedAt: "2026-10-22T08:25:20Z",
+              report: "/w/.loops/deps-bump/reports/55.md",
+            },
+          },
+          {
+            seq: 54,
+            status: "skipped",
+            trigger: "tick",
+            startedAt: "2026-10-21T08:00:00Z",
+            finishedAt: null,
+            durationSeconds: null,
+            workspace: null,
+            workspaceExists: false,
+            session: null,
+            error: null,
+            gate: { at: "2026-10-21T08:00:02Z", outcome: "skipped", exitCode: 1, message: "no outdated modules" },
+            repeats: 12,
+            verdict: null,
+          },
+          {
+            seq: 53,
+            status: "done",
+            trigger: "tick",
+            startedAt: "2026-10-20T08:00:00Z",
+            finishedAt: "2026-10-20T08:10:40Z",
+            durationSeconds: 640,
+            workspace: "loop-deps-bump-0e1f2a3b",
+            workspaceExists: false,
+            session: "3a4b5c6d",
+            error: null,
+            gate: null,
+            repeats: 1,
+            verdict: null,
+          },
+          {
+            seq: 52,
+            status: "start_failed",
+            trigger: "tick",
+            startedAt: "2026-10-19T08:00:00Z",
+            finishedAt: null,
+            durationSeconds: null,
+            workspace: null,
+            workspaceExists: false,
+            session: null,
+            error: { code: "claude_missing", message: "Claude Code isn't installed" },
+            gate: null,
+            repeats: 1,
+            verdict: null,
+          },
+          {
+            seq: 51,
+            status: "gone",
+            trigger: "tick",
+            startedAt: "2026-10-18T08:00:00Z",
+            finishedAt: "2026-10-18T08:05:00Z",
+            durationSeconds: 300,
+            workspace: "loop-deps-bump-77aa88bb",
+            workspaceExists: false,
+            session: "0f1e2d3c",
+            error: null,
+            gate: null,
+            repeats: 1,
+            verdict: null,
+          },
+        ],
+        reports: {
+          56: [
+            "## Bumped 3 modules",
+            "",
+            "- `github.com/spf13/cobra` v1.8.1 to v1.9.0",
+            "- `golang.org/x/net` v0.30.0 to v0.32.0",
+            "- `typescript` 5.6.3 to 5.7.2",
+            "",
+            "PR: https://github.com/bobcob7/buff-bear/pull/88",
+          ].join("\n"),
+          55: [
+            "## Tests failed after the bump",
+            "",
+            "- `internal/loop`: `TestDataStore_ReadHistory` panics on an empty file.",
+            "- No PR was opened.",
+          ].join("\n"),
+        },
+      },
+    },
+    // Memory per loop, keyed by name; entries are listed sorted by key.
+    loopMemory: {
+      "deps-bump": {
+        entries: [
+          { key: "seen", value: "#412 #415 #418", rev: 3, updatedAt: "2026-10-23T08:14:00Z", updatedBy: "loop-deps-bump-9f8e7d6c" },
+          { key: "last_pr", value: "https://github.com/bobcob7/buff-bear/pull/88", rev: 1, updatedAt: "2026-10-23T08:14:00Z", updatedBy: "loop-deps-bump-9f8e7d6c" },
+          {
+            key: "notes",
+            value: [
+              "## Deps notes",
+              "- Skip `golang.org/x/tools`: pinned for the lint toolchain.",
+              "- Bump Go modules first, then npm.",
+              "- Run `make desktop-test` before opening the PR.",
+              "- Rebase on main if the bot PR conflicts.",
+              "- Ask before major version bumps.",
+            ].join("\n"),
+            rev: 7,
+            updatedAt: "2026-10-21T08:00:03Z",
+            updatedBy: null,
+          },
+        ],
+      },
+    },
     loops: [
       {
         name: "deps-bump",
@@ -299,6 +462,12 @@
     }
     return found;
   };
+
+  const historyOf = (name) => data.loopHistory[name] ?? { total: 0, runs: [], reports: {} };
+
+  const memoryOf = (name) => data.loopMemory[name] ?? { entries: [] };
+
+  const sortedEntries = (name) => [...memoryOf(name).entries].sort((a, b) => (a.key < b.key ? -1 : 1));
 
   // The fields a NewLoop request sets. Absent script means no script; a script
   // without a timeout gets the default; "" model and permission mode mean default.
@@ -558,6 +727,51 @@
       session: "e8cdf5d8",
       path: `/w/loop-${name}-1a2b3c4d`,
     }),
+    loops_history: ({ name, limit }) => {
+      const history = historyOf(name);
+      return { loop: name, runs: history.runs.slice(0, limit ?? 20), total: history.total, warnings: [] };
+    },
+    loops_history_run: ({ name, seq }) => {
+      const run = historyOf(name).runs.find((candidate) => candidate.seq === seq);
+      if (run === undefined) {
+        throw { code: "loop_not_found", message: `run ${seq} of loop ${name} not found` };
+      }
+      return { loop: name, run, reportText: historyOf(name).reports[seq] ?? null, warnings: [] };
+    },
+    loops_history_clear: ({ name }) => {
+      const removed = historyOf(name).total;
+      data.loopHistory[name] = { total: 0, runs: [], reports: {} };
+      return { loop: name, removed, warnings: [] };
+    },
+    loops_memory: ({ name }) => {
+      const entries = sortedEntries(name);
+      const bytes = entries.reduce((sum, entry) => sum + entry.value.length, 0);
+      return { loop: name, entries, bytes, warnings: [] };
+    },
+    loops_memory_set: ({ name, key, value, expectRev }) => {
+      const current = memoryOf(name).entries.find((entry) => entry.key === key);
+      const rev = current?.rev ?? 0;
+      if (expectRev !== null && expectRev !== undefined && expectRev !== rev) {
+        throw { code: "memory_conflict", message: `${key} changed (rev ${rev})` };
+      }
+      const entry = { key, value, rev: rev + 1, updatedAt: "2026-10-24T09:00:00Z", updatedBy: null };
+      const others = memoryOf(name).entries.filter((candidate) => candidate.key !== key);
+      data.loopMemory[name] = { entries: [...others, entry] };
+      return { loop: name, entry, warnings: [] };
+    },
+    loops_memory_remove: ({ name, key }) => {
+      const entries = memoryOf(name).entries;
+      if (!entries.some((entry) => entry.key === key)) {
+        throw { code: "memory_not_found", message: `no memory key ${key}` };
+      }
+      data.loopMemory[name] = { entries: entries.filter((entry) => entry.key !== key) };
+      return { loop: name, key, removed: true, warnings: [] };
+    },
+    loops_memory_clear: ({ name }) => {
+      const removed = memoryOf(name).entries.length;
+      data.loopMemory[name] = { entries: [] };
+      return { loop: name, removed, warnings: [] };
+    },
     read_transcript: ({ offset }) => ({
       items: offset > 0 ? [] : [
         { id: "u1", at: "2026-10-24T09:01:00Z", kind: "user", text: "Check the login rate limit." },

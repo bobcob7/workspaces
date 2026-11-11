@@ -23,6 +23,8 @@ func (a *App) newLoopCmd() *cobra.Command {
 	cmd.AddCommand(
 		a.newLoopAddCmd(),
 		a.newLoopEditCmd(),
+		a.newLoopHistoryCmd(),
+		a.newLoopMemoryCmd(),
 		a.newLoopListCmd(),
 		a.newLoopPauseCmd(),
 		a.newLoopResumeCmd(),
@@ -335,7 +337,16 @@ func (a *App) createLoop(ctx context.Context, l *loop.Loop) error {
 	if err := a.loops.Create(l); err != nil {
 		return domainError(err)
 	}
+	a.removeLoopData(l.Name)
 	return a.writeLoop(l)
+}
+
+// removeLoopData deletes the loop's history and memory, so a loop added
+// under a removed name starts empty. A failure is a warning.
+func (a *App) removeLoopData(name string) {
+	if err := a.loopData.RemoveAll(name); err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("removing the history of loop %s: %v", name, err))
+	}
 }
 
 func (a *App) runLoopList(ctx context.Context) error {
@@ -451,6 +462,7 @@ func (a *App) removeLoop(ctx context.Context, name string) (loop.Loop, error) {
 	if err := a.loops.Remove(name); err != nil {
 		return loop.Loop{}, domainError(err)
 	}
+	a.removeLoopData(name)
 	return l, nil
 }
 

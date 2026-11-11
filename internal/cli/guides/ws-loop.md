@@ -3,6 +3,8 @@
 ```
 ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] <NAME> [<SPEC>...]
 ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [<SPEC>...]
+ws loop history [--json] [--limit <N>] [--run <SEQ> | --clear] <NAME>
+ws loop memory list|get|set|rm|clear [--json] <NAME> …
 ws loop list [--json]
 ws loop pause [--json] <NAME>
 ws loop resume [--json] <NAME>
@@ -32,9 +34,26 @@ prompt (`{{.Vars.KEY}}`) and for the script (`$WS_LOOP_VAR_KEY`). See
 `ws llm loop add` for the template values, the limits, and how to change a
 loop: remove it and add it again.
 
+## History
+
+Each run is recorded in the loop's history, and a run's verdict is the one it
+recorded with `ws machine result`. So a loop's prompt should end with "finish
+with `ws machine result PASS|FAIL --file <report>`". `ws loop history` shows
+the runs, and `ws llm loop history` has the details.
+
+## Memory
+
+A loop's runs can remember values between runs. A prompt reads one with
+`{{memory "KEY"}}`, which is the value or an empty string, and a gate script
+reads the file at `$WS_LOOP_MEMORY`. A run writes one with `ws machine memory
+set`. People use `ws loop memory`; see `ws llm loop memory`. A loop keeps at most
+100 keys, 64 KiB per value, and 256 KiB in all.
+
 ## Subcommands
 
 - `ws loop add`: add a loop; see `ws llm loop add`.
+- `ws loop history`: show a loop's runs and their verdicts; see `ws llm loop history`.
+- `ws loop memory`: read and change a loop's memory; see `ws llm loop memory`.
 - `ws loop list`: list every loop; see `ws llm loop list`.
 - `ws loop pause`: stop a loop from starting runs; see `ws llm loop pause`.
 - `ws loop resume`: start a paused loop again; see `ws llm loop resume`.

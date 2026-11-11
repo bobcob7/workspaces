@@ -45,13 +45,14 @@ func TestErrorCode_exitCode(t *testing.T) {
 			codeChildFailed, codeWaitTimeout)
 	})
 	t.Run("usage errors exit 2", func(t *testing.T) {
-		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace, codeResultInvalid, codeRoleInvalid)
+		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace, codeResultInvalid, codeRoleInvalid, codeMemoryInvalid)
 	})
 	t.Run("not found or ambiguous exits 3", func(t *testing.T) {
-		assertExit(t, exitNotFound, codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound, codeRoleUnknown)
+		assertExit(t, exitNotFound, codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound, codeRoleUnknown, codeMemoryNotFound)
 	})
 	t.Run("refusals exit 4", func(t *testing.T) {
-		assertExit(t, exitRefused, codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch, codeNotDescendant, codeRoleExists, codeRoleBuiltin)
+		assertExit(t, exitRefused, codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch, codeNotDescendant, codeRoleExists, codeRoleBuiltin,
+			codeMemoryConflict, codeMemoryFull, codeNotLoopRun)
 	})
 	t.Run("unknown code exits 1", func(t *testing.T) {
 		assert.Equal(t, exitFailed, errorCode("made_up").exitCode())

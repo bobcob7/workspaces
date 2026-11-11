@@ -42,6 +42,7 @@ func (a *App) newMachineCmd() *cobra.Command {
 		a.newMachineChildrenCmd(),
 		a.newMachineRmCmd(),
 		a.newMachineRolesCmd(),
+		a.newMachineMemoryCmd(),
 	)
 	return cmd
 }

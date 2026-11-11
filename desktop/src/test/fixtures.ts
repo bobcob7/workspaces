@@ -10,6 +10,8 @@ import type {
   FixPlan,
   ListedProfile,
   Loop,
+  LoopHistoryRun,
+  LoopMemoryEntry,
   NewLoop,
   NotificationSettings,
   OpenSettings,
@@ -292,6 +294,32 @@ export const loop = (overrides: Partial<Loop> = {}): Loop => ({
   ...overrides,
 });
 
+export const loopHistoryRun = (overrides: Partial<LoopHistoryRun> = {}): LoopHistoryRun => ({
+  seq: 1,
+  status: "succeeded",
+  trigger: "tick",
+  startedAt: "2026-10-24T08:00:00Z",
+  finishedAt: "2026-10-24T08:14:30Z",
+  durationSeconds: 870,
+  workspace: "loop-deps-1a2b3c4d",
+  workspaceExists: true,
+  session: "e8cdf5d8",
+  error: null,
+  gate: null,
+  repeats: 1,
+  verdict: null,
+  ...overrides,
+});
+
+export const loopMemoryEntry = (overrides: Partial<LoopMemoryEntry> = {}): LoopMemoryEntry => ({
+  key: "seen",
+  value: "#412 #415",
+  rev: 1,
+  updatedAt: "2026-10-24T08:14:00Z",
+  updatedBy: "loop-deps-1a2b3c4d",
+  ...overrides,
+});
+
 export const notificationSettings = (overrides: Partial<NotificationSettings> = {}): NotificationSettings => ({
   enabled: true,
   needsInput: true,
@@ -430,6 +458,17 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   loopsSetPaused: vi.fn(async (name: string, paused: boolean) => loop({ name, paused })),
   loopsRemove: vi.fn(async (name: string) => loop({ name })),
   loopsRunNow: vi.fn(async (name: string) => ({ name, workspace: `loop-${name}-1`, session: "9a8b7c6d", path: `/w/loop-${name}-1` })),
+  loopsHistory: vi.fn(async (name: string) => ({ loop: name, runs: [], total: 0, warnings: [] })),
+  loopsHistoryRun: vi.fn(async (name: string, seq: number) => ({ loop: name, run: loopHistoryRun({ seq }), reportText: null, warnings: [] })),
+  loopsHistoryClear: vi.fn(async (name: string) => ({ loop: name, removed: 0, warnings: [] })),
+  loopsMemory: vi.fn(async (name: string) => ({ loop: name, entries: [], bytes: 0, warnings: [] })),
+  loopsMemorySet: vi.fn(async (name: string, key: string, value: string) => ({
+    loop: name,
+    entry: loopMemoryEntry({ key, value, rev: 1 }),
+    warnings: [],
+  })),
+  loopsMemoryRemove: vi.fn(async (name: string, key: string) => ({ loop: name, key, removed: true, warnings: [] })),
+  loopsMemoryClear: vi.fn(async (name: string) => ({ loop: name, removed: 0, warnings: [] })),
   ...overrides,
 });
 

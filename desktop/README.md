@@ -170,6 +170,20 @@ The prompt and the gate script show in scrollable monospace blocks.
 | --- | --- |
 | ![](docs/loops-script.png) | ![](docs/loops-paused.png) |
 
+The loop view also has a **History** card, with the loop's recent runs:
+each shows its status, duration and verdict, and opens the run's report.
+The **Memory** card lists the keys the loop's runs share, and can add,
+edit, delete and clear them. On a phone, the memory table stacks into
+rows, and its buttons are at least 40 px tall.
+
+| **Loop history** | **A run's report** |
+| --- | --- |
+| ![](docs/loops-history.png) | ![](docs/loops-history-run.png) |
+| **Loop memory** | **Editing a memory value** |
+| ![](docs/loops-memory.png) | ![](docs/loops-memory-edit.png) |
+| **History on a phone** | **Memory on a phone** |
+| ![](docs/mobile-loops-history.png) | ![](docs/mobile-loops-memory.png) |
+
 The screenshots use sample data.
 
 ## Workspace Online

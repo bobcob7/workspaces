@@ -611,18 +611,13 @@ func commandStderr(err error) string {
 	return ""
 }
 
-// codedDomainError maps err to its error code, or nil when it has none.
-func codedDomainError(err error) *cliError {
-	if ae, ok := errors.AsType[*cache.AmbiguousError](err); ok {
-		candidates := make([]string, 0, len(ae.Candidates))
-		for _, id := range ae.Candidates {
-			candidates = append(candidates, id.String())
-		}
-		ce := newError(codeRepoAmbiguous, err)
-		ce.details = map[string]any{"candidates": candidates}
-		return ce
-	}
-	for _, m := range []struct {
+// domainErrorCodes maps the sentinel errors of the packages ws calls to
+// the error codes ws reports for them.
+func domainErrorCodes() []struct {
+	target error
+	code   errorCode
+} {
+	return []struct {
 		target error
 		code   errorCode
 	}{
@@ -659,7 +654,26 @@ func codedDomainError(err error) *cliError {
 		{loop.ErrInvalid, codeLoopInvalid},
 		{loop.ErrNotFound, codeLoopNotFound},
 		{loop.ErrExists, codeLoopExists},
-	} {
+		{loop.ErrNewerData, codeLoopInvalid},
+		{loop.ErrMemoryInvalid, codeMemoryInvalid},
+		{loop.ErrMemoryNotFound, codeMemoryNotFound},
+		{loop.ErrMemoryConflict, codeMemoryConflict},
+		{loop.ErrMemoryFull, codeMemoryFull},
+	}
+}
+
+// codedDomainError maps err to its error code, or nil when it has none.
+func codedDomainError(err error) *cliError {
+	if ae, ok := errors.AsType[*cache.AmbiguousError](err); ok {
+		candidates := make([]string, 0, len(ae.Candidates))
+		for _, id := range ae.Candidates {
+			candidates = append(candidates, id.String())
+		}
+		ce := newError(codeRepoAmbiguous, err)
+		ce.details = map[string]any{"candidates": candidates}
+		return ce
+	}
+	for _, m := range domainErrorCodes() {
 		if errors.Is(err, m.target) {
 			return newError(m.code, err)
 		}

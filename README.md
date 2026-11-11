@@ -241,6 +241,9 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   proposed): starts an agent with the same prompt in a new workspace
   every period, from launchd or the desktop app's Loops section
   ([tasks](docs/design/agent-loop-scheduler/tasks.md))
+  Each loop also keeps a run history and a memory its runs share
+  ([0056](docs/adrs/0056-loop-history-and-memory.md), proposed); see
+  [`ws loop`](docs/tools/ws-loop.md).
 
 ## Development
 

@@ -248,4 +248,9 @@ describe("LoopsPane", () => {
     renderWithStore(<LoopsPane />, testStore());
     expect(screen.getByText("Select a loop, or add one.")).toBeInTheDocument();
   });
+  it("shows the History and Memory cards in the detail view", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop());
+    expect(screen.getByRole("region", { name: "History" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Memory" })).toBeInTheDocument();
+  });
 });

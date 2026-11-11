@@ -8,10 +8,11 @@ import (
 )
 
 // PromptData is what a run's prompt is rendered with besides the loop's
-// name and vars: the gate script's trimmed output.
+// name and vars: the gate script's trimmed output, and the loop's memory.
 type PromptData struct {
 	Stdout string
 	Stderr string
+	Memory map[string]string
 }
 
 // RenderPrompt is the prompt a run starts with. A Version1 prompt is
@@ -19,8 +20,10 @@ type PromptData struct {
 // Option("missingkey=error"), and executed with a map holding "Name",
 // "Title" (the title, or the name when there is none), "Vars" (a
 // map[string]string, never nil), and, only when l.Script != "",
-// "Stdout" and "Stderr" from data. A parse or execute error, or a result
-// that is blank after strings.TrimSpace, is ErrInvalid.
+// "Stdout" and "Stderr" from data. A templated prompt also has a "memory"
+// function: {{memory "KEY"}} is data.Memory["KEY"], or "" when unset. A
+// parse or execute error, or a result that is blank after
+// strings.TrimSpace, is ErrInvalid.
 func (l *Loop) RenderPrompt(data PromptData) (string, error) {
 	return l.render(data, false)
 }
@@ -37,7 +40,9 @@ func (l *Loop) render(data PromptData, allowBlank bool) (string, error) {
 	if !l.Templated() {
 		return l.Prompt, nil
 	}
-	tmpl, err := template.New("prompt").Option("missingkey=error").Parse(l.Prompt)
+	tmpl, err := template.New("prompt").Funcs(template.FuncMap{
+		"memory": func(key string) string { return data.Memory[key] },
+	}).Option("missingkey=error").Parse(l.Prompt)
 	if err != nil {
 		return "", fmt.Errorf("%w: prompt: %w", ErrInvalid, err)
 	}

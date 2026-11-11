@@ -1,9 +1,12 @@
 import { Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
-import { useId, useState, type JSX, type ReactNode } from "react";
+import { useState, type JSX } from "react";
 import type { Loop } from "../../api";
 import { age, until } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { sectionChosen, selected } from "../ui/uiSlice";
+import { Card, CodeBlock } from "./Card";
+import { HistoryCard } from "./HistoryCard";
+import { MemoryCard } from "./MemoryCard";
 import { gateText } from "./gate";
 import { loopLabel } from "./formValues";
 import { LoopForm } from "./LoopForm";
@@ -61,26 +64,6 @@ const LastRun = ({ loop, disabled }: { readonly loop: Loop; readonly disabled: b
     </>
   );
 };
-
-/** A titled card in the detail view; its heading labels the region. */
-const Card = ({ title, children }: { readonly title: string; readonly children: ReactNode }): JSX.Element => {
-  const id = useId();
-  return (
-    <section className={styles.card} aria-labelledby={id}>
-      <h2 id={id} className={styles.cardTitle}>
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-};
-
-/** A labelled, monospace, scrollable block of text. */
-const CodeBlock = ({ label, text }: { readonly label: string; readonly text: string }): JSX.Element => (
-  <pre className={styles.code} aria-label={label} tabIndex={0}>
-    {text}
-  </pre>
-);
 
 const ScheduleCard = ({ loop, busy }: { readonly loop: Loop; readonly busy: boolean }): JSX.Element => (
   <Card title="Schedule">
@@ -207,11 +190,13 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
       </header>
       <div className={styles.body}>
         <ScheduleCard loop={loop} busy={busy} />
+        <HistoryCard loop={loop} />
         <PromptCard loop={loop} />
         <ReposCard loop={loop} />
         <AgentCard loop={loop} />
         <GateCard loop={loop} />
         <VarsCard loop={loop} />
+        <MemoryCard loop={loop} />
       </div>
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
         <DialogTitle>Delete loop {loopLabel(loop)}?</DialogTitle>

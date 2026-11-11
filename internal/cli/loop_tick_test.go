@@ -17,6 +17,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/loop"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -33,6 +34,7 @@ func (f fixedAwake) Awake(context.Context) (bool, error) {
 type tickEnv struct {
 	*mockedApp
 	loops  *loop.Store
+	data   *loop.DataStore
 	claude *claudeClientMock
 }
 
@@ -40,6 +42,7 @@ func newTickEnv(t *testing.T) *tickEnv {
 	t.Helper()
 	e := &tickEnv{mockedApp: newMockedApp()}
 	e.loops = withLoopStore(t, e.app)
+	e.data = withLoopData(t, e.app)
 	lockPath := filepath.Join(t.TempDir(), "lock")
 	e.store.CreateFunc = func(context.Context, workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
 		lock, ok, err := lockfile.TryExclusiveLock(lockPath)
@@ -515,6 +518,189 @@ func TestApp_loopRunGate(t *testing.T) {
 		args := e.claude.StartCalls()[0].Opts.Args
 		assert.Equal(t, "Go", args[len(args)-1])
 		assert.Nil(t, e.loopRecord(t).LastGate)
+	})
+}
+
+// history is the deps loop's history on disk.
+func (e *tickEnv) history(t *testing.T) loop.History {
+	t.Helper()
+	h, _, err := e.data.ReadHistory("deps")
+	require.NoError(t, err)
+	return h
+}
+
+// makeDue moves deps's next run back, so the next pass starts it again.
+func (e *tickEnv) makeDue(t *testing.T) {
+	t.Helper()
+	l := e.loopRecord(t)
+	l.NextRunAt = testNow().Add(-time.Minute)
+	require.NoError(t, e.loops.Save(&l))
+}
+
+// idleListing lists workspace id with an idle agent.
+func idleListing(id string) lifetime.Listing {
+	return lifetime.Listing{Workspaces: []lifetime.Entry{{
+		Workspace: workspace.Workspace{ID: id},
+		Session:   &lifetime.Session{Kind: lifetime.KindAgent, ID: "old1", State: lifetime.StateIdle},
+	}}}
+}
+
+// writeResult records a verdict and report for workspace id, as ws machine
+// result does.
+func writeResult(t *testing.T, e *tickEnv, id, verdict, report string) {
+	t.Helper()
+	res := &machine.Result{Verdict: verdict, RecordedAt: testNow()}
+	require.NoError(t, machine.NewStore(e.data.StateDir()).WriteResult(id, id, res, []byte(report)))
+}
+
+func TestApp_loopTick_history(t *testing.T) {
+	t.Run("a started run appends a running entry from tick", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
+		h := e.history(t)
+		require.Len(t, h.Entries, 1)
+		assert.Equal(t, loop.StatusRunning, h.Entries[0].Status)
+		assert.Equal(t, loop.TriggerTick, h.Entries[0].Trigger)
+		assert.Equal(t, "loop-deps-1a2b3c4d", h.Entries[0].Workspace)
+		assert.Equal(t, "e8cdf5d8", h.Entries[0].Session)
+	})
+	t.Run("a skipped gate twice is one entry with two repeats", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addGatedLoop(t, "Do it", nil)
+		e.app.gate = &fakeGate{result: gate.Result{ExitCode: 1, Stderr: "no outdated modules"}}
+		runLoopCode(t, e.app, "tick", "--json")
+		e.makeDue(t)
+		runLoopCode(t, e.app, "tick", "--json")
+		h := e.history(t)
+		require.Len(t, h.Entries, 1)
+		assert.Equal(t, loop.StatusSkipped, h.Entries[0].Status)
+		assert.Equal(t, 2, h.Entries[0].Repeats)
+		require.NotNil(t, h.Entries[0].Gate)
+		assert.Equal(t, 1, h.Entries[0].Gate.ExitCode)
+		assert.Equal(t, "no outdated modules", h.Entries[0].Gate.Message)
+	})
+	t.Run("a Claude check that fails records start_failed", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		e.claude.CheckFunc = func(context.Context) error { return claude.ErrNotInstalled }
+		runLoopCode(t, e.app, "tick", "--json")
+		h := e.history(t)
+		require.Len(t, h.Entries, 1)
+		assert.Equal(t, loop.StatusStartFailed, h.Entries[0].Status)
+		assert.Equal(t, "claude_missing", h.Entries[0].ErrorCode)
+		assert.NotNil(t, h.Entries[0].FinishedAt)
+	})
+	t.Run("a dry run writes no history", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--dry-run", "--json"), e.stderr.String())
+		_, found, err := e.data.ReadHistory("deps")
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
+	t.Run("a run starts with the loop's memory in its prompt", func(t *testing.T) {
+		e := newTickEnv(t)
+		l := e.addDueLoop(t)
+		l.Prompt = `Seen {{memory "seen"}}`
+		require.NoError(t, e.loops.Save(&l))
+		_, err := e.data.SetMemory(t.Context(), "deps", "seen", "#412", "", loop.AnyRev, testNow())
+		require.NoError(t, err)
+		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
+		require.Len(t, e.claude.StartCalls(), 1)
+		args := e.claude.StartCalls()[0].Opts.Args
+		assert.Equal(t, "Seen #412", args[len(args)-1])
+	})
+	t.Run("a started run's workspace records its loop", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
+		mark, found, err := e.data.ReadRunMark("loop-deps-1a2b3c4d")
+		require.NoError(t, err)
+		require.True(t, found)
+		assert.Equal(t, "deps", mark.Loop)
+		assert.True(t, testNow().Equal(mark.StartedAt))
+	})
+}
+
+func TestApp_loopTick_settle(t *testing.T) {
+	// pausedWithRun adds a paused deps whose one run is in workspace
+	// loop-deps-old, so a pass settles that run and starts nothing.
+	pausedWithRun := func(t *testing.T, e *tickEnv) {
+		t.Helper()
+		l := e.addDueLoop(t, loop.Run{StartedAt: testNow().Add(-2 * time.Hour), Workspace: "loop-deps-old", Session: "old1"})
+		l.Paused = true
+		require.NoError(t, e.loops.Save(&l))
+	}
+	t.Run("an idle run with no record is done", func(t *testing.T) {
+		e := newTickEnv(t)
+		pausedWithRun(t, e)
+		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) { return idleListing("loop-deps-old"), nil }
+		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
+		h := e.history(t)
+		require.Len(t, h.Entries, 1)
+		assert.Equal(t, loop.StatusDone, h.Entries[0].Status)
+		assert.NotNil(t, h.Entries[0].FinishedAt)
+	})
+	t.Run("a verdict succeeds the run and saves its report", func(t *testing.T) {
+		e := newTickEnv(t)
+		pausedWithRun(t, e)
+		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) { return idleListing("loop-deps-old"), nil }
+		writeResult(t, e, "loop-deps-old", "PASS", "# Bumped 3 modules\n")
+		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
+		h := e.history(t)
+		require.Len(t, h.Entries, 1)
+		entry := h.Entries[0]
+		assert.Equal(t, loop.StatusSucceeded, entry.Status)
+		require.NotNil(t, entry.Verdict)
+		assert.Equal(t, "PASS", entry.Verdict.Verdict)
+		assert.True(t, entry.Verdict.Report)
+		report, found, err := e.data.ReadReport("deps", entry.Seq)
+		require.NoError(t, err)
+		require.True(t, found)
+		assert.Equal(t, "# Bumped 3 modules\n", string(report))
+	})
+	t.Run("a run that left the listing is closed, and gone when it was running", func(t *testing.T) {
+		e := newTickEnv(t)
+		pausedWithRun(t, e)
+		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
+		h := e.history(t)
+		require.Len(t, h.Entries, 1)
+		assert.True(t, h.Entries[0].Closed)
+		assert.Equal(t, loop.StatusGone, h.Entries[0].Status)
+	})
+}
+
+func TestApp_loopTick_prune(t *testing.T) {
+	t.Run("a verdict that lands before removal is saved first", func(t *testing.T) {
+		e := newTickEnv(t)
+		l := e.addDueLoop(t, loop.Run{StartedAt: testNow().Add(-2 * time.Hour), Workspace: "loop-deps-old", Session: "old1"})
+		l.Keep = 1
+		require.NoError(t, e.loops.Save(&l))
+		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) { return idleListing("loop-deps-old"), nil }
+		// The verdict lands while the new run starts, after the pass's first settle.
+		e.claude.StartFunc = func(context.Context, claude.StartOptions) (claude.Started, error) {
+			writeResult(t, e, "loop-deps-old", "PASS", "# Kept\n")
+			return claude.Started{ID: "e8cdf5d8"}, nil
+		}
+		var removed []string
+		var reportKept []bool
+		e.lifetime.RemoveTreeFunc = func(_ context.Context, ws *workspace.Workspace, _ lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+			removed = append(removed, ws.ID)
+			_, found, err := e.data.ReadReport("deps", 1)
+			require.NoError(t, err)
+			reportKept = append(reportKept, found)
+			return nil, nil
+		}
+		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
+		assert.Equal(t, []string{"loop-deps-old"}, removed)
+		assert.Equal(t, []bool{true}, reportKept)
+		h := e.history(t)
+		require.Len(t, h.Entries, 2)
+		old := h.Entries[0]
+		assert.Equal(t, loop.StatusSucceeded, old.Status)
+		assert.True(t, old.Closed)
+		assert.True(t, old.Verdict.Report)
 	})
 }
 

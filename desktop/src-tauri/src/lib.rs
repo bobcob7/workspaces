@@ -144,6 +144,13 @@ pub fn run() {
             loops::loops_set_paused,
             loops::loops_remove,
             loops::loops_run_now,
+            loops::loops_history,
+            loops::loops_history_run,
+            loops::loops_history_clear,
+            loops::loops_memory,
+            loops::loops_memory_set,
+            loops::loops_memory_remove,
+            loops::loops_memory_clear,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")

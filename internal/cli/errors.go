@@ -78,6 +78,12 @@ const (
 	codeConfigKeyUnknown   errorCode = "config_key_unknown"
 	codeConfigValueInvalid errorCode = "config_value_invalid"
 	codeConfigUneditable   errorCode = "config_uneditable"
+	// From ADR 0056.
+	codeMemoryInvalid  errorCode = "memory_invalid"
+	codeMemoryNotFound errorCode = "memory_not_found"
+	codeMemoryConflict errorCode = "memory_conflict"
+	codeMemoryFull     errorCode = "memory_full"
+	codeNotLoopRun     errorCode = "not_loop_run"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -124,14 +130,16 @@ func (c errorCode) exitCode() int {
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
-		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid:
+		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
+		codeMemoryInvalid:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
-		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown:
+		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown,
+		codeMemoryNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
-		codeLoopSkipped, codeRoleExists, codeRoleBuiltin:
+		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun:
 		return exitRefused
 	}
 	return exitFailed
