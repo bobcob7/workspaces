@@ -40,7 +40,7 @@ type loopAddOptions struct {
 	script, scriptTimeout                       string
 	vars                                        []string
 	keep                                        int
-	paused                                      bool
+	paused, hidden, show                        bool
 }
 
 func (a *App) newLoopAddCmd() *cobra.Command {
@@ -63,7 +63,23 @@ func (a *App) newLoopAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.script, "script", "", "a shell script, run with /bin/sh -c, that must exit 0 for a run to start; its output is {{.Stdout}} and {{.Stderr}} in the prompt")
 	cmd.Flags().StringVar(&opts.scriptTimeout, "script-timeout", "", "how long the script may run, 1s to 10m (default 1m)")
 	cmd.Flags().StringArrayVar(&opts.vars, "var", nil, "KEY=VALUE for {{.Vars.KEY}} in the prompt and $WS_LOOP_VAR_KEY in the script; repeatable")
+	cmd.Flags().BoolVar(&opts.hidden, "hidden", true, "start each run's workspace hidden; blocked runs are shown anyway (default true)")
+	cmd.Flags().BoolVar(&opts.show, "show", false, "start each run's workspace visible; the same as --hidden=false")
 	return cmd
+}
+
+// hiddenFlag is the value --hidden or --show gives, and whether either was
+// given. Both is a usage error.
+func hiddenFlag(changed func(string) bool, hidden, show bool) (value, given bool, err error) {
+	switch {
+	case changed("hidden") && changed("show"):
+		return false, false, usageErrorf("give --hidden or --show, not both")
+	case changed("show"):
+		return !show, true, nil
+	case changed("hidden"):
+		return hidden, true, nil
+	}
+	return true, false, nil
 }
 
 func (a *App) newLoopListCmd() *cobra.Command {
@@ -121,6 +137,7 @@ type loopJSON struct {
 	PermissionMode *string           `json:"permission_mode"`
 	Keep           int               `json:"keep"`
 	Paused         bool              `json:"paused"`
+	Hidden         bool              `json:"hidden"`
 	CreatedAt      string            `json:"created_at"`
 	NextRunAt      *string           `json:"next_run_at"`
 	LastRun        *loopRunJSON      `json:"last_run"`
@@ -173,6 +190,7 @@ func loopJSONOf(l *loop.Loop) loopJSON {
 		PermissionMode: optional(l.PermissionMode),
 		Keep:           l.Keep,
 		Paused:         l.Paused,
+		Hidden:         l.RunsHidden(),
 		CreatedAt:      formatTime(l.CreatedAt),
 		LastRun:        loopRunJSONOf(l.LastRun()),
 		Script:         optional(l.Script),
@@ -265,6 +283,10 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 	if opts.prompt == "" {
 		return usageErrorf("--prompt is required")
 	}
+	hidden, _, err := hiddenFlag(cmd.Flags().Changed, opts.hidden, opts.show)
+	if err != nil {
+		return err
+	}
 	script, scriptTimeout, vars, err := scriptOptions(opts)
 	if err != nil {
 		return err
@@ -293,6 +315,7 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 		Script:         script,
 		ScriptTimeout:  scriptTimeout,
 		Vars:           vars,
+		Hidden:         &hidden,
 	}
 	if err := l.Validate(); err != nil {
 		return domainError(err)

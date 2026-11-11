@@ -67,6 +67,28 @@ func historyRuns(t *testing.T, out map[string]any) []map[string]any {
 	return runs
 }
 
+func TestApp_loopHistoryBlocked(t *testing.T) {
+	t.Run("a closed blocked run has a duration", func(t *testing.T) {
+		app, stdout, data := newHistoryEnv(t)
+		started := testNow().Add(-2 * time.Hour)
+		finished := started.Add(90 * time.Minute)
+		h := loop.History{Version: loop.HistoryVersion, NextSeq: 2, Entries: []loop.Entry{{
+			Seq: 1, Status: loop.StatusBlocked, Trigger: loop.TriggerTick, StartedAt: started, FinishedAt: &finished,
+			Workspace: "loop-deps-aaaa1111", Repeats: 1,
+			Verdict: &loop.Verdict{Verdict: "BLOCKED", Outcome: "blocked", RecordedAt: finished},
+		}}}
+		require.NoError(t, data.WriteHistory("deps", &h))
+
+		code, out := runLoop(t, app, stdout, "history", "--json", "deps")
+		require.Equal(t, exitOK, code)
+		runs := historyRuns(t, out)
+		require.Len(t, runs, 1)
+		assert.Equal(t, "blocked", runs[0]["status"])
+		assert.EqualValues(t, 5400, runs[0]["duration_seconds"])
+		assert.Equal(t, "blocked", jsonObject(t, runs[0]["verdict"])["outcome"])
+	})
+}
+
 func TestApp_loopHistory(t *testing.T) {
 	t.Run("lists the newest run first, with its total", func(t *testing.T) {
 		app, stdout, _ := newHistoryEnv(t)

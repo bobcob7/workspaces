@@ -1,8 +1,8 @@
 # ws loop
 
 ```
-ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] <NAME> [<SPEC>...]
-ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [<SPEC>...]
+ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] [--hidden[=BOOL] | --show] <NAME> [<SPEC>...]
+ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [--hidden[=BOOL] | --show] [<SPEC>...]
 ws loop history [--json] [--limit <N>] [--run <SEQ> | --clear] <NAME>
 ws loop memory list|get|set|rm|clear [--json] <NAME> …
 ws loop list [--json]
@@ -33,6 +33,32 @@ for a run to start. Its stdout and stderr can be used in the prompt as
 prompt (`{{.Vars.KEY}}`) and for the script (`$WS_LOOP_VAR_KEY`). See
 `ws llm loop add` for the template values, the limits, and how to change a
 loop: remove it and add it again.
+
+## Ending a run, and asking for help
+
+A run's agent should end by recording a verdict with `ws machine result`,
+so the run's history says how it went:
+
+- `ws machine result PASS --file ../report.md` when it did its job, or
+  `FAIL` when it couldn't.
+- To ask a person, write the question to a file and run
+  `ws machine result BLOCKED --file ../question.md`, then stop. The run
+  is shown in the Agents list, even when its loop hides runs, and the
+  app notifies once. When the person answers in the conversation, the
+  agent carries on and records `PASS`, `FAIL` or `BLOCKED` again; until
+  it does, the run stays blocked.
+
+A run that goes idle without recording a verdict needs attention: it is
+shown and notified the same way. End the prompt with the verdict step,
+for example:
+
+> When you're done, write a short report to ../report.md and run
+> `ws machine result PASS --file ../report.md`, or `FAIL` if you
+> couldn't finish. If you need a decision from a person, write your
+> question to ../question.md, run
+> `ws machine result BLOCKED --file ../question.md`, and stop.
+
+Runs start hidden unless the loop was added with `--show`; see `--hidden`.
 
 ## History
 

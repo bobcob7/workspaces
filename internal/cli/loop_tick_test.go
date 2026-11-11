@@ -289,6 +289,36 @@ func TestApp_loopRun(t *testing.T) {
 	})
 }
 
+func TestApp_loopRunHidden(t *testing.T) {
+	// createdWith starts loop deps with args, its runs visible if show, and
+	// returns the workspace options the run was created with.
+	createdWith := func(t *testing.T, show bool, args ...string) workspace.CreateOptions {
+		t.Helper()
+		e := newTickEnv(t)
+		l := e.addDueLoop(t)
+		hidden := !show
+		l.Hidden = &hidden
+		require.NoError(t, e.loops.Save(&l))
+		var created workspace.CreateOptions
+		create := e.store.CreateFunc
+		e.store.CreateFunc = func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
+			created = opts
+			return create(ctx, opts)
+		}
+		code, _ := runLoop(t, e.app, e.stdout, args...)
+		require.Equal(t, 0, code, e.stderr.String())
+		return created
+	}
+	for _, cmd := range [][]string{{"run", "--json", "deps"}, {"tick", "--json"}} {
+		t.Run(cmd[0]+" hides a default loop's run workspace", func(t *testing.T) {
+			assert.True(t, createdWith(t, false, cmd...).Hidden)
+		})
+		t.Run(cmd[0]+" shows a --show loop's run workspace", func(t *testing.T) {
+			assert.False(t, createdWith(t, true, cmd...).Hidden)
+		})
+	}
+}
+
 func TestLoopClaudeArgs(t *testing.T) {
 	tests := []struct {
 		name string

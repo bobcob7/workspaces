@@ -13,6 +13,7 @@ type loopEditOptions struct {
 	vars                                        []string
 	keep                                        int
 	noScript, noVars, noSpecs                   bool
+	hidden, show                                bool
 }
 
 // newLoopEditCmd builds the ws loop edit command and its flags.
@@ -38,6 +39,8 @@ func (a *App) newLoopEditCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.noScript, "no-script", false, "remove the script, its timeout, and its last gate")
 	cmd.Flags().BoolVar(&opts.noVars, "no-vars", false, "remove every variable")
 	cmd.Flags().BoolVar(&opts.noSpecs, "no-specs", false, "remove every spec, so runs get an empty workspace")
+	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "start each run's workspace hidden; blocked runs are shown anyway")
+	cmd.Flags().BoolVar(&opts.show, "show", false, "start each run's workspace visible; the same as --hidden=false")
 	return cmd
 }
 
@@ -53,6 +56,13 @@ func loopEditOf(cmd *cobra.Command, specs []string, opts *loopEditOptions) (loop
 	e := loopEditFields(cmd.Flags().Changed, opts)
 	if err := setLoopEditVars(cmd.Flags().Changed, opts, &e); err != nil {
 		return loop.Edit{}, err
+	}
+	hidden, given, err := hiddenFlag(cmd.Flags().Changed, opts.hidden, opts.show)
+	if err != nil {
+		return loop.Edit{}, err
+	}
+	if given {
+		e.Hidden = &hidden
 	}
 	if cmd.Flags().Changed("no-specs") {
 		e.Specs = &[]string{}
