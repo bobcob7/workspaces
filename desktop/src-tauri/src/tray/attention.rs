@@ -201,6 +201,7 @@ pub(crate) mod testing {
             review: None,
             hidden: false,
             parent_id: None,
+            loop_run: None,
         }
     }
 }

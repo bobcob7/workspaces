@@ -61,6 +61,7 @@ pub fn entry(id: &str, record: ReviewRecord, created_at: Option<String>) -> Entr
         review: Some(record),
         hidden: true,
         parent_id: None,
+        loop_run: None,
     }
 }
 

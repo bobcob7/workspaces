@@ -49,6 +49,7 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   review: null,
   hidden: false,
   parentId: null,
+  loopRun: null,
   ...overrides,
 });
 
@@ -291,6 +292,7 @@ export const loop = (overrides: Partial<Loop> = {}): Loop => ({
   scriptTimeout: null,
   vars: {},
   lastGate: null,
+  hidden: true,
   ...overrides,
 });
 

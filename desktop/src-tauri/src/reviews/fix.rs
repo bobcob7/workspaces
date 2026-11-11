@@ -407,6 +407,7 @@ mod tests {
             review: None,
             hidden: false,
             parent_id: None,
+            loop_run: None,
         }
     }
 
