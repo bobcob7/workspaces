@@ -1,0 +1,23 @@
+# Merge the per-architecture images into one multi-arch tag,
+# registry.bobcob7.com/workspaces/ws-online:<sha7>, once both builds pushed.
+# No daemon needed: buildx imagetools talks to the registry directly, so this
+# needs no privileges and no Trusted flag.
+labels:
+  platform: linux/arm64
+
+when:
+  - event: push
+    branch: main
+
+depends_on:
+  - image-arm64
+  - image-amd64
+
+steps:
+  - name: manifest
+    image: docker:27-cli
+    commands:
+      - tag=$(echo "$CI_COMMIT_SHA" | cut -c1-7)
+      - img=registry.bobcob7.com/workspaces/ws-online
+      - docker buildx imagetools create -t $img:$tag $img:$tag-arm64 $img:$tag-amd64
+      - docker buildx imagetools inspect $img:$tag

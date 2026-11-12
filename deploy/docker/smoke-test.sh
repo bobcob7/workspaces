@@ -7,7 +7,14 @@ run_id="$$"
 name="ws-online-smoke-$run_id"
 home_vol="ws-online-smoke-home-$run_id"
 data_vol="ws-online-smoke-data-$run_id"
-base="http://127.0.0.1:$port"
+# SMOKE_HOST is where the published port is reached from this script, and
+# SMOKE_BIND the address the daemon publishes it on. The defaults suit a local
+# daemon; against a remote one (CI's DinD service) set SMOKE_HOST to the
+# daemon's hostname and SMOKE_BIND=0.0.0.0. The server only accepts an Origin
+# that matches the Host header, so Origin is built from the same base URL.
+host="${SMOKE_HOST:-127.0.0.1}"
+bind="${SMOKE_BIND:-127.0.0.1}"
+base="http://$host:$port"
 jar="$(mktemp)"
 
 cleanup() {
@@ -33,7 +40,7 @@ status_of() {
 # start_container NAME runs the image on the smoke volumes. The :z flag is
 # what lets a recreated container use them on SELinux hosts (docs/online.md).
 start_container() {
-  docker run -d --name "$1" -p "127.0.0.1:$port:8080" \
+  docker run -d --name "$1" -p "$bind:$port:8080" \
     -v "$home_vol:/home/ws:z" -v "$data_vol:/data:z" \
     -e WS_ONLINE_USERNAME=admin \
     -e WS_ONLINE_PASSWORD=smoke-secret \
@@ -46,7 +53,7 @@ start_container "$name"
 curl -fsS --retry 30 --retry-delay 1 --retry-all-errors "$base/healthz" | jq -e '.status == "ok"' >/dev/null \
   || fail "healthz did not report ok"
 
-[[ "$(status_of POST "$base/api/login" -H 'Origin: http://127.0.0.1:'"$port" \
+[[ "$(status_of POST "$base/api/login" -H "Origin: $base" \
   -H 'Content-Type: application/json' -d '{"username":"admin","password":"wrong"}')" == "401" ]] \
   || fail "wrong password was not 401"
 
@@ -54,7 +61,7 @@ curl -fsS --retry 30 --retry-delay 1 --retry-all-errors "$base/healthz" | jq -e 
   -d '{"username":"admin","password":"smoke-secret"}')" == "403" ]] \
   || fail "login without Origin was not 403"
 
-[[ "$(status_of POST "$base/api/login" -H 'Origin: http://127.0.0.1:'"$port" \
+[[ "$(status_of POST "$base/api/login" -H "Origin: $base" \
   -H 'Content-Type: application/json' -c "$jar" \
   -d '{"username":"admin","password":"smoke-secret"}')" == "204" ]] \
   || fail "login with the right password was not 204"
@@ -63,10 +70,10 @@ grep -q ws_online_session "$jar" || fail "cookie jar has no ws_online_session"
 curl -fsS -b "$jar" "$base/api/session" | jq -e '.authenticated == true and .username == "admin"' >/dev/null \
   || fail "session is not authenticated as admin"
 
-[[ "$(status_of POST "$base/api/invoke/open_defaults" -H 'Origin: http://127.0.0.1:'"$port")" == "401" ]] \
+[[ "$(status_of POST "$base/api/invoke/open_defaults" -H "Origin: $base")" == "401" ]] \
   || fail "invoke without cookie was not 401"
 
-curl -fsS -b "$jar" -X POST -H 'Origin: http://127.0.0.1:'"$port" \
+curl -fsS -b "$jar" -X POST -H "Origin: $base" \
   -H 'Content-Type: application/json' -d '{}' "$base/api/invoke/versions" | jq -e '.app.version' >/dev/null \
   || fail "versions invoke failed"
 
