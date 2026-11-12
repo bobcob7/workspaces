@@ -16,6 +16,8 @@ export interface LoopFormValues {
   readonly script: string;
   readonly scriptTimeout: Amount<TimeoutUnit>;
   readonly vars: readonly LoopVar[];
+  /** Whether runs are hidden from the Agents list, unless blocked (ADR 0057). */
+  readonly hidden: boolean;
 }
 
 /** Errors to show under each field; a missing key is no error. */
@@ -49,6 +51,7 @@ export const emptyValues: LoopFormValues = {
   script: "",
   scriptTimeout: { amount: "1", unit: "m" },
   vars: [],
+  hidden: true,
 };
 
 /** The name to show for a loop: its title, or its ID when it has none. */
@@ -81,6 +84,7 @@ export const valuesOf = (loop: Loop): LoopFormValues => ({
   vars: Object.keys(loop.vars)
     .sort()
     .map((key) => ({ key, value: loop.vars[key] ?? "" })),
+  hidden: loop.hidden,
 });
 
 /** Whether the form adds a loop, whose ID comes from the title. */
@@ -167,6 +171,7 @@ export const requestOf = (values: LoopFormValues): NewLoop => {
     keep: Number(values.keep.trim()),
     model: values.model,
     permissionMode: values.permissionMode,
+    hidden: values.hidden,
     ...(hasScript && scriptTimeout !== null ? { script: values.script, scriptTimeout } : {}),
     ...(vars.length > 0 ? { vars } : {}),
   };

@@ -1,4 +1,4 @@
-import { Alert, Button, FormHelperText, MenuItem, TextField } from "@mui/material";
+import { Alert, Button, FormControlLabel, FormHelperText, MenuItem, Switch, TextField } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
 import type { AppError, Loop, NewLoop } from "../../api";
 import { models, permissionModes } from "../create/NewAgentDialog";
@@ -157,6 +157,12 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
             </MenuItem>
           ))}
         </TextField>
+        <FormControlLabel
+          className={styles.switchRow}
+          control={<Switch checked={values.hidden} onChange={(e) => patch("hidden", e.target.checked)} />}
+          label="Hide runs in Agents"
+        />
+        <FormHelperText>Blocked runs and runs that need attention are shown anyway</FormHelperText>
       </fieldset>
       <fieldset className={styles.section}>
         <legend className={styles.legend}>Gate script</legend>

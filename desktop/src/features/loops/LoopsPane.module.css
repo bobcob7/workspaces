@@ -208,6 +208,17 @@
   font-weight: 650;
 }
 
+.switchRow {
+  margin: 0;
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .switchRow {
+    min-height: 40px;
+  }
+}
+
 .formButtons {
   display: flex;
   justify-content: flex-end;

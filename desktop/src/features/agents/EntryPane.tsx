@@ -14,7 +14,7 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { useEffect, useState, type FormEvent, type JSX } from "react";
-import { api, type Entry, type OpenWith } from "../../api";
+import { api, type Entry, type LoopAttention, type OpenWith } from "../../api";
 import { repoLabel } from "../../format";
 import { isWeb } from "../../platform";
 import { useAppDispatch, useAppSelector } from "../../store";
@@ -49,6 +49,8 @@ const terminalFor = (items: readonly TerminalInfo[], entry: Entry): TerminalInfo
   }
   return undefined;
 };
+
+const attentionLabel = (attention: LoopAttention): string => (attention === "blocked" ? "Blocked" : "Needs attention");
 
 const EyeOffIcon = (): JSX.Element => (
   <svg
@@ -205,6 +207,8 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
     }
   }, [showConversation, termKey, terminal?.generation]);
   const removable = entry.kind !== "shell" && entry.kind !== "unknown";
+  const loopRun = entry.loopRun;
+  const hideable = renamable && !loopRun?.attention;
   const closeMenu = (): void => setMenuAnchor(null);
   const fromMenu = (action: () => void) => (): void => {
     closeMenu();
@@ -289,7 +293,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
                     Rename
                   </MenuItem>
                 )}
-                {renamable && (
+                {hideable && (
                   <MenuItem
                     disabled={busy}
                     onClick={fromMenu(() => void dispatch(setEntryHidden({ entry, hidden: !entry.hidden })))}
@@ -345,7 +349,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
               Rename
             </Button>
           )}
-          {renamable && (
+          {hideable && (
             <Button
               size="small"
               disabled={busy}
@@ -389,6 +393,15 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
               onClick={() => dispatch(selected(parent.key))}
             />
           )}
+          {loopRun !== null && loopRun.attention !== null && (
+            <Chip
+              size="small"
+              color="warning"
+              label={attentionLabel(loopRun.attention)}
+              title={`A run of loop ${loopRun.loop}; shown until it's resolved`}
+            />
+          )}
+          {loopRun !== null && <Chip size="small" variant="outlined" label={`Loop ${loopRun.loop}`} />}
           {entry.hidden && (
             <Chip
               size="small"

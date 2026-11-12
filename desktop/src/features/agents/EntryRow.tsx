@@ -1,10 +1,15 @@
 import type { JSX } from "react";
-import type { Entry } from "../../api";
+import type { Entry, LoopAttention } from "../../api";
 import { age, repoLabel } from "../../format";
 import { StatusDot } from "./StatusDot";
 import styles from "./Sidebar.module.css";
 
-const summary = (entry: Entry): string => {
+const attentionPrefix: Readonly<Record<LoopAttention, string>> = {
+  blocked: "Blocked · ",
+  needs_attention: "Needs attention · ",
+};
+
+const plainSummary = (entry: Entry): string => {
   if (entry.detail !== null) {
     return entry.detail;
   }
@@ -15,6 +20,11 @@ const summary = (entry: Entry): string => {
     return entry.repos.map((r) => repoLabel(r.id, r.ref)).join(", ");
   }
   return entry.kind === "agent" && entry.workspaceId === null ? "Not in a workspace" : "Empty workspace";
+};
+
+const summary = (entry: Entry): string => {
+  const attention = entry.loopRun?.attention;
+  return attention ? attentionPrefix[attention] + plainSummary(entry) : plainSummary(entry);
 };
 
 export interface EntryRowProps {

@@ -66,6 +66,27 @@ describe("HistoryCard", () => {
     await waitFor(() => expect(api.loopsHistory).toHaveBeenLastCalledWith("nightly", 20));
   });
 
+  it("titles a blocked run's report Question", async () => {
+    const blocked = loopHistoryRun({
+      seq: 58,
+      status: "blocked",
+      verdict: { verdict: "BLOCKED", outcome: "blocked", recordedAt: "2026-10-24T08:20:00Z", report: null },
+    });
+    const api = fakeApi({
+      loopsHistory: vi.fn(async () => history({ runs: [blocked], total: 1 })),
+      loopsHistoryRun: vi.fn(async (name: string, seq: number) => ({
+        loop: name,
+        run: { ...blocked, seq },
+        reportText: "Which major version should I target?",
+        warnings: [],
+      })),
+    });
+    renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: /Run 58/ }));
+    expect(await screen.findByRole("heading", { name: "Question" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Report" })).not.toBeInTheDocument();
+  });
+
   it("closes a run's report with Close", async () => {
     const api = fakeApi({
       loopsHistory: vi.fn(async () => history()),
