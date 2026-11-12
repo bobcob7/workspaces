@@ -24,9 +24,10 @@ session keeps running, and `ws rm`, `ws restore`, `ws restart`,
 removes it again. Hiding a hidden workspace, or unhiding a visible one,
 changes nothing and succeeds.
 
-Workspaces can also start hidden: [`ws review start`](ws-review.md)
-always hides the review's workspace, and [`ws claude --hidden`](ws-claude.md)
-hides a new agent's.
+Workspaces start visible, children included, since the workspace tree
+([0058](../adrs/0058-workspace-tree-and-filters.md)) keeps them manageable.
+[`ws claude --hidden`](ws-claude.md) and
+[`ws machine spawn --hidden`](ws-machine.md) hide a new agent's.
 
 `WORKSPACE` is its id, path, or agent session id, as for other commands.
 

@@ -89,9 +89,8 @@ The workspace is named `review-<repo>-<N>-<sha7>`, or
 `review-<repo>-<sha7>` without `--pr`, plus [0036](../adrs/0036-workspace-id-suffix-and-rename.md)'s
 suffix ([0032](../adrs/0032-review-agent-per-pr-head.md)); `--name`
 replaces it. The requester is the workspace's parent, so removing it
-removes the review ([0044](../adrs/0044-workspace-trees.md)). The workspace is hidden: `ws list` shows it only with `-a`,
-and the desktop app lists it under Reviews rather than among the user's
-agents; [`ws unhide`](ws-hide.md) shows it
+removes the review ([0044](../adrs/0044-workspace-trees.md)). The workspace is not hidden: it appears in `ws list` and
+under its requester in the desktop app's tree; [`ws hide`](ws-hide.md) hides it
 ([0043](../adrs/0043-hidden-workspaces.md)).
 
 ### `ws review wait`

@@ -12,8 +12,8 @@ workspace does nothing. See `ws llm hide`.
 
 ## When to use it
 
-- When the user should follow a hidden workspace, such as a review they
-  want to watch in the Agents list.
+- When the user should follow a hidden workspace, such as one started
+  with `--hidden`, in the Agents list.
 
 A workspace is named by its id, path, or agent session id.
 

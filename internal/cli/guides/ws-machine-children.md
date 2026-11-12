@@ -5,7 +5,7 @@ ws machine children [--all]
 ```
 
 Lists the workspaces your workspace started, its direct children, or with
-`--all` every descendant, oldest first. Hidden ones, such as reviews, are
+`--all` every descendant, oldest first. Hidden ones are
 included. Before listing, it removes every workspace whose session is
 gone, as `ws list` does.
 

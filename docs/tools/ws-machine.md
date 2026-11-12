@@ -81,7 +81,7 @@ never attaches a terminal.
 | ------------------- | ------------------------------------------------------------ |
 | `--name <name>`     | Name the workspace and derive its id from the name, as for `ws claude` |
 | `--offline`         | Don't fetch; use the cache as-is                             |
-| `--hidden`          | Hide the workspace from `ws list` and the desktop app's default views |
+| `--hidden`          | Hide the workspace from `ws list` and the desktop app's default views. Off by default: children show in the workspace tree |
 | `--role <name>`     | Start the child from this role: its prompt template, model, `claude` arguments, and verdicts |
 | `--var KEY=VALUE`   | A value for the role's prompt; repeatable; only with `--role` |
 
