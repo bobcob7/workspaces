@@ -1152,3 +1152,16 @@ and that `document.documentElement.scrollWidth <= 360`.
   desktop-test`, plus a smoke run of `ws-online` calling
   `POST /api/invoke/stats_get` with `{"sinceMs": null}` and checking the
   JSON has `usage.totals`.
+
+## T8: Fix layout defects found by screenshots
+
+- **Depends on:** T7. **Size:** `small`.
+- **Files:** `desktop/src/features/stats/Cards.module.css`, `desktop/src/features/stats/StatsPane.module.css`, `desktop/src/features/stats/StatsBar.module.css`, and, only if needed, `ModelsCard.tsx`, `ProductivityCard.tsx`, `LanguagesCard.tsx`, `StatsPane.tsx`.
+- **Problems (seen in screenshots at 1280px and 360px):**
+  1. The cards sit in a 3-column grid, so "Usage by model" and "Productivity by model and language" tables are wider than their card and are cut at the edge ("Agent t"). Lines by language is also clipped at 360px.
+  2. In the bar, the "Open Stats" button is 31px tall and sits lower than the text items; it must be vertically centred with them.
+- **Do:**
+  1. Make the card grid `repeat(auto-fit, minmax(320px, 1fr))` and make the Usage by model and Productivity cards span the full row (`grid-column: 1 / -1`). Give every table `width: 100%` and `font-size` no larger than the body; allow header and cells to wrap or shrink so tables fit at 1280px in a full-row card. At 360px a table may scroll inside its card (`overflow-x: auto`), but add a visible right-edge fade or a `min-width` that makes the scroll obvious. Lines by language must fit at 360px without clipping (shrink padding, allow header wrap).
+  2. In `StatsBar.module.css` set the bar `align-items: center` and give the Open Stats button `line-height: 1`, `padding-block: 0`, `min-height: 0` on desktop (keep `min-height: 40px` at max-width 720px).
+- **Acceptance:** all existing stats tests still pass; no hard-coded colours; no horizontal page scroll at 360px.
+- **Verify:** `cd desktop && npm run typecheck && npx vitest run src/features/stats`
