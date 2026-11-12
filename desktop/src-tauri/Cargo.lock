@@ -6414,6 +6414,7 @@ dependencies = [
  "axum",
  "base64ct",
  "getrandom 0.4.3",
+ "libc",
  "portable-pty",
  "reqwest",
  "serde",

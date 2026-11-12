@@ -3,6 +3,7 @@ import { creatingStarted, loopSelected } from "../loops/loopsSlice";
 import { repoSelected } from "../repos/reposSlice";
 import { reviewSelected } from "../reviews/reviewsSlice";
 import { groupChosen } from "../settings/settingsSlice";
+import { windowChosen } from "../stats/statsSlice";
 import { agentFocused, dialogClosed, dialogOpened, narrowBack, sectionChosen, selected, uiReducer, type UiState } from "./uiSlice";
 
 const initial = (): UiState => uiReducer(undefined, { type: "init" });
@@ -14,6 +15,10 @@ describe("uiReducer", () => {
 
   it("chooses a section", () => {
     expect(uiReducer(initial(), sectionChosen("repos")).section).toBe("repos");
+  });
+
+  it("chooses the Stats section", () => {
+    expect(uiReducer(initial(), sectionChosen("stats")).section).toBe("stats");
   });
 
   it("keeps the selected agent when the section changes", () => {
@@ -68,6 +73,7 @@ describe("uiReducer", () => {
     ["reviewSelected", reviewSelected("p"), "reviews/reviewSelected", "detail"],
     ["creatingStarted", creatingStarted(), "loops/creatingStarted", "detail"],
     ["groupChosen", groupChosen("reviews"), "settings/groupChosen", "detail"],
+    ["windowChosen", windowChosen("7d"), "stats/windowChosen", "detail"],
   ])("shows the detail pane on %s", (_name, action, type, pane) => {
     expect(action.type).toBe(type);
     expect(uiReducer(initial(), action).narrowPane).toBe(pane);

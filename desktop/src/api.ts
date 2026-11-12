@@ -865,6 +865,117 @@ export interface LoopCleared {
   readonly warnings: readonly string[];
 }
 
+export interface DiskStats {
+  readonly path: string;
+  readonly totalBytes: number;
+  readonly usedBytes: number;
+}
+
+export interface HostStats {
+  /** Busy % since the previous stats_get; null on the first call. */
+  readonly cpuPercent: number | null;
+  readonly cpuCount: number | null;
+  readonly loadAverage: readonly [number, number, number] | null;
+  readonly memoryTotalBytes: number | null;
+  readonly memoryUsedBytes: number | null;
+  /** Filesystem of $WS_CONFIG_DIR, else $HOME. */
+  readonly disk: DiskStats | null;
+}
+
+export interface TokenCounts {
+  readonly requests: number;
+  /** Uncached input. */
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  /** Part of outputTokens. */
+  readonly thinkingTokens: number;
+  /** 5m + 1h. */
+  readonly cacheWriteTokens: number;
+  readonly cacheReadTokens: number;
+  /** input + output + cacheWrite + cacheRead. */
+  readonly totalTokens: number;
+  /** Estimate at API rates. */
+  readonly costUsd: number;
+  /** cacheRead / (input + cacheRead + cacheWrite). */
+  readonly cacheHitRatio: number | null;
+}
+
+export interface ModelUsage extends TokenCounts {
+  /** As in the transcript, e.g. "claude-haiku-5-5". */
+  readonly model: string;
+  /** "Haiku 5.5"; the model id when it can't be parsed. */
+  readonly label: string;
+  readonly family: "opus" | "sonnet" | "haiku" | "fable" | "mythos" | "other";
+  /** False: no rate known, costUsd is 0. */
+  readonly priced: boolean;
+  readonly sessions: number;
+  readonly activeMinutes: number;
+  readonly linesAdded: number;
+  readonly linesRemoved: number;
+}
+
+export interface LanguageLines {
+  readonly language: string;
+  readonly linesAdded: number;
+  readonly linesRemoved: number;
+  readonly edits: number;
+}
+
+export interface Usage {
+  readonly totals: TokenCounts;
+  /** Transcript files with a request in the window. */
+  readonly sessions: number;
+  readonly activeMinutes: number;
+  /** totalTokens descending, then model ascending. */
+  readonly byModel: readonly ModelUsage[];
+  /** linesAdded descending, then language ascending. */
+  readonly byLanguage: readonly LanguageLines[];
+}
+
+export interface ProductivityRow {
+  readonly model: string;
+  readonly label: string;
+  readonly family: ModelUsage["family"];
+  readonly language: string;
+  readonly linesAdded: number;
+  readonly linesRemoved: number;
+  readonly edits: number;
+  /** Allocated by lines changed, see ADR 0059. */
+  readonly activeMinutes: number;
+  /** Allocated totalTokens. */
+  readonly tokens: number;
+  /** Allocated cost. */
+  readonly costUsd: number;
+  /** 0..1. */
+  readonly shareOfLanguage: number | null;
+  readonly locPerMinute: number | null;
+  readonly minutesPer100Loc: number | null;
+  readonly tokensPerLoc: number | null;
+  readonly costPerLoc: number | null;
+}
+
+export interface ScanInfo {
+  /** Transcript files known after the refresh. */
+  readonly files: number;
+  /** Files read (wholly or from an offset) by this refresh. */
+  readonly filesRead: number;
+  readonly bytesRead: number;
+  readonly durationMs: number;
+  /** True: within MIN_REFRESH of the last refresh, nothing scanned. */
+  readonly cached: boolean;
+}
+
+export interface Stats {
+  readonly generatedAtMs: number;
+  readonly sinceMs: number | null;
+  readonly system: HostStats;
+  readonly usage: Usage;
+  /** Language by total linesAdded desc, then linesAdded desc, then model asc. */
+  readonly productivity: readonly ProductivityRow[];
+  readonly scan: ScanInfo;
+  readonly warnings: readonly string[];
+}
+
 const isAppError = (value: unknown): value is AppError =>
   typeof value === "object" && value !== null && "code" in value && "message" in value;
 
@@ -1052,6 +1163,7 @@ export const api = {
     call<LoopMemorySet>("loops_memory_set", { name, key, value, expectRev }),
   loopsMemoryRemove: async (name: string, key: string): Promise<LoopMemoryRemoved> => call<LoopMemoryRemoved>("loops_memory_remove", { name, key }),
   loopsMemoryClear: async (name: string): Promise<LoopCleared> => call<LoopCleared>("loops_memory_clear", { name }),
+  statsGet: async (sinceMs: number | null): Promise<Stats> => call<Stats>("stats_get", { sinceMs }),
 };
 
 export type Api = typeof api;

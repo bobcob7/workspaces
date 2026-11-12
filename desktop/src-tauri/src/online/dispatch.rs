@@ -9,7 +9,7 @@ use crate::open;
 use crate::pty::TermSpec;
 use crate::reviews;
 use crate::runner::AppError;
-use crate::{cache, loops, roles, ws_config};
+use crate::{cache, loops, roles, stats, ws_config};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -157,6 +157,7 @@ pub const COMMANDS: &[&str] = &[
     "loops_memory_set",
     "loops_memory_remove",
     "loops_memory_clear",
+    "stats_get",
 ];
 
 /// Runs `command` with Tauri-style camelCase `args` (`Value::Null` = `{}`).
@@ -487,6 +488,10 @@ pub async fn dispatch(
             let name = args!(args, { name: String });
             result(loops::loops_memory_clear(State::new(&ctx.state), name).await)
         }
+        "stats_get" => {
+            let since_ms = args!(args, { since_ms: Option<i64> });
+            result(stats::stats_get(State::new(&ctx.state), since_ms).await)
+        }
         _ => Err(DispatchError::UnknownCommand(command.to_string())),
     }
 }
@@ -591,6 +596,7 @@ mod tests {
             reviews: Arc::new(Checker::default()),
             reports: report::Cache::default(),
             watcher: Arc::new(Watcher::default()),
+            stats: Arc::new(stats::Cache::default()),
         };
         let ctx = Ctx {
             state,
@@ -736,6 +742,40 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.status(), 422);
         assert_eq!(err.to_app_error().code, "unsupported");
+    }
+
+    #[tokio::test]
+    async fn stats_get_returns_camel_case_stats() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"sinceMs": null});
+        let value = dispatch(&ctx, "stats_get", args, None).await.unwrap();
+        for key in [
+            "generatedAtMs",
+            "system",
+            "usage",
+            "productivity",
+            "scan",
+            "warnings",
+        ] {
+            assert!(value.get(key).is_some(), "stats_get has no {key}");
+        }
+    }
+
+    #[tokio::test]
+    async fn stats_get_treats_missing_since_ms_as_all_time() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let value = dispatch(&ctx, "stats_get", serde_json::json!({}), None)
+            .await
+            .unwrap();
+        assert_eq!(value["sinceMs"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn stats_get_rejects_a_bad_since_ms() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"sinceMs": "yesterday"});
+        let err = dispatch(&ctx, "stats_get", args, None).await.unwrap_err();
+        assert!(matches!(err, DispatchError::BadArgs(_)));
     }
 
     #[tokio::test]

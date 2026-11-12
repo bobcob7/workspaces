@@ -52,6 +52,14 @@ const icons: Readonly<Record<Section, JSX.Element>> = {
       <path d="M20 4v4h-4" />
     </>,
   ),
+  stats: icon(
+    <>
+      <path d="M4 20V11" />
+      <path d="M10 20V5" />
+      <path d="M16 20v-6" />
+      <path d="M21 20H3" />
+    </>,
+  ),
   settings: icon(
     <>
       <circle cx="12" cy="12" r="3" />
@@ -65,19 +73,20 @@ const labels: Readonly<Record<Section, string>> = {
   repos: "Repos",
   reviews: "Reviews",
   loops: "Loops",
+  stats: "Stats",
   settings: "Settings",
 };
 
-/** Every section in rail order; ⌘1–⌘5 choose them by this position. */
-export const railOrder: readonly Section[] = ["agents", "repos", "reviews", "loops", "settings"];
+/** Every section in rail order; ⌘1–⌘6 choose them by this position. */
+export const railOrder: readonly Section[] = ["agents", "repos", "reviews", "loops", "stats", "settings"];
 
 /** The sections built so far. A section joins the rail when its PR lands. */
-export const shownSections: readonly Section[] = ["agents", "repos", "reviews", "loops", "settings"];
+export const shownSections: readonly Section[] = ["agents", "repos", "reviews", "loops", "stats", "settings"];
 
 /** Settings sits apart, at the bottom of the rail. */
 const bottomSections: ReadonlySet<Section> = new Set(["settings"]);
 
-/** The section ⌘<key> chooses, if that key is ⌘1–⌘5 and its section is shown. */
+/** The section ⌘<key> chooses, if that key is ⌘1–⌘6 and its section is shown. */
 export const shortcutSection = (event: Pick<KeyboardEvent, "key" | "metaKey" | "altKey" | "shiftKey" | "ctrlKey">): Section | null => {
   if (!event.metaKey || event.altKey || event.shiftKey || event.ctrlKey) {
     return null;

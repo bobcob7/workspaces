@@ -224,6 +224,7 @@ pub fn build(config: Config) -> Result<Arc<Online>, String> {
         reviews: Arc::new(Checker::default()),
         reports: report::Cache::default(),
         watcher: Arc::new(Watcher::default()),
+        stats: Arc::new(crate::stats::Cache::default()),
     };
     let notifier = Arc::new(Notifier {
         watcher: Arc::clone(&state.watcher),

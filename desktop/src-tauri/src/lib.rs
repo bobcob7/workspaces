@@ -10,6 +10,7 @@ mod about;
 mod cache;
 mod commands;
 mod env;
+mod host;
 mod ipc;
 mod jobs;
 mod loops;
@@ -21,6 +22,7 @@ mod pty;
 mod reviews;
 mod roles;
 mod runner;
+mod stats;
 mod transcript;
 mod tray;
 mod ws_config;
@@ -55,6 +57,7 @@ pub fn run() {
                 reviews: Arc::new(Checker::default()),
                 reports: reviews::report::Cache::default(),
                 watcher: Arc::new(tray::watcher::Watcher::default()),
+                stats: Arc::new(stats::Cache::default()),
             };
             let deps = Deps {
                 runner: state.runner.clone(),
@@ -151,6 +154,7 @@ pub fn run() {
             loops::loops_memory_set,
             loops::loops_memory_remove,
             loops::loops_memory_clear,
+            stats::stats_get,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")

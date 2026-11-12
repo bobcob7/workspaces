@@ -102,6 +102,11 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   commit, push, or post to GitHub. Asking again about the same commit
   opens the same agent
   ([ADR 0051](../docs/adrs/0051-desktop-open-workspace-and-ask-about-pr.md)).
+- **Stats**: a bar with this machine's CPU, memory and disk and the Claude
+  Code usage in the window, and a Stats section with the same, plus usage
+  by model, tokens by kind, lines written by language, and productivity by
+  model and language, read from the transcripts and estimated at API rates
+  ([ADR 0059](../docs/adrs/0059-stats.md)).
 
 The sections are chosen from the rail on the left, or with ⌘1–⌘4, and are
 designed in

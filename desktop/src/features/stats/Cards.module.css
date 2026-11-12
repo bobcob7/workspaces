@@ -1,0 +1,111 @@
+.scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: normal;
+}
+
+.wideTable {
+  min-width: 0;
+}
+
+.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.groupRow th {
+  padding-top: 12px;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.footnote {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bar {
+  display: flex;
+  height: 10px;
+  margin-bottom: 12px;
+  border-radius: 5px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.segment {
+  min-width: 0;
+  height: 100%;
+  background: var(--accent);
+}
+
+.segmentOutput {
+  opacity: 0.7;
+}
+
+.segmentCacheWrite {
+  opacity: 0.45;
+}
+
+.segmentCacheRead {
+  opacity: 0.25;
+}
+
+.shareTrack {
+  width: 80px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.shareFill {
+  height: 100%;
+  background: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .table {
+    font-size: 12px;
+  }
+
+  .table th,
+  .table td {
+    padding: 6px 4px;
+  }
+
+  .wideTable {
+    min-width: 480px;
+  }
+
+  .shareTrack {
+    width: 56px;
+  }
+}
