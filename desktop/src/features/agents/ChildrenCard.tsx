@@ -1,5 +1,5 @@
 import { Button } from "@mui/material";
-import { useState, type JSX } from "react";
+import { useId, useState, type JSX } from "react";
 import type { Entry } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { selected } from "../ui/uiSlice";
@@ -7,6 +7,9 @@ import { RemoveDialog } from "./RemoveDialog";
 import { childrenOf, statusLabels } from "./status";
 import { StatusDot } from "./StatusDot";
 import styles from "./ChildrenCard.module.css";
+
+/** Up to this many children, the list starts expanded; more start collapsed. */
+const expandedUpTo = 3;
 
 const ChildRow = ({ child }: { readonly child: Entry }): JSX.Element => {
   const dispatch = useAppDispatch();
@@ -33,15 +36,22 @@ const ChildRow = ({ child }: { readonly child: Entry }): JSX.Element => {
 /** The workspaces an entry started, which are removed with it (ADR 0044). */
 export const ChildrenCard = ({ entry }: { readonly entry: Entry }): JSX.Element | null => {
   const children = useAppSelector((s) => childrenOf(s.agents.entries, entry));
+  const listId = useId();
+  const [open, setOpen] = useState(() => children.length <= expandedUpTo);
   if (children.length === 0) {
     return null;
   }
   return (
     <section className={styles.card} aria-label="Started from this workspace">
       <h2 className={styles.heading}>
-        Started from this workspace <span className={styles.muted}>{children.length} · removed with it</span>
+        <button type="button" className={styles.toggle} aria-expanded={open} aria-controls={listId} onClick={() => setOpen(!open)}>
+          <span aria-hidden="true" className={styles.chevron}>
+            {open ? "▾" : "▸"}
+          </span>
+          Started from this workspace <span className={styles.muted}>{children.length} · removed with it</span>
+        </button>
       </h2>
-      <ul className={styles.list}>
+      <ul id={listId} className={styles.list} hidden={!open}>
         {children.map((child) => (
           <ChildRow key={child.key} child={child} />
         ))}
