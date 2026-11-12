@@ -25,6 +25,21 @@ describe("valuesOf", () => {
   });
 });
 
+describe("hidden", () => {
+  it("is true for a new loop", () => {
+    expect(emptyValues.hidden).toBe(true);
+  });
+
+  it("is copied from an existing loop", () => {
+    expect(valuesOf(loop({ hidden: false })).hidden).toBe(false);
+    expect(valuesOf(loop({ hidden: true })).hidden).toBe(true);
+  });
+
+  it.each([true, false])("is sent as %s in the request", (hidden) => {
+    expect(requestOf({ ...valid, hidden })).toMatchObject({ hidden });
+  });
+});
+
 describe("loopLabel", () => {
   it("returns the title, or the name when the title is blank", () => {
     expect(loopLabel({ name: "deps-bump", title: "Dependency bumps" })).toBe("Dependency bumps");
@@ -100,6 +115,7 @@ describe("requestOf", () => {
       keep: 7,
       model: "haiku",
       permissionMode: "acceptEdits",
+      hidden: true,
     });
   });
 

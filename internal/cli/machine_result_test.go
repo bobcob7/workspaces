@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -96,6 +97,58 @@ func TestApp_runMachineResult(t *testing.T) {
 		e := newMachineApp(t)
 		e.store.ListFunc = func() ([]workspace.Workspace, error) { return nil, errTest }
 		assert.ErrorIs(t, e.app.runMachineResult("PASS", ""), errTest)
+	})
+}
+
+// newRunRootApp is a test App run from boss, the root of machineTree, with
+// loop data in a temp dir and boss a loop run when run is true.
+func newRunRootApp(t *testing.T, run bool) *mockedApp {
+	t.Helper()
+	e := newMachineApp(t)
+	e.app.getwd = func() (string, error) { return "/cfg/workspaces/boss", nil }
+	e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return machineTree()[0], nil }
+	e.app.loopData = withLoopData(t, e.app)
+	if run {
+		require.NoError(t, e.app.loopData.WriteRunMark("boss", loop.RunMark{Loop: "deps-bump", StartedAt: testNow()}))
+	}
+	return e
+}
+
+func TestApp_runMachineResultBlocked(t *testing.T) {
+	t.Run("a loop run's root records its question as blocked", func(t *testing.T) {
+		e := newRunRootApp(t, true)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineResult("blocked", writeReportFile(t, []byte("Which version?"))))
+		var got machineResultJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Equal(t, "BLOCKED", got.Result.Verdict)
+		assert.Equal(t, "blocked", got.Result.Outcome)
+	})
+	t.Run("without --file is result_invalid", func(t *testing.T) {
+		e := newRunRootApp(t, true)
+		requireCode(t, codeResultInvalid, e.app.runMachineResult("BLOCKED", ""))
+	})
+	t.Run("from a workspace with no run mark is result_invalid", func(t *testing.T) {
+		e := newRunRootApp(t, false)
+		err := e.app.runMachineResult("BLOCKED", writeReportFile(t, []byte("?")))
+		requireCode(t, codeResultInvalid, err)
+		require.ErrorContains(t, err, "BLOCKED is only for a loop run's own verdict")
+	})
+	t.Run("from a child of a loop run is result_invalid", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.loopData = withLoopData(t, e.app)
+		require.NoError(t, e.app.loopData.WriteRunMark("boss", loop.RunMark{Loop: "deps-bump", StartedAt: testNow()}))
+		requireCode(t, codeResultInvalid, e.app.runMachineResult("BLOCKED", writeReportFile(t, []byte("?"))))
+	})
+	t.Run("a run mark that can't be read is an error, not result_invalid", func(t *testing.T) {
+		e := newRunRootApp(t, false)
+		dir := filepath.Join(e.app.loopData.StateDir(), "boss")
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "loop.toml"), []byte("version = 99\nloop = \"deps-bump\"\n"), 0o600))
+		err := e.app.runMachineResult("BLOCKED", writeReportFile(t, []byte("?")))
+		require.Error(t, err)
+		require.ErrorIs(t, err, loop.ErrNewerData)
+		assert.NotErrorIs(t, err, errBlockedNotRun)
 	})
 }
 

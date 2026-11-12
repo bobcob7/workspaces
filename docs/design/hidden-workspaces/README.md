@@ -107,4 +107,6 @@ $ for s in agents agents-hidden; do
   any workspace.
 - Reasons or categories for hiding (labels, origin); see the ADR's
   alternatives.
-- Notifying about a hidden agent that needs input.
+- Notifying about a hidden agent that needs input, except a loop run that
+  is blocked or needs attention; see
+  [ADR 0057](../../adrs/0057-loop-visibility-and-blocked-runs.md).

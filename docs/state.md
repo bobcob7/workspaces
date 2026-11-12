@@ -24,13 +24,13 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `state/.removal-pass` | its modification time is when the removal pass last started ([0026](adrs/0026-removal-pass-timing.md)) | by the removal pass |
 | `state/.respawn.lock` | the respawn lock ([0027](adrs/0027-respawn-lock-and-record-versions.md)) | by `ws restore` and `ws restart` |
 | `state/.continue.lock` | held by a `ws continue` pass while it sends messages ([0047](adrs/0047-ws-continue-after-usage-limit.md)) | by `ws continue` |
-| `loops/<name>.toml` | an agent loop: its prompt, period, schedule, and runs ([0048](adrs/0048-agent-loop-scheduler.md)); in `CONFIG_DIR`, not `state/` | by `ws loop add`, `pause`, `resume`, `run`, and `tick`; removed by `ws loop rm` |
+| `loops/<name>.toml` | an agent loop: its prompt, period, schedule, whether its runs are hidden (`hidden`, record version 3; [0057](adrs/0057-loop-visibility-and-blocked-runs.md)), and runs ([0048](adrs/0048-agent-loop-scheduler.md)); in `CONFIG_DIR`, not `state/` | by `ws loop add`, `pause`, `resume`, `run`, and `tick`; removed by `ws loop rm` |
 | `loops/.lock` | held by every `ws loop` command that writes a loop, by `ws loop history --clear`, and for the whole of `ws loop tick` and `ws loop run` ([0048](adrs/0048-agent-loop-scheduler.md)); `ws loop memory` doesn't take it ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop` |
 | `state/.loops/<name>/history.json` | a loop's runs, oldest first, up to 200 ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop tick` and `ws loop run`, under `loops/.lock`; emptied by `ws loop history --clear`; deleted by `ws loop rm`, and by `ws loop add` when a leftover one is there |
 | `state/.loops/<name>/reports/<seq>.md` | the report of run `<seq>`, copied from the run's `machine/` record when the run settles; kept for the newest 50 runs with a verdict ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop tick`; emptied by `ws loop history --clear`; deleted by `ws loop rm` |
 | `state/.loops/<name>/memory.json` | a loop's shared memory: each key's value, revision, time and writer ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop memory` and `ws machine memory`, under `.memory.lock`; deleted by `ws loop rm` |
 | `state/.loops/<name>/.memory.lock` | the memory lock, for memory writes only; never `loops/.lock` ([0056](adrs/0056-loop-history-and-memory.md)) | by the memory writers |
-| `state/<id>/loop.toml` | the run mark: the loop a workspace is a run of, and when the run started ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop tick` and `ws loop run`, after the workspace is created and before its agent starts |
+| `state/<id>/loop.toml` | the run mark: the loop a workspace is a run of, and when the run started ([0056](adrs/0056-loop-history-and-memory.md)); it also marks the workspace for `ws list`'s `loop_run` ([0057](adrs/0057-loop-visibility-and-blocked-runs.md)) | by `ws loop tick` and `ws loop run`, after the workspace is created and before its agent starts |
 
 - **Workspace contents.** Nothing `ws` writes goes inside
   `workspaces/<id>/`.

@@ -1,7 +1,7 @@
 # ws loop add
 
 ```
-ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... <NAME> [<SPEC>...]
+ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] [--hidden[=BOOL] | --show] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... <NAME> [<SPEC>...]
 ```
 
 Adds a loop. Its first run starts one period after it's added; `ws loop run`
@@ -23,6 +23,10 @@ workspace.
 - `--model <M>`: passed to `claude --model`.
 - `--permission-mode <P>`: passed to `claude --permission-mode`.
 - `--paused`: add the loop paused. Its `next_run_at` is then `null`.
+- `--hidden[=BOOL]`: start each run's workspace hidden; blocked runs are shown
+  anyway. The default is `true`.
+- `--show`: start each run's workspace visible; the same as `--hidden=false`.
+  Give `--hidden` or `--show`, not both.
 - `--script <TEXT>`: a shell script that must exit 0 for a run to start. It
   runs with `/bin/sh -c`, from your home directory, and its stdout and stderr
   can be used in the prompt. Blank is no script.
@@ -51,14 +55,41 @@ and `{{.Vars.X}}` without `--var X=…`. Write a literal `{{` as `{{"{{"}}`.
 The prompt is checked when the loop is added, so a bad template is refused
 now, not at the first run. To change a loop later, use `ws loop edit`.
 
+## Ending a run, and asking for help
+
+A run's agent should end by recording a verdict with `ws machine result`,
+so the run's history says how it went:
+
+- `ws machine result PASS --file ../report.md` when it did its job, or
+  `FAIL` when it couldn't.
+- To ask a person, write the question to a file and run
+  `ws machine result BLOCKED --file ../question.md`, then stop. The run
+  is shown in the Agents list, even when its loop hides runs, and the
+  app notifies once. When the person answers in the conversation, the
+  agent carries on and records `PASS`, `FAIL` or `BLOCKED` again; until
+  it does, the run stays blocked.
+
+A run that goes idle without recording a verdict needs attention: it is
+shown and notified the same way. End the prompt with the verdict step,
+for example:
+
+> When you're done, write a short report to ../report.md and run
+> `ws machine result PASS --file ../report.md`, or `FAIL` if you
+> couldn't finish. If you need a decision from a person, write your
+> question to ../question.md, run
+> `ws machine result BLOCKED --file ../question.md`, and stop.
+
+Runs start hidden unless the loop was added with `--show`; see `--hidden`.
+
 ## JSON output
 
 ```json
-{"name": "deps-bump", "title": "Dependency bump", "every": "24h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T18:00:00Z", "last_run": null, "script": "gh issue list --label needs-triage --json number | grep .", "script_timeout": "2m", "vars": {"REPO": "buff-bear"}, "last_gate": null, "warnings": []}
+{"name": "deps-bump", "title": "Dependency bump", "every": "24h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "hidden": true, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T18:00:00Z", "last_run": null, "script": "gh issue list --label needs-triage --json number | grep .", "script_timeout": "2m", "vars": {"REPO": "buff-bear"}, "last_gate": null, "warnings": []}
 ```
 
 `model` and `permission_mode` are `null` when not set, and `last_run` is
-`null` before the first run.
+`null` before the first run. `hidden` is `true` when each run's workspace
+starts hidden, the default, and `false` for a loop added with `--show`.
 
 ## Exit codes
 

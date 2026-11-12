@@ -44,6 +44,7 @@
     review: null,
     hidden: false,
     parentId: null,
+    loopRun: null,
     ...overrides,
   });
 
@@ -168,8 +169,43 @@
     // Run history per loop: runs newest first, reports by seq (reportText).
     loopHistory: {
       "deps-bump": {
-        total: 57,
+        total: 59,
         runs: [
+          {
+            seq: 59,
+            status: "blocked",
+            trigger: "tick",
+            startedAt: "2026-10-25T08:00:00Z",
+            finishedAt: null,
+            durationSeconds: null,
+            workspace: "loop-deps-bump-2b3c4d5e",
+            workspaceExists: true,
+            session: "2b3c4d5e",
+            error: null,
+            gate: null,
+            repeats: 1,
+            verdict: {
+              verdict: "BLOCKED",
+              outcome: "blocked",
+              recordedAt: "2026-10-25T08:06:12Z",
+              report: "/w/.loops/deps-bump/reports/59.md",
+            },
+          },
+          {
+            seq: 58,
+            status: "needs_attention",
+            trigger: "tick",
+            startedAt: "2026-10-25T07:00:00Z",
+            finishedAt: "2026-10-25T07:03:40Z",
+            durationSeconds: 220,
+            workspace: null,
+            workspaceExists: false,
+            session: null,
+            error: null,
+            gate: null,
+            repeats: 1,
+            verdict: null,
+          },
           {
             seq: 57,
             status: "running",
@@ -287,6 +323,7 @@
           },
         ],
         reports: {
+          59: "# Question\n\nWhich major version of eslint should I target? v9 needs a flat config.\n",
           56: [
             "## Bumped 3 modules",
             "",
@@ -360,6 +397,7 @@
           exitCode: 0,
           message: null,
         },
+        hidden: true,
       },
       {
         name: "triage",
@@ -383,6 +421,7 @@
         scriptTimeout: null,
         vars: {},
         lastGate: null,
+        hidden: false,
       },
     ],
     entries: [
@@ -416,6 +455,34 @@
         sessionId: "91b3f0c4",
         path: "/w/scratch-91b3f0c4",
         status: "running",
+      }),
+      entry({
+        workspaceId: "loop-deps-bump-2b3c4d5e",
+        sessionId: "2b3c4d5e",
+        path: "/w/loop-deps-bump-2b3c4d5e",
+        status: "needsInput",
+        intent: "Dependency bumps",
+        detail: "Which major version of eslint should I target?",
+        hidden: false,
+        loopRun: { loop: "deps-bump", attention: "blocked" },
+      }),
+      entry({
+        workspaceId: "loop-status-check-7c8d9e0f",
+        sessionId: "7c8d9e0f",
+        path: "/w/loop-status-check-7c8d9e0f",
+        status: "needsInput",
+        intent: "Status check",
+        hidden: false,
+        loopRun: { loop: "status-check", attention: "needs_attention" },
+      }),
+      entry({
+        workspaceId: "loop-deps-bump-9f8e7d6c",
+        sessionId: "9f8e7d6c",
+        path: "/w/loop-deps-bump-9f8e7d6c",
+        status: "done",
+        intent: "Dependency bumps",
+        hidden: true,
+        loopRun: { loop: "deps-bump", attention: null },
       }),
     ],
     settings: defaultSettings(),
@@ -506,6 +573,7 @@
       script,
       scriptTimeout: script === null ? null : request.scriptTimeout ?? "1m",
       vars: Object.fromEntries((request.vars ?? []).map(({ key, value }) => [key, value])),
+      hidden: request.hidden ?? true,
     };
   };
 

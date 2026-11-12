@@ -1,7 +1,7 @@
 //! Feeds each listing to the attention step, and lists by itself when the
 //! frontend hasn't for a while, as when the window is closed (ADR 0050).
 
-use super::attention::{self, Attention, Candidate, Event, Snapshot};
+use super::attention::{self, Attention, Candidate, Event, LoopSnapshot, Snapshot};
 use super::view::TrayView;
 #[cfg(feature = "desktop")]
 use crate::commands::AppState;
@@ -21,7 +21,8 @@ const WATCH_INTERVAL_MS: i64 = 4_000;
 pub struct Observed {
     /// The tracked agents in the listing.
     pub candidates: Vec<Candidate>,
-    /// The agents that started needing input or finished in this listing.
+    /// The agents that started needing input or finished in this listing,
+    /// then the loop runs raised in it.
     pub events: Vec<Event>,
 }
 
@@ -35,6 +36,7 @@ pub struct Watcher {
 #[derive(Debug, Default)]
 struct Inner {
     snapshot: Snapshot,
+    loop_snapshot: LoopSnapshot,
     last_observed_ms: Option<i64>,
     last_view: Option<TrayView>,
 }
@@ -44,9 +46,13 @@ impl Watcher {
     pub fn observe(&self, entries: &[Entry], now_ms: i64) -> Observed {
         let candidates = attention::candidates(entries);
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let (snapshot, events) = attention::step(&inner.snapshot, &candidates, now_ms);
+        let (snapshot, mut events) = attention::step(&inner.snapshot, &candidates, now_ms);
+        let (loop_snapshot, loop_events) =
+            attention::loop_step(&inner.loop_snapshot, entries, now_ms);
         inner.snapshot = snapshot;
+        inner.loop_snapshot = loop_snapshot;
         inner.last_observed_ms = Some(now_ms);
+        events.extend(loop_events);
         Observed { candidates, events }
     }
 
@@ -69,8 +75,9 @@ impl Watcher {
     }
 }
 
-/// The events the settings allow: NeedsInput when `enabled && needs_input`,
-/// Done when `enabled && done`, in order.
+/// The events the settings allow: NeedsInput, and loop runs that are Blocked
+/// or RunNeedsAttention, when `enabled && needs_input`; Done when
+/// `enabled && done`; in order.
 pub fn wanted(events: &[Event], settings: &NotificationSettings) -> Vec<Event> {
     if !settings.enabled {
         return Vec::new();
@@ -78,7 +85,9 @@ pub fn wanted(events: &[Event], settings: &NotificationSettings) -> Vec<Event> {
     events
         .iter()
         .filter(|event| match event.attention {
-            Attention::NeedsInput => settings.needs_input,
+            Attention::NeedsInput | Attention::Blocked | Attention::RunNeedsAttention => {
+                settings.needs_input
+            }
             Attention::Done => settings.done,
             Attention::Busy => false,
         })
@@ -114,7 +123,7 @@ pub async fn watch_forever(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Status;
+    use crate::model::{Status, WsLoopRun};
     use crate::tray::attention::testing::entry;
     use crate::tray::view::tray_view;
 
@@ -160,6 +169,7 @@ mod tests {
             snippet: String::new(),
             attention: Attention::NeedsInput,
             active_at: String::new(),
+            loop_raised: false,
         };
         let busy = tray_view(&[waiting]);
 
@@ -211,6 +221,40 @@ mod tests {
             wanted(&events, &settings(true, true, false)),
             vec![event("a", Attention::NeedsInput)]
         );
+        assert!(wanted(&events, &settings(false, true, true)).is_empty());
+    }
+
+    #[test]
+    fn observe_returns_loop_events_after_regular_ones() {
+        let watcher = Watcher::default();
+        let mut run = entry("r", Status::NeedsInput);
+        run.loop_run = Some(WsLoopRun {
+            loop_name: "deps-bump".to_string(),
+            attention: Some("blocked".to_string()),
+        });
+
+        watcher.observe(&[entry("a", Status::Working)], 0);
+        watcher.observe(&[entry("a", Status::Done), run.clone()], 0);
+        let observed = watcher.observe(&[entry("a", Status::Done), run], 4_000);
+
+        assert_eq!(
+            observed.events,
+            vec![event("a", Attention::Done), event("r", Attention::Blocked),]
+        );
+    }
+
+    #[test]
+    fn wanted_passes_loop_events_with_needs_input() {
+        let events = [
+            event("a", Attention::Blocked),
+            event("b", Attention::RunNeedsAttention),
+        ];
+
+        assert_eq!(
+            wanted(&events, &settings(true, true, false)),
+            events.to_vec()
+        );
+        assert!(wanted(&events, &settings(true, false, true)).is_empty());
         assert!(wanted(&events, &settings(false, true, true)).is_empty());
     }
 }

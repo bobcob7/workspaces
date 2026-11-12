@@ -15,6 +15,8 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/loop"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/review/record"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -88,11 +90,11 @@ func TestApp_runList(t *testing.T) {
 		assert.JSONEq(t, `{"workspaces":[
 			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false},
-			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null},
 			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null},
-			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null},
-			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null}
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null},
+			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null}
 		],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--json with nothing to list", func(t *testing.T) {
@@ -426,11 +428,11 @@ func TestRepoMatches(t *testing.T) {
 func TestApp_listWorkspaces(t *testing.T) {
 	t.Run("never null", func(t *testing.T) {
 		app, _, _ := newTestApp()
-		assert.Equal(t, []listWorkspaceJSON{}, app.listWorkspaces(nil, nil))
+		assert.Equal(t, []listWorkspaceJSON{}, app.listWorkspaces(nil, nil, nil))
 	})
 	t.Run("workspaces, then unknown directories", func(t *testing.T) {
 		app, _, _ := newTestApp()
-		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, []string{"/cfg/workspaces/stray"})
+		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, []string{"/cfg/workspaces/stray"}, nil)
 		require.Len(t, got, 2)
 		assert.Equal(t, "a", *got[0].ID)
 		assert.Nil(t, got[0].Review)
@@ -442,7 +444,7 @@ func TestApp_listWorkspaces(t *testing.T) {
 		rec := testRecord()
 		require.NoError(t, os.MkdirAll(filepath.Join(app.paths.State, "a"), 0o750))
 		require.NoError(t, record.Write(record.Path(app.paths.State, "a"), &rec))
-		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, nil)
+		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, nil, nil)
 		require.NotNil(t, got[0].Review)
 		assert.Equal(t, rec.Repo, got[0].Review.Repo)
 		assert.Equal(t, 1, got[0].Review.Version)
@@ -452,7 +454,7 @@ func TestApp_listWorkspaces(t *testing.T) {
 		app.paths = config.NewPaths(t.TempDir())
 		require.NoError(t, os.MkdirAll(filepath.Join(app.paths.State, "a"), 0o750))
 		require.NoError(t, os.WriteFile(record.Path(app.paths.State, "a"), []byte("version = 99\n"), 0o600))
-		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, nil)
+		got := app.listWorkspaces([]lifetime.Entry{{Workspace: listedWorkspace("a")}}, nil, nil)
 		assert.Nil(t, got[0].Review)
 		require.Len(t, app.warned, 1)
 		assert.Contains(t, app.warned[0], "review record")
@@ -492,8 +494,114 @@ func TestListSession(t *testing.T) {
 func TestApp_printList(t *testing.T) {
 	t.Run("just the header with nothing to list", func(t *testing.T) {
 		e := newListApp(nil, nil)
-		e.app.printList(nil, nil)
+		e.app.printList(nil, nil, nil)
 		assert.Equal(t, "ID   NAME   CREATED   SESSION   REPOS\n", e.stdout.String())
+	})
+}
+
+func TestVisibleEntries(t *testing.T) {
+	plain := lifetime.Entry{Workspace: workspace.Workspace{ID: "plain"}}
+	hiddenPlain := lifetime.Entry{Workspace: workspace.Workspace{ID: "hidden-plain", Hidden: true}}
+	hiddenRaised := lifetime.Entry{Workspace: workspace.Workspace{ID: "hidden-raised", Hidden: true}}
+	none := func(*lifetime.Entry) bool { return false }
+	raisedOnly := func(e *lifetime.Entry) bool { return e.Workspace.ID == "hidden-raised" }
+	entries := []lifetime.Entry{plain, hiddenPlain, hiddenRaised}
+	t.Run("all keeps everything and counts nothing", func(t *testing.T) {
+		kept, hidden := visibleEntries(entries, true, none)
+		assert.Equal(t, entries, kept)
+		assert.Zero(t, hidden)
+	})
+	t.Run("a raised hidden run is kept without all", func(t *testing.T) {
+		kept, hidden := visibleEntries(entries, false, raisedOnly)
+		require.Len(t, kept, 2)
+		assert.Equal(t, "plain", kept[0].Workspace.ID)
+		assert.Equal(t, "hidden-raised", kept[1].Workspace.ID)
+		assert.Equal(t, 1, hidden)
+	})
+	t.Run("a plain hidden workspace is left out and counted", func(t *testing.T) {
+		kept, hidden := visibleEntries(entries, false, none)
+		require.Len(t, kept, 1)
+		assert.Equal(t, "plain", kept[0].Workspace.ID)
+		assert.Equal(t, 2, hidden)
+	})
+}
+
+func TestNameText(t *testing.T) {
+	assert.Equal(t, "-", nameText("", false, loop.AttentionNone))
+	assert.Equal(t, "x (hidden)", nameText("x", true, loop.AttentionNone))
+	assert.Equal(t, "x (blocked)", nameText("x", true, loop.AttentionBlocked))
+	assert.Equal(t, "x (needs attention)", nameText("x", false, loop.AttentionNeedsAttention))
+}
+
+// withLoopRun makes e's app keep its state in a temp dir, where workspace
+// deps-bump is a loop run of loop deps-bump, with verdict as its recorded
+// verdict unless it is "".
+func withLoopRun(t *testing.T, e *mockedApp, verdict string) {
+	t.Helper()
+	e.app.paths = config.NewPaths(t.TempDir())
+	e.app.loopData = loop.NewDataStore(e.app.paths.State)
+	require.NoError(t, e.app.loopData.WriteRunMark("deps-bump", loop.RunMark{Loop: "deps-bump", StartedAt: testNow()}))
+	if verdict == "" {
+		return
+	}
+	require.NoError(t, machine.NewStore(e.app.paths.State).WriteResult("deps-bump", "deps-bump", &machine.Result{Verdict: verdict, RecordedAt: testNow()}, nil))
+}
+
+func TestApp_runListLoopRuns(t *testing.T) {
+	run := func(state lifetime.State, hidden bool) lifetime.Entry {
+		ws := listedWorkspace("deps-bump")
+		ws.Name = "loop-deps-bump"
+		ws.Hidden = hidden
+		return lifetime.Entry{Workspace: ws, Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "s1", State: state, Stale: new(false)}}
+	}
+	t.Run("a hidden run that is blocked is listed without -a and not counted", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{run(lifetime.StateIdle, true)}, nil)
+		withLoopRun(t, e, "BLOCKED")
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		require.NotNil(t, got.Workspaces[0].LoopRun)
+		assert.Equal(t, "deps-bump", got.Workspaces[0].LoopRun.Loop)
+		require.NotNil(t, got.Workspaces[0].LoopRun.Attention)
+		assert.Equal(t, "blocked", *got.Workspaces[0].LoopRun.Attention)
+		assert.Zero(t, got.HiddenCount)
+	})
+	t.Run("a blocked run's name says so in the table", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{run(lifetime.StateIdle, true)}, nil)
+		withLoopRun(t, e, "BLOCKED")
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.Contains(t, e.stdout.String(), "loop-deps-bump (blocked)")
+	})
+	t.Run("an idle run with no verdict needs attention", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{run(lifetime.StateIdle, false)}, nil)
+		withLoopRun(t, e, "")
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		require.NotNil(t, got.Workspaces[0].LoopRun.Attention)
+		assert.Equal(t, "needs_attention", *got.Workspaces[0].LoopRun.Attention)
+	})
+	t.Run("a working run asks nothing", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{run(lifetime.StateWorking, false)}, nil)
+		withLoopRun(t, e, "BLOCKED")
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		require.NotNil(t, got.Workspaces[0].LoopRun)
+		assert.Nil(t, got.Workspaces[0].LoopRun.Attention)
+	})
+	t.Run("a hidden run with nothing to ask is left out and counted", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{run(lifetime.StateIdle, true)}, nil)
+		withLoopRun(t, e, "PASS")
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.JSONEq(t, `{"workspaces":[],"hidden_count":1,"warnings":[]}`, e.stdout.String())
 	})
 }
 

@@ -109,6 +109,8 @@ const AgentCard = ({ loop }: { readonly loop: Loop }): JSX.Element => (
       <dd>{loop.model ?? "Default"}</dd>
       <dt>Permission mode</dt>
       <dd>{loop.permissionMode ?? "Default"}</dd>
+      <dt>Runs</dt>
+      <dd>{loop.hidden ? "Hidden unless blocked" : "Shown in Agents"}</dd>
     </dl>
   </Card>
 );

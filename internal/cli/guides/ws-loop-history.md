@@ -15,7 +15,9 @@ one tick. `ws loop history` only reads the history; it doesn't check runs.
 | Status         | Meaning |
 | -------------- | ------- |
 | `running`      | the agent is working or starting |
-| `done`         | the agent is idle or stopped, and recorded no verdict |
+| `needs_attention` | the agent is idle and recorded no verdict; the run is shown and notified until it records a verdict or its workspace is removed |
+| `blocked`      | the agent recorded `BLOCKED` to ask a person for help; its `verdict` is `BLOCKED` and outcome `blocked`, until a later verdict replaces it |
+| `done`         | the agent stopped and recorded no verdict, or the run needed attention when its workspace was removed |
 | `succeeded`    | the verdict passed (`PASS` or `APPROVED`) |
 | `failed`       | the verdict failed |
 | `start_failed` | the run couldn't start; `error` says why |
@@ -73,8 +75,8 @@ With `--clear`, `removed` is how many runs were deleted:
 {"loop": "deps-bump", "removed": 57, "warnings": []}
 ```
 
-A run's `duration_seconds` is set only for `done`, `succeeded`, `failed`, and
-`gone` runs that finished. `workspace_exists` is `false` once the workspace is
+A run's `duration_seconds` is set only for `done`, `succeeded`, `failed`,
+`gone`, and `blocked` runs that finished. `workspace_exists` is `false` once the workspace is
 removed.
 
 ## Exit codes

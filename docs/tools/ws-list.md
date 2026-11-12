@@ -42,6 +42,13 @@ Directories under `workspaces/` without state are shown last with
 id `unknown` (in JSON, `id`, `name`, `created_at`, and `session` are `null`).
 `ws` never deletes them ([0012](../adrs/0012-workspace-layout.md)).
 
+A hidden loop run ([`ws loop`](ws-loop.md)) that is waiting for a person is
+listed even without `-a`, and isn't counted in `hidden_count`. It is waiting
+when its `loop_run.attention` is `blocked` or `needs_attention`
+([0057](../adrs/0057-loop-visibility-and-blocked-runs.md)). Its NAME column
+reads `<name> (blocked)` or `<name> (needs attention)` in place of
+`<name> (hidden)`.
+
 ## Options
 
 | Option          | Description                                    |
@@ -77,7 +84,8 @@ $ ws list --json
       ],
       "hidden": false,
       "parent": null,
-      "review": null
+      "review": null,
+      "loop_run": null
     }
   ],
   "hidden_count": 2,
@@ -103,6 +111,14 @@ left out: 0 with `-a`, and counting only those `--repo` matches.
 workspace and for a record that can't be read, which is a warning
 ([0039](../adrs/0039-ws-review-command.md)). The desktop app matches
 reviews to pull requests by its `pr.number` and `ref`.
+
+`loop_run` is `{"loop": <name>, "attention": …}` for a loop run's
+workspace, else `null`, including for an unreadable run mark, which is a
+warning. `attention` is `"blocked"` or `"needs_attention"` while the run is
+waiting for a person, else `null`. It is computed on each call, from the
+session's state and the run's recorded verdict, so it changes as soon as the
+agent records a verdict or carries on. An unreadable machine record counts
+as no verdict.
 
 `session.state` is `working`, `idle`, `starting`, `stopped`, `unknown`, or
 `running` for a shell. It is `ws`'s reading, not Claude Code's own `state`

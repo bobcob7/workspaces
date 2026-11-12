@@ -333,7 +333,7 @@ func (a *App) memoryValues(l *loop.Loop) map[string]string {
 // claude does, and returns the run to record. A failure is in the Run's
 // ErrorCode/ErrorMessage and also returned.
 func (a *App) startLoopRun(ctx context.Context, l *loop.Loop, prompt string) (loop.Run, workspace.Workspace, error) {
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: "loop-" + l.Name, Specs: parseSpecs(l.Specs)})
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: "loop-" + l.Name, Specs: parseSpecs(l.Specs), Hidden: l.RunsHidden()})
 	if err != nil {
 		return failedRun(a.now(), err), workspace.Workspace{}, domainError(err)
 	}

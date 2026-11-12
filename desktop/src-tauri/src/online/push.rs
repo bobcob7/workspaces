@@ -253,6 +253,7 @@ pub fn payloads(events: &[Event]) -> Vec<PushPayload> {
 fn event_payload(event: &Event, notice: Notice) -> PushPayload {
     let kind = match event.attention {
         Attention::Done => "done",
+        Attention::Blocked | Attention::RunNeedsAttention => "loop",
         _ => "needsInput",
     };
     PushPayload {
@@ -603,6 +604,14 @@ mod tests {
         assert_eq!(found[0].url, "/?agent=fix%20login%2Fa");
         assert_eq!(found[0].tag, "needsInput:fix login/a");
         assert_eq!(found[0].key.as_deref(), Some("fix login/a"));
+    }
+
+    #[test]
+    fn payloads_for_a_blocked_loop_run_use_the_loop_kind() {
+        let found = payloads(&[event("fix-login", Attention::Blocked)]);
+        assert_eq!(found[0].tag, "loop:fix-login");
+        assert_eq!(found[0].url, "/?agent=fix-login");
+        assert_eq!(found[0].title, "fix-login is blocked");
     }
 
     #[test]

@@ -63,6 +63,13 @@ pub struct Loop {
     pub vars: BTreeMap<String, String>,
     #[serde(default)]
     pub last_gate: Option<LoopGate>,
+    /// Whether runs start hidden (ADR 0057).
+    #[serde(default = "default_true")]
+    pub hidden: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -209,6 +216,9 @@ pub struct NewLoop {
     pub script_timeout: Option<String>,
     #[serde(default)]
     pub vars: Vec<LoopVar>,
+    /// Not sent when None, so `ws` keeps its default or the loop's setting (ADR 0057).
+    #[serde(default)]
+    pub hidden: Option<bool>,
 }
 
 fn non_blank(value: Option<&str>) -> Option<&str> {
@@ -218,8 +228,8 @@ fn non_blank(value: Option<&str>) -> Option<&str> {
 /// `ws loop add` without `--json`, which the runner adds:
 /// ["loop", "add", ("--title=<t>"), "--every=<every>", "--prompt=<prompt>",
 ///  ("--keep=<n>"), ("--model=<m>"), ("--permission-mode=<p>"),
-///  ("--script=<s>"), ("--script-timeout=<t>"), ("--var=<k>=<v>")...,
-///  "--", <name>, <specs...>].
+///  ("--hidden=<b>"), ("--script=<s>"), ("--script-timeout=<t>"),
+///  ("--var=<k>=<v>")..., "--", <name>, <specs...>].
 /// Blank optional values, and blank specs, are left out; values are trimmed,
 /// except the script (whose whitespace matters) and a var's value.
 /// A script timeout needs a script; a var needs a non-blank key.
@@ -238,6 +248,9 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
     }
     if let Some(mode) = non_blank(req.permission_mode.as_deref()) {
         args.push(format!("--permission-mode={mode}"));
+    }
+    if let Some(hidden) = req.hidden {
+        args.push(format!("--hidden={hidden}"));
     }
     if let Some(script) = req.script.as_deref().filter(|s| !s.trim().is_empty()) {
         args.push(format!("--script={script}"));
@@ -264,7 +277,7 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
 /// `ws loop edit` without `--json`, which the runner adds. Every field is
 /// sent, so the request replaces the loop's editable fields (ADR 0052):
 /// ["loop", "edit", "--title=<t>", "--every=<every>", "--prompt=<prompt>",
-///  ("--keep=<n>"), "--model=<m>", "--permission-mode=<p>",
+///  ("--keep=<n>"), "--model=<m>", "--permission-mode=<p>", ("--hidden=<b>"),
 ///  ("--script=<s>", ("--script-timeout=<t>")) | "--no-script",
 ///  ("--var=<k>=<v>")... | "--no-vars", ("--no-specs"),
 ///  "--", <name>, <specs...>].
@@ -286,6 +299,9 @@ pub fn edit_args(req: &NewLoop) -> Vec<String> {
     args.push(format!("--model={model}"));
     let mode = non_blank(req.permission_mode.as_deref()).unwrap_or("");
     args.push(format!("--permission-mode={mode}"));
+    if let Some(hidden) = req.hidden {
+        args.push(format!("--hidden={hidden}"));
+    }
     match req.script.as_deref().filter(|s| !s.trim().is_empty()) {
         Some(script) => {
             args.push(format!("--script={script}"));
@@ -587,7 +603,57 @@ mod tests {
             script: None,
             script_timeout: None,
             vars: vec![],
+            hidden: None,
         }
+    }
+
+    #[test]
+    fn loop_without_hidden_is_hidden() {
+        let json = r#"{"name":"deps","every":"24h","prompt":"hi","specs":[],"model":null,
+            "permission_mode":null,"keep":3,"paused":false,"created_at":"2026-11-01T00:00:00Z",
+            "next_run_at":null,"last_run":null}"#;
+        let loop_: Loop = serde_json::from_str(json).unwrap();
+        assert!(loop_.hidden);
+    }
+
+    #[test]
+    fn add_args_sends_hidden_only_when_set() {
+        let shown = NewLoop {
+            hidden: Some(false),
+            permission_mode: Some("acceptEdits".into()),
+            ..request()
+        };
+        assert_eq!(
+            add_args(&shown),
+            [
+                "loop",
+                "add",
+                "--every=24h",
+                "--prompt=hi",
+                "--permission-mode=acceptEdits",
+                "--hidden=false",
+                "--",
+                "deps",
+            ]
+        );
+        assert!(!add_args(&request())
+            .iter()
+            .any(|a| a.starts_with("--hidden")));
+    }
+
+    #[test]
+    fn edit_args_sends_hidden_only_when_set() {
+        let hidden = NewLoop {
+            hidden: Some(true),
+            ..request()
+        };
+        let args = edit_args(&hidden);
+        let position = args.iter().position(|a| a == "--hidden=true").unwrap();
+        assert_eq!(args[position - 1], "--permission-mode=");
+        assert_eq!(args[position + 1], "--no-script");
+        assert!(!edit_args(&request())
+            .iter()
+            .any(|a| a.starts_with("--hidden")));
     }
 
     #[test]

@@ -17,6 +17,10 @@ export const statusLabel = (run: LoopHistoryRun): string => {
       return "Finished, no verdict";
     case "skipped":
       return `Skipped ×${run.repeats}`;
+    case "blocked":
+      return "Blocked";
+    case "needs_attention":
+      return "Needs attention";
   }
 };
 
@@ -31,6 +35,8 @@ export const statusColor = (status: LoopRunStatus): "success" | "error" | "info"
     case "running":
       return "info";
     case "gone":
+    case "blocked":
+    case "needs_attention":
       return "warning";
     case "done":
     case "skipped":

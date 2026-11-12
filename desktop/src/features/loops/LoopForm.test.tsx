@@ -44,6 +44,7 @@ describe("LoopForm", () => {
       keep: 5,
       model: "",
       permissionMode: "",
+      hidden: true,
     });
   });
 
@@ -75,7 +76,26 @@ describe("LoopForm", () => {
       script: "true",
       scriptTimeout: "45s",
       vars: [{ key: "A", value: "1" }],
+      hidden: true,
     });
+  });
+
+  it("shows the hide switch on for a new loop", () => {
+    renderForm();
+    expect(screen.getByRole("switch", { name: "Hide runs in Agents" })).toBeChecked();
+    expect(screen.getByText("Blocked runs and runs that need attention are shown anyway")).toBeInTheDocument();
+  });
+
+  it("shows the hide switch off for a loop whose runs are shown", () => {
+    renderForm({ loop: loop({ hidden: false }) });
+    expect(screen.getByRole("switch", { name: "Hide runs in Agents" })).not.toBeChecked();
+  });
+
+  it("submits the loop with hidden turned off", async () => {
+    const { onSubmit } = renderForm({ loop: loop({ hidden: true }) });
+    await userEvent.click(screen.getByRole("switch", { name: "Hide runs in Agents" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ hidden: false }));
   });
 
   it("shows the period error and doesn't submit an invalid period", async () => {

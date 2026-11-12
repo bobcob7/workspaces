@@ -37,6 +37,19 @@ pub struct WsWorkspace {
     /// The workspace this one was started from (ADR 0044).
     #[serde(default)]
     pub parent: Option<String>,
+    /// The loop run this workspace is, with what it asks of a person (ADR 0057).
+    #[serde(default)]
+    pub loop_run: Option<WsLoopRun>,
+}
+
+/// A loop run's `loop_run` from `ws list` (ADR 0057).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct WsLoopRun {
+    #[serde(rename = "loop")]
+    pub loop_name: String,
+    /// "blocked" or "needs_attention"; null when nothing is asked.
+    #[serde(default)]
+    pub attention: Option<String>,
 }
 
 /// What a review workspace reviews, from its `review.toml`.
@@ -155,10 +168,13 @@ pub struct Entry {
     pub repos: Vec<Repo>,
     pub review: Option<ReviewRecord>,
     /// The workspace is hidden: shown only in the Agents list's Hidden
-    /// group, and not counted as waiting (ADR 0043).
+    /// group, and not counted as waiting (ADR 0043). A raised loop run is
+    /// never hidden (ADR 0057).
     pub hidden: bool,
     /// The workspace this one was started from, removed with it (ADR 0044).
     pub parent_id: Option<String>,
+    /// Set for a loop run's workspace (ADR 0057).
+    pub loop_run: Option<WsLoopRun>,
 }
 
 #[derive(Debug, Serialize)]
@@ -231,6 +247,11 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         (Some(s), Kind::Agent) => agent_status(&s.state, job.as_ref()),
         _ => status,
     };
+    let raised = ws.loop_run.as_ref().is_some_and(|r| r.attention.is_some());
+    let status = match status {
+        Status::Idle | Status::Done if raised => Status::NeedsInput,
+        other => other,
+    };
     Entry {
         key,
         kind,
@@ -248,8 +269,9 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         links: links(job.as_ref()),
         repos: ws.repos,
         review: ws.review,
-        hidden: ws.hidden,
+        hidden: ws.hidden && !raised,
         parent_id: ws.parent,
+        loop_run: ws.loop_run,
     }
 }
 
@@ -273,6 +295,7 @@ fn session_entry(agent: &ClaudeAgent, id: &str, job: Option<JobState>, now_ms: i
         review: None,
         hidden: false,
         parent_id: None,
+        loop_run: None,
     }
 }
 
@@ -414,6 +437,59 @@ mod tests {
         );
         let entries = merge(Some(ws_list(&hidden)), &[], &|_| None, NOW);
         assert!(entries[0].hidden);
+    }
+
+    fn with_loop_run(json: &str, loop_run: &str) -> String {
+        json.replace(
+            r#""path":"/w/fix-login","#,
+            &format!(r#""path":"/w/fix-login","hidden":true,"loop_run":{loop_run},"#),
+        )
+    }
+
+    #[test]
+    fn merge_reads_loop_run() {
+        let raised = with_loop_run(ONE_AGENT, r#"{"loop":"deps-bump","attention":"blocked"}"#);
+        let entries = merge(Some(ws_list(&raised)), &[], &|_| None, NOW);
+        let e = &entries[0];
+        assert!(!e.hidden, "a raised loop run is not hidden");
+        assert_eq!(e.status, Status::NeedsInput);
+        assert_eq!(
+            e.loop_run,
+            Some(WsLoopRun {
+                loop_name: "deps-bump".into(),
+                attention: Some("blocked".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn merge_keeps_a_loop_run_without_attention_hidden() {
+        let resolved = with_loop_run(ONE_AGENT, r#"{"loop":"deps-bump","attention":null}"#);
+        let entries = merge(Some(ws_list(&resolved)), &[], &|_| None, NOW);
+        let e = &entries[0];
+        assert!(e.hidden);
+        assert_eq!(e.status, Status::Idle);
+        assert_eq!(
+            e.loop_run.as_ref().map(|r| r.loop_name.as_str()),
+            Some("deps-bump")
+        );
+    }
+
+    #[test]
+    fn merge_has_no_loop_run_when_ws_sends_none() {
+        let entries = merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW);
+        assert!(entries[0].loop_run.is_none());
+    }
+
+    #[test]
+    fn entry_serializes_loop_run_as_camel_case() {
+        let raised = with_loop_run(ONE_AGENT, r#"{"loop":"deps-bump","attention":"blocked"}"#);
+        let entries = merge(Some(ws_list(&raised)), &[], &|_| None, NOW);
+        let json = serde_json::to_value(&entries[0]).unwrap();
+        assert_eq!(
+            json["loopRun"],
+            serde_json::json!({"loop": "deps-bump", "attention": "blocked"})
+        );
     }
 
     #[test]

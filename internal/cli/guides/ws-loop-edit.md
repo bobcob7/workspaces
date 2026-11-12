@@ -1,7 +1,7 @@
 # ws loop edit
 
 ```
-ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [<SPEC>...]
+ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [--hidden[=BOOL] | --show] [<SPEC>...]
 ```
 
 Changes a loop in place. Only what's given changes: the loop's runs,
@@ -38,6 +38,12 @@ Giving no option and no spec is a usage error.
 - `--no-vars`: remove every variable. Can't be given with `--var`.
 - `--no-specs`: remove every spec, so runs get an empty workspace. Can't be
   given with specs.
+- `--hidden[=BOOL]`: start each run's workspace hidden, or with `=false`
+  visible; blocked runs are shown anyway. Only the given change counts, and
+  `--hidden` alone is a valid edit. Runs and how they ask for help are
+  described in `ws llm loop add`, under "Ending a run, and asking for help".
+- `--show`: start each run's workspace visible; the same as `--hidden=false`.
+  Give `--hidden` or `--show`, not both.
 - `<SPEC>...`: replace the loop's specs.
 
 The name can't be changed: it names the record and every run's workspace.
@@ -66,11 +72,12 @@ as a template: write a literal `{{` as `{{"{{"}}`.
 The loop, as `ws loop add --json` prints it, with `warnings`:
 
 ```json
-{"name": "deps", "title": "", "every": "6h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T00:00:00Z", "last_run": null, "script": null, "script_timeout": null, "vars": {}, "last_gate": null, "warnings": []}
+{"name": "deps", "title": "", "every": "6h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "hidden": true, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T00:00:00Z", "last_run": null, "script": null, "script_timeout": null, "vars": {}, "last_gate": null, "warnings": []}
 ```
 
 `model` and `permission_mode` are `null` when not set, and `last_run` is
-`null` before the first run.
+`null` before the first run. `hidden` is `true` when each run's workspace
+starts hidden, the default, and `false` for a loop with `--show`.
 
 ## Exit codes
 
