@@ -11,6 +11,8 @@ describe("statusLabel", () => {
     ["running", "Running"],
     ["gone", "Workspace removed"],
     ["done", "Finished, no verdict"],
+    ["blocked", "Blocked"],
+    ["needs_attention", "Needs attention"],
   ])("labels a %s run", (status, label) => {
     expect(statusLabel(loopHistoryRun({ status }))).toBe(label);
   });
@@ -27,6 +29,8 @@ describe("statusColor", () => {
     ["start_failed", "error"],
     ["running", "info"],
     ["gone", "warning"],
+    ["blocked", "warning"],
+    ["needs_attention", "warning"],
     ["done", "default"],
     ["skipped", "default"],
   ])("colours a %s run", (status, color) => {

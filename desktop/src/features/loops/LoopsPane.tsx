@@ -109,6 +109,8 @@ const AgentCard = ({ loop }: { readonly loop: Loop }): JSX.Element => (
       <dd>{loop.model ?? "Default"}</dd>
       <dt>Permission mode</dt>
       <dd>{loop.permissionMode ?? "Default"}</dd>
+      <dt>Runs</dt>
+      <dd>{loop.hidden ? "Hidden unless blocked" : "Shown in Agents"}</dd>
     </dl>
   </Card>
 );
@@ -190,13 +192,13 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
       </header>
       <div className={styles.body}>
         <ScheduleCard loop={loop} busy={busy} />
-        <HistoryCard loop={loop} />
         <PromptCard loop={loop} />
         <ReposCard loop={loop} />
         <AgentCard loop={loop} />
         <GateCard loop={loop} />
         <VarsCard loop={loop} />
         <MemoryCard loop={loop} />
+        <HistoryCard loop={loop} />
       </div>
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
         <DialogTitle>Delete loop {loopLabel(loop)}?</DialogTitle>

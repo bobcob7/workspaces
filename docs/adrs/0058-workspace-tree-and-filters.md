@@ -1,4 +1,4 @@
-# 0057. The Agents list shows root workspaces as a tree with their children nested beneath them, filtered by a search box, a status filter and a Show hidden switch; the Hidden group goes, and Needs input stays at the top
+# 0058. The Agents list shows root workspaces as a tree with their children nested beneath them, filtered by a search box, a status filter and a Show hidden switch; the Hidden group goes, and Needs input stays at the top
 
 - Status: Proposed
 - Date: 2026-11-11

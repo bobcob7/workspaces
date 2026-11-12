@@ -57,6 +57,23 @@ describe("Sidebar", () => {
     expect(screen.getByText("Every workspace is hidden.")).toBeInTheDocument();
   });
 
+  it("lists a blocked loop run under Needs input with its state first", () => {
+    const store = loadedStore([
+      {
+        key: "loop-deps-bump-2b3c4d5e",
+        name: "deps-bump",
+        status: "needsInput",
+        hidden: false,
+        detail: "Which major version of eslint should I target?",
+        loopRun: { loop: "deps-bump", attention: "blocked" },
+      },
+    ]);
+    renderWithStore(<Sidebar />, store);
+    const group = screen.getByRole("region", { name: "Needs input" });
+    expect(within(group).getByText("deps-bump")).toBeInTheDocument();
+    expect(within(group).getByText(/^Blocked · /)).toHaveTextContent("Blocked · Which major version of eslint should I target?");
+  });
+
   it("marks a child in Needs input with the workspace it was started from", () => {
     const store = loadedStore([
       { key: "root", workspaceId: "root", name: "fix-login" },

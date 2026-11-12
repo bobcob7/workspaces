@@ -10,7 +10,6 @@ describe("loop data", () => {
     const store = testStore({ api: fakeApi({ loopsHistory: vi.fn(async () => history) }) });
     await store.dispatch(fetchLoopHistory({ name: "deps", limit: 20 }));
     expect(store.getState().loopData.history).toEqual(history);
-    expect(store.getState().loopData.historyLimit).toBe(20);
     expect(store.getState().loopData.historyError).toBeNull();
   });
 

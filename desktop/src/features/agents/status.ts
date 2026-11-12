@@ -36,7 +36,7 @@ const liveStatuses: ReadonlySet<Status> = new Set(["working", "needsInput", "idl
 
 export const isLive = (status: Status): boolean => liveStatuses.has(status);
 
-/** Hidden entries never count; they're in the tree only with Show hidden (ADR 0057). */
+/** Hidden entries never count; they're in the tree only with Show hidden (ADR 0058). */
 export const needsAttention = (entry: Entry): boolean =>
   !entry.hidden && entry.kind === "agent" && (entry.status === "needsInput" || entry.status === "idle");
 
@@ -66,10 +66,10 @@ export const groupOf = (entry: Entry): GroupId => {
 
 const recency = (entry: Entry): string => entry.updatedAt ?? entry.createdAt ?? "";
 
-/** Most recently active first, then by name (ADR 0057 orders roots and siblings by it). */
+/** Most recently active first, then by name (ADR 0058 orders roots and siblings by it). */
 export const byRecency = (a: Entry, b: Entry): number => recency(b).localeCompare(recency(a)) || a.name.localeCompare(b.name);
 
-/** What the Agents list's status filter can be set to: everything, or one group (ADR 0057). */
+/** What the Agents list's status filter can be set to: everything, or one group (ADR 0058). */
 export type StatusFilter = "all" | GroupId;
 
 /** The status filter's choices in display order: All statuses, then each group. */

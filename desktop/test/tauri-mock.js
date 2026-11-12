@@ -44,6 +44,7 @@
     review: null,
     hidden: false,
     parentId: null,
+    loopRun: null,
     ...overrides,
   });
 
@@ -168,8 +169,43 @@
     // Run history per loop: runs newest first, reports by seq (reportText).
     loopHistory: {
       "deps-bump": {
-        total: 57,
+        total: 59,
         runs: [
+          {
+            seq: 59,
+            status: "blocked",
+            trigger: "tick",
+            startedAt: "2026-10-25T08:00:00Z",
+            finishedAt: null,
+            durationSeconds: null,
+            workspace: "loop-deps-bump-2b3c4d5e",
+            workspaceExists: true,
+            session: "2b3c4d5e",
+            error: null,
+            gate: null,
+            repeats: 1,
+            verdict: {
+              verdict: "BLOCKED",
+              outcome: "blocked",
+              recordedAt: "2026-10-25T08:06:12Z",
+              report: "/w/.loops/deps-bump/reports/59.md",
+            },
+          },
+          {
+            seq: 58,
+            status: "needs_attention",
+            trigger: "tick",
+            startedAt: "2026-10-25T07:00:00Z",
+            finishedAt: "2026-10-25T07:03:40Z",
+            durationSeconds: 220,
+            workspace: null,
+            workspaceExists: false,
+            session: null,
+            error: null,
+            gate: null,
+            repeats: 1,
+            verdict: null,
+          },
           {
             seq: 57,
             status: "running",
@@ -287,6 +323,7 @@
           },
         ],
         reports: {
+          59: "# Question\n\nWhich major version of eslint should I target? v9 needs a flat config.\n",
           56: [
             "## Bumped 3 modules",
             "",
@@ -360,6 +397,7 @@
           exitCode: 0,
           message: null,
         },
+        hidden: true,
       },
       {
         name: "triage",
@@ -383,6 +421,7 @@
         scriptTimeout: null,
         vars: {},
         lastGate: null,
+        hidden: false,
       },
     ],
     entries: [
@@ -470,14 +509,42 @@
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
       }),
       entry({
-        workspaceId: "lint-fix-api-7c8d9e0f",
-        sessionId: "7c8d9e0f",
+        workspaceId: "lint-fix-api-6e7f8a9b",
+        sessionId: "6e7f8a9b",
         parentId: "lint-sweep-5b1e93aa",
-        path: "/w/lint-fix-api-7c8d9e0f",
+        path: "/w/lint-fix-api-6e7f8a9b",
         status: "working",
         intent: "Fix lint in api",
         updatedAt: "2026-10-24T08:10:00Z",
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
+      }),
+      entry({
+        workspaceId: "loop-deps-bump-2b3c4d5e",
+        sessionId: "2b3c4d5e",
+        path: "/w/loop-deps-bump-2b3c4d5e",
+        status: "needsInput",
+        intent: "Dependency bumps",
+        detail: "Which major version of eslint should I target?",
+        hidden: false,
+        loopRun: { loop: "deps-bump", attention: "blocked" },
+      }),
+      entry({
+        workspaceId: "loop-status-check-7c8d9e0f",
+        sessionId: "7c8d9e0f",
+        path: "/w/loop-status-check-7c8d9e0f",
+        status: "needsInput",
+        intent: "Status check",
+        hidden: false,
+        loopRun: { loop: "status-check", attention: "needs_attention" },
+      }),
+      entry({
+        workspaceId: "loop-deps-bump-9f8e7d6c",
+        sessionId: "9f8e7d6c",
+        path: "/w/loop-deps-bump-9f8e7d6c",
+        status: "done",
+        intent: "Dependency bumps",
+        hidden: true,
+        loopRun: { loop: "deps-bump", attention: null },
       }),
     ],
     settings: defaultSettings(),
@@ -525,6 +592,28 @@
     return found;
   };
 
+  // Older runs so the history has more than one page.
+  const bump = data.loopHistory["deps-bump"];
+  for (let seq = 50; seq >= 36; seq -= 1) {
+    const day = String(seq - 33).padStart(2, "0");
+    bump.runs.push({
+      seq,
+      status: seq % 7 === 0 ? "failed" : "succeeded",
+      trigger: "tick",
+      startedAt: `2026-10-${day}T08:00:00Z`,
+      finishedAt: `2026-10-${day}T08:10:00Z`,
+      durationSeconds: 600,
+      workspace: `loop-deps-bump-${seq}`,
+      workspaceExists: false,
+      session: null,
+      error: null,
+      gate: null,
+      repeats: 1,
+      verdict: null,
+    });
+  }
+  bump.total = bump.runs.length;
+
   const historyOf = (name) => data.loopHistory[name] ?? { total: 0, runs: [], reports: {} };
 
   const memoryOf = (name) => data.loopMemory[name] ?? { entries: [] };
@@ -546,6 +635,7 @@
       script,
       scriptTimeout: script === null ? null : request.scriptTimeout ?? "1m",
       vars: Object.fromEntries((request.vars ?? []).map(({ key, value }) => [key, value])),
+      hidden: request.hidden ?? true,
     };
   };
 

@@ -44,7 +44,8 @@ reviews from `ws review start` and agents started with `ws claude
       "hidden": false,
       "parent": null,
       "repos": [{"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch"}],
-      "review": null
+      "review": null,
+      "loop_run": null
     }
   ],
   "hidden_count": 2,
@@ -75,6 +76,13 @@ reviews from `ws review start` and agents started with `ws claude
 - `hidden_count`: how many hidden workspaces were left out; 0 with `-a`.
 - `review`: a review workspace's record, as `ws review start --json`
   prints it, or `null` for any other workspace.
+- `loop_run`: the loop a workspace runs, and what its run asks of a person,
+  or `null` for any other workspace. `attention` is `blocked` (the run
+  recorded `BLOCKED`), `needs_attention` (it went idle without a verdict),
+  or `null`. For example `{"loop": "deps-bump", "attention": "blocked"}`.
+  A hidden loop run with attention is listed without `-a` and is not
+  counted in `hidden_count`; the table shows it as `(blocked)` or
+  `(needs attention)` in place of `(hidden)`.
 - `session` is `null` while `ws claude` or `ws shell` is still handing the
   workspace to its session.
 - A directory under the workspace root that isn't a workspace is listed

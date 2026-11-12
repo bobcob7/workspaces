@@ -49,7 +49,7 @@ export const RunDialog = ({ name, seq, onClose }: { readonly name: string; reado
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         {loaded !== null && <RunDetails run={loaded.run} />}
-        <h3 className={styles.reportTitle}>Report</h3>
+        <h3 className={styles.reportTitle}>{loaded?.run.verdict?.outcome === "blocked" ? "Question" : "Report"}</h3>
         {loaded === null && <p className={styles.muted}>Loading…</p>}
         {loaded !== null && loaded.reportText === null && <p className={styles.muted}>No report was recorded.</p>}
         {loaded !== null && loaded.reportText !== null && (

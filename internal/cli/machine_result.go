@@ -89,6 +89,11 @@ func (a *App) runMachineResult(verdict, file string) error {
 	if err != nil {
 		return newError(codeResultInvalid, err)
 	}
+	if v == machine.VerdictBlocked {
+		if err = a.checkBlocked(caller, root, file); err != nil {
+			return err
+		}
+	}
 	store := machine.NewStore(a.paths.State)
 	rec, err := store.Read(root, caller)
 	if err != nil {
@@ -119,6 +124,28 @@ func (a *App) runMachineResult(verdict, file string) error {
 		return fmt.Errorf("reading back %s's result: none recorded", caller)
 	}
 	return a.writeJSON(machineResultJSON{ID: caller, Root: root, Role: optional(rec.Role()), Result: *info, Warnings: a.warnings()})
+}
+
+// errBlockedNotRun is the refusal of BLOCKED outside a loop run's own verdict.
+var errBlockedNotRun = errors.New("BLOCKED is only for a loop run's own verdict; record FAIL instead")
+
+// checkBlocked allows caller to record BLOCKED only as a loop run's root,
+// with the question in file (ADR 0057).
+func (a *App) checkBlocked(caller, root, file string) error {
+	if root != caller {
+		return newError(codeResultInvalid, errBlockedNotRun)
+	}
+	_, found, err := a.loopData.ReadRunMark(caller)
+	if err != nil {
+		return fmt.Errorf("reading %s's run mark: %w", caller, err)
+	}
+	if !found {
+		return newError(codeResultInvalid, errBlockedNotRun)
+	}
+	if file == "" {
+		return newError(codeResultInvalid, errors.New("BLOCKED needs --file with your question"))
+	}
+	return nil
 }
 
 // readReport reads --file: "" is no report (nil, nil); "-" is a.stdin;

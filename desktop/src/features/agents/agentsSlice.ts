@@ -25,13 +25,13 @@ export interface AgentsState {
   readonly busy: readonly string[];
   readonly creating: boolean;
   readonly createError: AppError | null;
-  /** The Show hidden switch is on (ADR 0057); not persisted. */
+  /** The Show hidden switch is on (ADR 0058); not persisted. */
   readonly showHidden: boolean;
-  /** The user's last open (true) or closed (false) choice per entry key in the tree (ADR 0057); not persisted. */
+  /** The user's last open (true) or closed (false) choice per entry key in the tree (ADR 0058); not persisted. */
   readonly expanded: Readonly<Record<string, boolean>>;
-  /** The Agents list's search text (ADR 0057); not persisted. */
+  /** The Agents list's search text (ADR 0058); not persisted. */
   readonly query: string;
-  /** The Agents list's status filter (ADR 0057); not persisted. */
+  /** The Agents list's status filter (ADR 0058); not persisted. */
   readonly statusFilter: StatusFilter;
 }
 

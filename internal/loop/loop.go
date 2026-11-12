@@ -12,11 +12,15 @@ import (
 )
 
 // FormatVersion is the newest loop record version this ws reads and writes.
-const FormatVersion = 2
+const FormatVersion = 3
 
 // Version1 is the record version of loops added before ADR 0049: no
 // script, no vars, and a literal prompt.
 const Version1 = 1
+
+// Version2 is the record version of loops added before ADR 0057: no
+// hidden.
+const Version2 = 2
 
 // Bounds of a loop's period and keep count, as ADR 0048 and ws loop add
 // document them.
@@ -99,7 +103,15 @@ type Loop struct {
 	ScriptTimeout  string            `toml:"script_timeout,omitempty"`
 	Vars           map[string]string `toml:"vars,omitempty"`
 	LastGate       *Gate             `toml:"last_gate,omitempty"`
-	Runs           []Run             `toml:"runs"`
+	// Hidden is whether runs start hidden (ADR 0057); nil (a version 1 or 2
+	// record) is the default, hidden.
+	Hidden *bool `toml:"hidden,omitempty"`
+	Runs   []Run `toml:"runs"`
+}
+
+// RunsHidden is *l.Hidden, or true when it is nil.
+func (l *Loop) RunsHidden() bool {
+	return l.Hidden == nil || *l.Hidden
 }
 
 // ValidateName checks a loop name: 1–40 chars of a-z, 0-9, '-', and the

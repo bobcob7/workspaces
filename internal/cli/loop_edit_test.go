@@ -168,6 +168,44 @@ func TestApp_loopEdit(t *testing.T) {
 }
 
 // mustInterval is the period of l, which the test expects to parse.
+func TestApp_loopEditHidden(t *testing.T) {
+	t.Run("--show makes a version 2 loop visible and version 3", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		store := withLoopStore(t, app)
+		addEditLoop(t, app, stdout)
+		l, err := store.Get("deps")
+		require.NoError(t, err)
+		l.Version = loop.Version2
+		l.Hidden = nil
+		require.NoError(t, store.Save(&l))
+
+		code, out := runLoop(t, app, stdout, "edit", "deps", "--show", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, false, out["hidden"])
+		stored, err := store.Get("deps")
+		require.NoError(t, err)
+		assert.Equal(t, loop.FormatVersion, stored.Version)
+		require.NotNil(t, stored.Hidden)
+		assert.False(t, *stored.Hidden)
+	})
+	t.Run("--hidden alone is a valid edit", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		withLoopStore(t, app)
+		addEditLoop(t, app, stdout)
+		require.Equal(t, exitOK, runLoopCode(t, app, "edit", "deps", "--show"))
+
+		code, out := runLoop(t, app, stdout, "edit", "deps", "--hidden", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, true, out["hidden"])
+	})
+	t.Run("--show with --hidden is a usage error", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		withLoopStore(t, app)
+		addEditLoop(t, app, stdout)
+		assert.Equal(t, exitUsage, runLoopCode(t, app, "edit", "deps", "--show", "--hidden"))
+	})
+}
+
 func mustInterval(t *testing.T, l *loop.Loop) time.Duration {
 	t.Helper()
 	d, err := l.Interval()

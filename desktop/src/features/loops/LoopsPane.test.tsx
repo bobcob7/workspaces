@@ -39,6 +39,7 @@ describe("LoopsPane", () => {
       keep: 5,
       model: "",
       permissionMode: "",
+      hidden: true,
     });
     expect(await screen.findByRole("heading", { name: "nightly" })).toBeInTheDocument();
   });
@@ -112,7 +113,18 @@ describe("LoopsPane", () => {
       script: "gh issue list | grep .",
       scriptTimeout: "1m",
       vars: [{ key: "REPO", value: "buff-bear" }],
+      hidden: true,
     });
+  });
+
+  it("says whether a loop's runs are hidden in the Agent card", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop(fakeApi(), { hidden: true }));
+    expect(within(screen.getByRole("region", { name: "Agent" })).getByText("Hidden unless blocked")).toBeInTheDocument();
+  });
+
+  it("says a loop's runs are shown in Agents when they are not hidden", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop(fakeApi(), { hidden: false }));
+    expect(within(screen.getByRole("region", { name: "Agent" })).getByText("Shown in Agents")).toBeInTheDocument();
   });
 
   it("shows the script timeout only while there is a script", async () => {
@@ -252,5 +264,12 @@ describe("LoopsPane", () => {
     renderWithStore(<LoopsPane />, storeWithLoop());
     expect(screen.getByRole("region", { name: "History" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Memory" })).toBeInTheDocument();
+  });
+
+  it("puts the History card last, after Memory", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop());
+    const titles = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+    expect(titles.at(-1)).toBe("History");
+    expect(titles.indexOf("Memory")).toBeLessThan(titles.indexOf("History"));
   });
 });

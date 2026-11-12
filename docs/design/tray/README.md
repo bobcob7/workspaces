@@ -156,7 +156,8 @@ Reviews group does.
   the tray shows the current count at once.
 - **Agent removed**: forgotten; its menu row goes on the next listing.
   Re-created with the same id later, it's first seen again.
-- **Child or hidden**: never tracked. An agent hidden while waiting
+- **Child or hidden**: never tracked, except a raised loop run (see Loop
+  runs above). An agent hidden while waiting
   leaves the menu; unhidden, it's first seen again and doesn't notify.
   A child made a root by `ws rm --keep-children` likewise.
 - **Rename**: same key, so no event; the menu and later notifications
@@ -172,6 +173,27 @@ Reviews group does.
 - **Notifications off**: the tray still updates.
 - **Dev builds**: macOS may attribute notifications to another app or
   ask for permission once; check in a bundled build (`make desktop`).
+
+## Loop runs (ADR 0057)
+
+A loop run is raised while its `loop_run.attention` is `blocked` or
+`needs_attention` ([`ws list`](../../tools/ws-list.md)). Its workspace is
+shown although hidden, the tray tracks it, and its status is needs input,
+so it counts like any agent that needs input.
+
+- **One notification per run.** A loop step runs after the usual step on
+  each listing. A raised run notifies once it has been raised for
+  `DWELL_MS`, and never again while the app runs. The usual needs-input or
+  done notification for that entry is suppressed.
+- **First listing.** Runs already raised at app start, or first seen
+  raised, are recorded as notified, with no notification.
+- **Setting.** Loop notifications follow **When an agent needs input**.
+  Web Push sends them with the tag `loop:<workspace id>`.
+
+| Attention         | Title                    | Body                                    |
+| ----------------- | ------------------------ | --------------------------------------- |
+| `blocked`         | `<name> is blocked`      | `A loop run is waiting for your answer` |
+| `needs_attention` | `<name> needs attention` | `A loop run stopped without a verdict`  |
 
 ## Code layout
 

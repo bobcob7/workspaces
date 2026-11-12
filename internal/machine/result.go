@@ -29,14 +29,18 @@ var (
 	ErrNewer = errors.New("machine record from a newer ws")
 )
 
-// Outcome is what a verdict means: pass or fail.
+// Outcome is what a verdict means: pass, fail, or blocked.
 type Outcome string
 
-// The two outcomes of a result.
+// The outcomes of a result.
 const (
-	OutcomePass Outcome = "pass"
-	OutcomeFail Outcome = "fail"
+	OutcomePass    Outcome = "pass"
+	OutcomeFail    Outcome = "fail"
+	OutcomeBlocked Outcome = "blocked"
 )
+
+// VerdictBlocked is a loop run's verdict asking a person for help (ADR 0057).
+const VerdictBlocked = "BLOCKED"
 
 // DefaultPass and DefaultFail judge a child spawned without a role. They
 // are read-only: callers must not modify them.
@@ -102,9 +106,13 @@ type Result struct {
 	Report bool `toml:"report"`
 }
 
-// OutcomeOf is pass when verdict is in spawn's Pass list, or with a nil
-// spawn in DefaultPass; every other verdict is fail.
+// OutcomeOf is blocked when verdict is VerdictBlocked and spawn is nil (a
+// loop run's own verdict). Otherwise it is pass when verdict is in spawn's
+// Pass list, or with a nil spawn in DefaultPass; every other verdict is fail.
 func OutcomeOf(spawn *Spawn, verdict string) Outcome {
+	if spawn == nil && verdict == VerdictBlocked {
+		return OutcomeBlocked
+	}
 	passes := DefaultPass
 	if spawn != nil {
 		passes = spawn.Pass

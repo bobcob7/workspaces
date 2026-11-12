@@ -25,6 +25,10 @@ const (
 	StatusStartFailed RunStatus = "start_failed"
 	StatusSkipped     RunStatus = "skipped"
 	StatusGone        RunStatus = "gone"
+	// StatusBlocked is a run that asked a person for help (ADR 0057).
+	StatusBlocked RunStatus = "blocked"
+	// StatusNeedsAttention is a run whose session is idle with no verdict.
+	StatusNeedsAttention RunStatus = "needs_attention"
 )
 
 // Trigger is what started a run.
@@ -49,7 +53,7 @@ const (
 // Verdict is the result a run recorded with ws machine result.
 type Verdict struct {
 	Verdict    string    `json:"verdict"`
-	Outcome    string    `json:"outcome"` // "pass" or "fail"
+	Outcome    string    `json:"outcome"` // "pass", "fail" or "blocked"
 	RecordedAt time.Time `json:"recorded_at"`
 	Report     bool      `json:"report"` // reports/<seq>.md was kept
 }
@@ -288,8 +292,8 @@ func (e *Entry) Open() bool {
 	return e.Workspace != "" && !e.Closed
 }
 
-// Settle applies obs at now by the status rules in reference.md, and
-// reports whether e changed.
+// Settle applies obs at now by the status rules in reference.md (ADR 0057),
+// and reports whether e changed.
 func (e *Entry) Settle(obs Observation, now time.Time) bool {
 	if !e.Open() {
 		return false
@@ -298,31 +302,32 @@ func (e *Entry) Settle(obs Observation, now time.Time) bool {
 		return e.close(now)
 	}
 	if obs.Verdict != nil && e.verdictChanged(obs.Verdict) {
-		e.recordVerdict(obs.Verdict)
+		if e.recordVerdict(obs.Verdict) {
+			return true
+		}
+		e.settleState(obs.State, now)
 		return true
 	}
-	if e.Verdict != nil {
+	if e.Verdict != nil && e.Verdict.Outcome != "blocked" {
 		return false
 	}
-	switch obs.State {
-	case "working", "starting":
-		return e.setState(StatusRunning, nil)
-	case "idle", "stopped":
-		finished := e.FinishedAt
-		if finished == nil {
-			finished = &now
-		}
-		return e.setState(StatusDone, finished)
-	}
-	return false
+	return e.settleState(obs.State, now)
 }
 
 // close marks a workspace that is no longer listed as closed. A run still
-// running is gone.
+// running is gone; one that needed attention is done; one blocked keeps
+// its status and finish time.
 func (e *Entry) close(now time.Time) bool {
 	e.Closed = true
 	if e.Status == StatusRunning {
 		e.Status = StatusGone
+		e.FinishedAt = &now
+	}
+	if e.Status == StatusNeedsAttention {
+		e.Status = StatusDone
+		e.FinishedAt = &now
+	}
+	if e.Status == StatusBlocked && e.FinishedAt == nil {
 		e.FinishedAt = &now
 	}
 	return true
@@ -335,15 +340,45 @@ func (e *Entry) verdictChanged(v *Verdict) bool {
 		e.Verdict.Outcome != v.Outcome
 }
 
-func (e *Entry) recordVerdict(v *Verdict) {
+// recordVerdict stores v. A pass or fail ends the run by it and reports
+// true; a blocked verdict leaves the run open and reports false.
+func (e *Entry) recordVerdict(v *Verdict) bool {
 	stored := *v
 	e.Verdict = &stored
+	if v.Outcome == "blocked" {
+		return false
+	}
 	e.Status = StatusFailed
 	if v.Outcome == "pass" {
 		e.Status = StatusSucceeded
 	}
 	recorded := v.RecordedAt
 	e.FinishedAt = &recorded
+	return true
+}
+
+// settleState sets a run that has no pass or fail verdict from the state of
+// its session, and reports whether e changed.
+func (e *Entry) settleState(state string, now time.Time) bool {
+	verdict := ""
+	if e.Verdict != nil {
+		verdict = e.Verdict.Verdict
+	}
+	switch {
+	case state == "working" || state == "starting":
+		return e.setState(StatusRunning, nil)
+	case AttentionOf(state, verdict) == AttentionBlocked:
+		return e.setState(StatusBlocked, nil)
+	case AttentionOf(state, verdict) == AttentionNeedsAttention:
+		return e.setState(StatusNeedsAttention, nil)
+	case state == "stopped":
+		finished := e.FinishedAt
+		if finished == nil {
+			finished = &now
+		}
+		return e.setState(StatusDone, finished)
+	}
+	return false
 }
 
 // setState sets the status and finish time, and reports whether either

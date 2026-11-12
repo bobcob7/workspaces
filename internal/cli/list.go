@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/loop"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/review/record"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -62,6 +64,15 @@ type listWorkspaceJSON struct {
 	Repos  []listRepoJSON `json:"repos"`
 	// Review is a review workspace's record, or null (ADR 0039).
 	Review *record.Record `json:"review"`
+	// LoopRun is the loop run this workspace is, or null (ADR 0057).
+	LoopRun *listLoopRunJSON `json:"loop_run"`
+}
+
+// listLoopRunJSON is the loop a workspace runs, and what that run asks of a
+// person: null attention when it asks nothing (ADR 0057).
+type listLoopRunJSON struct {
+	Loop      string  `json:"loop"`
+	Attention *string `json:"attention"`
 }
 
 type listSessionJSON struct {
@@ -102,35 +113,40 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
-	entries, hidden := visibleEntries(childrenOf(filterEntries(listing.Workspaces, filter), parent), opts.all)
+	loopRuns := map[string]*listLoopRunJSON{}
+	raised := func(e *lifetime.Entry) bool {
+		return attentionOf(a.cachedLoopRun(loopRuns, e)) != loop.AttentionNone
+	}
+	entries, hidden := visibleEntries(childrenOf(filterEntries(listing.Workspaces, filter), parent), opts.all, raised)
 	unknown := listing.Unknown
 	if filter != nil || parent != "" {
 		unknown = nil
 	}
 	switch {
 	case a.global.json:
-		return a.writeJSON(listJSON{Workspaces: a.listWorkspaces(entries, unknown), HiddenCount: hidden, Warnings: a.warnings()})
+		return a.writeJSON(listJSON{Workspaces: a.listWorkspaces(entries, unknown, loopRuns), HiddenCount: hidden, Warnings: a.warnings()})
 	case opts.idsOnly:
 		for i := range entries {
 			fmt.Fprintln(a.stdout, entries[i].Workspace.ID)
 		}
 	default:
-		a.printList(entries, unknown)
+		a.printList(entries, unknown, loopRuns)
 		a.printHiddenNote(hidden)
 	}
 	a.printWarnings()
 	return nil
 }
 
-// visibleEntries leaves out hidden workspaces unless all, and counts the
-// ones it left out (ADR 0043).
-func visibleEntries(entries []lifetime.Entry, all bool) ([]lifetime.Entry, int) {
+// visibleEntries leaves out hidden workspaces unless all, except loop runs
+// that raised is true for, and counts the ones it left out (ADR 0043, ADR
+// 0057).
+func visibleEntries(entries []lifetime.Entry, all bool, raised func(*lifetime.Entry) bool) ([]lifetime.Entry, int) {
 	if all {
 		return entries, 0
 	}
 	var kept []lifetime.Entry
 	for i := range entries {
-		if !entries[i].Workspace.Hidden {
+		if !entries[i].Workspace.Hidden || raised(&entries[i]) {
 			kept = append(kept, entries[i])
 		}
 	}
@@ -271,13 +287,14 @@ func repoMatches(id string, filter *repo.Spec) bool {
 }
 
 // listWorkspaces is the JSON for the workspaces and then the unknown
-// directories, which have no id, creation time, session, repos, or
-// review.
-func (a *App) listWorkspaces(entries []lifetime.Entry, unknown []string) []listWorkspaceJSON {
+// directories, which have no id, creation time, session, repos, review, or
+// loop run. loopRuns is the cache of loopRunInfo, or nil.
+func (a *App) listWorkspaces(entries []lifetime.Entry, unknown []string, loopRuns map[string]*listLoopRunJSON) []listWorkspaceJSON {
 	out := make([]listWorkspaceJSON, 0, len(entries)+len(unknown))
 	for i := range entries {
 		ws := listWorkspace(&entries[i])
 		ws.Review = a.reviewRecord(entries[i].Workspace.ID)
+		ws.LoopRun = a.cachedLoopRun(loopRuns, &entries[i])
 		out = append(out, ws)
 	}
 	for _, dir := range unknown {
@@ -321,16 +338,71 @@ func (a *App) reviewRecord(id string) *record.Record {
 	return &rec
 }
 
+// loopRunInfo is the loop_run of the listed workspace e, or nil when it
+// isn't a loop run. Failures are warnings.
+func (a *App) loopRunInfo(e *lifetime.Entry) *listLoopRunJSON {
+	id := e.Workspace.ID
+	mark, found, err := a.loopData.ReadRunMark(id)
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't read workspace %s's loop run: %v", id, err))
+		return nil
+	}
+	if !found {
+		return nil
+	}
+	verdict := ""
+	rec, err := machine.NewStore(a.paths.State).Read(id, id)
+	switch {
+	case err != nil:
+		a.warned = append(a.warned, fmt.Sprintf("couldn't read workspace %s's machine record: %v", id, err))
+	case rec.Result != nil:
+		verdict = rec.Result.Verdict
+	}
+	state := ""
+	if e.Session != nil {
+		state = string(e.Session.State)
+	}
+	info := &listLoopRunJSON{Loop: mark.Loop}
+	if attention := loop.AttentionOf(state, verdict); attention != loop.AttentionNone {
+		info.Attention = optional(string(attention))
+	}
+	return info
+}
+
+// cachedLoopRun is loopRunInfo of e, remembered in runs by workspace id so
+// each workspace is read once. A nil runs reads every time.
+func (a *App) cachedLoopRun(runs map[string]*listLoopRunJSON, e *lifetime.Entry) *listLoopRunJSON {
+	if runs == nil {
+		return a.loopRunInfo(e)
+	}
+	id := e.Workspace.ID
+	info, ok := runs[id]
+	if !ok {
+		info = a.loopRunInfo(e)
+		runs[id] = info
+	}
+	return info
+}
+
+// attentionOf is the attention of a listed loop run, or none for nil.
+func attentionOf(info *listLoopRunJSON) loop.Attention {
+	if info == nil || info.Attention == nil {
+		return loop.AttentionNone
+	}
+	return loop.Attention(*info.Attention)
+}
+
 // printList prints a table like `docker ps`, each workspace under the
 // one that started it.
-func (a *App) printList(entries []lifetime.Entry, unknown []string) {
+func (a *App) printList(entries []lifetime.Entry, unknown []string, loopRuns map[string]*listLoopRunJSON) {
 	tw := tabwriter.NewWriter(a.stdout, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(tw, "ID\tNAME\tCREATED\tSESSION\tREPOS")
 	now := a.now()
 	order, depths := treeOrder(entries)
 	for k, i := range order {
 		ws := &entries[i].Workspace
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", treeID(ws.ID, depths[k]), nameText(ws.Name, ws.Hidden), ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
+		name := nameText(ws.Name, ws.Hidden, attentionOf(a.cachedLoopRun(loopRuns, &entries[i])))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", treeID(ws.ID, depths[k]), name, ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
 	}
 	for _, dir := range unknown {
 		fmt.Fprintf(tw, "unknown\t-\t-\t-\t%s\n", dir)
@@ -339,12 +411,18 @@ func (a *App) printList(entries []lifetime.Entry, unknown []string) {
 }
 
 // nameText is the NAME column: the display name, or "-" without one,
-// followed by "(hidden)" for a hidden workspace.
-func nameText(name string, hidden bool) string {
+// followed by the attention of a loop run, or else "(hidden)" for a hidden
+// workspace.
+func nameText(name string, hidden bool, attention loop.Attention) string {
 	if name == "" {
 		name = "-"
 	}
-	if hidden {
+	switch {
+	case attention == loop.AttentionBlocked:
+		return name + " (blocked)"
+	case attention == loop.AttentionNeedsAttention:
+		return name + " (needs attention)"
+	case hidden:
 		return name + " (hidden)"
 	}
 	return name

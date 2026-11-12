@@ -289,6 +289,36 @@ func TestApp_loopRun(t *testing.T) {
 	})
 }
 
+func TestApp_loopRunHidden(t *testing.T) {
+	// createdWith starts loop deps with args, its runs visible if show, and
+	// returns the workspace options the run was created with.
+	createdWith := func(t *testing.T, show bool, args ...string) workspace.CreateOptions {
+		t.Helper()
+		e := newTickEnv(t)
+		l := e.addDueLoop(t)
+		hidden := !show
+		l.Hidden = &hidden
+		require.NoError(t, e.loops.Save(&l))
+		var created workspace.CreateOptions
+		create := e.store.CreateFunc
+		e.store.CreateFunc = func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
+			created = opts
+			return create(ctx, opts)
+		}
+		code, _ := runLoop(t, e.app, e.stdout, args...)
+		require.Equal(t, 0, code, e.stderr.String())
+		return created
+	}
+	for _, cmd := range [][]string{{"run", "--json", "deps"}, {"tick", "--json"}} {
+		t.Run(cmd[0]+" hides a default loop's run workspace", func(t *testing.T) {
+			assert.True(t, createdWith(t, false, cmd...).Hidden)
+		})
+		t.Run(cmd[0]+" shows a --show loop's run workspace", func(t *testing.T) {
+			assert.False(t, createdWith(t, true, cmd...).Hidden)
+		})
+	}
+}
+
 func TestLoopClaudeArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -469,6 +499,7 @@ func TestApp_loopTickGate(t *testing.T) {
 		l := e.addDueLoop(t)
 		l.Prompt = "literal {{ .Stdout }}"
 		l.Version = loop.Version1
+		l.Hidden = nil
 		require.NoError(t, e.loops.Save(&l))
 		g := &fakeGate{}
 		e.app.gate = g
@@ -632,15 +663,15 @@ func TestApp_loopTick_settle(t *testing.T) {
 		l.Paused = true
 		require.NoError(t, e.loops.Save(&l))
 	}
-	t.Run("an idle run with no record is done", func(t *testing.T) {
+	t.Run("an idle run with no record needs attention", func(t *testing.T) {
 		e := newTickEnv(t)
 		pausedWithRun(t, e)
 		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) { return idleListing("loop-deps-old"), nil }
 		require.Equal(t, 0, runLoopCode(t, e.app, "tick", "--json"), e.stderr.String())
 		h := e.history(t)
 		require.Len(t, h.Entries, 1)
-		assert.Equal(t, loop.StatusDone, h.Entries[0].Status)
-		assert.NotNil(t, h.Entries[0].FinishedAt)
+		assert.Equal(t, loop.StatusNeedsAttention, h.Entries[0].Status)
+		assert.Nil(t, h.Entries[0].FinishedAt)
 	})
 	t.Run("a verdict succeeds the run and saves its report", func(t *testing.T) {
 		e := newTickEnv(t)

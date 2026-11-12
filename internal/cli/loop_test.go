@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -366,6 +367,90 @@ func TestApp_loopRm(t *testing.T) {
 		code := app.Run(t.Context(), []string{"loop", "rm", "nope", "--json"})
 		assert.Equal(t, exitNotFound, code)
 		assert.Contains(t, stderr.String(), `"code":"loop_not_found"`)
+	})
+}
+
+func TestApp_loopAddHidden(t *testing.T) {
+	t.Run("a new loop's runs start hidden", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		store := withLoopStore(t, app)
+		code, out := runLoop(t, app, stdout, "add", "deps", "--every", "1h", "--prompt", "hi", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, true, out["hidden"])
+		stored, err := store.Get("deps")
+		require.NoError(t, err)
+		assert.Equal(t, loop.FormatVersion, stored.Version)
+		require.NotNil(t, stored.Hidden)
+		assert.True(t, *stored.Hidden)
+	})
+	t.Run("--show makes the runs visible", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		store := withLoopStore(t, app)
+		code, out := runLoop(t, app, stdout, "add", "deps", "--every", "1h", "--prompt", "hi", "--show", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, false, out["hidden"])
+		stored, err := store.Get("deps")
+		require.NoError(t, err)
+		require.NotNil(t, stored.Hidden)
+		assert.False(t, *stored.Hidden)
+	})
+	t.Run("--hidden=false is the same as --show", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		withLoopStore(t, app)
+		code, out := runLoop(t, app, stdout, "add", "deps", "--every", "1h", "--prompt", "hi", "--hidden=false", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, false, out["hidden"])
+	})
+	t.Run("--show with --hidden is a usage error", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		store := withLoopStore(t, app)
+		code := runLoopCode(t, app, "add", "deps", "--every", "1h", "--prompt", "hi", "--show", "--hidden")
+		assert.Equal(t, exitUsage, code)
+		_, err := store.Get("deps")
+		require.Error(t, err)
+		assert.Empty(t, stdout.String())
+	})
+	t.Run("a version 2 loop lists as hidden", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		store := withLoopStore(t, app)
+		require.Equal(t, exitOK, runLoopCode(t, app, "add", "deps", "--every", "1h", "--prompt", "hi"))
+		l, err := store.Get("deps")
+		require.NoError(t, err)
+		l.Version = loop.Version2
+		l.Hidden = nil
+		require.NoError(t, store.Save(&l))
+		stdout.Reset()
+		code, out := runLoop(t, app, stdout, "list", "--json")
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, true, listedLoops(t, out)[0]["hidden"])
+	})
+}
+
+func TestHiddenFlag(t *testing.T) {
+	changed := func(names ...string) func(string) bool {
+		return func(name string) bool { return slices.Contains(names, name) }
+	}
+	t.Run("neither flag keeps hidden without a value", func(t *testing.T) {
+		value, given, err := hiddenFlag(changed(), true, false)
+		require.NoError(t, err)
+		assert.True(t, value)
+		assert.False(t, given)
+	})
+	t.Run("--show is visible", func(t *testing.T) {
+		value, given, err := hiddenFlag(changed("show"), false, true)
+		require.NoError(t, err)
+		assert.False(t, value)
+		assert.True(t, given)
+	})
+	t.Run("--hidden=false is visible", func(t *testing.T) {
+		value, given, err := hiddenFlag(changed("hidden"), false, false)
+		require.NoError(t, err)
+		assert.False(t, value)
+		assert.True(t, given)
+	})
+	t.Run("--hidden and --show together are a usage error", func(t *testing.T) {
+		_, _, err := hiddenFlag(changed("hidden", "show"), true, true)
+		assert.ErrorContains(t, err, "give --hidden or --show, not both")
 	})
 }
 

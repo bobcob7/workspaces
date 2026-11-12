@@ -14,7 +14,7 @@ export interface FilterBarProps {
   readonly onShowHiddenChange: (showHidden: boolean) => void;
 }
 
-/** The Agents list's search box, status filter and Show hidden switch (ADR 0057). */
+/** The Agents list's search box, status filter and Show hidden switch (ADR 0058). */
 export const FilterBar = (props: FilterBarProps): JSX.Element => {
   const { query, status, showHidden, hiddenCount, onQueryChange, onStatusChange, onShowHiddenChange } = props;
   return (

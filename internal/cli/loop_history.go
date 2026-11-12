@@ -263,9 +263,9 @@ func historyDuration(e *loop.Entry) (time.Duration, bool) {
 		return 0, false
 	}
 	switch e.Status {
-	case loop.StatusDone, loop.StatusSucceeded, loop.StatusFailed, loop.StatusGone:
+	case loop.StatusDone, loop.StatusSucceeded, loop.StatusFailed, loop.StatusGone, loop.StatusBlocked:
 		return e.FinishedAt.Sub(e.StartedAt), true
-	case loop.StatusRunning, loop.StatusStartFailed, loop.StatusSkipped:
+	case loop.StatusRunning, loop.StatusStartFailed, loop.StatusSkipped, loop.StatusNeedsAttention:
 		return 0, false
 	}
 	return 0, false

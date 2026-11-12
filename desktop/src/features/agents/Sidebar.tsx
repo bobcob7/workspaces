@@ -121,7 +121,7 @@ const EmptyTree = ({ filtering, onClear }: EmptyTreeProps): JSX.Element => {
   );
 };
 
-/** The Agents list: Needs input, the filter bar, and the tree of root workspaces (ADR 0057). */
+/** The Agents list: Needs input, the filter bar, and the tree of root workspaces (ADR 0058). */
 export const Sidebar = (): JSX.Element => {
   const dispatch = useAppDispatch();
   const entries = useAppSelector((s) => s.agents.entries);

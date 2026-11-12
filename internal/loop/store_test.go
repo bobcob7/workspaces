@@ -156,7 +156,7 @@ func TestStoreListSortsAndSkipsBadFiles(t *testing.T) {
 		require.NoError(t, s.Create(&l))
 	}
 	writeFile(t, dir, "bad.toml", "this is = = not toml")
-	writeFile(t, dir, "future.toml", "version = 3\nname = \"future\"\n")
+	writeFile(t, dir, "future.toml", "version = 4\nname = \"future\"\n")
 	writeFile(t, dir, ".lock", "")
 	writeFile(t, dir, ".hidden.toml", "version = 1\n")
 	writeFile(t, dir, "x.toml.tmp", "version = 1\n")
@@ -177,13 +177,72 @@ func TestStoreListSortsAndSkipsBadFiles(t *testing.T) {
 func TestStoreReadRefusesNewerVersionWithoutRewriting(t *testing.T) {
 	t.Parallel()
 	s, dir := newTestStore(t)
-	writeFile(t, dir, "future.toml", "version = 3\nname = \"future\"\n")
+	writeFile(t, dir, "future.toml", "version = 4\nname = \"future\"\n")
 	_, err := s.Get("future")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "newer ws")
 	data, err := os.ReadFile(filepath.Join(dir, "future.toml"))
 	require.NoError(t, err)
-	assert.Equal(t, "version = 3\nname = \"future\"\n", string(data))
+	assert.Equal(t, "version = 4\nname = \"future\"\n", string(data))
+}
+
+func TestStoreCreateHidden(t *testing.T) {
+	t.Parallel()
+	t.Run("a new loop is version 3 and writes hidden true", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t)
+		l := validLoop()
+		require.NoError(t, s.Create(&l))
+		data, err := os.ReadFile(filepath.Join(dir, l.Name+".toml"))
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "version = 3\n")
+		assert.Contains(t, string(data), "hidden = true\n")
+		got, err := s.Get(l.Name)
+		require.NoError(t, err)
+		assert.True(t, got.RunsHidden())
+	})
+	t.Run("a new loop given hidden false keeps it", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t)
+		l := validLoop()
+		shown := false
+		l.Hidden = &shown
+		require.NoError(t, s.Create(&l))
+		data, err := os.ReadFile(filepath.Join(dir, l.Name+".toml"))
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "hidden = false\n")
+		got, err := s.Get(l.Name)
+		require.NoError(t, err)
+		assert.False(t, got.RunsHidden())
+	})
+}
+
+func TestStoreGetHidden(t *testing.T) {
+	t.Parallel()
+	t.Run("a version 2 record with hidden is refused", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t)
+		writeFile(t, dir, "old.toml", "version = 2\nname = \"old\"\nevery = \"24h\"\nprompt = \"x\"\nkeep = 5\nhidden = false\n")
+		_, err := s.Get("old")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "version 2 record has version 3 keys")
+	})
+	t.Run("a version 2 record without hidden reads as hidden", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t)
+		writeFile(t, dir, "old.toml", "version = 2\nname = \"old\"\nevery = \"24h\"\nprompt = \"x\"\nkeep = 5\n")
+		got, err := s.Get("old")
+		require.NoError(t, err)
+		assert.True(t, got.RunsHidden())
+	})
+	t.Run("a version 3 record with hidden false reads as shown", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t)
+		writeFile(t, dir, "new.toml", "version = 3\nname = \"new\"\nevery = \"24h\"\nprompt = \"x\"\nkeep = 5\nhidden = false\n")
+		got, err := s.Get("new")
+		require.NoError(t, err)
+		assert.False(t, got.RunsHidden())
+	})
 }
 
 func TestStoreVersion2RoundTrip(t *testing.T) {

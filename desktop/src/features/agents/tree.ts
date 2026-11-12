@@ -1,7 +1,7 @@
 import type { Entry } from "../../api";
 import { byRecency, groupOf, type StatusFilter } from "./status";
 
-/** The Agents list's filters (ADR 0057). */
+/** The Agents list's filters (ADR 0058). */
 export interface TreeFilter {
   readonly query: string;
   readonly status: StatusFilter;

@@ -72,6 +72,29 @@ describe("EntryPane", () => {
     expect(screen.queryByRole("button", { name: "Hide" })).not.toBeInTheDocument();
   });
 
+  it("shows a blocked loop run's state and no Hide button", () => {
+    const run = entry({ ...shellWorkspace, hidden: false, loopRun: { loop: "deps-bump", attention: "blocked" } });
+    renderWithStore(<EntryPane entry={run} />, testStore());
+    expect(screen.getByText("Blocked")).toBeInTheDocument();
+    expect(screen.getByText("Loop deps-bump")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unhide" })).not.toBeInTheDocument();
+  });
+
+  it("shows a loop run that needs attention without a Hide button", () => {
+    const run = entry({ ...shellWorkspace, loopRun: { loop: "status-check", attention: "needs_attention" } });
+    renderWithStore(<EntryPane entry={run} />, testStore());
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide" })).not.toBeInTheDocument();
+  });
+
+  it("shows a loop run that needs no attention with the usual Hide button", () => {
+    renderWithStore(<EntryPane entry={{ ...shellWorkspace, loopRun: { loop: "deps-bump", attention: null } }} />, testStore());
+    expect(screen.getByText("Loop deps-bump")).toBeInTheDocument();
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+  });
+
   describe("a workspace with children", () => {
     const root = entry({ key: "root", workspaceId: "root", name: "fix-login", path: "/w/root", status: "working" });
     const child = entry({ key: "c", workspaceId: "c", name: "login-tests", parentId: "root", status: "working" });

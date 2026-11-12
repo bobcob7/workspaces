@@ -49,10 +49,11 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   review: null,
   hidden: false,
   parentId: null,
+  loopRun: null,
   ...overrides,
 });
 
-/** A sample tree for the Agents list (ADR 0057); keys equal workspace ids. */
+/** A sample tree for the Agents list (ADR 0058); keys equal workspace ids. */
 export const treeEntries = (): readonly Entry[] => [
   entry({ key: "orch", workspaceId: "orch", name: "orchestrate", status: "working", updatedAt: "2026-11-11T09:00:00Z" }),
   entry({ key: "t1", workspaceId: "t1", name: "t1-impl", parentId: "orch", status: "done", updatedAt: "2026-11-11T08:00:00Z" }),
@@ -303,6 +304,7 @@ export const loop = (overrides: Partial<Loop> = {}): Loop => ({
   scriptTimeout: null,
   vars: {},
   lastGate: null,
+  hidden: true,
   ...overrides,
 });
 

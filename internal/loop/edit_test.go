@@ -36,6 +36,7 @@ func TestEdit_Empty(t *testing.T) {
 		{name: "script", edit: Edit{Script: new("")}},
 		{name: "script timeout", edit: Edit{ScriptTimeout: new("1m")}},
 		{name: "vars", edit: Edit{Vars: &map[string]string{}}},
+		{name: "hidden", edit: Edit{Hidden: new(false)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -311,6 +312,46 @@ func TestLoop_Apply(t *testing.T) {
 		err := l.Apply(&Edit{Vars: &map[string]string{"A": "1"}}, editNow)
 		require.ErrorIs(t, err, ErrInvalid)
 		assert.Equal(t, before, l)
+	})
+
+	t.Run("hidden on a version 2 record makes it version 3", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Version = Version2
+		require.NoError(t, l.Apply(&Edit{Hidden: new(false)}, editNow))
+		assert.Equal(t, FormatVersion, l.Version)
+		assert.False(t, l.RunsHidden())
+	})
+
+	t.Run("hidden on a version 1 record with a plain prompt makes it version 3", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Version = Version1
+		require.NoError(t, l.Apply(&Edit{Hidden: new(true)}, editNow))
+		assert.Equal(t, FormatVersion, l.Version)
+		assert.True(t, l.RunsHidden())
+	})
+
+	t.Run("hidden on a version 1 record with braces is invalid and leaves it unchanged", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Version = Version1
+		l.Prompt = "use {{x}}"
+		before := l
+		err := l.Apply(&Edit{Hidden: new(false)}, editNow)
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.Equal(t, before, l)
+	})
+
+	t.Run("hidden with a prompt edit on a version 1 record with braces is version 3", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Version = Version1
+		l.Prompt = "use {{x}}"
+		edit := Edit{Hidden: new(false), Prompt: new("bump {{.Vars.A}}"), Vars: &map[string]string{"A": "1"}}
+		require.NoError(t, l.Apply(&edit, editNow))
+		assert.Equal(t, FormatVersion, l.Version)
+		assert.False(t, l.RunsHidden())
 	})
 
 	t.Run("full edit keeps runs, created_at, paused, and name", func(t *testing.T) {

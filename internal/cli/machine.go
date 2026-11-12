@@ -272,7 +272,7 @@ func (a *App) runMachineChildren(ctx context.Context, all bool) error {
 	}
 	root := machine.Root(entryWorkspaces(listing.Workspaces), caller)
 	store := machine.NewStore(a.paths.State)
-	listed := a.listWorkspaces(entries, nil)
+	listed := a.listWorkspaces(entries, nil, nil)
 	children := make([]machineChildJSON, 0, len(listed))
 	for i := range listed {
 		children = append(children, a.machineChild(store, root, &listed[i]))

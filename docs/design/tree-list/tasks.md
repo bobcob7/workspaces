@@ -1,6 +1,6 @@
 # Workspace tree and filters: implementation tasks
 
-Implements [ADR 0057](../../adrs/0057-workspace-tree-and-filters.md): the
+Implements [ADR 0058](../../adrs/0058-workspace-tree-and-filters.md): the
 desktop Agents list (`desktop/src/features/agents/Sidebar.tsx`) shows a
 Needs input group, a filter bar, and one tree of root workspaces with
 their children nested beneath them. Frontend only: no Go, Rust, command
@@ -8,7 +8,7 @@ or API change, so it works the same in the Tauri app and Workspace
 Online.
 
 Each task is one commit on its own branch (conventional commit, imperative
-mood, for example `feat: add workspace tree logic (ADR 0057)`), builds,
+mood, for example `feat: add workspace tree logic (ADR 0058)`), builds,
 and passes its own verify commands.
 
 **Order and parallelism**
@@ -25,7 +25,7 @@ T2 and T3 touch disjoint files (`T2 ∥ T3`). T5 touches only
 `desktop/test/tauri-mock.js` and `desktop/README.md`, so it can run at
 any time, but its data is for the screenshots taken after T4.
 
-**Read before any task:** the "Decision" section of ADR 0057. When this
+**Read before any task:** the "Decision" section of ADR 0058. When this
 file and the ADR disagree, the ADR wins; say so in your report.
 
 ## Rules for every task
@@ -83,10 +83,10 @@ Keep everything that's there (`groupEntries` and `hiddenEntries` are
 removed later, in T4). Add or change:
 
 ```ts
-/** Most recently active first, then by name (ADR 0057 orders roots and siblings by it). */
+/** Most recently active first, then by name (ADR 0058 orders roots and siblings by it). */
 export const byRecency = (a: Entry, b: Entry): number => /* the existing body */;
 
-/** What the Agents list's status filter can be set to: everything, or one group (ADR 0057). */
+/** What the Agents list's status filter can be set to: everything, or one group (ADR 0058). */
 export type StatusFilter = "all" | GroupId;
 
 /** The status filter's choices in display order: All statuses, then groupOrder with groupTitles. */
@@ -102,7 +102,7 @@ export const attentionEntries = (entries: readonly Entry[]): readonly Entry[];
 ```
 
 `byRecency` already exists as a private `const`; just export it. Change
-the doc comment of `needsAttention` to: `/** Hidden entries never count (ADR 0043); they're in the tree only with Show hidden (ADR 0057). */`.
+the doc comment of `needsAttention` to: `/** Hidden entries never count (ADR 0043); they're in the tree only with Show hidden (ADR 0058). */`.
 
 ### `tree.ts`
 
@@ -110,7 +110,7 @@ the doc comment of `needsAttention` to: `/** Hidden entries never count (ADR 004
 import type { Entry } from "../../api";
 import { byRecency, groupOf, type StatusFilter } from "./status";
 
-/** The Agents list's filters (ADR 0057). */
+/** The Agents list's filters (ADR 0058). */
 export interface TreeFilter {
   readonly query: string;
   readonly status: StatusFilter;
@@ -198,7 +198,7 @@ Rules:
 Add to `src/test/fixtures.ts`, after `entry`:
 
 ```ts
-/** A sample tree for the Agents list (ADR 0057); keys equal workspace ids. */
+/** A sample tree for the Agents list (ADR 0058); keys equal workspace ids. */
 export const treeEntries = (): readonly Entry[] => [
   entry({ key: "orch", workspaceId: "orch", name: "orchestrate", status: "working", updatedAt: "2026-11-11T09:00:00Z" }),
   entry({ key: "t1", workspaceId: "t1", name: "t1-impl", parentId: "orch", status: "done", updatedAt: "2026-11-11T08:00:00Z" }),
@@ -281,15 +281,15 @@ Read first: both files, `src/features/agents/tree.ts` (`ancestorKeys`),
 Add to `AgentsState` and `initialState`:
 
 ```ts
-  /** The user's last open (true) or closed (false) choice per entry key in the tree (ADR 0057); not persisted. */
+  /** The user's last open (true) or closed (false) choice per entry key in the tree (ADR 0058); not persisted. */
   readonly expanded: Readonly<Record<string, boolean>>;   // initial {}
-  /** The Agents list's search text (ADR 0057); not persisted. */
+  /** The Agents list's search text (ADR 0058); not persisted. */
   readonly query: string;                                  // initial ""
-  /** The Agents list's status filter (ADR 0057); not persisted. */
+  /** The Agents list's status filter (ADR 0058); not persisted. */
   readonly statusFilter: StatusFilter;                     // initial "all"
 ```
 
-Change the doc comment of `showHidden` to `/** The Show hidden switch is on (ADR 0057); not persisted. */`. Keep `hiddenShown` as is.
+Change the doc comment of `showHidden` to `/** The Show hidden switch is on (ADR 0058); not persisted. */`. Keep `hiddenShown` as is.
 
 ### Reducers (add to `reducers`, export the action creators)
 
@@ -371,7 +371,7 @@ export interface FilterBarProps {
   readonly onShowHiddenChange: (showHidden: boolean) => void;
 }
 
-/** The Agents list's search box, status filter and Show hidden switch (ADR 0057). */
+/** The Agents list's search box, status filter and Show hidden switch (ADR 0058). */
 export const FilterBar = (props: FilterBarProps): JSX.Element;
 ```
 
@@ -434,16 +434,16 @@ cd desktop && npm run typecheck && npx vitest run src/features/agents/FilterBar.
   remove `groupEntries`, `hiddenEntries` and their tests (keep `groupOf`,
   `groupTitles`, `groupOrder` and everything else)
 - edit `desktop/src/api.ts`: only the doc comment of `Entry.hidden`, to
-  `/** Left out of the Agents list unless Show hidden is on, and not counted as waiting (ADR 0043, 0057). */`
+  `/** Left out of the Agents list unless Show hidden is on, and not counted as waiting (ADR 0043, 0058). */`
 
-Read first: ADR 0057 "Decision", the current `Sidebar.tsx`, `EntryRow.tsx`
+Read first: ADR 0058 "Decision", the current `Sidebar.tsx`, `EntryRow.tsx`
 (unchanged by this task), `tree.ts`, `FilterBar.tsx`, `agentsSlice.ts`
 (the actions from T2), `Sidebar.module.css`.
 
 ### `Sidebar.tsx`
 
 ```tsx
-/** The Agents list: Needs input, the filter bar, and the tree of root workspaces (ADR 0057). */
+/** The Agents list: Needs input, the filter bar, and the tree of root workspaces (ADR 0058). */
 export const Sidebar = (): JSX.Element;
 ```
 
@@ -631,7 +631,7 @@ Every one gets `repos: [repo(buffBear, "buff-bear", "main", "branch")]`.
 
 In "Screenshots without the backend", after the paragraph about
 `window.__TAURI_MOCK__`, add: "The sample listing is a tree for the
-Agents list ([ADR 0057](../docs/adrs/0057-workspace-tree-and-filters.md)):
+Agents list ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md)):
 `fix-login` has two generations of children, one of which needs input,
 and a hidden review child; `lint-sweep` is hidden and has a visible
 child, so it shows as a dimmed context row until Show hidden is on."

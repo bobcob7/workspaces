@@ -19,6 +19,11 @@ pass it on stdin with `--file -`.
 
 Running `result` again replaces your verdict and report.
 
+A loop run (a workspace `ws loop` started, not one of its children) can
+record `BLOCKED` to ask a person for help: `--file` is required and holds
+the question. Its outcome is `blocked`. Only a later `ws machine result`
+clears it. Anywhere else `BLOCKED` is `result_invalid`.
+
 ## Flags
 
 | Flag            | Meaning                                       |
@@ -40,7 +45,7 @@ Output is always JSON; `--json` changes nothing.
 
 `id` is your workspace, `root` the top of your tree, under which the
 result is kept, and `role` your role or `null`. `outcome` is `pass` or
-`fail`.
+`fail`, or `blocked` for a loop run's `BLOCKED`.
 
 ## Exit codes
 
@@ -56,4 +61,5 @@ result is kept, and `role` your role or `null`. `outcome` is `pass` or
 $ ws machine result PASS --file ../report.md
 $ ws machine result CHANGES_REQUESTED --file ../review.md
 $ ws machine result FAIL
+$ ws machine result BLOCKED --file ../question.md
 ```

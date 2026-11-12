@@ -8,7 +8,7 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   beneath it, most recent first. A search box, a status filter (needs
   input, working, done, stopped, shells, other) and a Show hidden switch
   narrow the tree; a match keeps the workspaces above it in view, dimmed
-  if they don't match themselves ([ADR 0057](../docs/adrs/0057-workspace-tree-and-filters.md),
+  if they don't match themselves ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md),
   [tasks](../docs/design/tree-list/tasks.md)). Each entry shows what it's
   doing now, its task, its result, and links to the PRs it opened. The
   window title counts agents waiting for you.
@@ -190,6 +190,10 @@ rows, and its buttons are at least 40 px tall.
 | ![](docs/loops-memory.png) | ![](docs/loops-memory-edit.png) |
 | **History on a phone** | **Memory on a phone** |
 | ![](docs/mobile-loops-history.png) | ![](docs/mobile-loops-memory.png) |
+| **A blocked loop run in Agents** | **Loop history with a blocked run** |
+| ![](docs/agents-loop-blocked.png) | ![](docs/loops-history-blocked.png) |
+| **Hiding a loop's runs, in its form** | **A blocked loop run on a phone** |
+| ![](docs/loops-edit-hidden.png) | ![](docs/mobile-agents-loop-blocked.png) |
 
 The screenshots use sample data.
 
@@ -272,7 +276,7 @@ await page.goto("http://localhost:1420");
 `window.__TAURI_MOCK__` holds the calls made, the sample data and the
 handlers, which a later init script can change.
 
-The sample listing is a tree for the Agents list ([ADR 0057](../docs/adrs/0057-workspace-tree-and-filters.md)):
+The sample listing is a tree for the Agents list ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md)):
 `fix-login` has two generations of children, one of which needs input,
 and a hidden review child; `lint-sweep` is hidden and has a visible
 child, so it shows as a dimmed context row until Show hidden is on.
@@ -294,7 +298,7 @@ default), `"granted"`, `"default"`, `"denied"` or `"unsupported"`.
 
 ## Agents list tree
 
-The Agents list as a tree ([ADR 0057](../docs/adrs/0057-workspace-tree-and-filters.md)), from the mock data:
+The Agents list as a tree ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md)), from the mock data:
 
 - [Tree at 1100px](docs/tree-list.png): Needs input on top, `fix-login` expanded to show its children.
 - [Search](docs/tree-list-search.png): `lint` typed; the hidden `lint-sweep` stays as a dimmed context row.

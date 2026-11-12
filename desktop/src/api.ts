@@ -45,10 +45,22 @@ export interface Entry {
   readonly repos: readonly Repo[];
   /** What a workspace `ws review start` made reviews (ADR 0039). */
   readonly review: ReviewRecord | null;
-  /** Left out of the Agents list unless Show hidden is on, and not counted as waiting (ADR 0043, 0057). */
+  /** Left out of the Agents list unless Show hidden is on, and not counted as waiting (ADR 0043, 0058).
+   * Never true for a raised loop run (ADR 0057). */
   readonly hidden: boolean;
   /** The workspace this one was started from, and is removed with (ADR 0044). */
   readonly parentId: string | null;
+  /** Set for a loop run's workspace (ADR 0057). */
+  readonly loopRun: EntryLoopRun | null;
+}
+
+/** What a loop run asks of a person (ADR 0057). */
+export type LoopAttention = "blocked" | "needs_attention";
+
+/** A workspace that is a run of a loop, from ws list's loop_run. */
+export interface EntryLoopRun {
+  readonly loop: string;
+  readonly attention: LoopAttention | null;
 }
 
 export interface ReviewRecord {
@@ -731,6 +743,8 @@ export interface Loop {
   readonly scriptTimeout: string | null;
   readonly vars: Readonly<Record<string, string>>;
   readonly lastGate: LoopGate | null;
+  /** Whether runs start hidden (ADR 0057). */
+  readonly hidden: boolean;
 }
 
 /** A loop's last gate check, from `ws loop list --json` (ADR 0049). */
@@ -763,6 +777,8 @@ export interface NewLoop {
   readonly script?: string;
   readonly scriptTimeout?: string;
   readonly vars?: readonly LoopVar[];
+  /** Left out to keep ws's default or the loop's setting (ADR 0057). */
+  readonly hidden?: boolean;
 }
 
 /** The workspace a loop run started. */
@@ -773,12 +789,12 @@ export interface LoopStarted {
   readonly path: string;
 }
 
-export type LoopRunStatus = "running" | "done" | "succeeded" | "failed" | "start_failed" | "skipped" | "gone";
+export type LoopRunStatus = "running" | "done" | "succeeded" | "failed" | "start_failed" | "skipped" | "gone" | "blocked" | "needs_attention";
 
 /** A run's verdict, from its report (ADR 0056). */
 export interface LoopRunVerdict {
   readonly verdict: string;
-  readonly outcome: "pass" | "fail";
+  readonly outcome: "pass" | "fail" | "blocked";
   readonly recordedAt: string;
   readonly report: string | null;
 }

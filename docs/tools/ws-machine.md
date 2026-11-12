@@ -56,7 +56,8 @@ result outlives the child's own workspace, and is deleted with the root
 A result's **outcome** is `pass` or `fail`. It is `pass` when the verdict
 is one of the child's pass verdicts: its role's `pass` list, or for a
 child started without a role, `PASS` or `APPROVED`. Every other verdict is
-`fail`.
+`fail`, except a loop run's own `BLOCKED` verdict, whose outcome is
+`blocked` ([`ws machine result`](#ws-machine-result)).
 
 The **result object**, used by `wait`, `children`, and `result`:
 
@@ -195,6 +196,12 @@ caller was spawned with a role, the verdict must be one of the role's
 `pass` or `fail` verdicts. Running `result` again replaces the verdict and
 the report; without `--file`, the earlier report is deleted.
 
+A loop run (a workspace `ws loop` started, not one of its children) can
+record `BLOCKED` to ask a person for help: `--file` is required and holds
+the question. Its outcome is `blocked`. Only a later `ws machine result`
+clears it. Anywhere else `BLOCKED` is `result_invalid`
+([0057](../adrs/0057-loop-visibility-and-blocked-runs.md)).
+
 ```json
 {"id": "t1-impl-d8efb24f", "root": "orch-1a2b3c4d", "role": "implementer",
  "result": {"verdict": "PASS", "outcome": "pass",
@@ -204,7 +211,8 @@ the report; without `--file`, the earlier report is deleted.
 ```
 
 `id` is the caller, `root` the root of its tree, and `role` the role it
-was spawned with, or `null`.
+was spawned with, or `null`. `result.outcome` is `pass` or `fail`, or
+`blocked` for a loop run's `BLOCKED`.
 
 ## ws machine children
 
@@ -398,6 +406,7 @@ $ ws machine memory set --expect-rev 3 seen "#412 #415 #418"
 | Run outside a workspace (every command but `roles`) | `outside_workspace` | 2 |
 | `spawn` without a prompt and without `--role`; `--var` without `--role`, a `--var` not in the role's `vars`, a bad or duplicate `--var`, or a role prompt that doesn't render; `rm` with neither workspaces nor `--all`, or both; `wait` with no workspace or a `--timeout` that isn't positive; `roles add` without `--description` or a prompt; `roles edit` with nothing to change; `--prompt-file` and `-` together; `--vars` with `--no-vars`, `--claude-arg` with `--no-claude-args` | `usage` | 2 |
 | `result`: a malformed verdict, a verdict not in the role's lists, or a report that is empty, over 1 MiB, or unreadable | `result_invalid` | 2 |
+| `result BLOCKED`: from anything but a loop run's own workspace, or without `--file` | `result_invalid` | 2 |
 | `roles add` and `edit`: an invalid name, description, verdict, var name, or `claude_args`, the same verdict in `pass` and `fail`, an empty `pass` or `fail`, or a prompt that is blank, doesn't parse, or doesn't render with its `vars` | `role_invalid` | 2 |
 | `spawn --role`, `roles show`, `edit`, `rm`: no role has the name | `role_unknown` | 3 |
 | Workspace not found; for `wait`, also not a gone child with a result | `workspace_not_found` | 3 |
