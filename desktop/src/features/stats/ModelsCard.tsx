@@ -9,7 +9,7 @@ export const ModelsCard = ({ models }: { readonly models: readonly ModelUsage[] 
   const headingId = useId();
   const unpriced = models.some((model) => !model.priced);
   return (
-    <section className={styles.card} aria-labelledby={headingId}>
+    <section className={`${styles.card} ${styles.wide}`} aria-labelledby={headingId}>
       <h2 id={headingId} className={styles.cardTitle}>
         Usage by model
       </h2>
@@ -17,7 +17,7 @@ export const ModelsCard = ({ models }: { readonly models: readonly ModelUsage[] 
         <p className={styles.muted}>No requests in this window.</p>
       ) : (
         <div className={cards.scroll}>
-          <table className={cards.table}>
+          <table className={`${cards.table} ${cards.wideTable}`}>
             <thead>
               <tr>
                 <th scope="col">Model</th>

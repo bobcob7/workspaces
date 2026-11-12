@@ -28,6 +28,12 @@
   flex: none;
 }
 
+.bar button {
+  line-height: 1;
+  padding-block: 0;
+  min-height: 0;
+}
+
 @media (max-width: 720px) {
   .bar {
     gap: 8px;
@@ -42,5 +48,9 @@
 
   .bar [data-wide] {
     display: none;
+  }
+
+  .bar button {
+    min-height: 40px;
   }
 }

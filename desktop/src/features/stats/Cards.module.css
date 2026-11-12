@@ -20,6 +20,11 @@
 .table th {
   color: var(--text-muted);
   font-weight: 500;
+  white-space: normal;
+}
+
+.wideTable {
+  min-width: 0;
 }
 
 .numeric {
@@ -89,5 +94,18 @@
 @media (max-width: 720px) {
   .table {
     font-size: 12px;
+  }
+
+  .table th,
+  .table td {
+    padding: 6px 4px;
+  }
+
+  .wideTable {
+    min-width: 480px;
+  }
+
+  .shareTrack {
+    width: 56px;
   }
 }

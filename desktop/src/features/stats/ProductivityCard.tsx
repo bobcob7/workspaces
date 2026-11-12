@@ -12,7 +12,7 @@ export const ProductivityCard = ({ rows }: { readonly rows: readonly Productivit
   const headingId = useId();
   const insights = languageInsights(rows);
   return (
-    <section className={styles.card} aria-labelledby={headingId}>
+    <section className={`${styles.card} ${styles.wide}`} aria-labelledby={headingId}>
       <h2 id={headingId} className={styles.cardTitle}>
         Productivity by model and language
       </h2>
@@ -26,7 +26,7 @@ export const ProductivityCard = ({ rows }: { readonly rows: readonly Productivit
             ))}
           </ul>
           <div className={cards.scroll}>
-            <table className={cards.table}>
+            <table className={`${cards.table} ${cards.wideTable}`}>
               <thead>
                 <tr>
                   <th scope="col">Model</th>
