@@ -1,0 +1,42 @@
+# Linux test, build and lint on the vega cluster (Woodpecker, arm64).
+#
+# Not covered here, still on GitHub Actions (.github/workflows):
+#   - the macOS test and lint legs (Woodpecker agents are Linux only)
+#   - the Workspace Online image build and smoke test (steps are unprivileged,
+#     so there is no Docker)
+#   - the release workflow
+#
+# This repo is public. Pull requests from forks are held for approval (the
+# repository's "Require approval for" setting); keep that on, because an
+# approved run executes the PR's code inside the cluster network.
+when:
+  - event: push
+    branch: main
+  - event: pull_request
+
+steps:
+  - name: test
+    image: golang:1.27
+    depends_on: []
+    commands:
+      - make test
+      - make build
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+
+  # ADR 0003 and friends are enforced by make lint's grep checks as well.
+  - name: lint
+    image: golang:1.27
+    depends_on: []
+    commands:
+      - make lint
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
