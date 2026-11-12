@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 COPY desktop/ ./
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM rust:1.94-trixie AS server
+FROM --platform=$BUILDPLATFORM rust:1.99-trixie AS server
 ARG TARGETARCH
 WORKDIR /src/desktop/src-tauri
 COPY desktop/src-tauri ./
