@@ -11,6 +11,7 @@ import { reportsReducer } from "./features/reviews/reportsSlice";
 import { reviewsListener } from "./features/reviews/reviewsListener";
 import { reviewsReducer } from "./features/reviews/reviewsSlice";
 import { settingsReducer } from "./features/settings/settingsSlice";
+import { statsReducer } from "./features/stats/statsSlice";
 import type { TerminalHost } from "./features/terminals/host";
 import { shellLinkListener } from "./features/terminals/shellLinks";
 import { terminalsReducer } from "./features/terminals/terminalsSlice";
@@ -31,6 +32,7 @@ export const rootReducer = combineReducers({
   reports: reportsReducer,
   reviews: reviewsReducer,
   settings: settingsReducer,
+  stats: statsReducer,
   terminals: terminalsReducer,
   ui: uiReducer,
 });

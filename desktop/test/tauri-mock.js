@@ -726,8 +726,138 @@
     return found.slice(0, limit);
   };
 
+  const dayMs = 86_400_000;
+
+  // Scales the all-time numbers to the window: 1 for today, 5 for 7 days,
+  // 18 for 30 days, 40 for all time, so the screenshots differ by window.
+  const statsScale = (sinceMs) => {
+    if (sinceMs === null) {
+      return 40;
+    }
+    const age = Date.now() - sinceMs;
+    if (age < 2 * dayMs) {
+      return 1;
+    }
+    return age < 14 * dayMs ? 5 : 18;
+  };
+
+  const statsModels = {
+    "claude-opus-5-5": { label: "Opus 5.5", family: "opus", sessions: 3, requests: 74, inputTokens: 28000, outputTokens: 21000, thinkingTokens: 6000, cacheWriteTokens: 150000, cacheReadTokens: 1100000 },
+    "claude-sonnet-5-5": { label: "Sonnet 5.5", family: "sonnet", sessions: 4, requests: 58, inputTokens: 22000, outputTokens: 19000, thinkingTokens: 5000, cacheWriteTokens: 120000, cacheReadTokens: 870000 },
+    "claude-haiku-5-5": { label: "Haiku 5.5", family: "haiku", sessions: 5, requests: 96, inputTokens: 40000, outputTokens: 30000, thinkingTokens: 7000, cacheWriteTokens: 190000, cacheReadTokens: 1600000 },
+  };
+
+  // [model, language, linesAdded, linesRemoved, edits, activeMinutes, tokens, costUsd], all-time.
+  const statsRows = [
+    ["claude-opus-5-5", "Go", 300, 80, 16, 30, 560000, 4.6],
+    ["claude-opus-5-5", "TypeScript", 200, 60, 12, 18, 420000, 3],
+    ["claude-opus-5-5", "Rust", 100, 40, 8, 13, 319000, 1.8],
+    ["claude-sonnet-5-5", "Go", 120, 40, 6, 14, 300000, 1.6],
+    ["claude-sonnet-5-5", "TypeScript", 150, 40, 10, 20, 431000, 2.8],
+    ["claude-sonnet-5-5", "Markdown", 126, 50, 7, 14, 300000, 1.7],
+    ["claude-haiku-5-5", "Go", 180, 60, 14, 20, 1100000, 1.4],
+    ["claude-haiku-5-5", "Python", 120, 50, 9, 13, 760000, 0.8],
+  ];
+
+  const sumOf = (list, key) => list.reduce((total, item) => total + item[key], 0);
+  const ratio = (numerator, denominator) => (denominator === 0 ? null : numerator / denominator);
+
+  const statsFor = (sinceMs) => {
+    const k = statsScale(sinceMs);
+    const rows = statsRows.map(([model, language, linesAdded, linesRemoved, edits, activeMinutes, tokens, costUsd]) => ({
+      model,
+      language,
+      linesAdded: linesAdded * k,
+      linesRemoved: linesRemoved * k,
+      edits: edits * k,
+      activeMinutes: activeMinutes * k,
+      tokens: tokens * k,
+      costUsd: Number((costUsd * k).toFixed(2)),
+    }));
+    const byModel = Object.entries(statsModels)
+      .map(([model, base]) => {
+        const own = rows.filter((row) => row.model === model);
+        const inputTokens = base.inputTokens * k;
+        const cacheReadTokens = base.cacheReadTokens * k;
+        const cacheWriteTokens = base.cacheWriteTokens * k;
+        return {
+          model,
+          label: base.label,
+          family: base.family,
+          priced: true,
+          sessions: base.sessions,
+          activeMinutes: sumOf(own, "activeMinutes"),
+          linesAdded: sumOf(own, "linesAdded"),
+          linesRemoved: sumOf(own, "linesRemoved"),
+          requests: base.requests * k,
+          inputTokens,
+          outputTokens: base.outputTokens * k,
+          thinkingTokens: base.thinkingTokens * k,
+          cacheWriteTokens,
+          cacheReadTokens,
+          totalTokens: inputTokens + base.outputTokens * k + cacheWriteTokens + cacheReadTokens,
+          costUsd: sumOf(own, "costUsd"),
+          cacheHitRatio: ratio(cacheReadTokens, inputTokens + cacheReadTokens + cacheWriteTokens),
+        };
+      })
+      .sort((a, b) => b.totalTokens - a.totalTokens || a.model.localeCompare(b.model));
+    const countKeys = ["requests", "inputTokens", "outputTokens", "thinkingTokens", "cacheWriteTokens", "cacheReadTokens", "totalTokens", "costUsd"];
+    const totals = Object.fromEntries(countKeys.map((key) => [key, sumOf(byModel, key)]));
+    const cacheBase = totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens;
+    const languages = [...new Set(rows.map((row) => row.language))];
+    const languageLines = (language) => sumOf(rows.filter((row) => row.language === language), "linesAdded");
+    const byLanguage = languages
+      .map((language) => {
+        const own = rows.filter((row) => row.language === language);
+        return { language, linesAdded: sumOf(own, "linesAdded"), linesRemoved: sumOf(own, "linesRemoved"), edits: sumOf(own, "edits") };
+      })
+      .sort((a, b) => b.linesAdded - a.linesAdded || a.language.localeCompare(b.language));
+    const productivity = rows
+      .map((row) => ({
+        model: row.model,
+        label: statsModels[row.model].label,
+        family: statsModels[row.model].family,
+        language: row.language,
+        linesAdded: row.linesAdded,
+        linesRemoved: row.linesRemoved,
+        edits: row.edits,
+        activeMinutes: row.activeMinutes,
+        tokens: row.tokens,
+        costUsd: row.costUsd,
+        shareOfLanguage: ratio(row.linesAdded, languageLines(row.language)),
+        locPerMinute: ratio(row.linesAdded, row.activeMinutes),
+        minutesPer100Loc: ratio(100 * row.activeMinutes, row.linesAdded),
+        tokensPerLoc: ratio(row.tokens, row.linesAdded),
+        costPerLoc: ratio(row.costUsd, row.linesAdded),
+      }))
+      .sort((a, b) => languageLines(b.language) - languageLines(a.language) || b.linesAdded - a.linesAdded || a.model.localeCompare(b.model));
+    return {
+      generatedAtMs: Date.now(),
+      sinceMs: sinceMs ?? null,
+      system: {
+        cpuPercent: 12.5,
+        cpuCount: 8,
+        loadAverage: [1.42, 1.1, 0.97],
+        memoryTotalBytes: 17_179_869_184,
+        memoryUsedBytes: 10_737_418_240,
+        disk: { path: "/home/me/.config/workspaces", totalBytes: 499_963_174_912, usedBytes: 201_863_462_912 },
+      },
+      usage: {
+        totals: { ...totals, cacheHitRatio: ratio(totals.cacheReadTokens, cacheBase) },
+        sessions: sumOf(byModel, "sessions"),
+        activeMinutes: sumOf(rows, "activeMinutes"),
+        byModel,
+        byLanguage,
+      },
+      productivity,
+      scan: { files: 412, filesRead: 3, bytesRead: 184_320 * k, durationMs: 42, cached: false },
+      warnings: [],
+    };
+  };
+
   Object.assign(mock.handlers, {
     list_entries: () => ({ entries: data.entries, warnings: [] }),
+    stats_get: ({ sinceMs }) => statsFor(sinceMs),
     cache_repos: () => [buffBear, api, workspaces],
     cache_list: () => ({
       repos: [
