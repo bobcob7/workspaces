@@ -3,10 +3,15 @@
 A window onto your `ws` workspaces and their Claude Code agents, like
 `claude agents` with workspaces in it ([ADR 0029](../docs/adrs/0029-desktop-app.md)).
 
-- **See every agent by status**: needs input, working, done, stopped, plus
-  shell workspaces. Each shows what it's doing now, its task, its result,
-  and links to the PRs it opened. The window title counts agents waiting
-  for you.
+- **See every agent**: the ones that need input in a group at the top,
+  then every root workspace in a tree, with what each started nested
+  beneath it, most recent first. A search box, a status filter (needs
+  input, working, done, stopped, shells, other) and a Show hidden switch
+  narrow the tree; a match keeps the workspaces above it in view, dimmed
+  if they don't match themselves ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md),
+  [tasks](../docs/design/tree-list/tasks.md)). Each entry shows what it's
+  doing now, its task, its result, and links to the PRs it opened. The
+  window title counts agents waiting for you.
 - **Read the conversation**: an agent's messages, replies, and tool calls
   as a page that scrolls like any other, followed live from its transcript
   ([ADR 0030](../docs/adrs/0030-desktop-conversation-from-transcript.md)).
@@ -36,14 +41,16 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   ([ADR 0051](../docs/adrs/0051-desktop-open-workspace-and-ask-about-pr.md),
   [design](../docs/design/ws-open/README.md)).
 - **Hidden workspaces**: reviews, agents started with `ws claude
-  --hidden`, and anything you Hide (`ws hide`) sit in a collapsed Hidden
-  group at the end of the Agents list and don't count as waiting for you.
-  Open the group to see them; Unhide (`ws unhide`) puts one back
+  --hidden`, and anything you Hide (`ws hide`) stay out of the Agents
+  list and don't count as waiting for you. Turn on Show hidden above the
+  list to see them in the tree; Unhide (`ws unhide`) puts one back
   ([ADR 0043](../docs/adrs/0043-hidden-workspaces.md),
   [design](../docs/design/hidden-workspaces/README.md)).
 - **Workspace trees**: what an agent starts from its workspace, helpers and
-  reviews, is its child. A child's row says `↳ <parent>`; a parent's pane
-  lists the workspaces it started, with Open and Remove. Removing a parent
+  reviews, is its child, listed beneath it in the Agents list: expand or
+  collapse each one, and selecting a child opens the way to it. In Needs
+  input a child's row says `↳ <parent>`; a parent's pane lists the
+  workspaces it started, with Open and Remove. Removing a parent
   lists everything that goes with it, and can keep its children instead
   (`ws rm --keep-children`)
   ([ADR 0044](../docs/adrs/0044-workspace-trees.md),
@@ -269,6 +276,14 @@ await page.goto("http://localhost:1420");
 `window.__TAURI_MOCK__` holds the calls made, the sample data and the
 handlers, which a later init script can change.
 
+The sample listing is a tree for the Agents list ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md)):
+`fix-login` has two generations of children, one of which needs input,
+and a hidden review child; `lint-sweep` is hidden and has a visible
+child, so it shows as a dimmed context row until Show hidden is on.
+Three loop runs sit beside them: a blocked and a needs-attention run in
+Needs input (shown with a Blocked or Needs attention prefix), and one done
+run that is hidden.
+
 For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
 mock. It serves `/api` and a WebSocket from the same handlers, and
 `window.__WEB_MOCK__.authenticated` decides whether the login page shows:
@@ -283,6 +298,16 @@ await page.goto("http://localhost:1420");
 Login accepts `me` / `secret`. `window.__WEB_MOCK__.push` sets the push
 state of This browser in Settings › Notifications: `"subscribed"` (the
 default), `"granted"`, `"default"`, `"denied"` or `"unsupported"`.
+
+## Agents list tree
+
+The Agents list as a tree ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md)), from the mock data:
+
+- [Tree at 1100px](docs/tree-list.png): Needs input on top (five entries, including the blocked and needs-attention loop runs), `fix-login` expanded to show its children.
+- [Search](docs/tree-list-search.png): `lint` typed; the hidden `lint-sweep` stays as a dimmed context row, and the blocked loop run matches on `eslint`.
+- [Show hidden](docs/tree-list-hidden.png): the three hidden entries in the tree.
+- [Status filter](docs/tree-list-status.png): Working only.
+- [At 360px](docs/tree-list-mobile.png): the filter bar wrapped, search on its own row.
 
 ## Status
 

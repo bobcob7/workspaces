@@ -45,7 +45,7 @@ export interface Entry {
   readonly repos: readonly Repo[];
   /** What a workspace `ws review start` made reviews (ADR 0039). */
   readonly review: ReviewRecord | null;
-  /** Shown only in the Hidden group and not counted as waiting (ADR 0043).
+  /** Left out of the Agents list unless Show hidden is on, and not counted as waiting (ADR 0043, 0058).
    * Never true for a raised loop run (ADR 0057). */
   readonly hidden: boolean;
   /** The workspace this one was started from, and is removed with (ADR 0044). */

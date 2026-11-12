@@ -1,17 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Entry } from "../../api";
-import { entry, fakeApi, fakeHost, testStore } from "../../test/fixtures";
+import { entry, fakeApi, fakeHost, testStore, treeEntries } from "../../test/fixtures";
 import { openTerminal } from "../terminals/terminalsSlice";
-import { selected } from "../ui/uiSlice";
+import { agentFocused, selected } from "../ui/uiSlice";
 import {
   agentsReducer,
   createAgent,
   editorDir,
   fetchEntries,
+  filtersCleared,
+  hiddenShown,
+  nodeToggled,
   openWorkspace,
+  queryChanged,
   removeEntry,
   renameEntry,
   stopAgent,
+  statusFilterChanged,
   type AgentsState,
 } from "./agentsSlice";
 
@@ -23,6 +28,11 @@ const repo = (path: string): Entry["repos"][number] => ({
 });
 
 const initial = (): AgentsState => agentsReducer(undefined, { type: "init" });
+
+const withTree = (): AgentsState =>
+  agentsReducer(initial(), fetchEntries.fulfilled({ entries: treeEntries(), warnings: [] }, "req"));
+
+const withExpanded = (expanded: Readonly<Record<string, boolean>>): AgentsState => ({ ...initial(), expanded });
 
 describe("agentsReducer", () => {
   it("stores the listing when a fetch succeeds", () => {
@@ -170,5 +180,65 @@ describe("openWorkspace", () => {
       severity: "error",
       message: "Couldn't open fix-login: `code` isn't on the app's PATH.",
     });
+  });
+});
+
+describe("tree state", () => {
+  it("starts with nothing expanded, an empty query and every status", () => {
+    expect(initial()).toMatchObject({ expanded: {}, query: "", statusFilter: "all", showHidden: false });
+  });
+
+  it("keeps the last open or closed choice for a node", () => {
+    const opened = agentsReducer(initial(), nodeToggled({ key: "orch", open: true }));
+    const closed = agentsReducer(opened, nodeToggled({ key: "orch", open: false }));
+    expect(closed.expanded).toEqual({ orch: false });
+  });
+
+  it("opens the ancestors of a selected entry, even one the user closed", () => {
+    const state = agentsReducer({ ...withTree(), expanded: { orch: false } }, selected("t1r"));
+    expect(state.expanded).toEqual({ t1: true, orch: true });
+  });
+
+  it("opens the ancestors of a focused entry", () => {
+    const state = agentsReducer(withTree(), agentFocused("hidkid"));
+    expect(state.expanded.hid).toBe(true);
+  });
+
+  it("leaves the expanded choices alone when the selection is cleared", () => {
+    const state = agentsReducer(withExpanded({ orch: false }), selected(null));
+    expect(state.expanded).toEqual({ orch: false });
+  });
+
+  it("leaves the expanded choices alone when a root is selected", () => {
+    const state = agentsReducer(withExpanded({ orch: false }), selected("solo"));
+    expect(state.expanded).toEqual({ orch: false });
+  });
+
+  it("sets the query and drops the nodes the user closed", () => {
+    const state = agentsReducer(withExpanded({ a: true, b: false }), queryChanged("x"));
+    expect(state).toMatchObject({ query: "x", expanded: { a: true } });
+  });
+
+  it("sets the status filter and drops the nodes the user closed", () => {
+    const state = agentsReducer(withExpanded({ a: true, b: false }), statusFilterChanged("done"));
+    expect(state).toMatchObject({ statusFilter: "done", expanded: { a: true } });
+  });
+
+  it("clears the query and status filter but keeps Show hidden", () => {
+    const shown = agentsReducer(
+      { ...withExpanded({ a: true, b: false }), query: "x", statusFilter: "done" },
+      hiddenShown(true),
+    );
+    const state = agentsReducer(shown, filtersCleared());
+    expect(state).toMatchObject({ query: "", statusFilter: "all", expanded: { a: true }, showHidden: true });
+  });
+
+  it("drops the expanded choice of an entry that is no longer listed", () => {
+    const withT1 = agentsReducer(withTree(), nodeToggled({ key: "t1", open: true }));
+    const without = agentsReducer(
+      withT1,
+      fetchEntries.fulfilled({ entries: treeEntries().filter((e) => e.key !== "t1"), warnings: [] }, "req"),
+    );
+    expect(without.expanded).toEqual({});
   });
 });

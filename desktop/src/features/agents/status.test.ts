@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { entry } from "../../test/fixtures";
-import { childrenOf, descendantsOf, groupEntries, groupOf, hiddenEntries, needsAttention } from "./status";
+import { entry, treeEntries } from "../../test/fixtures";
+import {
+  attentionEntries,
+  childrenOf,
+  descendantsOf,
+  groupOf,
+  needsAttention,
+  statusFilterOptions,
+} from "./status";
 
 describe("groupOf", () => {
   it("puts agents waiting for an answer in the attention group", () => {
@@ -24,46 +31,12 @@ describe("groupOf", () => {
   });
 });
 
-describe("groupEntries", () => {
-  it("orders groups attention first and drops empty ones", () => {
-    const groups = groupEntries([
-      entry({ key: "a", status: "done" }),
-      entry({ key: "b", status: "needsInput" }),
-    ]);
-    expect(groups.map((g) => g.id)).toEqual(["attention", "done"]);
-  });
-
-  it("sorts entries by most recent activity", () => {
-    const groups = groupEntries([
-      entry({ key: "old", name: "old", status: "working", updatedAt: "2026-10-18T08:00:00Z" }),
-      entry({ key: "new", name: "new", status: "working", updatedAt: "2026-10-18T09:00:00Z" }),
-    ]);
-    expect(groups[0]?.entries.map((e) => e.key)).toEqual(["new", "old"]);
-  });
-});
-
 describe("needsAttention", () => {
   it("is false for shells", () => {
     expect(needsAttention(entry({ kind: "shell", status: "idle" }))).toBe(false);
   });
-});
 
-describe("hidden entries", () => {
-  it("aren't grouped", () => {
-    const groups = groupEntries([entry({ key: "a" }), entry({ key: "b", hidden: true })]);
-    expect(groups.flatMap((g) => g.entries.map((e) => e.key))).toEqual(["a"]);
-  });
-
-  it("are listed apart, most recent first", () => {
-    const hidden = hiddenEntries([
-      entry({ key: "a" }),
-      entry({ key: "old", hidden: true, updatedAt: "2026-10-28T08:00:00Z" }),
-      entry({ key: "new", hidden: true, updatedAt: "2026-10-28T09:00:00Z" }),
-    ]);
-    expect(hidden.map((e) => e.key)).toEqual(["new", "old"]);
-  });
-
-  it("never need attention", () => {
+  it("is false for hidden entries", () => {
     expect(needsAttention(entry({ status: "needsInput", hidden: true }))).toBe(false);
     expect(needsAttention(entry({ status: "idle", hidden: true }))).toBe(false);
   });
@@ -98,6 +71,38 @@ describe("trees", () => {
     const x = entry({ key: "x", workspaceId: "x", parentId: "y" });
     const y = entry({ key: "y", workspaceId: "y", parentId: "x" });
     expect(descendantsOf([x, y], x).map(({ entry: e }) => e.key)).toEqual(["y"]);
+  });
+});
+
+describe("attentionEntries", () => {
+  it("lists a needs-input child and leaves out a hidden one", () => {
+    expect(attentionEntries(treeEntries()).map((e) => e.key)).toEqual(["t1r"]);
+  });
+
+  it("lists the most recent first", () => {
+    const entries = [
+      ...treeEntries(),
+      entry({ key: "w", status: "idle", updatedAt: "2026-11-11T10:00:00Z" }),
+    ];
+    expect(attentionEntries(entries).map((e) => e.key)).toEqual(["w", "t1r"]);
+  });
+});
+
+describe("statusFilterOptions", () => {
+  it("lists every status filter in display order", () => {
+    expect(statusFilterOptions.map((o) => o.value)).toEqual([
+      "all",
+      "attention",
+      "working",
+      "done",
+      "stopped",
+      "shells",
+      "other",
+    ]);
+  });
+
+  it("labels the first option All statuses", () => {
+    expect(statusFilterOptions[0]?.label).toBe("All statuses");
   });
 });
 
