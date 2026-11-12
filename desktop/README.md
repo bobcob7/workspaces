@@ -252,17 +252,25 @@ src-tauri/src/
   env.rs        # the login shell's PATH
   open.rs       # Open folder and Open in editor: the commands from Settings, launched on that PATH
   reviews/      # Reviews: desktop.json, gh, review names, the checker, auto-review, Ask Claude (ask.rs)
+  loops.rs      # the Loops section's commands: ws loop
+  roles.rs      # Settings' roles: ws machine roles
+  ws_config.rs  # Settings: ws config
+  about.rs      # Settings' About group
+  stats/        # the stats bar and Stats section: transcripts read incrementally, host usage (ADR 0059)
+  tray/         # the menu-bar tray and its notifications (ADR 0050)
   online/       # Workspace Online (feature `online`): config, auth, push, dispatch, wire, and the server (ADR 0053)
 src/
   api.ts                    # typed invoke wrappers
-  features/rail/            # the section rail and ⌘1–⌘4
+  features/rail/            # the section rail and ⌘1–⌘6
   features/agents/          # list, statuses, entry pane, agents slice, top-bar actions
   features/repos/           # repo list, detail with branches and tags, add and remove dialogs, repos slice
   features/conversation/    # conversation view, tool call pairing, conversations slice
   features/terminals/       # xterm.js registry, terminal view, message box, terminals slice
   features/create/          # new agent and new shell dialogs
   features/reviews/         # pull request list and detail, dialogs, the Repos slots, reviews slice
-  features/settings/        # settings groups: Reviews, Notifications, Workspaces, About
+  features/loops/           # the Loops section: list, detail, history, memory, add and edit forms
+  features/stats/           # the stats bar and Stats section
+  features/settings/        # settings groups
   features/ui/              # section, agent selection, dialogs, notices
 ```
 

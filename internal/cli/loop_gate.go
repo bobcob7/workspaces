@@ -24,11 +24,12 @@ const maxGateMessage = 200
 // loop's history.json and memory.json, ADR 0056), then WS_LOOP_VAR_<KEY>=<value>
 // per var, by key.
 func gateEnv(l *loop.Loop, data *loop.DataStore) []string {
-	env := []string{
-		"WS_LOOP_NAME=" + l.Name,
-		"WS_LOOP_HISTORY=" + data.HistoryPath(l.Name),
-		"WS_LOOP_MEMORY=" + data.MemoryPath(l.Name),
-	}
+	env := make([]string, 0, 3+len(l.Vars))
+	env = append(env,
+		"WS_LOOP_NAME="+l.Name,
+		"WS_LOOP_HISTORY="+data.HistoryPath(l.Name),
+		"WS_LOOP_MEMORY="+data.MemoryPath(l.Name),
+	)
 	for _, key := range slices.Sorted(maps.Keys(l.Vars)) {
 		env = append(env, "WS_LOOP_VAR_"+key+"="+l.Vars[key])
 	}
