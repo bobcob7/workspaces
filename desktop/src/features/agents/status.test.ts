@@ -4,9 +4,7 @@ import {
   attentionEntries,
   childrenOf,
   descendantsOf,
-  groupEntries,
   groupOf,
-  hiddenEntries,
   needsAttention,
   statusFilterOptions,
 } from "./status";
@@ -33,46 +31,12 @@ describe("groupOf", () => {
   });
 });
 
-describe("groupEntries", () => {
-  it("orders groups attention first and drops empty ones", () => {
-    const groups = groupEntries([
-      entry({ key: "a", status: "done" }),
-      entry({ key: "b", status: "needsInput" }),
-    ]);
-    expect(groups.map((g) => g.id)).toEqual(["attention", "done"]);
-  });
-
-  it("sorts entries by most recent activity", () => {
-    const groups = groupEntries([
-      entry({ key: "old", name: "old", status: "working", updatedAt: "2026-10-18T08:00:00Z" }),
-      entry({ key: "new", name: "new", status: "working", updatedAt: "2026-10-18T09:00:00Z" }),
-    ]);
-    expect(groups[0]?.entries.map((e) => e.key)).toEqual(["new", "old"]);
-  });
-});
-
 describe("needsAttention", () => {
   it("is false for shells", () => {
     expect(needsAttention(entry({ kind: "shell", status: "idle" }))).toBe(false);
   });
-});
 
-describe("hidden entries", () => {
-  it("aren't grouped", () => {
-    const groups = groupEntries([entry({ key: "a" }), entry({ key: "b", hidden: true })]);
-    expect(groups.flatMap((g) => g.entries.map((e) => e.key))).toEqual(["a"]);
-  });
-
-  it("are listed apart, most recent first", () => {
-    const hidden = hiddenEntries([
-      entry({ key: "a" }),
-      entry({ key: "old", hidden: true, updatedAt: "2026-10-28T08:00:00Z" }),
-      entry({ key: "new", hidden: true, updatedAt: "2026-10-28T09:00:00Z" }),
-    ]);
-    expect(hidden.map((e) => e.key)).toEqual(["new", "old"]);
-  });
-
-  it("never need attention", () => {
+  it("is false for hidden entries", () => {
     expect(needsAttention(entry({ status: "needsInput", hidden: true }))).toBe(false);
     expect(needsAttention(entry({ status: "idle", hidden: true }))).toBe(false);
   });

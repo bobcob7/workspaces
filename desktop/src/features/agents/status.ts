@@ -82,20 +82,6 @@ export const statusFilterOptions: readonly { readonly value: StatusFilter; reado
 export const attentionEntries = (entries: readonly Entry[]): readonly Entry[] =>
   entries.filter(needsAttention).toSorted(byRecency);
 
-/** Groups the visible entries the way agent view does, most recently active first. */
-export const groupEntries = (entries: readonly Entry[]): readonly Group[] =>
-  groupOrder
-    .map((id) => ({
-      id,
-      title: groupTitles[id],
-      entries: entries.filter((e) => !e.hidden && groupOf(e) === id).toSorted(byRecency),
-    }))
-    .filter((g) => g.entries.length > 0);
-
-/** The hidden entries, most recently active first (ADR 0043). */
-export const hiddenEntries = (entries: readonly Entry[]): readonly Entry[] =>
-  entries.filter((e) => e.hidden).toSorted(byRecency);
-
 /** The workspaces entry started directly, most recently active first (ADR 0044). */
 export const childrenOf = (entries: readonly Entry[], entry: Entry): readonly Entry[] =>
   entry.workspaceId === null
