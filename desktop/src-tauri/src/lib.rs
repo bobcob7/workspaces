@@ -21,6 +21,7 @@ mod pty;
 mod reviews;
 mod roles;
 mod runner;
+mod stats;
 mod transcript;
 mod tray;
 mod ws_config;
