@@ -11,7 +11,9 @@ import {
 } from "../../api";
 import { createAppThunk } from "../../thunk";
 import { closeTerminal } from "../terminals/terminalsSlice";
-import { dialogClosed, noticeShown, sectionChosen, selected } from "../ui/uiSlice";
+import { agentFocused, dialogClosed, noticeShown, sectionChosen, selected } from "../ui/uiSlice";
+import { ancestorKeys } from "./tree";
+import type { StatusFilter } from "./status";
 
 export interface AgentsState {
   readonly entries: readonly Entry[];
@@ -23,8 +25,14 @@ export interface AgentsState {
   readonly busy: readonly string[];
   readonly creating: boolean;
   readonly createError: AppError | null;
-  /** The Hidden group is open (ADR 0043); not persisted. */
+  /** The Show hidden switch is on (ADR 0057); not persisted. */
   readonly showHidden: boolean;
+  /** The user's last open (true) or closed (false) choice per entry key in the tree (ADR 0057); not persisted. */
+  readonly expanded: Readonly<Record<string, boolean>>;
+  /** The Agents list's search text (ADR 0057); not persisted. */
+  readonly query: string;
+  /** The Agents list's status filter (ADR 0057); not persisted. */
+  readonly statusFilter: StatusFilter;
 }
 
 const initialState: AgentsState = {
@@ -37,6 +45,22 @@ const initialState: AgentsState = {
   creating: false,
   createError: null,
   showHidden: false,
+  expanded: {},
+  query: "",
+  statusFilter: "all",
+};
+
+/** The record without its false values: the user's closed choices are dropped so new matches show open. */
+const withoutClosed = (expanded: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>> =>
+  Object.fromEntries(Object.entries(expanded).filter(([, open]) => open));
+
+/** The record without the keys of entries that are no longer listed. */
+const retainListed = (
+  expanded: Readonly<Record<string, boolean>>,
+  entries: readonly Entry[],
+): Readonly<Record<string, boolean>> => {
+  const listed = new Set(entries.map((listedEntry) => listedEntry.key));
+  return Object.fromEntries(Object.entries(expanded).filter(([key]) => listed.has(key)));
 };
 
 export const fetchEntries = createAppThunk<Listing, void>(
@@ -201,6 +225,22 @@ const agentsSlice = createSlice({
     hiddenShown: (state, action: PayloadAction<boolean>) => {
       state.showHidden = action.payload;
     },
+    nodeToggled: (state, action: PayloadAction<{ readonly key: string; readonly open: boolean }>) => {
+      state.expanded = { ...state.expanded, [action.payload.key]: action.payload.open };
+    },
+    queryChanged: (state, action: PayloadAction<string>) => {
+      state.query = action.payload;
+      state.expanded = withoutClosed(state.expanded);
+    },
+    statusFilterChanged: (state, action: PayloadAction<StatusFilter>) => {
+      state.statusFilter = action.payload;
+      state.expanded = withoutClosed(state.expanded);
+    },
+    filtersCleared: (state) => {
+      state.query = "";
+      state.statusFilter = "all";
+      state.expanded = withoutClosed(state.expanded);
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -214,6 +254,7 @@ const agentsSlice = createSlice({
         error: null,
         entries: action.payload.entries,
         warnings: action.payload.warnings,
+        expanded: retainListed(state.expanded, action.payload.entries),
       }))
       .addCase(fetchEntries.rejected, (state, action) => {
         state.loading = false;
@@ -248,9 +289,17 @@ const agentsSlice = createSlice({
         (state, action) => {
           state.busy = state.busy.filter((key) => key !== action.meta.arg.entry.key);
         },
-      );
+      )
+      .addMatcher(isAnyOf(selected, agentFocused), (state, action) => {
+        if (action.payload === null) {
+          return;
+        }
+        const opened = Object.fromEntries(ancestorKeys(state.entries, action.payload).map((key) => [key, true]));
+        state.expanded = { ...state.expanded, ...opened };
+      });
   },
 });
 
-export const { createErrorCleared, hiddenShown } = agentsSlice.actions;
+export const { createErrorCleared, hiddenShown, nodeToggled, queryChanged, statusFilterChanged, filtersCleared } =
+  agentsSlice.actions;
 export const agentsReducer = agentsSlice.reducer;
