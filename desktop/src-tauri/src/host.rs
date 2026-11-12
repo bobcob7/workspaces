@@ -105,12 +105,13 @@ pub fn read_cpu_ticks() -> Option<CpuTicks> {
         return None;
     }
     let ticks = info.cpu_ticks.map(u64::from);
-    let busy = ticks[libc::CPU_STATE_USER]
-        .saturating_add(ticks[libc::CPU_STATE_SYSTEM])
-        .saturating_add(ticks[libc::CPU_STATE_NICE]);
+    let state = |index: libc::c_int| ticks[index as usize];
+    let busy = state(libc::CPU_STATE_USER)
+        .saturating_add(state(libc::CPU_STATE_SYSTEM))
+        .saturating_add(state(libc::CPU_STATE_NICE));
     Some(CpuTicks {
         busy,
-        total: busy.saturating_add(ticks[libc::CPU_STATE_IDLE]),
+        total: busy.saturating_add(state(libc::CPU_STATE_IDLE)),
     })
 }
 
