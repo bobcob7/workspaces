@@ -1,8 +1,6 @@
 //! The host's CPU, memory and disk for the stats (ADR 0059): /proc on
 //! Linux, Mach and sysctl on macOS, statvfs and getloadavg on both.
 
-#![allow(dead_code)]
-
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 

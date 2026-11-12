@@ -28,6 +28,8 @@ pub struct AppState {
     pub reports: report::Cache,
     /// Tracks agents for the tray's notifications (ADR 0050).
     pub watcher: Arc<crate::tray::watcher::Watcher>,
+    /// Transcript and host stats (ADR 0059).
+    pub stats: Arc<crate::stats::Cache>,
 }
 
 type CmdResult<T> = Result<T, AppError>;

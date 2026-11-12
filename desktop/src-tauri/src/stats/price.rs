@@ -26,14 +26,12 @@ const HAIKU_PREFIX: &str = "claude-haiku-5-5";
 
 struct Price {
     prefix: &'static str,
-    family: &'static str,
     rates: Rates,
 }
 
 const PRICES: &[Price] = &[
     Price {
         prefix: "claude-opus-5-5",
-        family: "opus",
         rates: Rates {
             input: 4.0,
             output: 20.0,
@@ -44,7 +42,6 @@ const PRICES: &[Price] = &[
     },
     Price {
         prefix: "claude-sonnet-5-5",
-        family: "sonnet",
         rates: Rates {
             input: 2.0,
             output: 10.0,
@@ -55,7 +52,6 @@ const PRICES: &[Price] = &[
     },
     Price {
         prefix: HAIKU_PREFIX,
-        family: "haiku",
         rates: Rates {
             input: 0.10,
             output: 0.50,
@@ -66,7 +62,6 @@ const PRICES: &[Price] = &[
     },
     Price {
         prefix: "claude-fable-5-2",
-        family: "fable",
         rates: Rates {
             input: 8.0,
             output: 40.0,
