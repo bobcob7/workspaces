@@ -280,6 +280,9 @@ The sample listing is a tree for the Agents list ([ADR 0058](../docs/adrs/0058-w
 `fix-login` has two generations of children, one of which needs input,
 and a hidden review child; `lint-sweep` is hidden and has a visible
 child, so it shows as a dimmed context row until Show hidden is on.
+Three loop runs sit beside them: a blocked and a needs-attention run in
+Needs input (shown with a Blocked or Needs attention prefix), and one done
+run that is hidden.
 
 For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
 mock. It serves `/api` and a WebSocket from the same handlers, and
@@ -300,9 +303,9 @@ default), `"granted"`, `"default"`, `"denied"` or `"unsupported"`.
 
 The Agents list as a tree ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md)), from the mock data:
 
-- [Tree at 1100px](docs/tree-list.png): Needs input on top, `fix-login` expanded to show its children.
-- [Search](docs/tree-list-search.png): `lint` typed; the hidden `lint-sweep` stays as a dimmed context row.
-- [Show hidden](docs/tree-list-hidden.png): hidden entries in the tree.
+- [Tree at 1100px](docs/tree-list.png): Needs input on top (five entries, including the blocked and needs-attention loop runs), `fix-login` expanded to show its children.
+- [Search](docs/tree-list-search.png): `lint` typed; the hidden `lint-sweep` stays as a dimmed context row, and the blocked loop run matches on `eslint`.
+- [Show hidden](docs/tree-list-hidden.png): the three hidden entries in the tree.
 - [Status filter](docs/tree-list-status.png): Working only.
 - [At 360px](docs/tree-list-mobile.png): the filter bar wrapped, search on its own row.
 
