@@ -631,7 +631,7 @@ Every one gets `repos: [repo(buffBear, "buff-bear", "main", "branch")]`.
 
 In "Screenshots without the backend", after the paragraph about
 `window.__TAURI_MOCK__`, add: "The sample listing is a tree for the
-Agents list ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filters.md)):
+Agents list ([ADR 0058](../../adrs/0058-workspace-tree-and-filters.md)):
 `fix-login` has two generations of children, one of which needs input,
 and a hidden review child; `lint-sweep` is hidden and has a visible
 child, so it shows as a dimmed context row until Show hidden is on."
