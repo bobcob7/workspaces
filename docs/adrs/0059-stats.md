@@ -98,8 +98,8 @@ We will add one backend command, `stats_get`, in a new
 `desktop/src-tauri/src/stats/` module and a small `host.rs`, and two
 frontend pieces sharing one slice: a **stats bar** at the bottom of the
 app and a **Stats** section in the rail. Go (`ws`) doesn't change. The
-exact JSON is in [the reference](../design/stats/reference.md); the tasks
-are in [tasks.md](../design/stats/tasks.md).
+exact JSON is the `Stats` type in `desktop/src-tauri/src/stats/mod.rs`,
+mirrored in `desktop/src/features/stats/`.
 
 ### What the bar and the section show
 
@@ -183,7 +183,7 @@ All counts are over the **window**: requests and edits whose hour bucket
   to the model that made the call and the hour of the result. An
   unanswered call (session killed) counts nothing.
 - **Language** of a file path: by lowercased extension, or by base name
-  for `Makefile` and `Dockerfile`, from the table in the reference
+  for `Makefile` and `Dockerfile`, from the table in `desktop/src-tauri/src/stats/lang.rs`
   (`go` → Go, `rs` → Rust, `ts`/`tsx` → TypeScript, `md` → Markdown, …);
   anything else is `Other`.
 - **Productivity rows** (model × language). Within each file and model,

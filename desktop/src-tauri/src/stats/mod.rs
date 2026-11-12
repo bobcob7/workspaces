@@ -18,7 +18,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-/// Everything the stats bar and the Stats section show (reference.md `Stats`).
+/// Everything the stats bar and the Stats section show.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Stats {
