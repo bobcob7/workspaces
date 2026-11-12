@@ -2,7 +2,7 @@
 //! (ADR 0050). Pure: no I/O, no tauri.
 
 use crate::model::{Entry, Kind, Status};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// How long a state must hold before it's announced, so a state seen in
 /// only one listing (4 s apart) never notifies.
@@ -12,11 +12,17 @@ pub const DWELL_MS: i64 = 3_000;
 pub const SNIPPET_MAX: usize = 80;
 
 /// What a tracked agent asks of the user.
+// `RunNeedsAttention` is the name the ADR 0057 contract gives the variant.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Attention {
     NeedsInput,
     Done,
     Busy,
+    /// A loop run is blocked and waits for an answer (ADR 0057).
+    Blocked,
+    /// A loop run stopped without a verdict (ADR 0057).
+    RunNeedsAttention,
 }
 
 /// `needsInput` and `idle` need input (the Agents list's Needs input
@@ -63,9 +69,10 @@ pub fn snippet(entry: &Entry, attention: Attention) -> String {
             entry.detail.as_ref(),
             entry.intent.as_ref(),
         ],
-        Attention::NeedsInput | Attention::Busy => {
-            [entry.detail.as_ref(), entry.intent.as_ref(), None]
-        }
+        Attention::NeedsInput
+        | Attention::Busy
+        | Attention::Blocked
+        | Attention::RunNeedsAttention => [entry.detail.as_ref(), entry.intent.as_ref(), None],
     };
     sources
         .into_iter()
@@ -88,6 +95,8 @@ pub struct Candidate {
     pub attention: Attention,
     /// `updated_at`, else `created_at`, else "" (RFC 3339, so it sorts).
     pub active_at: String,
+    /// A loop run that is blocked or needs attention; `loop_step` notifies it.
+    pub loop_raised: bool,
 }
 
 /// The tracked entries, in listing order.
@@ -107,6 +116,7 @@ pub fn candidates(entries: &[Entry]) -> Vec<Candidate> {
                     .clone()
                     .or_else(|| entry.created_at.clone())
                     .unwrap_or_default(),
+                loop_raised: loop_attention(entry).is_some(),
             }
         })
         .collect()
@@ -128,7 +138,8 @@ pub struct Snapshot {
     pub tracked: BTreeMap<String, Tracked>,
 }
 
-/// An agent that started needing input (`NeedsInput`) or finished (`Done`).
+/// An agent that started needing input (`NeedsInput`) or finished (`Done`),
+/// or a loop run that is `Blocked` or `RunNeedsAttention`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Event {
     pub key: String,
@@ -155,6 +166,7 @@ pub fn step(prev: &Snapshot, current: &[Candidate], now_ms: i64) -> (Snapshot, V
             },
             Some(old) => {
                 let due = candidate.attention != Attention::Busy
+                    && !candidate.loop_raised
                     && !old.announced
                     && now_ms - old.since_ms >= DWELL_MS;
                 if due {
@@ -172,6 +184,68 @@ pub fn step(prev: &Snapshot, current: &[Candidate], now_ms: i64) -> (Snapshot, V
             }
         };
         next.tracked.insert(candidate.key.clone(), record);
+    }
+    (next, events)
+}
+
+/// What loop_step remembers of loop runs (ADR 0057).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LoopSnapshot {
+    /// A listing has been stepped (the first one notifies nothing).
+    pub seeded: bool,
+    /// Raised runs not yet notified: key → when first seen raised (ms).
+    pub pending: BTreeMap<String, i64>,
+    /// Runs already notified, or raised in the first listing; never pruned.
+    pub notified: BTreeSet<String>,
+}
+
+/// The loop attention of entry: Blocked for "blocked", RunNeedsAttention for
+/// "needs_attention", None otherwise or without a workspace.
+pub fn loop_attention(entry: &Entry) -> Option<Attention> {
+    entry.workspace_id.as_ref()?;
+    match entry.loop_run.as_ref()?.attention.as_deref()? {
+        "blocked" => Some(Attention::Blocked),
+        "needs_attention" => Some(Attention::RunNeedsAttention),
+        _ => None,
+    }
+}
+
+/// One notification per raised loop run (ADR 0057): a run raised for
+/// DWELL_MS is announced once, and never again.
+pub fn loop_step(
+    prev: &LoopSnapshot,
+    entries: &[Entry],
+    now_ms: i64,
+) -> (LoopSnapshot, Vec<Event>) {
+    let mut next = LoopSnapshot {
+        seeded: true,
+        pending: BTreeMap::new(),
+        notified: prev.notified.clone(),
+    };
+    let mut events = Vec::new();
+    for entry in entries {
+        let Some(attention) = loop_attention(entry) else {
+            continue;
+        };
+        if next.notified.contains(&entry.key) {
+            continue;
+        }
+        if !prev.seeded {
+            next.notified.insert(entry.key.clone());
+            continue;
+        }
+        let since = prev.pending.get(&entry.key).copied().unwrap_or(now_ms);
+        if now_ms - since < DWELL_MS {
+            next.pending.insert(entry.key.clone(), since);
+            continue;
+        }
+        events.push(Event {
+            key: entry.key.clone(),
+            name: entry.name.clone(),
+            snippet: snippet(entry, Attention::NeedsInput),
+            attention,
+        });
+        next.notified.insert(entry.key.clone());
     }
     (next, events)
 }
@@ -210,6 +284,7 @@ pub(crate) mod testing {
 mod tests {
     use super::testing::entry;
     use super::*;
+    use crate::model::WsLoopRun;
 
     fn c(key: &str, attention: Attention) -> Candidate {
         Candidate {
@@ -218,6 +293,23 @@ mod tests {
             snippet: String::new(),
             attention,
             active_at: String::new(),
+            loop_raised: false,
+        }
+    }
+
+    fn loop_entry(key: &str, attention: Option<&str>) -> Entry {
+        let mut e = entry(key, Status::NeedsInput);
+        e.loop_run = Some(WsLoopRun {
+            loop_name: "deps-bump".to_string(),
+            attention: attention.map(str::to_string),
+        });
+        e
+    }
+
+    fn seeded() -> LoopSnapshot {
+        LoopSnapshot {
+            seeded: true,
+            ..LoopSnapshot::default()
         }
     }
 
@@ -462,5 +554,120 @@ mod tests {
         renamed.name = "renamed".to_string();
         let (_, events) = step(&s1, &[renamed], 8_000);
         assert_eq!(events[0].name, "renamed");
+    }
+
+    #[test]
+    fn loop_attention_maps_blocked_and_needs_attention() {
+        assert_eq!(
+            loop_attention(&loop_entry("a", Some("blocked"))),
+            Some(Attention::Blocked)
+        );
+        assert_eq!(
+            loop_attention(&loop_entry("a", Some("needs_attention"))),
+            Some(Attention::RunNeedsAttention)
+        );
+        assert_eq!(loop_attention(&loop_entry("a", Some("other"))), None);
+        assert_eq!(loop_attention(&loop_entry("a", None)), None);
+    }
+
+    #[test]
+    fn loop_attention_is_none_without_workspace_or_loop_run() {
+        let mut no_workspace = loop_entry("a", Some("blocked"));
+        no_workspace.workspace_id = None;
+        assert_eq!(loop_attention(&no_workspace), None);
+        assert_eq!(loop_attention(&entry("a", Status::NeedsInput)), None);
+    }
+
+    #[test]
+    fn loop_run_raised_in_first_listing_is_not_notified() {
+        let (next, events) = loop_step(
+            &LoopSnapshot::default(),
+            &[loop_entry("a", Some("blocked"))],
+            0,
+        );
+        assert!(events.is_empty());
+        assert!(next.seeded);
+        assert!(next.notified.contains("a"));
+    }
+
+    #[test]
+    fn loop_run_raised_later_notifies_once_after_dwell() {
+        let (s0, _) = loop_step(&LoopSnapshot::default(), &[entry("a", Status::Done)], 0);
+        let raised = [loop_entry("a", Some("blocked"))];
+        let (s1, e1) = loop_step(&s0, &raised, 0);
+        assert!(e1.is_empty());
+        let (s2, e2) = loop_step(&s1, &raised, DWELL_MS - 1);
+        assert!(e2.is_empty());
+        let (s3, e3) = loop_step(&s2, &raised, DWELL_MS);
+        assert_eq!(
+            e3,
+            [Event {
+                key: "a".to_string(),
+                name: "a".to_string(),
+                snippet: String::new(),
+                attention: Attention::Blocked,
+            }]
+        );
+        let (_, e4) = loop_step(&s3, &raised, 100_000);
+        assert!(e4.is_empty());
+    }
+
+    #[test]
+    fn loop_run_moving_to_blocked_after_notice_is_not_renotified() {
+        let (s0, _) = loop_step(&seeded(), &[loop_entry("a", Some("needs_attention"))], 0);
+        let (s1, e1) = loop_step(&s0, &[loop_entry("a", Some("needs_attention"))], DWELL_MS);
+        assert_eq!(e1.len(), 1);
+        assert_eq!(e1[0].attention, Attention::RunNeedsAttention);
+        let (_, e2) = loop_step(&s1, &[loop_entry("a", Some("blocked"))], DWELL_MS * 2);
+        assert!(e2.is_empty());
+    }
+
+    #[test]
+    fn loop_run_raised_again_after_resolving_is_not_renotified() {
+        let (s0, _) = loop_step(&seeded(), &[loop_entry("a", Some("blocked"))], 0);
+        let (s1, e1) = loop_step(&s0, &[loop_entry("a", Some("blocked"))], DWELL_MS);
+        assert_eq!(e1.len(), 1);
+        let (s2, _) = loop_step(&s1, &[loop_entry("a", None)], DWELL_MS * 2);
+        let (_, e3) = loop_step(&s2, &[loop_entry("a", Some("blocked"))], DWELL_MS * 3);
+        assert!(e3.is_empty());
+    }
+
+    #[test]
+    fn loop_run_needs_attention_gives_run_needs_attention() {
+        let (s0, _) = loop_step(&seeded(), &[], 0);
+        let raised = [loop_entry("a", Some("needs_attention"))];
+        let (s1, _) = loop_step(&s0, &raised, 0);
+        let (_, events) = loop_step(&s1, &raised, DWELL_MS);
+        assert_eq!(events[0].attention, Attention::RunNeedsAttention);
+    }
+
+    #[test]
+    fn entries_without_workspace_or_loop_run_give_no_loop_event() {
+        let mut no_workspace = loop_entry("b", Some("blocked"));
+        no_workspace.workspace_id = None;
+        let entries = [no_workspace, entry("c", Status::NeedsInput)];
+        let (s0, _) = loop_step(&seeded(), &entries, 0);
+        let (s1, events) = loop_step(&s0, &entries, DWELL_MS);
+        assert!(events.is_empty());
+        assert!(s1.pending.is_empty());
+    }
+
+    #[test]
+    fn loop_raised_candidate_gets_no_regular_event() {
+        let raised = Candidate {
+            loop_raised: true,
+            ..c("a", Attention::NeedsInput)
+        };
+        let (s0, _) = step(&Snapshot::default(), &[c("a", Attention::Busy)], 0);
+        let (s1, _) = step(&s0, std::slice::from_ref(&raised), 4_000);
+        let (_, events) = step(&s1, &[raised], 8_000);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn candidates_mark_loop_raised_runs() {
+        let found = candidates(&[loop_entry("a", Some("blocked")), entry("b", Status::Done)]);
+        assert!(found[0].loop_raised);
+        assert!(!found[1].loop_raised);
     }
 }

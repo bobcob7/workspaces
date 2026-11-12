@@ -115,15 +115,23 @@ pub fn notices(events: &[Event]) -> Vec<Notice> {
 }
 
 fn notice(event: &Event) -> Notice {
-    if event.attention == Attention::Done {
-        return Notice {
+    match event.attention {
+        Attention::Done => Notice {
             title: format!("{} is done", event.name),
             body: or_default(&event.snippet, "Finished its turn"),
-        };
-    }
-    Notice {
-        title: format!("{} needs input", event.name),
-        body: or_default(&event.snippet, "Waiting for your answer"),
+        },
+        Attention::Blocked => Notice {
+            title: format!("{} is blocked", event.name),
+            body: or_default(&event.snippet, "A loop run is waiting for your answer"),
+        },
+        Attention::RunNeedsAttention => Notice {
+            title: format!("{} needs attention", event.name),
+            body: or_default(&event.snippet, "A loop run stopped without a verdict"),
+        },
+        Attention::NeedsInput | Attention::Busy => Notice {
+            title: format!("{} needs input", event.name),
+            body: or_default(&event.snippet, "Waiting for your answer"),
+        },
     }
 }
 
@@ -159,6 +167,7 @@ mod tests {
             snippet: String::new(),
             attention,
             active_at: active_at.to_string(),
+            loop_raised: false,
         }
     }
 
@@ -318,5 +327,33 @@ mod tests {
     #[test]
     fn busy_event_alone_gives_no_notice() {
         assert!(notices(&[event("a", Attention::Busy, "")]).is_empty());
+    }
+
+    #[test]
+    fn blocked_notice_uses_loop_text_without_snippet() {
+        assert_eq!(
+            notices(&[event("deps-bump", Attention::Blocked, "")]),
+            [Notice {
+                title: "deps-bump is blocked".to_string(),
+                body: "A loop run is waiting for your answer".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn run_needs_attention_notice_uses_loop_text_without_snippet() {
+        assert_eq!(
+            notices(&[event("deps-bump", Attention::RunNeedsAttention, "")]),
+            [Notice {
+                title: "deps-bump needs attention".to_string(),
+                body: "A loop run stopped without a verdict".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn loop_notice_uses_snippet_when_present() {
+        let found = notices(&[event("deps-bump", Attention::Blocked, "Which branch?")]);
+        assert_eq!(found[0].body, "Which branch?");
     }
 }
