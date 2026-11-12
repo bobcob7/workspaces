@@ -49,6 +49,32 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release --locked --target "${triple}" --no-default-features --features online --bin ws-online \
     && mkdir -p /out && cp "target/${triple}/release/ws-online" /out/
 
+# Claude Code for the target architecture. The native installer runs the
+# downloaded binary, which crashes under QEMU (Bun), so fetch and verify the
+# release for TARGETARCH on the build machine and lay it out as the installer
+# would: the binary in ~/.local/share/claude/versions and a symlink in ~/.local/bin.
+FROM --platform=$BUILDPLATFORM debian:trixie-slim AS claude
+ARG TARGETARCH
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl jq \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+      amd64) platform=linux-x64 ;; \
+      arm64) platform=linux-arm64 ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    base=https://downloads.claude.ai/claude-code-releases; \
+    version="$(curl -fsSL "${base}/latest")"; \
+    printf '%s' "${version}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; \
+    checksum="$(curl -fsSL "${base}/${version}/manifest.json" | jq -er ".platforms[\"${platform}\"].checksum")"; \
+    dest=/out/.local/share/claude/versions; \
+    mkdir -p "${dest}" /out/.local/bin; \
+    curl -fsSL -o "${dest}/${version}" "${base}/${version}/${platform}/claude"; \
+    echo "${checksum}  ${dest}/${version}" | sha256sum -c -; \
+    chmod 0755 "${dest}/${version}"; \
+    ln -s "/home/ws/.local/share/claude/versions/${version}" /out/.local/bin/claude
+
 FROM debian:trixie-slim
 
 RUN apt-get update \
@@ -73,9 +99,7 @@ COPY --chmod=755 deploy/docker/entrypoint.sh /usr/local/bin/ws-online-entrypoint
 
 USER ws
 ENV HOME=/home/ws
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && /home/ws/.local/bin/claude --version \
-    && mv /home/ws/.local /opt/ws-online/seed/home/.local
+COPY --from=claude --chown=ws:ws /out/.local /opt/ws-online/seed/home/.local
 
 ENV PATH=/home/ws/.local/bin:/usr/local/bin:/usr/bin:/bin \
     SHELL=/bin/bash \
