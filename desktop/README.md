@@ -272,6 +272,11 @@ await page.goto("http://localhost:1420");
 `window.__TAURI_MOCK__` holds the calls made, the sample data and the
 handlers, which a later init script can change.
 
+The sample listing is a tree for the Agents list ([ADR 0057](../docs/adrs/0057-workspace-tree-and-filters.md)):
+`fix-login` has two generations of children, one of which needs input,
+and a hidden review child; `lint-sweep` is hidden and has a visible
+child, so it shows as a dimmed context row until Show hidden is on.
+
 For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
 mock. It serves `/api` and a WebSocket from the same handlers, and
 `window.__WEB_MOCK__.authenticated` decides whether the login page shows:
