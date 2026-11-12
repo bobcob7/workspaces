@@ -39,8 +39,12 @@ jobs:
       - run: make lint
 
   # ADR 0053: the Workspace Online image builds and starts; nothing is pushed.
+  # Built natively on both architectures: the published image is multi-arch.
   docker:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
@@ -51,6 +55,6 @@ jobs:
           push: false
           load: true
           tags: ws-online:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.os }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.os }}
       - run: deploy/docker/smoke-test.sh ws-online:ci

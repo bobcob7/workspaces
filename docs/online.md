@@ -38,6 +38,13 @@ $ docker run -d --name ws-online -p 8080:8080 \
     ws-online
 ```
 
+The image builds for amd64 and arm64 (CI builds both natively). To publish
+one multi-arch tag so any node can pull it:
+
+```console
+$ make online-image-push IMAGE=registry.example.com/ws-online TAG=$(git rev-parse --short=7 HEAD)
+```
+
 Open <http://localhost:8080>, log in, and start an agent. To reach it
 from another device, put it behind HTTPS (see below).
 
