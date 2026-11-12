@@ -18,7 +18,7 @@
   min-width: 128px;
 }
 
-.hidden {
+.bar .hidden {
   margin: 0;
   white-space: nowrap;
 }
