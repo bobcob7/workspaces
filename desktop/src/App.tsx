@@ -27,6 +27,9 @@ import { WatchedReposDialog } from "./features/reviews/WatchedReposDialog";
 import { SettingsList } from "./features/settings/SettingsList";
 import { SettingsPane } from "./features/settings/SettingsPane";
 import { fetchSettings } from "./features/settings/settingsSlice";
+import { StatsBar } from "./features/stats/StatsBar";
+import { StatsList } from "./features/stats/StatsList";
+import { StatsPane } from "./features/stats/StatsPane";
 import { TerminalView } from "./features/terminals/TerminalView";
 import { closeTerminal } from "./features/terminals/terminalsSlice";
 import { followTray } from "./features/ui/tray";
@@ -119,6 +122,7 @@ const sectionViews: Readonly<Partial<Record<Section, SectionView>>> = {
   repos: { actions: ReposActions, list: ReposList, pane: ReposPane },
   reviews: { actions: ReviewsActions, list: ReviewsList, pane: ReviewsPane },
   loops: { actions: LoopsActions, list: LoopsList, pane: LoopsPane },
+  stats: { actions: () => null, list: StatsList, pane: StatsPane },
   settings: { actions: () => null, list: SettingsList, pane: SettingsPane },
 };
 
@@ -133,6 +137,8 @@ const Warnings = ({ section }: { readonly section: Section }): JSX.Element | nul
         return s.repos.warnings;
       case "loops":
         return s.loops.warnings;
+      case "stats":
+        return s.stats.results[s.stats.window].data?.warnings ?? noWarnings;
       case "reviews":
       case "settings":
         return noWarnings;
@@ -217,6 +223,7 @@ export const App = (): JSX.Element => {
           <view.pane />
         </main>
       </div>
+      <StatsBar />
       <NewAgentDialog />
       <NewShellDialog />
       <AddRepoDialog />

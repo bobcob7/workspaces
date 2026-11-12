@@ -48,6 +48,17 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Watched repos" })).toBeInTheDocument();
   });
 
+  it("shows the stats bar under the Agents section", () => {
+    renderWithStore(<App />, testStore());
+    expect(screen.getByRole("contentinfo", { name: "Stats" })).toBeInTheDocument();
+  });
+
+  it("shows today's stats when the Stats rail button is chosen", async () => {
+    renderWithStore(<App />, testStore());
+    await userEvent.click(screen.getByRole("button", { name: "Stats" }));
+    expect(await screen.findByRole("heading", { name: "Today" })).toBeInTheDocument();
+  });
+
   it("shows one pane at a time on a narrow screen", async () => {
     const api = fakeApi({ listEntries: vi.fn(async () => ({ entries: [entry()], warnings: [] })) });
     const { container } = renderWithStore(<App />, testStore({ api }));
