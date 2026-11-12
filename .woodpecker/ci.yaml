@@ -27,6 +27,13 @@ steps:
           requests:
             cpu: 500m
             memory: 1Gi
+        # The golang image runs as root, and root ignores file permissions, so
+        # tests that expect a permission error (read-only dir, unreadable
+        # cache) fail. Dropping all capabilities makes root obey them again,
+        # and limits what a pull request's code can do in the cluster.
+        securityContext:
+          capabilities:
+            drop: [ALL]
 
   # ADR 0003 and friends are enforced by make lint's grep checks as well.
   - name: lint
@@ -40,3 +47,10 @@ steps:
           requests:
             cpu: 500m
             memory: 1Gi
+        # The golang image runs as root, and root ignores file permissions, so
+        # tests that expect a permission error (read-only dir, unreadable
+        # cache) fail. Dropping all capabilities makes root obey them again,
+        # and limits what a pull request's code can do in the cluster.
+        securityContext:
+          capabilities:
+            drop: [ALL]
