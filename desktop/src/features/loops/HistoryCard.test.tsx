@@ -48,22 +48,51 @@ describe("HistoryCard", () => {
     expect(await screen.findByText("Bumped two packages.")).toBeInTheDocument();
   });
 
-  it("loads the next page of runs with Show more", async () => {
-    const api = fakeApi({ loopsHistory: vi.fn(async () => history({ total: 25 })) });
+  const manyRuns = (count: number): LoopHistory =>
+    history({ runs: Array.from({ length: count }, (_, i) => loopHistoryRun({ seq: count - i })), total: count });
+
+  it("asks for the whole history once and shows it ten runs at a time", async () => {
+    const api = fakeApi({ loopsHistory: vi.fn(async () => manyRuns(25)) });
     renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
-    await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
-    expect(api.loopsHistory).toHaveBeenLastCalledWith("deps", 40);
+    const list = await screen.findByRole("list", { name: "Run history" });
+    expect(api.loopsHistory).toHaveBeenCalledWith("deps", 200);
+    expect(within(list).getAllByRole("listitem")).toHaveLength(10);
+    expect(within(list).getByRole("button", { name: /Run 25\b/ })).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 3 · 25 runs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
   });
 
-  it("loads the first page for another loop after Show more on this one", async () => {
-    const api = fakeApi({ loopsHistory: vi.fn(async () => history({ total: 25 })) });
+  it("moves between pages with Next and Previous", async () => {
+    const api = fakeApi({ loopsHistory: vi.fn(async () => manyRuns(25)) });
+    renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
+    await screen.findByRole("list", { name: "Run history" });
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Page 2 of 3 · 25 runs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Run 15\b/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByText("Page 2 of 3 · 25 runs")).toBeInTheDocument();
+  });
+
+  it("shows no pager when everything fits on one page", async () => {
+    const api = fakeApi({ loopsHistory: vi.fn(async () => manyRuns(10)) });
+    renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
+    await screen.findByRole("list", { name: "Run history" });
+    expect(screen.queryByRole("navigation", { name: "History pages" })).not.toBeInTheDocument();
+  });
+
+  it("goes back to the first page when another loop is shown", async () => {
+    const api = fakeApi({ loopsHistory: vi.fn(async (name: string) => ({ ...manyRuns(25), loop: name })) });
     const store = testStore({ api });
     const first = renderWithStore(<HistoryCard loop={loop()} />, store);
-    await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
-    await waitFor(() => expect(store.getState().loopData.historyLimit).toBe(40));
+    await screen.findByRole("list", { name: "Run history" });
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     first.unmount();
     renderWithStore(<HistoryCard loop={loop({ name: "nightly" })} />, store);
-    await waitFor(() => expect(api.loopsHistory).toHaveBeenLastCalledWith("nightly", 20));
+    await waitFor(() => expect(api.loopsHistory).toHaveBeenLastCalledWith("nightly", 200));
+    await waitFor(() => expect(screen.getByText("Page 1 of 3 · 25 runs")).toBeInTheDocument());
   });
 
   it("closes a run's report with Close", async () => {

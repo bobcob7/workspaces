@@ -463,6 +463,28 @@
     return found;
   };
 
+  // Older runs so the history has more than one page.
+  const bump = data.loopHistory["deps-bump"];
+  for (let seq = 50; seq >= 36; seq -= 1) {
+    const day = String(seq - 33).padStart(2, "0");
+    bump.runs.push({
+      seq,
+      status: seq % 7 === 0 ? "failed" : "succeeded",
+      trigger: "tick",
+      startedAt: `2026-10-${day}T08:00:00Z`,
+      finishedAt: `2026-10-${day}T08:10:00Z`,
+      durationSeconds: 600,
+      workspace: `loop-deps-bump-${seq}`,
+      workspaceExists: false,
+      session: null,
+      error: null,
+      gate: null,
+      repeats: 1,
+      verdict: null,
+    });
+  }
+  bump.total = bump.runs.length;
+
   const historyOf = (name) => data.loopHistory[name] ?? { total: 0, runs: [], reports: {} };
 
   const memoryOf = (name) => data.loopMemory[name] ?? { entries: [] };

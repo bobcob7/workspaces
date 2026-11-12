@@ -2,14 +2,17 @@ import { Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, 
 import { useEffect, useState, type JSX } from "react";
 import type { Loop, LoopHistoryRun } from "../../api";
 import { age } from "../../format";
-import { useAppDispatch, useAppSelector, useAppStore } from "../../store";
+import { useAppDispatch, useAppSelector } from "../../store";
 import { selected, sectionChosen } from "../ui/uiSlice";
 import { Card } from "./Card";
 import { formatDuration, runSummary, statusColor, statusLabel } from "./history";
-import { clearLoopHistory, fetchLoopHistory, historyPageSize, runClosed } from "./loopDataSlice";
+import { clearLoopHistory, fetchLoopHistory, historyFetchLimit, runClosed } from "./loopDataSlice";
 import { loopLabel } from "./formValues";
 import { RunDialog } from "./RunDialog";
 import styles from "./HistoryCard.module.css";
+
+/** Runs shown per page of a loop's history. */
+export const historyPageSize = 10;
 
 const WorkspaceLink = ({ run, disabled }: { readonly run: LoopHistoryRun; readonly disabled: boolean }): JSX.Element | null => {
   const dispatch = useAppDispatch();
@@ -50,28 +53,35 @@ const RunRow = ({ run, disabled, onOpen }: { readonly run: LoopHistoryRun; reado
   </li>
 );
 
-/** The loop's recent runs, newest first, with a dialog per run and the history's own actions. */
+/** The loop's runs, newest first, a page at a time, with a dialog per run and the history's own actions. */
 export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   const dispatch = useAppDispatch();
-  const store = useAppStore();
-  const data = useAppSelector((s) => s.loopData);
+    const data = useAppSelector((s) => s.loopData);
   const busy = useAppSelector((s) => s.loops.busy === loop.name);
   const [openSeq, setOpenSeq] = useState<number | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [page, setPage] = useState(0);
   const lastStarted = loop.lastRun?.startedAt ?? null;
   const held = data.loop === loop.name;
   const history = held ? data.history : null;
   const error = held ? data.historyError : null;
 
   useEffect(() => {
-    const current = store.getState().loopData;
-    const limit = current.loop === loop.name ? current.historyLimit : historyPageSize;
-    void dispatch(fetchLoopHistory({ name: loop.name, limit }));
-  }, [dispatch, store, loop.name, lastStarted]);
+    setPage(0);
+  }, [loop.name]);
+
+  useEffect(() => {
+    void dispatch(fetchLoopHistory({ name: loop.name, limit: historyFetchLimit }));
+  }, [dispatch, loop.name, lastStarted]);
 
   const refresh = (): void => {
-    void dispatch(fetchLoopHistory({ name: loop.name, limit: data.historyLimit }));
+    void dispatch(fetchLoopHistory({ name: loop.name, limit: historyFetchLimit }));
   };
+
+  const runs = history?.runs ?? [];
+  const pages = Math.max(1, Math.ceil(runs.length / historyPageSize));
+  const current = Math.min(page, pages - 1);
+  const shown = runs.slice(current * historyPageSize, (current + 1) * historyPageSize);
 
   return (
     <Card title="History">
@@ -94,21 +104,26 @@ export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
             </Button>
           </div>
         )}
-        {history !== null && history.runs.length === 0 && <p className={styles.muted}>No runs yet.</p>}
-        {history !== null && history.runs.length > 0 && (
+        {history !== null && runs.length === 0 && <p className={styles.muted}>No runs yet.</p>}
+        {runs.length > 0 && (
           <ul aria-label="Run history" className={styles.runs}>
-            {history.runs.map((run) => (
+            {shown.map((run) => (
               <RunRow key={run.seq} run={run} disabled={busy} onOpen={() => setOpenSeq(run.seq)} />
             ))}
           </ul>
         )}
-        {history !== null && history.runs.length < history.total && (
-          <Button
-            size="small"
-            onClick={() => void dispatch(fetchLoopHistory({ name: loop.name, limit: data.historyLimit + historyPageSize }))}
-          >
-            Show more
-          </Button>
+        {pages > 1 && (
+          <nav aria-label="History pages" className={styles.pager}>
+            <Button size="small" disabled={current === 0} onClick={() => setPage(current - 1)}>
+              Previous
+            </Button>
+            <span className={styles.muted}>
+              Page {current + 1} of {pages} · {runs.length} runs
+            </span>
+            <Button size="small" disabled={current >= pages - 1} onClick={() => setPage(current + 1)}>
+              Next
+            </Button>
+          </nav>
         )}
       </div>
       {openSeq !== null && (

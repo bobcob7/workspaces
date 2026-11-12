@@ -12,15 +12,13 @@ import {
 import { createAppThunk } from "../../thunk";
 import { noticeShown } from "../ui/uiSlice";
 
-/** Runs shown per page of a loop's history; "Show more" adds one more page. */
-export const historyPageSize = 20;
+/** How many runs one history fetch asks for: all of a loop's retained history (ws keeps 200). */
+export const historyFetchLimit = 200;
 
 export interface LoopDataState {
   /** Whose data is held; reset when it changes. */
   readonly loop: string | null;
   readonly history: LoopHistory | null;
-  /** How many runs the history asks for. */
-  readonly historyLimit: number;
   readonly historyError: AppError | null;
   /** The run open in the dialog. */
   readonly run: LoopRunDetail | null;
@@ -35,7 +33,6 @@ export interface LoopDataState {
 const initialState: LoopDataState = {
   loop: null,
   history: null,
-  historyLimit: historyPageSize,
   historyError: null,
   run: null,
   runLoading: false,
@@ -77,10 +74,10 @@ export const fetchLoopRun = createAppThunk<LoopRunDetail, { name: string; seq: n
 /** Clears a loop's history, then loads the history again. */
 export const clearLoopHistory = createAppThunk<LoopCleared, string>(
   "loopData/clearHistory",
-  async (name, { extra, dispatch, getState, rejectWithValue }) => {
+  async (name, { extra, dispatch, rejectWithValue }) => {
     try {
       const cleared = await extra.api.loopsHistoryClear(name);
-      await dispatch(fetchLoopHistory({ name, limit: getState().loopData.historyLimit }));
+      await dispatch(fetchLoopHistory({ name, limit: historyFetchLimit }));
       return cleared;
     } catch (err: unknown) {
       const error = toAppError(err);
@@ -158,7 +155,6 @@ const loopDataSlice = createSlice({
       .addCase(fetchLoopHistory.fulfilled, (state, action): LoopDataState => ({
         ...holding(state, action.payload.loop),
         history: action.payload,
-        historyLimit: action.meta.arg.limit,
         historyError: null,
       }))
       .addCase(fetchLoopHistory.rejected, (state, action): LoopDataState => ({

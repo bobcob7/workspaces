@@ -11,6 +11,14 @@
   gap: 8px;
 }
 
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
 .muted {
   margin: 0;
   color: var(--text-muted);
