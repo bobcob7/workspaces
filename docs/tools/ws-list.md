@@ -11,7 +11,7 @@ ws list [OPTIONS]
 ## Description
 
 Reads `$CONFIG_DIR/state/*/` and prints one row per workspace, like
-`docker ps`. Hidden workspaces ([`ws hide`](ws-hide.md), reviews, and
+`docker ps`. Hidden workspaces ([`ws hide`](ws-hide.md) and
 `ws claude --hidden`) are left out unless `-a` is given, and a line on
 stderr says how many were (none with `--quiet`); with `-a`, the NAME
 column marks them `(hidden)` ([0043](../adrs/0043-hidden-workspaces.md)). For agent workspaces, the session's state comes from the

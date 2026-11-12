@@ -101,6 +101,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws restore`](docs/tools/ws-restore.md) | Restart agents after a reboot or crash               |
 | [`ws restart`](docs/tools/ws-restart.md) | Restart all agents with a fresh environment          |
 | [`ws continue`](docs/tools/ws-continue.md) | Carry on agents stopped by a usage limit once it resets |
+| [`ws loop`](docs/tools/ws-loop.md)       | Start an agent in a new workspace every period       |
 | [`ws list`](docs/tools/ws-list.md)       | List workspaces and their sessions                   |
 | [`ws rm`](docs/tools/ws-rm.md)           | Remove workspaces and their sessions now             |
 | [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
@@ -225,15 +226,13 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **Release**: `make dist` binaries for darwin and linux, amd64 and
   arm64, with `SHA256SUMS`; CI, and a GitHub release for each `v*` tag
   ([0002](docs/adrs/0002-implementation-language.md))
-- [ ] **Structured reviews**, forked from loam-refinery ([design](docs/design/loam-refinery-reviews/README.md),
-  [0037](docs/adrs/0037-review-engine-forked-from-loam-refinery.md)–[0041](docs/adrs/0041-desktop-acts-on-findings.md),
-  accepted): `ws review start`, `wait`, and `report`; one subagent per
-  reviewer profile; findings triaged, commented, and fixed from the
-  desktop app. Steps 1 to 3 of 6 are done: the forked review engine with
-  `ws review prime`, `describe`, and `submit` and the review store; and
-  `ws review start`, `wait`, `report`, and `profiles`, so agents can
-  review each other's work from a terminal; and `ws review decide`,
-  `acted`, and `report --decided`, so they can triage it too
+- [x] **Structured reviews**, forked from loam-refinery ([design](docs/design/loam-refinery-reviews/README.md),
+  [0037](docs/adrs/0037-review-engine-forked-from-loam-refinery.md)–[0042](docs/adrs/0042-review-profile-management.md),
+  [0045](docs/adrs/0045-finished-reviews-are-removed.md), accepted): `ws review
+  start`, `wait`, `report`, `list`, `profiles`, `decide`, and `acted`, with
+  `prime`, `describe`, and `submit` for the reviewer agents; one subagent per
+  reviewer profile; findings triaged, commented, and fixed from the desktop
+  app ([0041](docs/adrs/0041-desktop-acts-on-findings.md))
 - [x] **`ws continue`** ([0047](docs/adrs/0047-ws-continue-after-usage-limit.md),
   proposed): carries on agents stopped by a 5-hour or weekly limit once it
   resets, only while the Mac is fully awake
@@ -259,7 +258,9 @@ $ make dist       # dist/: a binary per platform, and SHA256SUMS
 $ make desktop    # desktop app bundle; `make desktop-dev`, `make desktop-test`
 ```
 
-CI lints, tests, and builds every pull request on Linux and macOS. To
+CI lints, tests, and builds every pull request on Linux and macOS
+(Linux on Woodpecker, see [`.woodpecker/ci.yaml`](.woodpecker/ci.yaml); macOS and the
+Workspace Online image on GitHub Actions). To
 release, push a tag such as `v0.1.0`. The
 [release workflow](.github/workflows/release.yml) runs CI, then `make dist`,
 and attaches the binaries and checksums to a GitHub release for the tag. A
@@ -271,11 +272,14 @@ internal/
   cli/                        # cobra commands and the output contract (0005, 0016)
   config/                     # CONFIG_DIR and config.toml (0011)
   git/                        # the only place git is executed (0003)
+  gh/                         # the only place gh runs (0039)
   claude/                     # the only place claude is executed, and its transcripts read (0015, 0018, 0024, 0047)
   repo/                       # repo@ref specs, canonical ids, upstream URLs (0007, 0019, 0020)
   cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
   workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)
   lifetime/                   # removing workspaces whose session is gone; ws list, ws rm, ws restore, ws continue (0015, 0025, 0027, 0047)
+  machine/                    # ws machine: children, results, and roles (0046, 0050)
+  review/                     # the review engine: documents, checks, store, start (0037-0045)
   loop/                       # agent loops: records, schedule, store (0048)
   gate/                       # runs a loop's gate script (0049)
   proc/                       # when processes started, from the operating system (0018, 0026)

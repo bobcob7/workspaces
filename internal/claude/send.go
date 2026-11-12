@@ -151,8 +151,8 @@ func watchPrompt(control *os.File) <-chan struct{} {
 // it to exit, killing it if it takes longer than the hang-up timing.
 func (c *Client) hangUp(ctx context.Context, cmd *exec.Cmd, control *os.File) {
 	control.Close()
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
 	select {
 	case <-done:
 		return

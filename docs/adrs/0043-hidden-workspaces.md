@@ -1,6 +1,6 @@
 # 0043. A workspace can be hidden: `hidden = true` in its record, set by `ws review start`, `ws claude --hidden`, and `ws hide`; `ws list` and the desktop app show hidden workspaces only when asked
 
-- Status: Accepted (2026-10-28); the desktop Agents list's Hidden group superseded by [0058](0058-workspace-tree-and-filters.md) (2026-11-11)
+- Status: Accepted (2026-10-28); the desktop Agents list's Hidden group superseded by [0058](0058-workspace-tree-and-filters.md) (2026-11-11); `ws review start` no longer hides review workspaces (2026-11-12), so children are visible in the tree
 - Date: 2026-10-28
 
 ## Context

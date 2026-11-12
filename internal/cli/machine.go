@@ -72,7 +72,7 @@ func (a *App) newMachineSpawnCmd() *cobra.Command {
 		})),
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
-	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views")
+	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views (off by default)")
 	cmd.Flags().StringVar(&opts.role, "role", "", "start the child from this role (ws machine roles)")
 	cmd.Flags().StringArrayVar(&opts.vars, "var", nil, "KEY=VALUE for the role's prompt; repeatable, with --role")
 	return cmd

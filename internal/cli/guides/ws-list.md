@@ -105,5 +105,5 @@ but shell workspaces whose shell has exited, and a warning says why.
 $ ws list --json
 $ ws list --json --repo buff-bear@main
 $ ws list -q
-$ ws list --json -a   # including hidden workspaces, such as reviews
+$ ws list --json -a   # including hidden workspaces
 ```

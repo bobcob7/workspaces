@@ -368,7 +368,7 @@ func (a *App) startReview(ctx context.Context, rec *record.Record, target *revie
 		saved = ws.ID
 		return runs.SaveRun(ws.ID, rec)
 	}
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: name, Specs: []repo.Spec{sp}, Offline: true, Hidden: true, Parent: rec.Requester, Prepare: prepare})
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: name, Specs: []repo.Spec{sp}, Offline: true, Parent: rec.Requester, Prepare: prepare})
 	if err != nil {
 		a.dropRun(runs, saved, rec)
 		a.printWarnings()

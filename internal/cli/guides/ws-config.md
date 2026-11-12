@@ -8,8 +8,8 @@ ws config unset [--json] <key>
 ```
 
 Lists, reads, and changes the settings in `config.toml`, keeping the file's
-comments. Each key does what the [configuration](../config.md#schema)
-page says. Every command reads the file first, so a file that doesn't parse
+comments. Each key does what the configuration page (`docs/config.md#schema`)
+says. Every command reads the file first, so a file that doesn't parse
 fails with `config_invalid` and has to be fixed by hand.
 
 `ws config` is for people and the desktop app. Agents don't run it: tell a

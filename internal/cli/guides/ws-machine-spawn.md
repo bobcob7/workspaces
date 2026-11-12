@@ -49,7 +49,7 @@ arguments without an extra prompt, give an empty one: `-- "" --model opus`.
 | ------------------- | ----------------------------------------------------------- |
 | `--name <name>`     | Name the workspace and derive its id from the name, as for `ws claude` (`"Fix Login"` → `fix-login-d8efb24f`) |
 | `--offline`         | Don't fetch; use the cache as it is. Uncached repos and refs fail |
-| `--hidden`          | Hide the workspace from `ws list` and the desktop app's default views, for helpers the user needn't follow |
+| `--hidden`          | Hide the workspace from `ws list` and the desktop app's default views. Off by default: children show in the tree |
 | `--role <name>`     | Start the child from this role                              |
 | `--var KEY=VALUE`   | A value for the role's prompt; repeatable; only with `--role` |
 
@@ -100,7 +100,7 @@ On `claude_untrusted`, tell the person to run `claude` once in
 
 ```console
 $ ws machine spawn --name fix-login buff-bear -- "Fix the login bug, push a branch, and open a PR"
-$ ws machine spawn --hidden buff-bear@feat/new-thing -- "Write tests for the new parser" --model opus
+$ ws machine spawn buff-bear@feat/new-thing -- "Write tests for the new parser" --model opus
 $ ws machine spawn --name t1-impl --role implementer --var TASK=T1 --var TASKS=docs/design/x/tasks.md \
     --var BASE=feat/x --var BRANCH=feat/x-t1 buff-bear@feat/x
 $ ws machine spawn --name t1-review --role reviewer --var TASK=T1 --var TASKS=docs/design/x/tasks.md \

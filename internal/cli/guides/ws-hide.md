@@ -18,7 +18,7 @@ nothing.
 - To hide a workspace you no longer need to follow. To hide one from the
   start, use `ws claude --hidden`; an agent uses
   `ws machine spawn --hidden`.
-- Review workspaces from `ws review start` are already hidden.
+- Review workspaces from `ws review start` are not hidden; they show as children of the requester.
 
 A workspace is named by its id, path, or agent session id.
 
