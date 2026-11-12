@@ -66,10 +66,10 @@ online-image:
 # Publish the image for amd64 and arm64 as one multi-arch tag. Needs a buildx
 # builder that can build both (Docker Desktop, or QEMU binfmt on Linux).
 # make online-image-push IMAGE=registry.example.com/ws-online TAG=$(git rev-parse --short=7 HEAD)
-PLATFORMS ?= linux/amd64,linux/arm64
+IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
 online-image-push:
 	@test -n "$(IMAGE)" && test -n "$(TAG)" || { echo "usage: make online-image-push IMAGE=<repo> TAG=<tag>"; exit 1; }
-	docker buildx build --platform $(PLATFORMS) -f deploy/docker/Dockerfile \
+	docker buildx build --platform $(IMAGE_PLATFORMS) -f deploy/docker/Dockerfile \
 		--build-arg VERSION=$(VERSION) -t $(IMAGE):$(TAG) --push .
 
 online-smoke: online-image
