@@ -3,6 +3,8 @@
 
 #![allow(dead_code)]
 
+pub mod aggregate;
+pub mod cache;
 pub mod ingest;
 pub mod lang;
 pub mod price;
