@@ -10,6 +10,7 @@ mod about;
 mod cache;
 mod commands;
 mod env;
+mod host;
 mod ipc;
 mod jobs;
 mod loops;
