@@ -1,0 +1,36 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 4px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.search {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.status {
+  flex: 0 0 auto;
+  min-width: 128px;
+}
+
+.hidden {
+  margin: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .search {
+    flex-basis: 100%;
+  }
+
+  .bar input,
+  .bar select,
+  .hidden {
+    min-height: 40px;
+  }
+}
