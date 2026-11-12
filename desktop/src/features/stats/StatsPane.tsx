@@ -1,9 +1,13 @@
 import { Alert } from "@mui/material";
 import type { JSX } from "react";
 import { useAppSelector } from "../../store";
+import { LanguagesCard } from "./LanguagesCard";
+import { ModelsCard } from "./ModelsCard";
+import { ProductivityCard } from "./ProductivityCard";
 import { windowLabels } from "./statsSlice";
 import { SystemCard } from "./SystemCard";
 import styles from "./StatsPane.module.css";
+import { TokenKindsCard } from "./TokenKindsCard";
 import { UsageCard } from "./UsageCard";
 import { useStatsPolling } from "./useStatsPolling";
 
@@ -30,6 +34,10 @@ export const StatsPane = (): JSX.Element => {
         <div className={styles.cards}>
           <SystemCard system={data.system} />
           <UsageCard usage={data.usage} />
+          <ModelsCard models={data.usage.byModel} />
+          <TokenKindsCard totals={data.usage.totals} />
+          <LanguagesCard languages={data.usage.byLanguage} />
+          <ProductivityCard rows={data.productivity} />
         </div>
       )}
     </div>
