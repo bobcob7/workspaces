@@ -292,6 +292,16 @@ Login accepts `me` / `secret`. `window.__WEB_MOCK__.push` sets the push
 state of This browser in Settings › Notifications: `"subscribed"` (the
 default), `"granted"`, `"default"`, `"denied"` or `"unsupported"`.
 
+## Agents list tree
+
+The Agents list as a tree ([ADR 0057](../docs/adrs/0057-workspace-tree-and-filters.md)), from the mock data:
+
+- [Tree at 1100px](docs/tree-list.png): Needs input on top, `fix-login` expanded to show its children.
+- [Search](docs/tree-list-search.png): `lint` typed; the hidden `lint-sweep` stays as a dimmed context row.
+- [Show hidden](docs/tree-list-hidden.png): hidden entries in the tree.
+- [Status filter](docs/tree-list-status.png): Working only.
+- [At 360px](docs/tree-list-mobile.png): the filter bar wrapped, search on its own row.
+
 ## Status
 
 | Shown        | When                                                            |
