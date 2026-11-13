@@ -114,17 +114,25 @@ pub fn is_reviewing(status: Status) -> bool {
 }
 
 /// Whether a workspace reviews the pull request: by its review record's
-/// repo and `pr.number` (ADR 0039), or, for a workspace without one, by
-/// ADR 0032's name.
+/// repo and `pr.number` (ADR 0039); for a Forgejo review, which has no
+/// `pr`, by its record's repo and the name prefix of the pull request
+/// (ADR 0060); or, for a workspace without a record, by ADR 0032's name.
 pub fn is_review_of(entry: &Entry, repo: &str, number: u64) -> bool {
-    match &entry.review {
-        Some(record) => {
-            record.repo == repo && record.pr.as_ref().is_some_and(|pr| pr.number == number)
-        }
+    let Some(record) = &entry.review else {
+        return entry
+            .workspace_id
+            .as_deref()
+            .is_some_and(|id| names::is_review_of(id, &entry.repos, repo, number));
+    };
+    if record.repo != repo {
+        return false;
+    }
+    match &record.pr {
+        Some(pr) => pr.number == number,
         None => entry
             .workspace_id
             .as_deref()
-            .is_some_and(|id| names::is_review_of(id, &entry.repos, repo, number)),
+            .is_some_and(|id| id.starts_with(&names::review_prefix(repo, number))),
     }
 }
 
@@ -574,5 +582,23 @@ pub mod tests {
         assert_eq!(json["key"], "github.com/bobcob7/buff-bear#42");
         assert_eq!(json["headRefOid"], HEAD);
         assert_eq!(json["group"], "toReview");
+    }
+
+    #[test]
+    fn record_without_pr_matches_by_name_prefix() {
+        let entry = Entry {
+            workspace_id: Some("review-buff-bear-42-3f2a9c1-d8efb24f".to_string()),
+            review: Some(ReviewRecord {
+                repo: REPO.to_string(),
+                git_ref: HEAD.to_string(),
+                requester: String::new(),
+                profiles: vec![],
+                pr: None,
+            }),
+            ..review(42, HEAD, Status::Working, "2026-10-24T10:00:00Z")
+        };
+        assert!(is_review_of(&entry, REPO, 42));
+        assert!(!is_review_of(&entry, REPO, 41));
+        assert!(!is_review_of(&entry, "github.com/o/other", 42));
     }
 }

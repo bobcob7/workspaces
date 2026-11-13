@@ -2,6 +2,7 @@
 //! profiles, model, and permission mode from Settings (ADRs 0032, 0038,
 //! 0039).
 
+use super::forge::ForgeKind;
 use super::github::PullRequest;
 use super::names;
 use super::profiles::{self, ProfileChoice};
@@ -25,6 +26,9 @@ pub struct ReviewPlan {
     /// The requester's focus, added to the review's prompts.
     #[serde(default)]
     pub focus: String,
+    /// The repo's forge, which decides how `ws` finds the pull request.
+    #[serde(default)]
+    pub forge: ForgeKind,
 }
 
 pub fn plan(
@@ -42,6 +46,7 @@ pub fn plan(
         model: settings.model.clone(),
         permission_mode: settings.permission_mode.clone(),
         focus: String::new(),
+        forge: ForgeKind::Github,
     }
 }
 
@@ -65,23 +70,38 @@ fn non_empty(value: &str) -> Option<&str> {
     Some(value.trim()).filter(|s| !s.is_empty())
 }
 
+/// The arguments that name the pull request. GitHub's `ws` reads it by
+/// number; Forgejo's is started at its head commit, under the name.
+fn target_args(plan: &ReviewPlan, name: &str) -> Vec<String> {
+    match plan.forge {
+        ForgeKind::Github => {
+            let mut args = vec!["--pr".to_string(), plan.number.to_string()];
+            if name != names::review_name(&plan.repo, plan.number, &plan.head) {
+                args.extend(["--name".to_string(), name.to_string()]);
+            }
+            args.push(plan.repo.clone());
+            args
+        }
+        ForgeKind::Forgejo => vec![
+            "--name".to_string(),
+            name.to_string(),
+            format!("{}@{}", plan.repo, plan.head),
+        ],
+    }
+}
+
 /// `ws review start --json --pr <n> [--name N] <repo> [--profile …]…
 /// [--auto …]… -- [--model=M] [--permission-mode=P] [focus]`. Options
 /// after `--` carry their value with `=`, since `ws` takes the last
-/// argument there for the focus unless it starts with `-`.
+/// argument there for the focus unless it starts with `-`. A Forgejo
+/// review is `--name N <repo>@<head>` in place of the `--pr` part.
 pub fn start_args(plan: &ReviewPlan) -> Result<Vec<String>, AppError> {
-    let mut args: Vec<String> = ["review", "start", "--json", "--pr"]
-        .map(str::to_string)
-        .to_vec();
-    args.push(plan.number.to_string());
     let name = plan.name.trim();
     if name.is_empty() {
         return Err(AppError::new("usage", "the review needs a workspace name"));
     }
-    if name != names::review_name(&plan.repo, plan.number, &plan.head) {
-        args.extend(["--name".to_string(), name.to_string()]);
-    }
-    args.push(plan.repo.clone());
+    let mut args: Vec<String> = ["review", "start", "--json"].map(str::to_string).to_vec();
+    args.extend(target_args(plan, name));
     args.extend(plan.profiles.iter().flat_map(ProfileChoice::args));
     let mut after = Vec::new();
     if let Some(model) = non_empty(&plan.model) {
@@ -208,5 +228,82 @@ mod tests {
             ..default_plan()
         };
         assert_eq!(start_args(&plan).unwrap_err().code, "usage");
+    }
+
+    #[test]
+    fn plan_defaults_to_github() {
+        assert_eq!(default_plan().forge, ForgeKind::Github);
+    }
+
+    #[test]
+    fn plan_json_without_forge_is_github() {
+        let mut json = serde_json::to_value(default_plan()).unwrap();
+        json.as_object_mut().unwrap().remove("forge");
+        let plan: ReviewPlan = serde_json::from_value(json).unwrap();
+        assert_eq!(plan.forge, ForgeKind::Github);
+    }
+
+    #[test]
+    fn forgejo_plan_starts_at_head_commit_with_name() {
+        let plan = ReviewPlan {
+            repo: "git.example.com/team/svc".to_string(),
+            name: "review-svc-15262-8db6637".to_string(),
+            number: 15262,
+            head: "8db6637666e157ddd3af5d5033ac7edc347f2c10".to_string(),
+            profiles: vec![ProfileChoice {
+                name: "go".to_string(),
+                model: String::new(),
+                auto: false,
+            }],
+            model: "sonnet".to_string(),
+            forge: ForgeKind::Forgejo,
+            ..default_plan()
+        };
+        assert_eq!(
+            start_args(&plan).unwrap(),
+            [
+                "review",
+                "start",
+                "--json",
+                "--name",
+                "review-svc-15262-8db6637",
+                "git.example.com/team/svc@8db6637666e157ddd3af5d5033ac7edc347f2c10",
+                "--profile",
+                "go",
+                "--",
+                "--model=sonnet"
+            ]
+        );
+    }
+
+    #[test]
+    fn forgejo_empty_name_is_refused() {
+        let plan = ReviewPlan {
+            name: String::new(),
+            forge: ForgeKind::Forgejo,
+            ..default_plan()
+        };
+        assert_eq!(start_args(&plan).unwrap_err().code, "usage");
+    }
+
+    #[test]
+    fn github_start_args_are_unchanged() {
+        let plan = ReviewPlan {
+            name: "careful-look".to_string(),
+            ..default_plan()
+        };
+        assert_eq!(
+            start_args(&plan).unwrap(),
+            [
+                "review",
+                "start",
+                "--json",
+                "--pr",
+                "42",
+                "--name",
+                "careful-look",
+                REPO
+            ]
+        );
     }
 }

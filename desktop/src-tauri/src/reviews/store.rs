@@ -1,6 +1,7 @@
 //! `desktop.json`: watched repos, dismissals, auto-review records, and
 //! settings (ADR 0034). The backend is its only writer.
 
+use super::forge::ForgeChoice;
 use crate::runner::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -142,12 +143,45 @@ pub struct OpenSettings {
     pub editor: String,
 }
 
+/// A host's forge setting (ADR 0060). A host with no entry is `auto`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ForgeHost {
+    pub kind: ForgeChoice,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ForgeSettings {
+    pub hosts: BTreeMap<String, ForgeHost>,
+}
+
+impl ForgeSettings {
+    /// The host's setting: `Auto` when it has none.
+    #[allow(dead_code)] // used by T4
+    pub fn choice(&self, host: &str) -> ForgeChoice {
+        self.hosts.get(host).map_or(ForgeChoice::Auto, |h| h.kind)
+    }
+
+    /// Sets a host's setting; `Auto` removes its entry.
+    #[allow(dead_code)] // used by T4
+    pub fn set_choice(&mut self, host: &str, choice: ForgeChoice) {
+        if choice == ForgeChoice::Auto {
+            self.hosts.remove(host);
+        } else {
+            self.hosts
+                .insert(host.to_string(), ForgeHost { kind: choice });
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub reviews: ReviewSettings,
     pub notifications: NotificationSettings,
     pub open: OpenSettings,
+    pub forges: ForgeSettings,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -668,5 +702,38 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"open":{"editor":"zed"}}"#).unwrap();
         assert_eq!(settings.open.file_manager, "");
         assert_eq!(settings.open.editor, "zed");
+    }
+
+    #[test]
+    fn file_without_forges_loads_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"settings":{"reviews":{"skipDrafts":false}}}"#,
+        )
+        .unwrap();
+        let data = Store::open(Some(path)).get();
+        assert_eq!(data.settings.forges, ForgeSettings::default());
+    }
+
+    #[test]
+    fn set_choice_auto_removes_host() {
+        let mut forges = ForgeSettings::default();
+        forges.set_choice("git.example.com", ForgeChoice::Forgejo);
+        assert_eq!(forges.choice("git.example.com"), ForgeChoice::Forgejo);
+        forges.set_choice("git.example.com", ForgeChoice::Auto);
+        assert!(forges.hosts.is_empty());
+        assert_eq!(forges.choice("git.example.com"), ForgeChoice::Auto);
+    }
+
+    #[test]
+    fn forges_serialize_as_in_reference() {
+        let mut forges = ForgeSettings::default();
+        forges.set_choice("git.example.com", ForgeChoice::Forgejo);
+        assert_eq!(
+            serde_json::to_value(&forges).unwrap(),
+            serde_json::json!({"hosts": {"git.example.com": {"kind": "forgejo"}}})
+        );
     }
 }
