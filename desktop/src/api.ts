@@ -132,7 +132,8 @@ export interface Versions {
 
 export type TermSpec =
   | { readonly kind: "attach"; readonly sessionId: string; readonly cwd: string }
-  | { readonly kind: "shell"; readonly name: string; readonly specs: readonly string[] };
+  | { readonly kind: "shell"; readonly name: string; readonly specs: readonly string[] }
+  | { readonly kind: "dir"; readonly cwd: string };
 
 export type TermEvent =
   | { readonly event: "data"; readonly data: string }

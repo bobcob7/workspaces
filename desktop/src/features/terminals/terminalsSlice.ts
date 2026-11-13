@@ -42,6 +42,8 @@ export const maxAttached = 4;
 export const attachKey = (sessionId: string): string => `attach:${sessionId}`;
 /** A new shell terminal's key: shell: and a token the app picks. */
 export const shellKey = (token: string): string => `shell:${token}`;
+/** The integrated terminal opened in an entry's workspace directory. */
+export const dirKey = (entryKey: string): string => `dir:${entryKey}`;
 
 export interface ShellLink {
   readonly key: string;

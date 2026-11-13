@@ -27,6 +27,8 @@ pub enum TermSpec {
         name: Option<String>,
         specs: Vec<String>,
     },
+    /// The user's shell, started in `cwd`.
+    Dir { cwd: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,15 +67,26 @@ fn pty_error(what: &str, err: impl std::fmt::Display) -> AppError {
 /// Finds program in a PATH string, since the pty's child gets the PATH the
 /// app resolved rather than the app's own.
 fn find_program(program: &str, path: &str) -> Option<PathBuf> {
+    if program.starts_with('/') {
+        let candidate = PathBuf::from(program);
+        return candidate.is_file().then_some(candidate);
+    }
     path.split(':')
         .map(|dir| Path::new(dir).join(program))
         .find(|candidate| candidate.is_file())
 }
 
-fn command_for(spec: &TermSpec) -> (&'static str, Vec<String>, Option<String>) {
+/// The shell a `Dir` terminal runs: `$SHELL` when it is set and non-empty.
+fn shell_program(shell: Option<String>) -> String {
+    shell
+        .filter(|shell| !shell.is_empty())
+        .unwrap_or_else(|| "sh".to_string())
+}
+
+fn command_for(spec: &TermSpec) -> (String, Vec<String>, Option<String>) {
     match spec {
         TermSpec::Attach { session_id, cwd } => (
-            "claude",
+            "claude".to_string(),
             vec!["attach".to_string(), session_id.clone()],
             Some(cwd.clone()),
         ),
@@ -83,8 +96,13 @@ fn command_for(spec: &TermSpec) -> (&'static str, Vec<String>, Option<String>) {
                 args.extend(["--name".to_string(), name.clone()]);
             }
             args.extend(specs.iter().cloned());
-            ("ws", args, None)
+            ("ws".to_string(), args, None)
         }
+        TermSpec::Dir { cwd } => (
+            shell_program(std::env::var("SHELL").ok()),
+            Vec::new(),
+            Some(cwd.clone()),
+        ),
     }
 }
 
@@ -98,7 +116,7 @@ impl Terminals {
         events: Channel<TermEvent>,
     ) -> Result<u32, AppError> {
         let (program, args, cwd) = command_for(spec);
-        let resolved = find_program(program, path_env).ok_or_else(|| {
+        let resolved = find_program(&program, path_env).ok_or_else(|| {
             AppError::new(
                 &format!("{program}_missing"),
                 format!("`{program}` isn't on PATH ({path_env})"),
@@ -266,7 +284,7 @@ mod tests {
             specs: vec!["api@v2".into()],
         };
         let (program, args, cwd) = command_for(&spec);
-        assert_eq!((program, cwd), ("ws", None));
+        assert_eq!((program.as_str(), cwd), ("ws", None));
         assert_eq!(args, ["shell", "--name", "try", "api@v2"]);
     }
 
@@ -285,8 +303,33 @@ mod tests {
             serde_json::from_str(r#"{"kind":"attach","sessionId":"e8cdf5d8","cwd":"/w/x"}"#)
                 .unwrap();
         let (program, args, cwd) = command_for(&spec);
-        assert_eq!((program, cwd.as_deref()), ("claude", Some("/w/x")));
+        assert_eq!((program.as_str(), cwd.as_deref()), ("claude", Some("/w/x")));
         assert_eq!(args, ["attach", "e8cdf5d8"]);
+    }
+
+    #[test]
+    fn shell_program_uses_shell_variable() {
+        assert_eq!(shell_program(Some("/bin/zsh".into())), "/bin/zsh");
+    }
+
+    #[test]
+    fn shell_program_falls_back_to_sh_when_shell_is_unset_or_empty() {
+        assert_eq!(shell_program(None), "sh");
+        assert_eq!(shell_program(Some(String::new())), "sh");
+    }
+
+    #[test]
+    fn dir_command_runs_shell_in_directory_without_args() {
+        let spec = TermSpec::Dir { cwd: "/w/x".into() };
+        let (_, args, cwd) = command_for(&spec);
+        assert!(args.is_empty(), "args: {args:?}");
+        assert_eq!(cwd.as_deref(), Some("/w/x"));
+    }
+
+    #[test]
+    fn dir_spec_deserializes_from_camel_case_json() {
+        let spec: TermSpec = serde_json::from_str(r#"{"kind":"dir","cwd":"/x"}"#).unwrap();
+        assert!(matches!(spec, TermSpec::Dir { cwd } if cwd == "/x"));
     }
 
     #[test]
@@ -435,5 +478,19 @@ mod tests {
         let path = format!("/nonexistent:{}", dir.path().display());
         assert_eq!(find_program("ws", &path), Some(dir.path().join("ws")));
         assert_eq!(find_program("claude", &path), None);
+    }
+
+    #[test]
+    fn find_program_uses_absolute_path_directly() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("sh");
+        std::fs::write(&script, "").unwrap();
+        let program = script.display().to_string();
+        assert_eq!(find_program(&program, "/nonexistent"), Some(script));
+    }
+
+    #[test]
+    fn find_program_rejects_missing_absolute_path() {
+        assert_eq!(find_program("/nonexistent/sh", "/bin:/usr/bin"), None);
     }
 }

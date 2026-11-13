@@ -21,7 +21,14 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { ConversationView } from "../conversation/ConversationView";
 import { ReplyBox } from "../terminals/ReplyBox";
 import { TerminalView } from "../terminals/TerminalView";
-import { attachKey, closeTerminal, openTerminal, terminalShown, type TerminalInfo } from "../terminals/terminalsSlice";
+import {
+  attachKey,
+  closeTerminal,
+  dirKey,
+  openTerminal,
+  terminalShown,
+  type TerminalInfo,
+} from "../terminals/terminalsSlice";
 import { ownerRepo } from "../reviews/groups";
 import { reviewSelected } from "../reviews/reviewsSlice";
 import { agentViewChosen, sectionChosen, selected, type AgentView } from "../ui/uiSlice";
@@ -70,10 +77,10 @@ const EyeOffIcon = (): JSX.Element => (
   </svg>
 );
 
-const FolderIcon = (): JSX.Element => (
+const ChevronDownIcon = (): JSX.Element => (
   <svg
-    width="14"
-    height="14"
+    width="10"
+    height="10"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -82,24 +89,7 @@ const FolderIcon = (): JSX.Element => (
     strokeLinejoin="round"
     aria-hidden="true"
   >
-    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-  </svg>
-);
-
-const CodeIcon = (): JSX.Element => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="m8 7-5 5 5 5" />
-    <path d="m16 7 5 5-5 5" />
+    <path d="m6 9 6 6 6-6" />
   </svg>
 );
 
@@ -160,6 +150,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const termKey = terminal?.key ?? (entry.kind === "agent" && entry.sessionId !== null ? attachKey(entry.sessionId) : null);
   const busy = useAppSelector((s) => s.agents.busy.includes(entry.key));
   const view = useAppSelector((s) => s.ui.agentView);
+  const dirTerminal = useAppSelector((s) => s.terminals.items.find((t) => t.key === dirKey(entry.key)));
   const reviewing = useAppSelector((s) =>
     s.reviews.view?.prs.find((pr) => pr.reviews.some((r) => r.workspaceId === entry.workspaceId)),
   );
@@ -168,6 +159,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   );
   const phone = useMediaQuery(PHONE_QUERY);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [openAnchor, setOpenAnchor] = useState<HTMLElement | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -196,9 +188,24 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
       attach();
     }
   }, [entry.key]);
+  const openShell = (): void => {
+    if (dirTerminal === undefined || dirTerminal.state === "exited") {
+      dispatch(
+        openTerminal({
+          key: dirKey(entry.key),
+          title: entry.name,
+          spec: { kind: "dir", cwd: entry.path },
+        }),
+      );
+    }
+    dispatch(agentViewChosen("shell"));
+  };
   const attached = terminal !== undefined && terminal.state !== "exited";
   const isAgent = entry.kind === "agent" && entry.sessionId !== null;
-  const showConversation = isAgent && view === "conversation";
+  // Without a shell terminal for this entry, the shell view falls back to the conversation.
+  const shownView: AgentView = view === "shell" && dirTerminal === undefined ? "conversation" : view;
+  const shellShown = shownView === "shell" && dirTerminal !== undefined;
+  const showConversation = isAgent && shownView === "conversation";
   // The conversation types into the hidden terminal, so it counts as shown
   // and isn't the one detached to make room for another.
   useEffect(() => {
@@ -216,12 +223,50 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   };
   const canStop = isAgent && isLive(entry.status);
   const canDetach = isAgent && attached && termKey !== null;
-  const hasMenu = canDetach || canStop || renamable || removable || !isWeb();
+  const openItems = (close: () => void): JSX.Element[] => [
+    ...(isWeb()
+      ? []
+      : [
+          <MenuItem
+            key="editor"
+            title={`Open ${editorDir(entry)} in the editor (Settings › Workspaces)`}
+            disabled={entry.kind === "pending" || busy || opening === "editor"}
+            onClick={() => {
+              close();
+              openIn("editor");
+            }}
+          >
+            Open in Editor
+          </MenuItem>,
+          <MenuItem
+            key="folder"
+            title={`Open ${entry.path} in the file manager (Settings › Workspaces)`}
+            disabled={entry.kind === "pending" || busy || opening === "fileManager"}
+            onClick={() => {
+              close();
+              openIn("fileManager");
+            }}
+          >
+            Open folder
+          </MenuItem>,
+        ]),
+    <MenuItem
+      key="terminal"
+      title={`Open a shell in ${entry.path}`}
+      disabled={entry.kind === "pending"}
+      onClick={() => {
+        close();
+        openShell();
+      }}
+    >
+      Open terminal
+    </MenuItem>,
+  ];
   const viewToggle = isAgent && (
     <ToggleButtonGroup
       size="small"
       exclusive
-      value={view}
+      value={shownView}
       onChange={(_event, value: AgentView | null) => {
         if (value !== null) {
           dispatch(agentViewChosen(value));
@@ -231,6 +276,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
     >
       <ToggleButton value="conversation">Conversation</ToggleButton>
       <ToggleButton value="terminal">Terminal</ToggleButton>
+      {dirTerminal !== undefined && <ToggleButton value="shell">Shell</ToggleButton>}
     </ToggleButtonGroup>
   );
   const attachButton = isAgent && !attached && (
@@ -252,11 +298,9 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             <>
               {viewToggle}
               {attachButton}
-              {hasMenu && (
-                <IconButton size="small" aria-label="More actions" onClick={(e) => setMenuAnchor(e.currentTarget)}>
-                  <span aria-hidden="true">⋯</span>
-                </IconButton>
-              )}
+              <IconButton size="small" aria-label="More actions" onClick={(e) => setMenuAnchor(e.currentTarget)}>
+                <span aria-hidden="true">⋯</span>
+              </IconButton>
               <IconButton
                 size="small"
                 aria-label="Details"
@@ -266,22 +310,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
                 <span aria-hidden="true">{detailsOpen ? "▴" : "▾"}</span>
               </IconButton>
               <Menu anchorEl={menuAnchor} open={menuAnchor !== null} onClose={closeMenu}>
-                {!isWeb() && (
-                  <MenuItem
-                    disabled={entry.kind === "pending" || busy || opening === "fileManager"}
-                    onClick={fromMenu(() => openIn("fileManager"))}
-                  >
-                    Open folder
-                  </MenuItem>
-                )}
-                {!isWeb() && (
-                  <MenuItem
-                    disabled={entry.kind === "pending" || busy || opening === "editor"}
-                    onClick={fromMenu(() => openIn("editor"))}
-                  >
-                    Open in editor
-                  </MenuItem>
-                )}
+                {openItems(closeMenu)}
                 {canDetach && <MenuItem onClick={fromMenu(() => void dispatch(closeTerminal(termKey)))}>Detach</MenuItem>}
                 {canStop && (
                   <MenuItem disabled={busy} onClick={fromMenu(() => void dispatch(stopAgent(entry)))}>
@@ -310,28 +339,18 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             </>
           ) : (
             <>
-          {!isWeb() && (
-            <>
-              <Button
-                size="small"
-                startIcon={<FolderIcon />}
-                title={`Open ${entry.path} in the file manager (Settings › Workspaces)`}
-                disabled={entry.kind === "pending" || busy || opening === "fileManager"}
-                onClick={() => openIn("fileManager")}
-              >
-                Open folder
-              </Button>
-              <Button
-                size="small"
-                startIcon={<CodeIcon />}
-                title={`Open ${editorDir(entry)} in the editor (Settings › Workspaces)`}
-                disabled={entry.kind === "pending" || busy || opening === "editor"}
-                onClick={() => openIn("editor")}
-              >
-                Open in editor
-              </Button>
-            </>
-          )}
+          <Button
+            size="small"
+            aria-haspopup="menu"
+            aria-expanded={openAnchor !== null}
+            endIcon={<ChevronDownIcon />}
+            onClick={(e) => setOpenAnchor(e.currentTarget)}
+          >
+            Open...
+          </Button>
+          <Menu anchorEl={openAnchor} open={openAnchor !== null} onClose={() => setOpenAnchor(null)}>
+            {openItems(() => setOpenAnchor(null))}
+          </Menu>
           {viewToggle}
           {attachButton}
           {isAgent && attached && termKey !== null && (
@@ -450,7 +469,9 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
         </div>
       </header>
       <ChildrenCard entry={entry} />
-      {showConversation && entry.sessionId !== null ? (
+      {shellShown && dirTerminal !== undefined ? (
+        <TerminalView terminalKey={dirTerminal.key} generation={dirTerminal.generation} />
+      ) : showConversation && entry.sessionId !== null ? (
         <>
           <ConversationView
             sessionId={entry.sessionId}

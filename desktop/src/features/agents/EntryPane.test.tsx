@@ -1,10 +1,14 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { entry, fakeApi, testStore } from "../../test/fixtures";
+import { entry, fakeApi, fakeHost, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { fetchEntries } from "./agentsSlice";
 import { EntryPane } from "./EntryPane";
+
+vi.mock("../terminals/TerminalView", () => ({
+  TerminalView: ({ terminalKey }: { readonly terminalKey: string }) => <div data-testid="terminal">{terminalKey}</div>,
+}));
 
 const shellWorkspace = entry({
   key: "this-is-a-test-d8efb24f",
@@ -170,23 +174,27 @@ describe("EntryPane opening a workspace", () => {
   it("opens the workspace folder in the file manager", async () => {
     const api = fakeApi();
     renderWithStore(<EntryPane entry={entry()} />, testStore({ api }));
-    await userEvent.click(screen.getByRole("button", { name: "Open folder" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Open folder" }));
     expect(api.workspaceOpen).toHaveBeenCalledWith("fileManager", "/w/fix-login", []);
   });
 
   it("opens a one-repo workspace's repo in the editor", async () => {
     const api = fakeApi();
     renderWithStore(<EntryPane entry={oneRepo} />, testStore({ api }));
-    const button = screen.getByRole("button", { name: "Open in editor" });
-    expect(button.getAttribute("title")).toContain("/w/fix-login/buff-bear");
-    await userEvent.click(button);
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    const item = screen.getByRole("menuitem", { name: "Open in Editor" });
+    expect(item.getAttribute("title")).toContain("/w/fix-login/buff-bear");
+    await userEvent.click(item);
     expect(api.workspaceOpen).toHaveBeenCalledWith("editor", "/w/fix-login", ["buff-bear"]);
   });
 
-  it("disables the open buttons while the workspace is pending", () => {
+  it("disables the open actions while the workspace is pending", async () => {
     renderWithStore(<EntryPane entry={entry({ kind: "pending" })} />, testStore());
-    expect(screen.getByRole("button", { name: "Open folder" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Open in editor" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    for (const name of ["Open in Editor", "Open folder", "Open terminal"]) {
+      expect(screen.getByRole("menuitem", { name })).toHaveAttribute("aria-disabled", "true");
+    }
   });
 
   it("the path link opens through the file manager setting", async () => {
@@ -224,6 +232,13 @@ describe("EntryPane opening a workspace", () => {
       expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true);
     });
 
+    it("lists the open actions first in More actions", async () => {
+      renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+      await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+      const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
+      expect(items.slice(0, 3)).toEqual(["Open in Editor", "Open folder", "Open terminal"]);
+    });
+
     it("keeps the path behind a collapsed details toggle", async () => {
       renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
       const toggle = screen.getByRole("button", { name: "Details" });
@@ -236,5 +251,49 @@ describe("EntryPane opening a workspace", () => {
       renderWithStore(<EntryPane entry={{ ...shellWorkspace, status: "needsInput" }} />, testStore());
       expect(screen.getByRole("img", { name: "Needs input" })).toBeInTheDocument();
     });
+  });
+});
+
+describe("EntryPane's Open menu", () => {
+  it("lists the three open actions in order", async () => {
+    renderWithStore(<EntryPane entry={entry()} />, testStore());
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Open in Editor",
+      "Open folder",
+      "Open terminal",
+    ]);
+  });
+
+  it("opens a shell in the workspace directory and shows it", async () => {
+    const terminals = fakeHost();
+    const store = testStore({ terminals });
+    renderWithStore(<EntryPane entry={shellWorkspace} />, store);
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Open terminal" }));
+    expect(terminals.open).toHaveBeenCalledWith(
+      "dir:this-is-a-test-d8efb24f",
+      { kind: "dir", cwd: "/w/this-is-a-test-d8efb24f" },
+      expect.any(Function),
+    );
+    expect(store.getState().ui.agentView).toBe("shell");
+    expect(screen.getByTestId("terminal")).toHaveTextContent("dir:this-is-a-test-d8efb24f");
+  });
+
+  it("switches to an open shell instead of opening another", async () => {
+    const terminals = fakeHost();
+    renderWithStore(<EntryPane entry={shellWorkspace} />, testStore({ terminals }));
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Open terminal" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Open terminal" }));
+    expect(terminals.open).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers only Open terminal in the web app", async () => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Open terminal"]);
   });
 });
