@@ -7,8 +7,10 @@ pub mod checker;
 pub mod comment;
 pub mod fix;
 pub mod forge;
+#[allow(dead_code)] // used by T4
 pub mod forgejo;
 pub mod github;
+#[allow(dead_code)] // used by T4
 pub mod http;
 pub mod merge;
 pub mod names;

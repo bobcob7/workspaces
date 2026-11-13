@@ -24,7 +24,7 @@ default = ["desktop"]
 desktop = ["dep:tauri", "dep:tauri-plugin-opener", "dep:tauri-plugin-notification", "dep:tauri-build"]
 online = [
   "dep:axum", "dep:tower-http", "dep:argon2", "dep:sha2", "dep:subtle",
-  "dep:getrandom", "dep:base64ct", "dep:web-push-native", "dep:reqwest",
+  "dep:getrandom", "dep:base64ct", "dep:web-push-native",
   "tokio/rt-multi-thread", "tokio/net", "tokio/signal",
 ]
 
@@ -48,7 +48,7 @@ subtle = { version = "2", optional = true }
 getrandom = { version = "0.4", optional = true }
 base64ct = { version = "1.8", features = ["alloc"], optional = true }
 web-push-native = { version = "0.5", optional = true }
-reqwest = { version = "0.13", default-features = false, features = ["rustls"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = "3"
