@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/bobcob7/workspaces/internal/repo"
 )
@@ -18,10 +19,12 @@ const (
 	SourceSpec Source = "spec"
 	// SourceCache: a short spec matched a cached repo.
 	SourceCache Source = "cache"
-	// SourceDefault: an uncached owner/name, on defaults.host.
+	// SourceDefault: an uncached owner/name when one host is configured, on
+	// that host.
 	SourceDefault Source = "default"
-	// SourceProbe: an uncached name, found on defaults.host under one of
-	// defaults.owners.
+	// SourceProbe: found upstream: a bare name under one of defaults.owners,
+	// or an owner/name when several hosts are configured, on the first host
+	// that has it.
 	SourceProbe Source = "probe"
 )
 
@@ -34,11 +37,12 @@ type Resolution struct {
 }
 
 // Resolve finds the repo a spec names (ADR 0007): a host in the spec is used
-// directly; a short spec is looked up in the cache, preferring
-// defaults.host for owner/name and defaults.owners for a name; an uncached
-// owner/name is taken to be on defaults.host, and an uncached name is
-// probed on defaults.host under each of defaults.owners. Nothing is cloned
-// or fetched.
+// directly; a short spec is looked up in the cache, preferring the earliest
+// configured host for owner/name and defaults.owners for a name. A short
+// spec that isn't cached is probed upstream on each configured host in
+// order: a bare name under each of defaults.owners, and an owner/name on
+// the first host that has it (with one host, an owner/name is taken to be
+// on that host without a probe). Nothing is cloned or fetched.
 func (c *Cache) Resolve(ctx context.Context, sp *repo.Spec) (Resolution, error) {
 	return c.resolve(ctx, sp, true)
 }
@@ -69,7 +73,7 @@ func (c *Cache) resolve(ctx context.Context, sp *repo.Spec, probe bool) (Resolut
 	}
 	var r Resolution
 	if sp.Kind == repo.KindOwnerName {
-		r, err = c.resolveOwnerName(ids, sp)
+		r, err = c.resolveOwnerName(ctx, ids, sp, probe)
 	} else {
 		r, err = c.resolveName(ctx, ids, sp, probe)
 	}
@@ -83,19 +87,29 @@ func (c *Cache) resolve(ctx context.Context, sp *repo.Spec, probe bool) (Resolut
 }
 
 // resolveOwnerName matches owner/name against the cache on any host,
-// preferring defaults.host, and otherwise assumes defaults.host.
-func (c *Cache) resolveOwnerName(ids []repo.ID, sp *repo.Spec) (Resolution, error) {
+// preferring the earliest configured host. Uncached, it's taken to be on the
+// primary host, or probed on each host when several are configured.
+func (c *Cache) resolveOwnerName(ctx context.Context, ids []repo.ID, sp *repo.Spec, probe bool) (Resolution, error) {
 	matches := filterIDs(ids, func(id repo.ID) bool { return id.Owner == sp.Owner && id.Name == sp.Name })
-	if len(matches) > 1 {
-		matches = preferred(matches, func(id repo.ID) bool { return id.Host == c.defaults.Host })
+	for _, host := range c.hosts() {
+		if len(matches) < 2 {
+			break
+		}
+		if p := preferred(matches, func(id repo.ID) bool { return id.Host == host }); len(p) < len(matches) {
+			matches = p
+		}
 	}
 	switch len(matches) {
 	case 0:
-		id, err := repo.NewID(c.defaults.Host, sp.Owner, sp.Name)
-		if err != nil {
-			return Resolution{}, err
+		hosts := c.hosts()
+		if len(hosts) == 1 || !probe {
+			id, err := repo.NewID(hosts[0], sp.Owner, sp.Name)
+			if err != nil {
+				return Resolution{}, err
+			}
+			return Resolution{ID: id, Upstream: id.UpstreamURL(), Source: SourceDefault}, nil
 		}
-		return Resolution{ID: id, Upstream: id.UpstreamURL(), Source: SourceDefault}, nil
+		return c.probeHosts(ctx, sp.Owner+"/"+sp.Name, []string{sp.Owner}, sp.Name)
 	case 1:
 		return Resolution{ID: matches[0], Source: SourceCache}, nil
 	}
@@ -119,39 +133,75 @@ func (c *Cache) resolveName(ctx context.Context, ids []repo.ID, sp *repo.Spec, p
 		if !probe {
 			return Resolution{}, fmt.Errorf("%w: no cached repo is named %q", ErrRepoNotFound, sp.Name)
 		}
-		return c.probe(ctx, sp.Name)
+		return c.probeHosts(ctx, sp.Name, c.defaults.Owners, sp.Name)
 	case 1:
 		return Resolution{ID: matches[0], Source: SourceCache}, nil
 	}
 	return Resolution{}, &AmbiguousError{Spec: sp.Raw, Candidates: matches}
 }
 
-// probe tries defaults.host/<owner>/name for each of defaults.owners with
-// `git ls-remote`; the first that answers wins. Upstream saying the repo
-// isn't there moves on to the next owner. Any other failure, such as an
-// unreachable host, stops the probe as ErrFetchFailed, so an outage isn't
-// reported as a missing repo.
-func (c *Cache) probe(ctx context.Context, name string) (Resolution, error) {
+// probeHosts tries host/owner/name with `git ls-remote` for each configured
+// host in order, and each owner in order within a host (ADR 0061). Upstream
+// saying the repo isn't there moves on; any other failure skips the rest of
+// that host's owners. The first hit is checked against the later hosts. If
+// nothing is found and some host failed, the probe is ErrFetchFailed, so an
+// outage isn't reported as a missing repo.
+func (c *Cache) probeHosts(ctx context.Context, spec string, owners []string, name string) (Resolution, error) {
 	if err := c.ensureRoot(); err != nil {
 		return Resolution{}, err
 	}
-	for _, owner := range c.defaults.Owners {
-		id, err := repo.NewID(c.defaults.Host, owner, name)
-		if err != nil {
-			return Resolution{}, err
+	hosts := c.hosts()
+	var firstID repo.ID
+	var firstErr error
+	for i, host := range hosts {
+		for _, owner := range owners {
+			id, err := repo.NewID(host, owner, name)
+			if err != nil {
+				return Resolution{}, err
+			}
+			_, err = c.git.Run(ctx, c.root, "ls-remote", "-q", "--", id.UpstreamURL(), "HEAD")
+			switch {
+			case err == nil:
+				c.alsoOn(ctx, id, hosts[i+1:])
+				return Resolution{ID: id, Upstream: id.UpstreamURL(), Source: SourceProbe}, nil
+			case isGitUnusable(err) || ctx.Err() != nil:
+				return Resolution{}, err
+			case repoMissing(err):
+				c.log.DebugContext(ctx, "probe missed", slog.String("id", id.String()), slog.Any("err", err))
+				continue
+			}
+			if firstErr == nil {
+				firstID, firstErr = id, err
+			}
+			c.warn("couldn't reach %s while looking for %s: %v", host, spec, err)
+			break
 		}
-		_, err = c.git.Run(ctx, c.root, "ls-remote", "-q", "--", id.UpstreamURL(), "HEAD")
-		switch {
-		case err == nil:
-			return Resolution{ID: id, Upstream: id.UpstreamURL(), Source: SourceProbe}, nil
-		case isGitUnusable(err) || ctx.Err() != nil:
-			return Resolution{}, err
-		case !repoMissing(err):
-			return Resolution{}, fmt.Errorf("%w: looking for %s: %w", ErrFetchFailed, id, err)
-		}
-		c.log.DebugContext(ctx, "probe missed", slog.String("id", id.String()), slog.Any("err", err))
 	}
-	return Resolution{}, fmt.Errorf("%w: %q isn't cached, and no owner in defaults.owners has it on %s", ErrRepoNotFound, name, c.defaults.Host)
+	if firstErr != nil {
+		return Resolution{}, fmt.Errorf("%w: looking for %s: %w", ErrFetchFailed, firstID, firstErr)
+	}
+	if spec == name { // a bare name is probed as itself; owner/name keeps its owner
+		return Resolution{}, fmt.Errorf("%w: %q isn't cached, and no owner in defaults.owners has it on %s", ErrRepoNotFound, name, strings.Join(hosts, ", "))
+	}
+	return Resolution{}, fmt.Errorf("%w: %q isn't cached, and none of %s has it", ErrRepoNotFound, spec, strings.Join(hosts, ", "))
+}
+
+// alsoOn probes id's owner/name on each later host and warns for each that
+// has it. Failures are only logged at debug level.
+func (c *Cache) alsoOn(ctx context.Context, id repo.ID, later []string) {
+	for _, host := range later {
+		other, err := repo.NewID(host, id.Owner, id.Name)
+		if err != nil {
+			c.log.DebugContext(ctx, "also-on skipped", slog.String("host", host), slog.Any("err", err))
+			continue
+		}
+		_, err = c.git.Run(ctx, c.root, "ls-remote", "-q", "--", other.UpstreamURL(), "HEAD")
+		if err != nil {
+			c.log.DebugContext(ctx, "also-on missed", slog.String("id", other.String()), slog.Any("err", err))
+			continue
+		}
+		c.warn("%s/%s is also on %s; using %s. Name the host to use the other.", id.Owner, id.Name, host, id)
+	}
 }
 
 // withUpstream marks a resolution cached or not. A cached repo's upstream is

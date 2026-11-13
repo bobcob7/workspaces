@@ -142,7 +142,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	}
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
 		runner := git.NewRunner(log, "git", environ)
-		c := cache.New(log, runner, paths.Cache, cfg.Defaults)
+		c := cache.New(log, runner, paths.Cache, cfg.SpecDefaults())
 		ws := workspace.New(log, runner, c, a.claude, paths.Workspaces, paths.State)
 		lm := lifetime.New(log, ws, a.claude, proc.Reader{}, power.Reader{}, paths.State)
 		if cfg.Review.RemovesFinished() {

@@ -139,7 +139,7 @@ git gives none, such as for a tag of a tag.
 ### `resolve`
 
 Resolve specs to canonical ids without cloning or fetching (except the
-`ls-remote` probe for uncached bare names). Accepts full URLs, so it doubles
+`ls-remote` probe for uncached short specs). Accepts full URLs, so it doubles
 as reverse lookup from an upstream URL to its id and cache entry.
 
 ```console
@@ -159,17 +159,22 @@ $ ws cache resolve --json buff-bear
 ```
 
 `source` is `spec` (the spec names the host), `cache` (found by short name),
-`default` (an uncached `owner/name`, taken to be on `defaults.host`), or
-`probe` (found via `defaults.owners`). A cached repo's `upstream` is the URL
+`default` (an uncached `owner/name` when one host is configured, taken to be
+on it), or `probe` (found upstream: a bare name via `defaults.owners`, or an
+`owner/name` when several hosts are configured, on the first host that has
+it). A cached repo's `upstream` is the URL
 it was cloned from; a URL spec that differs adds a warning naming both
 ([0019](../adrs/0019-https-upstream-urls.md)). Ambiguous names fail with
 `repo_ambiguous` (exit 3), and `details.candidates` lists the matches. The
 ref is echoed, not checked.
 
-The probe tries each owner in `defaults.owners` in turn. Upstream answering
-that the repo isn't there moves on to the next owner, and `repo_not_found`
-is reported only when none has it. Anything else, such as an unknown host, a
-refused connection, a TLS error, or a rejected login, stops the probe with
+The probe tries each configured host in order, and each owner in
+`defaults.owners` in turn within a host. Upstream answering that the repo
+isn't there moves on to the next owner, and `repo_not_found` is reported only
+when no host has it. A repo found on a later host too adds a warning naming
+both. Anything else, such as an unknown host, a refused connection, a TLS
+error, or a rejected login, skips the rest of that host's owners with a
+warning; if no host has the repo and one couldn't be reached, the result is
 `fetch_failed`, so an outage isn't mistaken for a missing repo. Upstream
 asking for a login it can't get (`terminal prompts disabled`) counts as "not
 there", since GitHub and GitLab answer that way for repos that don't exist

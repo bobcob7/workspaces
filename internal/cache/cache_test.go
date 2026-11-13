@@ -27,7 +27,7 @@ func discardLogger() *slog.Logger {
 // for gittest's forge and Time Machine exclusion turned off.
 func newTestCache(t *testing.T, g gitRunner) *Cache {
 	t.Helper()
-	c := New(discardLogger(), g, filepath.Join(t.TempDir(), "cache"), config.Defaults{Host: gittest.Host, Owners: []string{"o"}})
+	c := New(discardLogger(), g, filepath.Join(t.TempDir(), "cache"), config.SpecDefaults{Hosts: []string{gittest.Host}, Owners: []string{"o"}})
 	c.exclude = func(string) {}
 	return c
 }
@@ -71,7 +71,7 @@ func addRepo(t *testing.T, c *Cache, up *gittest.Upstream) repo.ID {
 
 func TestNew(t *testing.T) {
 	g := failingGit()
-	defaults := config.Defaults{Host: "github.com", Owners: []string{"me"}}
+	defaults := config.SpecDefaults{Hosts: []string{"github.com"}, Owners: []string{"me"}}
 	c := New(discardLogger(), g, "/cfg/cache", defaults)
 	assert.Same(t, g, c.git)
 	assert.Equal(t, "/cfg/cache", c.root)
@@ -79,8 +79,19 @@ func TestNew(t *testing.T) {
 	assert.NotNil(t, c.exclude)
 }
 
+func TestCache_hosts(t *testing.T) {
+	t.Run("github.com when none are configured", func(t *testing.T) {
+		c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
+		assert.Equal(t, []string{"github.com"}, c.hosts())
+	})
+	t.Run("configured hosts in order", func(t *testing.T) {
+		c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{Hosts: []string{"b.test", "a.test"}})
+		assert.Equal(t, []string{"b.test", "a.test"}, c.hosts())
+	})
+}
+
 func TestCache_Path(t *testing.T) {
-	c := New(discardLogger(), nil, "/cfg/cache", config.Defaults{})
+	c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
 	t.Run("host/owner/name.git", func(t *testing.T) {
 		assert.Equal(t, "/cfg/cache/repos/github.com/o/n.git", c.Path(repo.ID{Host: "github.com", Owner: "o", Name: "n"}))
 	})
@@ -91,11 +102,11 @@ func TestCache_Path(t *testing.T) {
 
 func TestCache_Warnings(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
-		c := New(discardLogger(), nil, "/cfg/cache", config.Defaults{})
+		c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
 		assert.Empty(t, c.Warnings())
 	})
 	t.Run("returns a copy", func(t *testing.T) {
-		c := New(discardLogger(), nil, "/cfg/cache", config.Defaults{})
+		c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
 		c.warnings = []string{"x"}
 		got := c.Warnings()
 		got[0] = "changed"
@@ -105,30 +116,30 @@ func TestCache_Warnings(t *testing.T) {
 
 func TestCache_warn(t *testing.T) {
 	t.Run("formats and keeps order", func(t *testing.T) {
-		c := New(discardLogger(), nil, "/cfg/cache", config.Defaults{})
+		c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
 		c.warn("%s is %d", "x", 1)
 		c.warn("second")
 		assert.Equal(t, []string{"x is 1", "second"}, c.Warnings())
 	})
 	t.Run("safe from concurrent operations", func(t *testing.T) {
-		c := New(discardLogger(), nil, "/cfg/cache", config.Defaults{})
+		c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
 		forEach(50, func(i int) { c.warn("w%d", i) })
 		assert.Len(t, c.Warnings(), 50)
 	})
 }
 
 func TestCache_tmpDir(t *testing.T) {
-	c := New(discardLogger(), nil, "/cfg/cache", config.Defaults{})
+	c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
 	assert.Equal(t, "/cfg/cache/tmp", c.tmpDir())
 }
 
 func TestCache_lockPath(t *testing.T) {
-	c := New(discardLogger(), nil, "/cfg/cache", config.Defaults{})
+	c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
 	assert.Equal(t, "/cfg/cache/locks/github.com/o/n.lock", c.lockPath(repo.ID{Host: "github.com", Owner: "o", Name: "n"}))
 }
 
 func TestCache_reposDir(t *testing.T) {
-	c := New(discardLogger(), nil, "/cfg/cache", config.Defaults{})
+	c := New(discardLogger(), nil, "/cfg/cache", config.SpecDefaults{})
 	assert.Equal(t, "/cfg/cache/repos", c.reposDir())
 }
 

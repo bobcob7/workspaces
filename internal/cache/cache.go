@@ -23,7 +23,7 @@ type Cache struct {
 	log       *slog.Logger
 	git       gitRunner
 	root      string
-	defaults  config.Defaults
+	defaults  config.SpecDefaults
 	exclude   func(dir string)
 	now       func() time.Time
 	cleanOnce sync.Once
@@ -32,10 +32,18 @@ type Cache struct {
 }
 
 // New returns the cache rooted at root, normally CONFIG_DIR/cache. defaults
-// drive short-name resolution.
-func New(log *slog.Logger, git gitRunner, root string, defaults config.Defaults) *Cache {
+// drive short-name resolution: hosts in order, then owners.
+func New(log *slog.Logger, git gitRunner, root string, defaults config.SpecDefaults) *Cache {
 	exclude := func(dir string) { backup.Exclude(log, dir) }
 	return &Cache{log: log, git: git, root: root, defaults: defaults, exclude: exclude, now: time.Now}
+}
+
+// hosts are the configured hosts in order; the first is the primary host.
+func (c *Cache) hosts() []string {
+	if len(c.defaults.Hosts) == 0 {
+		return []string{"github.com"}
+	}
+	return c.defaults.Hosts
 }
 
 // Path is where id's bare repo lives: repos/<host>/<owner>/<name>.git.
