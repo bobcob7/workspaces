@@ -6,13 +6,18 @@ pub mod auto;
 pub mod checker;
 pub mod comment;
 pub mod fix;
+pub mod forge;
+pub mod forgejo;
 pub mod github;
+pub mod http;
+pub mod merge;
 pub mod names;
 pub mod plan;
 pub mod profiles;
 pub mod report;
 pub mod runs;
 pub mod store;
+pub mod tokens;
 pub mod view;
 
 use crate::commands::AppState;

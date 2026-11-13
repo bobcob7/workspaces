@@ -317,6 +317,7 @@ pub mod tests {
             }],
             created_at: "2026-10-24T09:00:00Z".to_string(),
             updated_at: "2026-10-24T09:00:00Z".to_string(),
+            ..PullRequest::default()
         }
     }
 
