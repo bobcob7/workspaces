@@ -20,7 +20,7 @@ export const RepoReviewsCard = ({ repoId }: RepoReviewsCardProps): JSX.Element |
   const dispatch = useAppDispatch();
   const repo = useAppSelector((s) => s.reviews.view?.repos.find((r) => r.id === repoId));
   const interval = useAppSelector((s) => s.settings.settings?.reviews.checkIntervalMinutes ?? 5);
-  if (repo === undefined || !repo.github) {
+  if (repo === undefined || repo.forge === null) {
     return null;
   }
   const status = [

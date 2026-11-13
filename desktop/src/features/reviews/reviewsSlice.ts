@@ -1,9 +1,19 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import { toAppError, type AppError, type AskStarted, type PullRequest, type ReviewPlan, type ReviewsView, type Started } from "../../api";
+import {
+  toAppError,
+  type AppError,
+  type AskStarted,
+  type ForgeChoice,
+  type MergeStatus,
+  type PullRequest,
+  type ReviewPlan,
+  type ReviewsView,
+  type Started,
+} from "../../api";
 import { createAppThunk } from "../../thunk";
 import { fetchEntries } from "../agents/agentsSlice";
 import { noticeShown, sectionChosen, selected } from "../ui/uiSlice";
-import { ownerRepo } from "./groups";
+import { noFilters, ownerRepo, type Involves, type PrFilters } from "./groups";
 
 /** The Edit before starting dialog: the pull request and the plan being edited. */
 export interface StartDialog {
@@ -18,6 +28,8 @@ export interface ReviewsState {
   readonly error: AppError | null;
   readonly selectedKey: string | null;
   readonly filter: string;
+  /** Not persisted. */
+  readonly filters: PrFilters;
   readonly dismissedOpen: boolean;
   readonly watchedOpen: boolean;
   readonly startDialog: StartDialog | null;
@@ -35,6 +47,7 @@ const initialState: ReviewsState = {
   error: null,
   selectedKey: null,
   filter: "",
+  filters: noFilters,
   dismissedOpen: false,
   watchedOpen: false,
   startDialog: null,
@@ -89,6 +102,38 @@ export const setWatch = createAppThunk<ReviewsView, WatchChange>(
   async ({ repo, watch, autoReview }, { extra, dispatch, rejectWithValue }) => {
     try {
       return await extra.api.reviewsSetWatch(repo, watch, autoReview);
+    } catch (err: unknown) {
+      return rejectWithValue(failed(err, dispatch));
+    }
+  },
+);
+
+export interface ForgeChange {
+  readonly host: string;
+  readonly kind: ForgeChoice;
+}
+
+export const setForge = createAppThunk<ReviewsView, ForgeChange>(
+  "reviews/setForge",
+  async ({ host, kind }, { extra, dispatch, rejectWithValue }) => {
+    try {
+      return await extra.api.reviewsSetForge(host, kind);
+    } catch (err: unknown) {
+      return rejectWithValue(failed(err, dispatch));
+    }
+  },
+);
+
+export interface TokenChange {
+  readonly host: string;
+  readonly token: string;
+}
+
+export const setToken = createAppThunk<ReviewsView, TokenChange>(
+  "reviews/setToken",
+  async ({ host, token }, { extra, dispatch, rejectWithValue }) => {
+    try {
+      return await extra.api.reviewsSetToken(host, token);
     } catch (err: unknown) {
       return rejectWithValue(failed(err, dispatch));
     }
@@ -199,6 +244,18 @@ const reviewsSlice = createSlice({
     filterChanged: (state, action: PayloadAction<string>) => {
       state.filter = action.payload;
     },
+    authorFiltered: (state, action: PayloadAction<string | null>) => {
+      state.filters = { ...state.filters, author: action.payload };
+    },
+    involvesFiltered: (state, action: PayloadAction<Involves>) => {
+      state.filters = { ...state.filters, involves: action.payload };
+    },
+    mergeFiltered: (state, action: PayloadAction<MergeStatus | null>) => {
+      state.filters = { ...state.filters, merge: action.payload };
+    },
+    filtersCleared: (state) => {
+      state.filters = noFilters;
+    },
     dismissedToggled: (state) => {
       state.dismissedOpen = !state.dismissedOpen;
     },
@@ -234,6 +291,8 @@ const reviewsSlice = createSlice({
       .addCase(checkNow.fulfilled, setView)
       .addCase(loadRepos.fulfilled, setView)
       .addCase(setWatch.fulfilled, setView)
+      .addCase(setForge.fulfilled, setView)
+      .addCase(setToken.fulfilled, setView)
       .addCase(dismissPr.fulfilled, setView)
       .addCase(restorePr.fulfilled, setView)
       .addCase(fetchPlan.fulfilled, (state, action): ReviewsState => ({
@@ -289,6 +348,16 @@ const reviewsSlice = createSlice({
   },
 });
 
-export const { reviewSelected, filterChanged, dismissedToggled, watchedOpened, watchedClosed, startDialogClosed } =
-  reviewsSlice.actions;
+export const {
+  reviewSelected,
+  filterChanged,
+  authorFiltered,
+  involvesFiltered,
+  mergeFiltered,
+  filtersCleared,
+  dismissedToggled,
+  watchedOpened,
+  watchedClosed,
+  startDialogClosed,
+} = reviewsSlice.actions;
 export const reviewsReducer = reviewsSlice.reducer;

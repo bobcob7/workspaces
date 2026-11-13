@@ -1,0 +1,24 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--tone);
+  border-radius: 999px;
+  color: var(--tone);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  --tone: var(--status-unknown);
+}
+
+.root[data-tone="success"] { --tone: var(--status-done); }
+.root[data-tone="neutral"] { --tone: var(--status-unknown); }
+.root[data-tone="error"] { --tone: var(--danger); }
+.root[data-tone="warning"] { --tone: var(--status-needs-input); }
+.root[data-tone="info"] { --tone: var(--status-working); }
+
+.compact {
+  padding: 0 6px;
+  font-size: 11px;
+}

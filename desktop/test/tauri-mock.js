@@ -48,13 +48,46 @@
     ...overrides,
   });
 
-  const pullRequest = () => ({
-    key: `${buffBear}#42`,
+  const checks = (passed, failed, pending) => ({ total: passed + failed + pending, passed, failed, pending });
+
+  // Hosts' forges and tokens; reviews_set_forge and reviews_set_token change them.
+  const hosts = {
+    "ghe.example.com": { forge: "github", choice: "auto", detected: false, login: "bob", token: null, tokenEnv: null, error: null },
+    "git.example.com": {
+      forge: "forgejo",
+      choice: "auto",
+      detected: true,
+      login: "bob",
+      token: "env",
+      tokenEnv: "WS_FORGEJO_TOKEN_GIT_EXAMPLE_COM",
+      error: null,
+    },
+    "github.com": { forge: "github", choice: "auto", detected: false, login: "bobcob7", token: null, tokenEnv: null, error: null },
+    "gitlab.example.com": {
+      forge: null,
+      choice: "auto",
+      detected: false,
+      login: null,
+      token: null,
+      tokenEnv: null,
+      error: {
+        code: "forge_unknown",
+        message: "gitlab.example.com isn't a GitHub or Forgejo host. Choose its forge in Settings › Forges.",
+      },
+    },
+  };
+
+  const hostsView = () =>
+    Object.keys(hosts)
+      .sort()
+      .map((host) => ({ host, ...hosts[host] }));
+
+  const pullRequest = (overrides) => ({
     repo: buffBear,
+    forge: "github",
     number: 42,
     title: "Add rate limiting to login",
     author: { login: "alice" },
-    url: "https://github.com/bobcob7/buff-bear/pull/42",
     body: "Adds a **token bucket**.",
     isDraft: false,
     headRefOid: head,
@@ -71,17 +104,90 @@
     mine: false,
     reviews: [],
     newCommits: null,
+    merge: { status: "ready", reasons: [], checks: checks(2, 0, 0) },
+    ...overrides,
   });
+
+  const pullRequests = () =>
+    [
+      pullRequest(),
+      pullRequest({
+        number: 57,
+        title: "Bump the session cache TTL",
+        author: { login: "carol" },
+        isDraft: true,
+        requested: false,
+        merge: { status: "draft", reasons: ["draft"], checks: checks(0, 0, 0) },
+      }),
+      pullRequest({
+        number: 81,
+        title: "Upgrade the Go toolchain",
+        author: { login: "alice" },
+        requested: false,
+        merge: { status: "pending", reasons: ["pending"], checks: checks(2, 0, 2) },
+      }),
+      pullRequest({
+        repo: "ghe.example.com/team/api",
+        forge: "github",
+        number: 311,
+        title: "Move retries into the client",
+        author: { login: "bob" },
+        requested: false,
+        mine: true,
+        merge: { status: "conflicting", reasons: ["conflicting"], checks: checks(3, 0, 0) },
+      }),
+      pullRequest({
+        repo: "git.example.com/team/svc",
+        forge: "forgejo",
+        number: 15262,
+        title: "refactor: move RemoveTeamMember",
+        author: { login: "wetneb" },
+        merge: { status: "failing", reasons: ["failing", "awaitingApproval"], checks: checks(2, 1, 0) },
+      }),
+      pullRequest({
+        repo: "git.example.com/team/svc",
+        forge: "forgejo",
+        number: 15301,
+        title: "Add audit log export",
+        author: { login: "dana" },
+        requested: false,
+        merge: { status: "behind", reasons: ["behind"], checks: checks(2, 0, 0) },
+      }),
+    ].map((pr) => ({
+      key: `${pr.repo}#${pr.number}`,
+      url: `https://${pr.repo}/${pr.forge === "forgejo" ? "pulls" : "pull"}/${pr.number}`,
+      ...pr,
+    }));
+
+  const repoRow = (id, watch) => {
+    const host = id.split("/")[0];
+    const forge = hosts[host]?.forge ?? null;
+    const open = pullRequests().filter((pr) => pr.repo === id).length;
+    return {
+      id,
+      github: forge === "github",
+      forge,
+      watch,
+      autoReview: false,
+      open: watch ? open : null,
+      checkedAtMs: watch ? Date.parse("2026-10-24T10:00:00Z") : null,
+      error: null,
+    };
+  };
 
   const reviewsView = () => ({
     checking: false,
     checkedAtMs: Date.parse("2026-10-24T10:00:00Z"),
     error: null,
     repos: [
-      { id: buffBear, github: true, watch: true, autoReview: false, open: 1, checkedAtMs: 1, error: null },
-      { id: api, github: true, watch: false, autoReview: false, open: null, checkedAtMs: null, error: null },
+      repoRow(buffBear, true),
+      repoRow(api, false),
+      repoRow("ghe.example.com/team/api", true),
+      repoRow("git.example.com/team/svc", true),
+      repoRow("gitlab.example.com/team/web", true),
     ],
-    prs: [pullRequest()],
+    hosts: hostsView(),
+    prs: pullRequests(),
     warnings: [],
   });
 
@@ -892,6 +998,17 @@
     reviews_check_now: reviewsView,
     reviews_load_repos: reviewsView,
     reviews_set_watch: reviewsView,
+    reviews_set_forge: ({ host, kind }) => {
+      hosts[host].choice = kind;
+      if (kind !== "auto") {
+        hosts[host].forge = kind;
+      }
+      return reviewsView();
+    },
+    reviews_set_token: ({ host, token }) => {
+      hosts[host].token = token === "" ? null : "file";
+      return reviewsView();
+    },
     reviews_dismiss: reviewsView,
     reviews_restore: reviewsView,
     reviews_plan: () => reviewPlan(),
