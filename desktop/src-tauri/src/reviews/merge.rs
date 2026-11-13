@@ -22,6 +22,7 @@ pub enum MergeStatus {
     Ready,
 }
 
+/// The review decision, as the forge reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReviewState {
     #[default]
@@ -31,6 +32,7 @@ pub enum ReviewState {
     ChangesRequested,
 }
 
+/// How many of a pull request's checks passed, failed or are still pending.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Checks {
@@ -40,6 +42,7 @@ pub struct Checks {
     pub pending: u32,
 }
 
+/// What a forge says about a pull request's mergeability, before any reason is chosen.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MergeSignals {
     pub draft: bool,
@@ -53,6 +56,7 @@ pub struct MergeSignals {
     pub blocked: bool,
 }
 
+/// A pull request's merge status: the `merge` field in its JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MergeInfo {
