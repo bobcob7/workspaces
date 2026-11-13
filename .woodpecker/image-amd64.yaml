@@ -22,7 +22,11 @@ when:
   - event: manual
 
 services:
-  - name: docker
+  # Named dind, not docker: Woodpecker appends its per-run service domain to the
+  # step Pod's DNS search list AFTER bobcob7.com, so a bare name that matches a
+  # *.bobcob7.com host (docker.bobcob7.com is the docker-mirror ingress)
+  # resolves there instead of to this service.
+  - name: dind
     image: docker:27-dind
     privileged: true
     ports: [2375, 18080]
@@ -42,18 +46,18 @@ steps:
   - name: build
     image: docker:27-cli
     environment:
-      DOCKER_HOST: tcp://docker:2375
+      DOCKER_HOST: tcp://dind:2375
     commands:
-      - for i in $(seq 90); do docker info >/dev/null 2>&1 && break; sleep 2; done
-      - docker info >/dev/null
+      - for i in $(seq 60); do docker info >/dev/null 2>&1 && break; echo "waiting for dind ($i)"; sleep 3; done
+      - docker info | grep -E 'Server Version|Storage Driver|Backing Filesystem|Operating System|Architecture'
       - docker build -f deploy/docker/Dockerfile --build-arg VERSION=$(echo "$CI_COMMIT_SHA" | cut -c1-7) -t ws-online:ci .
 
   - name: smoke
     image: docker:27-cli
     depends_on: [build]
     environment:
-      DOCKER_HOST: tcp://docker:2375
-      SMOKE_HOST: docker
+      DOCKER_HOST: tcp://dind:2375
+      SMOKE_HOST: dind
       SMOKE_BIND: 0.0.0.0
     commands:
       - apk add --no-cache bash curl jq
@@ -63,7 +67,7 @@ steps:
     image: docker:27-cli
     depends_on: [smoke]
     environment:
-      DOCKER_HOST: tcp://docker:2375
+      DOCKER_HOST: tcp://dind:2375
     commands:
       - tag=$(echo "$CI_COMMIT_SHA" | cut -c1-7)
       - docker tag ws-online:ci registry.bobcob7.com/workspaces/ws-online:$tag-amd64
