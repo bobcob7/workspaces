@@ -8,12 +8,12 @@ import styles from "./WatchedReposDialog.module.css";
 
 const RepoRow = ({ repo }: { readonly repo: WatchRepo }): JSX.Element => {
   const dispatch = useAppDispatch();
-  if (!repo.github) {
+  if (repo.forge === null) {
     return (
       <tr className={styles.other}>
         <td className={styles.id}>{repo.id}</td>
         <td colSpan={2} className={styles.note}>
-          GitHub repos only
+          Choose its forge in Settings › Forges
         </td>
       </tr>
     );

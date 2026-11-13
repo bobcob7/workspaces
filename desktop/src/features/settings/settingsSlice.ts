@@ -25,7 +25,7 @@ import {
 import { createAppThunk } from "../../thunk";
 
 /** Settings groups, in list order. */
-export type SettingsGroup = "repos" | "reviews" | "roles" | "notifications" | "workspaces" | "about";
+export type SettingsGroup = "repos" | "reviews" | "forges" | "roles" | "notifications" | "workspaces" | "about";
 
 export type ReviewSettingKey = keyof ReviewSettings;
 

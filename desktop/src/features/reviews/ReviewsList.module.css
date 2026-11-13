@@ -55,8 +55,32 @@
   overflow-wrap: anywhere;
 }
 
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 12px 0;
+}
+
+.filters > :global(.MuiTextField-root) {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.filters :global(.MuiInputBase-root) {
+  font-size: 13px;
+}
+
 .group + .group {
   margin-top: 8px;
+}
+
+@media (max-width: 720px) {
+  .filters :global(.MuiInputBase-root),
+  .filters :global(.MuiButton-root) {
+    min-height: 40px;
+  }
 }
 
 .heading {

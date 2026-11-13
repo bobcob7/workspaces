@@ -1,19 +1,39 @@
+import { Button, MenuItem, TextField } from "@mui/material";
 import type { JSX, KeyboardEvent } from "react";
-import type { PullRequest, ReviewReport } from "../../api";
+import type { MergeStatus, PullRequest, ReviewReport, ReviewsView } from "../../api";
 import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
-import { groupPrs, repoName, summary, visibleOrder } from "./groups";
+import { activeFilterCount, authorsOf, groupPrs, mergeLabels, repoName, summary, visibleOrder, type Involves } from "./groups";
+import { MergeBadge } from "./MergeBadge";
 import { PrDot } from "./PrDot";
 import { reportKey } from "./reportsSlice";
-import { dismissedToggled, filterChanged, reviewSelected } from "./reviewsSlice";
+import { authorFiltered, dismissedToggled, filterChanged, filtersCleared, involvesFiltered, mergeFiltered, reviewSelected } from "./reviewsSlice";
 import { useReports } from "./useReports";
 import styles from "./ReviewsList.module.css";
+
+const mergeStatuses = Object.keys(mergeLabels) as MergeStatus[];
+
+const involvesOptions: readonly { readonly value: Involves; readonly label: string }[] = [
+  { value: "anyone", label: "Anyone" },
+  { value: "meAny", label: "Me: mine or requested" },
+  { value: "mine", label: "Opened by me" },
+  { value: "requested", label: "Review requested from me" },
+];
+
+const hostOf = (repo: string): string => repo.split("/")[0] ?? repo;
+
+/** Hosts with pull requests that have no login, so "mine" and "requested" can't match them. */
+const hostsWithoutLogin = (view: ReviewsView): readonly string[] => {
+  const withPrs = new Set(view.prs.map((pr) => hostOf(pr.repo)));
+  return view.hosts.filter((host) => host.login === null && withPrs.has(host.host)).map((host) => host.host);
+};
 
 /** Pull requests in watched repos, grouped by review status. */
 export const ReviewsList = (): JSX.Element => {
   const dispatch = useAppDispatch();
   const view = useAppSelector((s) => s.reviews.view);
   const filter = useAppSelector((s) => s.reviews.filter);
+  const filters = useAppSelector((s) => s.reviews.filters);
   const selectedKey = useAppSelector((s) => s.reviews.selectedKey);
   const dismissedOpen = useAppSelector((s) => s.reviews.dismissedOpen);
   const reports = useAppSelector((s) => s.reports.byKey);
@@ -22,8 +42,11 @@ export const ReviewsList = (): JSX.Element => {
     const review = pr.reviews[0];
     return review?.recorded === true ? reports[reportKey(pr.repo, review.sha)]?.report ?? null : null;
   };
-  const groups = groupPrs(view?.prs ?? [], filter);
-  const failing = view?.repos.filter((r) => r.watch && r.github && r.error !== null) ?? [];
+  const prs = view?.prs ?? [];
+  const groups = groupPrs(prs, filter, filters);
+  const loginless = view === null || filters.involves === "anyone" ? [] : hostsWithoutLogin(view);
+  const failing = view?.repos.filter((r) => r.watch && r.forge !== null && r.error !== null) ?? [];
+  const hostErrors = view?.hosts.flatMap((host) => (host.error === null ? [] : [`${host.host}: ${host.error.message}`])) ?? [];
   const autoWarnings = view?.warnings.filter((w) => w.startsWith("auto-review")) ?? [];
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
@@ -55,8 +78,61 @@ export const ReviewsList = (): JSX.Element => {
           onChange={(e) => dispatch(filterChanged(e.target.value))}
         />
       </div>
+      <div className={styles.filters}>
+        <TextField
+          select
+          size="small"
+          label="Author"
+          value={filters.author ?? ""}
+          onChange={(e) => dispatch(authorFiltered(e.target.value === "" ? null : e.target.value))}
+        >
+          <MenuItem value="">All authors</MenuItem>
+          {authorsOf(prs).map((login) => (
+            <MenuItem key={login} value={login}>
+              {login}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Involves"
+          value={filters.involves}
+          onChange={(e) => dispatch(involvesFiltered(e.target.value as Involves))}
+        >
+          {involvesOptions.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Merge status"
+          value={filters.merge ?? ""}
+          onChange={(e) => dispatch(mergeFiltered(e.target.value === "" ? null : (e.target.value as MergeStatus)))}
+        >
+          <MenuItem value="">Any status</MenuItem>
+          {mergeStatuses.map((status) => (
+            <MenuItem key={status} value={status}>
+              {mergeLabels[status]}
+            </MenuItem>
+          ))}
+        </TextField>
+        {activeFilterCount(filters) > 0 && (
+          <Button size="small" onClick={() => dispatch(filtersCleared())}>
+            Clear filters
+          </Button>
+        )}
+      </div>
       <nav className={styles.groups} aria-label="Pull requests" onKeyDown={onKeyDown}>
-        {[...failing.map((r) => `${repoName(r.id)}: ${r.error ?? ""}`), ...autoWarnings].map((warning) => (
+        {loginless.length > 0 && (
+          <p className={styles.warning} role="status">
+            Mine and requested don&apos;t include {loginless.join(", ")}: no login there.
+          </p>
+        )}
+        {[...hostErrors, ...failing.map((r) => `${repoName(r.id)}: ${r.error ?? ""}`), ...autoWarnings].map((warning) => (
           <p key={warning} className={styles.warning} role="status">
             {warning}
           </p>
@@ -102,6 +178,7 @@ export const ReviewsList = (): JSX.Element => {
                             #{pr.number} {pr.title}
                           </span>
                           <span className={styles.age}>{age(pr.updatedAt)}</span>
+                          <MergeBadge merge={pr.merge} compact />
                         </span>
                         <span className={styles.summary}>{summary(pr, reportOf(pr))}</span>
                       </button>

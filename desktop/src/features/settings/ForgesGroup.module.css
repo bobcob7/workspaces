@@ -1,0 +1,97 @@
+.group {
+  max-width: 820px;
+}
+
+.title {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.host {
+  font: 12px var(--font-mono);
+}
+
+.token {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.error {
+  color: #f85149;
+}
+
+.actions {
+  padding: 8px 24px 16px;
+}
+
+.caption {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .table thead {
+    display: none;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .table :global(.MuiTextField-root) {
+    width: 100%;
+  }
+
+  .group :global(.MuiButton-root),
+  .group :global(.MuiInputBase-root),
+  .actions :global(.MuiButton-root) {
+    min-height: 40px;
+  }
+}
