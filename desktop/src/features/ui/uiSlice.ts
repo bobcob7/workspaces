@@ -13,7 +13,7 @@ export type Dialog = "agent" | "shell";
 export type Section = "agents" | "repos" | "reviews" | "loops" | "stats" | "settings";
 
 /** How an agent is shown: its conversation, or the claude attach terminal. */
-export type AgentView = "conversation" | "terminal";
+export type AgentView = "conversation" | "terminal" | "shell";
 
 /** A notice's button: a link to open in the browser, or an agent to select. */
 export type NoticeAction =
