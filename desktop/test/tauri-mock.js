@@ -141,7 +141,7 @@
         forge: "forgejo",
         number: 15262,
         title: "refactor: move RemoveTeamMember",
-        author: { login: "wetneb" },
+        author: { login: "alice" },
         merge: { status: "failing", reasons: ["failing", "awaitingApproval"], checks: checks(2, 1, 0) },
       }),
       pullRequest({
@@ -149,9 +149,16 @@
         forge: "forgejo",
         number: 15301,
         title: "Add audit log export",
-        author: { login: "dana" },
+        author: { login: "carol" },
         requested: false,
         merge: { status: "behind", reasons: ["behind"], checks: checks(2, 0, 0) },
+      }),
+      pullRequest({
+        number: 43,
+        title: "Require a second reviewer for billing",
+        author: { login: "bob" },
+        requested: false,
+        merge: { status: "awaitingApproval", reasons: ["awaitingApproval"], checks: checks(2, 0, 0) },
       }),
     ].map((pr) => ({
       key: `${pr.repo}#${pr.number}`,
