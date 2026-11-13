@@ -1,6 +1,6 @@
 # 0060. Reviews checks each host through its forge (GitHub through `gh`, Forgejo through its REST API), shows a merge status per pull request, and filters by author and by you
 
-- Status: Proposed
+- Status: Proposed; the host setting (`desktop.json` `settings.forges`, forge rule 1) superseded by [0061](0061-hosts-in-config-toml.md)
 - Date: 2026-11-13
 
 ## Context
@@ -100,6 +100,8 @@ part of a cache id) has one **forge kind**, `github` or `forgejo`:
 **Which forge a host runs**, first match wins:
 
 1. The host's setting in `desktop.json`, `settings.forges.hosts.<host>.kind`
+   (superseded by [0061](0061-hosts-in-config-toml.md): now `kind` in
+   `config.toml`'s `[[hosts]]`)
    (`github` or `forgejo`); a missing entry means `auto`.
 2. `github.com`, or a host `gh auth status` lists: `github`.
 3. `GET https://<host>/api/v1/version` answers 200 with a JSON `version`:

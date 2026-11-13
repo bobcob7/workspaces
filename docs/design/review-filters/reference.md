@@ -366,6 +366,11 @@ in an `AppError`, and never serialized to the frontend.
 
 ## `desktop.json` (`reviews::store`)
 
+> **Superseded by [ADR 0061](../../adrs/0061-hosts-in-config-toml.md).** Each
+> host's kind now lives in `config.toml`'s `[[hosts]]`; `settings.forges` is
+> read once to migrate it, and `reviews_set_forge` is replaced by
+> `reviews_set_hosts`. See [reference-hosts.md](reference-hosts.md).
+
 `Settings` gains `forges` (version stays 1; a missing key is the default):
 
 ```rust

@@ -1,6 +1,6 @@
 # 0007. `repo@ref` spec syntax and cache-first resolution
 
-- Status: Accepted (2026-10-17)
+- Status: Accepted (2026-10-17); short specs across several hosts changed by [0061](0061-hosts-in-config-toml.md)
 - Date: 2026-10-17
 
 ## Context
