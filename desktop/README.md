@@ -137,6 +137,12 @@ backend every 5 minutes by default
 
 ![A pull request waiting for review](docs/reviews.png)
 
+| Merge status badges and filters | Filtered by merge status |
+| --- | --- |
+| ![](docs/reviews-filters.png) | ![](docs/reviews-filters-merge.png) |
+| **Settings, Forges (GitHub and Forgejo hosts)** | **Phone width** |
+| ![](docs/reviews-forges-settings.png) | ![](docs/mobile-reviews-filters.png) |
+
 | A review out of date after new commits | Editing a review before starting it |
 | --- | --- |
 | ![](docs/reviews-reviewed.png) | ![](docs/reviews-start.png) |
