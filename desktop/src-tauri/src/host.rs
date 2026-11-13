@@ -32,8 +32,8 @@ pub struct HostStats {
     pub disk: Option<DiskStats>,
 }
 
-/// The host port. libc deprecates its binding in favour of the mach2 crate,
-/// which doesn't export this call, so it's declared here from libSystem.
+// libc deprecates its binding in favour of the mach2 crate, which doesn't
+// export this call, so it's declared here from libSystem.
 #[cfg(target_os = "macos")]
 extern "C" {
     fn mach_host_self() -> libc::mach_port_t;
