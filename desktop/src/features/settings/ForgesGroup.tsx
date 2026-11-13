@@ -1,6 +1,6 @@
 import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField } from "@mui/material";
 import { useEffect, useState, type JSX } from "react";
-import type { ForgeChoice, HostView } from "../../api";
+import type { ForgeChoice, ForgeKind, HostView } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { fetchReviews, setForge, setToken } from "../reviews/reviewsSlice";
 import dialogStyles from "./ProfileEditor.module.css";
@@ -17,6 +17,20 @@ const tokenStatus = (host: HostView): string => {
     return `from $${host.tokenEnv ?? ""}`;
   }
   return host.token === "file" ? "saved" : "none";
+};
+
+const detectedName = (forge: ForgeKind | null): string => {
+  if (forge === "forgejo") {
+    return "Forgejo";
+  }
+  return forge === "github" ? "GitHub" : "none";
+};
+
+const choiceLabel = (choice: { readonly value: ForgeChoice; readonly label: string }, host: HostView): string => {
+  if (choice.value === "auto" && host.choice === "auto") {
+    return `Auto (detected: ${detectedName(host.forge)})`;
+  }
+  return choice.label;
 };
 
 interface TokenDialogProps {
@@ -88,7 +102,7 @@ const HostRow = ({ host, onSetToken }: HostRowProps): JSX.Element => {
         >
           {choices.map((choice) => (
             <MenuItem key={choice.value} value={choice.value}>
-              {choice.label}
+              {choiceLabel(choice, host)}
             </MenuItem>
           ))}
         </TextField>
