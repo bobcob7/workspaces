@@ -526,9 +526,19 @@ pub mod tests {
     }
 
     #[test]
-    fn review_record_without_pull_request_is_not_a_review_of_one() {
+    fn review_record_without_pull_request_matches_by_name_prefix() {
         let mut commit = recorded(42, HEAD, Status::Working, "2026-10-24T10:00:00Z");
         commit.workspace_id = Some(names::review_name(REPO, 42, HEAD));
+        if let Some(record) = commit.review.as_mut() {
+            record.pr = None;
+        }
+        assert_eq!(group(&[commit], &watching()).0, Group::Reviewing);
+    }
+
+    #[test]
+    fn review_record_without_pull_request_with_other_name_is_not_a_review() {
+        let mut commit = recorded(42, HEAD, Status::Working, "2026-10-24T10:00:00Z");
+        commit.workspace_id = Some("careful-look-d8efb24f".to_string());
         if let Some(record) = commit.review.as_mut() {
             record.pr = None;
         }
