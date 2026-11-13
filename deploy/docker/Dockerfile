@@ -27,6 +27,10 @@ RUN npm run build
 
 FROM --platform=$BUILDPLATFORM rust:1.99-trixie AS server
 ARG TARGETARCH
+# The release version, so Settings > About says what the app was built from.
+# There is no .git in this stage to describe, so build.rs takes it from
+# WS_DESKTOP_COMMIT. Left unset for the default "dev".
+ARG VERSION=dev
 WORKDIR /src/desktop/src-tauri
 COPY desktop/src-tauri ./
 # Pick the Rust target and a C compiler/linker for it (ring and other build
@@ -46,6 +50,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     rustup target add "${triple}"; \
     up="$(echo "${triple}" | tr 'a-z-' 'A-Z_')"; \
     export "CARGO_TARGET_${up}_LINKER=${cc}" "CC_$(echo "${triple}" | tr - _)=${cc}"; \
+    if [ "${VERSION}" != dev ]; then export WS_DESKTOP_COMMIT="${VERSION}"; fi; \
     cargo build --release --locked --target "${triple}" --no-default-features --features online --bin ws-online \
     && mkdir -p /out && cp "target/${triple}/release/ws-online" /out/
 
