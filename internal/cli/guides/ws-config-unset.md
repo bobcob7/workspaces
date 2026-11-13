@@ -9,6 +9,9 @@ that isn't set succeeds with `changed` false. Once a
 `[review.profiles.<name>]` table has no keys left, its header is removed too.
 Only the key's own lines change, so the file's comments stay.
 
+`unset hosts` removes every `[[hosts]]` table. The list then falls back to
+`github.com`.
+
 ## When to use it
 
 To go back to a default, or to remove a review profile's overrides after it

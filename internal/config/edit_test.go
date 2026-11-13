@@ -234,9 +234,72 @@ func TestSet(t *testing.T) {
 		_, _, err := Set([]byte("[defaults]\nhost = \"\"\"\na\n\"\"\"\n"), "defaults.host", []string{"b"})
 		assert.ErrorIs(t, err, ErrUneditable)
 	})
-	t.Run("hosts is uneditable for now", func(t *testing.T) {
-		_, _, err := Set([]byte(defaultFile), "hosts", []string{"github.com"})
+	t.Run("hosts appended to a file without them", func(t *testing.T) {
+		out, changed, err := Set([]byte(withHost), "hosts", []string{"github.com", "git.example.com=forgejo"})
+		require.NoError(t, err)
+		assert.True(t, changed)
+		want := strings.Replace(withHost, "host = \"github.com\"\n", "", 1) +
+			"\n[[hosts]]\nname = \"github.com\"\nkind = \"auto\"\n\n[[hosts]]\nname = \"git.example.com\"\nkind = \"forgejo\"\n"
+		assert.Equal(t, want, string(out))
+		setting, err := Lookup(out, "hosts")
+		require.NoError(t, err)
+		assert.True(t, setting.Set)
+	})
+	t.Run("hosts replaced in place", func(t *testing.T) {
+		input := "[defaults]\nowners = []\n\n# mine\n[[hosts]]\nname = \"a.com\"\n# keep me\nkind = \"github\"\n\n[review]\ntimeout = \"2h\"\n"
+		out, _, err := Set([]byte(input), "hosts", []string{"b.com=forgejo", "a.com"})
+		require.NoError(t, err)
+		want := "[defaults]\nowners = []\n\n# mine\n[[hosts]]\nname = \"b.com\"\nkind = \"forgejo\"\n\n[[hosts]]\nname = \"a.com\"\nkind = \"auto\"\n\n# keep me\n\n[review]\ntimeout = \"2h\"\n"
+		assert.Equal(t, want, string(out))
+	})
+	t.Run("interleaved hosts tables become one block at the first", func(t *testing.T) {
+		input := "[[hosts]]\nname = \"a.com\"\n\n[review]\ntimeout = \"2h\"\n\n[[hosts]]\nname = \"b.com\"\nkind = \"github\"\n"
+		out, _, err := Set([]byte(input), "hosts", []string{"c.com"})
+		require.NoError(t, err)
+		assert.Equal(t, "[[hosts]]\nname = \"c.com\"\nkind = \"auto\"\n\n[review]\ntimeout = \"2h\"\n\n", string(out))
+	})
+	t.Run("same list twice is unchanged", func(t *testing.T) {
+		once, _, err := Set([]byte(defaultFile), "hosts", []string{"a.com"})
+		require.NoError(t, err)
+		twice, changed, err := Set(once, "hosts", []string{"a.com"})
+		require.NoError(t, err)
+		assert.False(t, changed)
+		assert.Equal(t, once, twice)
+	})
+	t.Run("CRLF is kept", func(t *testing.T) {
+		out, _, err := Set([]byte("[defaults]\r\nowners = []\r\n"), "hosts", []string{"a.com"})
+		require.NoError(t, err)
+		assert.Equal(t, "[defaults]\r\nowners = []\r\n\r\n[[hosts]]\r\nname = \"a.com\"\r\nkind = \"auto\"\r\n", string(out))
+	})
+	t.Run("bad values are ErrValueInvalid", func(t *testing.T) {
+		tests := [][]string{{"a/b"}, {"x=gitlab"}, {"a.com a.com"}, {"a.com", "a.com"}}
+		for _, values := range tests {
+			_, _, err := Set([]byte(defaultFile), "hosts", values)
+			assert.ErrorIs(t, err, ErrValueInvalid, values)
+		}
+	})
+	t.Run("no values removes the list, like Unset", func(t *testing.T) {
+		hostsFile := "[[hosts]]\nname = \"a.com\"\nkind = \"github\"\n"
+		set, _, err := Set([]byte(hostsFile), "hosts", nil)
+		require.NoError(t, err)
+		unset, _, err := Unset([]byte(hostsFile), "hosts")
+		require.NoError(t, err)
+		assert.Equal(t, string(unset), string(set))
+		assert.Empty(t, set)
+	})
+	t.Run("inline hosts is uneditable", func(t *testing.T) {
+		_, _, err := Set([]byte("hosts = [{name = \"a.com\"}]\n"), "hosts", []string{"b.com"})
 		assert.ErrorIs(t, err, ErrUneditable)
+	})
+	t.Run("defaults.host refused while hosts is set", func(t *testing.T) {
+		hostsFile := []byte("[[hosts]]\nname = \"a.com\"\n")
+		_, _, err := Set(hostsFile, "defaults.host", []string{"b.com"})
+		require.ErrorIs(t, err, ErrValueInvalid)
+
+		unset, _, err := Unset(hostsFile, "hosts")
+		require.NoError(t, err)
+		_, _, err = Set(unset, "defaults.host", []string{"b.com"})
+		require.NoError(t, err)
 	})
 }
 
@@ -305,10 +368,70 @@ func TestUnset(t *testing.T) {
 			assert.ErrorIs(t, err, ErrKeyUnknown, key)
 		}
 	})
-	t.Run("hosts is uneditable for now", func(t *testing.T) {
-		_, _, err := Unset([]byte("[[hosts]]\nname = \"github.com\"\n"), "hosts")
+	t.Run("removes every hosts table and keeps comments", func(t *testing.T) {
+		input := "# keep\n[[hosts]]\nname = \"a.com\"\nkind = \"github\"\n\n[review]\ntimeout = \"2h\"\n\n[[hosts]]\nname = \"b.com\"\n"
+		out, changed, err := Unset([]byte(input), "hosts")
+		require.NoError(t, err)
+		assert.True(t, changed)
+		assert.Equal(t, "# keep\n\n[review]\ntimeout = \"2h\"\n\n", string(out))
+		setting, err := Lookup(out, "hosts")
+		require.NoError(t, err)
+		assert.False(t, setting.Set)
+		assert.Equal(t, []Host{{Name: "github.com", Kind: KindAuto}}, setting.Value)
+	})
+	t.Run("a file without hosts is unchanged", func(t *testing.T) {
+		out, changed, err := Unset([]byte(defaultFile), "hosts")
+		require.NoError(t, err)
+		assert.False(t, changed)
+		assert.Equal(t, defaultFile, string(out))
+	})
+}
+
+func TestRewriteHosts(t *testing.T) {
+	t.Run("replaces the header line with the block", func(t *testing.T) {
+		lines := splitLines([]byte("[[hosts]]\nname = \"a.com\"\n"))
+		out, err := rewriteHosts(lines, []Host{{Name: "b.com", Kind: KindGithub}})
+		require.NoError(t, err)
+		assert.Equal(t, "[[hosts]]\nname = \"b.com\"\nkind = \"github\"\n", strings.Join(out, ""))
+	})
+	t.Run("a header with spaces is removed", func(t *testing.T) {
+		lines := splitLines([]byte("[[ hosts ]]\nname = \"a.com\"\n"))
+		out, err := rewriteHosts(lines, nil)
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+	t.Run("removes defaults.host and keeps comments", func(t *testing.T) {
+		lines := splitLines([]byte("[defaults]\n# mine\nhost = \"a.com\"\n"))
+		out, err := rewriteHosts(lines, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "[defaults]\n# mine\n", strings.Join(out, ""))
+	})
+	t.Run("an inline hosts array is uneditable", func(t *testing.T) {
+		_, err := rewriteHosts(splitLines([]byte("hosts = [{name = \"a.com\"}]\n")), nil)
 		assert.ErrorIs(t, err, ErrUneditable)
 	})
+	t.Run("invalid TOML is ErrInvalid", func(t *testing.T) {
+		_, err := rewriteHosts(splitLines([]byte("[[hosts\n")), nil)
+		assert.ErrorIs(t, err, ErrInvalid)
+	})
+}
+
+func TestIsHostsHeader(t *testing.T) {
+	tests := []struct {
+		text string
+		want bool
+	}{
+		{text: "[[hosts]]", want: true},
+		{text: "[[ hosts ]]", want: true},
+		{text: "\t[[hosts]] # mine", want: true},
+		{text: "[hosts]", want: false},
+		{text: "[[hostsx]]", want: false},
+		{text: "# [[hosts]]", want: false},
+		{text: "hosts = []", want: false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, isHostsHeader(tt.text), tt.text)
+	}
 }
 
 func TestWriteFile(t *testing.T) {

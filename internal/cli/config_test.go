@@ -179,6 +179,32 @@ func TestApp_configSet(t *testing.T) {
 		assert.False(t, second.Changed)
 		assert.Equal(t, mtime, mustModTime(t, path))
 	})
+	t.Run("hosts takes any number of values and prints the list", func(t *testing.T) {
+		t.Parallel()
+		app, path, stdout, _ := newConfigApp(t, "")
+		require.Equal(t, exitOK, runConfigCmd(t, app, "config", "set", "hosts", "a.com", "b.com=forgejo"))
+		assert.Equal(t, "hosts = [{name = \"a.com\", kind = \"auto\"}, {name = \"b.com\", kind = \"forgejo\"}]\n", stdout.String())
+		assert.Contains(t, readFileText(t, path), "[[hosts]]\nname = \"b.com\"\nkind = \"forgejo\"\n")
+	})
+	t.Run("--json reports the hosts entries", func(t *testing.T) {
+		t.Parallel()
+		app, _, stdout, _ := newConfigApp(t, "")
+		require.Equal(t, exitOK, runConfigCmd(t, app, "--json", "config", "set", "hosts", "a.com", "b.com=forgejo"))
+		var change configChangeJSON
+		require.NoError(t, json.Unmarshal(stdout.Bytes(), &change))
+		assert.True(t, change.Changed)
+		assert.Contains(t, stdout.String(), `"type":"hosts"`)
+		assert.Contains(t, stdout.String(), `{"name":"b.com","kind":"forgejo"}`)
+	})
+	t.Run("hosts with no values on a file without hosts is unchanged", func(t *testing.T) {
+		t.Parallel()
+		app, path, stdout, _ := newConfigApp(t, commentedConfig)
+		require.Equal(t, exitOK, runConfigCmd(t, app, "--json", "config", "set", "hosts"))
+		var change configChangeJSON
+		require.NoError(t, json.Unmarshal(stdout.Bytes(), &change))
+		assert.False(t, change.Changed)
+		assert.Equal(t, commentedConfig, readFileText(t, path))
+	})
 	t.Run("empties defaults.owners with no values", func(t *testing.T) {
 		t.Parallel()
 		app, path, stdout, _ := newConfigApp(t, commentedConfig)
