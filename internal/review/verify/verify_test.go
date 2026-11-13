@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/review"
 )
@@ -579,7 +580,7 @@ func hangingGit(t *testing.T) (*git.Runner, string) {
 	t.Helper()
 	dir := t.TempDir()
 	shim := filepath.Join(dir, "git")
-	require.NoError(t, os.WriteFile(shim, []byte("#!/bin/sh\n/bin/sleep 120 &\n/bin/sleep 120\n"), 0o755))
+	exectest.WriteScript(t, shim, "#!/bin/sh\n/bin/sleep 120 &\n/bin/sleep 120\n")
 	return git.NewRunner(logger(), shim, nil), dir
 }
 
