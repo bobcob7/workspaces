@@ -148,6 +148,14 @@ backend every 5 minutes by default
 | Open folder and Open in editor on a workspace | Settings, Workspaces group |
 | --- | --- |
 | ![](docs/workspace-open.png) | ![](docs/settings-workspaces.png) |
+
+| The Open... menu, closed | The Open... menu, expanded |
+| --- | --- |
+| ![](docs/open-menu-closed.png) | ![](docs/open-menu-expanded.png) |
+
+| The Open actions in More actions on a phone |
+| --- |
+| ![](docs/open-menu-phone.png) |
 | **Ask Claude on a pull request** | **The Q&A agent it starts** |
 | ![](docs/reviews-ask.png) | ![](docs/reviews-ask-started.png) |
 | **A repo's Pull request reviews card, in Repos** | **Renaming a workspace** |
