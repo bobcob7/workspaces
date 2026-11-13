@@ -37,11 +37,12 @@ const (
 	TypeStrings  Type = "strings"
 	TypeDuration Type = "duration"
 	TypeBool     Type = "bool"
+	TypeHosts    Type = "hosts"
 )
 
 // Setting is one key of config.toml, as ws config lists it. Value is the
 // effective value: the file's, or Default. Value and Default are string,
-// []string, or bool; a duration is its short string ("1h30m").
+// []string, bool, or []Host; a duration is its short string ("1h30m").
 type Setting struct {
 	Key     string `json:"key"`
 	Type    Type   `json:"type"`
@@ -60,8 +61,8 @@ type keyRule struct {
 
 // Settings parses data as config.toml, with the same checks as Load, and
 // returns every key in docs/tools/ws-config.md order: defaults.host,
-// defaults.owners, review.timeout, review.remove_finished, then .when and
-// .model for each [review.profiles.<name>] table, sorted by name.
+// defaults.owners, hosts, review.timeout, review.remove_finished, then .when
+// and .model for each [review.profiles.<name>] table, sorted by name.
 func Settings(data []byte) ([]Setting, error) {
 	cfg, meta, err := load(data)
 	if err != nil {
@@ -69,11 +70,11 @@ func Settings(data []byte) ([]Setting, error) {
 	}
 	var settings []Setting
 	for _, rule := range fixedRules() {
-		settings = append(settings, settingFor(rule, cfg, meta))
+		settings = append(settings, settingFor(rule, &cfg, meta))
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Review.Profiles)) {
 		for _, leaf := range []string{"when", "model"} {
-			settings = append(settings, settingFor(profileRule(name, leaf), cfg, meta))
+			settings = append(settings, settingFor(profileRule(name, leaf), &cfg, meta))
 		}
 	}
 	return settings, nil
@@ -91,7 +92,7 @@ func Lookup(data []byte, key string) (Setting, error) {
 	if err != nil {
 		return Setting{}, err
 	}
-	return settingFor(rule, cfg, meta), nil
+	return settingFor(rule, &cfg, meta), nil
 }
 
 // Set returns data with key set to values, plus whether the text changed.
@@ -103,6 +104,9 @@ func Set(data []byte, key string, values []string) ([]byte, bool, error) {
 	rule, err := parseKey(key)
 	if err != nil {
 		return nil, false, err
+	}
+	if rule.typ == TypeHosts {
+		return nil, false, fmt.Errorf("%w: %s", ErrUneditable, rule.key)
 	}
 	want, err := normalize(rule, values)
 	if err != nil {
@@ -127,6 +131,9 @@ func Unset(data []byte, key string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
+	if rule.typ == TypeHosts {
+		return nil, false, fmt.Errorf("%w: %s", ErrUneditable, rule.key)
+	}
 	lines := splitLines(data)
 	sp, found, err := findSpan(lines, rule)
 	if err != nil {
@@ -138,7 +145,7 @@ func Unset(data []byte, key string) ([]byte, bool, error) {
 	lines = dropEmptyProfile(slices.Delete(lines, sp.first, sp.last+1), rule.table)
 	out := []byte(strings.Join(lines, ""))
 	cfg, meta, err := load(out)
-	if err != nil || settingFor(rule, cfg, meta).Set {
+	if err != nil || settingFor(rule, &cfg, meta).Set {
 		return nil, false, fmt.Errorf("%w: %s", ErrUneditable, rule.key)
 	}
 	return out, !bytes.Equal(data, out), nil
@@ -187,6 +194,7 @@ func fixedRules() []keyRule {
 	return []keyRule{
 		{key: "defaults.host", typ: TypeString, table: "defaults", leaf: "host"},
 		{key: "defaults.owners", typ: TypeStrings, table: "defaults", leaf: "owners"},
+		{key: "hosts", typ: TypeHosts, table: "", leaf: "hosts"},
 		{key: "review.timeout", typ: TypeDuration, table: "review", leaf: "timeout"},
 		{key: "review.remove_finished", typ: TypeBool, table: "review", leaf: "remove_finished"},
 	}
@@ -247,23 +255,29 @@ func load(data []byte) (Config, *toml.MetaData, error) {
 }
 
 // settingFor is rule's Setting for a parsed file.
-func settingFor(rule keyRule, cfg Config, meta *toml.MetaData) Setting {
+func settingFor(rule keyRule, cfg *Config, meta *toml.MetaData) Setting {
+	set := meta.IsDefined(strings.Split(rule.key, ".")...)
+	if rule.typ == TypeHosts {
+		set = set && len(cfg.Hosts) > 0
+	}
 	return Setting{
 		Key:     rule.key,
 		Type:    rule.typ,
 		Value:   valueOf(rule, cfg),
 		Default: defaultOf(rule),
-		Set:     meta.IsDefined(strings.Split(rule.key, ".")...),
+		Set:     set,
 	}
 }
 
 // valueOf is rule's effective value in cfg.
-func valueOf(rule keyRule, cfg Config) any {
+func valueOf(rule keyRule, cfg *Config) any {
 	switch rule.key {
 	case "defaults.host":
-		return cfg.Defaults.Host
+		return cfg.EffectiveHosts()[0].Name
 	case "defaults.owners":
 		return cfg.Defaults.Owners
+	case "hosts":
+		return cfg.EffectiveHosts()
 	case "review.timeout":
 		return FormatDuration(cfg.Review.WaitTimeout())
 	case "review.remove_finished":
@@ -283,6 +297,8 @@ func defaultOf(rule keyRule) any {
 		return defaultHost
 	case "defaults.owners":
 		return []string{}
+	case "hosts":
+		return []Host{{Name: defaultHost, Kind: KindAuto}}
 	case "review.timeout":
 		return FormatDuration(defaultReviewTimeout)
 	case "review.remove_finished":

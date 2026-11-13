@@ -32,12 +32,13 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestSettings(t *testing.T) {
-	t.Run("default file gives the four fixed keys", func(t *testing.T) {
+	t.Run("default file gives the five fixed keys", func(t *testing.T) {
 		settings, err := Settings([]byte(defaultFile))
 		require.NoError(t, err)
 		assert.Equal(t, []Setting{
-			{Key: "defaults.host", Type: TypeString, Value: "github.com", Default: "github.com", Set: true},
+			{Key: "defaults.host", Type: TypeString, Value: "github.com", Default: "github.com", Set: false},
 			{Key: "defaults.owners", Type: TypeStrings, Value: []string{}, Default: []string{}, Set: true},
+			{Key: "hosts", Type: TypeHosts, Value: []Host{{Name: "github.com", Kind: KindAuto}}, Default: []Host{{Name: "github.com", Kind: KindAuto}}, Set: false},
 			{Key: "review.timeout", Type: TypeDuration, Value: "1h", Default: "1h", Set: false},
 			{Key: "review.remove_finished", Type: TypeBool, Value: true, Default: true, Set: false},
 		}, settings)
@@ -45,9 +46,20 @@ func TestSettings(t *testing.T) {
 	t.Run("profile rows follow the fixed keys", func(t *testing.T) {
 		settings, err := Settings([]byte(defaultFile + "[review.profiles.security]\nmodel = \"opus\"\n"))
 		require.NoError(t, err)
-		require.Len(t, settings, 6)
-		assert.Equal(t, Setting{Key: "review.profiles.security.when", Type: TypeString, Value: "", Default: "", Set: false}, settings[4])
-		assert.Equal(t, Setting{Key: "review.profiles.security.model", Type: TypeString, Value: "opus", Default: "", Set: true}, settings[5])
+		require.Len(t, settings, 7)
+		assert.Equal(t, Setting{Key: "review.profiles.security.when", Type: TypeString, Value: "", Default: "", Set: false}, settings[5])
+		assert.Equal(t, Setting{Key: "review.profiles.security.model", Type: TypeString, Value: "opus", Default: "", Set: true}, settings[6])
+	})
+	t.Run("hosts setting holds the [[hosts]] tables", func(t *testing.T) {
+		settings, err := Settings([]byte("[[hosts]]\nname = \"github.com\"\nkind = \"github\"\n\n[[hosts]]\nname = \"git.example.com\"\nkind = \"forgejo\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, Setting{
+			Key:     "hosts",
+			Type:    TypeHosts,
+			Value:   []Host{{Name: "github.com", Kind: KindGithub}, {Name: "git.example.com", Kind: KindForgejo}},
+			Default: []Host{{Name: "github.com", Kind: KindAuto}},
+			Set:     true,
+		}, settings[2])
 	})
 	t.Run("invalid file is ErrInvalid", func(t *testing.T) {
 		_, err := Settings([]byte("[defaults]\nhost = \"a/b\"\n"))
@@ -59,7 +71,17 @@ func TestLookup(t *testing.T) {
 	t.Run("fixed key", func(t *testing.T) {
 		setting, err := Lookup([]byte(defaultFile), "defaults.host")
 		require.NoError(t, err)
-		assert.Equal(t, Setting{Key: "defaults.host", Type: TypeString, Value: "github.com", Default: "github.com", Set: true}, setting)
+		assert.Equal(t, Setting{Key: "defaults.host", Type: TypeString, Value: "github.com", Default: "github.com", Set: false}, setting)
+	})
+	t.Run("hosts with no tables is unset with the default", func(t *testing.T) {
+		setting, err := Lookup(nil, "hosts")
+		require.NoError(t, err)
+		assert.Equal(t, Setting{Key: "hosts", Type: TypeHosts, Value: []Host{{Name: "github.com", Kind: KindAuto}}, Default: []Host{{Name: "github.com", Kind: KindAuto}}, Set: false}, setting)
+	})
+	t.Run("defaults.host is the first host", func(t *testing.T) {
+		setting, err := Lookup([]byte("[[hosts]]\nname = \"b.example\"\n\n[[hosts]]\nname = \"a.example\"\n"), "defaults.host")
+		require.NoError(t, err)
+		assert.Equal(t, Setting{Key: "defaults.host", Type: TypeString, Value: "b.example", Default: "github.com", Set: false}, setting)
 	})
 	t.Run("profile key without a table is unset with the default", func(t *testing.T) {
 		setting, err := Lookup([]byte(defaultFile), "review.profiles.security.model")
@@ -77,6 +99,7 @@ func TestLookup(t *testing.T) {
 }
 
 func TestSet(t *testing.T) {
+	withHost := strings.Replace(defaultFile, "owners = []\n", "owners = []\nhost = \"github.com\"\n", 1)
 	tests := []struct {
 		name   string
 		input  string
@@ -85,11 +108,11 @@ func TestSet(t *testing.T) {
 		want   string
 	}{
 		{
-			name:   "replaces host in the default file",
-			input:  defaultFile,
+			name:   "replaces host in a file that sets it",
+			input:  withHost,
 			key:    "defaults.host",
 			values: []string{"b.example"},
-			want:   strings.Replace(defaultFile, `host = "github.com"`, `host = "b.example"`, 1),
+			want:   strings.Replace(withHost, `host = "github.com"`, `host = "b.example"`, 1),
 		},
 		{
 			name:   "replaces a multi-line array with one line",
@@ -142,10 +165,10 @@ func TestSet(t *testing.T) {
 		},
 		{
 			name:   "normalizes the host",
-			input:  defaultFile,
+			input:  withHost,
 			key:    "defaults.host",
 			values: []string{"Gitlab.Example.COM"},
-			want:   strings.Replace(defaultFile, `host = "github.com"`, `host = "gitlab.example.com"`, 1),
+			want:   strings.Replace(withHost, `host = "github.com"`, `host = "gitlab.example.com"`, 1),
 		},
 		{
 			name:   "normalizes owners, dropping repeats",
@@ -171,9 +194,9 @@ func TestSet(t *testing.T) {
 		})
 	}
 	t.Run("same value again is not a change", func(t *testing.T) {
-		got, changed, err := Set([]byte(defaultFile), "defaults.host", []string{"github.com"})
+		got, changed, err := Set([]byte(withHost), "defaults.host", []string{"github.com"})
 		require.NoError(t, err)
-		assert.Equal(t, defaultFile, string(got))
+		assert.Equal(t, withHost, string(got))
 		assert.False(t, changed)
 	})
 	t.Run("rejects values that break the key's rule", func(t *testing.T) {
@@ -209,6 +232,10 @@ func TestSet(t *testing.T) {
 	})
 	t.Run("refuses a multi-line string value", func(t *testing.T) {
 		_, _, err := Set([]byte("[defaults]\nhost = \"\"\"\na\n\"\"\"\n"), "defaults.host", []string{"b"})
+		assert.ErrorIs(t, err, ErrUneditable)
+	})
+	t.Run("hosts is uneditable for now", func(t *testing.T) {
+		_, _, err := Set([]byte(defaultFile), "hosts", []string{"github.com"})
 		assert.ErrorIs(t, err, ErrUneditable)
 	})
 }
@@ -277,6 +304,10 @@ func TestUnset(t *testing.T) {
 			_, _, err := Unset([]byte(defaultFile), key)
 			assert.ErrorIs(t, err, ErrKeyUnknown, key)
 		}
+	})
+	t.Run("hosts is uneditable for now", func(t *testing.T) {
+		_, _, err := Unset([]byte("[[hosts]]\nname = \"github.com\"\n"), "hosts")
+		assert.ErrorIs(t, err, ErrUneditable)
 	})
 }
 

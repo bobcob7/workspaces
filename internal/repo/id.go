@@ -54,6 +54,10 @@ func (id ID) UpstreamURL() string {
 	return "https://" + id.String() + ".git"
 }
 
+// ValidateHost checks a host as repo ids hold it: a bare host name with an
+// optional ":port" (ADR 0020). It doesn't lowercase.
+func ValidateHost(hostPort string) error { return validateHostPort(hostPort) }
+
 // validateHostPort accepts a host name with an optional ":port".
 func validateHostPort(hostPort string) error {
 	host, port, hasPort := strings.Cut(hostPort, ":")

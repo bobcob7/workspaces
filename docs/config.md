@@ -5,7 +5,8 @@ found and checked. The decisions behind this are in
 [0011](adrs/0011-config-dir.md) (locations),
 [0007](adrs/0007-repo-spec-syntax-and-resolution.md) (what the keys do),
 [0019](adrs/0019-https-upstream-urls.md) (why there's no protocol key), and
-[0054](adrs/0054-settings-all.md) (changing it with `ws config`).
+[0054](adrs/0054-settings-all.md) (changing it with `ws config`), and
+[0061](adrs/0061-hosts-in-config-toml.md) (the `[[hosts]]` list).
 
 ## The config directory
 
@@ -85,12 +86,17 @@ If `config.toml` doesn't exist, `ws` writes this one:
 # ws configuration. Edit it by hand, or with ws config set; ws keeps your comments.
 
 [defaults]
-# Host for repo specs without one, such as "owner/name".
-host = "github.com"
-
 # Owners to try, in order, for a bare repo name that isn't cached,
 # for example ["your-name", "your-org"].
 owners = []
+
+# Hosts for repo specs without one, such as "owner/name", tried in order;
+# the first is the primary host. With none, github.com is used.
+# kind is auto, github, or forgejo (read by the desktop app's Reviews).
+# Edit with ws config set hosts github.com git.example.com=forgejo
+# [[hosts]]
+# name = "github.com"
+# kind = "auto"
 
 # [review]
 # How long ws review wait waits for a review by default.
@@ -148,8 +154,8 @@ How short repo specs resolve
 
 | Key      | Type             | Default        | Used for |
 | -------- | ---------------- | -------------- | -------- |
-| `host`   | string           | `"github.com"` | the host of a spec without one, such as `owner/name`; also preferred when `owner/name` matches cached repos on several hosts |
-| `owners` | array of strings | `[]`           | for a bare `name`: preferred when it matches cached repos under several owners, and tried in order on `host` when it isn't cached |
+| `host`   | string           | `"github.com"` | the old single-host form of [`[[hosts]]`](#hosts). Read as the primary host when `[[hosts]]` isn't set; setting both is an error |
+| `owners` | array of strings | `[]`           | for a bare `name`: preferred when it matches cached repos under several owners, and tried in order on each host when it isn't cached |
 
 Rules, checked every time the file is read:
 
@@ -166,8 +172,49 @@ Example, for someone whose repos are mostly on a company GitLab:
 
 ```toml
 [defaults]
-host = "gitlab.example.com"
 owners = ["platform", "platform/tools", "me"]
+
+[[hosts]]
+name = "gitlab.example.com"
+```
+
+### `[[hosts]]`
+
+The hosts that repo specs without a host, such as `owner/name`, are tried
+on, in order ([0061](adrs/0061-hosts-in-config-toml.md)). Each table is one
+host:
+
+| Key    | Type   | Default  | Used for |
+| ------ | ------ | -------- | -------- |
+| `name` | string | required | a host as it appears in repo ids: letters, digits, `.`, `-`, and an optional `:<port>` (1–65535), such as `git.example.com:3000` |
+| `kind` | string | `"auto"` | the forge the desktop app's Reviews uses for this host: `auto`, `github`, or `forgejo`, exactly as written. `ws` checks it and otherwise ignores it |
+
+Rules, checked every time the file is read:
+
+- **`name`** is lowercased, then must be a bare host name with an optional
+  port. It can't have a scheme, user, path or spaces.
+- **`kind`** must be `auto`, `github` or `forgejo`.
+- **A name can be listed once.** A repeated name, after lowercasing, is an error.
+- **No other keys.** A `token` is an unknown key, and the error says tokens
+  go in `WS_FORGEJO_TOKEN_<HOST>` or Settings › Forges, never in this file.
+- **`hosts = []`** is allowed and means not set.
+
+The **effective list** is the `[[hosts]]` tables when there are any;
+otherwise `defaults.host` alone, as `auto`; otherwise `github.com`. Its first
+entry is the **primary host**. A short spec is tried on each host in this
+order. Setting both `defaults.host` and `[[hosts]]` is an error that says to
+move the host into the list.
+
+Example, for someone who uses GitHub and a Forgejo server:
+
+```toml
+[[hosts]]
+name = "github.com"
+kind = "github"
+
+[[hosts]]
+name = "git.example.com:3000"
+kind = "forgejo"
 ```
 
 ### `[review]`
