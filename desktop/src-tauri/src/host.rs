@@ -32,7 +32,15 @@ pub struct HostStats {
     pub disk: Option<DiskStats>,
 }
 
+/// The host port. libc deprecates its binding in favour of the mach2 crate,
+/// which doesn't export this call, so it's declared here from libSystem.
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn mach_host_self() -> libc::mach_port_t;
+}
+
 /// Parses the first `cpu ` line of /proc/stat into busy and total ticks.
+#[cfg(any(target_os = "linux", test))]
 pub fn parse_proc_stat(text: &str) -> Option<CpuTicks> {
     let rest = text.lines().find_map(|line| line.strip_prefix("cpu "))?;
     let fields = rest
@@ -53,12 +61,14 @@ pub fn parse_proc_stat(text: &str) -> Option<CpuTicks> {
 }
 
 /// Parses /proc/meminfo into (total, used) bytes, where used is MemTotal − MemAvailable.
+#[cfg(any(target_os = "linux", test))]
 pub fn parse_meminfo(text: &str) -> Option<(u64, u64)> {
     let total = meminfo_bytes(text, "MemTotal:")?;
     let available = meminfo_bytes(text, "MemAvailable:")?;
     Some((total, total.saturating_sub(available)))
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn meminfo_bytes(text: &str, key: &str) -> Option<u64> {
     let line = text.lines().find_map(|line| line.strip_prefix(key))?;
     let kib: u64 = line.split_whitespace().next()?.parse().ok()?;
@@ -93,7 +103,7 @@ pub fn read_cpu_ticks() -> Option<CpuTicks> {
     // SAFETY: info and count are the size host_statistics expects for HOST_CPU_LOAD_INFO.
     let status = unsafe {
         libc::host_statistics(
-            libc::mach_host_self(),
+            mach_host_self(),
             libc::HOST_CPU_LOAD_INFO,
             (&mut info as *mut libc::host_cpu_load_info).cast(),
             &mut count,
@@ -154,7 +164,7 @@ pub fn read_memory() -> Option<(u64, u64)> {
     // SAFETY: vm and count are the size host_statistics64 expects for HOST_VM_INFO64.
     let status = unsafe {
         libc::host_statistics64(
-            libc::mach_host_self(),
+            mach_host_self(),
             libc::HOST_VM_INFO64,
             (&mut vm as *mut libc::vm_statistics64).cast(),
             &mut count,
