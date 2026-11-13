@@ -110,6 +110,8 @@ pub const COMMANDS: &[&str] = &[
     "reviews_check_now",
     "reviews_load_repos",
     "reviews_set_watch",
+    "reviews_set_forge",
+    "reviews_set_token",
     "reviews_dismiss",
     "reviews_restore",
     "reviews_plan",
@@ -274,6 +276,22 @@ pub async fn dispatch(
                 repo,
                 watch,
                 auto_review,
+            ))
+        }
+        "reviews_set_forge" => {
+            let (host, kind) = args!(args, { host: String, kind: reviews::forge::ForgeChoice });
+            result(reviews::reviews_set_forge(
+                State::new(&ctx.state),
+                host,
+                kind,
+            ))
+        }
+        "reviews_set_token" => {
+            let (host, token) = args!(args, { host: String, token: String });
+            result(reviews::reviews_set_token(
+                State::new(&ctx.state),
+                host,
+                token,
             ))
         }
         "reviews_dismiss" => {

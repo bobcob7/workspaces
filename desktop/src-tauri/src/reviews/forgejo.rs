@@ -68,6 +68,7 @@ struct FjRef {
 /// The combined commit status of a pull request's head.
 #[derive(Debug, Deserialize)]
 pub struct FjStatus {
+    #[allow(dead_code)]
     state: String,
     #[serde(default)]
     statuses: Option<Vec<FjStatusItem>>,
@@ -463,8 +464,6 @@ mod tests {
     const TOKEN: &str = "s3cr3t-value";
     const REPO: &str = "git.example.com/team/svc";
     const SHA: &str = "8db6637666e157ddd3af5d5033ac7edc347f2c10";
-    const BASE_URL: &str = "https://git.example.com/api/v1";
-    const REPO_URL: &str = "https://git.example.com/api/v1/repos/team/svc";
     const VERSION_URL: &str = "https://git.example.com/api/v1/version";
     const USER_URL: &str = "https://git.example.com/api/v1/user";
     const PULLS_PAGE_1: &str = "https://git.example.com/api/v1/repos/team/svc/pulls?state=open&sort=recentupdate&limit=50&page=1";

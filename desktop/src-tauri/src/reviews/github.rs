@@ -99,12 +99,6 @@ pub fn split_repo(repo_id: &str) -> Option<(&str, &str, &str)> {
     Some((host, owner, name))
 }
 
-/// Whether `gh` can list this repo's pull requests: `host/owner/name` on
-/// github.com or a host `gh` is logged in to.
-pub fn is_github(repo_id: &str, hosts: &BTreeMap<String, String>) -> bool {
-    split_repo(repo_id).is_some_and(|(host, _, _)| host == "github.com" || hosts.contains_key(host))
-}
-
 pub fn pr_list_args(repo_id: &str) -> Vec<String> {
     [
         "pr", "list", "--repo", repo_id, "--state", "open", "--limit", "100", "--json", PR_FIELDS,
@@ -372,16 +366,6 @@ mod tests {
         let hosts = parse_auth(out).unwrap();
         assert_eq!(hosts.len(), 1);
         assert_eq!(hosts["github.com"], "bobcob7");
-    }
-
-    #[test]
-    fn is_github_needs_known_host_and_three_parts() {
-        let hosts = BTreeMap::from([("ghe.example.com".to_string(), "me".to_string())]);
-        assert!(is_github("github.com/o/r", &BTreeMap::new()));
-        assert!(is_github("ghe.example.com/o/r", &hosts));
-        assert!(!is_github("gitlab.example.com/team/svc", &hosts));
-        assert!(!is_github("github.com/o", &hosts));
-        assert!(!is_github("gitlab.com/group/sub/r", &hosts));
     }
 
     #[test]

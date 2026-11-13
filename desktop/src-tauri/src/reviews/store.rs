@@ -158,13 +158,11 @@ pub struct ForgeSettings {
 
 impl ForgeSettings {
     /// The host's setting: `Auto` when it has none.
-    #[allow(dead_code)] // used by T4
     pub fn choice(&self, host: &str) -> ForgeChoice {
         self.hosts.get(host).map_or(ForgeChoice::Auto, |h| h.kind)
     }
 
     /// Sets a host's setting; `Auto` removes its entry.
-    #[allow(dead_code)] // used by T4
     pub fn set_choice(&mut self, host: &str, choice: ForgeChoice) {
         if choice == ForgeChoice::Auto {
             self.hosts.remove(host);

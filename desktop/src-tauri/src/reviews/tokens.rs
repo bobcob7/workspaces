@@ -12,7 +12,6 @@ pub const TOKENS_FILE: &str = "forge-tokens.json";
 const VERSION: u32 = 1;
 
 /// Where a host's token came from. The token itself never leaves the backend.
-#[allow(dead_code)] // used by T4
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenSource {
@@ -30,13 +29,11 @@ struct TokenFile {
 type EnvLookup = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// Forgejo tokens by host. Read-only from the environment; `set` writes the file.
-#[allow(dead_code)] // used by T4
 pub struct TokenStore {
     path: Option<PathBuf>,
     env: EnvLookup,
 }
 
-#[allow(dead_code)] // used by T4
 impl TokenStore {
     /// The file beside `desktop_json` (None: no file), reading `std::env::var`.
     pub fn beside(desktop_json: Option<&Path>) -> Self {

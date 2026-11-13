@@ -7,10 +7,8 @@ pub mod checker;
 pub mod comment;
 pub mod fix;
 pub mod forge;
-#[allow(dead_code)] // used by T4
 pub mod forgejo;
 pub mod github;
-#[allow(dead_code)] // used by T4
 pub mod http;
 pub mod merge;
 pub mod names;
@@ -28,6 +26,7 @@ use crate::runner::AppError;
 use checker::Started;
 use comment::{CommentPlan, PostRequest, Posted};
 use fix::{FixFinding, FixPlan, FixStarted, StartFix};
+use forge::{ForgeChoice, ForgeKind};
 use plan::ReviewPlan;
 use profiles::{ListedProfile, ProfileDetail, ProfileDraft};
 use report::DecideRequest;
@@ -38,6 +37,7 @@ use store::{NotificationSettings, PrHead, RepoWatch, ReviewSettings, Settings};
 use tauri::Manager;
 #[cfg(feature = "desktop")]
 use tauri_plugin_opener::OpenerExt;
+use tokens::TokenStore;
 use view::ReviewsView;
 
 type CmdResult<T> = Result<T, AppError>;
@@ -83,6 +83,46 @@ pub fn reviews_set_watch(
     Ok(view(&state))
 }
 
+/// Sets a host's forge in Settings › Forges; Auto detects it again.
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub fn reviews_set_forge(
+    state: State<'_, AppState>,
+    host: String,
+    kind: ForgeChoice,
+) -> CmdResult<ReviewsView> {
+    check_host(&host)?;
+    state
+        .store
+        .update(|d| d.settings.forges.set_choice(&host, kind))?;
+    state.reviews.forget_host(&host);
+    state.reviews.check_now();
+    Ok(view(&state))
+}
+
+/// Saves a host's token in forge-tokens.json; an empty token removes it.
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub fn reviews_set_token(
+    state: State<'_, AppState>,
+    host: String,
+    token: String,
+) -> CmdResult<ReviewsView> {
+    check_host(&host)?;
+    TokenStore::beside(state.store.path()).set(&host, &token)?;
+    state.reviews.forget_host(&host);
+    state.reviews.check_now();
+    Ok(view(&state))
+}
+
+fn check_host(host: &str) -> CmdResult<()> {
+    if forge::is_host(host) {
+        return Ok(());
+    }
+    Err(AppError::new(
+        "setting_invalid",
+        format!("\"{host}\" isn't a host name"),
+    ))
+}
+
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub fn reviews_dismiss(
     state: State<'_, AppState>,
@@ -120,7 +160,9 @@ pub async fn reviews_plan(
         )
     })?;
     let settings = state.store.get().settings.reviews;
-    plan::build(&state.runner, &repo, &pr, &settings).await
+    let mut plan = plan::build(&state.runner, &repo, &pr, &settings).await?;
+    plan.forge = state.reviews.forge_of(&repo).unwrap_or_default();
+    Ok(plan)
 }
 
 /// Starts, or finds, a read-only agent that answers questions about the
@@ -276,6 +318,12 @@ pub async fn review_comment_plan(
     git_ref: String,
     number: u64,
 ) -> CmdResult<CommentPlan> {
+    if state.reviews.forge_of(&repo) != Some(ForgeKind::Github) {
+        return Err(AppError::new(
+            "forge_unsupported",
+            "Posting findings is GitHub-only for now.",
+        ));
+    }
     let pr = state.reviews.pull_request(&repo, number);
     let host = github::split_repo(&repo).map_or("", |(h, _, _)| h);
     let url = pr.as_ref().map_or_else(

@@ -25,7 +25,6 @@ pub enum ForgeChoice {
 }
 
 /// The host of a cache id: "git.example.com:3000" from "git.example.com:3000/team/svc".
-#[allow(dead_code)] // used by T4
 pub fn host_of(repo_id: &str) -> Option<&str> {
     let (host, _) = repo_id.split_once('/')?;
     Some(host).filter(|h| !h.is_empty())
@@ -33,7 +32,6 @@ pub fn host_of(repo_id: &str) -> Option<&str> {
 
 /// Rules 1–4 of ADR 0060. `probed`: None = not probed yet (or unreachable),
 /// Some(true) = Forgejo, Some(false) = not Forgejo.
-#[allow(dead_code)] // used by T4
 pub fn resolve_kind(
     host: &str,
     choice: ForgeChoice,
@@ -53,14 +51,12 @@ pub fn resolve_kind(
 
 /// Whether `resolve_kind` needs a probe first: choice Auto, not github.com,
 /// not in gh_hosts.
-#[allow(dead_code)] // used by T4
 pub fn needs_probe(host: &str, choice: ForgeChoice, gh_hosts: &BTreeSet<String>) -> bool {
     choice == ForgeChoice::Auto && host != GITHUB_COM && !gh_hosts.contains(host)
 }
 
 /// A host name Settings accepts: non-empty; letters, digits, '.', '-', and
 /// one optional ':<port>' (digits); no '/', '@' or whitespace.
-#[allow(dead_code)] // used by T4
 pub fn is_host(host: &str) -> bool {
     let (name, port) = match host.split_once(':') {
         Some((name, port)) => (name, Some(port)),

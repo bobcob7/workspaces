@@ -1,17 +1,21 @@
 //! The background check of watched repos, and auto-review (ADR 0035).
 
 use super::auto;
+use super::forge::{self, ForgeChoice, ForgeKind};
+use super::forgejo::{self, Probe};
 use super::github::{self, PullRequest};
+use super::http::Http;
 use super::plan::{self, ReviewPlan};
 use super::profiles;
 use super::runs;
 use super::store::{AutoStarted, Store};
-use super::view::{self, CheckState, CompareKey, RepoCheck};
+use super::tokens::{TokenSource, TokenStore};
+use super::view::{self, CheckState, CompareKey, HostState, RepoCheck};
 use crate::commands::{self, Created};
 use crate::model::Entry;
 use crate::runner::{AppError, Runner};
 use serde::Deserialize;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -52,6 +56,8 @@ pub struct Deps {
     pub runner: Runner,
     pub store: Arc<Store>,
     pub jobs_dir: Option<PathBuf>,
+    /// Forgejo's REST API; tests replace it.
+    pub http: Arc<dyn Http>,
 }
 
 #[derive(Default)]
@@ -191,6 +197,22 @@ impl Checker {
         self.with_state(|s| s.hosts.get(host).cloned()).flatten()
     }
 
+    /// The forge the last check found for a repo's host.
+    pub fn forge_of(&self, repo: &str) -> Option<ForgeKind> {
+        self.with_state(|s| view::repo_forge(&s.forges, repo))
+            .flatten()
+    }
+
+    /// Forgets a host's probe answer and error, after its setting or token changed.
+    pub fn forget_host(&self, host: &str) {
+        self.with_state(|s| {
+            s.probed.remove(host);
+            if let Some(known) = s.forges.get_mut(host) {
+                known.error = None;
+            }
+        });
+    }
+
     /// The pull request as last checked.
     pub fn pull_request(&self, repo: &str, number: u64) -> Option<PullRequest> {
         self.with_state(|s| {
@@ -245,21 +267,32 @@ impl Checker {
         self.with_state(|s| {
             s.checking = false;
             s.checked_at_ms = Some(now_ms());
-            s.error = result.err();
+            s.error = match result {
+                Ok(top_error) => top_error,
+                Err(err) => Some(err),
+            };
         });
     }
 
-    async fn check_steps(&self, deps: &Deps) -> Result<(), AppError> {
+    async fn check_steps(&self, deps: &Deps) -> Result<Option<AppError>, AppError> {
         self.load_cached(&deps.runner).await?;
-        let hosts = github::signed_in_hosts(&deps.runner).await?;
+        let (gh_hosts, gh_error) = match github::signed_in_hosts(&deps.runner).await {
+            Ok(hosts) => (hosts, None),
+            Err(err) => (BTreeMap::new(), Some(err)),
+        };
+        let unreachable = self.probe_hosts(deps, &gh_hosts).await;
+        let decisions = self
+            .decide_hosts(deps, &gh_hosts, gh_error.as_ref(), &unreachable)
+            .await;
         let state = deps.store.get();
         let watched = self
             .with_state(|s| {
-                s.hosts = hosts.clone();
+                s.hosts = decisions.logins.clone();
+                s.forges = decisions.forges.clone();
                 view::watched_repos(s, &state)
             })
             .unwrap_or_default();
-        let results = list_all(&deps.runner, &watched).await;
+        let results = list_all(deps, list_jobs(&watched, &decisions)).await;
         let mut warnings = Vec::new();
         let mut rate_limited = false;
         for (repo, result) in &results {
@@ -272,7 +305,8 @@ impl Checker {
                     deps.store.update(|d| d.reviews.prune(repo, &open)).ok();
                 }
                 Err(err) => {
-                    rate_limited |= err.code == "gh_rate_limited";
+                    rate_limited |=
+                        err.code == "gh_rate_limited" || err.code == "forge_rate_limited";
                     warnings.push(format!(
                         "{}: {}",
                         super::names::repo_name(repo),
@@ -309,7 +343,123 @@ impl Checker {
         self.compare_out_of_date(&deps.runner, &entries).await;
         warnings.extend(self.auto_review(deps, &entries).await);
         self.with_state(|s| s.warnings = warnings);
-        Ok(())
+        let all_github = !watched.is_empty()
+            && watched
+                .iter()
+                .all(|repo| self.forge_of(repo) == Some(ForgeKind::Github));
+        Ok(gh_error.filter(|_| all_github))
+    }
+
+    /// Asks each host that needs it whether it runs Forgejo, once per run
+    /// (ADR 0060, rule 3). Returns the hosts that gave no answer.
+    async fn probe_hosts(
+        &self,
+        deps: &Deps,
+        gh_hosts: &BTreeMap<String, String>,
+    ) -> BTreeSet<String> {
+        let settings = deps.store.get().settings.forges;
+        let gh_host_set = host_set(gh_hosts);
+        let mut unreachable = BTreeSet::new();
+        for host in self.cached_hosts() {
+            let choice = settings.choice(&host);
+            if self.is_probed(&host) || !forge::needs_probe(&host, choice, &gh_host_set) {
+                continue;
+            }
+            match forgejo::probe(&*deps.http, &host).await {
+                Probe::Forgejo => self.record_probe(&host, true),
+                Probe::NotForgejo => self.record_probe(&host, false),
+                Probe::Unreachable => {
+                    unreachable.insert(host);
+                }
+            }
+        }
+        unreachable
+    }
+
+    fn is_probed(&self, host: &str) -> bool {
+        self.with_state(|s| s.probed.contains_key(host))
+            .unwrap_or(true)
+    }
+
+    fn record_probe(&self, host: &str, forgejo: bool) {
+        self.with_state(|s| s.probed.insert(host.to_string(), forgejo));
+    }
+
+    /// The hosts of the cached repos, sorted.
+    fn cached_hosts(&self) -> Vec<String> {
+        self.with_state(|s| {
+            let hosts: BTreeSet<&str> = s
+                .cached
+                .iter()
+                .filter_map(|id| forge::host_of(id))
+                .collect();
+            hosts.into_iter().map(str::to_string).collect()
+        })
+        .unwrap_or_default()
+    }
+
+    /// Decides each cached host's forge, login, token and error (ADR 0060).
+    async fn decide_hosts(
+        &self,
+        deps: &Deps,
+        gh_hosts: &BTreeMap<String, String>,
+        gh_error: Option<&AppError>,
+        unreachable: &BTreeSet<String>,
+    ) -> Decisions {
+        let state = deps.store.get();
+        let (probes, cached) = self
+            .with_state(|s| (s.probed.clone(), s.cached.clone()))
+            .unwrap_or_default();
+        let gh_host_set = host_set(gh_hosts);
+        let watched_hosts: BTreeSet<&str> = cached
+            .iter()
+            .filter(|id| state.reviews.watch(id).watch)
+            .filter_map(|id| forge::host_of(id))
+            .collect();
+        let tokens = TokenStore::beside(deps.store.path());
+        let mut decisions = Decisions {
+            logins: gh_hosts.clone(),
+            ..Decisions::default()
+        };
+        for host in self.cached_hosts() {
+            let choice = state.settings.forges.choice(&host);
+            let probed = probes.get(&host).copied();
+            let kind = forge::resolve_kind(&host, choice, &gh_host_set, probed);
+            let mut known = HostState {
+                kind,
+                detected: kind == Some(ForgeKind::Forgejo) && choice == ForgeChoice::Auto,
+                ..HostState::default()
+            };
+            let account = match kind {
+                Some(ForgeKind::Github) => {
+                    github_login(&host, gh_hosts, gh_error, &mut known).map(|login| (login, None))
+                }
+                Some(ForgeKind::Forgejo) => {
+                    forgejo_login(&*deps.http, &host, tokens.token(&host), &mut known)
+                        .await
+                        .map(|(login, token)| (login, Some(token)))
+                }
+                None => {
+                    if watched_hosts.contains(host.as_str()) {
+                        known.error = unresolved_error(&host, unreachable.contains(&host), probed);
+                    }
+                    None
+                }
+            };
+            match account {
+                Some((login, token)) => {
+                    decisions.logins.insert(host.clone(), login);
+                    if let Some(token) = token {
+                        decisions.tokens.insert(host.clone(), token);
+                    }
+                }
+                None => {
+                    decisions.logins.remove(&host);
+                }
+            }
+            decisions.forges.insert(host, known);
+        }
+        decisions
     }
 
     /// Counts the commits pushed since each out-of-date review, once per
@@ -319,6 +469,9 @@ impl Checker {
             .with_state(|s| {
                 s.repos
                     .iter()
+                    .filter(|(repo, _)| {
+                        view::repo_forge(&s.forges, repo) == Some(ForgeKind::Github)
+                    })
                     .flat_map(|(repo, r)| r.prs.iter().map(move |p| (repo, p)))
                     .filter_map(|(repo, pr)| {
                         let sha = view::out_of_date_sha(entries, repo, pr)?;
@@ -369,7 +522,8 @@ impl Checker {
         };
         let mut warnings = Vec::new();
         for (repo, pr) in selected {
-            let plan = plan::plan(repo, pr, settings, choices.clone());
+            let mut plan = plan::plan(repo, pr, settings, choices.clone());
+            plan.forge = self.forge_of(repo).unwrap_or_default();
             match self.start_review(&deps.runner, &plan).await {
                 Ok(started) if started.already => {}
                 Ok(started) => {
@@ -395,19 +549,125 @@ impl Checker {
     }
 }
 
-/// Lists each repo's open pull requests, a few at a time.
+/// What a check decided per cached host.
+#[derive(Default)]
+struct Decisions {
+    /// The login on each host: `gh`'s, and Forgejo's from its token.
+    logins: BTreeMap<String, String>,
+    /// The token that reached each Forgejo host.
+    tokens: BTreeMap<String, String>,
+    forges: BTreeMap<String, HostState>,
+}
+
+/// A repo to list, with the forge it runs and the token for its host.
+struct ListJob {
+    repo: String,
+    forge: ForgeKind,
+    token: Option<String>,
+}
+
+fn host_set(gh_hosts: &BTreeMap<String, String>) -> BTreeSet<String> {
+    gh_hosts.keys().cloned().collect()
+}
+
+/// The repos to list: those whose host has a forge and no error.
+fn list_jobs(watched: &[String], decisions: &Decisions) -> Vec<ListJob> {
+    watched
+        .iter()
+        .filter_map(|repo| {
+            let host = forge::host_of(repo)?;
+            let known = decisions.forges.get(host)?;
+            if known.error.is_some() {
+                return None;
+            }
+            Some(ListJob {
+                repo: repo.clone(),
+                forge: known.kind?,
+                token: decisions.tokens.get(host).cloned(),
+            })
+        })
+        .collect()
+}
+
+/// A GitHub host's login from `gh`, or its error: `gh` is missing, or it
+/// isn't signed in to the host.
+fn github_login(
+    host: &str,
+    gh_hosts: &BTreeMap<String, String>,
+    gh_error: Option<&AppError>,
+    known: &mut HostState,
+) -> Option<String> {
+    if let Some(login) = gh_hosts.get(host) {
+        return Some(login.clone());
+    }
+    known.error = Some(match gh_error {
+        Some(err) if err.code == "gh_missing" => err.clone(),
+        _ => AppError::new(
+            "gh_auth",
+            format!(
+                "gh isn't signed in to {host}. Run gh auth login --hostname {host} in a terminal, then Check now."
+            ),
+        ),
+    });
+    None
+}
+
+/// A Forgejo host's login with the token that reaches it. A token the host
+/// rejects, or a call that fails, is the host's error.
+async fn forgejo_login(
+    http: &dyn Http,
+    host: &str,
+    found: Option<(String, TokenSource)>,
+    known: &mut HostState,
+) -> Option<(String, String)> {
+    let (token, source) = found?;
+    known.token = Some(source);
+    match forgejo::login(http, host, &token).await {
+        Ok(login) => Some((login, token)),
+        Err(err) => {
+            known.error = Some(err);
+            None
+        }
+    }
+}
+
+/// Why a watched host has no forge: the probe gave no answer, or it said
+/// the host isn't Forgejo.
+fn unresolved_error(host: &str, unreachable: bool, probed: Option<bool>) -> Option<AppError> {
+    if unreachable {
+        return Some(AppError::new(
+            "forge_failed",
+            format!("{host}: no answer from https://{host}/api/v1/version"),
+        ));
+    }
+    (probed == Some(false)).then(|| {
+        AppError::new(
+            "forge_unknown",
+            format!(
+                "{host} isn't a GitHub or Forgejo host. Choose its forge in Settings › Forges."
+            ),
+        )
+    })
+}
+
+/// Lists each repo's open pull requests with its forge, a few at a time.
 async fn list_all(
-    runner: &Runner,
-    repos: &[String],
+    deps: &Deps,
+    jobs: Vec<ListJob>,
 ) -> Vec<(String, Result<Vec<PullRequest>, AppError>)> {
     let permits = Arc::new(Semaphore::new(CONCURRENCY));
     let mut tasks = JoinSet::new();
-    for repo in repos {
-        let (runner, repo, permits) = (runner.clone(), repo.clone(), permits.clone());
+    for job in jobs {
+        let (runner, http, permits) = (deps.runner.clone(), deps.http.clone(), permits.clone());
         tasks.spawn(async move {
             let _permit = permits.acquire_owned().await;
-            let result = github::list_prs(&runner, &repo).await;
-            (repo, result)
+            let result = match job.forge {
+                ForgeKind::Github => github::list_prs(&runner, &job.repo).await,
+                ForgeKind::Forgejo => {
+                    forgejo::list_prs(http, &job.repo, job.token.as_deref()).await
+                }
+            };
+            (job.repo, result)
         });
     }
     let mut results = Vec::new();
@@ -458,7 +718,10 @@ impl Drop for Claim<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reviews::http::FakeHttp;
+    use crate::reviews::merge::MergeStatus;
     use crate::reviews::store::{ProfileSetting, RepoWatch, Runs};
+    use crate::reviews::tokens::TOKENS_FILE;
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -492,12 +755,21 @@ mod tests {
     const REMOVED: &str = r#"{"reviews":[{"id":"review-buff-bear-38-a41c9f2-d8efb24f","review":{"repo":"github.com/bobcob7/buff-bear","ref":"a41c9f2d0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c","requester":"","started_at":"2026-10-28T09:00:00Z","profiles":[],"pr":{"number":38,"url":"u"}},"agent":null}],"warnings":[]}"#;
 
     fn fake_programs(gh: &str, ws_review: &str) -> tempfile::TempDir {
+        fake_programs_cached(gh, ws_review, WATCHED_CACHE)
+    }
+
+    /// The cache of the two GitHub repos most tests watch.
+    const WATCHED_CACHE: &str =
+        r#"{"repos":[{"id":"github.com/bobcob7/buff-bear"},{"id":"github.com/bobcob7/api"}]}"#;
+
+    /// `fake_programs`, with `cache` as `ws cache list`'s answer.
+    fn fake_programs_cached(gh: &str, ws_review: &str, cache: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("ws.log");
         let ws = format!(
             r#"echo "$@" >> '{}'
 case "$1" in
-  cache) echo '{{"repos":[{{"id":"github.com/bobcob7/buff-bear"}},{{"id":"github.com/bobcob7/api"}}]}}' ;;
+  cache) echo '{cache}' ;;
   list) echo '{{"workspaces":[],"warnings":[]}}' ;;
   review) case "$2 $3" in profiles*) echo '{PROFILES}' ;; "--json list") echo '{REMOVED}' ;; *) {ws_review} ;; esac ;;
 esac"#,
@@ -522,10 +794,25 @@ esac"#
     }
 
     fn deps(dir: &tempfile::TempDir, auto_review: bool) -> Deps {
-        let store = Store::open(None);
+        deps_with(dir, auto_review, Arc::new(FakeHttp::new()), None)
+    }
+
+    /// Deps whose Forgejo calls go to `http`, and whose desktop.json is
+    /// `desktop_json`, so its forge-tokens.json sits beside it.
+    fn deps_with(
+        dir: &tempfile::TempDir,
+        auto_review: bool,
+        http: Arc<FakeHttp>,
+        desktop_json: Option<PathBuf>,
+    ) -> Deps {
+        let store = Store::open(desktop_json);
         store
             .update(|d| {
-                for repo in ["github.com/bobcob7/buff-bear", "github.com/bobcob7/api"] {
+                for repo in [
+                    "github.com/bobcob7/buff-bear",
+                    "github.com/bobcob7/api",
+                    SVC,
+                ] {
                     d.reviews.set_watch(
                         repo,
                         RepoWatch {
@@ -540,6 +827,7 @@ esac"#
             runner: Runner::new(dir.path().display().to_string()),
             store: Arc::new(store),
             jobs_dir: None,
+            http,
         }
     }
 
@@ -803,6 +1091,7 @@ esac"#
             runner: Runner::new(crate::env::resolve_path()),
             store: Arc::new(store),
             jobs_dir: crate::jobs::jobs_dir(),
+            http: Arc::new(crate::reviews::http::ReqwestHttp::new()),
         };
         let checker = Checker::default();
         checker.check(&deps).await;
@@ -834,5 +1123,276 @@ esac"#
             .unwrap();
         Checker::default().check(&deps).await;
         assert!(deps.store.get().reviews.dismissed.is_empty());
+    }
+
+    const SVC_HOST: &str = "git.example.com";
+    const SVC: &str = "git.example.com/team/svc";
+    const SVC_HEAD: &str = "8db6637666e157ddd3af5d5033ac7edc347f2c10";
+    const FORGEJO_CACHE: &str =
+        r#"{"repos":[{"id":"github.com/bobcob7/buff-bear"},{"id":"git.example.com/team/svc"}]}"#;
+
+    const FJ_PULLS: &str = r#"[{"number":15262,"title":"refactor: move RemoveTeamMember","body":"Moves it.","html_url":"https://git.example.com/team/svc/pulls/15262","draft":false,"mergeable":true,"merge_base":"7aa74e4f83288716cbe38f58f06a12f77995d38c","user":{"login":"wetneb","id":94198},"head":{"ref":"remove_member","sha":"8db6637666e157ddd3af5d5033ac7edc347f2c10","label":"remove_member"},"base":{"ref":"forgejo","sha":"7aa74e4f83288716cbe38f58f06a12f77995d38c"},"additions":428,"deletions":461,"changed_files":16,"requested_reviewers":[{"login":"Gusted","id":26734}],"requested_reviewers_teams":[],"created_at":"2026-11-13T22:14:22+01:00","updated_at":"2026-11-13T22:14:30+01:00","state":"open"}]"#;
+    const FJ_STATUS: &str = r#"{"state":"failure","sha":"8db6637666e157ddd3af5d5033ac7edc347f2c10","total_count":3,"statuses":[{"context":"testing / unit","status":"success"},{"context":"testing / lint","status":"failure"},{"context":"issue-labels / cascade","status":"skipped"}]}"#;
+    const FJ_REVIEWS: &str = r#"[{"id":1,"user":{"login":"Gusted"},"state":"REQUEST_REVIEW","stale":false,"official":true,"dismissed":false,"commit_id":""},{"id":2,"user":{"login":"Cyborus"},"state":"APPROVED","stale":false,"official":true,"dismissed":false,"commit_id":"8db6637666e157ddd3af5d5033ac7edc347f2c10"}]"#;
+    const FJ_PROTECTIONS: &str = r#"[{"rule_name":"forgejo","branch_name":"forgejo","required_approvals":2,"block_on_outdated_branch":true}]"#;
+
+    /// Forgejo's answers for git.example.com/team/svc, with `pulls` as the
+    /// open pull requests call's status and body.
+    fn forgejo_http(pulls: (u16, &str)) -> FakeHttp {
+        let api = "https://git.example.com/api/v1";
+        FakeHttp::new()
+            .route(&format!("{api}/version"), 200, r#"{"version":"17.0.0"}"#)
+            .route(
+                &format!("{api}/repos/team/svc/pulls?state=open&sort=recentupdate&limit=50&page=1"),
+                pulls.0,
+                pulls.1,
+            )
+            .route(
+                &format!("{api}/repos/team/svc/branch_protections"),
+                200,
+                FJ_PROTECTIONS,
+            )
+            .route(
+                &format!("{api}/repos/team/svc/commits/{SVC_HEAD}/status"),
+                200,
+                FJ_STATUS,
+            )
+            .route(
+                &format!("{api}/repos/team/svc/pulls/15262/reviews"),
+                200,
+                FJ_REVIEWS,
+            )
+    }
+
+    fn version_calls(http: &FakeHttp) -> usize {
+        http.calls()
+            .iter()
+            .filter(|(url, _)| url.ends_with("/version"))
+            .count()
+    }
+
+    /// Writes forge-tokens.json beside the desktop.json it returns, with
+    /// `token` for the Forgejo host.
+    fn write_token(dir: &tempfile::TempDir, token: &str) -> PathBuf {
+        std::fs::write(
+            dir.path().join(TOKENS_FILE),
+            format!(r#"{{"version":1,"tokens":{{"{SVC_HOST}":"{token}"}}}}"#),
+        )
+        .unwrap();
+        dir.path().join("desktop.json")
+    }
+
+    #[tokio::test]
+    async fn forgejo_repo_is_listed_with_merge_status() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+        );
+        let deps = deps_with(&dir, false, Arc::new(forgejo_http((200, FJ_PULLS))), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let view = checker.view(&deps.store);
+        assert_eq!(view.error, None);
+        assert_eq!(view.hosts.len(), 2);
+        let forgejo = view
+            .prs
+            .iter()
+            .find(|p| p.repo == SVC)
+            .expect("the Forgejo pull request is listed");
+        assert_eq!(forgejo.forge, ForgeKind::Forgejo);
+        assert_eq!(forgejo.pr.merge.status, MergeStatus::Failing);
+    }
+
+    #[tokio::test]
+    async fn signed_out_gh_does_not_hide_forgejo() {
+        let dir = fake_programs_cached(r#"echo '{"hosts":{}}'; exit 1"#, "exit 1", FORGEJO_CACHE);
+        let deps = deps_with(&dir, false, Arc::new(forgejo_http((200, FJ_PULLS))), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let view = checker.view(&deps.store);
+        assert_eq!(view.error, None);
+        let github = view.hosts.iter().find(|h| h.host == "github.com").unwrap();
+        let error = github
+            .error
+            .as_ref()
+            .expect("github.com reports the sign-in");
+        assert_eq!(error.code, "gh_auth");
+        assert!(error.message.contains("--hostname github.com"));
+        assert!(view.prs.iter().any(|p| p.repo == SVC));
+    }
+
+    #[tokio::test]
+    async fn all_github_signed_out_keeps_the_top_level_error() {
+        let dir = fake_programs(r#"echo '{"hosts":{}}'; exit 1"#, "exit 1");
+        let deps = deps(&dir, false);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let view = checker.view(&deps.store);
+        assert_eq!(view.error.map(|e| e.code), Some("gh_auth".to_string()));
+        assert!(view.warnings.is_empty());
+    }
+
+    #[tokio::test]
+    async fn forgejo_token_gives_login_and_mine() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+        );
+        let desktop = write_token(&dir, "secret");
+        let http = Arc::new(forgejo_http((200, FJ_PULLS)).route(
+            "https://git.example.com/api/v1/user",
+            200,
+            r#"{"login":"wetneb"}"#,
+        ));
+        let deps = deps_with(&dir, false, http.clone(), Some(desktop));
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let view = checker.view(&deps.store);
+        let host = view.hosts.iter().find(|h| h.host == SVC_HOST).unwrap();
+        assert_eq!(host.login.as_deref(), Some("wetneb"));
+        assert_eq!(host.token, Some(TokenSource::File));
+        let forgejo = view.prs.iter().find(|p| p.repo == SVC).unwrap();
+        assert!(forgejo.mine);
+        assert!(http.calls().contains(&(
+            "https://git.example.com/api/v1/user".to_string(),
+            Some("secret".to_string())
+        )));
+    }
+
+    #[tokio::test]
+    async fn rejected_token_is_a_host_error_and_skips_its_repos() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+        );
+        let desktop = write_token(&dir, "stale");
+        let http = Arc::new(forgejo_http((200, FJ_PULLS)).route(
+            "https://git.example.com/api/v1/user",
+            401,
+            "{}",
+        ));
+        let deps = deps_with(&dir, false, http.clone(), Some(desktop));
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let view = checker.view(&deps.store);
+        let host = view.hosts.iter().find(|h| h.host == SVC_HOST).unwrap();
+        assert_eq!(
+            host.error.as_ref().map(|e| e.code.as_str()),
+            Some("forge_auth")
+        );
+        assert!(!view.prs.iter().any(|p| p.repo == SVC));
+        assert!(view.prs.iter().any(|p| p.repo.contains("buff-bear")));
+        assert!(!http.calls().iter().any(|(url, _)| url.contains("/pulls?")));
+    }
+
+    #[tokio::test]
+    async fn unknown_host_cannot_be_watched() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+        );
+        let deps = deps_with(&dir, false, Arc::new(FakeHttp::new()), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let view = checker.view(&deps.store);
+        let host = view.hosts.iter().find(|h| h.host == SVC_HOST).unwrap();
+        assert_eq!(host.forge, None);
+        assert_eq!(
+            host.error.as_ref().map(|e| e.code.as_str()),
+            Some("forge_unknown")
+        );
+        let repo = view.repos.iter().find(|r| r.id == SVC).unwrap();
+        assert_eq!(repo.forge, None);
+        assert!(!view.prs.iter().any(|p| p.repo == SVC));
+        let state = deps.store.get();
+        let watched = checker
+            .with_state(|s| view::watched_repos(s, &state))
+            .unwrap();
+        assert!(!watched.contains(&SVC.to_string()));
+    }
+
+    #[tokio::test]
+    async fn explicit_forge_skips_the_probe() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+        );
+        let http = Arc::new(forgejo_http((200, FJ_PULLS)));
+        let deps = deps_with(&dir, false, http.clone(), None);
+        deps.store
+            .update(|d| d.settings.forges.set_choice(SVC_HOST, ForgeChoice::Forgejo))
+            .unwrap();
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        assert_eq!(version_calls(&http), 0);
+        assert!(checker.view(&deps.store).prs.iter().any(|p| p.repo == SVC));
+    }
+
+    #[tokio::test]
+    async fn probe_answer_is_kept_until_forgotten() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+        );
+        let http = Arc::new(forgejo_http((200, FJ_PULLS)));
+        let deps = deps_with(&dir, false, http.clone(), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        checker.check(&deps).await;
+        assert_eq!(version_calls(&http), 1);
+        checker.forget_host(SVC_HOST);
+        checker.check(&deps).await;
+        assert_eq!(version_calls(&http), 2);
+    }
+
+    #[tokio::test]
+    async fn forge_rate_limit_backs_off() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+        );
+        let deps = deps_with(&dir, false, Arc::new(forgejo_http((429, "{}"))), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        assert_eq!(checker.with_state(|s| s.backoff), Some(1));
+    }
+
+    #[tokio::test]
+    async fn auto_review_starts_forgejo_review_at_head() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            r#"echo '{"id":"review-svc-15262-8db6637","session":"s","path":"/w"}'"#,
+            FORGEJO_CACHE,
+        );
+        let deps = deps_with(&dir, true, Arc::new(forgejo_http((200, FJ_PULLS))), None);
+        Checker::default().check(&deps).await;
+        assert!(ws_log(&dir).contains(&format!(
+            "review start --json --name review-svc-15262-8db6637 {SVC}@{SVC_HEAD}\n"
+        )));
+    }
+
+    #[tokio::test]
+    async fn forge_of_names_the_hosts_forge() {
+        let dir = fake_programs_cached(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+        );
+        let deps = deps_with(&dir, false, Arc::new(forgejo_http((200, FJ_PULLS))), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        assert_eq!(checker.forge_of(SVC), Some(ForgeKind::Forgejo));
+        assert_eq!(
+            checker.forge_of("github.com/bobcob7/buff-bear"),
+            Some(ForgeKind::Github)
+        );
+        assert_eq!(checker.forge_of("gitlab.example.com/team/svc"), None);
     }
 }

@@ -271,6 +271,7 @@ fn start_background(online: &Arc<Online>) {
         runner: state.runner.clone(),
         store: state.store.clone(),
         jobs_dir: state.jobs_dir.clone(),
+        http: Arc::new(crate::reviews::http::ReqwestHttp::new()),
     };
     tokio::spawn(state.reviews.clone().run(deps));
     tokio::spawn(loops::tick_forever(state.runner.clone()));
