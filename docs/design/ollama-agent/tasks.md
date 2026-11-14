@@ -26,27 +26,32 @@ runner's provider seam (ADR 0062)`.
 | T12 | MCP tools in the loop: the toolset and `tool_search` | T10, T11 | T13, T23 | small |
 | T13 | `internal/telemetry`: OpenTelemetry setup and the GenAI decorators | T6, T11 | T10, T12, T17 | |
 | T14 | `internal/runner`, session kind `runner`, hidden `ws runner run` | T4, T7, T12, T13 | none | |
-| T15 | `lifetime` reads runner sessions; `runner`/`model`/`ws_runner` in `ws list`, `children`, `wait`; `ws machine logs` | T8, T14 | T18 | |
+| T15 | `lifetime` reads runner sessions; `runner`/`model`/`ws_runner` in `ws list`, `children`, `wait`; `ws machine logs` | T8, T14 | T18, T28 | |
 | T16 | `secrets.env` and the runner's environment | T4 | T2, T7, T9, T11 | small |
 | T17 | `internal/daemon` core and `ws daemon run|status|stop` (with `--origin app`) | T16 | T10, T13 | |
-| T18 | The daemon supervises runners; preflight, `ws runner check` and `ws runner stop` | T14, T16, T17 | T15 | |
+| T18 | The daemon supervises runners; preflight, `ws runner check` and `ws runner stop` | T14, T16, T17 | T15, T28 | |
 | T19 | `ws machine spawn --runner`, the shared runner start, `ws rm`/`ws restore` through the daemon, guides and docs | T15, T18 | none | |
 | T20 | `ws claude --runner` and `--endpoint` | T19 | T21, T24 | small |
 | T21 | Loops on the runner: `--runner`, `--endpoint`, record version 4, the tick's start path | T19 | T20, T24 | |
-| T22 | `e2e/runner`: harness, scenarios, `make fakes`, `make e2e-runner`, CI | T2, T3, T21 | T25 | |
+| T22 | `e2e/runner`: harness, scenarios, `make fakes`, `make e2e-runner`, CI | T2, T3, T21, T28 | T25 | |
 | T23 | The desktop app and `ws-online` keep a daemon running | T17 | T12–T15, T18–T21 | small |
 | T24 | Desktop: a quiet model label on every agent, the runner transcript, Stop | T19 | T20, T21 | |
 | T25 | Desktop: Settings › Models, with the Runner service line | T23, T24 | T22 | |
 | T26 | Desktop: runner and model pickers in the loop form and the New agent dialog | T20, T21, T25 | T27 | |
+| T28 | `internal/runner`: re-resolve the endpoint mid-run | T14, T16 | T15, T18 | small |
 | T27 | *Optional:* `internal/llm/ollama`, the Ollama-native provider | T2, T7 | T26 | |
 
 Waves, if run in parallel: **1** T1, T3, T4, T5, T6, T8 · **2** T2, T7, T9,
 T11, T16 · **3** T10, T13, T17 · **4** T12, T23 · **5** T14 · **6** T15,
-T18 · **7** T19 · **8** T20, T21, T24 · **9** T22, T25 · **10** T26, T27.
+T18, T28 · **7** T19 · **8** T20, T21, T24 · **9** T22, T25 · **10** T26, T27.
 Run at most one heavy implementer at a time on an 8 GB host (Go full test
 runs, `cargo`, vitest): within a wave, start the heavy tasks one after
 another and run the `small` ones beside them. The desktop tasks T24, T25
 and T26 share `desktop/src/test/fixtures.ts`, so they run in that order.
+
+**T28** was added in the third review (re-resolving the endpoint mid-run,
+ADR 0064). It's numbered after T27 but isn't optional; its section sits
+before T27's so the optional task stays last.
 
 **T27 is optional.** It's the next provider, planned but not required for
 this plan to ship; the orchestrator runs it only when the owner asks. Its
@@ -1409,6 +1414,7 @@ type Config struct {
 	Target        Target
 	Reresolver    reresolver // nil: never re-resolve
 	OnSwitch      func(from, to Target, reason string, step int) // after a switch; the runner appends endpoint_history
+	OnReject      func(r Rejection, reason string)               // after an endpoint_rejected event; the runner reports it to telemetry
 	Budget        Budget
 	Tools         Toolset
 	System        string // rendered preamble + project instructions
@@ -1485,11 +1491,12 @@ and then:
 - `Warning` → a `config_warning` event (`kept_endpoint`), keep the target.
 - `Failed` → this retry has failed: a `retry` event naming the new
   endpoint and the error, then the next backoff (or the exit above).
-- `Rejected` → an `endpoint_rejected` event, keep the target, remember
-  the rejection for the exit.
+- `Rejected` → an `endpoint_rejected` event, `OnReject`, keep the target,
+  remember the rejection for the exit.
 - `Changed` → the window check: `Compact` with the new limit
   (`ContextTokens - MaxOutput`); `ok=false` → an `endpoint_rejected`
-  event with code `context_too_small`, keep the target, remember it.
+  event with code `context_too_small`, `OnReject`, keep the target,
+  remember it.
   Otherwise an `endpoint_changed` event (`reason` `retry`, `attempt`,
   from/to names, ids and windows, `changes`, the probe), then: the target
   is replaced; the compaction thresholds and the working limit lowered by
@@ -2708,7 +2715,7 @@ $ make lint
 
 ## T22. `e2e/runner`: harness, scenarios, `make fakes`, `make e2e-runner`, CI
 
-**Depends on:** T2, T3, T21 (and so T18, T19). **Parallel with:** T25.
+**Depends on:** T2, T3, T21 (and so T18, T19), T28. **Parallel with:** T25.
 **ADR:** [0067](../../adrs/0067-runner-tests-use-vendored-fakes.md)
 (Three layers, Scenarios).
 
@@ -2737,7 +2744,24 @@ docs/design/ollama-agent/fake-mcp/*.yaml e2e/runner/testdata/`).
   (`context_tokens = 32768`) as `runner.model`, and `runWS(t, env,
   args...)` running
   `bin/ws`. Each test stops its daemon (`ws daemon stop`) in `t.Cleanup`.
-- One `t.Run` per scenario in 0067's table (23), waiting with `ws machine
+- Re-resolution scenarios (0067's `endpoint-failover`,
+  `endpoint-repoint-no-tools`, `config-invalid-mid-run`; the
+  [fake-ollama README](fake-ollama/common-models.md) has the setup): a
+  second `startFakeOllama` for B; `[endpoints.fake-b]` with B's URL,
+  `probe = "ollama"`, and `WS_ENDPOINT_TOKEN_FAKE_B` in the test's
+  `secrets.env` (a different value from `fake`'s); helpers
+  `waitEvent(t, transcript, kind)` (polls every 100 ms, 30 s limit) and
+  `breakConfig(t, env)` (writes `[runner` to `config.toml`, restored in
+  `t.Cleanup` before the daemon is stopped). The test faults A with
+  `setFaults` once `waitEvent` sees the first `response`
+  (turn 0's `run` call; its `sleep 2` is still running), and repoints with `runWS(t, env,
+  "config", "set", "models.qwen9b.endpoint", "fake-b")` once it sees the
+  first `retry`. Assertions are 0067's: the transcript's
+  `endpoint_changed`/`endpoint_rejected`/`config_warning` events, each
+  fake's `/requests` (paths and `auth`), `run.toml`'s `endpoint_history`,
+  `wait`'s `ws_runner.endpoint`/`endpoint_changes`/`exit`, and that
+  neither token's value is in the transcript or `runner.log`.
+- One `t.Run` per scenario in 0067's table (26), waiting with `ws machine
   wait --timeout 2m`; daemon scenarios kill the runner by the pid in
   `status.json`. `runner-stop` runs `bin/ws runner stop <id>` and then
   starts a new daemon to check the runner isn't resumed. `loop-runner`
@@ -2758,7 +2782,7 @@ docs/design/ollama-agent/fake-mcp/*.yaml e2e/runner/testdata/`).
 
 **Acceptance**
 
-- `make e2e-runner` passes all 23 scenarios from a clean checkout with no
+- `make e2e-runner` passes all 26 scenarios from a clean checkout with no
   network beyond loopback (CI proves it).
 - With `bin/fake-ollama` deleted and `WS_FAKE_OLLAMA` unset, it fails
   with the "run make fakes" message.
