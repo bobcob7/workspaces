@@ -2000,7 +2000,7 @@ usage.json), `machine/<child>/usage.json`.
   invalid JSON → `unknown`.
 - `Run` with two `endpoint_history` entries round-trips; `Current` is the
   second; with none it's the top-level keys; `AppendEndpoint` keeps every
-  other key and comment-free formatting, and the file stays 0600.
+  other key unchanged, and the file stays 0600.
   `ws runner run --resume` of a run whose history ends on endpoint `b`
   sends its requests to `b`'s URL.
 - `Finalize` writes the fail verdict, report header, `usage.json` (with
@@ -2058,16 +2058,21 @@ $ make lint
   `Manager.UseRunners(r runnerReader)`; without it, `runner` sessions
   read as `unknown` and are kept.
 - `judge`: `SessionRunner` → `Session{Kind: KindAgent, ID: runner id,
-  State, PID, Runner: "ws", Model: run.Model, WSRunner: st+run}`; gone only
-  when `!Exists`. `lifetime.Session` gains `WSRunner *RunnerInfo` (alias,
-  endpoint, step, max steps, restarts, usage, MCP, exit).
+  State, PID, Runner: "ws", Model, WSRunner: st+run}`; gone only
+  when `!Exists`. `Model` and the endpoint are the current ones:
+  `status.json`'s `model` and `endpoint` when set, else `run.Current()`'s
+  (the endpoint can change mid-run, ADR 0064). `lifetime.Session` gains
+  `WSRunner *RunnerInfo` (alias, endpoint, step, max steps, restarts,
+  usage, MCP, exit, endpoint changes).
 - `internal/cli/list.go`: `listWSRunnerJSON` gets reference.md's fields
   (`model_alias`, `endpoint`, `step`, `max_steps`, `restarts`, `usage`,
-  `mcp`, `exit`); wire `UseRunners` where the Manager is built.
+  `mcp`, `exit`, then `endpoint_changes` last, additive); wire
+  `UseRunners` where the Manager is built.
 - `wait` items: top-level `runner: "ws"`, `model`, and `ws_runner`
   (`model_alias`, `endpoint`, `exit`, `steps`, `restarts`, `usage`,
-  `wall_seconds`, `usage_file`); for a gone child, from `usage.json` when
-  it exists. `children` gets nothing new at the top level: its items
+  `wall_seconds`, `usage_file`, then `endpoint_changes`); for a gone
+  child, from `usage.json` when it exists (`endpoint_changes` =
+  `len(endpoints) - 1`, 0 when `endpoints` is missing). `children` gets nothing new at the top level: its items
   embed `ws list`'s object, so `session.runner`, `session.model` and
   `session.ws_runner` come from the change above.
 - **New** `internal/cli/machine_logs.go`: `ws machine logs [--tail N]
@@ -2100,6 +2105,10 @@ $ make lint
 - `wait` on a finished runner child → `outcome`, `runner`, `model`,
   `ws_runner.exit`, `usage_file`; on a removed one, the same from
   `usage.json`.
+- A runner whose `status.json` says `endpoint: "fake-b"`, `model:
+  "qwen3.5:9b"`, `endpoint_changes: 1` while `run.toml`'s spawn keys say
+  `fake` and `qwen/qwen3.5-9b` → `ws list`, `children` and `wait` show
+  `fake-b`, `qwen3.5:9b` and 1. Existing fields keep their order.
 - `ws machine logs` → reference.md's shape for both runners; `--tail 2`
   sets `truncated`; a session id finds the same child; a removed child
   whose state remains is readable; `not_descendant` for a sibling.
@@ -2478,7 +2487,11 @@ the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd
      llm.NewTraceID()`, `parent = rs.Parent`, `reasoning`) with the prompt
      from `role.RenderFor(vars, extra, "ws", resolved.ModelID)` (or the
      prompt after `--` without a role), budgets, MCP keys, `branch =
-     vars["BRANCH"]`, `user_instructions`; no token or header;
+     vars["BRANCH"]`, `user_instructions`, the run key
+     (`resolved.Key(endpointFlag)`: `endpoint_alias`, `endpoint_flag`)
+     and the first `endpoint_history` entry (`reason = "spawn"`, step 0,
+     the preflighted endpoint, URL, `api`, id and window); no token or
+     header;
   6. `RecordRunnerSession`; `StartRunner`; `writeSpawn` for a role;
   7. print `machineSpawnJSON` with `runner: "ws"`, `model`, `ws_runner`
      (`model_alias`, `endpoint`, `url`, `api`, `context_tokens`,
@@ -2504,7 +2517,10 @@ interface):
 - `startRunnerAgent` with `Role: ""` and `Parent: ""` writes `run.toml`
   with `role = ""`, `parent = ""`, the "other" budgets and `PASS`/`FAIL`;
   `--model qwen/qwen3.5-9b` (a raw id) and `--model qwen3.5:9b` reach
-  `run.toml`'s `model` unchanged.
+  `run.toml`'s `model` unchanged, with `endpoint_alias` set to the alias
+  whose endpoint they use. `--endpoint cpu` → `endpoint_flag = "cpu"`.
+  Every `run.toml` has exactly one `endpoint_history` entry, `reason =
+  "spawn"`, matching the top-level spawn keys.
 - `--runner ws` with no model anywhere → `config_invalid`; `--endpoint`
   with `--runner claude` → `usage`; `-- "x" --permission-mode auto` for a
   `ws` child → `usage`; each preflight error → its code and `details`, and
