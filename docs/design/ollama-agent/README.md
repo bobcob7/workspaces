@@ -706,7 +706,7 @@ design):
 
 ## Proposed changes to docs/tools/ws-machine.md
 
-These are applied by task T18, not now.
+These are applied by task T19, not now.
 
 ```diff
  ## Synopsis
@@ -724,8 +724,8 @@ These are applied by task T18, not now.
 +### Runners
 +
 +A child runs on Claude Code (`claude`, the default) or on `ws`'s own
-+runner (`ws`; ADRs 0062–0069), which drives a model configured in
-+config.toml, such as one on Ollama or llm-router. `--runner` chooses;
++runner (`ws`; ADRs 0062–0070), which drives a model configured in
++config.toml, such as one on LM Studio, Ollama or llm-router. `--runner` chooses;
 +without it, `runner.roles.<role>.runner` does for `--role`, else `claude`.
 +A `ws` child uses `--model <alias>` after the prompt or the configured
 +model, and `--endpoint` to override its endpoint. Through the `ws` daemon
@@ -748,8 +748,8 @@ These are applied by task T18, not now.
  ## ws machine wait
  ### JSON output
 -     "error": null}
-+     "error": null, "runner": "ws", "model": "qwen3-coder:30b",
-+     "ws_runner": {"model_alias": "coder", "endpoint": "gpu", "exit": "done", "steps": 31, "restarts": 0,
++     "error": null, "runner": "ws", "model": "qwen/qwen3.5-9b",
++     "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "exit": "done", "steps": 31, "restarts": 0,
 +                   "usage": {…}, "wall_seconds": 1104, "usage_file": "/…/usage.json"}}
 +`runner` is `claude` or `ws`; `model` is every child's model; `ws_runner`
 +is null for a Claude child. `ws_runner.exit` is why the runner stopped:
@@ -777,6 +777,8 @@ These are applied by task T18, not now.
 `docs/tools/ws-daemon.md` follows the [guides](guides/). `docs/config.md`
 gains the new tables; `docs/state.md` gains `runner/`, `usage.json`,
 `daemon/` and `secrets.env`; `docs/online.md` gains the managed daemon.
+`docs/tools/ws-claude.md` and `docs/tools/ws-loop.md` gain `--runner` and
+`--endpoint` (ADR 0070, tasks T20, T21).
 
 ## Testing
 
@@ -789,14 +791,17 @@ scenario table. In short:
 - `make fakes`: builds `bin/fake-ollama` and `bin/fake-mcp` from this repo.
   No network, no llm-router.
 - `make e2e-runner`: the real `ws` binary (and its daemon) with fake-ollama
-  and fake-mcp processes, 21 scenarios: runner exits, preflight errors,
+  and fake-mcp processes, 23 scenarios: runner exits, preflight errors,
   token redaction, MCP over stdio and HTTP, filtering, `tool_search`, a
-  failing server, and daemon resume, crash limit, adoption and resume on
-  start.
+  failing server, daemon resume, crash limit, adoption and resume on
+  start, Stop, and a loop run on the runner. The fake serves
+  `qwen/qwen3.5-9b`, so ids with `/` go through every layer.
+- Telemetry: unit tests with the SDK's in-memory exporters check span
+  names, attributes and that no content attribute is ever set.
 - `E2E_RUNNER_URL=… make e2e-runner`: two smoke scenarios against a real
-  model. `E2E_MCP_SMOKE=outline:list_collections make e2e-runner`: a
-  read-only call to a real MCP server from your Claude Code config. Never
-  in CI.
+  model (`E2E_RUNNER_MODEL` defaults to `qwen/qwen3.5-9b`).
+  `E2E_MCP_SMOKE=docs:search make e2e-runner`: a read-only call to a real
+  MCP server from your Claude Code config. Never in CI.
 - Fake configs: [fake-ollama/](fake-ollama/) and [fake-mcp/](fake-mcp/).
 
 ## Screens
@@ -814,70 +819,38 @@ high); terminal screens 1100 wide.
 | `ws machine children` and `wait` with mixed runners, a model on every child | [img/cli-children-wait.png](img/cli-children-wait.png) |
 | Error states: endpoint down, model without tools, runner gave up | [img/cli-errors.png](img/cli-errors.png) |
 | `ws list` with a model column (the table layout is illustrative; only `--json` is a contract) | [img/cli-list.png](img/cli-list.png) |
-| `ws daemon status`, auto-start on spawn, `stop --keep-runners` | [img/cli-daemon.png](img/cli-daemon.png) |
-| Desktop Agents tree: every agent labelled with its model | [img/agents-tree.png](img/agents-tree.png) |
+| `ws daemon status`, the app-hosted daemon, auto-start on spawn, `stop --keep-runners` | [img/cli-daemon.png](img/cli-daemon.png) |
+| Desktop Agents tree: every agent labelled with its model; Stop on a running `ws` agent | [img/agents-tree.png](img/agents-tree.png) |
 | Desktop transcript of a `ws` child | [img/transcript.png](img/transcript.png) |
-| Settings › Models (endpoints, models, role routing and MCP servers) | [img/settings-models.png](img/settings-models.png) |
+| Settings › Models (Runner service, endpoints, models, role routing and MCP servers) | [img/settings-models.png](img/settings-models.png) |
 | Settings › Models, endpoint unreachable / model lacks tools | [img/settings-models-errors.png](img/settings-models-errors.png) |
+| Loops › Edit loop: the Agent section with runner, model and endpoint pickers | [img/loop-form.png](img/loop-form.png) |
 
 Desktop rules: **no runner chip, badge or colour**. Every agent row,
 Claude or not, shows its model as quiet secondary text (muted colour,
 normal case, the same place for every agent): `sonnet-5-5` for a Claude
 agent (the transcript's `claude-sonnet-5-5` without its `claude-`
-prefix), `qwen3-coder:30b` for a `ws` child, nothing until a Claude agent
-has answered. The row's tooltip and the detail pane give the alias,
-endpoint, URL and API for a `ws` child, and "Claude Code" for a Claude
-one. Attach, Send and Continue are hidden for a `ws` child, and Remove
-works as for any child. The conversation view renders `transcript.jsonl`
-with the same message, tool and result rows as Claude transcripts, plus
-`retry`, `compaction`, MCP and `exit` rows.
+prefix), `qwen/qwen3.5-9b` for a `ws` child (shown whole, `/` and all),
+nothing until a Claude agent has answered. The row's tooltip and the
+detail pane give the alias, endpoint, URL and API for a `ws` child, and
+"Claude Code" for a Claude one. Attach, Send and Continue are hidden for a
+`ws` child; **Stop** (while it's `working` or `starting`) ends its run
+and keeps the workspace, and Remove works as for any child. The
+conversation view renders `transcript.jsonl` with the same message, tool
+and result rows as Claude transcripts, plus `retry`, `compaction`, MCP and
+`exit` rows. The loop form and the New agent dialog share one set of
+runner and model fields; Permission mode shows only for Claude Code.
 
 ## Open questions
 
-These are for the owner to decide.
+The owner answered the rest in the second review (see
+[Second review: decisions](#second-review-decisions)). One is still open:
 
-1. **"openapi".** We read it as the OpenAI API (chat completions now,
-   Responses reserved). If it meant tools described by OpenAPI documents
-   (calling REST APIs from a spec), that's a separate feature, closer to
-   MCP: say so and it gets its own ADR.
-2. **Which provider next?** Anthropic Messages (Claude models through the
-   runner, with prompt caching) or OpenAI Responses or Ollama-native
-   (per-request `num_ctx`). Each is one package; which first?
-3. **Which models and which roles first?** Pick the endpoint(s), the model
-   per role and the quantization. Run one measured run per role before
-   changing the handbook's defaults; the budgets in 0065 are guesses.
-4. **MCP defaults per role.** This design gives no role MCP servers by
-   default. Should verifiers or reviewers get read-only `outline` (the
-   handbook) by default, at the cost of tokens on every request?
-5. **User `CLAUDE.md`.** Off by default for runners, because yours sends
-   every agent to the handbook first. Keep it off, or turn it on with the
-   handbook's MCP allowed?
-6. **Daemon on the desktop.** Should the desktop app install the launchd
-   agent (so runners resume after a reboot by themselves), or keep
-   on-demand start only? And when should `ws loop tick` move into the
-   daemon (deferred in 0068)?
-7. **Secrets store.** `secrets.env` (0600) everywhere, or the macOS
-   Keychain on the desktop?
-8. **`GH_TOKEN` in the runner.** Keeping it lets a runner implementer push
-   (needed), and lets a hijacked one push anywhere the token reaches. A
-   fine-grained token per orchestration, or children that never push?
-9. **Sandbox.** Is an opt-in Landlock sandbox for `run` on Linux worth a
-   follow-up? It's not available in the unprivileged pod and has no macOS
-   equivalent.
-10. **`ws claude --runner ws` and loops.** Should people (and `ws loop`)
-    start runner agents too, or is this `ws machine`-only?
-11. **Stopping one runner without removing it.** Add `ws machine stop`, or
-    a desktop Stop that interrupts it the way `ws daemon stop` does?
-12. **Claude Code on Ollama's Anthropic API.** Spike it for users with a
-    ≥ 48 GiB GPU and no llm-router ([0062](../../adrs/0062-agent-runner-built-into-ws.md),
-    first alternative)?
-13. **Endpoint concurrency.** The daemon could now queue runners per
-    endpoint (`max_parallel`). Do it, or leave it to llm-router and the
-    orchestrator?
-14. **OTel export.** Is `traceparent` alone enough, or should `ws` link an
-    OTel SDK (about +6 MB)?
-15. **Fallback scope.** Should `fallback = "claude"` also cover a mid-run
-    `endpoint_down` by respawning automatically? This design says no.
+1. **Fallback scope.** Should `fallback = "claude"` also cover a mid-run
+   `endpoint_down` by respawning automatically? This design says no: a
+   fallback happens only at preflight, before anything is created, and a
+   runner that fails mid-run records `endpoint_down` for the orchestrator
+   to act on ([0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md)).
 
 [^qwen-ids]: LM Studio, <https://lmstudio.ai/models/qwen/qwen3.5-9b>; Ollama library, <https://ollama.com/library/qwen3.5/tags> (accessed 2026-11-14 by a research subagent; ids and the 6.6 GB size not re-opened here).
 [^qwen-card]: Qwen, "Qwen3.5-9B" model card, <https://huggingface.co/Qwen/Qwen3.5-9B> (accessed 2026-11-14). "Context Length: 262,144 natively"; layout "8 × (3 × (Gated DeltaNet → FFN) → 1 × (Gated Attention → FFN))"; BFCL-V4 66.1, TAU2-Bench 79.1, LiveCodeBench v6 65.6, IFEval 91.5; "Qwen3.5 models operate in thinking mode by default"; "does not officially support the soft switch of Qwen3, i.e., `/think` and `/nothink`"; license Apache-2.0. The parameter count of about 9.7B is Ollama's and Artificial Analysis's figure, via the research subagent. The sampling recommendations (0.6 for thinking on precise coding, 0.7 without) are from the same card, via the research subagent.
