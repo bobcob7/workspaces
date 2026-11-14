@@ -1,11 +1,11 @@
 <!doctype html>
 <!--
   Static mockups for ws's own agent runner and the ws daemon
-  (docs/design/ollama-agent; ADRs 0062-0069). Open with a hash to pick a
+  (docs/design/ollama-agent; ADRs 0062-0070). Open with a hash to pick a
   screen, e.g. mockups.html#settings-models. Screens: cli-spawn,
   cli-children-wait, cli-errors, cli-list, cli-daemon (terminal, 1100 wide,
   height fitting the content) and agents-tree, transcript, settings-models,
-  settings-models-errors (desktop app, 1280x800). The PNGs in img/ are
+  settings-models-errors, loop-form (desktop app, 1280x800). The PNGs in img/ are
   rendered from this file with headless Chromium through Playwright; see
   README.md › Screens. Every agent, Claude or not, shows its model as quiet
   text; provider and endpoint are only in tooltips and the detail pane.
@@ -149,11 +149,11 @@ td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border
   <span class="k">"warnings"</span>: [],
   <span class="k">"role"</span>: <span class="s">"implementer"</span>,
   <span class="k">"runner"</span>: <span class="s">"ws"</span>,
-  <span class="k">"model"</span>: <span class="s">"qwen3-coder:30b"</span>,
+  <span class="k">"model"</span>: <span class="s">"qwen/qwen3.5-9b"</span>,
   <span class="k">"ws_runner"</span>: {
-    <span class="k">"model_alias"</span>: <span class="s">"coder"</span>,
+    <span class="k">"model_alias"</span>: <span class="s">"qwen9b"</span>,
     <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>,
-    <span class="k">"url"</span>: <span class="s">"http://ollama-a.inference.svc:11434"</span>,
+    <span class="k">"url"</span>: <span class="s">"http://gpu-a.inference.svc:1234"</span>,
     <span class="k">"api"</span>: <span class="s">"openai"</span>,
     <span class="k">"context_tokens"</span>: <span class="n">65536</span>,
     <span class="k">"mcp_servers"</span>: []
@@ -165,21 +165,26 @@ td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border
 ws
 <span class="p">$</span> ws machine spawn --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make lint; make test" \
     workspaces@feat/x | jq -c '{id, session, runner, model}'
-{"id":"x-verify-0d9e2f61","session":"rn-91b0c7aa","runner":"ws","model":"qwen3-coder:30b"}
+{"id":"x-verify-0d9e2f61","session":"rn-91b0c7aa","runner":"ws","model":"qwen/qwen3.5-9b"}
 
 <span class="c"># override only the model for one child, by alias:</span>
 <span class="p">$</span> ws machine spawn --runner ws --name x-t3-impl --role implementer --var TASK=T3 … workspaces@feat/x \
-    -- "" --model devstral | jq -c '{model, alias: .ws_runner.model_alias}'
-{"model":"devstral-small-2:24b","alias":"devstral"}</pre></div>
+    -- "" --model qwen9b-think | jq -c '{model, alias: .ws_runner.model_alias, context: .ws_runner.context_tokens}'
+{"model":"qwen/qwen3.5-9b","alias":"qwen9b-think","context":131072}
+
+<span class="c"># a raw model id works too; "/" and ":" are part of it, never split:</span>
+<span class="p">$</span> ws machine spawn --runner ws --endpoint ollama --name x-t4-impl --role implementer … workspaces@feat/x \
+    -- "" --model qwen3.5:9b | jq -c '{model, alias: .ws_runner.model_alias, warnings}'
+{"model":"qwen3.5:9b","alias":"","warnings":["qwen3.5:9b isn't a model alias; using it as a model id on endpoint ollama with qwen9b's context size (65536)"]}</pre></div>
 </section>
 
 <!-- 2. children + wait, mixed runners -->
 <section class="screen" id="cli-children-wait">
 <div class="term"><div class="termBar"><i></i><i></i><i></i><span>orchestrator · mixed runners</span></div>
 <pre class="out"><span class="p">$</span> ws machine children | jq -r '.workspaces[] | [.id, .session.runner, .session.model, .session.state, (.result.verdict // "-")] | @tsv'
-x-base-2c9d11f0       ws       qwen3-coder:30b     idle      PASS
+x-base-2c9d11f0       ws       qwen/qwen3.5-9b     idle      PASS
 x-design-8a1f3e22     claude   claude-opus-5-5     idle      PASS
-x-t1-impl-41aa0b7c    ws       qwen3-coder:30b     working   -
+x-t1-impl-41aa0b7c    ws       qwen/qwen3.5-9b     working   -
 x-t1-review-c3d5e7f9  claude   claude-sonnet-5-5   starting  -
 
 <span class="p">$</span> ws machine wait x-t1-impl-41aa0b7c x-t2-impl-7c41e0b2    <span class="c"># run in the background</span>
@@ -190,8 +195,8 @@ x-t1-review-c3d5e7f9  claude   claude-sonnet-5-5   starting  -
               "report": "/…/state/orch-x-1a2b3c4d/machine/x-t1-impl-41aa0b7c/report.md",
               "recorded_at": "2026-11-13T18:04:05Z"},
    "error": null,
-   "runner": "ws", "model": "qwen3-coder:30b",
-   "ws_runner": {"model_alias": "coder", "endpoint": "gpu", "exit": <span class="s">"done"</span>, "steps": 31, "restarts": 0,
+   "runner": "ws", "model": "qwen/qwen3.5-9b",
+   "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "exit": <span class="s">"done"</span>, "steps": 31, "restarts": 0,
                  "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
                  "wall_seconds": 1104, "usage_file": "/…/machine/x-t1-impl-41aa0b7c/usage.json"}},
   {"id": "x-t2-impl-7c41e0b2", "session": "rn-3f2a9c1e", "role": "implementer",
@@ -200,8 +205,8 @@ x-t1-review-c3d5e7f9  claude   claude-sonnet-5-5   starting  -
               "report": "/…/state/orch-x-1a2b3c4d/machine/x-t2-impl-7c41e0b2/report.md",
               "recorded_at": "2026-11-13T18:21:40Z"},
    "error": {"code": <span class="e">"child_failed"</span>, "message": "x-t2-impl-7c41e0b2 finished with FAIL"},
-   "runner": "ws", "model": "qwen3-coder:30b",
-   "ws_runner": {"model_alias": "coder", "endpoint": "gpu", "exit": <span class="w">"looping"</span>, "steps": 47, "restarts": 0,
+   "runner": "ws", "model": "qwen/qwen3.5-9b",
+   "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "exit": <span class="w">"looping"</span>, "steps": 47, "restarts": 0,
                  "usage": {"requests": 47, "prompt_tokens": 1630221, "completion_tokens": 22015},
                  "wall_seconds": 2079, "usage_file": "/…/machine/x-t2-impl-7c41e0b2/usage.json"}}
  ],
@@ -222,17 +227,17 @@ The model called run {"command":"go test ./internal/config/"} 5 times in a row w
 <div class="term"><div class="termBar"><i></i><i></i><i></i><span>error states</span></div>
 <pre class="out"><span class="c"># endpoint down: preflight fails before anything is created</span>
 <span class="p">$</span> ws machine spawn --runner ws --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x
-{"error": {"code": <span class="e">"endpoint_unreachable"</span>, "message": "endpoint gpu (http://ollama-a.inference.svc:11434) didn't answer GET /v1/models: dial tcp 10.43.7.21:11434: connect: connection refused", "details": {"url": "http://ollama-a.inference.svc:11434", "cause": "connection refused"}}}
+{"error": {"code": <span class="e">"endpoint_unreachable"</span>, "message": "endpoint gpu (http://gpu-a.inference.svc:1234) didn't answer GET /v1/models: dial tcp 10.43.7.21:1234: connect: connection refused", "details": {"url": "http://gpu-a.inference.svc:1234", "cause": "connection refused"}}}
 <span class="c">exit status 1</span>
 
-<span class="c"># the model can't call tools (the endpoint's probe says so)</span>
+<span class="c"># the model can't call tools (the ollama endpoint's probe says so)</span>
 <span class="p">$</span> ws machine spawn --runner ws --role verifier … workspaces@feat/x -- "" --model gemma
-{"error": {"code": <span class="e">"model_without_tools"</span>, "message": "model gemma3:12b on endpoint gpu doesn't support tools; pick a model whose capabilities include tools", "details": {"model": "gemma3:12b", "capabilities": ["completion", "vision"]}}}
+{"error": {"code": <span class="e">"model_without_tools"</span>, "message": "model gemma3:12b on endpoint ollama doesn't support tools; pick a model whose capabilities include tools", "details": {"model": "gemma3:12b", "capabilities": ["completion", "vision"]}}}
 <span class="c">exit status 1</span>
 
 <span class="c"># the model isn't served there</span>
-<span class="p">$</span> ws machine spawn --runner ws --role verifier … workspaces@feat/x -- "" --model qwen3-coder:480b
-{"error": {"code": <span class="e">"model_not_served"</span>, "message": "model qwen3-coder:480b isn't served by endpoint gpu", "details": {"model": "qwen3-coder:480b", "models": ["devstral-small-2:24b", "gpt-oss:20b", "qwen3-coder:30b"]}}}
+<span class="p">$</span> ws machine spawn --runner ws --role verifier … workspaces@feat/x -- "" --model qwen/qwen3.5-27b
+{"error": {"code": <span class="e">"model_not_served"</span>, "message": "model qwen/qwen3.5-27b isn't served by endpoint gpu", "details": {"model": "qwen/qwen3.5-27b", "models": ["google/gemma-3-12b", "qwen/qwen3.5-9b"]}}}
 <span class="c">exit status 3</span>
 
 <span class="c"># with runner.fallback = "claude": a Claude child, and a warning</span>
@@ -253,8 +258,8 @@ The model called run {"command":"go test ./internal/config/"} 5 times in a row w
 <pre class="out"><span class="p">$</span> ws list
 ID                           SESSION              MODEL                AGE   REPOS
 orch-x-1a2b3c4d              e8cdf5d8 working     claude-sonnet-5-5    42m   workspaces@main
-└ x-base-2c9d11f0            rn-91b0c7aa idle     qwen3-coder:30b      38m   workspaces@main
-└ x-t1-impl-41aa0b7c         rn-5d2e8b10 working  qwen3-coder:30b       6m   workspaces@feat/x
+└ x-base-2c9d11f0            rn-91b0c7aa idle     qwen/qwen3.5-9b      38m   workspaces@main
+└ x-t1-impl-41aa0b7c         rn-5d2e8b10 working  qwen/qwen3.5-9b       6m   workspaces@feat/x
 └ x-t1-review-c3d5e7f9       c3d5e7f9 starting    claude-sonnet-5-5     0m   workspaces@feat/x-t1
 fix-login-d8efb24f           7a40c2d9 idle        claude-opus-5-5       2h   buff-bear@main
 notes-3b2a1c0d               shell running        -                    10m   (empty)
@@ -267,9 +272,9 @@ notes-3b2a1c0d               shell running        -                    10m   (em
   <span class="k">"pid"</span>: <span class="n">51234</span>,
   <span class="k">"stale"</span>: null,
   <span class="k">"runner"</span>: <span class="s">"ws"</span>,
-  <span class="k">"model"</span>: <span class="s">"qwen3-coder:30b"</span>,
+  <span class="k">"model"</span>: <span class="s">"qwen/qwen3.5-9b"</span>,
   <span class="k">"ws_runner"</span>: {
-    <span class="k">"model_alias"</span>: <span class="s">"coder"</span>, <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>, <span class="k">"step"</span>: <span class="n">12</span>, <span class="k">"max_steps"</span>: <span class="n">80</span>, <span class="k">"restarts"</span>: <span class="n">0</span>,
+    <span class="k">"model_alias"</span>: <span class="s">"qwen9b"</span>, <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>, <span class="k">"step"</span>: <span class="n">12</span>, <span class="k">"max_steps"</span>: <span class="n">80</span>, <span class="k">"restarts"</span>: <span class="n">0</span>,
     <span class="k">"usage"</span>: {<span class="k">"requests"</span>: <span class="n">12</span>, <span class="k">"prompt_tokens"</span>: <span class="n">210344</span>, <span class="k">"completion_tokens"</span>: <span class="n">9120</span>},
     <span class="k">"mcp"</span>: [],
     <span class="k">"exit"</span>: null
@@ -283,20 +288,24 @@ notes-3b2a1c0d               shell running        -                    10m   (em
 <!-- 5. ws daemon -->
 <section class="screen" id="cli-daemon">
 <div class="term"><div class="termBar"><i></i><i></i><i></i><span>ws daemon</span></div>
-<pre class="out"><span class="c"># in the ws-online pod, ws-online keeps a managed daemon running</span>
+<pre class="out"><span class="c"># with the desktop app open, the app hosts the daemon (in the ws-online pod, origin is "managed")</span>
 <span class="p">$</span> ws daemon status --json
-{"running": true, "pid": 40211, "origin": "managed", "started_at": "2026-11-14T08:00:03Z",
+{"running": true, "pid": 40211, "origin": "app", "started_at": "2026-11-14T08:00:03Z",
  "ws_version": "v0.31.0", "socket": "/tmp/ws-1000/3be1f0a94c21.sock", "config_dir": "/data/ws",
  "runners": [{"workspace": "x-t1-impl-41aa0b7c", "session": "rn-5d2e8b10", "pid": 51234,
               "state": "working", "restarts": 0, "adopted": false}],
  "warnings": []}
 
-<span class="c"># on a laptop with no daemon running, the first spawn starts one</span>
+<span class="c"># after the app quits, its daemon keeps the runner going, then exits 15 min after the last one ends</span>
+<span class="p">$</span> ws daemon status --json | jq -c '{running, origin, runners: (.runners | length)}'
+{"running":true,"origin":"app","runners":1}
+
+<span class="c"># with no app and no daemon running, the first spawn starts one</span>
 <span class="p">$</span> ws daemon status | jq -c '{running}'
 {"running":false}
 <span class="p">$</span> ws machine spawn --runner ws --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make test" \
     workspaces@feat/x | jq -c '{session, model, ws_runner}'
-{"session":"rn-91b0c7aa","model":"qwen3-coder:30b","ws_runner":{"model_alias":"coder","endpoint":"gpu","url":"http://localhost:11434","api":"openai","context_tokens":65536,"mcp_servers":[]}}
+{"session":"rn-91b0c7aa","model":"qwen/qwen3.5-9b","ws_runner":{"model_alias":"qwen9b","endpoint":"gpu","url":"http://localhost:1234","api":"openai","context_tokens":65536,"mcp_servers":[]}}
 <span class="p">$</span> ws daemon status --json | jq -c '{running, origin}'
 {"running":true,"origin":"transient"}
 
@@ -330,7 +339,8 @@ const agent = ({name, dot, age, summary, model, tip, child, current}) => `
       <li class="item${child ? " child" : ""}${current ? " current" : ""}"><div class="row"><span class="dot ${dot}"></span><span class="name">${name}</span><span class="age">${age}</span></div>
         <div class="summaryRow"><span class="summary">${summary}</span><span class="modelLabel" title="${tip}">${model}</span></div></li>`;
 const claudeTip = (id) => `${id} · Claude Code`;
-const wsTip = `qwen3-coder:30b · alias coder · endpoint gpu (http://ollama-a.inference.svc:11434) · OpenAI-compatible`;
+const wsTip = `qwen/qwen3.5-9b · alias qwen9b · endpoint gpu (http://gpu-a.inference.svc:1234) · OpenAI-compatible`;
+const wsThinkTip = `qwen/qwen3.5-9b · alias qwen9b-think · endpoint gpu (http://gpu-a.inference.svc:1234) · OpenAI-compatible`;
 
 const tree = `
 <aside class="sidebar">
@@ -339,10 +349,10 @@ const tree = `
     <h2 class="heading">Agents <span>6</span></h2>
     <ul class="items">
       ${agent({name: "orch-x", dot: "working", age: "42m", summary: "Orchestrating feature x: T1 of 4", model: "sonnet-5-5", tip: claudeTip("claude-sonnet-5-5")})}
-      ${agent({name: "x-base", dot: "done", age: "38m", summary: "PASS · 14 steps", model: "qwen3-coder:30b", tip: wsTip, child: true})}
+      ${agent({name: "x-base", dot: "done", age: "38m", summary: "PASS · 14 steps", model: "qwen/qwen3.5-9b", tip: wsTip, child: true})}
       ${agent({name: "x-design", dot: "done", age: "35m", summary: "PASS · design docs pushed", model: "opus-5-5", tip: claudeTip("claude-opus-5-5"), child: true})}
-      ${agent({name: "x-t1-impl", dot: "working", age: "6m", summary: "step 12/80", model: "qwen3-coder:30b", tip: wsTip, child: true, current: true})}
-      ${agent({name: "x-t2-impl", dot: "needs", age: "3m", summary: "FAIL · looping", model: "qwen3-coder:30b", tip: wsTip, child: true})}
+      ${agent({name: "x-t1-impl", dot: "working", age: "6m", summary: "step 12/40", model: "qwen/qwen3.5-9b", tip: wsThinkTip, child: true, current: true})}
+      ${agent({name: "x-t2-impl", dot: "needs", age: "3m", summary: "FAIL · looping", model: "qwen/qwen3.5-9b", tip: wsThinkTip, child: true})}
       ${agent({name: "x-t1-review", dot: "working", age: "1m", summary: "Reviewing T1", model: "haiku-5-5", tip: claudeTip("claude-haiku-5-5"), child: true})}
       ${agent({name: "fix-login", dot: "idle", age: "2h", summary: "Waiting for review", model: "opus-5-5", tip: claudeTip("claude-opus-5-5")})}
     </ul>
@@ -351,9 +361,9 @@ const tree = `
 
 const header = `
 <section class="header">
-  <div class="titleRow"><h1 class="title">x-t1-impl</h1><span class="titleModel" title="${wsTip}">qwen3-coder:30b</span><span class="spacer"></span>
-    <button class="btn outlined small">Open</button><button class="btn danger small">Remove</button></div>
-  <div class="meta"><span class="chip">step 12 / 80</span><span class="chip">tokens 210k in · 9.1k out</span><span class="chip">implementer · T1</span>
+  <div class="titleRow"><h1 class="title">x-t1-impl</h1><span class="titleModel" title="${wsThinkTip}">qwen/qwen3.5-9b</span><span class="spacer"></span>
+    <button class="btn outlined small">Open</button><button class="btn outlined small">Stop</button><button class="btn danger small">Remove</button></div>
+  <div class="meta"><span class="chip">step 12 / 40</span><span class="chip">tokens 210k in · 9.1k out</span><span class="chip">implementer · T1 (docs)</span>
     <span class="muted">endpoint gpu · rn-5d2e8b10 · working 6m</span></div>
 </section>`;
 
@@ -362,19 +372,19 @@ const transcript = `
   <div class="msg user">You implement exactly one task, T1, in this repo. You are on branch feat/x. … <span class="muted">(role prompt, 1.4k tokens)</span></div>
   <div class="think">I'll read the task section first.</div>
   <div class="tool"><b>read_file</b> docs/design/x/tasks.md <span class="ck"></span> 212 lines</div>
-  <div class="tool"><b>read_file</b> internal/config/config.go offset 60 limit 120 <span class="ck"></span> 120 lines</div>
-  <div class="msg">The task adds a <code>Runner</code> section to <code>Config</code>. I'll create <code>internal/config/runner.go</code>.</div>
-  <div class="tool"><b>write_file</b> internal/config/runner.go <span class="ck"></span> wrote 4 120 bytes</div>
-  <div class="tool"><b>run</b> go test ./internal/config/ <span class="bad">exit 1</span> · runner_test.go:41: expected "gpu", got ""</div>
+  <div class="tool"><b>read_file</b> docs/tools/ws-loop.md offset 150 limit 80 <span class="ck"></span> 80 lines</div>
+  <div class="msg">The task adds two options to the <code>ws loop add</code> table. I'll edit that table.</div>
+  <div class="tool"><b>edit_file</b> docs/tools/ws-loop.md old "| <code>--paused</code> |" → 1 replacement <span class="ck"></span></div>
+  <div class="tool"><b>run</b> make docs-check <span class="bad">exit 1</span> · ws-loop.md:163 MD013 line length 132 &gt; 120</div>
   <div class="sys">invalid tool call: edit_file missing "new" · answered with the schema</div>
-  <div class="tool"><b>edit_file</b> internal/config/runner.go old "return Run{}, nil" → 1 replacement <span class="ck"></span></div>
+  <div class="tool"><b>edit_file</b> docs/tools/ws-loop.md old "endpoint from config.toml. Only" → 1 replacement <span class="ck"></span></div>
   <div class="sys warn">retry 1/3 after 503 Service Unavailable · waited 2s</div>
-  <div class="tool"><b>run</b> go test ./internal/config/ <span class="ok">exit 0</span> · ok  github.com/example/workspaces/internal/config 0.41s</div>
-  <div class="sys">context compacted: 41k → 19k tokens · 6 tool results elided</div>
-  <div class="tool"><b>run</b> make lint <span class="ok">exit 0</span></div>
-  <div class="msg"><span class="muted">working… step 12 of 80</span></div>
+  <div class="tool"><b>run</b> make docs-check <span class="ok">exit 0</span></div>
+  <div class="sys">context compacted: 98k → 41k tokens · 6 tool results elided</div>
+  <div class="tool"><b>run</b> git commit -qam "docs: document loop runner options" <span class="ok">exit 0</span></div>
+  <div class="msg"><span class="muted">working… step 12 of 40</span></div>
 </div>
-<div class="noreply">Children on the ws runner run unattended: there's no reply box, Attach or Continue. Remove stops the runner.</div>`;
+<div class="noreply">Children on the ws runner run unattended: there's no reply box, Attach or Continue. Stop ends the run and keeps the workspace; Remove stops it and removes it.</div>`;
 
 const settingsList = (active) => `
 <aside class="sidebar settingsList" style="width:240px">
@@ -386,6 +396,10 @@ const settingsList = (active) => `
 const dot = (color, text) => `<span class="statusDot" style="background:${color}"></span>${text}`;
 const ok = "var(--status-done)", bad = "var(--danger)", warn = "var(--status-needs-input)";
 
+const serviceCard = (errors) => `
+<div class="card"><div class="cardHead">Runner service <span class="spacer"></span><button class="btn small">Restart</button></div>
+<div class="cardBody" style="padding:10px 14px">${dot(ok, "running")} <span class="muted">· started by this app · pid 40211 · ${errors ? "0 runners" : "2 runners"} · since 08:00</span></div></div>`;
+
 const endpointsCard = (errors) => `
 <div class="card">
   <div class="cardHead">Endpoints <span class="spacer"></span><button class="btn small">Add endpoint</button></div>
@@ -393,10 +407,10 @@ const endpointsCard = (errors) => `
   <table>
     <colgroup><col style="width:100px"><col style="width:310px"><col style="width:170px"><col style="width:100px"><col></colgroup>
     <tr><th>Name</th><th>URL</th><th>API</th><th>Probe</th><th>Status</th></tr>
-    <tr><td><b>gpu</b></td><td class="mono">http://ollama-a.inference.svc:11434</td><td>OpenAI-compatible</td><td>Ollama</td>
-      <td>${errors ? dot(bad, "unreachable") : dot(ok, "4 models")}</td></tr>
-    <tr><td><b>router</b></td><td class="mono">http://llm-router.inference.svc:8080</td><td>OpenAI-compatible</td><td class="muted">none</td>
-      <td>${dot(ok, "6 models")}</td></tr>
+    <tr><td><b>gpu</b></td><td class="mono">http://gpu-a.inference.svc:1234</td><td>OpenAI-compatible</td><td class="muted">none</td>
+      <td>${errors ? dot(bad, "unreachable") : dot(ok, "2 models")}</td></tr>
+    <tr><td><b>ollama</b></td><td class="mono">http://ollama-a.inference.svc:11434</td><td>OpenAI-compatible</td><td>Ollama</td>
+      <td>${dot(ok, "3 models")}</td></tr>
   </table></div>
 </div>`;
 
@@ -405,46 +419,78 @@ const modelsCard = (errors) => `
   <div class="cardHead">Models <span class="spacer"></span><button class="btn small">Add model</button></div>
   <div class="cardBody" style="padding:4px 4px">
   <table>
-    <colgroup><col style="width:110px"><col style="width:100px"><col style="width:220px"><col style="width:100px"><col></colgroup>
-    <tr><th>Alias</th><th>Endpoint</th><th>Model id</th><th>Context</th><th>Status</th></tr>
-    <tr><td><b>coder</b> <span class="muted">default</span></td><td>gpu</td><td class="mono">qwen3-coder:30b</td><td>65 536</td>
-      <td>${errors ? dot(bad, "endpoint unreachable") : dot(ok, "tools <span class=\"ck\"></span>")}</td></tr>
-    <tr><td><b>devstral</b></td><td>gpu</td><td class="mono">devstral-small-2:24b</td><td>65 536</td>
-      <td>${errors ? dot(bad, "endpoint unreachable") : dot(ok, "tools <span class=\"ck\"></span>")}</td></tr>
-    <tr><td><b>small</b></td><td>router</td><td class="mono">${errors ? "gemma3:12b" : "gpt-oss:20b"}</td><td>32 768</td>
-      <td>${errors ? dot(warn, "can't check tools: no probe") : `<span class="muted">served · no probe</span>`}</td></tr>
+    <colgroup><col style="width:150px"><col style="width:90px"><col style="width:170px"><col style="width:90px"><col style="width:120px"><col></colgroup>
+    <tr><th>Alias</th><th>Endpoint</th><th>Model id</th><th>Context</th><th>Reasoning</th><th>Status</th></tr>
+    <tr><td><b>qwen9b</b> <span class="muted">default</span></td><td>gpu</td><td class="mono">qwen/qwen3.5-9b</td><td>65 536</td><td>none</td>
+      <td>${errors ? dot(bad, "endpoint unreachable") : `<span class="muted">served · no probe</span>`}</td></tr>
+    <tr><td><b>qwen9b-think</b></td><td>gpu</td><td class="mono">qwen/qwen3.5-9b</td><td>131 072</td><td class="muted">server default</td>
+      <td>${errors ? dot(bad, "endpoint unreachable") : `<span class="muted">served · no probe</span>`}</td></tr>
+    <tr><td><b>qwen9b-ollama</b></td><td>ollama</td><td class="mono">qwen3.5:9b</td><td>65 536</td><td>none</td>
+      <td>${dot(ok, "tools <span class=\"ck\"></span>")}</td></tr>
+    <tr><td><b>gemma</b></td><td>ollama</td><td class="mono">gemma3:12b</td><td>32 768</td><td class="muted">server default</td>
+      <td>${errors ? dot(bad, "no tools") : dot(warn, "no tools")}</td></tr>
   </table></div>
 </div>`;
 
 const settingsModels = (errors) => `
 <div class="root tall">${topBar}<div class="body">${rail("Settings")}${settingsList("Models")}
 <main class="main"><section class="header"><div class="titleRow"><h1 class="title">Models</h1></div>
-<div class="meta">Models for ws runner children (any OpenAI-compatible server now; other APIs later). Saved to <span class="mono">config.toml</span> with <span class="mono">ws config</span>; tokens to <span class="mono">secrets.env</span>.</div></section>
+<div class="meta">Models for agents on the ws runner (any OpenAI-compatible server now; Ollama native next). Saved to <span class="mono">config.toml</span> with <span class="mono">ws config</span>; tokens to <span class="mono">secrets.env</span>.</div></section>
 <div class="content" style="max-width:980px">
 ${errors ? `
-<div class="alert err"><span class="ico err">!</span><div><b>gpu is unreachable.</b> GET http://ollama-a.inference.svc:11434/v1/models: dial tcp 10.43.7.21:11434: connect: connection refused. New children that use it fail with <span class="mono">endpoint_unreachable</span> until it answers. Fallback is off, so no Claude child is started instead.</div><span class="spacer"></span><button class="btn small">Test again</button></div>
-<div class="alert warn"><span class="ico warn">!</span><div><b>gemma3:12b on router doesn't support tools.</b> The router has no probe, so a run would stop on its first request with <span class="mono">model_no_tools</span>. Point the alias <span class="mono">small</span> at a model that can call tools.</div></div>` : ""}
+<div class="alert err"><span class="ico err">!</span><div><b>gpu is unreachable.</b> GET http://gpu-a.inference.svc:1234/v1/models: dial tcp 10.43.7.21:1234: connect: connection refused. New agents that use it fail with <span class="mono">endpoint_unreachable</span> until it answers. Fallback is off, so no Claude child is started instead.</div><span class="spacer"></span><button class="btn small">Test again</button></div>
+<div class="alert warn"><span class="ico warn">!</span><div><b>gemma3:12b on ollama doesn't support tools.</b> Its probe says <span class="mono">completion, vision</span>. Agents that use the alias <span class="mono">gemma</span> fail with <span class="mono">model_without_tools</span>; point it at a model that can call tools.</div></div>` : ""}
+${serviceCard(errors)}
 ${endpointsCard(errors)}
 ${modelsCard(errors)}
 ${errors ? "" : `
 <div class="card"><div class="cardHead">Edit endpoint · gpu<span class="spacer"></span><button class="btn small">Test connection</button><button class="btn contained small">Save</button></div>
 <div class="cardBody"><div class="form">
   <label>Name</label><div class="field mono">gpu</div><label>API</label><div class="field select">OpenAI-compatible</div>
-  <label>URL</label><div class="field mono">http://ollama-a.inference.svc:11434</div><label></label><div class="muted">Ollama native, OpenAI Responses, Anthropic: later</div>
-  <label>Probe</label><div class="field select">Auto (found Ollama)</div><label>Token</label><div class="field muted">•••••••• from secrets.env</div>
+  <label>URL</label><div class="field mono">http://gpu-a.inference.svc:1234</div><label></label><div class="muted">Ollama native: next. OpenAI Responses, Anthropic: later</div>
+  <label>Probe</label><div class="field select">Auto (none found)</div><label>Token</label><div class="field muted">•••••••• from secrets.env</div>
   <label>Request timeout</label><div class="field">10m</div><label>Idle timeout</label><div class="field">90s</div>
 </div>
-<div class="alert info" style="margin-top:12px"><span class="ico info">i</span><div>Ollama 0.40.16 · 4 models · <span class="mono">qwen3-coder:30b</span> supports tools · its context length 262 144 ≥ 65 536</div></div>
+<div class="alert info" style="margin-top:12px"><span class="ico info">i</span><div>2 models · <span class="mono">qwen/qwen3.5-9b</span> is served · no probe, so tool support and the context length aren't checked: <span class="mono">context_tokens</span> must match the server's load setting</div></div>
 </div></div>`}
 <div class="setRow" style="padding:4px 0"><div class="lbl"><div>Fall back to Claude</div><div class="muted">When an endpoint is down or a model can't call tools, start a Claude child instead of failing the spawn.</div></div><div><span class="switch"></span></div></div>
 <div class="card"><div class="cardHead">Roles</div><div class="cardBody" style="padding:4px 4px"><table>
-  <colgroup><col style="width:140px"><col style="width:120px"><col style="width:150px"><col style="width:220px"><col></colgroup>
-  <tr><th>Role</th><th>Runner</th><th>Model</th><th>MCP servers</th><th>Budget</th></tr>
-  <tr><td>implementer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">haiku (role)</td><td class="muted">Claude Code's</td><td class="muted">-</td></tr>
-  <tr><td>reviewer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">sonnet (role)</td><td class="muted">Claude Code's</td><td class="muted">-</td></tr>
-  <tr><td>verifier</td><td><span class="field select" style="min-height:28px;padding:3px 8px">ws</span></td><td class="mono">coder</td><td class="muted">none</td><td class="muted">40 steps · 60m</td></tr>
-  <tr><td>oncall</td><td><span class="field select" style="min-height:28px;padding:3px 8px">ws</span></td><td class="mono">coder</td><td>mcp-grafana <span class="muted">(9 tools)</span></td><td class="muted">60 steps · 60m</td></tr>
+  <colgroup><col style="width:140px"><col style="width:120px"><col style="width:200px"><col style="width:170px"><col></colgroup>
+  <tr><th>Role</th><th>Runner</th><th>Model on the ws runner</th><th>MCP servers</th><th>Budget</th></tr>
+  <tr><td>implementer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="mono">qwen9b-think</td><td class="muted">none</td><td class="muted">40 steps · 45m</td></tr>
+  <tr><td>reviewer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">-</td><td class="muted">none</td><td class="muted">-</td></tr>
+  <tr><td>verifier</td><td><span class="field select" style="min-height:28px;padding:3px 8px">ws</span></td><td class="mono">qwen9b</td><td class="muted">none</td><td class="muted">30 steps · 30m</td></tr>
+  <tr><td>triage</td><td><span class="field select" style="min-height:28px;padding:3px 8px">ws</span></td><td class="mono">qwen9b-think</td><td>metrics <span class="muted">(9 tools)</span></td><td class="muted">60 steps · 60m</td></tr>
 </table></div></div>
+</div></main></div></div>`;
+
+const loopsList = `
+<aside class="sidebar">
+  <div class="search">Search loops</div>
+  <div class="list">
+    <h2 class="heading">Loops <span>3</span></h2>
+    <ul class="items">
+      <li class="item current"><div class="row"><span class="dot working"></span><span class="name">Docs sweep</span><span class="age">every 24h</span></div><div class="summary">next in 9h · last run PASS</div></li>
+      <li class="item"><div class="row"><span class="dot idle"></span><span class="name">Dependency bump</span><span class="age">every 24h</span></div><div class="summary">next in 3h</div></li>
+      <li class="item"><div class="row"><span class="dot"></span><span class="name">Flaky test hunt</span><span class="age">paused</span></div><div class="summary">paused</div></li>
+    </ul>
+  </div>
+</aside>`;
+
+const loopForm = `
+<div class="root">${topBar}<div class="body">${rail("Loops")}${loopsList}
+<main class="main"><section class="header"><div class="titleRow"><h1 class="title">Edit loop · docs-sweep</h1><span class="spacer"></span><button class="btn small">Cancel</button><button class="btn contained small">Save</button></div></section>
+<div class="content" style="max-width:900px">
+  <div class="card"><div class="cardHead">Schedule</div><div class="cardBody"><div class="form">
+    <label>Name</label><div class="field mono muted">docs-sweep</div><label>Every</label><div class="field">24 <span class="muted">hours</span></div>
+    <label>Title</label><div class="field">Docs sweep</div><label>Keep</label><div class="field">5</div>
+  </div></div></div>
+  <div class="card"><div class="cardHead">Prompt</div><div class="cardBody"><div class="field mono" style="min-height:64px;white-space:pre-wrap">Check docs/tools/*.md against each command's --help. Fix wording drift in at most two files, run make docs-check, commit, push a branch, and record PASS or FAIL.</div></div></div>
+  <div class="card"><div class="cardHead">Agent</div><div class="cardBody"><div class="form">
+    <label>Model</label><div class="field select"><span><span class="mono">qwen9b-think</span> <span class="muted">· qwen/qwen3.5-9b</span></span></div><label>Runner</label><div class="field select">ws runner</div>
+    <label>Endpoint</label><div class="field select">The model's endpoint (gpu)</div><label></label><div class="muted">Permission mode applies to Claude Code only.</div>
+  </div></div></div>
+  <div class="card"><div class="cardHead">Repos</div><div class="cardBody"><span class="chip">workspaces</span></div></div>
 </div></main></div></div>`;
 
 const screens = {
@@ -452,18 +498,20 @@ const screens = {
     <div class="card"><div class="cardHead">Run</div><div class="cardBody"><table>
       <colgroup><col style="width:180px"><col></colgroup>
       <tr><td class="muted">Runner</td><td>ws</td></tr>
-      <tr><td class="muted">Model</td><td class="mono">qwen3-coder:30b · alias coder · context 65 536</td></tr>
-      <tr><td class="muted">Endpoint</td><td class="mono">gpu · http://ollama-a.inference.svc:11434 · OpenAI-compatible</td></tr>
-      <tr><td class="muted">Progress</td><td>step 12 of 80 · 6m of 60m · 210k of 4M tokens · 0 restarts</td></tr>
+      <tr><td class="muted">Model</td><td class="mono">qwen/qwen3.5-9b · alias qwen9b-think · context 131 072 · thinking on</td></tr>
+      <tr><td class="muted">Endpoint</td><td class="mono">gpu · http://gpu-a.inference.svc:1234 · OpenAI-compatible</td></tr>
+      <tr><td class="muted">Progress</td><td>step 12 of 40 · 6m of 45m · 210k of 3M tokens · 0 restarts</td></tr>
       <tr><td class="muted">MCP servers</td><td class="muted">none for this role</td></tr>
-      <tr><td class="muted">Last event</td><td class="mono">run go test ./internal/config/ → exit 0</td></tr>
+      <tr><td class="muted">Last event</td><td class="mono">run make docs-check → exit 0</td></tr>
       <tr><td class="muted">Session</td><td class="mono">rn-5d2e8b10 · pid 51234</td></tr>
+      <tr><td class="muted">Trace</td><td class="mono">4bf92f3577b34da6a3ce929d0e0e4736</td></tr>
     </table></div></div>
-    <div class="alert info"><span class="ico info">i</span><div>This child runs on ws's own runner (model qwen3-coder:30b on endpoint gpu). Open the transcript to follow it; it records its own verdict, or ws records FAIL with the reason when it stops early.</div></div>
+    <div class="alert info"><span class="ico info">i</span><div>This child runs on ws's own runner (model qwen/qwen3.5-9b on endpoint gpu). Open the transcript to follow it; it records its own verdict, or ws records FAIL with the reason when it stops early. Stop ends the run and keeps the workspace.</div></div>
   </div></main></div></div>`,
   "transcript": `<div class="root">${topBar}<div class="body">${rail("Agents")}${tree}<main class="main">${header}${transcript}</main></div></div>`,
   "settings-models": settingsModels(false),
   "settings-models-errors": settingsModels(true),
+  "loop-form": loopForm,
 };
 for (const [id, html] of Object.entries(screens)) {
   const s = document.createElement("section");

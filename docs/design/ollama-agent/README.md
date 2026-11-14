@@ -810,8 +810,8 @@ Fake data only. Rendered from [mockups.html](mockups.html) with headless
 Chromium (Playwright `playwright-core` 1.56.1, the `chromium_headless_shell`
 build 1255) at device scale 1, one screenshot per `#<screen>` hash of the
 screen's element: app screens 1280 wide and 800 high, except the two
-Settings › Models screens, which grow to fit their tables (1147 and 991
-high); terminal screens 1100 wide.
+Settings › Models screens, which grow to fit their tables (1297 and 1121
+high); terminal screens 1100 wide, as high as their content.
 
 | Screen | File |
 | ------ | ---- |
