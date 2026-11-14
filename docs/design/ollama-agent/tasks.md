@@ -2253,20 +2253,44 @@ the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd
 - Error codes: use the ones T18 declared; add nothing to `errors.go`
   except the new `usage` messages.
 - `machine.go`: flags `--runner` and `--endpoint`. The runner is the flag,
-  else `cfg.RunnerFor(role)`. For `ws`, the new `runWSChild(ctx, opts)` in
-  **new** `internal/cli/machine_runner.go`, in reference.md's order:
-  1. `usage` checks (`--runner` value; `--endpoint` with `claude`; any
-     argument after the prompt other than `--model <m>`);
+  else `cfg.RunnerFor(role)`. For `ws`, `usage` checks first (`--runner`
+  value; `--endpoint` with `claude`; any argument after the prompt other
+  than `--model <m>`), then the shared start in **new**
+  `internal/cli/runner_start.go`, which T20 (`ws claude`) and T21 (loop
+  runs) reuse unchanged:
+  ```go
+  // runnerStart is one runner agent to start (ADRs 0064, 0070).
+  type runnerStart struct {
+  	Name, Role, Parent string // Parent "" for none (loops, --parent none)
+  	Endpoint, Model    string // flags; "" for the configured default
+  	Specs              []string
+  	Hidden, Offline    bool
+  	Vars               map[string]string // role vars; "BRANCH" feeds the push guard
+  	Prompt             string            // the prompt after --, appended to the role's
+  }
+  type runnerStarted struct {
+  	Workspace workspace.Workspace
+  	Session   string // rn-…
+  	Resolved  config.Resolved
+  	Warnings  []string
+  }
+  // errUseClaude: preflight failed and runner.fallback = "claude"; the
+  // caller starts a Claude agent with the returned warning.
+  var errUseClaude = errors.New("runner preflight failed; falling back to claude")
+  func (a *App) startRunnerAgent(ctx context.Context, rs runnerStart) (runnerStarted, error)
+  ```
+  in reference.md's order:
+  1. (the caller's `usage` checks);
   2. `cfg.Resolve(role, endpoint, model)`;
   3. `daemon.Ensure` (`WS_DAEMON_AUTOSTART`), then `Preflight`. A preflight
      error with `fallback = "claude"` → the Claude path with the warning;
      otherwise the error;
   4. create the workspace (as `runClaude`, holding the lock);
   5. `runner.FilesFor(…).WriteRun` (with `trace_id =
-     llm.NewTraceID()`) with the prompt from
-     `role.RenderFor(vars, extra, "ws", resolved.ModelID)` (or the prompt
-     after `--`), budgets, MCP keys, `branch = vars["BRANCH"]`,
-     `user_instructions`; no token or header;
+     llm.NewTraceID()`, `parent = rs.Parent`, `reasoning`) with the prompt
+     from `role.RenderFor(vars, extra, "ws", resolved.ModelID)` (or the
+     prompt after `--` without a role), budgets, MCP keys, `branch =
+     vars["BRANCH"]`, `user_instructions`; no token or header;
   6. `RecordRunnerSession`; `StartRunner`; `writeSpawn` for a role;
   7. print `machineSpawnJSON` with `runner: "ws"`, `model`, `ws_runner`
      (`model_alias`, `endpoint`, `url`, `api`, `context_tokens`,
@@ -2289,6 +2313,10 @@ the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd
 **Acceptance** (`internal/cli` with mocks; the daemon client behind an
 interface):
 
+- `startRunnerAgent` with `Role: ""` and `Parent: ""` writes `run.toml`
+  with `role = ""`, `parent = ""`, the "other" budgets and `PASS`/`FAIL`;
+  `--model qwen/qwen3.5-9b` (a raw id) and `--model qwen3.5:9b` reach
+  `run.toml`'s `model` unchanged.
 - `--runner ws` with no model anywhere → `config_invalid`; `--endpoint`
   with `--runner claude` → `usage`; `-- "x" --permission-mode auto` for a
   `ws` child → `usage`; each preflight error → its code and `details`, and
@@ -2308,6 +2336,167 @@ interface):
 $ go generate ./internal/cli/ ./internal/lifetime/
 $ go test -p 2 ./internal/lifetime/
 $ go test ./internal/cli/
+$ make lint
+```
+
+---
+
+## T20. `ws claude --runner` and `--endpoint`
+
+**Depends on:** T19. **Parallel with:** T21, T24.
+**ADR:** [0070](../../adrs/0070-runner-agents-for-people-and-loops.md)
+(`ws claude`).
+
+**Read:** `internal/cli/claude.go` (`newClaudeCmd`, `runClaude`, its
+JSON struct), `internal/cli/runner_start.go` (`runnerStart`,
+`startRunnerAgent`, `errUseClaude`), `internal/cli/guides/ws-claude.md`,
+reference.md [ws claude and ws loop](reference.md#ws-claude-and-ws-loop).
+
+**Change**
+
+- `claude.go`: flags `--runner claude|ws` (default `claude`) and
+  `--endpoint <name>`. With `ws`: `usage` when there's no prompt after
+  `--` (`a ws runner agent needs a prompt; it can't be attached`), when
+  anything but `--model <m>` follows the prompt, or for `--endpoint` with
+  `claude`. Then `startRunnerAgent(ctx, runnerStart{Name, Role: "",
+  Parent: <the parent runClaude already computes, "" for none>, Endpoint,
+  Model, Specs, Hidden, Offline, Prompt})`; on `errUseClaude`, the normal
+  Claude path with the warning. `--runner ws` never attaches a terminal.
+- The JSON struct gains, after the existing fields, `Runner string
+  `json:"runner"``, `Model *string `json:"model"`` and `WSRunner
+  *spawnWSRunnerJSON `json:"ws_runner"`` (reuse T19's type): `"claude"`,
+  the `--model` after `--` or `null`, and `null` for a Claude agent. The
+  text output (no `--json`) is unchanged for Claude and the same line
+  shape for `ws`.
+- `internal/cli/guides/ws-claude.md`: synopsis `ws claude [--runner
+  claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden]
+  [--parent <id>|none] [--json] [<spec>...] [-- <claude args>...]`; two
+  flag rows: ``| `--runner claude\|ws` | Which agent runs it: Claude Code (the default) or `ws`'s own runner (see `ws llm machine spawn`). A `ws` agent needs a prompt and can't be attached; after the prompt only `--model <alias or id>` is accepted |`` and ``| `--endpoint <name>` | With `--runner ws`, another endpoint from config.toml |``;
+  the JSON example gains `"runner": "claude", "model": null, "ws_runner":
+  null`; the exit-code table gains rows for `--runner ws` without a prompt
+  or with other arguments (`usage`, 2), `endpoint_unknown`,
+  `model_not_served` (3), `endpoint_unreachable`, `model_without_tools`,
+  `runner_failed`, `daemon_unavailable` (1).
+- `docs/tools/ws-claude.md`: the same flags, a "Runner agents" paragraph
+  from ADR 0070, and the fields.
+
+**Acceptance** (`internal/cli` with mocks, as T19's tests):
+
+- `ws claude --runner ws -- "write docs" --model qwen9b` → a runner
+  session, JSON with `runner: "ws"`, `model: "qwen/qwen3.5-9b"`,
+  `ws_runner.model_alias: "qwen9b"`; inside a workspace its `run.toml`
+  has `parent` = that workspace, with `--parent none` `parent = ""`.
+- `--runner ws` with no prompt, or with `-- "x" --permission-mode auto` →
+  `usage`; `--endpoint gpu` without `--runner ws` → `usage`.
+- A preflight failure → its code and no workspace; with `fallback =
+  "claude"` → a Claude agent and the warning.
+- A Claude `ws claude` prints the old fields byte-identical, plus the
+  three new ones. `TestGuideTopics` passes.
+
+**Verify**
+
+```console
+$ go generate ./internal/cli/
+$ go test ./internal/cli/ -run 'TestApp_.*Claude|TestGuideTopics'
+$ make lint
+```
+
+---
+
+## T21. Loops on the runner: `--runner`, `--endpoint`, record version 4, the tick's start path
+
+**Depends on:** T19. **Parallel with:** T20, T24.
+**ADR:** [0070](../../adrs/0070-runner-agents-for-people-and-loops.md)
+(Loops), [0048](../../adrs/0048-agent-loop-scheduler.md),
+[0052](../../adrs/0052-loop-edit-and-structured-forms.md).
+
+**Read:** `internal/loop/loop.go` (`Loop`, `FormatVersion`, `Validate`),
+`internal/loop/edit.go` (`Edit`, `applyHidden`), `internal/loop/store.go`
+(version handling), `internal/cli/loop.go` (add flags, the loop JSON),
+`internal/cli/loop_edit.go`, `internal/cli/loop_tick.go`
+(`startLoopRun`, `loopClaudeArgs`), `internal/cli/runner_start.go`,
+`internal/cli/guides/ws-loop-add.md`, `ws-loop-edit.md`; reference.md
+[ws claude and ws loop](reference.md#ws-claude-and-ws-loop).
+
+**Change**
+
+- `internal/loop/loop.go`: `FormatVersion = 4`; `const Version3 = 3` with
+  a doc comment "the record version of loops added before ADR 0070: no
+  runner or endpoint"; `Loop` gains, after `Hidden`, `Runner string
+  `toml:"runner,omitempty"`` (`""` means `claude`; `"claude"` is
+  normalized to `""` on save) and `Endpoint string
+  `toml:"endpoint,omitempty"``; `func (l *Loop) RunsOn() string` returns
+  `"ws"` or `"claude"`. `Validate` adds: `Runner` ∈ {`""`, `claude`,
+  `ws`}; `PermissionMode` set with `ws` → `ErrInvalid` (`permission_mode
+  applies only to claude runs`); `Endpoint` set without `ws` →
+  `ErrInvalid` (`endpoint applies only to ws runs`); `Endpoint`, when
+  set, matches `^[a-z][a-z0-9-]{0,31}$`.
+- `internal/loop/edit.go`: `Edit` gains `Runner *string` and `Endpoint
+  *string` ("" clears it); `Empty` counts them. `applyRunner(c, runner,
+  endpoint)`: `runner = "claude"` clears `Runner` and `Endpoint` and keeps
+  the version; `runner = "ws"` or a non-empty endpoint sets them and makes
+  the record version 4, with `applyHidden`'s version 1 rule (a literal
+  `{{` prompt needs `--prompt` in the same edit). A record that ends with
+  no runner and no endpoint keeps its version.
+- `internal/cli/loop.go` and `loop_edit.go`: `--runner` and `--endpoint`
+  on `add` and `edit`; after `Validate`, with the config: `Endpoint`
+  defined, else `loop_invalid` naming it; for a `ws` loop, `Model` either
+  an alias in `[models]` or an id that isn't a valid alias name (so a
+  mistyped alias such as `qwen9` is caught), else `loop_invalid`. The loop
+  JSON gains, after `hidden`, `"runner"` (`RunsOn()`) and `"endpoint"`
+  (`null` when empty).
+- `internal/cli/loop_tick.go`: `startLoopRun` branches on `RunsOn()`.
+  For `ws`: `startRunnerAgent(ctx, runnerStart{Name: "loop-" + l.Name,
+  Parent: "", Endpoint: l.Endpoint, Model: l.Model, Specs: l.Specs,
+  Hidden: l.RunsHidden(), Prompt: prompt})`, then `writeRunMark` for the
+  new workspace, and the `loop.Run` with `Session` the `rn-` id. Its
+  error becomes the run's `ErrorCode`/`ErrorMessage` as for a Claude
+  start (`failedRun`). On `errUseClaude`, start the Claude path with
+  `loopClaudeArgs` minus `--permission-mode`. `ws loop run` uses the same
+  function.
+- Guides (`internal/cli/guides/`): `ws-loop-add.md` synopsis gains
+  `[--runner claude|ws] [--endpoint <name>]` after `[--permission-mode
+  <P>]`; the flag list gains ``- `--runner claude|ws`: what runs each run:
+  Claude Code (the default) or `ws`'s own runner. With `ws`, `--model` is
+  a model alias or id from config.toml, and `--permission-mode` isn't
+  allowed.`` and ``- `--endpoint <name>`: with `--runner ws`, another
+  endpoint from config.toml.``; `--model`'s line becomes ``passed to
+  `claude --model`, or for `--runner ws` the model alias or id``.
+  `ws-loop-edit.md` gains the same flags, with ``--runner claude` clears
+  the endpoint` and ``--endpoint ""` clears it`, and under "Old
+  records": `Setting --runner ws or --endpoint makes a record version 4,
+  which older ws binaries skip.` Both JSON examples gain `"runner":
+  "claude", "endpoint": null`.
+- `docs/tools/ws-loop.md`: the options in both tables, the fields under
+  Output, the version rule, and a paragraph "Runs on the ws runner" from
+  ADR 0070.
+
+**Acceptance**
+
+- `internal/loop`: a record with `runner = "ws"` saves as version 4 and
+  round-trips; `--runner claude` on it clears `runner` and `endpoint`;
+  setting `--runner ws` on a version 1 record with `{{` in its prompt
+  fails unless `--prompt` is given; a version 3 record edited without the
+  new options stays version 3; a version 5 record is skipped with
+  "written by a newer ws". `Validate` refuses `permission_mode` with
+  `ws`, `endpoint` with `claude`, and `runner = "x"`.
+- `ws loop add --runner ws --model qwen9b` with `qwen9b` configured →
+  JSON `"runner": "ws", "model": "qwen9b", "endpoint": null`; with
+  `--model qwen9` (no such alias) → `loop_invalid`; with `--model
+  qwen/qwen3.5-9b` → accepted as an id; `--endpoint nope` → `loop_invalid`.
+- `ws loop tick` with a due `ws` loop (daemon client and starter mocked):
+  the run is started through `startRunnerAgent` with `Parent: ""` and the
+  loop's `hidden`; its `Session` is `rn-…`; a preflight error is recorded
+  as the run's `error_code`, `next_run_at` moves on as for any failed
+  start; a Claude loop's args are unchanged.
+- Every existing `internal/loop` and `loop_*` CLI test passes unchanged.
+  `TestGuideTopics` passes.
+
+**Verify**
+
+```console
+$ go test -p 2 ./internal/loop/
+$ go test ./internal/cli/ -run 'TestApp_.*Loop|TestGuideTopics'
 $ make lint
 ```
 
