@@ -1,13 +1,15 @@
 # Runner: design
 
 Lets selected `ws machine` children (implementers, reviewers, verifiers,
-and other helpers) run on `ws`'s own agent **runner** instead of Claude
-Code: first on on-prem models served by Ollama, directly or through
-llm-router, and later on other APIs (Ollama's native API, the OpenAI
-Responses API, the Anthropic Messages API). The orchestrator stays on
-Claude. A small **`ws` daemon** supervises runners and gives them their
-environment. Runners use the MCP servers Claude Code is configured with,
-filtered per role.
+and other helpers), agents people start with `ws claude`, and loop runs
+run on `ws`'s own agent **runner** instead of Claude Code: first on
+on-prem models behind an OpenAI-compatible API (LM Studio, Ollama,
+llm-router, vLLM), starting with `qwen/qwen3.5-9b`; next on Ollama's native
+API; later perhaps on others. The orchestrator stays on Claude. A small
+**`ws` daemon**, hosted by the desktop app when it runs, supervises
+runners and gives them their environment. Runners can use the MCP servers
+Claude Code is configured with, when a role is given them, and export
+OpenTelemetry traces, metrics and logs.
 
 This directory keeps its first name, `ollama-agent`, so review threads
 stay attached; the design is no longer Ollama-specific.
@@ -22,13 +24,15 @@ provider seam), [0063](../../adrs/0063-runner-children-are-supervised-sessions.m
 tools, budgets, context), [0066](../../adrs/0066-runner-security-boundaries.md)
 (security), [0067](../../adrs/0067-runner-tests-use-vendored-fakes.md)
 (tests and fakes kept in this repo), [0068](../../adrs/0068-ws-daemon.md)
-(the `ws` daemon), [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
-(MCP and Claude Code parity). The full contract (flags, JSON, files,
+(the `ws` daemon, hosted by the desktop app), [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
+(MCP and Claude Code parity), [0070](../../adrs/0070-runner-agents-for-people-and-loops.md)
+(`ws claude` and loops on the runner). The full contract (flags, JSON, files,
 config, errors) is [reference.md](reference.md). The implementation plan
 is [tasks.md](tasks.md). Screens are in [mockups.html](mockups.html),
 rendered to [img/](img/).
 
 - [Review comments and where they're answered](#review-comments-and-where-theyre-answered)
+- [Second review: decisions](#second-review-decisions)
 - [Architecture](#architecture)
 - [One orchestrated run in mixed mode](#one-orchestrated-run-in-mixed-mode)
 - [The agent loop](#the-agent-loop)
@@ -42,8 +46,8 @@ rendered to [img/](img/).
 - [Errors](#errors)
 - [Observability](#observability)
 - [Security](#security)
-- [Which roles suit on-prem models](#which-roles-suit-on-prem-models)
-- [Proposed handbook text: mixed mode](#proposed-handbook-text-mixed-mode)
+- [Which roles suit a 9B model](#which-roles-suit-a-9b-model)
+- [Proposed orchestration guidance: mixed mode](#proposed-orchestration-guidance-mixed-mode)
 - [Proposed changes to docs/tools/ws-machine.md](#proposed-changes-to-docstoolsws-machinemd)
 - [Testing](#testing)
 - [Screens](#screens)
@@ -54,10 +58,34 @@ rendered to [img/](img/).
 | Comment | Answer | Where |
 | ------- | ------ | ----- |
 | Don't clone llm-router; copy the content into this repo and maintain it here | fake-ollama (and its small dependencies, golden fixtures and control API) is copied once from llm-router @9789c32 into `internal/fakeollama` and `cmd/fake-ollama`, test-only, maintained here with no sync obligation; the loop was already a copy. Nothing clones llm-router | [0067](../../adrs/0067-runner-tests-use-vendored-fakes.md), [0062](../../adrs/0062-agent-runner-built-into-ws.md), tasks T1, T2, T11 |
-| If these processes are detached, how are they maintained? Doesn't `ws` need a long-lived daemon that also provides env vars and runtime config? | Yes. In the first draft nothing maintained them. `ws daemon` now starts, watches, restarts (3 times, then `crashed`) and resumes runners after reboots and pod restarts, and builds their environment from its own, `[runner.env]` and `secrets.env` | [0068](../../adrs/0068-ws-daemon.md), [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), tasks T15, T16, T17, T18, T20 |
-| Leave room for "openapi" and the Anthropic API | The loop speaks `ws`'s own types; a `Provider` per wire protocol translates. OpenAI-compatible chat now; Ollama-native, OpenAI Responses and Anthropic Messages reserved, with the normalization table written. "openapi" read as the OpenAI API (open question 1) | [0062](../../adrs/0062-agent-runner-built-into-ws.md), [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md), tasks T6, T7 |
-| Is this enough for my MCP servers (outline, grafana)? Close to parity | An MCP client reads Claude Code's own server definitions (stdio and HTTP), per-role allow-lists, `tool_search` past a cap, secrets redacted; a parity table says in, later or never for each Claude Code feature, and where full parity conflicts with small models | [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md), [Parity](#parity-with-claude-code), tasks T9, T10, T12 |
-| Don't call out Ollama; mark every agent with its model, quietly | No runner chip anywhere. Every agent, Claude or not, shows its model as muted secondary text; endpoint and provider only in a tooltip and the detail pane. `ws list`, `children` and `wait` give every agent a `model` field | [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), [reference.md](reference.md#json-output), [Screens](#screens), tasks T8, T14, T21 |
+| If these processes are detached, how are they maintained? Doesn't `ws` need a long-lived daemon that also provides env vars and runtime config? | Yes. In the first draft nothing maintained them. `ws daemon` now starts, watches, restarts (3 times, then `crashed`) and resumes runners after reboots and pod restarts, and builds their environment from its own, `[runner.env]` and `secrets.env` | [0068](../../adrs/0068-ws-daemon.md), [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), tasks T16, T17, T18, T19, T23 |
+| Leave room for "openapi" and the Anthropic API | The loop speaks `ws`'s own types; a `Provider` per wire protocol translates. OpenAI-compatible chat now; Ollama-native next; OpenAI Responses and Anthropic Messages reserved, with the normalization table written. "openapi" is the OpenAI API (confirmed) | [0062](../../adrs/0062-agent-runner-built-into-ws.md), [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md), tasks T6, T7, T27 |
+| Is this enough for my MCP servers? Close to parity | An MCP client reads Claude Code's own server definitions (stdio and HTTP), per-role allow-lists, `tool_search` past a cap, secrets redacted; a parity table says in, later or never for each Claude Code feature, and where full parity conflicts with small models | [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md), [Parity](#parity-with-claude-code), tasks T9, T10, T12 |
+| Don't call out Ollama; mark every agent with its model, quietly | No runner chip anywhere. Every agent, Claude or not, shows its model as muted secondary text; endpoint and provider only in a tooltip and the detail pane. `ws list`, `children` and `wait` give every agent a `model` field | [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), [reference.md](reference.md#json-output), [Screens](#screens), tasks T8, T15, T24 |
+
+## Second review: decisions
+
+The owner answered the first draft's open questions. Each answer is now a
+decision in the ADRs; this is where to find it.
+
+| Question | Decision | Where |
+| -------- | -------- | ----- |
+| Use mermaid for diagrams | Every diagram in these docs is a ` ```mermaid ` block; tasks.md makes it a rule | this README, [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md), [tasks.md](tasks.md) |
+| "openapi" | The OpenAI API | [0062](../../adrs/0062-agent-runner-built-into-ws.md) |
+| Which provider next | Ollama-native, planned next (per-request `num_ctx`, `think`); Anthropic Messages and OpenAI Responses stay reserved | [0062](../../adrs/0062-agent-runner-built-into-ws.md), task T27 (optional) |
+| Which models and roles first | `qwen/qwen3.5-9b`; verifiers first, then docs-only `small` implementers, with budgets sized to its window and a measured-run plan | [Which roles suit a 9B model](#which-roles-suit-a-9b-model), [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md), [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md) |
+| MCP defaults per role | None for any role; examples are generic | [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md) |
+| User `CLAUDE.md` | Off for runners (an opt-in remains) | [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md) |
+| Daemon on the desktop | The desktop app hosts the daemon as a supervised sidecar; headless `ws daemon run` for ws-online and no-app use | [0068](../../adrs/0068-ws-daemon.md), tasks T17, T23 |
+| Secrets store | `secrets.env` only | [0066](../../adrs/0066-runner-security-boundaries.md), [0068](../../adrs/0068-ws-daemon.md) |
+| `GH_TOKEN` in the runner | Not now: today's behaviour kept, the risk written down, scoped tokens deferred | [0066](../../adrs/0066-runner-security-boundaries.md) |
+| Sandbox | A non-goal | [0066](../../adrs/0066-runner-security-boundaries.md) |
+| `ws claude --runner` and loops | Both, with runner and model per loop | [0070](../../adrs/0070-runner-agents-for-people-and-loops.md), tasks T20, T21, T26 |
+| Stopping one runner | A desktop Stop through the daemon (and a hidden `ws runner stop`); no `ws machine stop` | [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), tasks T18, T24 |
+| Claude Code on Ollama's Anthropic API | Dropped | [0062](../../adrs/0062-agent-runner-built-into-ws.md) |
+| Endpoint queue (`max_parallel`) | A non-goal | [0068](../../adrs/0068-ws-daemon.md) |
+| OTel | The runner links the OpenTelemetry SDK, GenAI conventions as in llm-router, no content | [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md), task T13 |
+| Fallback scope | Unchanged; still open | [Open questions](#open-questions) |
 
 ## Architecture
 
@@ -245,19 +273,24 @@ the first draft was: nothing. Now ([0068](../../adrs/0068-ws-daemon.md)):
 | Event | What happens |
 | ----- | ------------ |
 | The runner process dies mid-run | The daemon sees it within 2 s and resumes it (`--resume`) after 5 s, 30 s, 2 min; a fourth death records `crashed` with a fail verdict |
-| The daemon dies | Runners keep running (own session). The next daemon, auto-started by the next command that needs it or restarted by `ws-online`, adopts them |
-| A Mac reboots | Everything stops. With a launchd agent for `ws daemon run`, runners resume at login; without one, at the next `ws machine spawn --runner ws` or `ws restore` |
+| The daemon dies | Runners keep running (own session). The next daemon, restarted by the desktop app or `ws-online`, or auto-started by the next command that needs it, adopts them |
+| The desktop app quits | The daemon it hosted keeps running, becomes transient, resumes and supervises runners until none is alive, then exits after 15 min. Closing the window isn't quitting: the app stays in the tray and keeps hosting |
+| The desktop app starts | It hosts a daemon (`ws daemon run --origin app`), or uses one that already runs and hosts its own once that exits |
+| A Mac reboots | Everything stops. Runners resume when the app next opens, or at the next `ws machine spawn --runner ws` or `ws restore`; with a launchd agent for `ws daemon run`, at login |
 | The ws-online pod restarts | `ws-online serve` starts `ws daemon run --origin managed` at once; it resumes every unfinished runner |
 | `ws rm` / `ws machine rm` | Asks the daemon to stop the runner (or stops it directly if no daemon answers), then removes the workspace |
 | `ws daemon stop` | Interrupts runners (they read `stopped`, resumable) or, with `--keep-runners`, leaves them for the next daemon |
+| The desktop's **Stop** on one agent | `ws runner stop`: the runner exits `stopped` after its step; its workspace and transcript stay; it isn't resumed |
 | A runner hangs | Its own `timeout` budget ends it |
 
 A runner's environment, lowest precedence first: the daemon's own (frozen
 when it started), `[runner.env]` in `config.toml` (non-secret values, such
-as `GRAFANA_URL`), `CONFIG_DIR/secrets.env` (0600; endpoint tokens and MCP
-tokens; written by Settings › Models), then `WS_RUNNER=ws`,
-`WS_WORKSPACE`, `WS_CONFIG_DIR`, `WS_RUNNER_SECRET_NAMES`. The spawning agent's environment is never
-used. `config.toml` and `secrets.env` are re-read at every start and
+as `METRICS_URL` or `OTEL_EXPORTER_OTLP_ENDPOINT`), `CONFIG_DIR/secrets.env`
+(0600; endpoint tokens, MCP tokens and OTLP headers; written by Settings ›
+Models; the only secrets store), then `WS_RUNNER=ws`, `WS_WORKSPACE`,
+`WS_CONFIG_DIR`, `WS_RUNNER_SECRET_NAMES`. The spawning agent's
+environment is never used; when the desktop app hosts the daemon, layer 1
+is the app's environment with its resolved login-shell `PATH`. `config.toml` and `secrets.env` are re-read at every start and
 resume. Tools get that environment scrubbed; MCP stdio servers get it
 whole, plus their own `env`
 ([0066](../../adrs/0066-runner-security-boundaries.md)).
@@ -266,7 +299,9 @@ The socket is user-only (0700 directory, 0600 socket, peer uid checked),
 and requests name a workspace id, never a command or an environment.
 
 **Deferred**: moving `ws loop tick` and the desktop watcher into the
-daemon, Settings › Daemon, and supervising anything but runners.
+daemon (the app then stops running its own tick), a separate Settings ›
+Daemon section, starting at login, and supervising anything but runners.
+**Non-goal**: a per-endpoint queue (`max_parallel`).
 
 ## Providers
 
@@ -279,39 +314,44 @@ place, usage names, stop reasons).
 
 | `api` | Covers | Status |
 | ----- | ------ | ------ |
-| `openai` | OpenAI-compatible chat completions: Ollama `/v1`, llm-router, LM Studio, vLLM | v1 (tasks T6, T7) |
-| `ollama` | Ollama's native `/api/chat` (per-request `num_ctx`, `think`) | reserved |
+| `openai` | OpenAI-compatible chat completions: LM Studio, Ollama `/v1`, llm-router, vLLM | v1 (tasks T6, T7) |
+| `ollama` | Ollama's native `/api/chat` (per-request `num_ctx`, `think`) | planned next (task T27, optional in this plan) |
 | `openai-responses` | The OpenAI Responses API | reserved |
 | `anthropic` | The Anthropic Messages API (signed thinking blocks returned unchanged) | reserved |
 
-A reserved `api` is `config_invalid` today. Adding one is a package that
-implements `Provider`, its fixtures, and a registry line.
+An `api` not yet implemented is `config_invalid`. Adding one is a package
+that implements `Provider`, its fixtures, and a registry line. A model's
+`reasoning` (`none`, `low`, `medium`, `high`, or unset for the server's
+default) is sent as `reasoning_effort` by `openai`, and would be `think`
+for `ollama`.
 
 ## MCP tools
 
 [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md). The
 runner reads the servers Claude Code is configured with: `.mcp.json` in
 the session repo (project) over `mcpServers` in `~/.claude.json` (user).
-A role gets none unless `config.toml` says so:
+No role gets an MCP server by default; a role gets one only when
+`config.toml` says so. An example, with a stdio `metrics` server and an
+HTTP `docs` server from the user's Claude Code config:
 
 ```toml
 [runner.env]
-GRAFANA_URL = "https://grafana.example.internal"    # mcp-grafana's own definition may also set it
+METRICS_URL = "https://metrics.example.internal"    # the server's own definition may also set it
 
-[runner.roles.oncall]
+[runner.roles.triage]
 runner = "ws"
-mcp_servers = ["mcp-grafana", "outline"]
-mcp_tools = ["mcp__mcp-grafana__query_*", "mcp__mcp-grafana__list_*", "mcp__outline__fetch", "mcp__outline__list_documents"]
+mcp_servers = ["metrics", "docs"]
+mcp_tools = ["mcp__metrics__query_*", "mcp__metrics__list_*", "mcp__docs__search", "mcp__docs__get_page"]
 mcp_upfront = 8
 ```
 
-and `secrets.env` holds `GRAFANA_SERVICE_ACCOUNT_TOKEN`. With that,
-`mcp-grafana` starts as a stdio child of the runner with the runner's
-environment; `outline` is reached over streamable HTTP with the header from
-its definition. Of grafana's 80 tools, the role allows the `query_*` and
-`list_*` ones, which are read-only; 8 go up front and the rest are named
-in the system prompt and loaded with `tool_search`. Header values, expanded
-variables and tokens never reach the transcript.
+and `secrets.env` holds `METRICS_TOKEN`. With that, `metrics` starts as a
+stdio child of the runner with the runner's environment; `docs` is
+reached over streamable HTTP with the header from its definition. If
+`metrics` offers 80 tools, the role allows the `query_*` and `list_*` ones,
+which are read-only; 8 go up front and the rest are named in the system
+prompt and loaded with `tool_search`. Header values, expanded variables
+and tokens never reach the transcript.
 
 ## Parity with Claude Code
 
@@ -329,7 +369,7 @@ handle worst, so it isn't the goal
 | MCP tool search / deferred tools | v1 | `tool_search`, word matching, per-role `mcp_upfront` |
 | MCP resources, prompts, OAuth, WebSocket, plugin and connector servers | later | Not needed by the servers in use; OAuth tokens live in Claude Code's store |
 | Project `CLAUDE.md` (and `AGENTS.md`) | v1 | Repo root then workspace root, 8 KiB cap; `@` imports later |
-| User `~/.claude/CLAUDE.md` | opt-in (`runner.user_instructions`) | Written for Claude; this user's sends every agent to the handbook first, which a small model can't afford on every task |
+| User `~/.claude/CLAUDE.md` | off (decided); opt-in with `runner.user_instructions` | Personal instructions for Claude Code sessions, often about one setup's tools; a small model pays for them on every request |
 | Skills | later | A `skill` loader like `tool_search`, after the core works |
 | Subagents (Task tool) | later, as `ws machine spawn` | Small models manage children poorly; it would be a `ws` child, not in-process |
 | Hooks | later | Needs a mapping of Claude Code's events to the runner's tools |
