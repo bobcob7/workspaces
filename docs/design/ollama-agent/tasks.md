@@ -1545,14 +1545,146 @@ $ make lint
 
 ---
 
+## T13. `internal/telemetry`: OpenTelemetry setup and the GenAI decorators
+
+**Depends on:** T6, T11. **Parallel with:** T10, T12, T17.
+**ADR:** [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md)
+(Observability), [0066](../../adrs/0066-runner-security-boundaries.md)
+item 8.
+
+**Spawn with** `llm-router@9789c32` as a second, read-only repo spec.
+
+**Read:** llm-router `internal/telemetry/telemetry.go`, `conventions.go`,
+`docs/adrs/0019-telemetry-setup.md` (Decision), and how it records a chat
+attempt in `internal/router/attempt.go` and `internal/router/metrics.go`;
+this repo's `internal/llm/llm.go`, `internal/llm/errors.go`,
+`internal/agent/toolset.go` and `agent.go` (where `Toolset.Call` is
+called; types only otherwise).
+
+**Add** the OpenTelemetry modules named in the rules above.
+
+**Create** `internal/telemetry/{telemetry.go,conventions.go,run.go,provider.go,toolset.go}`
+with a `_test.go` each. `telemetry.go`'s doc comment: `Copied from
+llm-router internal/telemetry @9789c32 (ADR 0065); maintained here.` Copy
+`New`'s provider and exporter setup (`exporterEnv`, `exportConfigured`,
+`startOpenTelemetry`, `withExporters`, the `otelslog` bridge and its
+level handler); leave out llm-router's `LOG_FORMAT`/`LOG_LEVEL` handling:
+the logger is always `slog` JSON to the given writer.
+
+```go
+// Package telemetry is the runner's OpenTelemetry setup and the
+// decorators that instrument the provider seam and the toolset (ADR 0065).
+// It is the only package that imports go.opentelemetry.io.
+package telemetry
+
+const ServiceName = "ws-runner" // OTEL_SERVICE_NAME overrides it
+
+// ProviderName is gen_ai.provider.name for an endpoint's api:
+// "openai" → "openai_compatible" (as llm-router); "ollama" → "ollama".
+func ProviderName(api string) string
+
+type Telemetry struct {
+	Logger *slog.Logger
+	// unexported: tracer, meter, propagator, instruments, shutdown funcs
+}
+// New: SDK tracer and meter providers always; exporters (autoexport) and
+// the otelslog log bridge only when an OTEL_EXPORTER_OTLP_*ENDPOINT or
+// OTEL_*_EXPORTER variable is set (read through getenv). Logs go to w as
+// slog JSON either way.
+func New(ctx context.Context, w io.Writer, getenv func(string) string) (*Telemetry, error)
+func (t *Telemetry) Shutdown(ctx context.Context) error // flushes; safe without exporters
+
+// RunInfo names one process run of an agent.
+type RunInfo struct{ Role, ModelID, WorkspaceID, Session string }
+// StartRun starts the run's "invoke_agent <role or ws>" INTERNAL span as a
+// child of a remote span context whose trace id is traceID (32 hex), so
+// every process run of one agent shares a trace. end records
+// ws.runner.exit on the span, adds 1 to ws_runner.runs, and ends it.
+func (t *Telemetry) StartRun(ctx context.Context, traceID string, info RunInfo) (context.Context, func(exit string))
+
+// Provider wraps p: each Chat is a "chat <model>" CLIENT span whose
+// context is injected as req.TraceParent (replacing any), with the GenAI
+// attributes of ADR 0065; it records gen_ai.client.operation.duration and
+// gen_ai.client.token.usage, and sets Response.SpanID.
+func (t *Telemetry) Provider(p llm.Provider, ep llm.Endpoint) llm.Provider
+// Toolset wraps ts: each Call is an "execute_tool <name>" INTERNAL span
+// with gen_ai.tool.name, gen_ai.tool.call.id (agent.ToolCallID(ctx)), and
+// ws.mcp.server = serverOf(name) when not "".
+func (t *Telemetry) Toolset(ts agent.Toolset, serverOf func(name string) string) agent.Toolset
+// newForTest builds a Telemetry on given providers (in-memory exporters).
+func newForTest(tp trace.TracerProvider, mp metric.MeterProvider, w io.Writer) *Telemetry
+```
+
+`conventions.go`: `AttrWorkspaceID = "ws.workspace.id"`, `AttrSession =
+"ws.runner.session"`, `AttrExit = "ws.runner.exit"`, `AttrMCPServer =
+"ws.mcp.server"`, the counter name `ws_runner.runs` with attribute
+`ws_runner.exit`; instruments from `semconv/v1.39.0` and `genaiconv`
+(`NewClientOperationDuration`, `NewClientTokenUsage`). `error.type` on a
+failed `chat` span is one of `unreachable`, `retryable`, `stream_dropped`,
+`stream_stalled`, `model_missing`, `no_tools`, `context_exceeded`, `other`
+(by `errors.Is` on the `llm` sentinels).
+
+**Never content**: no attribute, event, metric attribute or exported log
+record may hold `Request.System`, a message's content or reasoning, tool
+definitions, arguments, results or `Response` text. Only names, ids,
+counts, durations, finish reasons and error classes.
+
+**In `internal/agent`** (one small change): `func WithToolCallID(ctx
+context.Context, id string) context.Context` and `func ToolCallID(ctx
+context.Context) string`, and the loop calls `Toolset.Call` with
+`WithToolCallID(ctx, call.ID)`.
+
+Lint rule: `@! grep -rn '"go.opentelemetry.io/' --include='*.go' . | grep -vE '^\./internal/telemetry/'`.
+
+**Acceptance** (in-memory span exporter and manual metric reader through
+`newForTest`; no network):
+
+- `exportConfigured` (copied) is true for each of the seven variables and
+  false for none; `New` with none set returns a working `Telemetry` whose
+  spans have valid trace ids, and `Shutdown` returns nil.
+- `StartRun(ctx, "4bf92f3577b34da6a3ce929d0e0e4736", …)` → the span's trace
+  id is that, its name `invoke_agent implementer` (`invoke_agent ws`
+  without a role); two calls share the trace; `end("done")` sets
+  `ws.runner.exit` and counts one `ws_runner.runs`.
+- `Provider` around a `ProviderMock`: span `chat qwen/qwen3.5-9b`, kind
+  client, `gen_ai.operation.name` `chat`, `gen_ai.provider.name`
+  `openai_compatible`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`
+  and `output_tokens`, `gen_ai.response.finish_reasons`, `server.address`
+  and `server.port` from the endpoint URL; the inner request's
+  `TraceParent` is `00-<trace id>-<this span's id>-01`; `Response.SpanID`
+  is the span id; an `llm.ErrStreamDropped` → `error.type`
+  `stream_dropped` and status error; both GenAI metrics recorded, token
+  usage with `gen_ai.token.type` `input` and `output`.
+- `Toolset` around a mock: span `execute_tool read_file` with
+  `gen_ai.tool.call.id` from the context; an MCP name gets `ws.mcp.server`.
+- **No content**: a run of `Provider` and `Toolset` with the marker
+  `SECRET-CONTENT-7f3a` in the system prompt, a message, reasoning, tool
+  arguments and the tool result exports no span, event, metric or log
+  record containing it.
+- `make lint` passes with the new rule. Report the size of `go build
+  -o /tmp/ws ./cmd/ws` before and after this task (the binary links
+  `internal/telemetry` once T14 imports it; measure with a blank import in
+  a scratch build if needed, and say which).
+
+**Verify**
+
+```console
+$ go mod tidy && go test ./internal/telemetry/ ./internal/agent/...
+$ make lint
+```
+
+---
+
 ## T14. `internal/runner`, session kind `runner`, hidden `ws runner run`
 
 **Depends on:** T4, T7, T12, T13. **Parallel with:** none.
-**ADRs:** [0063](../../adrs/0063-runner-children-are-supervised-sessions.md),
+**ADRs:** [0063](../../adrs/0063-runner-children-are-supervised-sessions.md)
+(including "Without a parent"),
 [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md) (Exit
-reasons), [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md).
+reasons, Observability), [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md).
 
-**Read:** `internal/workspace/session.go`, `internal/machine/store.go`
+**Read:** `internal/telemetry/telemetry.go`, `run.go` (signatures only),
+`internal/workspace/session.go`, `internal/machine/store.go`
 (`WriteResult`, root and ancestors as `ws machine result` computes them in
 `internal/cli/machine_result.go`), `internal/cli/app.go` (`AddCommand`),
 `internal/proc/proc.go`, reference.md [Files](reference.md#files).
@@ -1570,7 +1702,8 @@ const SessionPrefix = "rn-"
 func NewSessionID() string // "rn-" + 8 random lowercase hex
 
 // Run is run.toml (reference.md), including MCPServers, MCPTools, MCPDeny,
-// MCPUpfront, UserInstructions, ModelAlias, API, MaxOutput, Temperature.
+// MCPUpfront, UserInstructions, ModelAlias, API, MaxOutput, Temperature,
+// Reasoning, Parent ("" for none) and TraceID.
 type Run struct{ /* every key in reference.md's run.toml, toml tags */ }
 // Status is status.json; Exit and ExitMessage are null while running.
 type Status struct {
@@ -1586,6 +1719,7 @@ type Status struct {
 	MCP              []mcp.Status `json:"mcp"`
 	Exit             *string      `json:"exit"`
 	ExitMessage      *string      `json:"exit_message"`
+	Verdict          *string      `json:"verdict"`
 	UpdatedAt        time.Time    `json:"updated_at"`
 }
 // Usage is usage.json under state/<root>/machine/<child>/ (reference.md).
@@ -1601,6 +1735,13 @@ func (f Files) Transcript() string
 func (f Files) Log() string
 func (f Files) RequestStop() error
 func (f Files) StopRequested() bool
+// UsagePath is state/<root>/machine/<id>/usage.json for a run with a
+// parent, else state/<id>/runner/usage.json.
+func (f Files) UsagePath(run Run, store resultStore) string
+// Record writes a verdict and report: through store (as `ws machine
+// result`) when run.Parent != "", else to runner/report.md; either way it
+// sets status.json's verdict. The runner's record_result and Finalize
+// both use it.
 
 // State is ADR 0063's table: working, starting, idle, stopped, unknown.
 func (f Files) State(now, recordedAt time.Time, procs processReader) (state string, pid int, st *Status)
@@ -1644,20 +1785,28 @@ doesn't):
    `StartAll`'s result is written as one `mcp_start` event per server
    (`transport`, `ok`, `tools`, `allowed`, `error`) and, for a failed one,
    an `mcp_error` event with `tool: null`; failed servers go into
-   `PreambleData.Unavailable`;
+   `PreambleData.Unavailable`; telemetry: `telemetry.New(ctx,
+   runnerLog, os.Getenv)` (its `Logger` is the runner's logger),
+   `StartRun(ctx, run.TraceID, RunInfo{run.Role, run.Model, id,
+   run.Session})`, the provider wrapped with `tel.Provider(p, ep)` and the
+   toolset with `tel.Toolset(ts, serverOf)` (`serverOf` from the MCP
+   manager); `end(exit)` and `Shutdown` (5 s limit) before the process
+   exits;
 3. `agent.Run` (`ReadHistory` and a `restart` event for `--resume`),
    `OnStatus` → `WriteStatus` with `manager.Status()`, each server's
    `loaded` taken from the toolset (`MCPToolset.LoadedByServer()
    map[string]int`, added here);
    the trace id is created by `ws machine spawn` into `run.toml`
    (`trace_id`, T19) so it survives `--resume`, and goes to
-   `agent.Config.TraceID` and `usage.json`;
+   `agent.Config.TraceID`, `StartRun`, the `restart` event and
+   `usage.json`; `run.Reasoning` goes to `agent.Config.Reasoning`;
 4. on exit: `Finalize` unless the model's verdict was recorded; exit 0.
    Exit 1 only when `run.toml` can't be read or `status.json` can't be
    written.
 
 **docs/state.md**: `runner/` (run.toml, status.json, transcript.jsonl,
-runner.log, stop), `machine/<child>/usage.json`.
+runner.log, stop, and for a run without a parent report.md and
+usage.json), `machine/<child>/usage.json`.
 
 **Acceptance**
 
@@ -1667,7 +1816,9 @@ runner.log, stop), `machine/<child>/usage.json`.
   pid 0; `restarts` grew within 3 min, no `exit`, dead pid → `starting`;
   invalid JSON → `unknown`.
 - `Finalize` writes the fail verdict, report header, `usage.json` and
-  `exit`; for `stopped` it writes no verdict.
+  `exit`, and sets `status.json`'s `verdict`; for `stopped` it writes no
+  verdict. With `parent = ""` the report is `runner/report.md` and
+  `usage.json` is in `runner/`; nothing is written under `machine/`.
 - Session records round-trip; version 3 → "written by a newer ws"; `kind
   = "runner"` without `runner_session_id` → error.
 - `ws runner run` against an `httptest` server replaying T7's fixtures and
@@ -1676,6 +1827,12 @@ runner.log, stop), `machine/<child>/usage.json`.
   with a report starting `ws runner: endpoint_down` (fast backoff via an
   unexported clock); a `--resume` continues at the next step. No token or
   MCP header value appears in `transcript.jsonl` or `runner.log`.
+- With `OTEL_TRACES_EXPORTER=console` in the test's environment, the
+  spans the run prints all have `run.toml`'s `trace_id`, include one
+  `invoke_agent`, three `chat` and three `execute_tool` spans, and none
+  contains the task prompt's text; `--resume` adds a second
+  `invoke_agent` span in the same trace. Without `OTEL_*` variables
+  nothing is printed.
 
 **Verify**
 
