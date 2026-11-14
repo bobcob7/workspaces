@@ -2529,14 +2529,19 @@ docs/design/ollama-agent/fake-mcp/*.yaml e2e/runner/testdata/`).
   `WS_CONFIG_DIR`, `XDG_RUNTIME_DIR` and `HOME` (with a `.claude.json`
   naming the fake MCP servers), a bare upstream repo, a fake `claude`
   (`exectest`), a parent workspace record, `config.toml` with endpoint
-  `fake` (`probe = "ollama"`), model alias `coder` → `fake-coder`
-  (`context_tokens = 32768`), and `runWS(t, env, args...)` running
+  `fake` (`probe = "ollama"`), model alias `qwen9b` → `qwen/qwen3.5-9b`
+  (`context_tokens = 32768`) as `runner.model`, and `runWS(t, env,
+  args...)` running
   `bin/ws`. Each test stops its daemon (`ws daemon stop`) in `t.Cleanup`.
-- One `t.Run` per scenario in 0067's table (21), waiting with `ws machine
+- One `t.Run` per scenario in 0067's table (23), waiting with `ws machine
   wait --timeout 2m`; daemon scenarios kill the runner by the pid in
-  `status.json`.
+  `status.json`. `runner-stop` runs `bin/ws runner stop <id>` and then
+  starts a new daemon to check the runner isn't resumed. `loop-runner`
+  runs `ws loop add … --runner ws --model qwen9b --show` and `ws loop run`,
+  waits for the run's `status.json` to have `exit`, and reads the loop's
+  history and `runner/report.md`.
 - `realmodel_test.go`: `E2E_RUNNER_URL` (+ `E2E_RUNNER_MODEL`, default
-  `qwen3-coder:30b`; `E2E_RUNNER_API`, default `openai`) runs `edit-file`
+  `qwen/qwen3.5-9b`; `E2E_RUNNER_API`, default `openai`) runs `edit-file`
   and `review-verdict`, asserting only `exit == "done"` and a verdict;
   otherwise `t.Skip`.
 - `mcpsmoke_test.go`: `E2E_MCP_SMOKE=<server>:<tool>[,…]` uses the real
@@ -2549,7 +2554,7 @@ docs/design/ollama-agent/fake-mcp/*.yaml e2e/runner/testdata/`).
 
 **Acceptance**
 
-- `make e2e-runner` passes all 21 scenarios from a clean checkout with no
+- `make e2e-runner` passes all 23 scenarios from a clean checkout with no
   network beyond loopback (CI proves it).
 - With `bin/fake-ollama` deleted and `WS_FAKE_OLLAMA` unset, it fails
   with the "run make fakes" message.
@@ -2564,50 +2569,76 @@ $ make e2e-runner
 
 ---
 
-## T23. `ws-online` keeps a managed daemon running
+## T23. The desktop app and `ws-online` keep a daemon running
 
 **Depends on:** T17. **Parallel with:** T12–T15, T18–T21.
-**ADR:** [0068](../../adrs/0068-ws-daemon.md) (Where it runs).
+**ADR:** [0068](../../adrs/0068-ws-daemon.md) (Where it runs, The desktop
+app hosts the daemon).
 
-**Read:** `desktop/src-tauri/src/online/server.rs` (`run`, the
-`tokio::spawn` calls), `desktop/src-tauri/src/loops.rs` (`tick_forever`,
-how it runs `ws`), `desktop/src-tauri/src/runner.rs` (how the app finds
-and runs `ws`), `docs/online.md`.
+**Read:** `desktop/src-tauri/src/lib.rs` (`setup`, the
+`tauri::async_runtime::spawn` calls), `desktop/src-tauri/src/online/server.rs`
+(`run`, the `tokio::spawn` calls), `desktop/src-tauri/src/runner.rs`
+(`Runner`: its `path()` is the resolved `PATH`), `desktop/src-tauri/src/loops.rs`
+(`tick_forever`, as the pattern for a forever task), `docs/online.md`.
 
-**Create** `desktop/src-tauri/src/online/daemon.rs` (+ tests in the same
-file).
+**Create** `desktop/src-tauri/src/daemon_host.rs` (+ tests in the same
+file), declared in `lib.rs` for both the desktop and the `online` build.
 
 ```rust
-/// Keeps `ws daemon run --origin managed` running for the life of the
-/// server (ADR 0068): restarts it when it exits, with backoff 1 s
-/// doubling to 60 s, reset after 10 min of uptime. Its stderr goes to the
-/// server's log. A `daemon_running` exit (4) means another daemon holds
-/// the lock: wait 60 s and try again, without logging an error each time.
-pub async fn keep_running(ws: WsCommand) -> !
+/// Who hosts the daemon: the desktop app (`--origin app`) or ws-online
+/// (`--origin managed`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Host { App, Online }
+
+/// Keeps `ws daemon run --origin <app|managed>` running for the life of
+/// the process (ADR 0068). The child runs with `runner.path()` as PATH,
+/// stdin and stdout on /dev/null, stderr to the app's log, and in its own
+/// session (`libc::setsid` in `pre_exec`), so quitting the app doesn't
+/// signal it. When it exits, it's started again with `next_backoff`. An
+/// exit of 4 (`daemon_running`: another daemon holds the lock, which the
+/// app then uses over the socket) waits 60 s before the next try, logged
+/// once at info, not as an error.
+pub async fn keep_running(runner: Runner, host: Host) -> !
+/// 1 s doubling to a 60 s cap; back to 1 s after 10 min of uptime.
 fn next_backoff(prev: Duration, uptime: Duration) -> Duration
+fn daemon_args(host: Host) -> Vec<String> // ["daemon", "run", "--origin", "app" | "managed"]
 ```
 
-`server.rs` `run`: `tokio::spawn(online::daemon::keep_running(…))` beside
-the loop tick task, started before the HTTP listener. The daemon inherits
-the container's environment. `docs/online.md`: a "Background work"
-paragraph: the server runs `ws loop tick`, the review and notification
-tasks, and a managed `ws daemon`, which resumes runner children after a
-pod restart; `/tmp` holds its socket and needn't persist.
+- `lib.rs` `setup` (desktop build): spawn `keep_running(state.runner.clone(),
+  Host::App)` beside `loops::tick_forever`. Nothing is done on quit: the
+  daemon is in its own session and turns transient when its parent pid
+  changes (T17).
+- `online/server.rs` `run`: spawn `keep_running(…, Host::Online)` beside
+  the loop tick task, before the HTTP listener. The daemon inherits the
+  container's environment.
+- `docs/online.md`: a "Background work" paragraph: the server runs `ws loop
+  tick`, the review and notification tasks, and a managed `ws daemon`,
+  which resumes runner children after a pod restart; `/tmp` holds its
+  socket and needn't persist. `desktop/README.md`: the app hosts the
+  `ws` daemon while it runs; quitting leaves runners running under it until they finish.
 
 **Acceptance**
 
 - `next_backoff`: 1 → 2 → … → 60 s cap; reset after 10 min of uptime.
+  `daemon_args(Host::App)` ends `--origin app`; `Host::Online` ends
+  `--origin managed`.
 - A test with a fake `ws` script that exits at once: restarted with the
   backoff (tokio paused time); exit 4 → the 60 s wait.
-- `cargo test --no-default-features --features online` and `cargo clippy
-  --all-targets --no-default-features --features online -- -D warnings`
-  pass.
+- A test (Unix) that the started child's session id differs from the
+  test process's (`libc::getsid`).
+- `cargo test -j 2` and `cargo clippy --all-targets -- -D warnings` pass,
+  default and `--no-default-features --features online`.
+- By hand, on macOS, in the report: quit the app with a runner working;
+  `ws daemon status` still answers, then shows `origin: app` turning idle
+  and exiting 15 min after the runner finishes. Say if this wasn't
+  possible to check.
 
 **Verify**
 
 ```console
-$ cd desktop/src-tauri && cargo test -j 2 --no-default-features --features online online::daemon
-$ cd desktop/src-tauri && cargo clippy --all-targets --no-default-features --features online -- -D warnings
+$ cd desktop/src-tauri && cargo test -j 2 daemon_host
+$ cd desktop/src-tauri && cargo test -j 2 --no-default-features --features online daemon_host
+$ cd desktop/src-tauri && cargo clippy --all-targets -- -D warnings
 ```
 
 ---
