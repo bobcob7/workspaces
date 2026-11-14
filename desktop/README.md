@@ -145,6 +145,8 @@ backend every 5 minutes by default
 | ![](docs/reviews-filters.png) | ![](docs/reviews-filters-merge.png) |
 | **Settings, Forges (GitHub and Forgejo hosts)** | **Phone width** |
 | ![](docs/reviews-forges-settings.png) | ![](docs/mobile-reviews-filters.png) |
+| **Adding a host in Forges** | **Forges at phone width** |
+| ![](docs/settings-forges-add.png) | ![](docs/mobile-settings-forges.png) |
 
 | A review out of date after new commits | Editing a review before starting it |
 | --- | --- |
