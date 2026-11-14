@@ -186,7 +186,8 @@ built by the daemon, lowest precedence first:
 4. variables `ws` sets: `WS_RUNNER=ws`, `WS_WORKSPACE=<id>`,
    `WS_CONFIG_DIR`, and `WS_RUNNER_SECRET_NAMES` (the names defined in
    `secrets.env`, so the runner can scrub them from its tools'
-   environment without reading the file).
+   environment without reading the file; it reads it only for an
+   endpoint's token when it re-resolves, below).
 
 The spawning agent's environment is never used, so a runner's environment
 doesn't depend on who spawned it. `config.toml` and `secrets.env` are read

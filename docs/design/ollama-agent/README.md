@@ -122,7 +122,7 @@ stateDiagram-v2
     Probe --> Switched : served, with tools, and the conversation fits
     Probe --> Current : unreachable (counts as a failed retry)
     Probe --> Current : not served, no tools, or does not fit (endpoint_rejected)
-    Switched --> Current : endpoint_changed; the new target is current
+    Switched --> Current : endpoint_changed, and the new target is current
     Current --> [*] : third retry failed (endpoint_down or endpoint_rejected)
 ```
 

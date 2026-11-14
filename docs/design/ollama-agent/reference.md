@@ -358,7 +358,7 @@ started_at = 2026-11-13T17:45:58Z
 version = 1
 session = "rn-3f2a9c1e"
 model_alias = "qwen9b"         # "" when --model gave a raw id
-model = "qwen/qwen3.5-9b"      # this key and the next six: as resolved at spawn
+model = "qwen/qwen3.5-9b"      # from here to idle_timeout: as resolved at spawn
 endpoint = "gpu"
 url = "http://gpu-a.inference.svc:1234"
 api = "openai"
@@ -688,7 +688,7 @@ sequenceDiagram
     A-->>L: connection error, timeout or 5xx
     L->>L: retry event, then backoff (2 s, 8 s, 30 s or Retry-After)
     L->>R: re-resolve (current target, attempt)
-    R->>C: read config.toml; resolve the run's alias
+    R->>C: read config.toml, then resolve the run's alias
     alt unreadable or unusable
         R-->>L: keep the current target (config_warning)
     else same target
@@ -698,7 +698,7 @@ sequenceDiagram
         R->>B: preflight: models, then probe
         alt served, with tools
             R-->>L: new target
-            L->>L: recompute the window; does the conversation fit?
+            L->>L: recompute the window and check the conversation fits
         else not served, no tools, or does not fit
             R-->>L: keep the current target (endpoint_rejected)
         end
