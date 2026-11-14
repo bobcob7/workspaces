@@ -45,8 +45,9 @@ ws runner check [--json] [--model <m>] [<endpoint>]   (hidden; the desktop app's
 | `--endpoint <name>` | Overrides the chosen model's endpoint; only with the `ws` runner |
 
 For a `ws` child, the arguments after the prompt may only be `--model <m>`,
-where `<m>` is a model alias, or a model id on the default model's
-endpoint; anything else is `usage`. Use `-- "" --model <m>` to override only
+where `<m>` is a model alias, or a model id on the endpoint of the alias
+the role's `model` or `runner.model` would choose (with that alias's
+context size and a warning); anything else is `usage`. Use `-- "" --model <m>` to override only
 the model of a role.
 
 Order of work for `--runner ws`: check flags and role (before anything is
@@ -94,7 +95,7 @@ Runs the daemon in the foreground until `SIGTERM` or `SIGINT`, or, with
 runner and no request for 15 minutes. `--origin managed` (the default) is
 for `ws-online`, launchd and systemd. It takes `CONFIG_DIR/daemon/lock`;
 when another daemon holds it, it fails with `daemon_running` (exit 4).
-Text logs go to stderr and `CONFIG_DIR/daemon/daemon.log`. `--json` is
+`slog` JSON logs go to stderr and `CONFIG_DIR/daemon/daemon.log`. `--json` is
 refused.
 
 ### `ws daemon status`
@@ -294,6 +295,7 @@ mcp_deny = []
 mcp_upfront = 8
 user_instructions = false
 prompt = """…the rendered role prompt…"""
+trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"   # sent in traceparent; kept across --resume
 created_at = 2026-11-13T17:45:58Z
 ```
 

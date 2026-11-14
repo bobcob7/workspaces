@@ -13,29 +13,29 @@ runner's provider seam (ADR 0062)`.
 | Task | Title | Depends on | Parallel with | Size |
 | ---- | ----- | ---------- | ------------- | ---- |
 | T1 | Copy fake-ollama into `internal/fakeollama` and `cmd/fake-ollama` | nothing | T3–T6, T8 | |
-| T2 | fake-ollama: conversation rules, raw arguments, strict capabilities, `/api/*`, context length, `Retry-After`, `auth` | T1 | T7, T9, T11, T15, T16 | |
+| T2 | fake-ollama: conversation rules, raw arguments, strict capabilities, `/api/*`, context length, `Retry-After`, `auth` | T1 | T7, T9, T11, T15 | |
 | T3 | `internal/fakemcp` and `cmd/fake-mcp` | nothing | T1, T4–T6, T8 | |
 | T4 | `internal/config`: `[runner]`, `[endpoints]`, `[models]`, `[runner.roles]`, `[runner.env]`, `[daemon]`, `ws config` keys | nothing | T1, T3, T5, T6, T8 | |
 | T5 | `internal/agent/tools`: the seven tools, guards, environment scrub, redactor | nothing | T1, T3, T4, T6, T8 | small |
 | T6 | `internal/llm`: the provider seam, errors, preflight | nothing | T1, T3–T5, T8 | small |
-| T7 | `internal/llm/openai`: the OpenAI-compatible provider, and `internal/llm/providers` | T1, T6 | T2, T9, T11, T15, T16 | |
+| T7 | `internal/llm/openai`: the OpenAI-compatible provider, and `internal/llm/providers` | T1, T4, T6 | T2, T9, T11, T15 | |
 | T8 | A `model` for every agent; `.Runner` and `.Model` in role templates | nothing | T1, T3–T6 | small |
-| T9 | `internal/mcp`: server definitions, expansion, names, filter | nothing (T4 for the role keys' names only) | T2, T7, T11, T15, T16 | small |
-| T10 | `internal/mcp`: the client (stdio, streamable HTTP, SSE) | T3, T9 | T20 | |
-| T11 | `internal/agent`: the loop (copied), budgets, compaction, transcript, preamble, project instructions | T5, T6 | T2, T7, T9, T15, T16 | |
-| T12 | MCP tools in the loop: the toolset and `tool_search` | T10, T11 | none | small |
+| T9 | `internal/mcp`: server definitions, expansion, names, filter | nothing (T4 for the role keys' names only) | T2, T7, T11, T15 | small |
+| T10 | `internal/mcp`: the client (stdio, streamable HTTP, SSE) | T3, T9 | T16 | |
+| T11 | `internal/agent`: the loop (copied), budgets, compaction, transcript, preamble, project instructions | T5, T6 | T2, T7, T9, T15 | |
+| T12 | MCP tools in the loop: the toolset and `tool_search` | T10, T11 | T20 | small |
 | T13 | `internal/runner`, session kind `runner`, hidden `ws runner run` | T4, T7, T12 | none | |
 | T14 | `lifetime` reads runner sessions; `runner`/`model`/`ws_runner` in `ws list`, `children`, `wait`; `ws machine logs` | T8, T13 | T17 | |
-| T15 | `secrets.env` and the runner's environment | T4 | T2, T7, T9, T11, T16 | small |
-| T16 | `internal/daemon` core and `ws daemon run|status|stop` | T4 | T2, T7, T9, T11, T15 | |
+| T15 | `secrets.env` and the runner's environment | T4 | T2, T7, T9, T11 | small |
+| T16 | `internal/daemon` core and `ws daemon run|status|stop` | T15 | T10 | |
 | T17 | The daemon supervises runners; preflight and `ws runner check` | T13, T15, T16 | T14 | |
 | T18 | `ws machine spawn --runner`, `ws rm`/`ws restore` through the daemon, guides and docs | T14, T17 | none | |
 | T19 | `e2e/runner`: harness, scenarios, `make fakes`, `make e2e-runner`, CI | T2, T3, T18 | T21 | |
-| T20 | `ws-online` keeps a managed daemon running | T16 | T10–T19 | small |
+| T20 | `ws-online` keeps a managed daemon running | T16 | T12–T19 | small |
 | T21 | Desktop: a quiet model label on every agent, the runner transcript, Settings › Models | T18 | T19 | |
 
 Waves, if run in parallel: **1** T1, T3, T4, T5, T6, T8 · **2** T2, T7, T9,
-T11, T15, T16 · **3** T10, T20 · **4** T12 · **5** T13 · **6** T14, T17 ·
+T11, T15 · **3** T10, T16 · **4** T12, T20 · **5** T13 · **6** T14, T17 ·
 **7** T18 · **8** T19, T21. Run at most one heavy implementer at a time on
 an 8 GB host (handbook lesson: Go full test runs, `cargo`, vitest); the
 tasks marked `small` touch one package and are light.
@@ -181,7 +181,7 @@ $ make lint && make fakes
 
 ## T2. fake-ollama: conversation rules, raw arguments, strict capabilities, `/api/*`, context length, `Retry-After`, `auth`
 
-**Depends on:** T1. **Parallel with:** T7, T9, T11, T15, T16.
+**Depends on:** T1. **Parallel with:** T7, T9, T11, T15.
 **ADR:** [0067](../../adrs/0067-runner-tests-use-vendored-fakes.md)
 ("Then fill the gaps").
 
@@ -266,8 +266,9 @@ $ make lint && make fakes
 - `status: 503, retry_after: 7` → `Retry-After: 7`. A request with
   `Authorization: Bearer secret` is recorded with `auth`
   `bearer:2bb80d53`, and `secret` appears nowhere in `/requests`.
-- Every YAML file in `docs/design/ollama-agent/fake-ollama/` loads
-  (`LoadConfig`) without error (a table test over the directory).
+- Every YAML file in `docs/design/ollama-agent/fake-ollama/` loads and
+  compiles (`LoadConfig`, then `New`, which runs `compileRules`) without
+  error (a table test over the directory).
 - Package coverage doesn't drop (`go test -cover`).
 
 **Verify**
@@ -366,7 +367,8 @@ client):
 - The three configs in [fake-mcp/](fake-mcp/) load. `many-tools.yaml`
   lists 80 generated tools (`list_thing_001` …) plus the two scripted
   ones, with `readOnlyHint` on the generated ones and `destructiveHint`
-  on `delete_dashboard`; `server.instructions` reaches the client.
+  on `delete_dashboard`; `stdio.yaml`'s `server.instructions` reaches
+  the client.
 - A call matching a reply gets its text; `error` gives `isError`;
   `protocol_error` gives a JSON-RPC error; `--record` gets one line per
   call.
@@ -539,6 +541,9 @@ each endpoint, model and role sorted by name. `Unset` of
 
 **Docs:** `docs/config.md` gains the tables from reference.md and, at the
 end of "The generated file", the commented block from the
+[README](README.md#configuration); the same block goes into the generated
+file's template in `internal/config/config.go` (with a test that the
+generated file still parses to `Default()`). Also from the
 [README](README.md#configuration); `docs/tools/ws-config.md` lists the keys
 and the `int`/`float` types.
 
@@ -659,10 +664,11 @@ error`) and `shellRunner` (`*gate.Runner`'s `Run`).
 - `read_file {path (required), offset, limit}`: `N\t<text>` lines, ≤ 400
   per call; `[file has M lines; use offset to read more]` when more;
   binary (a NUL in the first 8 KiB) → `binary file`.
-- `list_files {path, glob}`: walks the path, skipping `.git`, directories
-  named `node_modules`, `vendor`, `target`, `dist`, `bin`, and exact
-  `.gitignore` entries; ≤ 500 sorted paths, then `[N more not shown]`.
-  Runs no command.
+- `list_files {path, glob}`: `git ls-files --cached --others
+  --exclude-standard -- <path>` through `Shell` (so tracked plus untracked,
+  not ignored, as ADR 0065 says), filtered by `glob` (`path.Match` on the
+  path and on its base name); ≤ 500 sorted paths, then `[N more not
+  shown]`. Outside a git repo: an error `not a git repository`.
 - `search {pattern (required), path, glob}`: Go `regexp` over text files,
   `path:line: text` (lines cut at 200 chars), ≤ 100 matches.
 - `write_file {path, content}`: parents 0o755, file 0o644, `wrote N bytes
@@ -678,7 +684,12 @@ error`) and `shellRunner` (`*gate.Runner`'s `Run`).
   in `Verdicts` (else an error listing them), `Recorder.Record`,
   `Result{Done: true, Verdict}`.
 - Arguments decode with `json.Unmarshal` into a struct per tool; a missing
-  required field → `missing <field>`. Every result is cut to `MaxResult`
+  required field → `missing <field>`. (The loop checks JSON validity and
+  required fields against `Parameters` before `Call`, so those count as
+  invalid calls, T11; the tool's own check is a second line.) Export
+  `func Validate(schema map[string]any, arguments string) error` here
+  (required fields present, top-level types `string`/`integer`/`boolean`
+  right) for the loop to use. Every result is cut to `MaxResult`
   with `[truncated: N more bytes]`.
 
 **Acceptance** (table tests where three or more simple cases):
@@ -839,7 +850,7 @@ $ make lint
 
 ## T7. `internal/llm/openai`: the OpenAI-compatible provider, and `internal/llm/providers`
 
-**Depends on:** T1 (golden fixtures), T6. **Parallel with:** T2, T9, T11, T15, T16.
+**Depends on:** T1 (golden fixtures), T4 (`config.ErrAPINotImplemented`), T6. **Parallel with:** T2, T9, T11, T15.
 **ADRs:** [0062](../../adrs/0062-agent-runner-built-into-ws.md) (the
 `openai` column of the table),
 [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md) (`probe`).
@@ -1017,7 +1028,7 @@ $ make lint
 
 ## T9. `internal/mcp`: server definitions, expansion, names, filter
 
-**Depends on:** nothing. **Parallel with:** T2, T7, T11, T15, T16.
+**Depends on:** nothing. **Parallel with:** T2, T7, T11, T15.
 **ADR:** [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
 (Where servers come from, Naming, the annotation rule),
 [0066](../../adrs/0066-runner-security-boundaries.md) items 6–7.
@@ -1112,7 +1123,7 @@ $ make lint
 
 ## T10. `internal/mcp`: the client (stdio, streamable HTTP, SSE)
 
-**Depends on:** T3, T9. **Parallel with:** T20.
+**Depends on:** T3, T9. **Parallel with:** T16.
 **ADR:** [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
 (Starting and calling).
 
@@ -1203,7 +1214,7 @@ $ make lint
 
 ## T11. `internal/agent`: the loop (copied), budgets, compaction, transcript, preamble, project instructions
 
-**Depends on:** T5, T6. **Parallel with:** T2, T7, T9, T15, T16.
+**Depends on:** T5, T6. **Parallel with:** T2, T7, T9, T15.
 **ADRs:** [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md)
 (all), [0062](../../adrs/0062-agent-runner-built-into-ws.md) (the copy),
 [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
@@ -1299,7 +1310,8 @@ func (a *Agent) Run(ctx context.Context, history []llm.Message, step int) Outcom
    event; the second time, lower the working limit to it.
 5. No tool call → user message `Call a tool. When the task is done, call
    record_result.`; the third in a row → `ExitNoResult`.
-6. Per call: unknown name (`!Known`), invalid JSON or a decode error →
+6. Per call: unknown name (`!Known`), invalid JSON, or
+   `tools.Validate` failing against the tool's schema →
    tool message `error: <what>; the arguments must match: <compact
    schema>` and `invalid_call`; three in a row → `ExitMalformed`. Valid →
    `Call`, result sent as `<tool_result tool="NAME">…</tool_result>`. The
@@ -1329,9 +1341,14 @@ lines; run it again if you need it]`.
 **Transcript** (`transcript.go`): `OpenTranscript(path string, r
 *tools.Redactor) (*Transcript, error)` (append, 0o600); `Write(ev Event)
 error` redacts every string field through `r` before marshalling;
-`Close`. `Event` has `Time`, `Step`, `Kind` and one `omitzero` field per
-column of reference.md's table, MCP ones included (`Server`, `Transport`,
-`Allowed`, `Query`, `Loaded`, `Dropped`, `Restarts`, `Reason`). `ReadHistory(path)
+`Close`. `Event` is `Time`, `Step`, `Kind` plus one payload struct per
+kind (`StartEvent`, `RequestEvent`, … `ExitEvent`), each marshalled with
+exactly reference.md's columns for that kind: no `omitzero` on payload
+fields, so `"ok": false`, `"truncated": false`, `"resume": false` and the
+`null`s (`usage`, `verdict`, `tool`) are written; nullable fields are
+pointers. `messages` and `tools` are lists in `start` and counts in
+`request`, so they live in different payload types. Writing flattens the
+payload into the event object; `Tail` decodes by `kind`. `ReadHistory(path)
 ([]llm.Message, int, error)` rebuilds the conversation for `--resume`
 (start's task, responses as assistant messages with `ReasoningOpaque`
 dropped when its provider differs from the current one, tool results,
@@ -1397,7 +1414,7 @@ $ make lint
 
 ## T12. MCP tools in the loop: the toolset and `tool_search`
 
-**Depends on:** T10, T11. **Parallel with:** none.
+**Depends on:** T10, T11. **Parallel with:** T20.
 **ADR:** [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
 (Deferral).
 
@@ -1553,8 +1570,17 @@ doesn't):
    `Filter(manager.Tools(), MCPTools, MCPDeny)`, `NewToolset`); the
    transcript; the system prompt (`Preamble` + `LoadInstructions`, with
    `~/.claude/CLAUDE.md` only when `run.UserInstructions`);
+   `StartAll`'s result is written as one `mcp_start` event per server
+   (`transport`, `ok`, `tools`, `allowed`, `error`) and, for a failed one,
+   an `mcp_error` event with `tool: null`; failed servers go into
+   `PreambleData.Unavailable`;
 3. `agent.Run` (`ReadHistory` and a `restart` event for `--resume`),
-   `OnStatus` → `WriteStatus` with `manager.Status()`;
+   `OnStatus` → `WriteStatus` with `manager.Status()`, each server's
+   `loaded` taken from the toolset (`MCPToolset.LoadedByServer()
+   map[string]int`, added here);
+   the trace id is created by `ws machine spawn` into `run.toml`
+   (`trace_id`, T18) so it survives `--resume`, and goes to
+   `agent.Config.TraceID` and `usage.json`;
 4. on exit: `Finalize` unless the model's verdict was recorded; exit 0.
    Exit 1 only when `run.toml` can't be read or `status.json` can't be
    written.
@@ -1622,12 +1648,18 @@ $ make lint
 - `internal/cli/list.go`: `listWSRunnerJSON` gets reference.md's fields
   (`model_alias`, `endpoint`, `step`, `max_steps`, `restarts`, `usage`,
   `mcp`, `exit`); wire `UseRunners` where the Manager is built.
-- `wait` and `children` items: `runner: "ws"`, `model`, and `ws_runner`
+- `wait` items: top-level `runner: "ws"`, `model`, and `ws_runner`
   (`model_alias`, `endpoint`, `exit`, `steps`, `restarts`, `usage`,
   `wall_seconds`, `usage_file`); for a gone child, from `usage.json` when
-  it exists.
+  it exists. `children` gets nothing new at the top level: its items
+  embed `ws list`'s object, so `session.runner`, `session.model` and
+  `session.ws_runner` come from the change above.
 - **New** `internal/cli/machine_logs.go`: `ws machine logs [--tail N]
-  <workspace>` with `wait`'s caller and descendant checks. `ws` child →
+  <workspace>` with `wait`'s caller and descendant checks. The argument
+  is a workspace id or name, or a session id (`rn-…` or a Claude
+  session id); a removed child is accepted by id while
+  `state/<id>/runner/` (or its Claude session) still exists, else
+  `workspace_not_found`. `ws` child →
   `agent.Tail`; Claude child → `a.claude.Logs(ctx, session)` (add `Logs`
   to `internal/claude` running `claude logs <id>`, tested with
   `exectest`, and to the cli `claudeClient`; regenerate mocks).
@@ -1653,7 +1685,8 @@ $ make lint
   `ws_runner.exit`, `usage_file`; on a removed one, the same from
   `usage.json`.
 - `ws machine logs` → reference.md's shape for both runners; `--tail 2`
-  sets `truncated`; `not_descendant` for a sibling.
+  sets `truncated`; a session id finds the same child; a removed child
+  whose state remains is readable; `not_descendant` for a sibling.
 - `TestGuideTopics` and `go test ./internal/cli/` pass.
 
 **Verify**
@@ -1669,7 +1702,7 @@ $ make lint
 
 ## T15. `secrets.env` and the runner's environment
 
-**Depends on:** T4. **Parallel with:** T2, T7, T9, T11, T16.
+**Depends on:** T4. **Parallel with:** T2, T7, T9, T11.
 **ADRs:** [0068](../../adrs/0068-ws-daemon.md) (Environment and runtime
 configuration), [0066](../../adrs/0066-runner-security-boundaries.md) item 1.
 
@@ -1703,8 +1736,6 @@ func SetSecret(configDir, name, value string) error
 func RunnerEnv(base []string, cfg config.Runner, secrets map[string]string, workspaceID, configDir string) []string
 ```
 
-Add `WS_RUNNER_SECRET_NAMES` to reference.md's environment table if it
-isn't there.
 
 **Acceptance**
 
@@ -1728,7 +1759,7 @@ $ make lint
 
 ## T16. `internal/daemon` core and `ws daemon run|status|stop`
 
-**Depends on:** T4. **Parallel with:** T2, T7, T9, T11, T15.
+**Depends on:** T15 (it adds to `internal/daemon`, which T15 creates). **Parallel with:** T10.
 **ADR:** [0068](../../adrs/0068-ws-daemon.md) (Lifecycle, The socket, How
 `ws` reaches it).
 
@@ -1838,6 +1869,9 @@ temp dir):
   exits by itself; a managed one doesn't.
 - `Ensure` with `autostart=false` and nothing running → `ErrUnavailable`;
   with a test `exe` script that runs a fake server → a client within 5 s.
+- A client whose daemon answers an older `ws_version` than it needs →
+  `ErrUnavailable` with "run ws daemon stop --keep-runners"; `ws daemon
+  status` shows that as a warning.
 - `ws daemon status --json` with nothing running → reference.md's
   not-running object, exit 0. `ws daemon run --json` → `usage`.
   `TestGuideTopics` passes.
@@ -1911,7 +1945,14 @@ type processStarter interface {
   environment, `llm.Preflight`; returns reference.md's `ws runner check`
   object (`token_source`: `env`, `secrets.env` or `null`).
 - **`ws runner check [--json] [--model <m>] [<endpoint>]`** (hidden): asks
-  the daemon (`Ensure`) to preflight and prints the object.
+  the daemon (`Ensure`) to preflight and prints the object. Defaults
+  (reference.md): no `<endpoint>` → the endpoint of `runner.model`'s
+  alias; no `--model` → the first alias (sorted by name) whose endpoint is
+  that endpoint, else `runner.model`. `PreflightRequest` gains `Check
+  bool` to select these rules instead of `Resolve`'s role order.
+- **Warnings** in `GET /v1/status` and `ws daemon status`: `secrets.env`
+  ignored because its mode is looser than 0600 (from `ReadSecrets`), and
+  any `config.toml` error met at the last runner start.
 - **Error codes** (this task declares them, because `ws runner check` and
   the daemon's answers use them): `endpoint_unknown` (3),
   `endpoint_unreachable` (1), `model_not_served` (3), `model_without_tools`
@@ -1982,7 +2023,8 @@ the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd
      error with `fallback = "claude"` → the Claude path with the warning;
      otherwise the error;
   4. create the workspace (as `runClaude`, holding the lock);
-  5. `runner.FilesFor(…).WriteRun` with the prompt from
+  5. `runner.FilesFor(…).WriteRun` (with `trace_id =
+     llm.NewTraceID()`) with the prompt from
      `role.RenderFor(vars, extra, "ws", resolved.ModelID)` (or the prompt
      after `--`), budgets, MCP keys, `branch = vars["BRANCH"]`,
      `user_instructions`; no token or header;
@@ -2096,7 +2138,7 @@ $ make e2e-runner
 
 ## T20. `ws-online` keeps a managed daemon running
 
-**Depends on:** T16. **Parallel with:** T10–T19.
+**Depends on:** T16. **Parallel with:** T12–T19.
 **ADR:** [0068](../../adrs/0068-ws-daemon.md) (Where it runs).
 
 **Read:** `desktop/src-tauri/src/online/server.rs` (`run`, the

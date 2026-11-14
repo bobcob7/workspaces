@@ -143,7 +143,7 @@ spawn --role reviewer ──────▶  runner=claude (no override) ──�
   (Sonnet stays the gate)
 merge.sh T1
 
-for T2 (marked "claude-only" in tasks.md):
+for T2 (the feature's tasks.md marks it claude-only):
 spawn --runner claude --role implementer ─▶ claude --bg ───────────────────────────────────▶ PASS
 
 when a ws child fails:
