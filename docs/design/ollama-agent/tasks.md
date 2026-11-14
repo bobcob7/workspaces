@@ -999,7 +999,10 @@ func New(ep llm.Endpoint, httpClient *http.Client, log *slog.Logger) (llm.Provid
   Usage from `prompt_tokens`/`completion_tokens`, `Reported` when sent.
 - Errors: 400 containing `does not support tools` → `NoToolsError`; 404 →
   `ModelMissingError`; 400 mentioning context length → `ErrContextExceeded`;
-  429/502/503/504, reset or refused → `RetryableError` with `Retry-After`;
+  429 and any 5xx, a connection reset, refused or timed out, and a
+  request cut by `RequestTimeout` (its own deadline, not the caller's
+  context: a cancelled `ctx` returns `ctx.Err()` unwrapped) →
+  `RetryableError` with `Retry-After` (ADR 0065, third review);
   others wrapped with the server's message.
 - `Probe` by `ep.Probe`: `ollama` → `GET /api/version`, `POST /api/show`
   (capabilities, `*.context_length` from `model_info`); `none` →
@@ -1023,7 +1026,9 @@ func New(ep llm.Endpoint, httpClient *http.Client, log *slog.Logger) (llm.Provid
   `Reasoning`.
 - `Models` returns ids containing `/` and `:` unchanged.
 - Mid-stream close → `ErrStreamDropped`; a chunk then silence over a 100 ms
-  `IdleTimeout` → `ErrStreamStalled`; 503 `Retry-After: 7` → `Retryable`
+  `IdleTimeout` → `ErrStreamStalled`; 500 and a request over
+  `RequestTimeout` → `Retryable`; a cancelled caller context → not
+  `Retryable`; 503 `Retry-After: 7` → `Retryable`
   true, 7 s; 400 `{"error":"m does not support tools"}` → `ErrNoTools`;
   404 → `ErrModelMissing`.
 - `Probe`: `ollama` parses capabilities and context length; `auto` against
