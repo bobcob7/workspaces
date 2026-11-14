@@ -91,15 +91,17 @@ built-in ones.
 
 ### The loop
 
-```
-start ─▶ preflight-ok ─▶ ┌──────────── step ─────────────┐
-                         │ compact? ─▶ request (stream)  │
-                         │   ├ retryable error ─▶ retry (≤3, 2s/8s/30s) ─┐
-                         │   ├ no tool call ─▶ nudge (≤2) ─▶ step        │
-                         │   ├ tool calls ─▶ validate ─▶ execute ─▶ step │
-                         │   └ record_result ─▶ DONE                     │
-                         └──────────────── budgets checked each step ◀───┘
-any stop ─▶ write usage.json ─▶ (no verdict yet? record fail verdict + reason) ─▶ exit
+```mermaid
+flowchart TD
+    start["start, after preflight"] --> budget{"budgets left?"}
+    budget -->|"no"| stop["write usage.json; no verdict yet, so record the fail verdict and the reason; exit"]
+    budget -->|"yes"| compact["compact if needed"]
+    compact --> request["request, streamed"]
+    request -->|"retryable error, at most 3: wait 2 s, 8 s, 30 s"| request
+    request -->|"no tool call: nudge, at most 2"| budget
+    request -->|"tool calls"| validate["validate, then execute"]
+    validate --> budget
+    validate -->|"record_result"| done["done: write usage.json; exit"]
 ```
 
 - **Per request**: through the endpoint's provider

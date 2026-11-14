@@ -61,27 +61,30 @@ rendered to [img/](img/).
 
 ## Architecture
 
-```
-            ┌──────────────────────────────────── host (Mac, or the ws-online pod) ─────────────────────────────────────┐
-            │                                                                                                            │
-orchestrator│  ws machine spawn --role implementer …         ws machine wait / children / logs, ws list (read files)     │
-(Claude) ───┼─▶ internal/cli ─┬─ runner = claude ─▶ internal/claude ─▶ claude --bg  (Claude Code's own service, as today) │
-            │                 │                                                                                          │
-            │                 └─ runner = ws ── unix socket (user-only) ──▶ ws daemon  (one per CONFIG_DIR)              │
-            │                      1 preflight ───────────────────────────▶  │ builds env: own + [runner.env] + secrets.env│
-            │                      2 create workspace, run.toml, session     │ starts, watches (pid + start time),        │
-            │                      3 start ───────────────────────────────▶  │ restarts 5s/30s/2m, resumes on start       │
-            │                                                                ▼                                           │
-            │                                      ws runner run <id>  (own session; one per child)                      │
-            │                                      ├─ internal/agent      loop, budgets, compaction, tool_search        │
-            │                                      ├─ internal/agent/tools read/list/search/write/edit, run, result     │
-            │                                      ├─ internal/mcp ─────── stdio servers (children) / HTTP ─────────────┼──▶ grafana, outline, …
-            │                                      ├─ internal/machine    result.toml, usage.json                       │
-            │                                      └─ internal/llm ─ Provider "openai" ───────────────── HTTP ──────────┼──▶ Ollama /v1, llm-router,
-            │                                           writes state/<id>/runner/{status.json, transcript.jsonl}        │    LM Studio, vLLM
-            │                                                                                                            │    (later: other APIs)
-            │  internal/lifetime reads session kind "runner" ◀── status.json + pid alive?                               │
-            └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    orch["Orchestrator (Claude), a person, or a loop"]
+    cli["ws CLI (internal/cli): machine spawn, claude, loop tick"]
+    cc["claude --bg (Claude Code's own service, as today)"]
+    hosts["Daemon host: the desktop app, ws-online, a service manager, or an auto-start"]
+    daemon["ws daemon, one per CONFIG_DIR: preflight, start, watch, resume, stop; builds the runner's environment"]
+    runner["ws runner run, one process per agent, in its own session"]
+    files[("state/ID/runner: run.toml, status.json, transcript.jsonl")]
+    readers["ws list, ws machine wait, children, logs, the desktop listing (internal/lifetime)"]
+    endpoint["OpenAI-compatible endpoint: LM Studio, Ollama /v1, llm-router, vLLM"]
+    mcpservers["MCP servers the role allows: stdio children or HTTP"]
+    otel["OTLP collector, when OTEL_* variables are set"]
+
+    orch -->|"spawn, wait, children, logs"| cli
+    cli -->|"runner = claude"| cc
+    cli -->|"runner = ws: preflight, then start (user-only Unix socket)"| daemon
+    hosts -.->|"keeps it running"| daemon
+    daemon -->|"starts with env: own, then [runner.env], then secrets.env"| runner
+    runner -->|"internal/agent loop through internal/llm Provider"| endpoint
+    runner -->|"internal/mcp"| mcpservers
+    runner -->|"writes"| files
+    runner -.->|"internal/telemetry: traces, metrics, logs"| otel
+    readers -->|"read files; never need the daemon"| files
 ```
 
 - One binary. The runner and the daemon are `ws` itself, behind hidden
@@ -102,56 +105,63 @@ user has set:
 
 ```toml
 [runner]
-model = "coder"
+model = "qwen9b"
 
 [endpoints.gpu]
-url = "http://ollama-a.inference.svc:11434"
+url = "http://gpu-a.inference.svc:1234"   # an OpenAI-compatible server with LM Studio-style ids
 
-[models.coder]
+[models.qwen9b]
 endpoint = "gpu"
-id = "qwen3-coder:30b"
+id = "qwen/qwen3.5-9b"
 context_tokens = 65536
+reasoning = "none"
 
 [runner.roles.verifier]
 runner = "ws"
-
-[runner.roles.implementer]
-runner = "ws"        # only for tasks the orchestrator doesn't mark --runner claude
 ```
 
-```
-orchestrator (Claude)          ws / ws daemon                    runner (qwen3-coder:30b)   Claude child
-───────────────────────        ──────────────                    ────────────────────────   ────────────
-spawn --role verifier  ─────▶  role → runner=ws (config)
-  (baseline on main)           daemon not running → auto-start
-                               daemon preflight gpu: /v1/models ✓
-                               probe /api/show: tools ✓
-                               create ws, run.toml; daemon starts ─▶ step 1..n: run CHECKS
-◀── {"runner":"ws","model":"qwen3-coder:30b",…}                     record_result PASS
-spawn designer --model opus ─▶ runner=claude ──────────────────────────────────────────────▶ designs, PASS
-wait base design (bg) ──────▶  polls lifetime: base idle+result, design idle+result
-◀── both finished, PASS
+The verifiers run on the runner by config; the orchestrator moves a
+docs-only `small` implementer there per spawn with `--runner ws`
+([Which roles suit a 9B model](#which-roles-suit-a-9b-model)).
 
-for T1 (small task):
-spawn --role implementer ───▶  runner=ws ───────────────────────▶ read task → edit → run make
-                                                                  test → git commit/push
-                               (runner crashes at step 9:         ✗
-                                daemon resumes it after 5 s) ───▶ step 9.. → record_result PASS
-wait t1-impl ───────────────▶  ◀────────── status.json exit=done, result.toml PASS
-◀── outcome pass, model qwen3-coder:30b, ws_runner.exit "done", restarts 1
-spawn --role reviewer ──────▶  runner=claude (no override) ────────────────────────────────▶ APPROVED
-  (Sonnet stays the gate)
-merge.sh T1
+```mermaid
+sequenceDiagram
+    participant O as Orchestrator (Claude)
+    participant W as ws and the ws daemon
+    participant R as Runner (qwen/qwen3.5-9b)
+    participant C as Claude child
 
-for T2 (the feature's tasks.md marks it claude-only):
-spawn --runner claude --role implementer ─▶ claude --bg ───────────────────────────────────▶ PASS
+    O->>W: spawn --role verifier (baseline on main)
+    Note over W: role says runner = ws. No daemon answers, so one is auto-started (or the desktop app already hosts it).
+    W->>W: preflight gpu: GET /v1/models lists qwen/qwen3.5-9b
+    W->>R: create workspace and run.toml, then start
+    W-->>O: {"runner": "ws", "model": "qwen/qwen3.5-9b", ...}
+    O->>W: spawn designer -- "..." --model opus
+    W->>C: claude --bg
+    O->>W: wait base design (in the background)
+    R->>R: run each CHECKS command, then record_result PASS
+    C-->>W: design pushed, PASS
+    W-->>O: both finished, PASS
 
-when a ws child fails:
-◀── outcome fail, ws_runner.exit "looping"   (report line 1: "ws runner: looping")
-respawn the same task with --runner claude   (procedure step; never automatic)
+    Note over O,C: T1 is a small, docs-only task
+    O->>W: spawn --runner ws --role implementer
+    W->>R: start
+    R->>R: read the task, edit two markdown files, run the doc check, commit, push
+    Note over W,R: the runner crashes at step 9, and the daemon resumes it after 5 s
+    R->>R: step 9 onward, then record_result PASS
+    O->>W: wait t1-impl
+    W-->>O: outcome pass, ws_runner.exit "done", restarts 1
+    O->>W: spawn --role reviewer (Claude, no override: the gate)
+    W->>C: claude --bg
+    C-->>W: APPROVED
 
-final verifier on feat/x ───▶ runner=ws ─────────────────────────▶ PASS / FLAKY / FAIL
-ws machine children → [] after rm
+    Note over O,C: T2 is a code task, so it stays on Claude
+    O->>W: spawn --role implementer (no --runner, so claude)
+    W->>C: claude --bg
+
+    Note over O,C: when a ws child fails
+    W-->>O: outcome fail, ws_runner.exit "looping" (report line 1 says so)
+    O->>W: respawn the same task with --runner claude (a procedure step, never automatic)
 ```
 
 What the orchestrator sees differs in only three ways: `runner`, `model`
@@ -161,39 +171,39 @@ reasons in failed reports.
 
 ## The agent loop
 
-```
-              ┌─────────┐ resume: rebuild from transcript, restart MCP servers
-   start ────▶│ PREPARE │ (start MCP servers, load project instructions) ──┐
-              └────┬────┘                                                   │
-                   ▼                                                        ▼
-            ┌─────────────┐  over 70% of window  ┌──────────────┐
-      ┌────▶│ CHECK_BUDGET│─────────────────────▶│   COMPACT    │──fits──┐
-      │     └──────┬──────┘                      └──────┬───────┘        │
-      │   budget   │ ok                         doesn't fit              │
-      │   used up  ▼                                    ▼                │
-      │     ┌───────────┐  retryable (≤3)   ┌────────────────────┐       │
-      │     │  REQUEST  │◀─────────────────▶│ BACKOFF 2s/8s/30s  │       │
-      │     └─────┬─────┘  (via Provider)   └────────────────────┘       │
-      │           │ response                                             │
-      │           ▼                                                      │
-      │     ┌───────────┐ no tool call (≤2) ─▶ NUDGE ─────────────┐      │
-      │     │ DISPATCH  │ invalid call (≤3 in a row) ─▶ ERROR MSG ─┤      │
-      │     └─────┬─────┘ repeat ×3 ─▶ NUDGE; ×5 ─▶ EXIT(looping)  │      │
-      │           │ valid calls (built-in, tool_search, mcp__…)    │      │
-      │           ▼                                                │      │
-      │     ┌───────────┐  record_result / ws machine result       │      │
-      │     │  EXECUTE  │──────────────────────────────▶ EXIT(done)│      │
-      │     └─────┬─────┘                                          │      │
-      └───────────┴◀───────────────────────────────────────────────┘◀─────┘
- EXIT(reason): write status.json exit, usage.json; if no verdict and reason ≠ stopped:
-               record first fail verdict + report "ws runner: <reason>"
- (process dies instead: the daemon resumes it, and after 3 restarts records "crashed")
+```mermaid
+stateDiagram-v2
+    [*] --> Prepare : start, or resume by rebuilding from the transcript
+    Prepare --> CheckBudget : MCP servers started, project instructions loaded
+    CheckBudget --> Exit : a budget is used up, or stop was asked
+    CheckBudget --> Compact : over 70 percent of the window
+    CheckBudget --> Request : under it
+    Compact --> Request : fits
+    Compact --> Exit : does not fit (context_overflow)
+    Request --> Backoff : retryable error, at most 3 times
+    Backoff --> Request : after 2 s, 8 s, 30 s
+    Request --> Exit : retries used up (endpoint_down)
+    Request --> Dispatch : response
+    Dispatch --> CheckBudget : no tool call, so a nudge (at most 2 in a row)
+    Dispatch --> CheckBudget : invalid call, so an error answer (at most 3 in a row)
+    Dispatch --> Exit : same call 5 times (looping)
+    Dispatch --> Execute : valid calls (built-in, tool_search, MCP)
+    Execute --> CheckBudget : results added
+    Execute --> Exit : record_result or ws machine result (done)
+    Exit --> [*]
+    note right of Exit
+        writes status.json exit and usage.json.
+        Without a verdict, and unless stopped, records the first fail verdict
+        with a report starting "ws runner: reason".
+        If the process dies instead, the daemon resumes it;
+        a fourth death is recorded as crashed.
+    end note
 ```
 
 Each state change rewrites `status.json`, and each step appends to
-`transcript.jsonl`. `stop` (written by `ws rm`) is checked between steps;
-`SIGTERM` cancels the request in flight. The details are in
-[0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md).
+`transcript.jsonl`. `stop` (written by `ws rm` and by the desktop's Stop)
+is checked between steps; `SIGTERM` cancels the request in flight. The
+details are in [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md).
 
 **Preamble** (the system prompt; task T11 embeds this text as `internal/agent/preamble.md`):
 

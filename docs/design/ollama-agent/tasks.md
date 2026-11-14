@@ -96,6 +96,11 @@ disagree, reference.md wins. Don't read whole packages.
   `## Exit codes` and `## Examples`, and that `guides/ws.md` links every
   guide and lists every error code. The finished guides are in
   [guides/](guides/): copy them with `cp`, unchanged.
+- **Docs**: diagrams in markdown files are fenced ` ```mermaid ` blocks
+  (`flowchart`, `sequenceDiagram`, `stateDiagram-v2`), never ASCII or
+  box-drawing art. Keep them to syntax GitHub renders: quote labels that
+  hold punctuation, no HTML, no click handlers or themes. File trees and
+  command synopses stay plain code blocks.
 - Run heavy commands one at a time (`go test -p 2`). Commit and push
   before the slowest suite. If a command was killed, say so in the report.
 - Commit trailer: as your role prompt says.
