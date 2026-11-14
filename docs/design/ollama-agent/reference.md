@@ -400,8 +400,8 @@ One JSON object per line:
 | `kind` | Fields besides `time`, `step`, `kind` |
 | ------ | ------------------------------------- |
 | `start` | `model`, `model_alias`, `endpoint`, `api`, `context_tokens`, `reasoning`, `resume` (bool), `trace_id`, `messages` (system prompt and task, redacted), `tools` (names offered) |
-| `request` | `messages`, `tools` (count), `estimated_tokens`, `span_id` (the request's `chat` span) |
-| `response` | `content`, `reasoning`, `tool_calls` [{`id`,`name`,`arguments`}], `stop_reason`, `usage` {`input_tokens`,`output_tokens`} or `null`, `duration_ms` |
+| `request` | `messages`, `tools` (count), `estimated_tokens` |
+| `response` | `content`, `reasoning`, `tool_calls` [{`id`,`name`,`arguments`}], `stop_reason`, `usage` {`input_tokens`,`output_tokens`} or `null`, `duration_ms`, `span_id` (the request's `chat` span, or `null` without telemetry) |
 | `tool_result` | `id`, `name`, `ok`, `bytes`, `truncated`, `text` (as sent to the model); for MCP tools also `server`, `tool` |
 | `invalid_call` | `id`, `name`, `error` |
 | `nudge` | `reason` (`no_tool_call`, `text_tool_call`, `repeat`) |

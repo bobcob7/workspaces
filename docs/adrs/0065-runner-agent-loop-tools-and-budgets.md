@@ -268,7 +268,7 @@ that trace id, so a resumed run continues the same trace. Each `chat`
 span's context is sent to the endpoint as W3C `traceparent` by the
 propagator, so llm-router's server span becomes its child. The trace id
 is in `run.toml`, `usage.json`, and the transcript's `start` and
-`restart` events; each `request` event has its `chat` span's `span_id`.
+`restart` events; each `response` event has its `chat` span's `span_id`.
 Instrumentation wraps the seams, so neither the loop nor a provider
 imports OpenTelemetry: `telemetry.Provider` decorates an `llm.Provider`,
 and `telemetry.Toolset` decorates the loop's `Toolset`.

@@ -297,6 +297,9 @@ $ make lint && make fakes
 - Every YAML file in `docs/design/ollama-agent/fake-ollama/` loads and
   compiles (`LoadConfig`, then `New`, which runs `compileRules`) without
   error (a table test over the directory).
+- Model names with `/` and `:` work everywhere: `qwen/qwen3.5-9b` and
+  `qwen3.5:9b` are listed by `/v1/models` and `/api/tags`, answered by
+  `/api/show` and chat, and scoped by faults, exactly as written.
 - Package coverage doesn't drop (`go test -cover`).
 
 **Verify**
@@ -457,6 +460,7 @@ type Model struct {
 	ContextTokens int    `toml:"context_tokens" json:"context_tokens"`
 	MaxOutput     int    `toml:"max_output" json:"max_output"`
 	Temperature   string `toml:"temperature" json:"temperature"` // a float as a string; default "0.2"
+	Reasoning     string `toml:"reasoning" json:"reasoning"`     // "" | none | low | medium | high
 }
 
 // RunnerRole is one [runner.roles.<role>].
@@ -485,8 +489,12 @@ const (
 )
 
 // ReservedAPIs are wire protocols the design names but ws doesn't
-// implement yet (ADR 0062).
+// implement yet (ADR 0062): "ollama" is planned next (T27, which removes
+// it from this list), the others are reserved.
 func ReservedAPIs() []string { return []string{"ollama", "openai-responses", "anthropic"} }
+
+// ReasoningLevels are the values of a model's reasoning besides "".
+func ReasoningLevels() []string { return []string{"none", "low", "medium", "high"} }
 
 var (
 	ErrEndpointUnknown   = errors.New("endpoint not configured")
@@ -503,6 +511,7 @@ type Resolved struct {
 	ContextTokens int
 	MaxOutput     int
 	Temperature   float64
+	Reasoning     string
 	MaxSteps      int
 	Timeout       time.Duration
 	MaxTokens     int
@@ -544,9 +553,11 @@ map[string]Model `toml:"models"``, `Daemon Daemon `toml:"daemon"``.
   implemented yet"), anything else invalid.
 - Names (endpoint, alias, role) match `^[a-z][a-z0-9-]{0,31}$`.
 - `url` required, `http`/`https`, a host, no user info, query or fragment.
-- `endpoint` and `id` required on a model; `endpoint` defined;
-  `context_tokens` ≥ `MinContextTokens`; `max_output` ≥ 0; `temperature`
-  parses as a float in [0, 2].
+- `endpoint` and `id` required on a model; `id` has no control
+  characters and is kept exactly (no trimming, no splitting on `/` or
+  `:`); `endpoint` defined; `context_tokens` ≥ `MinContextTokens`;
+  `max_output` ≥ 0; `temperature` parses as a float in [0, 2];
+  `reasoning` is `""` or one of `ReasoningLevels()`.
 - `runner.model` and every role `model`, when set, name a defined alias.
 - `[runner.env]` names match `^[A-Z_][A-Z0-9_]*$`; a name ending `_TOKEN`,
   `_KEY`, `_SECRET` or `_PASSWORD` → `put secrets in secrets.env`.
@@ -560,7 +571,7 @@ map[string]Model `toml:"models"``, `Daemon Daemon `toml:"daemon"``.
 ones: `runner.model`, `runner.fallback`, `runner.keep_git_tokens`,
 `runner.user_instructions`, `daemon.resume_on_start`. Pattern rules:
 `runner.env.<NAME>`; `endpoints.<name>.{url,api,probe,request_timeout,idle_timeout}`;
-`models.<alias>.{endpoint,id,context_tokens,max_output,temperature}`;
+`models.<alias>.{endpoint,id,context_tokens,max_output,temperature,reasoning}`;
 `runner.roles.<role>.{runner,model,max_steps,timeout,max_tokens,mcp_servers,mcp_tools,mcp_deny,mcp_upfront}`
 (string lists as for existing list keys). `Settings` lists fixed keys, then
 each endpoint, model and role sorted by name. `Unset` of
@@ -577,24 +588,30 @@ and the `int`/`float` types.
 
 **Acceptance**
 
-- `Resolve("implementer", "", "")` with `runner.model = "coder"` and role
-  implementer `model = "small"` → alias `small`, its endpoint, 80 steps,
-  60m, 4 000 000, `api` `openai`, `probe` `auto`, 10m, 90s, `max_output`
-  4096, temperature 0.2, `mcp_tools` `["*"]`, `mcp_upfront` 8.
-- Flags win: `Resolve("implementer", "cpu", "coder")` → endpoint `cpu`. An
-  unknown endpoint → `ErrEndpointUnknown`. `Resolve("x", "", "qwen3:8b")`
-  (no such alias) → that id on `runner.model`'s endpoint and a warning. No
-  model anywhere → `ErrNoModel`.
+- `Resolve("implementer", "", "")` with `runner.model = "qwen9b"` and role
+  implementer `model = "qwen9b-think"` → alias `qwen9b-think`, its
+  endpoint, 80 steps, 60m, 4 000 000, `api` `openai`, `probe` `auto`, 10m,
+  90s, `max_output` 4096, temperature 0.2, reasoning `""`, `mcp_tools`
+  `["*"]`, `mcp_upfront` 8. With `reasoning = "none"` on the alias,
+  `Resolved.Reasoning` is `none`.
+- Flags win: `Resolve("implementer", "cpu", "qwen9b")` → endpoint `cpu`. An
+  unknown endpoint → `ErrEndpointUnknown`. `Resolve("x", "", "qwen/qwen3.5-9b")`
+  and `Resolve("x", "", "qwen3.5:9b")` (no such alias) → exactly that id
+  on `runner.model`'s endpoint and a warning. `Resolve("", "", "")` (no
+  role, as `ws claude` and loops call it) → `runner.model` with the "other"
+  budget. No model anywhere → `ErrNoModel`.
 - `RunnerFor`: configured role → its runner; anything else → `claude`.
   `TokenEnv("gpu-a")` = `WS_ENDPOINT_TOKEN_GPU_A`.
 - Parsing fails, naming the key, for `context_tokens = 4096`, `url =
   "ftp://x"`, `url = "http://u:p@x"`, `fallback = "always"`, `api =
   "anthropic"` (the message says not implemented yet), a model whose
-  endpoint isn't defined, `token = "x"`, `[runner.env] GRAFANA_TOKEN = "x"`
-  and the name `GPU`.
-- `ws config set models.coder.context_tokens 65536` writes it and keeps
-  comments; `set … 4096` → `ErrValueInvalid`; `unset models.coder` removes
-  the table. An empty `config.toml` still parses to `Default()`. Existing
+  endpoint isn't defined, `reasoning = "max"`, an `id` with a newline,
+  `token = "x"`, `[runner.env] METRICS_TOKEN = "x"` and the name `GPU`.
+  `id = "qwen/qwen3.5-9b"` parses and round-trips unchanged.
+- `ws config set models.qwen9b.context_tokens 65536` and `ws config set
+  models.qwen9b.id qwen/qwen3.5-9b` write them and keep comments; `set
+  models.qwen9b.context_tokens 4096` → `ErrValueInvalid`; `unset
+  models.qwen9b` removes the table. An empty `config.toml` still parses to `Default()`. Existing
   tests pass unchanged.
 
 **Verify**
@@ -661,7 +678,8 @@ func New(cfg Config) []Tool
 
 // Environ is environ without secrets (ADR 0066): names matching
 // WS_ENDPOINT_TOKEN_*, WS_FORGEJO_TOKEN_*, *_API_KEY, *_TOKEN, *_SECRET,
-// *_PASSWORD, or in secretNames (the names in secrets.env), except
+// *_PASSWORD, OTEL_EXPORTER_OTLP_HEADERS, OTEL_EXPORTER_OTLP_*_HEADERS, or
+// in secretNames (the names in secrets.env), except
 // GH_TOKEN and GITHUB_TOKEN when keepGit; WS_RUNNER=ws is set.
 func Environ(environ []string, keepGit bool, secretNames []string) []string
 // Secrets is the values Environ removed, for the redactor.
@@ -730,9 +748,10 @@ error`) and `shellRunner` (`*gate.Runner`'s `Run`).
   --file ../r.md`, `git push -f -u origin feat/x`, `go test ./...` →
   allowed.
 - `Environ`: drops `WS_ENDPOINT_TOKEN_GPU`, `OPENAI_API_KEY`, `FOO_SECRET`,
-  `NPM_TOKEN`, `DB_PASSWORD` and `GRAFANA_SERVICE_ACCOUNT_TOKEN`, and
-  `MY_VAR` when it's in `secretNames`; keeps `GH_TOKEN` with `keepGit`,
-  drops it without; keeps `HOME`, `PATH`, `GRAFANA_URL`; sets
+  `NPM_TOKEN`, `DB_PASSWORD`, `METRICS_TOKEN`, `OTEL_EXPORTER_OTLP_HEADERS`
+  and `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, and `MY_VAR` when it's in
+  `secretNames`; keeps `GH_TOKEN` with `keepGit`, drops it without; keeps
+  `HOME`, `PATH`, `METRICS_URL`, `OTEL_EXPORTER_OTLP_ENDPOINT`; sets
   `WS_RUNNER=ws`. `Secrets` returns the dropped values.
 - `Redactor`: redacts every registered value, longest first
   (`abcdef` and `abc` registered, `xabcdefx` → `x[redacted]x`); ignores
@@ -791,7 +810,8 @@ type Request struct {
 	Tools       []Tool
 	MaxOutput   int
 	Temperature float64
-	TraceParent string // W3C traceparent, or ""
+	Reasoning   string // "" (server default) | none | low | medium | high (ADR 0064)
+	TraceParent string // W3C traceparent, or ""; T13's decorator sets it from its span when telemetry runs
 }
 
 type Role string
@@ -814,7 +834,13 @@ type StopReason string
 const (StopEnd StopReason = "end"; StopToolCalls StopReason = "tool_calls"; StopMaxTokens StopReason = "max_tokens")
 
 type Usage struct{ InputTokens, OutputTokens, CacheReadTokens, CacheWriteTokens int; Reported bool }
-type Response struct{ Message Message; StopReason StopReason; Usage Usage; Duration time.Duration }
+type Response struct {
+	Message    Message
+	StopReason StopReason
+	Usage      Usage
+	Duration   time.Duration
+	SpanID     string // the request's chat span, set by T13's decorator; "" without telemetry
+}
 
 type ModelInfo struct {
 	Version       string   // the server's, when probed
@@ -926,7 +952,8 @@ func New(ep llm.Endpoint, httpClient *http.Client, log *slog.Logger) (llm.Provid
   message, tools as function tools, `max_tokens`, `temperature`; never
   `tool_choice`. Assistant messages sent back carry their tool calls and no
   reasoning; tool messages carry `tool_call_id`. `traceparent` header when
-  set. A gap over `IdleTimeout` → `ErrStreamStalled`; end without `[DONE]`
+  set. `reasoning_effort` = `req.Reasoning` only when it isn't `""`. A gap
+  over `IdleTimeout` → `ErrStreamStalled`; end without `[DONE]`
   → `ErrStreamDropped`. Reasoning from `reasoning` or `reasoning_content`.
   `finish_reason` `stop`/`tool_calls`/`length` → `end`/`tool_calls`/`max_tokens`.
   Usage from `prompt_tokens`/`completion_tokens`, `Reported` when sent.
@@ -948,8 +975,13 @@ func New(ep llm.Endpoint, httpClient *http.Client, log *slog.Logger) (llm.Provid
   usage; `stream-reasoning` → `Reasoning` set; `stream-no-usage` →
   `Usage.Reported` false; `models.response.json` → the ids.
 - The request body has `include_usage: true`, no `tool_choice`, the system
-  prompt first; `Authorization: Bearer t` for token `t`; `traceparent`
-  when set.
+  prompt first, `"model": "qwen/qwen3.5-9b"` byte-for-byte;
+  `reasoning_effort: "none"` when `Reasoning` is `none` and no
+  `reasoning_effort` key when it's `""`; `Authorization: Bearer t` for
+  token `t`; `traceparent` when set. A streamed reply with
+  `reasoning_content` deltas and one with `reasoning` deltas both fill
+  `Reasoning`.
+- `Models` returns ids containing `/` and `:` unchanged.
 - Mid-stream close → `ErrStreamDropped`; a chunk then silence over a 100 ms
   `IdleTimeout` → `ErrStreamStalled`; 503 `Retry-After: 7` → `Retryable`
   true, 7 s; 400 `{"error":"m does not support tools"}` → `ErrNoTools`;
@@ -1022,7 +1054,7 @@ T24 shows the label.
   <noreply@anthropic.com>{{end}}`.
 - `internal/cli/guides/ws-list.md`: after the `session.stale` bullet:
   ``- `session.runner`: `claude` or `ws` for an agent, `null` for a shell.
-  `session.model`: the agent's model (`claude-sonnet-5-5`, `qwen3-coder:30b`),
+  `session.model`: the agent's model (`claude-sonnet-5-5`, `qwen/qwen3.5-9b`),
   `null` for a shell or an agent that hasn't answered yet.
   `session.ws_runner`: details for a `ws` child (see `ws llm machine
   wait`), otherwise `null`.``, and the JSON example gains the three fields.
@@ -1039,8 +1071,8 @@ T24 shows the label.
   `"runner": "claude", "model": "sonnet", "ws_runner": null`; without any
   `--model`, `"model": null`.
 - Rendering `implementer` with `Render` is byte-identical to before (golden
-  test); `RenderFor(…, "ws", "qwen3-coder:30b")` ends with
-  `Generated-By: ws runner (qwen3-coder:30b)`.
+  test); `RenderFor(…, "ws", "qwen/qwen3.5-9b")` ends with
+  `Generated-By: ws runner (qwen/qwen3.5-9b)`.
 - `TestGuideTopics` passes.
 
 **Verify**
@@ -1125,7 +1157,7 @@ func Filter(tools []ToolInfo, allow, deny []string) []ToolInfo
 
 **Acceptance**
 
-- `LoadDefs` with both files: project `grafana` beats user `grafana`;
+- `LoadDefs` with both files: project `metrics` beats user `metrics`;
   `type` defaults to `stdio` with `command`; a `type: "ws"` server and one
   with `oauth` are left out with warnings; no files → empty, nil.
 - `ClaudeConfigPath` with and without `CLAUDE_CONFIG_DIR`.
@@ -1133,7 +1165,7 @@ func Filter(tools []ToolInfo, allow, deny []string) []ToolInfo
   expands braces), in every field; the returned secrets include each
   substituted value and the literal `Authorization` header; unset `${C}` →
   `UnsetVarError{Var: "C"}` whose message has no value in it.
-- `ToolName("mcp-grafana", "query_loki_logs")` = `mcp__mcp-grafana__query_loki_logs`;
+- `ToolName("metrics-a", "query_logs")` = `mcp__metrics-a__query_logs`;
   `("my server", "a.b")` = `mcp__my_server__a_b`; a 70-character result is
   64 long and stable.
 - `Filter`: `mcp__g__query_*` allows read-only `query_x`, not
@@ -1151,7 +1183,7 @@ $ make lint
 
 ## T10. `internal/mcp`: the client (stdio, streamable HTTP, SSE)
 
-**Depends on:** T3, T9. **Parallel with:** T17.
+**Depends on:** T3, T9. **Parallel with:** T13, T17.
 **ADR:** [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
 (Starting and calling).
 
@@ -1298,6 +1330,7 @@ type Config struct {
 	ContextTokens int
 	MaxOutput     int
 	Temperature   float64
+	Reasoning     string // passed to llm.Request.Reasoning
 	Budget        Budget
 	Tools         Toolset
 	System        string // rendered preamble + project instructions
@@ -1337,7 +1370,12 @@ func (a *Agent) Run(ctx context.Context, history []llm.Message, step int) Outcom
 4. Add usage. `prompt_tokens` under 80% of the estimate → `truncated`
    event; the second time, lower the working limit to it.
 5. No tool call → user message `Call a tool. When the task is done, call
-   record_result.`; the third in a row → `ExitNoResult`.
+   record_result.` (a `nudge` event, `reason` `no_tool_call`); when the
+   reply's content contains `<tool_call>`, the message is instead `Your
+   tool call came back as text. Call the tool through the tools API.`
+   (`reason` `text_tool_call`). A reply with only reasoning and
+   `StopMaxTokens` is a reply with no tool call. Either way, the third in
+   a row → `ExitNoResult`.
 6. Per call: unknown name (`!Known`), invalid JSON, or
    `tools.Validate` failing against the tool's schema →
    tool message `error: <what>; the arguments must match: <compact
@@ -1373,8 +1411,10 @@ error` redacts every string field through `r` before marshalling;
 kind (`StartEvent`, `RequestEvent`, … `ExitEvent`), each marshalled with
 exactly reference.md's columns for that kind: no `omitzero` on payload
 fields, so `"ok": false`, `"truncated": false`, `"resume": false` and the
-`null`s (`usage`, `verdict`, `tool`) are written; nullable fields are
-pointers. `messages` and `tools` are lists in `start` and counts in
+`null`s (`usage`, `verdict`, `tool`, `span_id`) are written; nullable
+fields are pointers. `start` carries `Config.TraceID` as `trace_id` and
+`Config.Reasoning` as `reasoning`; `response` carries `Response.SpanID`
+as `span_id` (`null` when empty). `messages` and `tools` are lists in `start` and counts in
 `request`, so they live in different payload types. Writing flattens the
 payload into the event object; `Tail` decodes by `kind`. `ReadHistory(path)
 ([]llm.Message, int, error)` rebuilds the conversation for `--resume`
@@ -1417,7 +1457,10 @@ func LoadInstructions(repoDir, workspaceDir, userFile string) (string, error)
 - One scripted test per exit reason: `max_steps`, `timeout`, `max_tokens`,
   `endpoint_down` (sleeps 2 s, 8 s, 30 s), recovery after 2 retryable
   errors, `model_no_tools`, `model_missing`, `context_overflow`,
-  `malformed_tool_calls`, recovery after one malformed call, `no_result`,
+  `malformed_tool_calls`, recovery after one malformed call, `no_result`
+  (once with plain text, once with `<tool_call>{…}</tool_call>` as text,
+  which gets the `text_tool_call` nudge, and once with only reasoning and
+  `max_tokens`),
   `looping` (nudge after the third), `stopped`, and `done` via
   `ResultWritten`.
 - `Compact` elides oldest first keeping the last 6, then drops turns and
@@ -1442,7 +1485,7 @@ $ make lint
 
 ## T12. MCP tools in the loop: the toolset and `tool_search`
 
-**Depends on:** T10, T11. **Parallel with:** T23.
+**Depends on:** T10, T11. **Parallel with:** T13, T23.
 **ADR:** [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
 (Deferral).
 
@@ -1504,7 +1547,7 @@ $ make lint
 
 ## T14. `internal/runner`, session kind `runner`, hidden `ws runner run`
 
-**Depends on:** T4, T7, T12. **Parallel with:** none.
+**Depends on:** T4, T7, T12, T13. **Parallel with:** none.
 **ADRs:** [0063](../../adrs/0063-runner-children-are-supervised-sessions.md),
 [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md) (Exit
 reasons), [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md).
@@ -1787,7 +1830,7 @@ $ make lint
 
 ## T17. `internal/daemon` core and `ws daemon run|status|stop`
 
-**Depends on:** T16 (it adds to `internal/daemon`, which T16 creates). **Parallel with:** T10.
+**Depends on:** T16 (it adds to `internal/daemon`, which T16 creates). **Parallel with:** T10, T13.
 **ADR:** [0068](../../adrs/0068-ws-daemon.md) (Lifecycle, The socket, How
 `ws` reaches it).
 
@@ -2104,7 +2147,7 @@ $ make lint
 
 ## T22. `e2e/runner`: harness, scenarios, `make fakes`, `make e2e-runner`, CI
 
-**Depends on:** T2, T3, T19. **Parallel with:** T24.
+**Depends on:** T2, T3, T21 (and so T18, T19). **Parallel with:** T25.
 **ADR:** [0067](../../adrs/0067-runner-tests-use-vendored-fakes.md)
 (Three layers, Scenarios).
 
@@ -2166,7 +2209,7 @@ $ make e2e-runner
 
 ## T23. `ws-online` keeps a managed daemon running
 
-**Depends on:** T17. **Parallel with:** T12–T22.
+**Depends on:** T17. **Parallel with:** T12–T15, T18–T21.
 **ADR:** [0068](../../adrs/0068-ws-daemon.md) (Where it runs).
 
 **Read:** `desktop/src-tauri/src/online/server.rs` (`run`, the
@@ -2214,7 +2257,7 @@ $ cd desktop/src-tauri && cargo clippy --all-targets --no-default-features --fea
 
 ## T24. Desktop: a quiet model label on every agent, the runner transcript, Settings › Models
 
-**Depends on:** T19. **Parallel with:** T22.
+**Depends on:** T19. **Parallel with:** T20, T21.
 **Design:** the [Screens](README.md#screens) table and rules, and
 [mockups.html](mockups.html) (`#agents-tree`, `#transcript`,
 `#settings-models`, `#settings-models-errors`). Match the PNGs in
