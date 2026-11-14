@@ -1,7 +1,9 @@
 # 0068. `ws daemon`: one long-lived process per config directory supervises runners and gives them their environment
 
 - Status: Proposed
-- Date: 2026-11-14
+- Date: 2026-11-14; revised 2026-11-14 after the second review (the
+  desktop app hosts the daemon; `secrets.env` the only secrets store; a
+  Stop for one runner)
 
 ## Context
 
@@ -49,7 +51,7 @@ How `ws` runs long-lived work today:
   environment[^claude-daemon][^ws-restart]. In the ws-online pod, measured
   2026-11-14: PID 1 is `tini`, its child is `ws-online serve`, and the
   Claude service is re-parented to PID 1, with its socket under
-  `/tmp/cc-daemon-1000/`; each session's MCP servers (`mcp-grafana`) run as
+  `/tmp/cc-daemon-1000/`; each session's MCP stdio servers run as
   children of that session[^measured-ps].
 - **Loops**: "Nothing in `ws` runs in the background." `ws loop tick` is
   run every 60 s by a launchd agent, by `--watch`, or by a task in the
@@ -58,6 +60,14 @@ How `ws` runs long-lived work today:
   as the container runs[^online].
 - **After a reboot**, `ws restore` (a person, or the desktop's Restore) runs
   `claude respawn` for each stopped session ([0015](0015-workspace-lifetime-follows-session.md)).
+- The desktop app (Tauri, Rust) already runs background work while it's
+  open: `ws loop tick` every 60 s, the review checker and the tray watcher
+  ([0048](0048-agent-loop-scheduler.md), [0050](0050-desktop-tray-notifications.md)).
+  Closing its window hides it and it keeps running in the tray; only Quit
+  (tray or ⌘Q) ends it. An app opened from Finder or the Dock gets
+  launchd's minimal environment, and the app resolves the user's
+  login-shell `PATH` itself (`desktop/src-tauri/src/env.rs`)[^desktop].
+  `ws-online` is the same backend built with the `online` feature.
 - `ws-online`'s environment comes from the container (`GH_TOKEN`,
   `CLAUDE_CODE_OAUTH_TOKEN`, …); `/home/ws` and `/data` are persistent
   volumes, `/tmp` isn't[^online-env][^pod].
@@ -76,7 +86,7 @@ their environment. It does nothing else in this design.
 managers; agents never run them):
 
 ```
-ws daemon run [--origin transient|managed]   # foreground; exits on SIGTERM
+ws daemon run [--origin transient|managed|app]   # foreground; exits on SIGTERM
 ws daemon status [--json]
 ws daemon stop [--keep-runners] [--json]
 ```
@@ -95,7 +105,10 @@ ws daemon stop [--keep-runners] [--json]
   so they read `stopped` and resume at the next start. With it, runners keep running and
   the next daemon adopts them.
 - `origin = transient` (an auto-start) exits after 15 minutes with no live
-  runner and no request; `managed` never exits by itself.
+  runner and no request; `managed` never exits by itself; `app` (started
+  by the desktop app) never exits by itself while the process that started
+  it is alive, and once that parent is gone (its parent pid changes) it
+  behaves as `transient`.
 
 **The socket.** A Unix socket at `$XDG_RUNTIME_DIR/ws/<h>.sock` when
 `XDG_RUNTIME_DIR` is set, else `${TMPDIR:-/tmp}/ws-<uid>/<h>.sock`, where
@@ -115,12 +128,13 @@ that workspace's records.
 | `GET /v1/status` | the daemon, and each runner it watches |
 | `POST /v1/preflight` `{role, endpoint, model}` | resolves and preflights a model ([0064](0064-choosing-the-runner-model-and-endpoint.md)) with the daemon's environment |
 | `POST /v1/runners/<id>/start` `{resume}` | starts `ws runner run [--resume] <id>` for an existing runner session |
-| `POST /v1/runners/<id>/stop` | writes `stop`, signals, waits, kills ([0063](0063-runner-children-are-supervised-sessions.md)) |
+| `POST /v1/runners/<id>/stop` | writes `stop`, signals, waits, kills ([0063](0063-runner-children-are-supervised-sessions.md)); used by `ws rm` and by the desktop's **Stop** |
 | `POST /v1/shutdown` `{keep_runners}` | `ws daemon stop` |
 
 **How `ws` reaches it.** Commands that start or stop runners (`ws machine
-spawn` for a `ws` child, `ws restore`, `ws rm` of a runner, the hidden `ws
-runner check`) connect to the socket. When nothing answers, they start one:
+spawn` for a `ws` child, `ws claude --runner ws`, a loop run on the `ws`
+runner, `ws restore`, `ws rm` of a runner, and the hidden `ws runner
+check` and `ws runner stop` the desktop app uses) connect to the socket. When nothing answers, they start one:
 `ws daemon run --origin transient`, detached the way `internal/claude`
 starts Claude Code's service (own session, stdio on `/dev/null`, stderr to
 `daemon.log`, home directory as working directory), and wait up to 5 s for
@@ -159,12 +173,14 @@ built by the daemon, lowest precedence first:
 
 1. the daemon's own environment, captured when it started;
 2. `[runner.env]` in `config.toml`: plain, non-secret values such as
-   `GRAFANA_URL` (refused when the name looks secret, as in
+   `METRICS_URL` or `OTEL_EXPORTER_OTLP_ENDPOINT` (refused when the name looks secret, as in
    [0061](0061-hosts-in-config-toml.md));
 3. `CONFIG_DIR/secrets.env`: `NAME=value` lines, mode 0600 (a looser mode
    is refused with a warning, and the file is ignored), for endpoint tokens
-   (`WS_ENDPOINT_TOKEN_<NAME>`) and MCP servers' tokens. The desktop's
-   Settings › Models writes it; people may edit it;
+   (`WS_ENDPOINT_TOKEN_<NAME>`), MCP servers' tokens, and credentials such
+   as `OTEL_EXPORTER_OTLP_HEADERS`. It is the only secrets store in this
+   design, on every platform. The desktop's Settings › Models writes it;
+   people may edit it;
 4. variables `ws` sets: `WS_RUNNER=ws`, `WS_WORKSPACE=<id>`,
    `WS_CONFIG_DIR`, and `WS_RUNNER_SECRET_NAMES` (the names defined in
    `secrets.env`, so the runner can scrub them from its tools'
@@ -187,12 +203,58 @@ What a runner then passes to its tools and MCP servers is in
   container's, so `GH_TOKEN` and the like are there by construction. After
   a pod restart, it resumes unfinished runners at once. `/tmp` isn't
   persistent, which is fine: the socket is recreated.
-- **Desktop and CLI**: auto-started on first need, as a transient daemon,
-  from the shell or the app that first needed it. People who want resume
-  after a reboot without running anything can install a launchd agent or a
+- **The desktop app hosts it** (below) while the app runs.
+- **CLI with no app running**: auto-started on first need, as a transient
+  daemon, from the shell that first needed it. People who want resume
+  after a reboot without opening the app can install a launchd agent or a
   systemd user unit running `ws daemon run --origin managed`; the
-  `ws daemon run` guide gives both. The desktop app shows the daemon's
-  status in Settings (later; not in this design's tasks).
+  `ws daemon run` guide gives both.
+
+Whatever starts it, it's the same `ws` binary, the same lock and the same
+socket, so `ws machine spawn` talks to the one daemon of its config
+directory and never needs to know who hosts it.
+
+**The desktop app hosts the daemon.** The app is a long-lived process the
+user already runs, so it is the daemon's natural host on a desktop. It
+can't run the daemon in-process (the app is Rust, the daemon is `ws`'s Go
+code), so it runs it as a supervised sidecar of the same binary:
+
+- **Start.** When the app starts, its backend keeps `ws daemon run
+  --origin app` running, with the code `ws-online` uses for its managed
+  daemon (restart on exit with backoff from 1 s to 60 s). The sidecar is
+  started in its own session, with the app's resolved `PATH` and the
+  app's environment as layer 1.
+- **Single instance.** The lock decides. If a daemon already runs (a
+  transient one a shell started, or a managed one under launchd), the
+  sidecar exits `daemon_running` (4), and the app uses the running daemon
+  over the socket, checking again every 60 s and starting its own once
+  that one has exited. Two daemons never run for one config directory.
+- **App quit.** Quitting the app doesn't stop runners or the daemon. The
+  sidecar, in its own session, sees its parent go and becomes
+  `transient`: it keeps supervising and resuming runners until none is
+  alive, then exits 15 minutes later. Closing the window isn't quitting:
+  the app stays in the tray and keeps hosting.
+- **App restart.** The new app finds the daemon still running and uses it
+  (single instance, above); once it exits, the app starts its own.
+- **No app running.** The CLI's auto-start applies as before. A transient
+  daemon started from a shell is the one weak spot: its layer 1 is that
+  shell's environment.
+- **Login item.** Not in this design. The app doesn't start at login;
+  resuming runners after a reboot without the app or a shell needs the
+  launchd agent or systemd unit from the guide.
+- **Status.** Settings › Models shows a **Runner service** line: running
+  or not, who started it (`this app`, `a terminal`, `a service manager`,
+  from `origin`), its pid, the runners it watches, and a **Restart**
+  button (`ws daemon stop --keep-runners`, after which the sidecar starts
+  a new one that adopts the runners, with the app's current environment).
+- **Stop one runner.** The app's **Stop** on a `ws` agent runs the hidden
+  `ws runner stop <id>`, which sends `POST /v1/runners/<id>/stop` through
+  `Ensure`: the runner exits `stopped` after its current step, keeps its
+  workspace and transcript, and isn't resumed.
+- **Loops, later.** When the loop scheduler moves into the daemon
+  (deferred, below), the app stops running its own `ws loop tick` task
+  once the daemon's status says it schedules loops. Because the app hosts
+  the daemon, loops then run whenever the app or any other host runs.
 
 **Migration.** Nothing existing changes behaviour. Claude sessions stay
 under Claude Code's service, and `ws restart` still restarts only that
@@ -211,8 +273,15 @@ is older (v…); run ws daemon stop --keep-runners".
   says it does);
 - the desktop's watcher and notifications, and `ws-online`'s, moving into
   the daemon;
-- Settings › Daemon in the desktop app;
+- a separate Settings › Daemon section (the Runner service line in
+  Settings › Models covers status and restart for now);
+- starting the app, or the daemon, at login;
 - supervising anything other than runners.
+
+**Non-goals** (by the owner's decision): a per-endpoint queue or
+`max_parallel` in the daemon. Concurrency per endpoint is left to the
+orchestrator and to llm-router; the daemon starts every runner it's asked
+to.
 
 ### Why this option
 
@@ -277,6 +346,30 @@ run it.
   create and clean up; environment injection differs per manager. Kept as
   an option for supervising the daemon itself, not each runner.
 
+### The desktop app as the only daemon (no `ws daemon` without it)
+
+**Pros**
+
+- One host on a desktop, and no auto-started daemons.
+
+**Cons**
+
+- Fails in the ws-online pod's headless uses and in plain CLI use, and
+  runners would stop being supervised whenever the app quits.
+
+### The app stops the daemon, with `--keep-runners`, when it quits
+
+**Pros**
+
+- Nothing of the app's keeps running after Quit.
+
+**Cons**
+
+- Runners then run unsupervised until something starts a daemon: a crash
+  isn't resumed and a finished runner isn't noticed by anything but
+  readers. Becoming transient on Quit gives the same "nothing lingers"
+  once the runners finish, without that gap.
+
 ### A bigger daemon now: runners, loops, watcher and the desktop backend
 
 **Pros**
@@ -297,15 +390,20 @@ run it.
   error codes `daemon_unavailable` (1) and `daemon_running` (4).
 - `config.toml` gains `[daemon]` (`resume_on_start`) and `[runner.env]`;
   `CONFIG_DIR/secrets.env` and `CONFIG_DIR/daemon/` are new files.
-- `ws-online` gains a task that keeps `ws daemon run --origin managed`
-  running; `docs/online.md` documents it.
+- The desktop backend gains a module that keeps a daemon running: `ws
+  daemon run --origin app` in the app, `--origin managed` in `ws-online`;
+  `docs/online.md` and the desktop docs document it. Settings › Models
+  gains the Runner service line, and the agent pane a Stop button.
 - `make lint` gains a rule: `runner run` is started only by
   `internal/daemon`.
 - How we'll know: e2e tests kill a runner and see it resumed, kill it four
   times and see `crashed`, stop and restart the daemon with
-  `--keep-runners` and see the runner adopted, and start a daemon over a
-  `stopped` runner and see it resumed
-  ([0067](0067-runner-tests-use-vendored-fakes.md)).
+  `--keep-runners` and see the runner adopted, start a daemon over a
+  `stopped` runner and see it resumed, and stop one runner and see it kept
+  but not resumed ([0067](0067-runner-tests-use-vendored-fakes.md)). A
+  daemon test sees an `app` daemon turn transient when its parent exits.
+- Unverified: how macOS treats the sidecar's own session when the app is
+  force-quit or updated in place; the desktop task checks it by hand.
 - Unverified: behaviour across a real pod restart, and long-held `flock`
   on the pod's NFS volume.
 
@@ -313,9 +411,10 @@ run it.
 
 [^claude-daemon]: [ADR 0024](0024-claude-code-client.md) item 8 and `internal/claude/daemon.go` @98697f3 (read 2026-11-14). `Origin` says "'foreground' for `claude daemon run`, or 'transient — started on-demand by `claude` (pid N) in <dir>'".
 [^ws-restart]: [ADR 0018](0018-restart-claude-daemon.md). "Starts a new daemon at once with a detached `claude daemon run`, so it inherits `ws`'s environment."
-[^measured-ps]: Measured 2026-11-14 in the ws-online pod with `ps -eo pid,ppid,etime,args`, once: PID 1 `/usr/bin/tini -- /usr/local/bin/ws-online-entrypoint`, PID 7 `ws-online serve` (parent 1), `claude daemon run --origin transient --spawned-by {"label":"claude --bg",…}` (parent 1), `claude bg-pty-host … /tmp/cc-daemon-1000/…` (parent: the daemon), `mcp-grafana` (parent: a session's process).
+[^measured-ps]: Measured 2026-11-14 in the ws-online pod with `ps -eo pid,ppid,etime,args`, once: PID 1 `/usr/bin/tini -- /usr/local/bin/ws-online-entrypoint`, PID 7 `ws-online serve` (parent 1), `claude daemon run --origin transient --spawned-by {"label":"claude --bg",…}` (parent 1), `claude bg-pty-host … /tmp/cc-daemon-1000/…` (parent: the daemon), an MCP stdio server (parent: a session's process).
 [^loop]: [ADR 0048](0048-agent-loop-scheduler.md), decision 7. "Nothing in `ws` runs in the background."
 [^online]: [docs/online.md](../online.md) (read 2026-11-14). "The auto-review checker and loops run in the server, with or without a browser open"; `desktop/src-tauri/src/online/server.rs` spawns `loops::tick_forever`.
 [^online-env]: [docs/online.md](../online.md), "Environment" and "Volumes" (read 2026-11-14).
-[^pod]: Agent Handbook, "Procedure: tooling in the ws-online pod" (last verified 2026-11-09, read 2026-11-14). "`/home/ws` and `/data` are NFS volumes … `/`, `/tmp` and `$CLAUDE_JOB_DIR` do not persist."
+[^pod]: [docs/online.md](../online.md), "Volumes" (read 2026-11-14): the home volume and `/data` persist; nothing else is mounted, so `/tmp` doesn't.
+[^desktop]: [ADR 0050](0050-desktop-tray-notifications.md), "The window": "Closing it hides it; the app keeps running in the tray"; `desktop/src-tauri/src/env.rs` @98697f3: "An app opened from Finder or the Dock gets launchd's minimal PATH".
 [^lockfile]: [ADR 0048](0048-agent-loop-scheduler.md), decision 6, and `internal/lockfile` @98697f3. "hold `CONFIG_DIR/loops/.lock` exclusively".

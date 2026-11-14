@@ -2,7 +2,9 @@
 
 - Status: Proposed
 - Date: 2026-11-13; reworked 2026-11-14 after review (supervision moved
-  to [0068](0068-ws-daemon.md); names made provider-neutral)
+  to [0068](0068-ws-daemon.md); names made provider-neutral); revised
+  2026-11-14 after the second review (Stop; runner sessions without a
+  parent for `ws claude` and loops; the trace id)
 
 ## Context
 
@@ -60,11 +62,12 @@ from files.
 
 | File | Written by | Holds |
 | ---- | ---------- | ----- |
-| `run.toml` | `ws machine spawn` | version, model alias and id, endpoint name, URL and `api`, context tokens, role, budgets, MCP selection, prompt, `created_at` |
-| `status.json` | the runner, replaced atomically on every change | `pid`, `process_started_at`, `state` (`starting`, `working`, `waiting_model`, `exited`), `step`, `usage`, `restarts`, `mcp` (each server's state and tool count), `exit` (reason or `null`), `updated_at` |
+| `run.toml` | `ws machine spawn`, `ws claude --runner ws`, a loop run | version, model alias and id, endpoint name, URL and `api`, context tokens, reasoning, role, budgets, MCP selection, prompt, `parent` (`""` without one), `trace_id`, `created_at` |
+| `status.json` | the runner, replaced atomically on every change | `pid`, `process_started_at`, `state` (`starting`, `working`, `waiting_model`, `exited`), `step`, `usage`, `restarts`, `mcp` (each server's state and tool count), `exit` (reason or `null`), `verdict` (or `null`), `updated_at` |
 | `transcript.jsonl` | the runner, appended | one event per line: request, response, tool call, tool result, compaction, retry, MCP event, error |
 | `runner.log` | the runner's stderr | its own `slog` JSON log |
-| `stop` | `ws rm` (through the daemon, or directly) | asks the runner to stop after the current step |
+| `stop` | `ws rm` and the desktop's Stop (through the daemon), or `ws rm` directly | asks the runner to stop after the current step |
+| `report.md`, `usage.json` | the runner, for a session with no parent | the verdict's report and the usage, which a child keeps under its parent's `machine/` instead |
 
 **Starting.** `ws machine spawn --runner ws` resolves the model and asks
 the daemon to preflight it ([0064](0064-choosing-the-runner-model-and-endpoint.md)),
@@ -100,6 +103,25 @@ shell; it's the functional field (what runs it), and `model` is the label.
 Runner-only details (endpoint, step, budgets, usage, exit) are in a
 separate `ws_runner` object, `null` for Claude agents.
 
+**Stop without removing.** The desktop's Stop on a `ws` agent asks the
+daemon to stop it, exactly as `ws rm` does but without removing anything:
+the runner exits with `stopped` after its current step, records no
+verdict, and keeps its workspace, transcript and `usage.json`. It then
+reads `idle` (its `exit` is set), so neither `ws restore` nor a daemon
+start resumes it; an orchestrator waiting on it gets `missing` with
+`ws_runner.exit = "stopped"`. There's no `ws machine stop` in this design:
+orchestrators already have `ws machine rm`, and stopping a Claude child
+the same way would need its own design; the daemon request it would use
+already exists.
+
+**Without a parent.** A runner session started by `ws claude --runner ws`
+or by a loop ([0070](0070-runner-agents-for-people-and-loops.md)) has no
+parent, so there's no `machine/` directory to record into. `run.toml`'s
+`parent` is `""`, and `record_result` (and the finalizer) write the
+report to `state/<id>/runner/report.md`, the verdict to `status.json`'s
+`verdict`, and `usage.json` next to them. Verdicts are the role's, or
+`PASS`/`FAIL` without one.
+
 **Gone.** The session is gone when `state/<id>/runner/` no longer exists.
 Only `ws rm` (and so `ws machine rm`) deletes it: it asks the daemon to
 stop the runner (write `stop`, `SIGTERM` to its process group, wait up to
@@ -128,9 +150,9 @@ run and which doesn't know `rn-` sessions.
 whose state is `stopped`. The daemon also does that by itself when it
 starts ([0068](0068-ws-daemon.md)). `ws restart` doesn't touch runners.
 
-**Not supported for runner sessions:** `ws claude --runner` (people start
-Claude agents; open question), `claude attach`, `send` and `ws continue`.
-The desktop app hides Attach and Send for them.
+**Not supported for runner sessions:** `claude attach`, `send` and `ws
+continue`; a runner agent needs a prompt and runs unattended. The desktop
+app hides Attach and Send for them and shows Stop instead.
 
 ### Why this option
 
@@ -208,6 +230,10 @@ per agent in `ws list`, and is `null` before its first answer.
   `runner`, `model` and `ws_runner`;
   [reference.md](../design/ollama-agent/reference.md) lists them.
 - New error code `runner_failed` (exit 1).
+- `run.toml`'s `trace_id` is the run's OpenTelemetry trace id, kept across
+  resumes ([0065](0065-runner-agent-loop-tools-and-budgets.md),
+  Observability); `usage.json` and the transcript's `start` event carry it,
+  so a run's spans can be found from its files.
 - How we'll know: `ws list --json` on a runner child shows `kind: "agent"`,
   `runner: "ws"`, its model, and the state table above, in a test with a
   fake runner process; a Claude child shows its transcript's model.

@@ -1,15 +1,16 @@
 # 0069. The runner uses the MCP servers Claude Code is configured with, filtered per role, and matches Claude Code where a small model can afford it
 
 - Status: Proposed
-- Date: 2026-11-14
+- Date: 2026-11-14; revised 2026-11-14 after the second review (no MCP
+  servers for any role by default, examples made generic, user
+  `CLAUDE.md` off)
 
 ## Context
 
 ### Problem
 
 The review asked whether the runner's seven tools are enough to use the
-MCP servers the owner already uses with Claude Code, such as `outline` and
-`grafana`, and asked for the runner to be as close to Claude Code parity as
+MCP servers the owner already uses with Claude Code, and asked for the runner to be as close to Claude Code parity as
 possible. How does the runner find, start, and call MCP servers? How does
 it keep a small model from drowning in tool definitions? And, feature by
 feature, how close to Claude Code can and should it get?
@@ -18,7 +19,8 @@ feature, how close to Claude Code can and should it get?
 
 1. **Same servers, no second config**: a server that works in Claude Code
    works in the runner from the same definition.
-2. **Both transports in use**: stdio (`mcp-grafana`) and HTTP (`outline`).
+2. **Both transports**: stdio and HTTP, the two Claude Code recommends and
+   most servers offer.
 3. **Secrets stay secret**: tokens in server definitions and environments
    never reach a transcript, a log, `status.json` or the model.
 4. **Small models stay usable**: the number of tool definitions a request
@@ -47,10 +49,11 @@ feature, how close to Claude Code can and should it get?
   under 10% of the context window[^cc-toolsearch]. It caps a tool result
   (`MAX_MCP_OUTPUT_TOKENS`) and saves text results over 50 000 characters
   to a file[^cc-output].
-- This user's config: `mcp-grafana` (stdio, `GRAFANA_URL` in `env`, its
-  token in the process environment) with 80 tools, and `outline` (HTTP, an
-  `Authorization` header written into `~/.claude.json`) with 20; no
-  project-scope servers[^mcp-shape].
+- Servers can be large: Grafana's `mcp-grafana`, a common observability
+  server, offered 80 tools when counted[^tool-count]. A stdio server is
+  typically configured by a URL in its `env` and a token from the
+  environment; an HTTP server by a URL and an `Authorization` header,
+  sometimes written literally into `~/.claude.json`.
 - Workspaces are new directories, so a local-scope server, keyed by a
   project path, never matches a workspace's session directory.
 - On BFCL v4, multi-turn tool accuracy for 8–32B open models is 30–48%,
@@ -60,9 +63,9 @@ feature, how close to Claude Code can and should it get?
 - The official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk`) is at
   v1 with a compatibility promise, with stdio and streamable HTTP
   transports (SSE client support unverified; the task checks); v1.8.0 is the newest found on 2026-11-14[^gosdk].
-- The user's global `~/.claude/CLAUDE.md` tells every agent to read an
-  Outline-hosted handbook, through the `outline` MCP server, before every
-  task.
+- A user-level `~/.claude/CLAUDE.md` holds a person's own instructions
+  for every Claude Code session on the machine, often naming tools and
+  services specific to their setup.
 
 ## Decision
 
@@ -84,12 +87,14 @@ and claude.ai connector servers aren't read (later). `ws` never writes any
 of these files.
 
 **Which servers a run gets.** None, unless the role's config says so
-(`[runner.roles.<role>]`, all optional):
+(`[runner.roles.<role>]`, all optional). No role, built-in or not, gets
+an MCP server by default, and `ws` ships no per-role MCP defaults: which
+servers a role may use is the user's choice.
 
 | Key | Type | Default | Meaning |
 | --- | ---- | ------- | ------- |
 | `mcp_servers` | strings | `[]` | server names to start for this role |
-| `mcp_tools` | strings | `["*"]` | tool allow-list: full names (`mcp__mcp-grafana__query_loki_logs`) or globs (`mcp__outline__list_*`) |
+| `mcp_tools` | strings | `["*"]` | tool allow-list: full names (`mcp__metrics__query_logs`) or globs (`mcp__docs__search_*`) |
 | `mcp_deny` | strings | `[]` | globs removed after the allow-list |
 | `mcp_upfront` | int | 8 | at most this many MCP tool definitions are sent up front; the rest are deferred |
 
@@ -102,7 +107,7 @@ never through a glob ([0066](0066-runner-security-boundaries.md)).
 - Servers start in parallel when the run starts (and on `--resume`), each
   with a 30 s limit to initialize and list tools. One that fails or times
   out is left out: a `mcp_error` event in the transcript, its state in
-  `status.json`'s `mcp`, and a line in the preamble ("mcp-grafana is
+  `status.json`'s `mcp`, and a line in the preamble ("metrics is
   unavailable"). The run goes on.
 - **stdio**: `command` and `args` after expansion, in its own process
   group, working directory the session directory, environment the runner's
@@ -168,7 +173,7 @@ The table is also in the design's README. "v1" means this design's tasks.
 | MCP tool search / deferred tools | v1 | `tool_search`, simpler than Claude Code's |
 | MCP resources, prompts, OAuth, WebSocket, plugin servers | later | Not needed by the servers in use; OAuth needs Claude Code's credential store |
 | `CLAUDE.md` project instructions | v1 | `CLAUDE.md` and `AGENTS.md` at the repo root and, if present, the workspace root, in that order, after the preamble; 8 KiB in total, cut with a marker. `@path` imports aren't followed (later) |
-| User `~/.claude/CLAUDE.md` | off by default, `runner.user_instructions = true` | It's written for Claude: this user's tells every agent to read a handbook through `outline` first, which would spend a small model's context and steps before the task. Opt in per machine |
+| User `~/.claude/CLAUDE.md` | off (decided), `runner.user_instructions = true` to opt in per machine | It holds personal instructions for Claude Code sessions, often about tools specific to one setup; on a small model it spends context on every request and can send it after tools its role doesn't have |
 | Skills | later | They load instructions and scripts on demand; a `skill` tool like `tool_search` could do it, after the core works |
 | Subagents (the Task tool) | later, as `ws machine spawn` | A small model can't manage children well; when it comes, it's a `ws` child, not an in-process agent |
 | Hooks (`PreToolUse`, `PostToolUse`, `Stop`, …) | later | The user's hooks could run with Claude Code's JSON contract around the runner's tools; needs its own design for which events map |
@@ -193,8 +198,8 @@ tool-calling evidence says small models handle worst: each tool adds
 tokens to every request and another name to confuse. So parity here is
 parity of **reach**: the same MCP servers, the same project instructions,
 the same roles, from the same files, with what a role actually sees kept
-small by default and widened in config. A role given all 80 grafana tools
-up front will work worse, not better; `tool_search` is the way to reach
+small by default and widened in config. A role given all 80 tools of a
+large server up front will work worse, not better; `tool_search` is the way to reach
 them. We don't claim the runner can do every job a Claude child can.
 
 ### Why this option
@@ -235,8 +240,8 @@ runner to a Claude Code file format that isn't documented as stable, as
 
 **Cons**
 
-- 80 grafana tools on every request of a 32k-context model; fails
-  criterion 4.
+- 80 tools of a large server on every request of a 32k-context model;
+  fails criterion 4.
 
 ### Run MCP calls through a `run` command (`npx` clients)
 
@@ -272,7 +277,7 @@ runner to a Claude Code file format that isn't documented as stable, as
   `ws_runner`.
 - How we'll know: the `mcp-*` e2e scenarios in
   [0067](0067-runner-tests-use-vendored-fakes.md), and the opt-in smoke
-  against the user's real `outline` and `mcp-grafana`.
+  against real servers from the user's own Claude Code config.
 - Unverified: how well any small model uses `tool_search`; that's a
   measurement for the first real runs.
 
@@ -285,7 +290,7 @@ runner to a Claude Code file format that isn't documented as stable, as
 [^cc-naming]: Same page. "The full form is `mcp__plugin_<plugin-name>_<server-name>__<tool-name>`, where any character outside `A-Z`, `a-z`, `0-9`, `_`, and `-` is replaced with `_`"; a hook example matches `mcp__database-tools__.*`.
 [^cc-toolsearch]: Same page, "Scale with MCP tool search." "Only tool names and server instructions load at session start"; `auto`: "Tools that would otherwise be deferred load upfront while their definitions total under 10% of the context window."
 [^cc-output]: Same page. "`MAX_MCP_OUTPUT_TOKENS`"; "Claude Code saves a successful result with no image content to a file once it's longer than 50,000 characters".
-[^mcp-shape]: See [0067](0067-runner-tests-use-vendored-fakes.md) (key names only, read 2026-11-14; no values copied), and the tool counts there.
+[^tool-count]: Counted 2026-11-14 from the tool list Claude Code 2.1.325 loaded in a session with `mcp-grafana` configured: 80 tools, from `add_activity_to_incident` to `validate_provisioning_file`.
 [^bfcl]: Berkeley Function Calling Leaderboard v4, updated 2026-04-12, <https://gorilla.cs.berkeley.edu/leaderboard.html> (accessed 2026-11-13); figures in [0065](0065-runner-agent-loop-tools-and-budgets.md).
 [^quant]: "Flat Score, Amplified Failures," arXiv 2607.27275, <https://arxiv.org/abs/2607.27275> (accessed 2026-11-13).
 [^gosdk]: modelcontextprotocol/go-sdk releases, <https://github.com/modelcontextprotocol/go-sdk/releases>, and <https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk@v1.7.0> (search results, 2026-11-14; release pages not opened). v1.0.0 "formalizes a compatibility guarantee"; v1.7.0 added protocol revision 2026-07-28; v1.8.0 the newest listed. The task re-checks the version and client API.

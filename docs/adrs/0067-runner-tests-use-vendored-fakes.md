@@ -3,7 +3,9 @@
 - Status: Proposed
 - Date: 2026-11-13; reworked 2026-11-14 after review (fake-ollama copied
   into this repo instead of built from a pinned llm-router clone; fake MCP
-  server added)
+  server added); revised 2026-11-14 after the second review (fake models
+  named like the starting model, generic MCP examples, two scenarios for
+  Stop and loop runs)
 
 ## Context
 
@@ -57,11 +59,12 @@ run, and what do the fakes still lack?
   and `deploy/docker/Dockerfile`)[^release].
 - `ws` tests already run fakes of `claude` and `gh` through
   `internal/exectest`[^exectest].
-- Claude Code's MCP config for this user has a stdio server
-  (`mcp-grafana`, configured by `GRAFANA_URL` in its `env` and a token in
-  the process environment) and an HTTP server (`outline`, with an
-  `Authorization` header)[^mcp-shape]. `mcp-grafana` exposes 80 tools and
-  `outline` 20[^grafana-tools].
+- MCP servers come as stdio processes configured by `env` (a URL, and a
+  token from the environment) and as HTTP servers configured by a URL and
+  headers. Large servers expose dozens of tools: `mcp-grafana` offered 80
+  when counted[^grafana-tools].
+- Model ids contain `/` and `:` (`qwen/qwen3.5-9b`, `qwen3.5:9b`)
+  ([0064](0064-choosing-the-runner-model-and-endpoint.md)).
 
 ## Decision
 
@@ -112,8 +115,8 @@ the official MCP Go SDK's server side, driven by a YAML script:
 - `tools`: name, description, input schema, annotations, and `replies`
   chosen by a regexp on the call's canonical JSON arguments (text, an
   error result, or a protocol error);
-- `generate: {count, prefix}`: filler tools, to imitate a server the size
-  of `mcp-grafana`;
+- `generate: {count, prefix}`: filler tools, to imitate a large server
+  (80 tools);
 - faults: `slow_initialize`, `crash_after_calls`, `slow_call`;
 - `require_env` (stdio) and `require_header` (HTTP): initialization fails
   unless the named variable or header has the given value, which proves the
@@ -141,14 +144,14 @@ themselves, `cmd/fake-*` and `e2e/`.
    temp socket, a local bare git repo as upstream, and a fake `claude` for
    the mixed tests. No network beyond loopback; no llm-router.
 3. **Opt-in real services**, never in CI:
-   - `E2E_RUNNER_URL` (with `E2E_RUNNER_MODEL`, default `qwen3-coder:30b`,
+   - `E2E_RUNNER_URL` (with `E2E_RUNNER_MODEL`, default `qwen/qwen3.5-9b`,
      and `E2E_RUNNER_API`, default `openai`): runs `edit-file` and
      `review-verdict` against a real model, asserting only that the run
      ended `done` with a verdict;
    - `E2E_MCP_SMOKE=<server>:<tool>[,…]`: with fake-ollama scripted to
      call those read-only tools, runs against the user's real MCP servers
      as defined in their Claude Code config (for example
-     `outline:list_collections`), asserting the call succeeded and that no
+     `docs:search`), asserting the call succeeded and that no
      header or env value from the definition appears in the transcript.
 
 **Scenarios**, each a fake config under `e2e/runner/testdata/`:
@@ -176,6 +179,8 @@ themselves, `cmd/fake-*` and `e2e/`.
 | `daemon-crash-limit` | kill the runner four times | exit `crashed`, FAIL with reason |
 | `daemon-restart` | `ws daemon stop --keep-runners` mid-run, then a spawn | the new daemon adopts the runner; it finishes `done` |
 | `daemon-start-resumes` | stop the daemon with runners stopped, start it | `stopped` runners resume |
+| `runner-stop` | `hang` fault on turn 1; `ws runner stop <id>` (the desktop's Stop) | exit `stopped`, no verdict, the workspace and transcript kept; `ws list` shows `idle`; a later daemon start doesn't resume it |
+| `loop-runner` | a loop with `--runner ws --model qwen9b`, then `ws loop run` | the run's session is `rn-…`, `runner: "ws"`; the loop's history has the run; `edit-file`'s file is committed |
 
 ### Why this option
 
@@ -259,5 +264,4 @@ catches that.
 [^fake]: llm-router `internal/fakeollama/{config,reply,api,fault,control,server}.go` @9789c32 (read 2026-11-13 and 2026-11-14). `answer`: "if results := trailingToolResults(req); len(results) > 0 { return reply{content: "The tool returned: " + …}"; tool rules: "if !ok || !m.has(CapabilityTools) { continue }"; `Fault` has `Down`, `Status`, `Message`, `Hang`, `SlowFirstToken`, `DropAfterChunks`, `StallAfterChunks` and no header field; `Request` records `Method`, `Path`, `Model`, `Stream`, `Traceparent`, `Body`.
 [^release]: workspaces `Makefile` (`dist`: `go build … ./cmd/ws`), `.github/workflows/release.yml`, `deploy/docker/Dockerfile` (`go build … -o /out/ws ./cmd/ws`) @98697f3 (read 2026-11-14).
 [^exectest]: workspaces `internal/exectest` @98697f3, used by the `claude` and `gh` client tests.
-[^mcp-shape]: The shape of this user's `~/.claude.json` `mcpServers`, read 2026-11-14 with `jq` printing key names only: `mcp-grafana` `{type: "stdio", command, args, env: [GRAFANA_URL]}`, `outline` `{type: "http", url, headers: [Authorization]}`; no project-scope servers. `GRAFANA_SERVICE_ACCOUNT_TOKEN` is set in the pod's environment. No values were copied.
-[^grafana-tools]: Counted 2026-11-14 from the tool list Claude Code 2.1.325 loaded in this session: 80 for `mcp-grafana`, from `add_activity_to_incident` to `validate_provisioning_file`, and 20 for `outline`, from `create_attachment` to `update_document`.
+[^grafana-tools]: Counted 2026-11-14 from the tool list Claude Code 2.1.325 loaded in a session with `mcp-grafana` configured: 80 tools, from `add_activity_to_incident` to `validate_provisioning_file`.
