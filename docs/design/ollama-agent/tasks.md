@@ -1323,7 +1323,8 @@ $ make lint
 **ADRs:** [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md)
 (all), [0062](../../adrs/0062-agent-runner-built-into-ws.md) (the copy),
 [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
-(project instructions).
+(project instructions), [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md)
+("Re-resolution mid-run": the loop's side).
 
 **Spawn with** `llm-router@9789c32` as a second, read-only repo spec.
 
@@ -1331,16 +1332,17 @@ $ make lint
 `tools.go`; this repo's `internal/llm/llm.go` and
 `internal/agent/tools/tools.go` (types only); the README's
 [agent loop](README.md#the-agent-loop) and preamble; reference.md
-[transcript](reference.md#stateidrunnertranscriptjsonl) and
-[exit reasons](reference.md#runner-exit-reasons).
+[transcript](reference.md#stateidrunnertranscriptjsonl),
+[exit reasons](reference.md#runner-exit-reasons) and
+[re-resolution](reference.md#re-resolving-the-endpoint-mid-run).
 
-**Create** `internal/agent/{agent.go,budget.go,compact.go,transcript.go,prompt.go,preamble.md,instructions.go,toolset.go,interfaces.go,moq_test.go}`
+**Create** `internal/agent/{agent.go,budget.go,compact.go,reresolve.go,transcript.go,prompt.go,preamble.md,instructions.go,toolset.go,interfaces.go,moq_test.go}`
 and a `_test.go` for each `.go` file. `agent.go`'s doc comment: `Copied
 from llm-router internal/agent @9789c32 (ADR 0062); maintained here.` The
 copy keeps the loop's shape; the OpenAI specifics went to T7.
 
 ```go
-//go:generate go tool moq -out moq_test.go . chatter clock Toolset
+//go:generate go tool moq -out moq_test.go . chatter clock Toolset reresolver
 
 // chatter is llm.Provider's Chat.
 type chatter interface {
@@ -1364,18 +1366,49 @@ func StaticToolset(ts []tools.Tool) Toolset
 const (
 	ExitDone = "done"; ExitMaxSteps = "max_steps"; ExitTimeout = "timeout"
 	ExitMaxTokens = "max_tokens"; ExitEndpointDown = "endpoint_down"
+	ExitEndpointRejected = "endpoint_rejected"
 	ExitModelNoTools = "model_no_tools"; ExitModelMissing = "model_missing"
 	ExitMalformed = "malformed_tool_calls"; ExitNoResult = "no_result"
 	ExitLooping = "looping"; ExitContextOverflow = "context_overflow"
 	ExitStopped = "stopped"; ExitCrashed = "crashed"; ExitInternal = "internal"
 )
 
-type Config struct {
+// Target is where requests go: the run's model on its endpoint. The
+// re-resolver may replace it between retries (ADR 0064).
+type Target struct {
+	Chat          chatter
+	API           string // the endpoint's api; a change drops other providers' ReasoningOpaque
+	Endpoint      string // the endpoint's name, for events and status
 	Model         string
 	ContextTokens int
 	MaxOutput     int
 	Temperature   float64
 	Reasoning     string // passed to llm.Request.Reasoning
+}
+
+// Resolution is the re-resolver's answer for one retry or a resume. At
+// most one of Failed, Rejected and Warning is set.
+type Resolution struct {
+	Target   Target         // a new target when Changed; else ignored
+	Changed  bool
+	Changes  []string       // the keys that differ (reference.md, endpoint_changed)
+	Probe    *llm.ModelInfo // nil without a probe
+	Failed   error          // the new endpoint didn't answer the check: this attempt failed
+	Rejected *Rejection     // the configuration points elsewhere and the check refused it
+	Warning  *ConfigWarning // the configuration couldn't be used
+}
+type Rejection struct{ Endpoint, Model, Code, Message string }
+type ConfigWarning struct{ Code, Message string }
+
+// reresolver re-reads the run's alias (T28 implements it in internal/runner).
+type reresolver interface {
+	Reresolve(ctx context.Context, current Target) Resolution
+}
+
+type Config struct {
+	Target        Target
+	Reresolver    reresolver // nil: never re-resolve
+	OnSwitch      func(from, to Target, reason string, step int) // after a switch; the runner appends endpoint_history
 	Budget        Budget
 	Tools         Toolset
 	System        string // rendered preamble + project instructions
@@ -1386,18 +1419,28 @@ type Config struct {
 	OnStatus      func(Status) // on every state change
 }
 type Budget struct{ MaxSteps int; Timeout time.Duration; MaxTokens int }
-type Status struct{ State string; Step int; Usage Usage } // working | waiting_model | exited
+type Status struct { // State: working | waiting_model | exited
+	State           string
+	Step            int
+	Usage           Usage
+	Endpoint, Model string           // the current target's
+	EndpointChanges int
+	Endpoints       []EndpointUsage  // one per target used, in order
+}
+type EndpointUsage struct{ Endpoint, Model string; Usage Usage }
 type Usage struct {
 	Requests         int `json:"requests"`
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 }
-type Outcome struct{ Exit, Message, Verdict string; Usage Usage; Steps int }
+type Outcome struct{ Exit, Message, Verdict string; Usage Usage; Steps int; Endpoints []EndpointUsage }
 
-func New(c chatter, clk clock, tr *Transcript, cfg Config, log *slog.Logger) *Agent
+func New(clk clock, tr *Transcript, cfg Config, log *slog.Logger) *Agent
 // Run starts, or resumes from history (non-empty), until an exit reason.
-// It never returns an error: every failure is an Outcome.
-func (a *Agent) Run(ctx context.Context, history []llm.Message, step int) Outcome
+// prior is the previous process run's Status.Endpoints (nil at a start),
+// so per-endpoint usage survives a resume. It never returns an error:
+// every failure is an Outcome.
+func (a *Agent) Run(ctx context.Context, history []llm.Message, step int, prior []EndpointUsage) Outcome
 ```
 
 **Loop**, in this order per step (ADR 0065):
@@ -1406,9 +1449,14 @@ func (a *Agent) Run(ctx context.Context, history []llm.Message, step int) Outcom
    read by the caller); a used-up budget → `ExitTimeout`, `ExitMaxSteps`
    or `ExitMaxTokens`.
 2. `Compact`; if it can't fit → `ExitContextOverflow`.
-3. `Chat` with `TraceParent(TraceID)`. `llm.Retryable` → wait 2 s, 8 s,
-   30 s (or `Retry-After` if longer, ≤ 60 s), a `retry` event each; after
-   3 → `ExitEndpointDown`. `ErrNoTools` → `ExitModelNoTools`;
+3. `Target.Chat` with `TraceParent(TraceID)`. `llm.Retryable` → a
+   `retry` event (with the target's `endpoint`), wait 2 s, 8 s, 30 s (or
+   `Retry-After` if longer, ≤ 60 s), then, with a `Reresolver`,
+   **re-resolve** (below) and send the retry to the target it leaves.
+   The 3 retries count across targets. After the third fails →
+   `ExitEndpointRejected` when the last re-resolution was rejected
+   (message `<endpoint>: <code>: <message>`), else `ExitEndpointDown`.
+   `ErrNoTools` → `ExitModelNoTools` (the message names the endpoint);
    `ErrModelMissing` → `ExitModelMissing`; `ErrContextExceeded` → force a
    compaction once, then `ExitContextOverflow`; other errors →
    `ExitEndpointDown` with the message.
@@ -1430,6 +1478,31 @@ func (a *Agent) Run(ctx context.Context, history []llm.Message, step int) Outcom
    already did this; its result is above. Do something else.`; the fifth
    → `ExitLooping`.
 7. `Result.Done` → `ExitDone` with the verdict.
+
+**Re-resolution** (`reresolve.go`, ADR 0064). `Reresolve(ctx, current)`,
+and then:
+
+- `Warning` → a `config_warning` event (`kept_endpoint`), keep the target.
+- `Failed` → this retry has failed: a `retry` event naming the new
+  endpoint and the error, then the next backoff (or the exit above).
+- `Rejected` → an `endpoint_rejected` event, keep the target, remember
+  the rejection for the exit.
+- `Changed` → the window check: `Compact` with the new limit
+  (`ContextTokens - MaxOutput`); `ok=false` → an `endpoint_rejected`
+  event with code `context_too_small`, keep the target, remember it.
+  Otherwise an `endpoint_changed` event (`reason` `retry`, `attempt`,
+  from/to names, ids and windows, `changes`, the probe), then: the target
+  is replaced; the compaction thresholds and the working limit lowered by
+  `truncated` events are recomputed from the new limit; when `API`
+  differs, `ReasoningOpaque` is dropped from the history with a note
+  (ADR 0062); a new `EndpointUsage` entry starts; `OnSwitch(from, to,
+  "retry", step)`; `OnStatus`. A switch or an unchanged answer clears a
+  remembered rejection.
+
+At `Run` with a non-empty history and a `Reresolver`, the loop does this
+once before the first request with `reason` `resume` and nothing to
+spend: `Failed` keeps the target with an `endpoint_rejected` event,
+code `endpoint_unreachable`.
 
 **Compaction** (`compact.go`), byte estimate `len/3`:
 
@@ -1508,6 +1581,21 @@ func LoadInstructions(repoDir, workspaceDir, userFile string) (string, error)
   `max_tokens`),
   `looping` (nudge after the third), `stopped`, and `done` via
   `ResultWritten`.
+- Re-resolution (`reresolverMock`): first request 503, re-resolve
+  `Changed` to a second `chatterMock` → the retry and the rest go to the
+  second; `endpoint_changed` after the `retry`, with from/to; `OnSwitch`
+  called once; `Status` has the new endpoint, `EndpointChanges` 1 and two
+  `Endpoints` with their own usage. Three 503s with re-resolve returning
+  `Rejected` → `ExitEndpointRejected` and three `endpoint_rejected`
+  events; the same with an unchanged answer → `ExitEndpointDown`. A
+  `Failed` answer spends a retry (three failures in total →
+  `ExitEndpointDown` after two backoffs' re-resolves). `Warning` →
+  `config_warning` and the retry goes to the old chatter. A switch to a
+  window the task and last turn don't fit → `context_too_small`, old
+  target kept. A switch to another `API` drops `ReasoningOpaque` from the
+  next request's messages. The sleeps happen before each `Reresolve`
+  (`clockMock` call order). A resume calls `Reresolve` once before the
+  first request. A nil `Reresolver` behaves as before.
 - `Compact` elides oldest first keeping the last 6, then drops turns and
   inserts the note; `ok=false` for an oversized task;
   `EstimateTokens(1000, 300)` = 1100. The limit drops after two
