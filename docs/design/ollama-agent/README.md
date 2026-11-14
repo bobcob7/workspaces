@@ -223,8 +223,8 @@ Full key list: [reference.md › config.toml](reference.md#configtoml). In
 short: `[ollama]` holds the default endpoint and the fallback;
 `[ollama.endpoints.<name>]` holds the URL, `api`, default model, context
 tokens and timeouts; `[ollama.roles.<role>]` holds the runner, endpoint,
-model and budgets per role. Tokens go in `WS_OLLAMA_TOKEN_<NAME>` or the
-keychain (Settings › Models). Per-spawn overrides are `--runner`,
+model and budgets per role. Tokens go in `WS_OLLAMA_TOKEN_<NAME>` or
+`CONFIG_DIR/ollama-tokens.json` (0600, written by Settings › Models). Per-spawn overrides are `--runner`,
 `--endpoint` and `-- "" --model <m>`.
 
 Proposed addition to the generated `config.toml` (commented out):

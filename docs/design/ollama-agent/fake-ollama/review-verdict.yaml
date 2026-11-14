@@ -1,0 +1,15 @@
+# Scenario: review-verdict.
+strict_capabilities: true
+models:
+  - {name: fake-coder, capabilities: [tools], context_length: 32768}
+timing: {first_token: 10ms, chunk_interval: 1ms, words_per_chunk: 4}
+rules:
+  - turn: 0
+    tool: read_file
+    arguments: '{"path":"README.md"}'
+  - turn: 1
+    tool: run
+    arguments: '{"command":"git diff --stat HEAD~1...HEAD"}'
+  - turn: 2
+    tool: record_result
+    arguments: '{"verdict":"CHANGES_REQUESTED","report":"1. README.md:1: the title is missing a verb."}'

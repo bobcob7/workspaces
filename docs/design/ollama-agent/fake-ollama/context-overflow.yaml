@@ -1,0 +1,20 @@
+# Scenario: context-overflow. The runner's endpoint config sets
+# context_tokens = 16384 (the minimum) while fake-small truncates at 4096
+# words, so the truncation check fires; the test also writes a 40 KiB
+# big.txt so read_file forces compaction.
+strict_capabilities: true
+models:
+  - {name: fake-small, capabilities: [tools], context_length: 4096}
+rules:
+  - turn: 0
+    tool: read_file
+    arguments: '{"path":"big.txt","limit":400}'
+  - turn: 1
+    tool: read_file
+    arguments: '{"path":"big.txt","offset":401,"limit":400}'
+  - turn: 2
+    tool: read_file
+    arguments: '{"path":"big.txt","offset":801,"limit":400}'
+  - turn: 3
+    tool: record_result
+    arguments: '{"verdict":"PASS","report":"Read big.txt."}'

@@ -23,6 +23,7 @@ ws machine spawn [--runner claude|ollama] [--endpoint <name>] [--name <n>] [--of
                  [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ws machine logs [--tail <n>] <workspace>
 ws runner run [--resume] <workspace-id>          (hidden; started by ws itself)
+ws runner check [--model <m>] <endpoint>         (hidden; the desktop app's Test connection)
 ```
 
 ### `ws machine spawn` (new flags)
@@ -79,6 +80,19 @@ exits 0 once it has written `status.json` with `exit` set, whatever the
 reason. It exits 1 only when it can't read `run.toml` or write
 `status.json`. `--resume` rebuilds the conversation from
 `transcript.jsonl`.
+
+### `ws runner check` (hidden)
+
+Runs the spawn preflight for one configured endpoint, outside any
+workspace, and prints the result for Settings › Models:
+
+```json
+{"endpoint": "gpu", "url": "http://ollama-a.inference.svc:11434", "api": "ollama",
+ "model": "qwen3-coder:30b", "version": "0.40.16", "capabilities": ["completion", "tools"],
+ "context_tokens": 65536, "models": ["qwen3-coder:30b", "gpt-oss:20b"], "warnings": []}
+```
+
+Errors are the preflight codes, as for `spawn`.
 
 ## JSON output
 
@@ -295,7 +309,7 @@ removes the whole table.
 
 | Variable | Read by | Meaning |
 | -------- | ------- | ------- |
-| `WS_OLLAMA_TOKEN_<NAME>` | spawn preflight, runner | Bearer token for endpoint `<name>`, uppercased, with `-` → `_` |
+| `WS_OLLAMA_TOKEN_<NAME>` | spawn preflight, runner | Bearer token for endpoint `<name>`, uppercased, with `-` → `_`. Without it, `CONFIG_DIR/ollama-tokens.json` (`{"version":1,"tokens":{"<name>":"…"}}`, mode 0600, written by the desktop app) is read |
 | `WS_RUNNER` | tools | Set to `ollama` in the environment of `run` commands |
 | `WS_FAKE_OLLAMA` | e2e tests | Path to a prebuilt fake-ollama; skips `make fake-ollama` |
 | `E2E_OLLAMA_URL`, `E2E_OLLAMA_MODEL` | e2e tests | Opt in to the real-model scenarios |

@@ -1,0 +1,6 @@
+# Scenarios: no-tools-model, model-missing (spawn with model "absent").
+strict_capabilities: true
+models:
+  - {name: fake-notools, capabilities: [], context_length: 32768}
+  - {name: fake-coder, capabilities: [tools], context_length: 32768}
+rules: []
