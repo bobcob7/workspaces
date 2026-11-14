@@ -58,8 +58,12 @@ Output is always JSON; `--json` changes nothing.
 
 - `events`: a `ws` child's transcript events, oldest first. `kind` is
   `start`, `request`, `response`, `tool_result`, `invalid_call`, `nudge`,
-  `compaction`, `truncated`, `retry`, `mcp_start`, `mcp_error`,
-  `tool_search`, `restart` or `exit`. Secrets are already replaced by
+  `compaction`, `truncated`, `retry`, `endpoint_changed`,
+  `endpoint_rejected`, `config_warning`, `mcp_start`, `mcp_error`,
+  `tool_search`, `restart` or `exit`. `endpoint_changed` means the child
+  moved to the endpoint `config.toml` names now after its endpoint
+  failed; `endpoint_rejected` names an endpoint it refused to move to,
+  and why. Secrets are already replaced by
   `[redacted]`. It's `[]` for a Claude child.
 - `model`: as in `ws machine wait`.
 - `text`: a Claude child's `claude logs` output, else `null`.

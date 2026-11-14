@@ -2899,7 +2899,9 @@ PNGs in [img/](img/).
   Vec<ConversationRow>` mapping `transcript.jsonl` events to the existing
   row kinds: `response` → assistant text (and reasoning), `tool_calls` →
   tool rows (name + first 120 chars of arguments), `tool_result` →
-  result rows (ok/error, bytes, first 20 lines), `retry`, `compaction`,
+  result rows (ok/error, bytes, first 20 lines), `retry`,
+  `endpoint_changed` (from → to, names and model ids only),
+  `endpoint_rejected`, `config_warning`, `compaction`,
   `truncated`, `nudge`, `invalid_call`, `mcp_start`, `mcp_error`,
   `tool_search`, `restart` → a muted system row, `exit` → a final row
   (`done` in the normal colour, others with the reason in the warning
