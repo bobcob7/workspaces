@@ -4,7 +4,9 @@
 - Date: 2026-11-13; reworked 2026-11-14 after review (provider-neutral
   names, MCP tools, project instructions, `crashed`); revised 2026-11-14
   after the second review (budgets for the starting 9B model, tool calls
-  sent as text, OpenTelemetry)
+  sent as text, OpenTelemetry); revised 2026-11-14 after the third review
+  (re-resolving the endpoint between retries, one retry budget across
+  endpoints, `endpoint_rejected`)
 
 ## Context
 
@@ -110,7 +112,8 @@ flowchart TD
     budget -->|"no"| stop["write usage.json; no verdict yet, so record the fail verdict and the reason; exit"]
     budget -->|"yes"| compact["compact if needed"]
     compact --> request["request, streamed"]
-    request -->|"retryable error, at most 3: wait 2 s, 8 s, 30 s"| request
+    request -->|"retryable error, at most 3: wait 2 s, 8 s, 30 s"| reresolve["re-resolve the model alias from config.toml; check a new endpoint"]
+    reresolve -->|"same, switched, or switch rejected"| request
     request -->|"no tool call: nudge, at most 2"| budget
     request -->|"tool calls"| validate["validate, then execute"]
     validate --> budget
@@ -123,10 +126,28 @@ flowchart TD
   (default 4096) as the output limit. The request ends at
   `request_timeout`, and a stream with no chunk for `idle_timeout` counts
   as dropped.
-- **Retries**: connection refused or reset, 429, 502, 503, 504 (honouring
-  `Retry-After` up to 60 s), and a dropped or stalled stream are retried up
-  to 3 times, with 2 s, 8 s and 30 s backoff. Then the run stops with
-  `endpoint_down`. The provider's `ErrNoTools` (Ollama's 400 `does not
+- **Retries**: connection refused, reset or timed out, a request that
+  reached `request_timeout`, 429 and any 5xx (honouring `Retry-After` up
+  to 60 s), and a dropped or stalled stream are retried up to 3 times,
+  with 2 s, 8 s and 30 s backoff. The run's own `timeout` budget and a
+  `stop` are never retried.
+- **Re-resolution** ([0064](0064-choosing-the-runner-model-and-endpoint.md),
+  third review): after each backoff and just before the retry's request,
+  the runner re-reads `config.toml` and re-resolves the run's model alias.
+  When it now points at another endpoint, URL, `api` or model id, the
+  runner preflights it (served, tools, context length) and switches, or
+  rejects the switch and stays (`endpoint_rejected` event). On a switch
+  the loop recomputes its window: `limit = context_tokens - max_output`
+  of the new target, the 70 % and 50 % compaction thresholds from it, and
+  the working limit lowered by `truncated` events is reset; when the
+  system prompt, task and last turn don't fit the new limit after
+  compaction, the loop rejects the switch (`context_too_small`) instead.
+  A configuration that can't be read or used keeps the current endpoint
+  with a `config_warning` event. The 3 retries count across endpoints.
+  When they're used up, the run stops with `endpoint_down` if the last
+  attempt went to the endpoint the live configuration resolves to, or
+  `endpoint_rejected` if the configuration points at an endpoint the
+  check refused. Mid-run, a run is never handed to Claude. The provider's `ErrNoTools` (Ollama's 400 `does not
   support tools`) stops with `model_no_tools`, `ErrModelMissing` (a 404
   model) with `model_missing`, and `ErrContextExceeded` triggers the
   compaction below once, then `context_overflow`.
@@ -221,7 +242,9 @@ The preamble says so, and the runner enforces what it can:
 ### Exit reasons
 
 `done` (the model recorded a verdict), `max_steps`, `timeout`,
-`max_tokens`, `endpoint_down`, `model_no_tools`, `model_missing`,
+`max_tokens`, `endpoint_down`, `endpoint_rejected` (retries used up while
+the configuration points at an endpoint that failed the switch check),
+`model_no_tools`, `model_missing`,
 `malformed_tool_calls`, `no_result`, `looping`, `context_overflow`,
 `stopped` (by `ws rm`), `crashed` (the daemon restarted it three times
 and it died again; [0068](0068-ws-daemon.md)), `internal`. For every reason
@@ -250,7 +273,9 @@ conventions as llm-router uses them (`semconv/v1.39.0` and `genaiconv`):
 | Signal | Name | Attributes |
 | ------ | ---- | ---------- |
 | Span, one per process run (start or resume), `INTERNAL` | `invoke_agent <role>` | `gen_ai.operation.name` `invoke_agent`, `gen_ai.agent.name` (the role, or `ws`), `gen_ai.request.model`, `ws.workspace.id`, `ws.runner.session`, `ws.runner.exit` when it ends |
-| Span, one per model request (each retry its own), `CLIENT` | `chat <model id>` | `gen_ai.operation.name` `chat`, `gen_ai.provider.name` (`openai_compatible` for `api = "openai"`), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `server.address`, `server.port`, `error.type` |
+| Span, one per model request (each retry its own), `CLIENT` | `chat <model id>` | `gen_ai.operation.name` `chat`, `gen_ai.provider.name` (`openai_compatible` for `api = "openai"`), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `server.address`, `server.port`, `error.type`, `ws.runner.endpoint` (the endpoint's name, so a switch shows per request) |
+| Span event on `invoke_agent` | `ws.runner.endpoint_changed`, `ws.runner.endpoint_rejected` | `ws.runner.endpoint.from`, `ws.runner.endpoint.to` (names), `ws.runner.model.from`, `ws.runner.model.to` (ids), `ws.runner.endpoint.reason` (`retry`, `resume`), and for a rejection `error.type` (`model_not_served`, `model_without_tools`, `context_too_small`) |
+| Metric | `ws_runner.endpoint_changes` (counter) | `ws.runner.endpoint.from`, `ws.runner.endpoint.to`, `ws.runner.endpoint.reason`, `ws.runner.endpoint.outcome` (`switched`, `rejected`) |
 | Span, one per tool call, `INTERNAL` | `execute_tool <tool>` | `gen_ai.operation.name` `execute_tool`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `ws.mcp.server` for MCP tools, `error.type` |
 | Metric | `gen_ai.client.operation.duration` | as llm-router records it, per request |
 | Metric | `gen_ai.client.token.usage` | `gen_ai.token.type` `input` and `output`, per request |
@@ -348,6 +373,10 @@ truncation check catches its errors only after the fact.
   finalizer lives in `internal/runner`, shared with the daemon.
 - The exit reasons are stable values in `status.json`, `usage.json`, the
   report's first line, and `ws machine wait`'s `ws_runner.exit`.
+- The loop takes its target (provider, endpoint name, model id, window,
+  sampling) as a value it can replace between retries, through a
+  re-resolver the runner gives it; the loop owns the window check, the
+  runner owns reading the configuration and the preflight.
 - The defaults are guesses until measured; the design's measured-run plan
   asks for real runs per role before any default changes.
 - `go.mod` gains the OpenTelemetry Go SDK at llm-router's versions
