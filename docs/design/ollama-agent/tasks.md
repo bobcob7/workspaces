@@ -1740,6 +1740,11 @@ func (t *Telemetry) StartRun(ctx context.Context, traceID string, info RunInfo) 
 // attributes of ADR 0065; it records gen_ai.client.operation.duration and
 // gen_ai.client.token.usage, and sets Response.SpanID.
 func (t *Telemetry) Provider(p llm.Provider, ep llm.Endpoint) llm.Provider
+// EndpointEvent adds a ws.runner.endpoint_changed span event (or
+// ws.runner.endpoint_rejected when e.Code != "") to the run's span and
+// counts one ws_runner.endpoint_changes. Names and ids only (ADR 0065).
+func (t *Telemetry) EndpointEvent(ctx context.Context, e EndpointChange)
+type EndpointChange struct{ From, To, FromModel, ToModel, Reason, Code string }
 // Toolset wraps ts: each Call is an "execute_tool <name>" INTERNAL span
 // with gen_ai.tool.name, gen_ai.tool.call.id (agent.ToolCallID(ctx)), and
 // ws.mcp.server = serverOf(name) when not "".
@@ -1750,8 +1755,13 @@ func newForTest(tp trace.TracerProvider, mp metric.MeterProvider, w io.Writer) *
 
 `conventions.go`: `AttrWorkspaceID = "ws.workspace.id"`, `AttrSession =
 "ws.runner.session"`, `AttrExit = "ws.runner.exit"`, `AttrMCPServer =
-"ws.mcp.server"`, the counter name `ws_runner.runs` with attribute
-`ws_runner.exit`; instruments from `semconv/v1.39.0` and `genaiconv`
+"ws.mcp.server"`, `AttrEndpoint = "ws.runner.endpoint"` (on every `chat`
+span, from `ep.Name`), `AttrEndpointFrom`/`To` (`ws.runner.endpoint.from`,
+`.to`), `AttrModelFrom`/`To` (`ws.runner.model.from`, `.to`),
+`AttrEndpointReason` (`ws.runner.endpoint.reason`), `AttrEndpointOutcome`
+(`ws.runner.endpoint.outcome`: `switched`, `rejected`), the counter names
+`ws_runner.runs` with attribute `ws_runner.exit` and
+`ws_runner.endpoint_changes`; instruments from `semconv/v1.39.0` and `genaiconv`
 (`NewClientOperationDuration`, `NewClientTokenUsage`). `error.type` on a
 failed `chat` span is one of `unreachable`, `retryable`, `stream_dropped`,
 `stream_stalled`, `model_missing`, `no_tools`, `context_exceeded`, `other`
@@ -1788,6 +1798,13 @@ Lint rule: `@! grep -rn '"go.opentelemetry.io/' --include='*.go' . | grep -vE '^
   is the span id; an `llm.ErrStreamDropped` → `error.type`
   `stream_dropped` and status error; both GenAI metrics recorded, token
   usage with `gen_ai.token.type` `input` and `output`.
+- `chat` spans carry `ws.runner.endpoint` = the endpoint's name; two
+  `Provider` wrappers for two endpoints give two names.
+  `EndpointEvent(ctx, {From: "fake", To: "fake-b", …, Reason: "retry"})`
+  adds one event to the run span with those attributes and counts one
+  `ws_runner.endpoint_changes` with outcome `switched`; with `Code:
+  "model_without_tools"` the event is `ws.runner.endpoint_rejected` with
+  `error.type` set and outcome `rejected`. No URL appears in either.
 - `Toolset` around a mock: span `execute_tool read_file` with
   `gen_ai.tool.call.id` from the context; an MCP name gets `ws.mcp.server`.
 - **No content**: a run of `Provider` and `Toolset` with the marker
