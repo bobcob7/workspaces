@@ -1,7 +1,7 @@
 # Runner: implementation tasks
 
 Implements ADRs [0062](../../adrs/0062-agent-runner-built-into-ws.md) to
-[0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md) and
+[0070](../../adrs/0070-runner-agents-for-people-and-loops.md) and
 [reference.md](reference.md). Every task targets **this repo**
 (workspaces); nothing is done in llm-router, and nothing clones it. Each
 task builds, passes its tests, and can be merged on its own. Each task is
@@ -21,30 +21,43 @@ runner's provider seam (ADR 0062)`.
 | T7 | `internal/llm/openai`: the OpenAI-compatible provider, and `internal/llm/providers` | T1, T4, T6 | T2, T9, T11, T16 | |
 | T8 | A `model` for every agent; `.Runner` and `.Model` in role templates | nothing | T1, T3–T6 | small |
 | T9 | `internal/mcp`: server definitions, expansion, names, filter | nothing (T4 for the role keys' names only) | T2, T7, T11, T16 | small |
-| T10 | `internal/mcp`: the client (stdio, streamable HTTP, SSE) | T3, T9 | T17 | |
+| T10 | `internal/mcp`: the client (stdio, streamable HTTP, SSE) | T3, T9 | T13, T17 | |
 | T11 | `internal/agent`: the loop (copied), budgets, compaction, transcript, preamble, project instructions | T5, T6 | T2, T7, T9, T16 | |
-| T12 | MCP tools in the loop: the toolset and `tool_search` | T10, T11 | T23 | small |
-| T14 | `internal/runner`, session kind `runner`, hidden `ws runner run` | T4, T7, T12 | none | |
+| T12 | MCP tools in the loop: the toolset and `tool_search` | T10, T11 | T13, T23 | small |
+| T13 | `internal/telemetry`: OpenTelemetry setup and the GenAI decorators | T6, T11 | T10, T12, T17 | |
+| T14 | `internal/runner`, session kind `runner`, hidden `ws runner run` | T4, T7, T12, T13 | none | |
 | T15 | `lifetime` reads runner sessions; `runner`/`model`/`ws_runner` in `ws list`, `children`, `wait`; `ws machine logs` | T8, T14 | T18 | |
 | T16 | `secrets.env` and the runner's environment | T4 | T2, T7, T9, T11 | small |
-| T17 | `internal/daemon` core and `ws daemon run|status|stop` | T16 | T10 | |
-| T18 | The daemon supervises runners; preflight and `ws runner check` | T14, T16, T17 | T15 | |
-| T19 | `ws machine spawn --runner`, `ws rm`/`ws restore` through the daemon, guides and docs | T15, T18 | none | |
-| T22 | `e2e/runner`: harness, scenarios, `make fakes`, `make e2e-runner`, CI | T2, T3, T19 | T24 | |
-| T23 | `ws-online` keeps a managed daemon running | T17 | T12–T22 | small |
-| T24 | Desktop: a quiet model label on every agent, the runner transcript, Settings › Models | T19 | T22 | |
+| T17 | `internal/daemon` core and `ws daemon run|status|stop` (with `--origin app`) | T16 | T10, T13 | |
+| T18 | The daemon supervises runners; preflight, `ws runner check` and `ws runner stop` | T14, T16, T17 | T15 | |
+| T19 | `ws machine spawn --runner`, the shared runner start, `ws rm`/`ws restore` through the daemon, guides and docs | T15, T18 | none | |
+| T20 | `ws claude --runner` and `--endpoint` | T19 | T21, T24 | small |
+| T21 | Loops on the runner: `--runner`, `--endpoint`, record version 4, the tick's start path | T19 | T20, T24 | |
+| T22 | `e2e/runner`: harness, scenarios, `make fakes`, `make e2e-runner`, CI | T2, T3, T21 | T25 | |
+| T23 | The desktop app and `ws-online` keep a daemon running | T17 | T12–T15, T18–T21 | small |
+| T24 | Desktop: a quiet model label on every agent, the runner transcript, Stop | T19 | T20, T21 | |
+| T25 | Desktop: Settings › Models, with the Runner service line | T23, T24 | T22 | |
+| T26 | Desktop: runner and model pickers in the loop form and the New agent dialog | T20, T21, T25 | T27 | |
+| T27 | *Optional:* `internal/llm/ollama`, the Ollama-native provider | T2, T7 | T26 | |
 
 Waves, if run in parallel: **1** T1, T3, T4, T5, T6, T8 · **2** T2, T7, T9,
-T11, T16 · **3** T10, T17 · **4** T12, T23 · **5** T14 · **6** T15, T18 ·
-**7** T19 · **8** T22, T24. Run at most one heavy implementer at a time on
-an 8 GB host (handbook lesson: Go full test runs, `cargo`, vitest); the
-tasks marked `small` touch one package and are light.
+T11, T16 · **3** T10, T13, T17 · **4** T12, T23 · **5** T14 · **6** T15,
+T18 · **7** T19 · **8** T20, T21, T24 · **9** T22, T25 · **10** T26, T27.
+Run at most one heavy implementer at a time on an 8 GB host (Go full test
+runs, `cargo`, vitest): within a wave, start the heavy tasks one after
+another and run the `small` ones beside them. The desktop tasks T24, T25
+and T26 share `desktop/src/test/fixtures.ts`, so they run in that order.
 
-Task numbers changed in the 2026-11-14 rework. The first draft's T1
-(fake-ollama changes in llm-router) is now T1 and T2 here; its T2–T8 map to
-T4, T6/T7, T5, T11, T14/T15, T19/T22, T24. The first draft's T8 acceptance
-("an Ollama badge") is replaced by T24's quiet model label, and the data
-behind it is T8 and T15.
+**T27 is optional.** It's the next provider, planned but not required for
+this plan to ship; the orchestrator runs it only when the owner asks. Its
+spec is complete so it can be picked up later.
+
+Task numbers changed twice on 2026-11-14. In the first rework, the first
+draft's T1 (fake-ollama changes in llm-router) became T1 and T2, and its
+T2–T8 became T4, T6/T7, T5, T11, T13/T14, T18/T19, T21. In the second,
+T13 (telemetry), T20, T21 (ADR 0070), T25, T26 and T27 were added: the
+first rework's T13–T19 are now T14–T19 and T22, its T20 is T23, and its
+T21 is split into T24 and T25.
 
 **Read before any task:** [reference.md](reference.md) (every flag, JSON
 shape, file and error), the "Decision" section of the ADR the task names,
@@ -77,17 +90,23 @@ disagree, reference.md wins. Don't read whole packages.
 - Run `make fmt` before committing. `make lint` must pass. Never call
   `exec.Command` outside the packages the Makefile's lint rules allow;
   shell commands go through `internal/gate`.
-- **Code copied from llm-router** (T1, T11) is this repo's code from the
+- **Code copied from llm-router** (T1, T11, T13) is this repo's code from the
   moment it lands: it follows every rule above, `make lint` included. Each
   copied package's doc comment says `Copied from llm-router internal/<pkg>
-  @9789c32 (ADR 0067); maintained here.` (ADR 0062 for the loop). Read
-  llm-router from the read-only checkout your workspace was given (the
-  orchestrator spawns T1 and T11 with `llm-router@9789c32` as a second
+  @9789c32 (ADR 0067); maintained here.` (ADR 0062 for the loop, ADR 0065
+  for telemetry). Read llm-router from the read-only checkout your
+  workspace was given (the orchestrator spawns T1, T7, T11 and T13 with
+  `llm-router@9789c32` as a second
   repo spec); never `git clone` it, never add it to `go.mod`.
 - New dependencies go in `go.mod` only in the task that names them: T1
   (`go.yaml.in/yaml/v3` becomes direct), T3 (`github.com/modelcontextprotocol/go-sdk`,
-  the newest v1), T7 (`github.com/openai/openai-go/v3 v3.71.1`). Run `go
-  mod tidy` and commit `go.sum`.
+  the newest v1), T7 (`github.com/openai/openai-go/v3 v3.71.1`), T13 (the
+  OpenTelemetry Go SDK at llm-router's versions: `go.opentelemetry.io/otel`,
+  `/sdk`, `/sdk/metric`, `/sdk/log`, `/trace`, `/metric` v1.47.0 (`/log`
+  v1.47.0 comes in indirectly),
+  `go.opentelemetry.io/contrib/exporters/autoexport` v0.72.0,
+  `go.opentelemetry.io/contrib/bridges/otelslog` v0.21.0). Run `go mod
+  tidy` and commit `go.sum`.
 - In tasks that touch `internal/cli`, run
   `go test ./internal/cli/ -run TestGuideTopics`. It checks that each
   command has a guide in `internal/cli/guides/` and a topic in
@@ -103,6 +122,10 @@ disagree, reference.md wins. Don't read whole packages.
   command synopses stay plain code blocks.
 - Run heavy commands one at a time (`go test -p 2`). Commit and push
   before the slowest suite. If a command was killed, say so in the report.
+- **Model ids** (`qwen/qwen3.5-9b`, `qwen3.5:9b`) are opaque strings:
+  never split them on `/` or `:`, never use one as a TOML key, a map key
+  from config, or in a file name. Test values in new tests use these two
+  ids where an id is needed.
 - Commit trailer: as your role prompt says.
 
 ---
