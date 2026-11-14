@@ -22,6 +22,7 @@ never as keys or in file names.
 - [Files](#files)
 - [config.toml](#configtoml)
 - [secrets.env and the runner's environment](#secretsenv-and-the-runners-environment)
+- [Re-resolving the endpoint mid-run](#re-resolving-the-endpoint-mid-run)
 - [MCP servers](#mcp-servers)
 - [The daemon socket](#the-daemon-socket)
 - [Environment variables](#environment-variables)
@@ -82,7 +83,10 @@ With `runner.fallback = "claude"`, a failure of steps 1–3
 (`endpoint_unreachable`, `model_not_served`, `model_without_tools`) starts a
 Claude child instead. Its output has `"runner": "claude"` and a warning
 `runner preflight failed (<code>: <message>); started a claude child because
-runner.fallback = "claude"`.
+runner.fallback = "claude"`. The fallback applies only here, before
+anything is created; a running agent is never handed to Claude. Mid-run,
+the runner [re-resolves its endpoint](#re-resolving-the-endpoint-mid-run)
+instead.
 
 ### `ws machine logs`
 
@@ -260,7 +264,7 @@ preflight fails the run with its code in `error_code`
             "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "step": 12, "max_steps": 80, "restarts": 0,
                           "usage": {"requests": 12, "prompt_tokens": 210344, "completion_tokens": 9120},
                           "mcp": [{"server": "metrics", "state": "connected", "tools": 6, "loaded": 3}],
-                          "exit": null}}
+                          "exit": null, "endpoint_changes": 0}}
 ```
 
 A Claude agent:
@@ -278,7 +282,11 @@ A Claude agent:
   transcript; `null` for a shell, or a Claude agent that hasn't answered
   yet.
 - `ws_runner`: `null` unless `runner` is `ws`. `exit` is `null` while it
-  runs, else an [exit reason](#runner-exit-reasons). `mcp[].state` is
+  runs, else an [exit reason](#runner-exit-reasons). `endpoint` and the
+  session's `model` are the ones the run uses now (from `status.json`);
+  `endpoint_changes` counts its switches
+  ([re-resolution](#re-resolving-the-endpoint-mid-run)), added after the
+  existing fields. `mcp[].state` is
   `starting`, `connected` or `failed`; `loaded` counts tools added by
   `tool_search`.
 - `state` for `runner` sessions
@@ -303,11 +311,14 @@ A Claude agent:
  "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "exit": "done", "steps": 31, "restarts": 0,
                "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
                "wall_seconds": 1104,
-               "usage_file": "/…/state/orch-1a2b3c4d/machine/t1-impl-d8efb24f/usage.json"}}
+               "usage_file": "/…/state/orch-1a2b3c4d/machine/t1-impl-d8efb24f/usage.json",
+               "endpoint_changes": 0}}
 ```
 
 `runner`, `model` and `ws_runner` are as in `session` above. For a gone
-child, they come from `usage.json` (a `ws` child) or are `null`.
+child, they come from `usage.json` (a `ws` child) or are `null`. `endpoint`
+and `model` are the last ones the run used; `endpoint_changes` is the
+length of `usage.json`'s `endpoints` minus one.
 
 ### `ws machine logs`
 
@@ -347,7 +358,7 @@ started_at = 2026-11-13T17:45:58Z
 version = 1
 session = "rn-3f2a9c1e"
 model_alias = "qwen9b"         # "" when --model gave a raw id
-model = "qwen/qwen3.5-9b"
+model = "qwen/qwen3.5-9b"      # this key and the next six: as resolved at spawn
 endpoint = "gpu"
 url = "http://gpu-a.inference.svc:1234"
 api = "openai"
@@ -373,10 +384,36 @@ user_instructions = false
 prompt = """…the rendered role prompt…"""
 trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"   # sent in traceparent; kept across --resume
 created_at = 2026-11-13T17:45:58Z
+endpoint_alias = ""            # for a raw id: the alias whose endpoint it runs on; else ""
+endpoint_flag = ""             # --endpoint, or ""
+
+[[endpoint_history]]           # written by the spawn
+since = 2026-11-13T17:45:58Z
+step = 0
+reason = "spawn"               # spawn | retry | resume
+endpoint = "gpu"
+url = "http://gpu-a.inference.svc:1234"
+api = "openai"
+model = "qwen/qwen3.5-9b"
+context_tokens = 65536
+
+[[endpoint_history]]           # appended by the runner when it switched
+since = 2026-11-13T17:52:31Z
+step = 12
+reason = "retry"
+endpoint = "gpu-b"
+url = "http://gpu-b.inference.svc:1234"
+api = "openai"
+model = "qwen/qwen3.5-9b"
+context_tokens = 65536
 ```
 
-No token, URL credential, header or environment value is ever written
-here.
+`model_alias`, `endpoint_alias` and `endpoint_flag` are what
+[re-resolution](#re-resolving-the-endpoint-mid-run) starts from. The
+last `endpoint_history` entry is the endpoint the run uses; a resume
+starts from it. After the spawn, only the runner writes this file, and
+only to append an entry (temp file and rename). No token, URL credential,
+header or environment value is ever written here.
 
 ### `state/<id>/runner/status.json`
 
@@ -385,13 +422,16 @@ here.
  "state": "working", "step": 12, "max_steps": 80, "restarts": 0,
  "usage": {"requests": 12, "prompt_tokens": 210344, "completion_tokens": 9120},
  "mcp": [{"server": "metrics", "state": "connected", "tools": 6, "loaded": 3, "error": null}],
- "exit": null, "exit_message": null, "verdict": null, "updated_at": "2026-11-13T17:52:40Z"}
+ "exit": null, "exit_message": null, "verdict": null, "updated_at": "2026-11-13T17:52:40Z",
+ "endpoint": "gpu", "model": "qwen/qwen3.5-9b", "endpoint_changes": 0}
 ```
 
 `verdict` is the recorded verdict once there is one, from the model or
 the finalizer, for every run (with or without a parent). `state` is `starting`, `working` (running a tool), `waiting_model` (a
 request is in flight) or `exited`. Written to a temp file and renamed.
-`restarts` is set by the daemon when it resumes after a crash.
+`restarts` is set by the daemon when it resumes after a crash. `endpoint`
+and `model` are the current target (the last `endpoint_history` entry);
+`endpoint_changes` counts switches since the spawn.
 
 ### `state/<id>/runner/transcript.jsonl`
 
@@ -407,7 +447,10 @@ One JSON object per line:
 | `nudge` | `reason` (`no_tool_call`, `text_tool_call`, `repeat`) |
 | `compaction` | `before_tokens`, `after_tokens`, `elided`, `dropped_turns` |
 | `truncated` | `estimated_tokens`, `prompt_tokens` |
-| `retry` | `attempt`, `error`, `wait_ms` |
+| `retry` | `attempt`, `error`, `wait_ms`, `endpoint` (the name the failed attempt went to) |
+| `endpoint_changed` | `reason` (`retry`, `resume`), `attempt` (`null` for `resume`), `from_endpoint`, `to_endpoint`, `from_model`, `to_model`, `from_context_tokens`, `to_context_tokens`, `api`, `changed` (the keys that differ: `endpoint`, `url`, `api`, `id`, `context_tokens`, `max_output`, `temperature`, `reasoning`, `request_timeout`, `idle_timeout`), `version` and `capabilities` from the probe (`null` without one) |
+| `endpoint_rejected` | `reason`, `attempt`, `endpoint` (the rejected one's name), `model`, `code` (`model_not_served`, `model_without_tools`, `context_too_small`), `message`, `kept_endpoint` |
+| `config_warning` | `code` (`config_invalid`, `model_gone`, `endpoint_unknown`, `api_not_implemented`), `message` (names the key, never a value), `kept_endpoint` |
 | `mcp_start` | `server`, `transport` (`stdio`, `http`, `sse`), `ok`, `tools`, `allowed`, `error` |
 | `mcp_error` | `server`, `tool` or `null`, `error` |
 | `tool_search` | `query`, `loaded` (names), `dropped` (names) |
@@ -415,6 +458,7 @@ One JSON object per line:
 | `exit` | `reason`, `message`, `verdict` or `null` |
 
 Every event is redacted before it's written ([0066](../../adrs/0066-runner-security-boundaries.md)).
+Endpoint events carry names and model ids, never a URL, token or header.
 
 ### `state/<root>/machine/<child>/usage.json`
 
@@ -428,10 +472,15 @@ A run without a parent writes it, and `report.md`, to
  "role": "implementer", "exit": "done", "steps": 31, "restarts": 0,
  "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
  "mcp_calls": {"metrics": 4},
+ "endpoints": [{"endpoint": "gpu", "url": "http://gpu-a.inference.svc:1234", "api": "openai", "model": "qwen/qwen3.5-9b",
+                "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230}}],
  "started_at": "2026-11-13T17:45:58Z", "ended_at": "2026-11-13T18:04:22Z", "wall_seconds": 1104,
  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"}
 ```
 
+`endpoint`, `url`, `api` and `model` are the last ones the run used;
+`endpoints` has one entry per `endpoint_history` entry, in order, with the
+requests and tokens sent there (a failed attempt counts as a request).
 `trace_id` is the run's OpenTelemetry trace id: every span the runner
 exports belongs to it, and each model request's `traceparent` carries it,
 so llm-router's spans join the same trace
@@ -463,7 +512,7 @@ environment or secrets.env, never in config.toml`.
 | Key | Type | Default | Used for |
 | --- | ---- | ------- | -------- |
 | `model` | string | none | The default model alias for `ws` agents (children, `ws claude --runner ws`, `ws` loops) |
-| `fallback` | string | `"none"` | `none` or `claude`: what a start (spawn, `ws claude`, a loop run) does when preflight fails |
+| `fallback` | string | `"none"` | `none` or `claude`: what a start (spawn, `ws claude`, a loop run) does when preflight fails. Never applies mid-run |
 | `keep_git_tokens` | bool | `true` | Keep `GH_TOKEN` and `GITHUB_TOKEN` in the tools' environment |
 | `user_instructions` | bool | `false` | Also load `~/.claude/CLAUDE.md` into the system prompt; off by the owner's decision, an opt-in per machine ([0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)) |
 
@@ -608,6 +657,74 @@ From it:
 
 `secrets.env` is the only secrets store.
 
+## Re-resolving the endpoint mid-run
+
+([0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md),
+third review.) A run is bound to its model alias, not to the URL it
+resolved at spawn.
+
+| | |
+| - | - |
+| Fixed for the run | `model_alias` (or a raw `model` with `endpoint_alias`), `endpoint_flag`, role, budgets, MCP keys |
+| Read again | the alias's `id`, `endpoint`, `context_tokens`, `max_output`, `temperature`, `reasoning`; that endpoint's (or `endpoint_flag`'s) `url`, `api`, `probe`, `request_timeout`, `idle_timeout`; its token |
+| When | after each retry's backoff, just before the retry's request; and at `ws runner run --resume`, before the first request. Never while requests succeed |
+| Retryable | connection refused, reset or timed out; `request_timeout`; 429; any 5xx; a dropped or stalled stream |
+| Who reads | the runner: `$WS_CONFIG_DIR/config.toml` (parsed and validated as every `ws` command does; never created), and `$WS_CONFIG_DIR/secrets.env` for the new endpoint's token only, else its environment. The daemon pushes nothing |
+| Check before a switch | when the endpoint name, `url`, `api` or model id differs: the spawn's preflight against the new endpoint with its token (`Models`, the id listed, `Probe`), 10 s per request; then the loop's window check |
+| Budget | 3 retries per request, across endpoints; a switch doesn't reset them; an unreachable new endpoint spends one |
+
+```mermaid
+sequenceDiagram
+    participant L as Loop
+    participant R as Runner (re-resolver)
+    participant C as config.toml and secrets.env
+    participant A as Current endpoint
+    participant B as New endpoint
+    L->>A: request (attempt n)
+    A-->>L: connection error, timeout or 5xx
+    L->>L: retry event, then backoff (2 s, 8 s, 30 s or Retry-After)
+    L->>R: re-resolve (current target, attempt)
+    R->>C: read config.toml; resolve the run's alias
+    alt unreadable or unusable
+        R-->>L: keep the current target (config_warning)
+    else same target
+        R-->>L: keep the current target
+    else another endpoint, URL, api or model id
+        R->>C: read the new endpoint's token
+        R->>B: preflight: models, then probe
+        alt served, with tools
+            R-->>L: new target
+            L->>L: recompute the window; does the conversation fit?
+        else not served, no tools, or does not fit
+            R-->>L: keep the current target (endpoint_rejected)
+        end
+    end
+    L->>B: request (attempt n+1) to the target chosen
+```
+
+Outcomes for one retry:
+
+| Live configuration | What the runner does | Records |
+| ------------------ | -------------------- | ------- |
+| Unchanged | retries the current endpoint | `retry` |
+| Points elsewhere; the check passes | switches; the token, provider and window follow the new endpoint | `endpoint_changed`, an `endpoint_history` entry, `status.json` `endpoint` and `endpoint_changes` |
+| Points elsewhere; unreachable | stays; this attempt counts as failed | `retry` with the new endpoint's name |
+| Points elsewhere; id not served, no tools, or the conversation doesn't fit the smaller window | stays | `endpoint_rejected` |
+| Doesn't parse or validate; the alias or `endpoint_flag` is gone; `api` not implemented | stays | `config_warning`, and a `runner.log` warning |
+| Only `max_output`, `temperature`, `reasoning` or a timeout changed | applies them, no probe (a smaller window is still checked) | `endpoint_changed` with `changed` naming them |
+
+When the third retry fails: `endpoint_down` if the last attempt went to
+the endpoint the live configuration resolves to; `endpoint_rejected` if
+the live configuration points at an endpoint the check refused. A switch
+to an endpoint with `probe = "none"` can't check tools; a 400 "does not
+support tools" from it ends the run `model_no_tools`, with the endpoint's
+name in `exit_message`. A switch to another `api` builds a new provider,
+and reasoning another provider must receive verbatim is dropped with a
+transcript note ([0062](../../adrs/0062-agent-runner-built-into-ws.md)).
+Edits reach a run through `ws config set` or Settings › Models (both
+replace `config.toml` atomically) or any editor that does the same; a
+healthy run sees them only at its next retry or resume.
+
 ## MCP servers
 
 ([0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md))
@@ -657,7 +774,8 @@ JSON bodies, errors as `{"error": {"code", "message", "details"}}`.
 
 | Variable | Read by | Meaning |
 | -------- | ------- | ------- |
-| `WS_ENDPOINT_TOKEN_<NAME>` | the runner, the daemon's preflight | Bearer token for endpoint `<name>`; usually in `secrets.env` |
+| `WS_ENDPOINT_TOKEN_<NAME>` | the runner, the daemon's preflight | Bearer token for endpoint `<name>`; usually in `secrets.env`. When a run switches endpoint, the runner reads the new endpoint's from `secrets.env` as it is then, else from its environment |
+| `WS_CONFIG_DIR` | the runner | Set by the daemon; where the runner re-reads `config.toml` and `secrets.env` when it re-resolves |
 | `WS_DAEMON_AUTOSTART` | commands that need the daemon | `0`: don't auto-start; fail with `daemon_unavailable` |
 | `WS_RUNNER`, `WS_WORKSPACE` | tools, MCP servers | Set by the daemon in a runner's environment |
 | `WS_RUNNER_SECRET_NAMES` | the runner | Set by the daemon: the names defined in `secrets.env`, comma-separated, so `run` commands get them scrubbed |
@@ -706,7 +824,8 @@ In `status.json` `exit`, `usage.json` `exit`, `session.ws_runner.exit`,
 | `max_steps` | first fail | Step budget used up |
 | `timeout` | first fail | Wall-clock budget used up |
 | `max_tokens` | first fail | Token budget used up |
-| `endpoint_down` | first fail | 3 retries failed: connection, 429/5xx, dropped or stalled stream |
+| `endpoint_down` | first fail | 3 retries failed (connection, timeout, 429/5xx, dropped or stalled stream), the last one against the endpoint the live configuration resolves to |
+| `endpoint_rejected` | first fail | 3 retries failed while the live configuration points the alias at an endpoint the switch check refused; `exit_message` names it and the code (`model_not_served`, `model_without_tools`, `context_too_small`) |
 | `model_no_tools` | first fail | The provider reported the model can't take tools |
 | `model_missing` | first fail | The endpoint no longer serves the model |
 | `malformed_tool_calls` | first fail | 3 invalid tool calls in a row |
