@@ -2,7 +2,8 @@
 
 - Status: Proposed
 - Date: 2026-11-13; reworked 2026-11-14 after review (provider seam,
-  code copied into this repo)
+  code copied into this repo); revised 2026-11-14 after the second review
+  (Ollama-native is the next provider; OpenTelemetry linked)
 
 ## Context
 
@@ -92,8 +93,10 @@ type Provider interface {
 
 `Request` carries the model id, `System` (the system prompt, kept apart
 from the messages because the Anthropic API needs it apart), `Messages`,
-`Tools` (name, description, JSON schema), the output limit and the
-temperature. A `Message` has a role (`user`, `assistant`, `tool`), text,
+`Tools` (name, description, JSON schema), the output limit, the
+temperature, and `Reasoning` (the model's `reasoning` setting: `""` for
+the server's default, or `none`, `low`, `medium`, `high`;
+[0064](0064-choosing-the-runner-model-and-endpoint.md)). A `Message` has a role (`user`, `assistant`, `tool`), text,
 `ToolCalls` (`ID`, `Name`, `Arguments` as JSON text), `ToolCallID` for a
 tool result, `Reasoning` (text, shown in transcripts, never sent back by
 providers that don't need it) and `ReasoningOpaque` (bytes a provider
@@ -107,7 +110,7 @@ Nothing above the seam imports a provider's SDK.
 
 **What each provider normalizes**, so the loop never sees the difference:
 
-| Shape | OpenAI chat completions (now) | Ollama native `/api/chat` (later) | OpenAI Responses (later) | Anthropic Messages (later) |
+| Shape | OpenAI chat completions (now) | Ollama native `/api/chat` (next) | OpenAI Responses (later) | Anthropic Messages (later) |
 | ----- | ----------------------------- | --------------------------------- | ------------------------ | -------------------------- |
 | System prompt | first `system` message | first `system` message | `instructions` | top-level `system` |
 | Tool call | `tool_calls[].{id, function.name, function.arguments}` (string) | `tool_calls[].function.{name, arguments}` (object, no id): the provider marshals the object and makes ids `call_<step>_<n>` | `function_call` item: `call_id`, `name`, `arguments` | `tool_use` block: `id`, `name`, `input` (object, marshalled) |
@@ -116,6 +119,7 @@ Nothing above the seam imports a provider's SDK.
 | Stop reason | `finish_reason` `stop`/`tool_calls`/`length` | `done_reason` | `status`, output kinds | `stop_reason` `end_turn`/`tool_use`/`max_tokens` |
 | Usage | `prompt_tokens`, `completion_tokens` | `prompt_eval_count`, `eval_count` | `input_tokens`, `output_tokens` | `input_tokens`, `output_tokens`, `cache_*_input_tokens` |
 | Context size | the server's; not settable per request | `options.num_ctx` per request | the model's | the model's |
+| Reasoning control (the model's `reasoning`) | `reasoning_effort`, sent only when set | `think` (`false` for `none`, else the level) | `reasoning.effort` | a `thinking` budget |
 
 `ReasoningOpaque` from one provider is dropped, with a transcript note,
 if a resumed run is ever sent to a different provider; a run keeps one
@@ -132,16 +136,27 @@ provider:
   LM Studio and vLLM. `Models` is `GET /v1/models`. `Probe` uses Ollama's
   native `/api/show` when the endpoint's `probe` setting finds an Ollama
   server, and is `ErrProbeUnsupported` otherwise.
-- **`ollama`**, **`openai-responses`**, **`anthropic`**: reserved names.
-  Config that names one is `config_invalid`, "api = "anthropic" isn't
-  implemented yet". Each is a new package implementing `Provider`, one
-  table row above, its own fixture tests, and a line in the provider
-  registry. The loop, the tools, the transcript, the session, the daemon
-  and the config schema don't change.
+- **`ollama`** (planned next): Ollama's native `/api/chat`. It is the
+  follow-up to this design, and its task is the last, optional one in
+  [tasks.md](../design/ollama-agent/tasks.md). It is worth having because
+  it's the only way to set the context size per request
+  (`options.num_ctx`, sent as the model's `context_tokens`), so a model no
+  longer depends on the server's default or a Modelfile, and because it
+  controls thinking directly (`think`). It needs: the provider package,
+  `/api/chat` in the fake-ollama copy (streamed NDJSON, object arguments,
+  no tool-call ids), and `ollama` removed from the reserved list. Until it
+  lands, `api = "ollama"` is `config_invalid`.
+- **`openai-responses`**, **`anthropic`**: reserved names, with no plan
+  yet. Config that names one is `config_invalid`, "api = "anthropic" isn't
+  implemented yet".
 
-We read the review's "openapi" as the OpenAI API (chat completions now,
-Responses later). If it meant tools described by OpenAPI documents, that's
-a different feature, listed in the design's open questions.
+Each provider is a new package implementing `Provider`, one table row
+above, its own fixture tests, and a line in the provider registry. The
+loop, the tools, the transcript, the session, the daemon and the config
+schema don't change.
+
+"openapi" in the review meant the OpenAI API (confirmed by the owner):
+chat completions now; Responses reserved.
 
 **The loop** (`internal/agent`) is copied from llm-router's
 `internal/agent` at commit `9789c32` and from then on maintained here
@@ -197,8 +212,6 @@ to Ollama's Anthropic-compatible endpoint and a local model name.
   models; their size against a 4k–32k default window is unmeasured but
   not small.
 
-Still worth a spike for users with large GPUs and no router.
-
 ### Hard-code the OpenAI chat API in the loop (the first draft)
 
 **Pros**
@@ -221,7 +234,7 @@ Still worth a spike for users with large GPUs and no router.
 
 - llm-router is internal; `ws` would have to clone or `replace` it, and
   the module path doesn't resolve[^measured-remote]. It pulls llm-router's
-  OpenTelemetry dependencies, and turns its test helpers into a public API.
+  whole module graph, and turns its test helpers into a public API.
 
 ### One generic SDK for every provider (an "any LLM" library)
 
@@ -241,7 +254,9 @@ Still worth a spike for users with large GPUs and no router.
   lint` gains a rule that `chat/completions` appears only in
   `internal/llm/openai` (and in the test-only fake that serves it).
 - `go.mod` gains `github.com/openai/openai-go/v3` (`v3.71.1`, the version
-  llm-router uses), required only by `internal/llm/openai`.
+  llm-router uses), required only by `internal/llm/openai`, and the
+  OpenTelemetry Go SDK, required only by `internal/telemetry`
+  ([0065](0065-runner-agent-loop-tools-and-budgets.md), Observability).
 - Context size can't be set per request through the OpenAI API. It's a
   property of the model on its endpoint, configured in `config.toml`
   ([0064](0064-choosing-the-runner-model-and-endpoint.md)).

@@ -2,7 +2,9 @@
 
 - Status: Proposed
 - Date: 2026-11-13; reworked 2026-11-14 after review (provider-neutral
-  config, secrets in `secrets.env`, preflight in the daemon)
+  config, secrets in `secrets.env`, preflight in the daemon); revised
+  2026-11-14 after the second review (`qwen/qwen3.5-9b` as the starting
+  model, `reasoning`, ids with `/` and `:`)
 
 ## Context
 
@@ -39,8 +41,15 @@ is down or the model can't call tools?
   llm-router passes a backend's 4xx through[^router-errors].
 - Ollama truncates the oldest history silently past the context
   length[^ollama-src-truncate].
-- Model ids contain `:`, `.` and `/` (`qwen3-coder:30b`,
-  `claude-sonnet-5-5`, `org/model`), so they can't be bare TOML keys.
+- Model ids contain `:`, `.` and `/`: the same Qwen3.5 9B model is
+  `qwen/qwen3.5-9b` in LM Studio and `qwen3.5:9b` in Ollama's
+  library[^qwen-ids], and Claude's are `claude-sonnet-5-5`. So they can't
+  be bare TOML keys, and nothing may split them on `:` or `/`.
+- Qwen3.5 models think by default; Ollama's and LM Studio's
+  OpenAI-compatible APIs take `reasoning_effort` to change
+  that[^ollama-openai-ctx][^lmstudio-effort]. With thinking on, a low output
+  limit can leave `content` empty, and LM Studio has an open report that
+  `enableThinking: false` is ignored on `/v1`[^lmstudio-1990].
 - `ws config` edits `[review.profiles.<name>]` tables, string, string-list,
   bool and duration values; dotted and inline forms are refused[^config].
 - `ws machine spawn` passes everything after the prompt to `claude`.
@@ -57,7 +66,7 @@ is down or the model can't call tools?
 **Choosing the model** for a `ws` child, first match wins:
 
 1. `--model <m>` after the prompt (the only `claude`-style argument a `ws`
-   child accepts, so `-- "" --model coder` works as it does for Claude);
+   child accepts, so `-- "" --model qwen9b-think` works as it does for Claude);
 2. `runner.roles.<role>.model`;
 3. `runner.model`;
 4. otherwise `config_invalid`.
@@ -78,37 +87,62 @@ child.
 
 ```toml
 [runner]
-model = "coder"            # default model alias for ws children
+model = "qwen9b"           # default model alias for ws children
 fallback = "none"          # none | claude: what spawn does when preflight fails
 
 [endpoints.gpu]
-url = "http://ollama-a.inference.svc:11434"
-api = "openai"             # the wire protocol; the default. Reserved: ollama, openai-responses, anthropic
+url = "http://gpu-a.inference.svc:1234"
+api = "openai"             # the wire protocol; the default. Next: ollama. Reserved: openai-responses, anthropic
 probe = "auto"             # auto | ollama | none: how preflight learns a model's capabilities
 request_timeout = "10m"    # one completion, including a cold model load
 idle_timeout = "90s"       # longest gap between streamed chunks
 
-[endpoints.router]
-url = "http://llm-router.inference.svc:8080"
+[endpoints.ollama]
+url = "http://ollama-a.inference.svc:11434"
 
-[models.coder]
+[models.qwen9b]
 endpoint = "gpu"
-id = "qwen3-coder:30b"     # the id the endpoint knows
+id = "qwen/qwen3.5-9b"     # the id the endpoint knows; "/" and ":" are part of it
 context_tokens = 65536     # the server's context length for it; required
+reasoning = "none"         # "" (the server's default) | none | low | medium | high
+temperature = "0.7"
 
-[models.small]
-endpoint = "router"
-id = "gpt-oss:20b"
-context_tokens = 32768
+[models.qwen9b-think]
+endpoint = "gpu"
+id = "qwen/qwen3.5-9b"
+context_tokens = 131072
+max_output = 16384         # thinking spends output tokens before the answer
+temperature = "0.6"
+
+[models.qwen9b-ollama]
+endpoint = "ollama"
+id = "qwen3.5:9b"          # the same model in Ollama's library
+context_tokens = 65536     # must match the server's num_ctx for it
+reasoning = "none"
 
 [runner.roles.verifier]
 runner = "ws"
-model = "coder"
-max_steps = 40
-timeout = "45m"
+model = "qwen9b"
+max_steps = 30
+timeout = "30m"
+max_tokens = 1500000
 ```
 
 Endpoint, model and role names are lowercase letters, digits and hyphens.
+A model **id** is any non-empty string without control characters, kept
+exactly as written: there's no `provider:model` or `runner:model` syntax
+anywhere, so `:` and `/` are never separators. `--model qwen/qwen3.5-9b`
+and `--model qwen3.5:9b` are raw ids (they can't be aliases, whose names
+have neither character). Ids appear only as TOML and JSON string values,
+never in a key or a file name.
+
+**Reasoning.** `reasoning` on a model is `""` (send nothing: the server's
+default), `none`, `low`, `medium` or `high`. The `openai` provider sends it
+as `reasoning_effort`; reasoning text that comes back in `reasoning` or
+`reasoning_content` is kept for the transcript and never sent back
+([0062](0062-agent-runner-built-into-ws.md)). Whether a server honours it
+is the server's business: the transcript shows reasoning that came back
+anyway.
 Per-role MCP keys are in [0069](0069-runner-mcp-tools-and-claude-code-parity.md);
 `[runner.env]` and `[daemon]` are in [0068](0068-ws-daemon.md).
 
@@ -149,7 +183,7 @@ once a runner has started.
 ### Why this option
 
 1. **Short spawns.** One `[runner.roles.implementer] runner = "ws"` moves
-   every implementer. Aliases keep `--model coder` short and stable when
+   every implementer. Aliases keep `--model qwen9b` short and stable when
    the id behind it changes.
 2. **Fail fast.** Two to four small requests turn the commonest failures
    into distinct codes before anything is created. Preflight runs in the
@@ -195,7 +229,7 @@ a daemon auto-start on first use.
 - Context size is per model, not per endpoint; ids with `:` would have to
   be keys for per-model settings.
 
-### Encode the runner in the model (`--model ws:coder`)
+### Encode the runner in the model (`--model ws:qwen9b`)
 
 **Pros**
 
@@ -245,4 +279,7 @@ a daemon auto-start on first use.
 [^ollama-src-tools]: ollama/ollama `server/routes.go` @a5864fc, <https://github.com/ollama/ollama/blob/a5864fcb33969705de3c0ebfedf4b2a16c970bcc/server/routes.go> (accessed 2026-11-13). `errCapabilityTools`, formatted as `fmt.Errorf("%s %w", m.Name, err)`, mapped to `http.StatusBadRequest`.
 [^router-errors]: llm-router README, "Errors" @9789c32 (read 2026-11-13). "Backend returned a `4xx` | Passed through unchanged".
 [^ollama-src-truncate]: ollama/ollama `server/prompt.go` @a5864fc, <https://github.com/ollama/ollama/blob/a5864fcb33969705de3c0ebfedf4b2a16c970bcc/server/prompt.go> (accessed 2026-11-13). "chatPrompt truncates any messages that exceed the context window of the model".
+[^qwen-ids]: Qwen, "Qwen3.5-9B" model card, <https://huggingface.co/Qwen/Qwen3.5-9B>; LM Studio, <https://lmstudio.ai/models/qwen/qwen3.5-9b>; Ollama library, <https://ollama.com/library/qwen3.5/tags> (all accessed 2026-11-14). The card: "Qwen3.5 models operate in thinking mode by default".
+[^lmstudio-effort]: LM Studio changelog v0.4.8, <https://lmstudio.ai/changelog/lmstudio-v0.4.8> (search-result summary, accessed 2026-11-14; page not opened): `reasoning_effort` on the OpenAI-compatible API.
+[^lmstudio-1990]: lmstudio-ai/lmstudio-bug-tracker #1990, <https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1990> (accessed 2026-11-14, via a research subagent; open): with qwen3.5-9b, `enableThinking:false` ignored on `/v1`, reasoning returned as `reasoning_content`, and a low `max_tokens` leaving `content` empty.
 [^config]: [docs/config.md](../config.md), "Changing it with `ws config`", and `internal/config/edit.go` @98697f3 (types `string`, `strings`, `duration`, `bool`, `hosts`).

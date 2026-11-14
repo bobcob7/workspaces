@@ -2,7 +2,9 @@
 
 - Status: Proposed
 - Date: 2026-11-13; reworked 2026-11-14 after review (provider-neutral
-  names, MCP tools, project instructions, `crashed`)
+  names, MCP tools, project instructions, `crashed`); revised 2026-11-14
+  after the second review (budgets for the starting 9B model, tool calls
+  sent as text, OpenTelemetry)
 
 ## Context
 
@@ -30,6 +32,17 @@ adapted, and what must it never do?
 
 ### Relevant facts
 
+- The starting model is `qwen/qwen3.5-9b`
+  ([0064](0064-choosing-the-runner-model-and-endpoint.md)). Its card
+  reports BFCL-V4 66.1, TAU2-Bench 79.1, LiveCodeBench v6 65.6 and IFEval
+  91.5 in thinking mode, a native context of 262,144 tokens, and
+  publishes no SWE-bench Verified score[^qwen35]. An independent
+  harness measured Terminal-Bench 2.1 at 16.1 for it[^ai2-tb]. Ollama has
+  open reports, for the Qwen 3.5 family, of tool calls rendered in the
+  wrong format, `</think>` left unclosed in multi-turn tool history, and
+  repeat and presence penalties ignored (#14493), and of `qwen3.5:9b`
+  printing a `<tool_call>` as text instead of calling the tool
+  (#14745)[^ollama-qwen35].
 - On BFCL v4 (updated 2026-04-12), multi-turn accuracy is 68.38% for
   Claude-Opus-4.5, 47.87% for Qwen3-32B, 41.75% for Qwen3-8B, 30.00% for
   Qwen3-30B-A3B-Instruct-2507, 21.50% for Llama-3.3-70B, and 4.00% for
@@ -123,7 +136,11 @@ flowchart TD
   invalid calls in a row stop with `malformed_tool_calls`.
 - **No tool call**: the runner answers `Call a tool. When the task is done,
   call record_result.`, at most twice in a row. A third time stops with
-  `no_result`.
+  `no_result`. When the reply's text contains `<tool_call>` (a call the
+  server didn't parse, [^ollama-qwen35]), the answer is instead `Your tool
+  call came back as text. Call the tool through the tools API.`; it counts
+  the same. A reply with only reasoning and `max_tokens` as the stop
+  reason (thinking used the output limit) is a reply with no tool call.
 - **Loops**: the same tool name and arguments three times in a row get the
   nudge `You already did this; its result is above. Do something else.`
   A fifth time stops with `looping`.
@@ -138,6 +155,15 @@ defaults:
 | `max_steps` (requests) | 80 | 40 | 40 | 60 | `max_steps` |
 | `timeout` (wall clock) | 60m | 30m | 60m | 60m | `timeout` |
 | `max_tokens` (prompt + completion, summed over requests) | 4 000 000 | 2 000 000 | 2 000 000 | 4 000 000 | `max_tokens` |
+
+Those defaults are for any model. For the starting 9B model, the design
+recommends tighter per-role budgets in `config.toml`, sized to its
+window: a verifier on a 65,536-token window gets 30 steps, 30 minutes and
+1,500,000 tokens (about 23 full windows); a docs-only implementer on a
+131,072-token window with thinking on gets 40 steps, 45 minutes and
+3,000,000 tokens ([README](../design/ollama-agent/README.md#which-roles-suit-a-9b-model)).
+They are guesses until the first measured runs; a broken run should fail
+in minutes, not burn an hour.
 
 ### Context
 
@@ -202,6 +228,50 @@ and it died again; [0068](0068-ws-daemon.md)), `internal`. For every reason
 but `done` and `stopped`, the runner, or the daemon for `crashed`, records
 the role's first fail verdict through one shared function, with a report
 headed `ws runner: <reason>`, followed by the last 20 transcript events.
+
+### Observability
+
+The runner links the OpenTelemetry Go SDK (`internal/telemetry`), set up
+the way llm-router sets up its own[^router-otel]: tracer and meter
+providers always run, so trace ids exist; exporters are attached only
+when a standard `OTEL_EXPORTER_OTLP_*ENDPOINT` or `OTEL_*_EXPORTER`
+variable is set, and then follow the standard variables through
+`autoexport`; logs go to `runner.log` and, with export on, over OTLP
+through the `otelslog` bridge. `service.name` is `ws-runner` unless
+`OTEL_SERVICE_NAME` says otherwise. The variables reach the runner
+through the daemon's environment layers ([0068](0068-ws-daemon.md)):
+plain ones such as `OTEL_EXPORTER_OTLP_ENDPOINT` in `[runner.env]`, and
+`OTEL_EXPORTER_OTLP_HEADERS` (which may hold a credential) in
+`secrets.env`.
+
+Instruments and attributes follow the OpenTelemetry GenAI semantic
+conventions as llm-router uses them (`semconv/v1.39.0` and `genaiconv`):
+
+| Signal | Name | Attributes |
+| ------ | ---- | ---------- |
+| Span, one per process run (start or resume), `INTERNAL` | `invoke_agent <role>` | `gen_ai.operation.name` `invoke_agent`, `gen_ai.agent.name` (the role, or `ws`), `gen_ai.request.model`, `ws.workspace.id`, `ws.runner.session`, `ws.runner.exit` when it ends |
+| Span, one per model request (each retry its own), `CLIENT` | `chat <model id>` | `gen_ai.operation.name` `chat`, `gen_ai.provider.name` (`openai_compatible` for `api = "openai"`), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `server.address`, `server.port`, `error.type` |
+| Span, one per tool call, `INTERNAL` | `execute_tool <tool>` | `gen_ai.operation.name` `execute_tool`, `gen_ai.tool.name`, `gen_ai.tool.call.id`, `ws.mcp.server` for MCP tools, `error.type` |
+| Metric | `gen_ai.client.operation.duration` | as llm-router records it, per request |
+| Metric | `gen_ai.client.token.usage` | `gen_ai.token.type` `input` and `output`, per request |
+| Metric | `ws_runner.runs` (counter) | `ws_runner.exit`, `gen_ai.request.model`, `gen_ai.agent.name` |
+
+**Content is never recorded**: no prompt, completion, reasoning, tool
+argument or tool result goes into any span, event, metric or exported log
+record. The GenAI conventions' opt-in content attributes are never set.
+The transcript stays the only place content lives, redacted.
+
+**One trace per run.** `ws machine spawn` (or `ws claude`, or a loop
+run) writes `trace_id` into `run.toml`. Each process run's
+`invoke_agent` span is started under a remote parent span context with
+that trace id, so a resumed run continues the same trace. Each `chat`
+span's context is sent to the endpoint as W3C `traceparent` by the
+propagator, so llm-router's server span becomes its child. The trace id
+is in `run.toml`, `usage.json`, and the transcript's `start` and
+`restart` events; each `request` event has its `chat` span's `span_id`.
+Instrumentation wraps the seams, so neither the loop nor a provider
+imports OpenTelemetry: `telemetry.Provider` decorates an `llm.Provider`,
+and `telemetry.Toolset` decorates the loop's `Toolset`.
 
 ### Why this option
 
@@ -278,10 +348,21 @@ truncation check catches its errors only after the fact.
   finalizer lives in `internal/runner`, shared with the daemon.
 - The exit reasons are stable values in `status.json`, `usage.json`, the
   report's first line, and `ws machine wait`'s `ws_runner.exit`.
-- The defaults are guesses until measured; the design's open questions
-  ask for one real run per role.
+- The defaults are guesses until measured; the design's measured-run plan
+  asks for real runs per role before any default changes.
+- `go.mod` gains the OpenTelemetry Go SDK at llm-router's versions
+  (`go.opentelemetry.io/otel` v1.47.0 and its `sdk`, `sdk/metric`,
+  `sdk/log`, `trace`, `metric`; `contrib/exporters/autoexport` v0.72.0;
+  `contrib/bridges/otelslog` v0.21.0), imported only by
+  `internal/telemetry` (a lint rule). The binary grows; by how much is
+  measured by the telemetry task, not assumed.
 
 ## References
+
+[^qwen35]: Qwen, "Qwen3.5-9B" model card, <https://huggingface.co/Qwen/Qwen3.5-9B> (accessed 2026-11-14). "Context Length: 262,144 natively"; Qwen3.5-9B: BFCL-V4 66.1, TAU2-Bench 79.1, LiveCodeBench v6 65.6, IFEval 91.5.
+[^ai2-tb]: Ai2, `allenai/qwen35-9b-swesmith` model card, <https://huggingface.co/allenai/qwen35-9b-swesmith> (accessed 2026-11-14 by a research subagent): the base Qwen3.5-9B at Terminal-Bench 2.1 16.1 and Terminal-Bench Lite 41.9 in a mini-swe-agent-like harness. Not re-checked here.
+[^ollama-qwen35]: ollama/ollama #14493 "Qwen 3.5 27B: Tool calling completely non-functional and repetition penalties silently ignored", opened 2026-02-27, open, <https://github.com/ollama/ollama/issues/14493> (accessed 2026-11-14): "The tool call is rendered inside an unclosed <think> block"; "The Go runner's sampler has zero implementation of penalty sampling" (a maintainer disputed "completely non-functional"). #14745, <https://github.com/ollama/ollama/issues/14745> (accessed 2026-11-14 by a research subagent): qwen3.5:9b printing `<tool_call>` as text; closed by PR #15022, with later reports on 0.18.x.
+[^router-otel]: llm-router `docs/adrs/0007-opentelemetry-only.md`, `0019-telemetry-setup.md` and `internal/telemetry/{telemetry.go,conventions.go}` @9789c32 (read 2026-11-14). "Exporters are attached only when an `OTEL_EXPORTER_OTLP_*ENDPOINT` or `OTEL_*_EXPORTER` variable is set"; "OpenAI-compatible backends are reported as `gen_ai.provider.name` = `openai_compatible`"; "Prompt and completion content is never recorded".
 
 [^bfcl]: Berkeley Function Calling Leaderboard v4, "Last updated: 2026-04-12." <https://gorilla.cs.berkeley.edu/leaderboard.html>, data <https://gorilla.cs.berkeley.edu/data_overall.csv> (accessed 2026-11-13). Overall / multi-turn accuracy: Claude-Opus-4.5 (FC) 77.47 / 68.38; Qwen3-32B (FC) 48.71 / 47.87; Qwen3-8B (FC) 42.57 / 41.75; Qwen3-30B-A3B-Instruct-2507 (FC) 41.39 / 30.00; Llama-3.3-70B (FC) 31.90 / 21.50; Llama-3.2-3B (FC) 21.95 / 4.00.
 [^gptoss]: OpenAI, "gpt-oss-120b & gpt-oss-20b Model Card," 2025-08-08. <https://arxiv.org/html/2508.10925> (accessed 2026-11-13). Table 3, high reasoning, SWE-bench Verified: gpt-oss-120b 62.4%, gpt-oss-20b 60.7%.
