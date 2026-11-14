@@ -3,7 +3,9 @@
 - Status: Proposed
 - Date: 2026-11-13; reworked 2026-11-14 after review (provider seam,
   code copied into this repo); revised 2026-11-14 after the second review
-  (Ollama-native is the next provider; OpenTelemetry linked)
+  (Ollama-native is the next provider; OpenTelemetry linked); revised
+  2026-11-14 after the third review (a run may change provider when it
+  re-resolves its endpoint)
 
 ## Context
 
@@ -122,9 +124,12 @@ Nothing above the seam imports a provider's SDK.
 | Reasoning control (the model's `reasoning`) | `reasoning_effort`, sent only when set | `think` (`false` for `none`, else the level) | `reasoning.effort` | a `thinking` budget |
 
 `ReasoningOpaque` from one provider is dropped, with a transcript note,
-if a resumed run is ever sent to a different provider; a run keeps one
-provider for its whole life, so this happens only if config changes
-between a crash and a resume.
+when a run's conversation is sent to a different provider. That happens
+only when a run re-resolves its model alias to an endpoint with another
+`api`, at a retry or a resume
+([0064](0064-choosing-the-runner-model-and-endpoint.md), third review):
+the runner then builds a new `Provider` for the new endpoint, with that
+endpoint's token, and the loop sends it the same neutral messages.
 
 **Providers in this design.** `api` on an endpoint
 ([0064](0064-choosing-the-runner-model-and-endpoint.md)) names the

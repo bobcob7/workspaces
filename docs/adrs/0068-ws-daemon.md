@@ -3,7 +3,9 @@
 - Status: Proposed
 - Date: 2026-11-14; revised 2026-11-14 after the second review (the
   desktop app hosts the daemon; `secrets.env` the only secrets store; a
-  Stop for one runner)
+  Stop for one runner); revised 2026-11-14 after the third review (the
+  runner re-reads `config.toml` and its endpoint token itself when it
+  re-resolves; the daemon pushes nothing)
 
 ## Context
 
@@ -191,6 +193,19 @@ doesn't depend on who spawned it. `config.toml` and `secrets.env` are read
 again at every start and resume, so edits apply to the next runner without
 restarting the daemon; only layer 1 is frozen, and `ws daemon stop
 --keep-runners` followed by any spawn refreshes it from the current shell.
+
+**Mid-run changes** (third review). A running runner's environment isn't
+rebuilt: the daemon doesn't watch `config.toml` or `secrets.env` and has
+no channel to push anything to a runner. Instead, when a runner
+re-resolves its model alias between retries
+([0064](0064-choosing-the-runner-model-and-endpoint.md)), it reads
+`config.toml` itself (`WS_CONFIG_DIR`), and the token of the endpoint it
+moves to from `secrets.env` as it is now (with this ADR's reader and mode
+rule), falling back to its own environment. That token goes only to the
+provider and the redactor, never to tools. Everything else (layer 1,
+`[runner.env]`, other secrets, MCP servers' environment) changes at the
+next resume, which the daemon builds as at any start. So a runner follows
+an endpoint change while the daemon is down or restarting.
 What a runner then passes to its tools and MCP servers is in
 [0066](0066-runner-security-boundaries.md) and
 [0069](0069-runner-mcp-tools-and-claude-code-parity.md).

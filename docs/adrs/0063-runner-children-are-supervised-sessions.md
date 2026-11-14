@@ -4,7 +4,9 @@
 - Date: 2026-11-13; reworked 2026-11-14 after review (supervision moved
   to [0068](0068-ws-daemon.md); names made provider-neutral); revised
   2026-11-14 after the second review (Stop; runner sessions without a
-  parent for `ws claude` and loops; the trace id)
+  parent for `ws claude` and loops; the trace id); revised 2026-11-14 after
+  the third review (the endpoint a run uses can change; its history is
+  recorded)
 
 ## Context
 
@@ -62,9 +64,9 @@ from files.
 
 | File | Written by | Holds |
 | ---- | ---------- | ----- |
-| `run.toml` | `ws machine spawn`, `ws claude --runner ws`, a loop run | version, model alias and id, endpoint name, URL and `api`, context tokens, reasoning, role, budgets, MCP selection, prompt, `parent` (`""` without one), `trace_id`, `created_at` |
-| `status.json` | the runner, replaced atomically on every change | `pid`, `process_started_at`, `state` (`starting`, `working`, `waiting_model`, `exited`), `step`, `usage`, `restarts`, `mcp` (each server's state and tool count), `exit` (reason or `null`), `verdict` (or `null`), `updated_at` |
-| `transcript.jsonl` | the runner, appended | one event per line: request, response, tool call, tool result, compaction, retry, MCP event, error |
+| `run.toml` | `ws machine spawn`, `ws claude --runner ws`, a loop run; then the runner, only to append to `endpoint_history` | version, model alias and id, endpoint name, URL and `api` as resolved at spawn, what the resolution started from (`endpoint_alias`, `endpoint_flag`), context tokens, reasoning, role, budgets, MCP selection, prompt, `parent` (`""` without one), `trace_id`, `created_at`, and `endpoint_history`: one entry per endpoint the run has used, the first written by the spawn ([0064](0064-choosing-the-runner-model-and-endpoint.md), re-resolution) |
+| `status.json` | the runner, replaced atomically on every change | the current `endpoint` and `model`, `endpoint_changes`, `pid`, `process_started_at`, `state` (`starting`, `working`, `waiting_model`, `exited`), `step`, `usage`, `restarts`, `mcp` (each server's state and tool count), `exit` (reason or `null`), `verdict` (or `null`), `updated_at` |
+| `transcript.jsonl` | the runner, appended | one event per line: request, response, tool call, tool result, compaction, retry, endpoint change or rejection, config warning, MCP event, error |
 | `runner.log` | the runner's stderr | its own `slog` JSON log |
 | `stop` | `ws rm` and the desktop's Stop (through the daemon), or `ws rm` directly | asks the runner to stop after the current step |
 | `report.md`, `usage.json` | the runner, for a session with no parent | the verdict's report and the usage, which a child keeps under its parent's `machine/` instead |
@@ -142,7 +144,7 @@ report that starts `ws runner: <exit reason>`
 
 **Usage outlives the child.** On exit, `state/<root>/machine/<child>/usage.json`
 (requests, tokens, steps, wall time, exit reason, model, endpoint,
-restarts) is written next to the result, so it survives `ws machine rm`.
+restarts, and usage per endpoint the run used) is written next to the result, so it survives `ws machine rm`.
 
 **Logs.** `ws machine logs <workspace> [--tail N]` prints a descendant's
 transcript as JSON, or for a Claude child the text of `claude logs
