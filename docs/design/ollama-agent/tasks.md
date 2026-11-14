@@ -1506,7 +1506,6 @@ func (f Files) RequestStop() error
 func (f Files) StopRequested() bool
 
 // State is ADR 0063's table: working, starting, idle, stopped, unknown.
-// resumePending is true when the daemon has scheduled a resume.
 func (f Files) State(now, recordedAt time.Time, procs processReader) (state string, pid int, st *Status)
 
 // Finalize ends a run that has no verdict from the model: unless exit is
@@ -1670,7 +1669,8 @@ reference.md [secrets.env](reference.md#secretsenv-and-the-runners-environment).
 
 **Create** `internal/config/secrets.go` (+ test) and
 `internal/daemon/env.go` (+ test). (`internal/daemon` is created here with
-only this file; T16 adds the rest.)
+only this file, without a package doc comment; T16 adds the rest and the
+doc comment.)
 
 ```go
 // in internal/config:
@@ -1902,12 +1902,18 @@ type processStarter interface {
   environment, `llm.Preflight`; returns reference.md's `ws runner check`
   object (`token_source`: `env`, `secrets.env` or `null`).
 - **`ws runner check [--json] [--model <m>] [<endpoint>]`** (hidden): asks
-  the daemon (`Ensure`) to preflight and prints the object; errors map to
-  the preflight codes (T18 declares them; here map them to
-  `config_invalid`, `endpoint_unreachable` etc. only if T18 has landed,
-  else declare them here: `endpoint_unknown` 3, `endpoint_unreachable` 1,
-  `model_not_served` 3, `model_without_tools` 1, `runner_failed` 1, with
-  rows in `guides/ws.md`).
+  the daemon (`Ensure`) to preflight and prints the object.
+- **Error codes** (this task declares them, because `ws runner check` and
+  the daemon's answers use them): `endpoint_unknown` (3),
+  `endpoint_unreachable` (1), `model_not_served` (3), `model_without_tools`
+  (1), `runner_failed` (1) in `internal/cli/errors.go`, mapping
+  `config.ErrEndpointUnknown` (`details.endpoints`),
+  `config.ErrNoModel`/`ErrAPINotImplemented` (→ `config_invalid`),
+  `llm.UnreachableError`, `ModelMissingError`, `NoToolsError` and the
+  daemon's error objects with reference.md's `details`. `guides/ws.md`'s
+  exit-code table gains them (row 1: `endpoint_unreachable`,
+  `model_without_tools`, `runner_failed`; row 3: `endpoint_unknown`,
+  `model_not_served`).
 - Lint rule: `runner run` is started only from `internal/daemon/`:
   `@! grep -rn '"runner", "run"' --include='*.go' . | grep -vE '^\./internal/(daemon|cli)/' | grep -v '_test\.go:'`
   (`internal/cli` defines the command).
@@ -1955,12 +1961,8 @@ the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd
 
 **Change**
 
-- `errors.go`: `endpoint_unknown` (3), `endpoint_unreachable` (1),
-  `model_not_served` (3), `model_without_tools` (1), `runner_failed` (1),
-  unless T17 declared them. Map `config.ErrEndpointUnknown` (with
-  `details.endpoints`), `config.ErrNoModel` and `ErrAPINotImplemented` →
-  `config_invalid`, `llm.UnreachableError`, `ModelMissingError`,
-  `NoToolsError` and the daemon's error objects with their `details`.
+- Error codes: use the ones T17 declared; add nothing to `errors.go`
+  except the new `usage` messages.
 - `machine.go`: flags `--runner` and `--endpoint`. The runner is the flag,
   else `cfg.RunnerFor(role)`. For `ws`, the new `runWSChild(ctx, opts)` in
   **new** `internal/cli/machine_runner.go`, in reference.md's order:
@@ -1988,10 +1990,7 @@ the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd
   `StartRunner(id, resume=true)`; the `Restored` item has the runner id.
   `ws restart` is unchanged.
 - Guides: `cp docs/design/ollama-agent/guides/ws-machine-spawn.md
-  internal/cli/guides/`; `guides/ws.md` gains the codes (row 1:
-  `endpoint_unreachable`, `model_without_tools`, `runner_failed`; row 3:
-  `endpoint_unknown`, `model_not_served`) if T17 didn't add them;
-  `guides/ws-machine.md` gains the codes and the `--runner` line in its
+  internal/cli/guides/`; `guides/ws-machine.md` gains the codes and the `--runner` line in its
   synopsis.
 - Docs: apply the README's diff to `docs/tools/ws-machine.md`;
   `docs/state.md` gains `daemon/` and `secrets.env`; `docs/config.md`
@@ -2188,11 +2187,13 @@ $ cd desktop/src-tauri && cargo clippy --all-targets --no-default-features --fea
      disabled as "later"), probe, timeouts, token (write-only); Add, Edit,
      Remove; saving runs `ws config set endpoints.<name>.<key>` per
      changed key, and the token through a new Tauri command
-     `endpoint_token_set(name, token)` that calls `config::SetSecret`'s
-     equivalent (`ws` writes `secrets.env`; add a hidden `ws runner
-     secret set <NAME>` reading the value on stdin if Rust can't write the
-     file safely itself). The frontend never receives a token back, only
-     `token_source`.
+     `endpoint_token_set(name, token)` in **new**
+     `desktop/src-tauri/src/secrets.rs`, which writes the
+     `WS_ENDPOINT_TOKEN_<NAME>` line of `CONFIG_DIR/secrets.env` with the
+     rules of T15's `SetSecret` (temp file, rename, 0600, other lines
+     kept), modelled on `reviews/tokens.rs`; an empty token removes the
+     line. The frontend never receives a token back, only `token_source`
+     from `runner_check`.
   2. *Models*: alias, endpoint, id, context, max output, temperature.
   3. *Test connection* per endpoint: a Tauri command `runner_check` runs
      `ws runner check --json <endpoint> [--model <m>]` and shows `✓ 4 models ·

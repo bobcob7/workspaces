@@ -238,8 +238,8 @@ Still worth a spike for users with large GPUs and no router.
 
 - `ws` gets a hidden `runner` command, and the packages `internal/llm`,
   `internal/llm/openai`, `internal/agent` and `internal/agent/tools`. `make
-  lint` gains a rule that `chat/completions` is requested only from
-  `internal/llm/openai`.
+  lint` gains a rule that `chat/completions` appears only in
+  `internal/llm/openai` (and in the test-only fake that serves it).
 - `go.mod` gains `github.com/openai/openai-go/v3` (`v3.71.1`, the version
   llm-router uses), required only by `internal/llm/openai`.
 - Context size can't be set per request through the OpenAI API. It's a

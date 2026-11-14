@@ -54,10 +54,10 @@ rendered to [img/](img/).
 | Comment | Answer | Where |
 | ------- | ------ | ----- |
 | Don't clone llm-router; copy the content into this repo and maintain it here | fake-ollama (and its small dependencies, golden fixtures and control API) is copied once from llm-router @9789c32 into `internal/fakeollama` and `cmd/fake-ollama`, test-only, maintained here with no sync obligation; the loop was already a copy. Nothing clones llm-router | [0067](../../adrs/0067-runner-tests-use-vendored-fakes.md), [0062](../../adrs/0062-agent-runner-built-into-ws.md), tasks T1, T2, T11 |
-| If these processes are detached, how are they maintained? Doesn't `ws` need a long-lived daemon that also provides env vars and runtime config? | Yes. In the first draft nothing maintained them. `ws daemon` now starts, watches, restarts (3 times, then `crashed`) and resumes runners after reboots and pod restarts, and builds their environment from its own, `[runner.env]` and `secrets.env` | [0068](../../adrs/0068-ws-daemon.md), [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), tasks T16, T17, T20 |
+| If these processes are detached, how are they maintained? Doesn't `ws` need a long-lived daemon that also provides env vars and runtime config? | Yes. In the first draft nothing maintained them. `ws daemon` now starts, watches, restarts (3 times, then `crashed`) and resumes runners after reboots and pod restarts, and builds their environment from its own, `[runner.env]` and `secrets.env` | [0068](../../adrs/0068-ws-daemon.md), [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), tasks T15, T16, T17, T18, T20 |
 | Leave room for "openapi" and the Anthropic API | The loop speaks `ws`'s own types; a `Provider` per wire protocol translates. OpenAI-compatible chat now; Ollama-native, OpenAI Responses and Anthropic Messages reserved, with the normalization table written. "openapi" read as the OpenAI API (open question 1) | [0062](../../adrs/0062-agent-runner-built-into-ws.md), [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md), tasks T6, T7 |
 | Is this enough for my MCP servers (outline, grafana)? Close to parity | An MCP client reads Claude Code's own server definitions (stdio and HTTP), per-role allow-lists, `tool_search` past a cap, secrets redacted; a parity table says in, later or never for each Claude Code feature, and where full parity conflicts with small models | [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md), [Parity](#parity-with-claude-code), tasks T9, T10, T12 |
-| Don't call out Ollama; mark every agent with its model, quietly | No runner chip anywhere. Every agent, Claude or not, shows its model as muted secondary text; endpoint and provider only in a tooltip and the detail pane. `ws list`, `children` and `wait` give every agent a `model` field | [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), [reference.md](reference.md#json-output), [Screens](#screens), tasks T14, T21 |
+| Don't call out Ollama; mark every agent with its model, quietly | No runner chip anywhere. Every agent, Claude or not, shows its model as muted secondary text; endpoint and provider only in a tooltip and the detail pane. `ws list`, `children` and `wait` give every agent a `model` field | [0063](../../adrs/0063-runner-children-are-supervised-sessions.md), [reference.md](reference.md#json-output), [Screens](#screens), tasks T8, T14, T21 |
 
 ## Architecture
 
@@ -195,7 +195,7 @@ Each state change rewrites `status.json`, and each step appends to
 `SIGTERM` cancels the request in flight. The details are in
 [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md).
 
-**Preamble** (the system prompt; abridged; the exact text is in task T11):
+**Preamble** (the system prompt; task T11 embeds this text as `internal/agent/preamble.md`):
 
 ```
 You are a coding agent working in {{.Dir}}, a git repository. You act only by calling tools.
@@ -246,7 +246,7 @@ A runner's environment, lowest precedence first: the daemon's own (frozen
 when it started), `[runner.env]` in `config.toml` (non-secret values, such
 as `GRAFANA_URL`), `CONFIG_DIR/secrets.env` (0600; endpoint tokens and MCP
 tokens; written by Settings › Models), then `WS_RUNNER=ws`,
-`WS_WORKSPACE`, `WS_CONFIG_DIR`. The spawning agent's environment is never
+`WS_WORKSPACE`, `WS_CONFIG_DIR`, `WS_RUNNER_SECRET_NAMES`. The spawning agent's environment is never
 used. `config.toml` and `secrets.env` are re-read at every start and
 resume. Tools get that environment scrubbed; MCP stdio servers get it
 whole, plus their own `env`
@@ -346,8 +346,9 @@ internal/fakeollama/               COPIED from llm-router @9789c32, then extende
   internal/{openaiwire,sse,yamlconfig,httpserver}/   its copied dependencies
   cmd/                             its cobra command
 internal/fakemcp/                  NEW  scripted MCP server on the Go SDK (T3)
-internal/llm/                      NEW  Provider, neutral types, errors, registry, Preflight
+internal/llm/                      NEW  Provider, neutral types, errors, Preflight
 internal/llm/openai/               NEW  chat completions (stream), models, Ollama probe
+internal/llm/providers/            NEW  the registry: api name → Provider
 internal/agent/                    NEW  loop copied from llm-router internal/agent @9789c32
   agent.go budget.go compact.go transcript.go prompt.go preamble.md instructions.go toolset.go
 internal/agent/tools/              NEW  the seven tools, path guard, command guard, env scrub, redactor
@@ -367,6 +368,7 @@ e2e/runner/                        NEW  build tag e2e: harness, scenarios, testd
 desktop/src-tauri/src/model.rs     runner, model, ws_runner fields
 desktop/src-tauri/src/online/      keeps `ws daemon run --origin managed` running
 desktop/src/features/agents/…      quiet model label for every agent, runner transcript view
+desktop/src-tauri/src/secrets.rs   NEW  writes endpoint tokens to secrets.env
 desktop/src/features/settings/ModelsGroup.tsx  NEW Settings › Models
 Makefile                           fakes, e2e-runner, lint rules
 ```

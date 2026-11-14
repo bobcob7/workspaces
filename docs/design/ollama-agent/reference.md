@@ -487,7 +487,7 @@ A runner's environment, lowest precedence first ([0068](../../adrs/0068-ws-daemo
 1. the daemon's environment when it started;
 2. `[runner.env]`;
 3. `secrets.env`;
-4. `WS_RUNNER=ws`, `WS_WORKSPACE=<id>`, `WS_CONFIG_DIR`.
+4. `WS_RUNNER=ws`, `WS_WORKSPACE=<id>`, `WS_CONFIG_DIR`, `WS_RUNNER_SECRET_NAMES`.
 
 From it:
 
@@ -552,6 +552,7 @@ JSON bodies, errors as `{"error": {"code", "message", "details"}}`.
 | `WS_ENDPOINT_TOKEN_<NAME>` | the runner, the daemon's preflight | Bearer token for endpoint `<name>`; usually in `secrets.env` |
 | `WS_DAEMON_AUTOSTART` | commands that need the daemon | `0`: don't auto-start; fail with `daemon_unavailable` |
 | `WS_RUNNER`, `WS_WORKSPACE` | tools, MCP servers | Set by the daemon in a runner's environment |
+| `WS_RUNNER_SECRET_NAMES` | the runner | Set by the daemon: the names defined in `secrets.env`, comma-separated, so `run` commands get them scrubbed |
 | `WS_FAKE_OLLAMA`, `WS_FAKE_MCP` | e2e tests | Paths to prebuilt fakes; otherwise the harness builds them |
 | `E2E_RUNNER_URL`, `E2E_RUNNER_MODEL`, `E2E_RUNNER_API` | e2e tests | Opt in to the real-model scenarios |
 | `E2E_MCP_SMOKE` | e2e tests | `<server>:<tool>[,…]`: opt in to calling real MCP servers from the user's Claude Code config |

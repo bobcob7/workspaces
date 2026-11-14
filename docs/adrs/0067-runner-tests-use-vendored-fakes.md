@@ -77,9 +77,12 @@ workspace, never cloned by a build or a test:
   so nothing else in `ws` can import them;
 - the control API, unchanged;
 - the cobra command as `internal/fakeollama/cmd` and the binary as
-  `cmd/fake-ollama/main.go`, with llm-router's `telemetry` replaced by a
-  `slog` JSON logger on stderr that keeps the `API listening on <addr>` and
-  `control API listening on <addr>` lines tests wait for;
+  `cmd/fake-ollama/main.go`, a plain cobra root in place of llm-router's
+  `cli.Main`, with llm-router's `telemetry` replaced by a `slog` JSON
+  logger on stderr (and `telemetrytest.DiscardLogger` in the copied tests
+  by a discarding `slog` logger). The command's stdout lines `API
+  listening on <url>` and `control API listening on <url>`, which tests
+  wait for, are kept;
 - not `config_test.go`'s scenario-runner test, which needs llm-router's
   agent; its config-loading cases are kept.
 
