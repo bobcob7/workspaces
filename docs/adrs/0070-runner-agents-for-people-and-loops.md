@@ -66,16 +66,20 @@ ws claude [--runner claude|ws] [--endpoint <name>] [OPTIONS] [<SPEC>...] [-- "<p
 - With `--runner ws`: a prompt is required (`usage`: "a ws runner agent
   needs a prompt; it can't be attached"); after the prompt only `--model
   <m>` is accepted, as for `ws machine spawn`; the model is `--model`, else
-  `runner.model`. Preflight, workspace creation, `run.toml` (with `parent
-  = ""`), the session record and the start go through the same function
-  `ws machine spawn` uses. `runner.fallback = "claude"` applies the same
+  `runner.model`. Preflight, workspace creation, `run.toml`, the session
+  record and the start go through the same function `ws machine spawn`
+  uses, with the parent `ws claude` already chooses (`--parent`, else the
+  workspace it runs in). `runner.fallback = "claude"` applies the same
   way.
 - The output gains `runner`, `model` and `ws_runner`, as `ws machine
   spawn`'s does ([reference.md](../design/ollama-agent/reference.md#ws-claude-and-ws-loop)).
   For a Claude agent they are `"claude"`, the `--model` value or `null`,
   and `null`.
-- The agent has no parent, so its verdict, report and usage are kept in
-  its own `state/<id>/runner/` ([0063](0063-runner-children-are-supervised-sessions.md)).
+- With a parent, its verdict and usage go under the parent's `machine/`
+  as a spawned child's do, so `ws machine wait` works on it. With
+  `--parent none`, or outside any workspace, it has no parent, and they're
+  kept in its own `state/<id>/runner/`
+  ([0063](0063-runner-children-are-supervised-sessions.md)).
 
 **Loops** gain two fields, set with `add` and `edit`:
 
@@ -113,8 +117,8 @@ ws claude [--runner claude|ws] [--endpoint <name>] [OPTIONS] [<SPEC>...] [-- "<p
   failed start is now. `runner.fallback` applies as for `ws claude`.
   `busy` and retention work unchanged, since a runner session reads
   `working`, `starting` or `idle` like a Claude one.
-- The loop's runs are agents without a parent: the same `state/<id>/runner/`
-  results as `ws claude --runner ws`.
+- The loop's runs are agents without a parent (as `--parent none`), so
+  their results stay in their own `state/<id>/runner/`.
 
 **The desktop app.** One shared component, `RunnerModelFields`, is used by
 `LoopForm`'s **Agent** section and by the New agent dialog:

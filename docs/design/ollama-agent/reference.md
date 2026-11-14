@@ -1,7 +1,7 @@
 # Runner: command reference (draft)
 
 Draft of the reference for `ws`'s own agent runner and the `ws` daemon
-([0062](../../adrs/0062-agent-runner-built-into-ws.md)–[0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)).
+([0062](../../adrs/0062-agent-runner-built-into-ws.md)–[0070](../../adrs/0070-runner-agents-for-people-and-loops.md)).
 When this ships, its parts move into `docs/tools/ws-machine.md`,
 `docs/tools/ws-daemon.md`, `docs/config.md`, `docs/state.md` and the `ws
 llm` guides; the [README](README.md#proposed-changes-to-docstoolsws-machinemd)
@@ -11,9 +11,13 @@ or exit code changes ([0016](../../adrs/0016-output-contract.md)).
 Names: the runner value is `ws` (`--runner ws`), the session kind is
 `runner`, runner session ids start `rn-`. A **model alias** is a
 `[models.<alias>]` name; a **model id** is what the endpoint calls the
-model (`qwen3-coder:30b`).
+model (`qwen/qwen3.5-9b` in LM Studio, `qwen3.5:9b` in Ollama). An id is
+kept exactly as written: `/` and `:` are part of it, never separators,
+and there's no `provider:model` syntax. Ids appear only as string values,
+never as keys or in file names.
 
 - [Commands](#commands)
+- [ws claude and ws loop](#ws-claude-and-ws-loop)
 - [JSON output](#json-output)
 - [Files](#files)
 - [config.toml](#configtoml)
@@ -30,11 +34,15 @@ model (`qwen3-coder:30b`).
 ws machine spawn [--runner claude|ws] [--endpoint <name>] [--name <n>] [--offline] [--hidden]
                  [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ws machine logs [--tail <n>] <workspace>
-ws daemon run [--origin transient|managed]
+ws claude [--runner claude|ws] [--endpoint <name>] [OPTIONS] [<spec>...] [-- "<prompt>" [<claude args>... | --model <m>]]
+ws loop add <NAME> ... [--runner claude|ws] [--endpoint <name>] [--model <m>] ...
+ws loop edit <NAME> ... [--runner claude|ws] [--endpoint <name>] [--model <m>] ...
+ws daemon run [--origin transient|managed|app]
 ws daemon status [--json]
 ws daemon stop [--keep-runners] [--json]
 ws runner run [--resume] <workspace-id>          (hidden; started by the daemon)
 ws runner check [--json] [--model <m>] [<endpoint>]   (hidden; the desktop app's Test connection)
+ws runner stop [--json] <workspace-id>           (hidden; the desktop app's Stop)
 ```
 
 ### `ws machine spawn` (new flags)
@@ -93,7 +101,10 @@ still exists; otherwise `workspace_not_found`.
 Runs the daemon in the foreground until `SIGTERM` or `SIGINT`, or, with
 `--origin transient` (what auto-start uses), until it has had no live
 runner and no request for 15 minutes. `--origin managed` (the default) is
-for `ws-online`, launchd and systemd. It takes `CONFIG_DIR/daemon/lock`;
+for `ws-online`, launchd and systemd. `--origin app` is what the desktop
+app starts: it acts as `managed` while its parent process lives and as
+`transient` once the parent pid changes (the app quit)
+([0068](../../adrs/0068-ws-daemon.md)). It takes `CONFIG_DIR/daemon/lock`;
 when another daemon holds it, it fails with `daemon_running` (exit 4).
 `slog` JSON logs go to stderr and `CONFIG_DIR/daemon/daemon.log`. `--json` is
 refused.
@@ -142,15 +153,78 @@ preflight through the daemon, outside any workspace, for Settings ›
 Models:
 
 ```json
-{"endpoint": "gpu", "url": "http://ollama-a.inference.svc:11434", "api": "openai", "probe": "ollama",
- "model": "qwen3-coder:30b", "version": "0.40.16", "capabilities": ["completion", "tools"],
- "context_tokens": 65536, "models": ["qwen3-coder:30b", "gpt-oss:20b"], "token_source": "secrets.env",
+{"endpoint": "ollama", "url": "http://ollama-a.inference.svc:11434", "api": "openai", "probe": "ollama",
+ "model": "qwen3.5:9b", "version": "0.40.16", "capabilities": ["completion", "vision", "tools", "thinking"],
+ "context_tokens": 65536, "models": ["qwen3.5:9b", "gemma3:12b"], "token_source": null,
  "warnings": []}
 ```
 
-`version` and `capabilities` are `null` without a probe. `token_source` is
+`version` and `capabilities` are `null` without a probe (as for an LM
+Studio endpoint, which serves no `/api/version`). `token_source` is
 `env`, `secrets.env` or `null`; the token itself is never printed. Errors
 are the preflight codes.
+
+### `ws runner stop` (hidden)
+
+Stops one runner without removing it, for the desktop app's **Stop**:
+`POST /v1/runners/<id>/stop` through the daemon (started if needed). The
+runner exits `stopped` after its current step, records no verdict, and
+keeps its workspace and files; it isn't resumed later. Prints
+`{"id": "…", "session": "rn-…", "stopped": true, "warnings": []}`;
+`stopped` is `false` when the runner had already exited. Errors:
+`workspace_not_found` (3) when the workspace has no runner session,
+`daemon_unavailable` (1). There's no `ws machine stop`
+([0063](../../adrs/0063-runner-children-are-supervised-sessions.md)).
+
+## ws claude and ws loop
+
+([0070](../../adrs/0070-runner-agents-for-people-and-loops.md))
+
+**`ws claude`** gains:
+
+| Flag | Meaning |
+| ---- | ------- |
+| `--runner claude\|ws` | Which agent runs it. Default `claude` |
+| `--endpoint <name>` | Overrides the model's endpoint; only with `ws` |
+
+With `ws`, a prompt after `--` is required (`usage`: `a ws runner agent
+needs a prompt; it can't be attached`), only `--model <m>` may follow it
+(an alias or a raw id; default `runner.model`), and the start is the same
+as `ws machine spawn`'s, with no role and the parent `ws claude` already
+chooses (`--parent`, else the workspace it runs in; `run.toml`'s `parent`
+is `""` for none, and then the results stay in the session's own
+`runner/` directory). The output gains, after the existing fields:
+
+```json
+{"id": "fix-docs-2b4d6f80", "session": "rn-7a1c3e5b", "path": "/…/workspaces/fix-docs-2b4d6f80",
+ "repos": [{"id": "github.com/example/notes", "path": "notes", "ref": "main", "ref_kind": "branch", "commit": "9c1e…"}],
+ "warnings": [], "runner": "ws", "model": "qwen/qwen3.5-9b",
+ "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "url": "http://gpu-a.inference.svc:1234",
+               "api": "openai", "context_tokens": 65536, "mcp_servers": []}}
+```
+
+A Claude agent's output gains `"runner": "claude"`, `"model"` (its
+`--model` or `null`) and `"ws_runner": null`.
+
+**`ws loop add` and `ws loop edit`** gain:
+
+| Option | Meaning |
+| ------ | ------- |
+| `--runner claude\|ws` | What runs each run; default `claude`. `edit --runner claude` clears `endpoint` |
+| `--endpoint <name>` | Only with `ws`: overrides the model's endpoint; `--endpoint ""` clears it |
+
+`--model` is a Claude model for a `claude` loop and a model alias or raw
+id for a `ws` loop (unset: `runner.model` at each run). `loop_invalid`
+when: `permission_mode` is set on a `ws` loop; `endpoint` on a `claude`
+loop; the alias or endpoint isn't in `config.toml`. The record gains
+`runner = "ws"` and `endpoint`, written only when set; a record with
+either is version 4. The loop JSON gains, after `hidden`: `"runner":
+"claude"` or `"ws"`, and `"endpoint": null` or a name.
+
+A `ws` loop's run is started like `ws claude --runner ws`. A failed
+preflight fails the run with its code in `error_code`
+(`endpoint_unreachable`, `model_not_served`, `model_without_tools`,
+`endpoint_unknown`, `daemon_unavailable`, `config_invalid`).
 
 ## JSON output
 
@@ -166,8 +240,8 @@ are the preflight codes.
   "warnings": [],
   "role": "implementer",
   "runner": "ws",
-  "model": "qwen3-coder:30b",
-  "ws_runner": {"model_alias": "coder", "endpoint": "gpu", "url": "http://ollama-a.inference.svc:11434",
+  "model": "qwen/qwen3.5-9b",
+  "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "url": "http://gpu-a.inference.svc:1234",
                 "api": "openai", "context_tokens": 65536, "mcp_servers": []}
 }
 ```
@@ -182,10 +256,10 @@ are the preflight codes.
 
 ```json
 "session": {"kind": "agent", "id": "rn-3f2a9c1e", "state": "working", "pid": 51234, "stale": null,
-            "runner": "ws", "model": "qwen3-coder:30b",
-            "ws_runner": {"model_alias": "coder", "endpoint": "gpu", "step": 12, "max_steps": 80, "restarts": 0,
+            "runner": "ws", "model": "qwen/qwen3.5-9b",
+            "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "step": 12, "max_steps": 80, "restarts": 0,
                           "usage": {"requests": 12, "prompt_tokens": 210344, "completion_tokens": 9120},
-                          "mcp": [{"server": "mcp-grafana", "state": "connected", "tools": 6, "loaded": 3}],
+                          "mcp": [{"server": "metrics", "state": "connected", "tools": 6, "loaded": 3}],
                           "exit": null}}
 ```
 
@@ -225,8 +299,8 @@ A Claude agent:
  "result": {"verdict": "PASS", "outcome": "pass", "report": "/…/state/orch-1a2b3c4d/machine/t1-impl-d8efb24f/report.md", "recorded_at": "2026-11-13T18:04:05Z"},
  "error": null,
  "runner": "ws",
- "model": "qwen3-coder:30b",
- "ws_runner": {"model_alias": "coder", "endpoint": "gpu", "exit": "done", "steps": 31, "restarts": 0,
+ "model": "qwen/qwen3.5-9b",
+ "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "exit": "done", "steps": 31, "restarts": 0,
                "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
                "wall_seconds": 1104,
                "usage_file": "/…/state/orch-1a2b3c4d/machine/t1-impl-d8efb24f/usage.json"}}
@@ -238,7 +312,7 @@ child, they come from `usage.json` (a `ws` child) or are `null`.
 ### `ws machine logs`
 
 ```json
-{"id": "t1-impl-d8efb24f", "session": "rn-3f2a9c1e", "runner": "ws", "model": "qwen3-coder:30b",
+{"id": "t1-impl-d8efb24f", "session": "rn-3f2a9c1e", "runner": "ws", "model": "qwen/qwen3.5-9b",
  "events": [
    {"time": "2026-11-13T17:46:01Z", "step": 1, "kind": "request", "messages": 2, "tools": 7, "estimated_tokens": 3120},
    {"time": "2026-11-13T17:46:09Z", "step": 1, "kind": "response", "content": "", "reasoning": "I'll read the task first.", "tool_calls": [{"id": "call_ab12cd34", "name": "read_file", "arguments": "{\"path\":\"docs/design/x/tasks.md\"}"}], "stop_reason": "tool_calls", "usage": {"input_tokens": 3051, "output_tokens": 41}},
@@ -272,17 +346,19 @@ started_at = 2026-11-13T17:45:58Z
 ```toml
 version = 1
 session = "rn-3f2a9c1e"
-model_alias = "coder"         # "" when --model gave a raw id
-model = "qwen3-coder:30b"
+model_alias = "qwen9b"         # "" when --model gave a raw id
+model = "qwen/qwen3.5-9b"
 endpoint = "gpu"
-url = "http://ollama-a.inference.svc:11434"
+url = "http://gpu-a.inference.svc:1234"
 api = "openai"
 context_tokens = 65536
 max_output = 4096
-temperature = 0.2
+temperature = 0.7
+reasoning = "none"             # "" for the server's default
 request_timeout = "10m"
 idle_timeout = "90s"
 role = "implementer"          # "" without a role
+parent = "orch-1a2b3c4d"      # "" without one (a loop run, ws claude --parent none): results stay in runner/
 pass = ["PASS"]
 fail = ["FAIL"]
 max_steps = 80
@@ -308,11 +384,12 @@ here.
 {"version": 1, "session": "rn-3f2a9c1e", "pid": 51234, "process_started_at": "2026-11-13T17:45:58Z",
  "state": "working", "step": 12, "max_steps": 80, "restarts": 0,
  "usage": {"requests": 12, "prompt_tokens": 210344, "completion_tokens": 9120},
- "mcp": [{"server": "mcp-grafana", "state": "connected", "tools": 6, "loaded": 3, "error": null}],
- "exit": null, "exit_message": null, "updated_at": "2026-11-13T17:52:40Z"}
+ "mcp": [{"server": "metrics", "state": "connected", "tools": 6, "loaded": 3, "error": null}],
+ "exit": null, "exit_message": null, "verdict": null, "updated_at": "2026-11-13T17:52:40Z"}
 ```
 
-`state` is `starting`, `working` (running a tool), `waiting_model` (a
+`verdict` is the recorded verdict once there is one, from the model or
+the finalizer, for every run (with or without a parent). `state` is `starting`, `working` (running a tool), `waiting_model` (a
 request is in flight) or `exited`. Written to a temp file and renamed.
 `restarts` is set by the daemon when it resumes after a crash.
 
@@ -322,19 +399,19 @@ One JSON object per line:
 
 | `kind` | Fields besides `time`, `step`, `kind` |
 | ------ | ------------------------------------- |
-| `start` | `model`, `model_alias`, `endpoint`, `api`, `context_tokens`, `resume` (bool), `messages` (system prompt and task, redacted), `tools` (names offered) |
-| `request` | `messages`, `tools` (count), `estimated_tokens` |
+| `start` | `model`, `model_alias`, `endpoint`, `api`, `context_tokens`, `reasoning`, `resume` (bool), `trace_id`, `messages` (system prompt and task, redacted), `tools` (names offered) |
+| `request` | `messages`, `tools` (count), `estimated_tokens`, `span_id` (the request's `chat` span) |
 | `response` | `content`, `reasoning`, `tool_calls` [{`id`,`name`,`arguments`}], `stop_reason`, `usage` {`input_tokens`,`output_tokens`} or `null`, `duration_ms` |
 | `tool_result` | `id`, `name`, `ok`, `bytes`, `truncated`, `text` (as sent to the model); for MCP tools also `server`, `tool` |
 | `invalid_call` | `id`, `name`, `error` |
-| `nudge` | `reason` (`no_tool_call`, `repeat`) |
+| `nudge` | `reason` (`no_tool_call`, `text_tool_call`, `repeat`) |
 | `compaction` | `before_tokens`, `after_tokens`, `elided`, `dropped_turns` |
 | `truncated` | `estimated_tokens`, `prompt_tokens` |
 | `retry` | `attempt`, `error`, `wait_ms` |
 | `mcp_start` | `server`, `transport` (`stdio`, `http`, `sse`), `ok`, `tools`, `allowed`, `error` |
 | `mcp_error` | `server`, `tool` or `null`, `error` |
 | `tool_search` | `query`, `loaded` (names), `dropped` (names) |
-| `restart` | `restarts`, `reason` (written by the runner on `--resume`) |
+| `restart` | `restarts`, `reason`, `trace_id` (written by the runner on `--resume`) |
 | `exit` | `reason`, `message`, `verdict` or `null` |
 
 Every event is redacted before it's written ([0066](../../adrs/0066-runner-security-boundaries.md)).
@@ -342,19 +419,24 @@ Every event is redacted before it's written ([0066](../../adrs/0066-runner-secur
 ### `state/<root>/machine/<child>/usage.json`
 
 Written once, at exit, next to `result.toml`. It outlives `ws machine rm`.
+A run without a parent writes it, and `report.md`, to
+`state/<id>/runner/` instead.
 
 ```json
-{"version": 1, "runner": "ws", "model": "qwen3-coder:30b", "model_alias": "coder",
- "endpoint": "gpu", "url": "http://ollama-a.inference.svc:11434", "api": "openai",
+{"version": 1, "runner": "ws", "model": "qwen/qwen3.5-9b", "model_alias": "qwen9b",
+ "endpoint": "gpu", "url": "http://gpu-a.inference.svc:1234", "api": "openai",
  "role": "implementer", "exit": "done", "steps": 31, "restarts": 0,
  "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
- "mcp_calls": {"mcp-grafana": 4},
+ "mcp_calls": {"metrics": 4},
  "started_at": "2026-11-13T17:45:58Z", "ended_at": "2026-11-13T18:04:22Z", "wall_seconds": 1104,
  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"}
 ```
 
-`trace_id` is the W3C trace id sent in `traceparent` on every model
-request. llm-router records it, so a run's requests can be found in Tempo.
+`trace_id` is the run's OpenTelemetry trace id: every span the runner
+exports belongs to it, and each model request's `traceparent` carries it,
+so llm-router's spans join the same trace
+([0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md),
+Observability).
 
 ### `CONFIG_DIR/daemon/`
 
@@ -380,15 +462,16 @@ environment or secrets.env, never in config.toml`.
 
 | Key | Type | Default | Used for |
 | --- | ---- | ------- | -------- |
-| `model` | string | none | The default model alias for `ws` children |
-| `fallback` | string | `"none"` | `none` or `claude`: what `spawn` does when preflight fails |
+| `model` | string | none | The default model alias for `ws` agents (children, `ws claude --runner ws`, `ws` loops) |
+| `fallback` | string | `"none"` | `none` or `claude`: what a start (spawn, `ws claude`, a loop run) does when preflight fails |
 | `keep_git_tokens` | bool | `true` | Keep `GH_TOKEN` and `GITHUB_TOKEN` in the tools' environment |
-| `user_instructions` | bool | `false` | Also load `~/.claude/CLAUDE.md` into the system prompt ([0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)) |
+| `user_instructions` | bool | `false` | Also load `~/.claude/CLAUDE.md` into the system prompt; off by the owner's decision, an opt-in per machine ([0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)) |
 
 ### `[runner.env]`
 
 `NAME = "value"` pairs added to every runner's environment (layer 2 of
-[0068](../../adrs/0068-ws-daemon.md)), for example `GRAFANA_URL`. Names are
+[0068](../../adrs/0068-ws-daemon.md)), for example `METRICS_URL` or
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Names are
 `^[A-Z_][A-Z0-9_]*$`. A name ending `_TOKEN`, `_KEY`, `_SECRET` or
 `_PASSWORD` is refused: `put secrets in secrets.env`.
 
@@ -397,7 +480,7 @@ environment or secrets.env, never in config.toml`.
 | Key | Type | Default | Used for |
 | --- | ---- | ------- | -------- |
 | `url` | string | required | Base URL without `/v1`: `http(s)://host[:port][/path]` |
-| `api` | string | `"openai"` | The wire protocol: `openai` (OpenAI-compatible chat completions: Ollama, llm-router, LM Studio, vLLM). Reserved, refused as not implemented yet: `ollama`, `openai-responses`, `anthropic` |
+| `api` | string | `"openai"` | The wire protocol: `openai` (OpenAI-compatible chat completions: Ollama, llm-router, LM Studio, vLLM). Refused as not implemented yet: `ollama` (planned next, the optional last task), `openai-responses`, `anthropic` (reserved) |
 | `probe` | string | `"auto"` | `auto`, `ollama` or `none`: how preflight learns capabilities and context length |
 | `request_timeout` | duration | `"10m"` | One completion, including a cold model load |
 | `idle_timeout` | duration | `"90s"` | The longest gap between streamed chunks |
@@ -407,10 +490,11 @@ environment or secrets.env, never in config.toml`.
 | Key | Type | Default | Used for |
 | --- | ---- | ------- | -------- |
 | `endpoint` | string | required | An `[endpoints.<name>]` |
-| `id` | string | required | The model id on that endpoint (`qwen3-coder:30b`) |
+| `id` | string | required | The model id on that endpoint, exactly as it lists it (`qwen/qwen3.5-9b`, `qwen3.5:9b`); any non-empty string without control characters |
 | `context_tokens` | int | required | The server's context length for it (`OLLAMA_CONTEXT_LENGTH` or the model's `num_ctx`); at least 16384 |
 | `max_output` | int | `4096` | Output tokens per request |
 | `temperature` | float, as a string | `"0.2"` | Sampling temperature, `0`–`2` |
+| `reasoning` | string | `""` | `""` (send nothing: the server's default), `none`, `low`, `medium` or `high`; sent as `reasoning_effort` ([0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md)) |
 
 ### `[runner.roles.<role>]`
 
@@ -447,27 +531,43 @@ Example, with the commented block for the generated file in the
 
 ```toml
 [runner]
-model = "coder"
+model = "qwen9b"
 
 [runner.env]
-GRAFANA_URL = "https://grafana.example.internal"
+METRICS_URL = "https://metrics.example.internal"
+OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector.example.internal:4318"
 
 [endpoints.gpu]
-url = "http://ollama-a.inference.svc:11434"
+url = "http://gpu-a.inference.svc:1234"
 
-[models.coder]
+[models.qwen9b]
 endpoint = "gpu"
-id = "qwen3-coder:30b"
+id = "qwen/qwen3.5-9b"
 context_tokens = 65536
+reasoning = "none"
+temperature = "0.7"
+
+[models.qwen9b-think]
+endpoint = "gpu"
+id = "qwen/qwen3.5-9b"
+context_tokens = 131072
+max_output = 16384
+temperature = "0.6"
 
 [runner.roles.verifier]
 runner = "ws"
+model = "qwen9b"
+max_steps = 30
+timeout = "30m"
+max_tokens = 1500000
 
-[runner.roles.oncall]
+# An example of a role with MCP tools; no role has any by default.
+[runner.roles.triage]
 runner = "ws"
-mcp_servers = ["mcp-grafana"]
-mcp_tools = ["mcp__mcp-grafana__query_*", "mcp__mcp-grafana__list_*", "mcp__mcp-grafana__get_*"]
-mcp_deny = ["mcp__mcp-grafana__get_panel_image"]
+model = "qwen9b-think"
+mcp_servers = ["metrics"]
+mcp_tools = ["mcp__metrics__query_*", "mcp__metrics__list_*", "mcp__metrics__get_*"]
+mcp_deny = ["mcp__metrics__get_panel_image"]
 ```
 
 ## secrets.env and the runner's environment
@@ -478,7 +578,8 @@ mcp_deny = ["mcp__mcp-grafana__get_panel_image"]
 ```
 # NAME=value, one per line; no expansion; optional double quotes; # comments
 WS_ENDPOINT_TOKEN_ROUTER=…
-GRAFANA_SERVICE_ACCOUNT_TOKEN=…
+METRICS_TOKEN=…
+OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer …
 ```
 
 Settings › Models writes `WS_ENDPOINT_TOKEN_<NAME>` lines (temp file and
@@ -497,10 +598,15 @@ From it:
   `-` → `_`);
 - **`run` commands** get it scrubbed ([0066](../../adrs/0066-runner-security-boundaries.md)):
   without `WS_ENDPOINT_TOKEN_*`, `WS_FORGEJO_TOKEN_*`, `*_API_KEY`,
-  `*_TOKEN`, `*_SECRET`, `*_PASSWORD` and every name in `secrets.env`,
+  `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `OTEL_EXPORTER_OTLP_HEADERS`,
+  `OTEL_EXPORTER_OTLP_*_HEADERS` and every name in `secrets.env`,
   except `GH_TOKEN` and `GITHUB_TOKEN` while `runner.keep_git_tokens` is
   true;
-- **MCP stdio servers** get it unscrubbed, plus their own expanded `env`.
+- **MCP stdio servers** get it unscrubbed, plus their own expanded `env`;
+- **the runner's telemetry** reads the standard `OTEL_*` variables from it
+  ([0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md)).
+
+`secrets.env` is the only secrets store; there's no keychain integration.
 
 ## MCP servers
 
@@ -544,7 +650,7 @@ JSON bodies, errors as `{"error": {"code", "message", "details"}}`.
 | `GET /v1/status` | | `ws daemon status`'s object |
 | `POST /v1/preflight` | `{"role", "endpoint", "model"}` (each `""` for the default) | `ws runner check`'s object, or a preflight error |
 | `POST /v1/runners/<id>/start` | `{"resume": false}` | `{"pid"}`; `workspace_not_found`, `runner_failed` |
-| `POST /v1/runners/<id>/stop` | | `{"stopped": true}` |
+| `POST /v1/runners/<id>/stop` | | `{"stopped": true}`, or `false` when it had already exited (`ws rm`, `ws runner stop`) |
 | `POST /v1/shutdown` | `{"keep_runners": false}` | `ws daemon stop`'s object |
 
 ## Environment variables
@@ -557,7 +663,8 @@ JSON bodies, errors as `{"error": {"code", "message", "details"}}`.
 | `WS_RUNNER_SECRET_NAMES` | the runner | Set by the daemon: the names defined in `secrets.env`, comma-separated, so `run` commands get them scrubbed |
 | `WS_FAKE_OLLAMA`, `WS_FAKE_MCP` | e2e tests | Paths to prebuilt fakes; otherwise the harness builds them |
 | `E2E_RUNNER_URL`, `E2E_RUNNER_MODEL`, `E2E_RUNNER_API` | e2e tests | Opt in to the real-model scenarios |
-| `E2E_MCP_SMOKE` | e2e tests | `<server>:<tool>[,…]`: opt in to calling real MCP servers from the user's Claude Code config |
+| `E2E_MCP_SMOKE` | e2e tests | `<server>:<tool>[,…]` (for example `docs:search`): opt in to calling real MCP servers from the user's Claude Code config |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_*_ENDPOINT`, `OTEL_*_EXPORTER`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | the runner | Standard OpenTelemetry settings. Without an endpoint or exporter variable nothing is exported; `service.name` defaults to `ws-runner` |
 
 ## Errors and exit codes
 
@@ -574,8 +681,11 @@ New codes, under existing exit codes:
 | `daemon_running` | 4 | `ws daemon run` while another daemon holds the lock | `{"pid": 40211}` |
 
 New `usage` (exit 2) situations: `--runner` isn't `claude` or `ws`;
-`--endpoint` with the `claude` runner; for a `ws` child, an argument after
-the prompt other than `--model <m>`. No model anywhere, a `token` key, a
+`--endpoint` with the `claude` runner; for a `ws` child or `ws claude
+--runner ws`, an argument after the prompt other than `--model <m>`; `ws
+claude --runner ws` without a prompt. `ws loop add|edit`: a bad
+`--runner`, `--endpoint` or `--permission-mode` with the other runner, or
+an unknown alias or endpoint, is `loop_invalid` (2). No model anywhere, a `token` key, a
 secret-looking `[runner.env]` name, a reserved `api`, or `context_tokens`
 under 16384 is `config_invalid` (exit 1).
 
@@ -603,5 +713,5 @@ In `status.json` `exit`, `usage.json` `exit`, `session.ws_runner.exit`,
 | `looping` | first fail | The same call 5 times in a row |
 | `context_overflow` | first fail | The system prompt, task and last turn don't fit |
 | `crashed` | first fail, by the daemon | The process died 4 times; the daemon gave up |
-| `stopped` | none | `ws rm` asked it to stop (`ws daemon stop` interrupts without an exit reason, so the runner reads `stopped` and resumes later) |
+| `stopped` | none | `ws rm` or the desktop's Stop (`ws runner stop`) asked it to stop; it isn't resumed. (`ws daemon stop` interrupts without an exit reason, so the runner reads `stopped` and resumes later) |
 | `internal` | first fail | A runner bug; `exit_message` says what |

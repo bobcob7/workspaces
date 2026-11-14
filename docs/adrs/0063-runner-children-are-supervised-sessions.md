@@ -114,9 +114,12 @@ orchestrators already have `ws machine rm`, and stopping a Claude child
 the same way would need its own design; the daemon request it would use
 already exists.
 
-**Without a parent.** A runner session started by `ws claude --runner ws`
-or by a loop ([0070](0070-runner-agents-for-people-and-loops.md)) has no
-parent, so there's no `machine/` directory to record into. `run.toml`'s
+**Without a parent.** A runner session started by a loop, or by `ws
+claude --runner ws --parent none` (or outside any workspace)
+([0070](0070-runner-agents-for-people-and-loops.md)), has no parent, so
+there's no `machine/` directory to record into. (One `ws claude` starts
+inside a workspace has that workspace as its parent and records like a
+spawned child.) `run.toml`'s
 `parent` is `""`, and `record_result` (and the finalizer) write the
 report to `state/<id>/runner/report.md`, the verdict to `status.json`'s
 `verdict`, and `usage.json` next to them. Verdicts are the role's, or
