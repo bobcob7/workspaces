@@ -1,0 +1,9 @@
+# Scenario: endpoint-repoint-no-tools, as endpoint B. It serves the run's
+# model id without the tools capability, so the runner's switch check
+# (/v1/models, then /api/show) rejects it with model_without_tools and
+# never sends it a chat request. A chat request with tools would get
+# strict_capabilities' 400.
+strict_capabilities: true
+models:
+  - {name: qwen/qwen3.5-9b, capabilities: [], context_length: 32768}
+rules: []

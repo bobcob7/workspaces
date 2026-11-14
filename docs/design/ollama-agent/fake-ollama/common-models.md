@@ -22,6 +22,15 @@ the transcript, the desktop fixtures). The e2e endpoint is `[endpoints.fake]` wi
 `probe = "none"`. Its token, when a scenario uses one, is
 `WS_ENDPOINT_TOKEN_FAKE` in the test's `secrets.env`.
 
+The re-resolution scenarios (ADR 0064, third review) start two fakes:
+A on `failover.yaml` as `[endpoints.fake]`, and B as `[endpoints.fake-b]`
+(same `api` and `probe`) on `failover.yaml` (`endpoint-failover`) or
+`failover-notools.yaml` (`endpoint-repoint-no-tools`, where
+`qwen/qwen3.5-9b` has no `tools`). B's token is `WS_ENDPOINT_TOKEN_FAKE_B`
+in the test's `secrets.env`, so `/requests` on each fake shows which token
+reached it. The test repoints the alias with `ws config set
+models.qwen9b.endpoint fake-b`.
+
 `turn` counts the assistant messages already in the request. A retried
 request (after a fault) has the same messages, so it's the same turn and
 gets the same reply. Rules with `turn` or `match_tool_result` are tried
