@@ -2185,11 +2185,12 @@ $ cd desktop/src-tauri && cargo clippy --all-targets --no-default-features --fea
   runner chip, badge, icon or colour anywhere.** The summary line is
   unchanged for Claude; for a `ws` child it is `step {step}/{maxSteps}`.
 - `EntryPane.tsx` and `AgentsActions.tsx`: the model id beside the title
-  in muted monospace for every agent (`.titleModel`), and for `ws`
-  children the existing neutral meta chips `step n / max`, `tokens 210k in
-  · 9.1k out`, the role, then muted text with the endpoint, session id and
-  state, plus restarts, MCP servers and the exit reason when there are
-  any (as `#transcript`). Attach, Send and
+  in muted monospace for every agent (`.titleModel`). For `ws` children,
+  the existing neutral meta chips (`step n / max`, `tokens 210k in · 9.1k
+  out`, the role) and muted text with the endpoint, session id and state
+  (`#transcript`), and a "Run" card with rows Runner, Model (id, alias,
+  context), Endpoint (name, URL, API), Progress, MCP servers, Last event,
+  Session, and the exit reason when finished (`#agents-tree`). Attach, Send and
   Continue are hidden for `ws` children; Remove works as for any child.
 - **New** `desktop/src/features/settings/ModelsGroup.tsx` (+
   `.module.css`, `.test.tsx`), "Models" in `SettingsList` after "Forges",

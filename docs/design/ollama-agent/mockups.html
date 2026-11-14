@@ -342,7 +342,7 @@ const tree = `
       ${agent({name: "x-base", dot: "done", age: "38m", summary: "PASS · 14 steps", model: "qwen3-coder:30b", tip: wsTip, child: true})}
       ${agent({name: "x-design", dot: "done", age: "35m", summary: "PASS · design docs pushed", model: "opus-5-5", tip: claudeTip("claude-opus-5-5"), child: true})}
       ${agent({name: "x-t1-impl", dot: "working", age: "6m", summary: "step 12/80", model: "qwen3-coder:30b", tip: wsTip, child: true, current: true})}
-      ${agent({name: "x-t2-impl", dot: "needs", age: "3m", summary: "FAIL · looping", model: "devstral-small-2:24b", tip: "devstral-small-2:24b · alias devstral · endpoint gpu (http://ollama-a.inference.svc:11434) · OpenAI-compatible", child: true})}
+      ${agent({name: "x-t2-impl", dot: "needs", age: "3m", summary: "FAIL · looping", model: "qwen3-coder:30b", tip: wsTip, child: true})}
       ${agent({name: "x-t1-review", dot: "working", age: "1m", summary: "Reviewing T1", model: "haiku-5-5", tip: claudeTip("claude-haiku-5-5"), child: true})}
       ${agent({name: "fix-login", dot: "idle", age: "2h", summary: "Waiting for review", model: "opus-5-5", tip: claudeTip("claude-opus-5-5")})}
     </ul>
