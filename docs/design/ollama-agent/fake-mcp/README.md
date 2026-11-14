@@ -1,7 +1,7 @@
 # Fake MCP scripts for the runner's e2e scenarios
 
 Scripts for `fake-mcp` (task T3, [ADR 0067](../../../adrs/0067-runner-tests-use-vendored-fakes.md)),
-copied by task T19 to `e2e/runner/testdata/`. The e2e harness writes a
+copied by task T22 to `e2e/runner/testdata/`. The e2e harness writes a
 `.mcp.json` (project scope) or a test `~/.claude.json` (user scope, through
 `CLAUDE_CONFIG_DIR`) naming the server `fake`, and the matching fake-ollama
 config is [../fake-ollama/mcp.yaml](../fake-ollama/mcp.yaml).

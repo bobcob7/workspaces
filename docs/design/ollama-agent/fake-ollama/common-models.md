@@ -1,6 +1,6 @@
 # Fake configs for the runner's e2e scenarios
 
-Copied by task T19 to `e2e/runner/testdata/`: the fake-ollama configs here
+Copied by task T22 to `e2e/runner/testdata/`: the fake-ollama configs here
 and the fake MCP scripts in [../fake-mcp/](../fake-mcp/). The fake-ollama
 configs need the copy in this repo with task T2's features (`turn`,
 `match_tool_result`, `raw_arguments`, `any_tool`, `strict_capabilities`,
