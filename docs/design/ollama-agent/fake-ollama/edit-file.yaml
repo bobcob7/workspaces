@@ -1,0 +1,21 @@
+# Scenarios: edit-file, endpoint-down-mid-run, mid-stream-drop, restore, mixed-wait.
+strict_capabilities: true
+models:
+  - {name: fake-coder, capabilities: [tools], context_length: 32768}
+  - {name: fake-small, capabilities: [tools], context_length: 4096}
+  - {name: fake-notools, capabilities: [], context_length: 32768}
+timing: {first_token: 10ms, chunk_interval: 1ms, words_per_chunk: 4}
+rules:
+  - turn: 0
+    tool: write_file
+    arguments: '{"path":"hello.txt","content":"hello from the fake model\n"}'
+  - turn: 1
+    tool: run
+    arguments: '{"command":"git add hello.txt && git -c user.name=fake -c user.email=fake@example.com commit -q -m \"feat: add hello\" && git log --oneline -1"}'
+  - turn: 2
+    match_tool_result: "exit 0\\b"
+    tool: record_result
+    arguments: '{"verdict":"PASS","report":"Wrote hello.txt and committed it."}'
+  - turn: 2
+    tool: record_result
+    arguments: '{"verdict":"FAIL","report":"The commit failed."}'

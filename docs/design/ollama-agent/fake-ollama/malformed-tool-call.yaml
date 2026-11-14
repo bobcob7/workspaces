@@ -1,0 +1,30 @@
+# Scenarios: malformed-tool-call (recovers once; fails when always),
+# unknown-tool (recovers). The test picks the case with a marker in the
+# task prompt (the last user message): MALFORMED_ONCE, MALFORMED_ALWAYS or
+# UNKNOWN_TOOL. Valid tool results reach the fake wrapped in
+# <tool_result …>; the runner's answers to invalid calls start "error: ".
+strict_capabilities: true
+models:
+  - {name: fake-coder, capabilities: [tools], context_length: 32768}
+rules:
+  - match: MALFORMED_ALWAYS
+    turn: 0
+    tool: read_file
+    raw_arguments: '{"path": '
+  - match: MALFORMED_ALWAYS
+    match_tool_result: "^error: "
+    tool: read_file
+    raw_arguments: '{"path": '
+  - match: MALFORMED_ONCE
+    turn: 0
+    tool: read_file
+    raw_arguments: '{"path": '
+  - match: UNKNOWN_TOOL
+    turn: 0
+    tool: delete_repo
+    any_tool: true
+    arguments: '{"confirm":true}'
+  - turn: 1
+    match_tool_result: "^error: "
+    tool: record_result
+    arguments: '{"verdict":"PASS","report":"Recovered after an invalid call."}'

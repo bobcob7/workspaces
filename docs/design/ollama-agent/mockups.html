@@ -1,0 +1,400 @@
+<!doctype html>
+<!--
+  Static mockups for the Ollama runner (docs/design/ollama-agent). Open with
+  a hash to pick a screen, e.g. mockups.html#settings-models. The PNGs in
+  img/ are rendered from this file with headless Chromium at 1280x800
+  (terminal screens at 1100 wide); see README.md › Screens. Colors and type
+  match docs/design/desktop-sections/mockups.html (desktop/src/index.css).
+  All data is fake.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ollama runner mockups</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0f1115; --panel: #161920; --panel-raised: #1d212a; --border: #2a2f3a;
+  --text: #e3e6ec; --text-muted: #8d94a3; --accent: #58a6ff; --selected: #233047;
+  --danger: #f85149; --status-working: #58a6ff; --status-needs-input: #f0a43a;
+  --status-idle: #d8b04c; --status-done: #56c478; --status-stopped: #6e7681; --status-running: #a371f7;
+  --font-mono: "SF Mono", Menlo, Monaco, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "DejaVu Sans", sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+.screen { display: none; }
+.screen.on { display: block; }
+
+/* Terminal */
+.term { width: 1100px; min-height: 640px; background: #0b0d10; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.termBar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: #181b21; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+.termBar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; background: #3a404c; }
+.termBar span { margin-left: 8px; }
+pre.out { margin: 0; padding: 14px 16px; font: 12.5px/1.55 var(--font-mono); color: #d4d8e0; white-space: pre-wrap; word-break: break-word; }
+.p { color: var(--status-done); } .c { color: var(--text-muted); } .k { color: #7ee0d6; } .s { color: #e6c07b; }
+.n { color: #d19a66; } .e { color: var(--danger); } .w { color: var(--status-needs-input); } .o { color: var(--status-running); font-weight: 700; }
+
+/* App frame (desktop-sections) */
+.root { display: flex; flex-direction: column; height: 800px; width: 1280px; }
+.topBar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--panel); min-height: 47px; }
+.brand { font-weight: 700; font-size: 15px; }
+.spacer { flex: 1; }
+.muted { color: var(--text-muted); font-size: 12px; }
+.mono { font-family: var(--font-mono); }
+.btn { white-space: nowrap; border: 0; background: none; color: var(--accent); font: 600 13px/1 inherit; font-family: inherit; padding: 8px 10px; border-radius: 8px; }
+.btn.outlined { border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); padding: 7px 10px; }
+.btn.contained { background: var(--accent); color: #0b1220; }
+.btn.danger { color: var(--danger); }
+.btn.small { font-size: 12px; padding: 5px 8px; }
+.body { flex: 1; display: flex; min-height: 0; }
+.rail { width: 72px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; border-right: 1px solid var(--border); }
+.railItem { position: relative; width: 60px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0 7px; border-radius: 10px; color: var(--text-muted); font-size: 11px; font-weight: 600; }
+.railItem svg { width: 20px; height: 20px; }
+.railItem.active { background: var(--selected); color: var(--text); }
+.railItem.active::before { content: ""; position: absolute; left: -6px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.railSpacer { flex: 1; }
+.sidebar { width: 320px; flex: none; border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+.search { margin: 10px 12px 2px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); font-size: 13px; background: var(--bg); }
+.list { padding: 8px 0 16px; }
+.heading { display: flex; gap: 6px; margin: 0; padding: 8px 16px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.items { list-style: none; margin: 0; padding: 0 8px; }
+.item { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 8px; }
+.item.current { background: var(--selected); }
+.item.child { margin-left: 18px; }
+.row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.age { margin-left: auto; flex: none; color: var(--text-muted); font-size: 11px; }
+.summary { padding-left: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status-stopped); }
+.dot.working { background: var(--status-working); } .dot.idle { background: var(--status-idle); } .dot.done { background: var(--status-done); } .dot.needs { background: var(--status-needs-input); }
+.runnerChip { flex: none; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #d2b8ff; background: color-mix(in srgb, var(--status-running) 18%, transparent); }
+.claudeChip { flex: none; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); background: #2a303b; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.header { padding: 14px 18px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.titleRow { display: flex; align-items: center; gap: 12px; }
+.title { margin: 0; font-size: 18px; font-weight: 650; }
+.meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; color: var(--text-muted); font-size: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: #2a303b; color: var(--text); font-size: 12px; }
+.chip.ok { background: color-mix(in srgb, var(--status-done) 18%, transparent); color: #9fe2b4; }
+.chip.warn { background: color-mix(in srgb, var(--status-needs-input) 18%, transparent); color: var(--status-needs-input); font-weight: 600; }
+.content { flex: 1; overflow: hidden; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.card { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.cardHead { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; }
+.cardBody { padding: 12px 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); padding: 6px 10px; border-bottom: 1px solid var(--border); }
+td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alert { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.45; }
+.alert.info { background: color-mix(in srgb, var(--accent) 12%, transparent); color: #b9d8ff; }
+.alert.warn { background: color-mix(in srgb, var(--status-needs-input) 14%, transparent); color: #f5cf95; }
+.alert.err { background: color-mix(in srgb, var(--danger) 14%, transparent); color: #ffb3ad; }
+.alert b { color: var(--text); }
+/* Conversation */
+.convo { flex: 1; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.msg { max-width: 820px; font-size: 13px; line-height: 1.55; }
+.msg.user { align-self: flex-end; background: var(--panel-raised); padding: 8px 12px; border-radius: 10px; }
+.think { color: var(--text-muted); font-style: italic; font-size: 12px; }
+.tool { font: 12px var(--font-mono); color: var(--text-muted); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; width: fit-content; max-width: 900px; }
+.tool b { color: var(--text); }
+.tool .ok { color: var(--status-done); } .tool .bad { color: var(--danger); }
+.sys { font-size: 12px; color: var(--text-muted); border-left: 3px solid var(--status-stopped); padding: 2px 10px; }
+.sys.warn { border-color: var(--status-needs-input); color: #f5cf95; }
+.exit { padding: 8px 12px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--status-done) 14%, transparent); color: #9fe2b4; }
+.noreply { padding: 10px 12px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+/* Settings */
+.settingsList .item { flex-direction: row; align-items: center; }
+.setRow { display: grid; grid-template-columns: 260px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.setRow .lbl div:first-child { font-weight: 600; font-size: 13px; }
+.field { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font-size: 13px; color: var(--text); min-height: 34px; }
+.select { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; }
+.select::after { content: ""; border: 4px solid transparent; border-top: 5px solid var(--text-muted); margin-top: 4px; }
+.ck { display: inline-block; width: 5px; height: 9px; border: solid var(--status-done); border-width: 0 2px 2px 0; transform: rotate(45deg); margin: 0 4px 2px 3px; }
+.ico { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 800; color: #0b0d10; }
+.ico.err { background: var(--danger); } .ico.warn { background: var(--status-needs-input); } .ico.info { background: var(--accent); }
+.switch { width: 34px; height: 20px; border-radius: 999px; background: #3a404c; position: relative; flex: none; display: inline-block; }
+.switch::after { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; top: 2px; left: 2px; background: #c9ced8; }
+.switch.on { background: var(--accent); } .switch.on::after { left: 16px; background: #fff; }
+.statusDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.form { display: grid; grid-template-columns: 150px 1fr 150px 1fr; gap: 10px 12px; align-items: center; font-size: 13px; }
+.form label { color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<!-- 1. ws machine spawn --runner ollama -->
+<section class="screen" id="cli-spawn">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>orchestrator · workspaces/orch-ollama-1a2b3c4d/workspaces</span></div>
+<pre class="out"><span class="p">$</span> ws machine spawn --runner ollama --name x-t2-impl --role implementer \
+    --var TASK=T2 --var TASKS=docs/design/x/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t2 \
+    workspaces@feat/x | jq .
+{
+  <span class="k">"id"</span>: <span class="s">"x-t2-impl-7c41e0b2"</span>,
+  <span class="k">"session"</span>: <span class="s">"ol-3f2a9c1e"</span>,
+  <span class="k">"path"</span>: <span class="s">"/home/me/.config/workspaces/workspaces/x-t2-impl-7c41e0b2"</span>,
+  <span class="k">"parent"</span>: <span class="s">"orch-ollama-1a2b3c4d"</span>,
+  <span class="k">"repos"</span>: [
+    {<span class="k">"id"</span>: <span class="s">"github.com/example/workspaces"</span>, <span class="k">"path"</span>: <span class="s">"workspaces"</span>, <span class="k">"ref"</span>: <span class="s">"feat/x"</span>,
+     <span class="k">"ref_kind"</span>: <span class="s">"branch"</span>, <span class="k">"commit"</span>: <span class="s">"5be0a9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7"</span>}
+  ],
+  <span class="k">"warnings"</span>: [],
+  <span class="k">"role"</span>: <span class="s">"implementer"</span>,
+  <span class="k">"runner"</span>: <span class="s">"ollama"</span>,
+  <span class="k">"ollama"</span>: {
+    <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>,
+    <span class="k">"url"</span>: <span class="s">"http://ollama-a.inference.svc:11434"</span>,
+    <span class="k">"model"</span>: <span class="s">"qwen3-coder:30b"</span>,
+    <span class="k">"context_tokens"</span>: <span class="n">65536</span>
+  }
+}
+
+<span class="c"># the role is configured to run on Ollama, so --runner can be left out:</span>
+<span class="p">$</span> ws config get ollama.roles.verifier.runner
+ollama
+<span class="p">$</span> ws machine spawn --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make lint; make test" \
+    workspaces@feat/x | jq -c '{id, session, runner, model: .ollama.model}'
+{"id":"x-verify-0d9e2f61","session":"ol-91b0c7aa","runner":"ollama","model":"qwen3-coder:30b"}
+
+<span class="c"># override only the model for one child:</span>
+<span class="p">$</span> ws machine spawn --runner ollama --name x-t3-impl --role implementer --var TASK=T3 … workspaces@feat/x \
+    -- "" --model devstral-small-2:24b | jq -r .ollama.model
+devstral-small-2:24b</pre></div>
+</section>
+
+<!-- 2. children + wait, mixed runners -->
+<section class="screen" id="cli-children-wait">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>orchestrator · mixed runners</span></div>
+<pre class="out"><span class="p">$</span> ws machine children | jq -r '.workspaces[] | [.id, .session.runner, .session.state, (.session.ollama.model // "-"), (.result.verdict // "-")] | @tsv'
+x-base-2c9d11f0       ollama   idle      qwen3-coder:30b   PASS
+x-design-8a1f3e22     claude   idle      -                 PASS
+x-t1-impl-41aa0b7c    ollama   working   qwen3-coder:30b   -
+x-t1-review-c3d5e7f9  claude   starting  -                 -
+
+<span class="p">$</span> ws machine wait x-t1-impl-41aa0b7c x-t2-impl-7c41e0b2    <span class="c"># run in the background</span>
+{"children": [
+  {"id": "x-t1-impl-41aa0b7c", "session": "ol-5d2e8b10", "role": "implementer",
+   "status": "idle", "finished": true, "outcome": "pass",
+   "result": {"verdict": "PASS", "outcome": "pass",
+              "report": "/…/state/orch-ollama-1a2b3c4d/machine/x-t1-impl-41aa0b7c/report.md",
+              "recorded_at": "2026-11-13T18:04:05Z"},
+   "error": null,
+   "runner": "ollama",
+   "ollama": {"endpoint": "gpu", "model": "qwen3-coder:30b", "exit": <span class="s">"done"</span>, "steps": 31,
+              "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
+              "wall_seconds": 1104, "usage_file": "/…/machine/x-t1-impl-41aa0b7c/usage.json"}},
+  {"id": "x-t2-impl-7c41e0b2", "session": "ol-3f2a9c1e", "role": "implementer",
+   "status": "idle", "finished": true, "outcome": "fail",
+   "result": {"verdict": "FAIL", "outcome": "fail",
+              "report": "/…/state/orch-ollama-1a2b3c4d/machine/x-t2-impl-7c41e0b2/report.md",
+              "recorded_at": "2026-11-13T18:21:40Z"},
+   "error": {"code": <span class="e">"child_failed"</span>, "message": "x-t2-impl-7c41e0b2 finished with FAIL"},
+   "runner": "ollama",
+   "ollama": {"endpoint": "gpu", "model": "qwen3-coder:30b", "exit": <span class="w">"looping"</span>, "steps": 47,
+              "usage": {"requests": 47, "prompt_tokens": 1630221, "completion_tokens": 22015},
+              "wall_seconds": 2079, "usage_file": "/…/machine/x-t2-impl-7c41e0b2/usage.json"}}
+ ],
+ "warnings": []}
+<span class="c">exit status 1</span>
+
+<span class="p">$</span> head -3 /…/machine/x-t2-impl-7c41e0b2/report.md
+ws ollama runner: looping
+
+The model called run {"command":"go test ./internal/config/"} 5 times in a row with the same arguments.
+
+<span class="c"># procedure: an exit other than "done" means respawn the task once on Claude</span>
+<span class="p">$</span> ws machine spawn --runner claude --name x-t2-impl-c --role implementer --var TASK=T2 … workspaces@feat/x</pre></div>
+</section>
+
+<!-- 3. CLI errors -->
+<section class="screen" id="cli-errors">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>error states</span></div>
+<pre class="out"><span class="c"># endpoint down: preflight fails before anything is created</span>
+<span class="p">$</span> ws machine spawn --runner ollama --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x
+{"error": {"code": <span class="e">"ollama_unreachable"</span>, "message": "ollama endpoint gpu (http://ollama-a.inference.svc:11434) didn't answer GET /v1/models: dial tcp 10.43.7.21:11434: connect: connection refused", "details": {"url": "http://ollama-a.inference.svc:11434", "cause": "connection refused"}}}
+<span class="c">exit status 1</span>
+
+<span class="c"># the model can't call tools (api = "ollama": /api/show says so)</span>
+<span class="p">$</span> ws machine spawn --runner ollama --role verifier … workspaces@feat/x -- "" --model gemma3:12b
+{"error": {"code": <span class="e">"ollama_no_tools"</span>, "message": "model gemma3:12b on endpoint gpu doesn't support tools; pick a model whose capabilities include tools", "details": {"model": "gemma3:12b", "capabilities": ["completion", "vision"]}}}
+<span class="c">exit status 1</span>
+
+<span class="c"># the model isn't pulled there</span>
+<span class="p">$</span> ws machine spawn --runner ollama --role verifier … workspaces@feat/x -- "" --model qwen3-coder:480b
+{"error": {"code": <span class="e">"ollama_model_missing"</span>, "message": "model qwen3-coder:480b isn't on endpoint gpu", "details": {"model": "qwen3-coder:480b", "models": ["devstral-small-2:24b", "gpt-oss:20b", "qwen3-coder:30b"]}}}
+<span class="c">exit status 3</span>
+
+<span class="c"># with ollama.fallback = "claude": a Claude child, and a warning</span>
+<span class="p">$</span> ws machine spawn --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x | jq -c '{id, runner, warnings}'
+{"id":"verifier-5e6f7a8b","runner":"claude","warnings":[<span class="w">"ollama preflight failed (ollama_unreachable: connection refused); started a claude child because ollama.fallback = \"claude\""</span>]}
+
+<span class="c"># the endpoint goes down mid-run: the runner retries 3 times, then records FAIL with the reason</span>
+<span class="p">$</span> ws machine logs --tail 4 x-verify-0d9e2f61 | jq -c '.events[] | {step, kind, error, reason}'
+{"step":9,"kind":"retry","error":"503 Service Unavailable","reason":null}
+{"step":9,"kind":"retry","error":"dial tcp: connection refused","reason":null}
+{"step":9,"kind":"retry","error":"dial tcp: connection refused","reason":null}
+{"step":9,"kind":"exit","error":null,"reason":<span class="w">"endpoint_down"</span>}</pre></div>
+</section>
+
+<!-- 4. ws list -->
+<section class="screen" id="cli-list">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>ws list</span></div>
+<pre class="out"><span class="p">$</span> ws list
+ID                           SESSION                  AGE   REPOS
+orch-ollama-1a2b3c4d         e8cdf5d8 working         42m   workspaces@main
+└ x-base-2c9d11f0            <span class="o">ollama</span> ol-91b0c7aa idle    38m   workspaces@main
+└ x-t1-impl-41aa0b7c         <span class="o">ollama</span> ol-5d2e8b10 working  6m   workspaces@feat/x
+└ x-t1-review-c3d5e7f9       c3d5e7f9 starting        0m   workspaces@feat/x-t1
+fix-login-d8efb24f           e8cdf5d8 idle            2h    buff-bear@main
+
+<span class="p">$</span> ws list --json | jq '.workspaces[2].session'
+{
+  <span class="k">"kind"</span>: <span class="s">"agent"</span>,
+  <span class="k">"id"</span>: <span class="s">"ol-5d2e8b10"</span>,
+  <span class="k">"state"</span>: <span class="s">"working"</span>,
+  <span class="k">"pid"</span>: <span class="n">51234</span>,
+  <span class="k">"stale"</span>: null,
+  <span class="k">"runner"</span>: <span class="s">"ollama"</span>,
+  <span class="k">"ollama"</span>: {
+    <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>,
+    <span class="k">"model"</span>: <span class="s">"qwen3-coder:30b"</span>,
+    <span class="k">"step"</span>: <span class="n">12</span>,
+    <span class="k">"max_steps"</span>: <span class="n">80</span>,
+    <span class="k">"usage"</span>: {<span class="k">"requests"</span>: <span class="n">12</span>, <span class="k">"prompt_tokens"</span>: <span class="n">210344</span>, <span class="k">"completion_tokens"</span>: <span class="n">9120</span>},
+    <span class="k">"exit"</span>: null
+  }
+}</pre></div>
+</section>
+
+<script>
+const rail = (active) => `
+<nav class="rail">
+  ${[["Agents","M4 6h16M4 12h16M4 18h10"],["Repos","M4 5h16v14H4zM8 9h8"],["Reviews","M5 12l4 4 10-10"],["Loops","M4 12a8 8 0 1 0 3-6M4 4v4h4"],["Stats","M5 19V9M12 19V5M19 19v-7"]]
+    .map(([n,d]) => `<div class="railItem ${n===active?"active":""}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="${d}"/></svg>${n}</div>`).join("")}
+  <div class="railSpacer"></div>
+  <div class="railItem ${active==="Settings"?"active":""}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Settings</div>
+</nav>`;
+const topBar = `<header class="topBar"><span class="brand">Workspaces</span><span class="spacer"></span><button class="btn outlined small">New agent</button></header>`;
+
+const tree = `
+<aside class="sidebar">
+  <div class="search">Search agents</div>
+  <div class="list">
+    <h2 class="heading">Agents <span>5</span></h2>
+    <ul class="items">
+      <li class="item"><div class="row"><span class="dot working"></span><span class="name">orch-ollama</span><span class="age">42m</span></div><div class="summary">Orchestrating feature x: T1 of 4</div></li>
+      <li class="item child"><div class="row"><span class="dot done"></span><span class="name">x-base</span><span class="runnerChip">Ollama</span><span class="age">38m</span></div><div class="summary">qwen3-coder:30b @ gpu · PASS · 14 steps</div></li>
+      <li class="item child"><div class="row"><span class="dot done"></span><span class="name">x-design</span><span class="age">35m</span></div><div class="summary">PASS · design docs pushed</div></li>
+      <li class="item child current"><div class="row"><span class="dot working"></span><span class="name">x-t1-impl</span><span class="runnerChip">Ollama</span><span class="age">6m</span></div><div class="summary">qwen3-coder:30b @ gpu · step 12/80</div></li>
+      <li class="item child"><div class="row"><span class="dot needs"></span><span class="name">x-t2-impl</span><span class="runnerChip">Ollama</span><span class="age">3m</span></div><div class="summary">FAIL · looping · 47 steps</div></li>
+      <li class="item"><div class="row"><span class="dot idle"></span><span class="name">fix-login</span><span class="age">2h</span></div><div class="summary">Waiting for review</div></li>
+    </ul>
+  </div>
+</aside>`;
+
+const header = `
+<section class="header">
+  <div class="titleRow"><h1 class="title">x-t1-impl</h1><span class="runnerChip" style="font-size:11px;padding:2px 8px">Ollama</span><span class="spacer"></span>
+    <button class="btn outlined small">Open</button><button class="btn danger small">Remove</button></div>
+  <div class="meta"><span class="chip mono">gpu · http://ollama-a.inference.svc:11434</span><span class="chip mono">qwen3-coder:30b</span>
+    <span class="chip">step 12 / 80</span><span class="chip">tokens 210k in · 9.1k out</span><span class="chip">implementer · T1</span><span class="muted">ol-5d2e8b10 · working 6m</span></div>
+</section>`;
+
+const transcript = `
+<div class="convo">
+  <div class="msg user">You implement exactly one task, T1, in this repo. You are on branch feat/x. … <span class="muted">(role prompt, 1.4k tokens)</span></div>
+  <div class="think">I'll read the task section first.</div>
+  <div class="tool"><b>read_file</b> docs/design/x/tasks.md <span class="ck"></span> 212 lines</div>
+  <div class="tool"><b>read_file</b> internal/config/config.go offset 60 limit 120 <span class="ck"></span> 120 lines</div>
+  <div class="msg">The task adds an <code>Ollama</code> section to <code>Config</code>. I'll create <code>internal/config/ollama.go</code>.</div>
+  <div class="tool"><b>write_file</b> internal/config/ollama.go <span class="ck"></span> wrote 4 120 bytes</div>
+  <div class="tool"><b>run</b> go test ./internal/config/ <span class="bad">exit 1</span> · ollama_test.go:41: expected "gpu", got ""</div>
+  <div class="sys">invalid tool call: edit_file missing "new" · answered with the schema</div>
+  <div class="tool"><b>edit_file</b> internal/config/ollama.go old "return Run{}, nil" → 1 replacement <span class="ck"></span></div>
+  <div class="sys warn">retry 1/3 after 503 Service Unavailable · waited 2s</div>
+  <div class="tool"><b>run</b> go test ./internal/config/ <span class="ok">exit 0</span> · ok  github.com/example/workspaces/internal/config 0.41s</div>
+  <div class="sys">context compacted: 41k → 19k tokens · 6 tool results elided</div>
+  <div class="tool"><b>run</b> make lint <span class="ok">exit 0</span></div>
+  <div class="msg"><span class="muted">working… step 12 of 80</span></div>
+</div>
+<div class="noreply">Ollama children run unattended: there's no reply box, Attach or Continue. Remove stops the runner.</div>`;
+
+const settingsList = (active) => `
+<aside class="sidebar settingsList" style="width:240px">
+  <div class="list"><ul class="items">
+    ${["General","Agents","Reviews","Forges","Models","Roles","About"].map(n => `<li class="item ${n===active?"current":""}"><span class="name">${n}</span></li>`).join("")}
+  </ul></div>
+</aside>`;
+
+const endpointsCard = (errors) => `
+<div class="card">
+  <div class="cardHead">Endpoints <span class="spacer"></span><button class="btn small">Add endpoint</button></div>
+  <div class="cardBody" style="padding:4px 4px">
+  <table>
+    <colgroup><col style="width:90px"><col style="width:300px"><col style="width:130px"><col style="width:160px"><col style="width:90px"><col></colgroup>
+    <tr><th>Name</th><th>URL</th><th>API</th><th>Default model</th><th>Context</th><th>Status</th></tr>
+    <tr><td><b>gpu</b> <span class="muted">default</span></td><td class="mono">http://ollama-a.inference.svc:11434</td><td>Ollama</td><td class="mono">qwen3-coder:30b</td><td>65 536</td>
+      <td>${errors ? `<span class="statusDot" style="background:var(--danger)"></span>unreachable` : `<span class="statusDot" style="background:var(--status-done)"></span>4 models · tools <span class="ck"></span>`}</td></tr>
+    <tr><td><b>router</b></td><td class="mono">http://llm-router.inference.svc:8080</td><td>OpenAI / llm-router</td><td class="mono">${errors ? "gemma3:12b" : "gpt-oss:20b"}</td><td>32 768</td>
+      <td>${errors ? `<span class="statusDot" style="background:var(--status-needs-input)"></span>model lacks tools` : `<span class="statusDot" style="background:var(--status-done)"></span>6 models`}</td></tr>
+  </table></div>
+</div>`;
+
+const settingsModels = (errors) => `
+<div class="root">${topBar}<div class="body">${rail("Settings")}${settingsList("Models")}
+<main class="main"><section class="header"><div class="titleRow"><h1 class="title">Models</h1></div>
+<div class="meta">On-prem models for <span class="mono">ws machine</span> children. Saved to <span class="mono">config.toml</span> with <span class="mono">ws config</span>; tokens to <span class="mono">ollama-tokens.json</span>.</div></section>
+<div class="content" style="max-width:980px">
+${errors ? `
+<div class="alert err"><span class="ico err">!</span><div><b>gpu is unreachable.</b> GET http://ollama-a.inference.svc:11434/v1/models: dial tcp 10.43.7.21:11434: connect: connection refused. New children that use it fail with <span class="mono">ollama_unreachable</span> until it answers. Fallback is off, so no Claude child is started instead.</div><span class="spacer"></span><button class="btn small">Test again</button></div>
+<div class="alert warn"><span class="ico warn">!</span><div><b>gemma3:12b on router doesn't support tools.</b> The router can't report capabilities, so a run would stop on its first request with <span class="mono">model_no_tools</span>. Pick another default model for router.</div></div>` : ""}
+${endpointsCard(errors)}
+${errors ? "" : `
+<div class="card"><div class="cardHead">Edit endpoint · gpu<span class="spacer"></span><button class="btn small">Test connection</button><button class="btn contained small">Save</button></div>
+<div class="cardBody"><div class="form">
+  <label>Name</label><div class="field mono">gpu</div><label>API</label><div class="field select">Ollama (native checks)</div>
+  <label>URL</label><div class="field mono">http://ollama-a.inference.svc:11434</div><label>Default model</label><div class="field select mono">qwen3-coder:30b</div>
+  <label>Context tokens</label><div class="field">65536 <span class="muted">· server OLLAMA_CONTEXT_LENGTH</span></div><label>Token</label><div class="field muted">•••••••• from WS_OLLAMA_TOKEN_GPU</div>
+  <label>Request timeout</label><div class="field">10m</div><label>Idle timeout</label><div class="field">90s</div>
+</div>
+<div class="alert info" style="margin-top:12px"><span class="ico info">i</span><div>Ollama 0.40.16 · 4 models · <span class="mono">qwen3-coder:30b</span> supports tools · its context length 262 144 ≥ 65 536</div></div>
+</div></div>`}
+<div class="setRow" style="padding:4px 0"><div class="lbl"><div>Fall back to Claude</div><div class="muted">When an endpoint is down or a model can't call tools, start a Claude child instead of failing the spawn.</div></div><div><span class="switch"></span></div></div>
+<div class="card"><div class="cardHead">Roles</div><div class="cardBody" style="padding:4px 4px"><table>
+  <colgroup><col style="width:150px"><col style="width:140px"><col style="width:140px"><col style="width:200px"><col></colgroup>
+  <tr><th>Role</th><th>Runner</th><th>Endpoint</th><th>Model</th><th>Budget</th></tr>
+  <tr><td>implementer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">-</td><td class="muted">haiku (role)</td><td class="muted">-</td></tr>
+  <tr><td>reviewer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">-</td><td class="muted">sonnet (role)</td><td class="muted">-</td></tr>
+  <tr><td>verifier</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Ollama</span></td><td>gpu</td><td class="mono">qwen3-coder:30b</td><td class="muted">40 steps · 60m</td></tr>
+</table></div></div>
+</div></main></div></div>`;
+
+const screens = {
+  "agents-tree": `<div class="root">${topBar}<div class="body">${rail("Agents")}${tree}<main class="main">${header}${transcript.replace(/<div class="convo">[\s\S]*<\/div>\s*<div class="noreply">[\s\S]*<\/div>/, `<div class="content">
+    <div class="card"><div class="cardHead">Ollama run</div><div class="cardBody"><table>
+      <colgroup><col style="width:180px"><col></colgroup>
+      <tr><td class="muted">Endpoint</td><td class="mono">gpu · http://ollama-a.inference.svc:11434 (Ollama)</td></tr>
+      <tr><td class="muted">Model</td><td class="mono">qwen3-coder:30b · context 65 536</td></tr>
+      <tr><td class="muted">Progress</td><td>step 12 of 80 · 6m of 60m · 210k of 4M tokens</td></tr>
+      <tr><td class="muted">Last event</td><td class="mono">run go test ./internal/config/ → exit 0</td></tr>
+      <tr><td class="muted">Session</td><td class="mono">ol-5d2e8b10 · pid 51234</td></tr>
+    </table></div></div>
+    <div class="alert info"><span class="ico info">i</span><div>This child runs on an on-prem model through the ws Ollama runner. Open the transcript to follow it; it records its own verdict, or ws records FAIL with the reason when it stops early.</div></div>
+  </div>`)}</main></div></div>`,
+  "transcript": `<div class="root">${topBar}<div class="body">${rail("Agents")}${tree}<main class="main">${header}${transcript}</main></div></div>`,
+  "settings-models": settingsModels(false),
+  "settings-models-errors": settingsModels(true),
+};
+for (const [id, html] of Object.entries(screens)) {
+  const s = document.createElement("section");
+  s.className = "screen"; s.id = id; s.innerHTML = html;
+  document.body.appendChild(s);
+}
+const show = () => {
+  const id = (location.hash || "#cli-spawn").slice(1);
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
+};
+window.addEventListener("hashchange", show);
+show();
+</script>
+</body>
+</html>
