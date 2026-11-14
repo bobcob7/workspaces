@@ -4,7 +4,9 @@
 - Date: 2026-11-13; reworked 2026-11-14 after review (provider-neutral
   config, secrets in `secrets.env`, preflight in the daemon); revised
   2026-11-14 after the second review (`qwen/qwen3.5-9b` as the starting
-  model, `reasoning`, ids with `/` and `:`)
+  model, `reasoning`, ids with `/` and `:`); revised 2026-11-14 after the
+  third review (a run re-resolves its model alias mid-run; no mid-run
+  fallback to Claude)
 
 ## Context
 
@@ -14,7 +16,9 @@ An orchestrator decides per child whether it runs on Claude Code or on
 `ws`'s runner. The user decides which models exist, where they're served,
 over which API, and which model each role gets. How does a spawn pick its
 runner and model? What is configured where? What happens when the endpoint
-is down or the model can't call tools?
+is down or the model can't call tools? And, since endpoints can change
+while a run is in progress (the third review), what does a running agent do
+when its endpoint fails or the configuration points its model elsewhere?
 
 ### What a solution needs
 
@@ -31,6 +35,10 @@ is down or the model can't call tools?
    ([0062](0062-agent-runner-built-into-ws.md)).
 6. **Context size is honest**: over the OpenAI-compatible API it's the
    server's, not the request's[^ollama-openai-ctx].
+7. **Endpoints can change mid-run** (the owner's answer to the second
+   draft's open question). A run follows its model alias to wherever the
+   configuration points it now, without a restart, and never moves to a
+   model it hasn't checked.
 
 ### Relevant facts
 
@@ -178,7 +186,90 @@ once with exit reason `model_no_tools` and a fail verdict.
 `endpoint_unreachable`, `model_not_served` and `model_without_tools`, the
 spawn starts a Claude child instead. Its output says `"runner": "claude"`
 and carries a warning naming the preflight error. There's never a fallback
-once a runner has started.
+once a runner has started: mid-run, the runner re-resolves (below) and,
+when that fails too, records an exit reason for the orchestrator. Handing
+a running agent to Claude was considered and rejected (Alternatives).
+
+**Re-resolution mid-run** (third review). A run is bound to its model
+alias, not to the endpoint URL it resolved at spawn.
+
+- **What is fixed.** Spawn writes to `run.toml` what it resolved from:
+  `model_alias` (for a raw id: the id, and `endpoint_alias`, the alias
+  whose endpoint it runs on) and `endpoint_flag` (`--endpoint`, or `""`).
+  Those stay fixed for the run: a run never moves to another alias, even
+  when the role's `model` or `runner.model` changes. Budgets and MCP keys
+  are fixed too. What the alias points at is read again: its `id`,
+  `endpoint`, `context_tokens`, `max_output`, `temperature`, `reasoning`,
+  and that endpoint's `url`, `api`, `probe` and timeouts.
+- **When.** Only when the run is already retrying, and at every resume.
+  A request that fails with a retryable error (connection refused, reset
+  or timed out, `request_timeout`, 429, any 5xx, a dropped or stalled
+  stream) records a `retry`, waits its backoff (2 s, 8 s, 30 s, or
+  `Retry-After` up to 60 s), then **re-resolves, just before the retry's
+  request is sent**, so a fix made during the wait is used at once. `ws
+  runner run --resume` (after a crash, a daemon restart or a reboot)
+  re-resolves before its first request. A run whose requests succeed
+  never re-reads the configuration: an edit reaches it at its next retry
+  or resume.
+- **Who reads the configuration.** The runner itself, with the same parser
+  and validation as every `ws` command, from `WS_CONFIG_DIR/config.toml`.
+  The daemon doesn't watch the file or push anything to runners: a runner
+  re-resolves while the daemon is down or restarting, and there's no
+  daemon-to-runner channel to keep in step. `ws config set` and
+  Settings › Models replace `config.toml` with a temp file and a rename,
+  so a runner reads the old file or the new one, never half of one.
+- **Tokens follow the endpoint.** Each request carries the token of the
+  endpoint it goes to: `WS_ENDPOINT_TOKEN_<NAME>` for the new endpoint's
+  name, looked up in `secrets.env` as it is now (read as the daemon reads
+  it: a mode looser than 0600 ignores the file, with a warning), then in
+  the runner's own environment. A token added to `secrets.env` for a new
+  endpoint is used without a restart. It is added to the redactor and
+  never to tools' environment ([0066](0066-runner-security-boundaries.md)).
+  The rest of the environment (layers 1 and 2 of
+  [0068](0068-ws-daemon.md)) is rebuilt only at resume.
+- **The check before switching.** When the new resolution differs in
+  endpoint name, `url`, `api` or model id, the runner runs this ADR's
+  preflight against it (`Models`, the id listed, `Probe` per the
+  endpoint's `probe`, 10 s per request) with the new endpoint's token:
+  - unreachable: this attempt failed (one retry spent); the run stays on
+    its current endpoint and re-resolves again before the next retry;
+  - the id isn't served (`model_not_served`), or the probe says the model
+    has no tools (`model_without_tools`): the switch is **rejected**. A
+    run never moves to a model without tools. With `probe = "none"` there
+    is no way to tell; the switch happens, and a 400 "does not support
+    tools" then ends the run `model_no_tools`, naming the endpoint;
+  - a different model id that is served with tools is accepted: the alias
+    is the user's word for what to run, and one model has different ids on
+    different servers (`qwen/qwen3.5-9b`, `qwen3.5:9b`). Both ids are
+    recorded;
+  - the new window is `context_tokens`, lowered to the probe's as at
+    spawn. The loop recomputes its compaction limits from it; when the
+    system prompt, task and last turn don't fit it even after compaction,
+    the switch is rejected (`context_too_small`).
+  A change to `context_tokens`, `max_output`, `temperature`, `reasoning`
+  or a timeout alone needs no probe and is applied (the fit check still
+  applies to a smaller window). A rejected switch keeps the current
+  endpoint and records `endpoint_rejected`; the retries go on there.
+- **A configuration that can't be used** (it doesn't parse or validate,
+  the alias or the `--endpoint` name is gone, the endpoint's `api` isn't
+  implemented) keeps the current endpoint, records a `config_warning`
+  event and a log warning, and the retry goes on.
+- **One retry budget across endpoints.** The 3 retries belong to the
+  request, whichever endpoints they go to; a switch doesn't reset them.
+  When the third retry fails, the exit reason is `endpoint_down` if that
+  last attempt went to the endpoint the live configuration resolves to
+  (so the current resolution failed too), and `endpoint_rejected` if the
+  live configuration points at an endpoint the check refused (the
+  rejection's code is in the exit message): a config fix is needed, not a
+  respawn.
+- **Records.** An `endpoint_changed` transcript event (old and new
+  endpoint names and model ids, the window, the reason; no URL, token or
+  header), `[[endpoint_history]]` in `run.toml`, the current endpoint in
+  `status.json` and, additively, `endpoint_changes` in `ws list`,
+  `children` and `wait`, usage per endpoint in `usage.json`, and
+  telemetry attributes without content
+  ([0065](0065-runner-agent-loop-tools-and-budgets.md),
+  [reference.md](../design/ollama-agent/reference.md#stateidrunnertranscriptjsonl)).
 
 ### Why this option
 
@@ -197,12 +288,19 @@ once a runner has started.
    only Ollama serves.
 6. **Honest context**: `context_tokens` lives on the model, checked against
    the probe when there is one.
+7. **Endpoints can change mid-run**: a retrying run picks up a repointed
+   or failed-over endpoint (another URL, another endpoint for the alias,
+   llm-router in front) from the live configuration, at the moment it
+   needs one, with the spawn's checks, and without the daemon.
 
 Where it's weak: `context_tokens` is the user's claim when there's no
 probe, so a wrong value means silent truncation (the transcript records
 `prompt_tokens`, so it shows up). `--model` means a Claude alias for one
 runner and a `ws` alias for the other. Preflight adds about a second, plus
-a daemon auto-start on first use.
+a daemon auto-start on first use. A healthy run ignores config edits until
+it retries or resumes. A token removed from `secrets.env` mid-run is still
+found in the runner's environment until it resumes. With `probe = "none"`,
+a switch to a model without tools is caught only by its first request.
 
 ## Alternatives
 
@@ -250,6 +348,59 @@ a daemon auto-start on first use.
 
 - A model load (seconds to minutes) per spawn.
 
+### Pin a run to the endpoint resolved at spawn (the second draft)
+
+**Pros**
+
+- One endpoint per run: simple records, nothing to re-check.
+
+**Cons**
+
+- A repointed alias or a failed-over endpoint reaches no running agent;
+  each one burns its retries and fails `endpoint_down`, and the
+  orchestrator respawns it from scratch. The owner rejected it:
+  "endpoints can change mid-run".
+
+### Fall back to Claude mid-run
+
+When retries are used up, hand the run to a Claude child.
+
+**Pros**
+
+- An orchestration never stalls on an endpoint.
+
+**Cons**
+
+- Spends Claude usage the user didn't choose, mid-task, with a
+  conversation Claude didn't start; the orchestrator can already respawn
+  on Claude when it sees `endpoint_down`, deliberately. Rejected by the
+  owner.
+
+### The daemon watches `config.toml` and pushes changes to runners
+
+**Pros**
+
+- One reader of the configuration; runners get changes at once.
+
+**Cons**
+
+- A daemon-to-runner channel that doesn't exist today, and a runner that
+  can't follow a change while the daemon is down or restarting, which is
+  when endpoints tend to change. Reading one small file on a retry costs
+  nothing.
+
+### Re-resolve before every request
+
+**Pros**
+
+- An edit reaches a healthy run at its next step.
+
+**Cons**
+
+- Moves runs that work: a typo in `config.toml` or a new default changes
+  every running agent at once, with a probe per change. Re-resolving only
+  when retrying limits changes to runs that need a new endpoint.
+
 ### Fall back to Claude by default
 
 **Pros**
@@ -268,8 +419,19 @@ a daemon auto-start on first use.
   `model_not_served` (3), `model_without_tools` (1). The `usage` cases gain
   "`--runner` value" and "an argument other than `--model` after the prompt
   for a `ws` child".
+- `internal/config` gains `Reresolve` and `ReadFile`; `run.toml` gains
+  `endpoint_alias`, `endpoint_flag` and `[[endpoint_history]]`; the
+  transcript gains `endpoint_changed`, `endpoint_rejected` and
+  `config_warning`; the exit reasons gain `endpoint_rejected`.
 - How we'll know: e2e scenarios against the fake for each preflight failure
+  and for re-resolution: an endpoint goes down and the alias is repointed
+  to a second fake, and the run finishes there; a repoint to a model
+  without tools is rejected and the run ends `endpoint_rejected`; an
+  invalid `config.toml` mid-run keeps the endpoint
   ([0067](0067-runner-tests-use-vendored-fakes.md)).
+- Unverified: how llm-router's own failover and a runner's
+  re-resolution interact when both are in play (each retries; the
+  runner's budget bounds the total).
 
 ## References
 
