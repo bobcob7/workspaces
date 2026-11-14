@@ -3119,6 +3119,125 @@ $ cd desktop/src-tauri && cargo test -j 2 && cargo clippy --all-targets -- -D wa
 
 ---
 
+## T28. `internal/runner`: re-resolve the endpoint mid-run
+
+**Depends on:** T14, T16. **Parallel with:** T15, T18. Size: small.
+**ADRs:** [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md)
+("Re-resolution mid-run"), [0068](../../adrs/0068-ws-daemon.md) ("Mid-run
+changes").
+
+**Read:** reference.md [re-resolution](reference.md#re-resolving-the-endpoint-mid-run);
+signatures only in `internal/config/runner.go` (`Reresolve`, `ReadFile`,
+`RunKey`, `Target`, `TokenEnv`) and `secrets.go` (`ReadSecrets`),
+`internal/llm/preflight.go`, `internal/llm/providers`,
+`internal/agent/reresolve.go` and `agent.go` (`Target`, `Resolution`,
+`Config`), `internal/telemetry/telemetry.go` (`Provider`,
+`EndpointEvent`), `internal/runner/files.go` (`Run.Key`, `Current`,
+`AppendEndpoint`), and the build step of `internal/cli/runner.go`.
+
+**Create** `internal/runner/reresolve.go` and `reresolve_test.go`.
+
+```go
+// Reresolver is the agent loop's re-resolver for one run (ADR 0064). It
+// reads config.toml and the new endpoint's token as they are now,
+// preflights a changed endpoint with that token, and builds its provider.
+// It never chooses another alias and never returns a model without tools
+// when a probe can tell.
+type Reresolver struct {
+	ConfigDir string        // WS_CONFIG_DIR
+	Key       config.RunKey // run.Key(), fixed for the run
+	Current   config.Target // the target in use; the runner's OnSwitch updates it
+	Getenv    func(string) string // the runner's environment, for a token not in secrets.env
+	Build     func(ep llm.Endpoint) (llm.Provider, error) // providers.New, wrapped by tel.Provider
+	Preflight func(ctx context.Context, p llm.Provider, ep llm.Endpoint, model string, contextTokens int) (llm.PreflightResult, error)
+	Redact    func(secret string) // adds a token to the transcript's redactor
+	Log       *slog.Logger
+}
+
+// Reresolve implements agent's reresolver.
+func (r *Reresolver) Reresolve(ctx context.Context, current agent.Target) agent.Resolution
+
+// Changes lists the keys that differ between two targets, in
+// reference.md's order (endpoint, url, api, id, context_tokens,
+// max_output, temperature, reasoning, request_timeout, idle_timeout).
+func Changes(from, to config.Target) []string
+```
+
+**Rules**, in order:
+
+1. `config.ReadFile(<ConfigDir>/config.toml)`, then
+   `cfg.Reresolve(r.Key)`. A read or validation error → `Warning{Code:
+   "config_invalid"}`; `ErrModelGone` → `model_gone`;
+   `ErrEndpointUnknown` → `endpoint_unknown`; `ErrAPINotImplemented` →
+   `api_not_implemented`. The message is the error's (it names keys,
+   never values). Log each warning once per distinct message.
+2. `Changes(r.Current, target)` empty → an unchanged `Resolution{}`, and
+   nothing else is read.
+3. Only `context_tokens`, `max_output`, `temperature`, `reasoning` or a
+   timeout changed → `Changed`, no preflight; a timeout change rebuilds
+   the provider with the same token.
+4. Otherwise (endpoint, `url`, `api` or id): the token is
+   `ReadSecrets(ConfigDir)[TokenEnv(name)]` when present (a warning, such
+   as a loose mode, is logged and the file ignored), else
+   `Getenv(TokenEnv(name))`; `Redact(token)` when not empty; `Build`;
+   `Preflight(ctx, p, ep, id, context_tokens)`:
+   `llm.ErrUnreachable` → `Failed`; `llm.ErrModelMissing` → `Rejected`
+   `model_not_served`; `llm.ErrNoTools` → `Rejected`
+   `model_without_tools`; success → `Changed` with `Target{Chat: p, API,
+   Endpoint: name, Model: id, ContextTokens: result.ContextTokens, …}`,
+   `Probe` from the result (`nil` when `Capabilities` is nil), and
+   `Changes`.
+
+**Wire it** in `ws runner run` (`internal/cli/runner.go`): `Reresolver`
+with `Key: run.Key()`, `Current` from `run.Current()` and the run's model
+settings, `os.Getenv`, `Build` = `providers.New` wrapped by
+`tel.Provider`, `llm.Preflight`; `agent.Config.Reresolver` = it;
+`OnSwitch` → `files.AppendEndpoint(EndpointEntry{Since: now, Step,
+Reason, …to})`, `r.Current` = the new `config.Target`, and
+`tel.EndpointEvent(ctx, …)`; `OnReject` → `tel.EndpointEvent` with the
+code. An `AppendEndpoint` error is logged and doesn't stop the run.
+
+**Acceptance** (temp config dir, `ProviderMock`-style funcs; no network):
+
+- Unchanged `config.toml` → unchanged; `Build`, `Preflight` and
+  `ReadSecrets` not called.
+- `endpoints.fake.url` changed → `Build` gets the new URL; `Changed`,
+  `Changes` `["url"]`. `models.qwen9b.endpoint = "fake-b"` →
+  `Changes` `["endpoint", "url"]`, `Build`'s `ep.Token` is
+  `WS_ENDPOINT_TOKEN_FAKE_B` from `secrets.env` even when `Getenv` has
+  another value; without the line, `Getenv`'s; with `secrets.env` at
+  0644, `Getenv`'s and a logged warning. `Redact` gets the token; the
+  token isn't in the `Resolution` or the log.
+- `Preflight` errors → `Failed` (unreachable), `Rejected`
+  `model_not_served`, `Rejected` `model_without_tools`; the `Rejection`
+  names the endpoint and id.
+- `[runner` (invalid TOML) → `Warning` `config_invalid`; the alias
+  removed → `model_gone`; `endpoint_flag`'s endpoint removed →
+  `endpoint_unknown`; none of the messages contains a URL or token.
+  `runner.model` changed to another alias → unchanged (the alias is fixed).
+- Only `temperature` changed → `Changed`, `Changes` `["temperature"]`,
+  no `Preflight`.
+- `ws runner run` with an unexported fast clock against two `httptest`
+  servers replaying T7's fixtures: `run.toml` points at A, A answers 503
+  to every chat, and `config.toml` repoints the alias to B before the
+  run starts → the run finishes `done` on B; `run.toml` has two
+  `endpoint_history` entries (`spawn`, `retry`); `status.json` has
+  `endpoint` B and `endpoint_changes` 1; `usage.json` has two
+  `endpoints`; the transcript has one `endpoint_changed`; B saw B's
+  token and A never did. With B serving the model without `tools` (probe
+  `ollama`) → exit `endpoint_rejected`, B got no chat request. With
+  `config.toml` unreadable → `config_warning` events and exit
+  `endpoint_down`.
+
+**Verify**
+
+```console
+$ go test ./internal/runner/ ./internal/cli/ -run 'Reresolve|TestApp_.*Runner'
+$ make lint
+```
+
+---
+
 ## T27. *Optional:* `internal/llm/ollama`, the Ollama-native provider
 
 **Depends on:** T2, T7. **Parallel with:** T26.
