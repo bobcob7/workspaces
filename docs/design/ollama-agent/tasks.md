@@ -1658,3 +1658,581 @@ $ make lint
 ```
 
 ---
+
+## T15. `secrets.env` and the runner's environment
+
+**Depends on:** T4. **Parallel with:** T2, T7, T9, T11, T16.
+**ADRs:** [0068](../../adrs/0068-ws-daemon.md) (Environment and runtime
+configuration), [0066](../../adrs/0066-runner-security-boundaries.md) item 1.
+
+**Read:** `internal/config/runner.go` (`Runner.Env`, `TokenEnv`),
+reference.md [secrets.env](reference.md#secretsenv-and-the-runners-environment).
+
+**Create** `internal/config/secrets.go` (+ test) and
+`internal/daemon/env.go` (+ test). (`internal/daemon` is created here with
+only this file; T16 adds the rest.)
+
+```go
+// in internal/config:
+const SecretsFile = "secrets.env"
+
+// ReadSecrets parses CONFIG_DIR/secrets.env: NAME=value lines, # comments,
+// blank lines, optional double quotes, no expansion. A missing file is
+// empty. A mode looser than 0600 ignores the file and returns a warning.
+// A bad line is an error naming the line number, never its value.
+func ReadSecrets(configDir string) (map[string]string, []string, error)
+// SetSecret writes or replaces NAME's line (temp file, rename, 0600),
+// keeping other lines and comments. An empty value removes the line.
+func SetSecret(configDir, name, value string) error
+
+// in internal/daemon:
+// RunnerEnv builds a runner's environment, lowest precedence first: base
+// (the daemon's own, captured at start), cfg.Env, secrets, then
+// WS_RUNNER=ws, WS_WORKSPACE=<id>, WS_CONFIG_DIR=<configDir> and
+// WS_RUNNER_SECRET_NAMES (the secrets' names, comma-separated, for the
+// runner's scrub). Later layers replace earlier values of the same name.
+func RunnerEnv(base []string, cfg config.Runner, secrets map[string]string, workspaceID, configDir string) []string
+```
+
+Add `WS_RUNNER_SECRET_NAMES` to reference.md's environment table if it
+isn't there.
+
+**Acceptance**
+
+- `ReadSecrets`: quotes stripped, comments and blanks skipped,
+  `A=b=c` → `b=c`; mode 0644 → empty plus a warning; a line without `=` →
+  an error with the line number and without the line's text.
+- `SetSecret` adds, replaces (keeping comments and order) and removes; the
+  file is 0600.
+- `RunnerEnv`: `[runner.env]` beats the base, secrets beat
+  `[runner.env]`, `ws`'s own variables beat all; `WS_RUNNER_SECRET_NAMES`
+  is sorted.
+
+**Verify**
+
+```console
+$ go test ./internal/config/ ./internal/daemon/
+$ make lint
+```
+
+---
+
+## T16. `internal/daemon` core and `ws daemon run|status|stop`
+
+**Depends on:** T4. **Parallel with:** T2, T7, T9, T11, T15.
+**ADR:** [0068](../../adrs/0068-ws-daemon.md) (Lifecycle, The socket, How
+`ws` reaches it).
+
+**Read:** `internal/lockfile/lockfile.go`, `internal/claude/daemon.go`
+(how Claude Code's service is started detached: `Setsid`, `/dev/null`),
+`internal/cli/app.go`, `internal/cli/errors.go`, `internal/cli/llm.go`
+(`guideTopics`), reference.md [ws daemon](reference.md#ws-daemon-run) and
+[The daemon socket](reference.md#the-daemon-socket), [guides/](guides/)
+`ws-daemon*.md`.
+
+**Create** `internal/daemon/{paths.go,lock.go,server.go,client.go,autostart.go,peercred_linux.go,peercred_darwin.go,interfaces.go}`
+with tests and `moq_test.go`; `internal/cli/daemon.go` and
+`daemon_test.go`.
+
+```go
+// Package daemon is the ws daemon (ADR 0068): one process per CONFIG_DIR
+// on a user-only Unix socket that supervises runners.
+package daemon
+
+// Paths are a CONFIG_DIR's daemon files.
+type Paths struct{ Dir, Lock, Info, Log, Socket string }
+// PathsFor: CONFIG_DIR/daemon/{lock,daemon.json,daemon.log}; the socket is
+// $XDG_RUNTIME_DIR/ws/<h>.sock, else ${TMPDIR:-/tmp}/ws-<uid>/<h>.sock,
+// <h> = first 12 hex of SHA-256(abs CONFIG_DIR).
+func PathsFor(configDir string, getenv func(string) string, uid int) Paths
+
+type Info struct { // daemon.json
+	Version   int       `json:"version"`
+	PID       int       `json:"pid"`
+	StartedAt time.Time `json:"started_at"`
+	Origin    string    `json:"origin"` // transient | managed
+	Socket    string    `json:"socket"`
+	WSVersion string    `json:"ws_version"`
+}
+
+// Supervisor is what the server serves; T17 implements it. Until then
+// NopSupervisor answers status with no runners and runner requests with
+// ErrNotSupervising.
+type Supervisor interface {
+	Runners() []RunnerStatus
+	Preflight(ctx context.Context, req PreflightRequest) (PreflightResponse, error)
+	Start(ctx context.Context, id string, resume bool) (int, error)
+	Stop(ctx context.Context, id string) error
+	StopAll(ctx context.Context, keep bool) (stopped, kept []string)
+	Idle() bool // no live runner
+}
+
+// Serve takes the lock (ErrRunning with the holder's pid if held), writes
+// daemon.json, prepares the socket directory (0700, owned by uid) and
+// socket (0600), checks every connection's peer uid, and serves /v1/*
+// until ctx ends, a shutdown request, or, for transient, 15 min of Idle()
+// and no request.
+func Serve(ctx context.Context, p Paths, origin string, sup Supervisor, log *slog.Logger) error
+
+// Client talks to a running daemon.
+func Dial(p Paths) *Client
+func (c *Client) Status(ctx context.Context) (Status, error) // ErrNotRunning when nothing answers
+func (c *Client) Preflight(ctx context.Context, req PreflightRequest) (PreflightResponse, error)
+func (c *Client) StartRunner(ctx context.Context, id string, resume bool) (int, error)
+func (c *Client) StopRunner(ctx context.Context, id string) error
+func (c *Client) Shutdown(ctx context.Context, keepRunners bool) (ShutdownResult, error)
+
+// Ensure returns a client to a running daemon, starting `<exe> daemon run
+// --origin transient` detached (own session, stdio /dev/null, stderr
+// appended to daemon.log, home as working directory) when none answers
+// and autostart is true, and waits up to 5 s. ErrUnavailable otherwise.
+// A daemon whose ws_version is older than minVersion is ErrUnavailable
+// with "run ws daemon stop --keep-runners".
+func Ensure(ctx context.Context, p Paths, exe string, autostart bool, minVersion string) (*Client, error)
+
+var (ErrRunning, ErrNotRunning, ErrUnavailable, ErrNotSupervising error)
+```
+
+Wire format: HTTP/1.1 over the socket, JSON (json/v2), errors as
+`{"error":{"code","message","details"}}`; requests and bodies as
+reference.md's table. The server never takes a command, path or
+environment in a request.
+
+**`ws daemon`** (`internal/cli/daemon.go`): `run [--origin
+transient|managed]` (default `managed`; `--json` refused; `ErrRunning` →
+`daemon_running`, exit 4, `details.pid`), `status [--json]` (never
+starts one; not running → `running: false`, exit 0), `stop
+[--keep-runners] [--json]` (not running → `stopped: false`, exit 0; not
+gone within 30 s → `daemon_unavailable`). New codes in `errors.go`:
+`daemon_unavailable` (1, `details.socket`, `details.log`), `daemon_running`
+(4). `WS_DAEMON_AUTOSTART=0` makes `Ensure` callers pass `autostart =
+false`.
+
+Guides: `cp docs/design/ollama-agent/guides/ws-daemon*.md
+internal/cli/guides/`; topics `"daemon"`, `"daemon run"`, `"daemon
+status"`, `"daemon stop"` after `"config"` in `guideTopics`;
+`guides/ws.md` gains the four `ws llm daemon…` bullets (under the commands
+for people) and the two codes in the exit-code table (row 1:
+`daemon_unavailable`; row 4: `daemon_running`). `docs/tools/ws-daemon.md`:
+a reference page made from the guides, linked from `docs/tools/README.md`.
+
+**Acceptance** (sockets under `t.TempDir()`; `XDG_RUNTIME_DIR` set to a
+temp dir):
+
+- `PathsFor` with and without `XDG_RUNTIME_DIR`; two config dirs → two
+  sockets.
+- `Serve` then a second `Serve` → `ErrRunning` with the first pid;
+  `daemon.json` written; socket 0600, directory 0700; a directory owned by
+  someone else (simulate with a mode check) → error.
+- Client `Status` against `Serve` with `NopSupervisor`; `Shutdown` ends
+  `Serve`; a transient daemon with a 100 ms idle limit (unexported field)
+  exits by itself; a managed one doesn't.
+- `Ensure` with `autostart=false` and nothing running → `ErrUnavailable`;
+  with a test `exe` script that runs a fake server → a client within 5 s.
+- `ws daemon status --json` with nothing running → reference.md's
+  not-running object, exit 0. `ws daemon run --json` → `usage`.
+  `TestGuideTopics` passes.
+
+**Verify**
+
+```console
+$ go generate ./internal/daemon/
+$ go test -p 2 ./internal/daemon/
+$ go test ./internal/cli/ -run 'TestApp_.*Daemon|TestGuideTopics'
+$ make lint
+```
+
+---
+
+## T17. The daemon supervises runners; preflight and `ws runner check`
+
+**Depends on:** T13, T15, T16. **Parallel with:** T14.
+**ADRs:** [0068](../../adrs/0068-ws-daemon.md) (Supervision),
+[0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md) (Preflight).
+
+**Read:** `internal/daemon/server.go` (`Supervisor`), `env.go`;
+`internal/runner/files.go`, `state.go`, `finalize.go`;
+`internal/llm/preflight.go`; `internal/llm/providers/providers.go`;
+`internal/proc/proc.go`; `internal/claude/daemon.go` (detached start).
+
+**Create** `internal/daemon/{supervisor.go,process.go,preflight.go}` with
+tests; add `ws runner check` to `internal/cli/runner.go`; `serve` in
+`internal/cli/daemon.go` uses the real supervisor.
+
+```go
+// NewSupervisor watches every runner session under stateDir.
+func NewSupervisor(cfg SupervisorConfig, procs processReader, starter processStarter, log *slog.Logger) *Supervisor
+type SupervisorConfig struct {
+	StateDir, ConfigDir, Exe string
+	BaseEnv                  []string        // os.Environ() at daemon start
+	LoadConfig               func() (config.Config, error) // re-read at each start
+	Poll                     time.Duration   // 2 s
+	Backoff                  []time.Duration // 5 s, 30 s, 2 min
+	ResumeOnStart            bool
+}
+// Reconcile runs once before Serve listens: adopt live runners, resume
+// stopped ones (when ResumeOnStart), leave finished ones.
+func (s *Supervisor) Reconcile(ctx context.Context) error
+// Watch polls until ctx ends: a dead runner with no exit is resumed after
+// Backoff[restarts]; past len(Backoff) it is finalized as "crashed".
+func (s *Supervisor) Watch(ctx context.Context)
+
+//go:generate go tool moq -out moq_test.go . processReader processStarter
+type processStarter interface {
+	// Start runs exe with args in its own session, stdin/stdout /dev/null,
+	// stderr appended to logPath, working directory dir, environment env.
+	Start(exe string, args []string, dir, logPath string, env []string) (pid int, err error)
+	Signal(pgid int, sig syscall.Signal) error
+}
+```
+
+- **Start** (`POST /v1/runners/<id>/start`): `state/<id>/runner/run.toml`
+  must exist (`workspace_not_found`); environment from `RunnerEnv` with
+  `config.ReadSecrets` read now; `ws runner run [--resume] <id>` in the
+  session directory; wait ≤ 10 s for `status.json` → else `runner_failed`
+  with `details.log`.
+- **Stop**: write `stop`, `SIGTERM` the process group if `status.json`'s
+  pid is alive with a matching start time, wait 10 s, `SIGKILL`.
+- **StopAll(keep=false)**: `SIGTERM` without writing `stop`; `keep=true`:
+  nothing, list them.
+- **Restarts**: before a resume, increment `restarts` in `status.json`; a
+  fourth death → `runner.Finalize(…, "crashed", …)`.
+- **Preflight** (`POST /v1/preflight`): `LoadConfig().Resolve(role,
+  endpoint, model)`, `providers.New` with the token from the built
+  environment, `llm.Preflight`; returns reference.md's `ws runner check`
+  object (`token_source`: `env`, `secrets.env` or `null`).
+- **`ws runner check [--json] [--model <m>] [<endpoint>]`** (hidden): asks
+  the daemon (`Ensure`) to preflight and prints the object; errors map to
+  the preflight codes (T18 declares them; here map them to
+  `config_invalid`, `endpoint_unreachable` etc. only if T18 has landed,
+  else declare them here: `endpoint_unknown` 3, `endpoint_unreachable` 1,
+  `model_not_served` 3, `model_without_tools` 1, `runner_failed` 1, with
+  rows in `guides/ws.md`).
+- Lint rule: `runner run` is started only from `internal/daemon/`:
+  `@! grep -rn '"runner", "run"' --include='*.go' . | grep -vE '^\./internal/(daemon|cli)/' | grep -v '_test\.go:'`
+  (`internal/cli` defines the command).
+
+**Acceptance** (`processStarterMock`, `processReaderMock`, temp state
+dirs; one test with real processes using a test `exe` script):
+
+- `Reconcile`: live → adopted; `stopped` → resumed with `--resume`
+  (`ResumeOnStart`) or left; finished → left.
+- `Watch`: a dead runner resumes after 5 s (fake clock), then 30 s, 2 min;
+  the fourth death finalizes `crashed` with a FAIL verdict and
+  `usage.json`.
+- `Start` builds the environment in the documented order and passes
+  `WS_RUNNER_SECRET_NAMES`; a starter whose process writes no
+  `status.json` → `runner_failed` within 10 s (100 ms in tests).
+- `Stop` writes `stop` and signals; `StopAll(false)` signals without
+  `stop`.
+- Preflight through a real socket against an `httptest` OpenAI server →
+  the check object; a closed port → `endpoint_unreachable` with `url`.
+
+**Verify**
+
+```console
+$ go generate ./internal/daemon/
+$ go test -p 2 ./internal/daemon/
+$ go test ./internal/cli/ -run 'TestApp_.*Runner|TestApp_.*Daemon|TestGuideTopics'
+$ make lint
+```
+
+---
+
+## T18. `ws machine spawn --runner`, `ws rm`/`ws restore` through the daemon, guides and docs
+
+**Depends on:** T14, T17. **Parallel with:** none.
+**ADRs:** [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md),
+[0063](../../adrs/0063-runner-children-are-supervised-sessions.md),
+[0068](../../adrs/0068-ws-daemon.md) (How `ws` reaches it, Migration).
+
+**Read:** `internal/cli/machine.go` (`newMachineSpawnCmd`,
+`runMachineSpawn`, `spawnRole`), `internal/cli/claude.go` (`runClaude`,
+`startAgent`), `internal/cli/errors.go`, `internal/lifetime/remove.go`,
+`restore.go`, `internal/daemon/client.go`, reference.md (Commands, spawn
+JSON, errors), [guides/ws-machine-spawn.md](guides/ws-machine-spawn.md),
+the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd).
+
+**Change**
+
+- `errors.go`: `endpoint_unknown` (3), `endpoint_unreachable` (1),
+  `model_not_served` (3), `model_without_tools` (1), `runner_failed` (1),
+  unless T17 declared them. Map `config.ErrEndpointUnknown` (with
+  `details.endpoints`), `config.ErrNoModel` and `ErrAPINotImplemented` →
+  `config_invalid`, `llm.UnreachableError`, `ModelMissingError`,
+  `NoToolsError` and the daemon's error objects with their `details`.
+- `machine.go`: flags `--runner` and `--endpoint`. The runner is the flag,
+  else `cfg.RunnerFor(role)`. For `ws`, the new `runWSChild(ctx, opts)` in
+  **new** `internal/cli/machine_runner.go`, in reference.md's order:
+  1. `usage` checks (`--runner` value; `--endpoint` with `claude`; any
+     argument after the prompt other than `--model <m>`);
+  2. `cfg.Resolve(role, endpoint, model)`;
+  3. `daemon.Ensure` (`WS_DAEMON_AUTOSTART`), then `Preflight`. A preflight
+     error with `fallback = "claude"` → the Claude path with the warning;
+     otherwise the error;
+  4. create the workspace (as `runClaude`, holding the lock);
+  5. `runner.FilesFor(…).WriteRun` with the prompt from
+     `role.RenderFor(vars, extra, "ws", resolved.ModelID)` (or the prompt
+     after `--`), budgets, MCP keys, `branch = vars["BRANCH"]`,
+     `user_instructions`; no token or header;
+  6. `RecordRunnerSession`; `StartRunner`; `writeSpawn` for a role;
+  7. print `machineSpawnJSON` with `runner: "ws"`, `model`, `ws_runner`
+     (`model_alias`, `endpoint`, `url`, `api`, `context_tokens`,
+     `mcp_servers`).
+  Any failure after step 4 stops the runner and removes the workspace.
+- `ws rm` / `ws machine rm` (`lifetime/remove.go`): for a runner session,
+  `StopRunner` through `daemon.Ensure`; when that fails, `runner.Files`
+  `RequestStop` and `SIGTERM`/`SIGKILL` the group directly. Then remove as
+  today.
+- `ws restore` (`lifetime/restore.go`): for a `stopped` runner session,
+  `StartRunner(id, resume=true)`; the `Restored` item has the runner id.
+  `ws restart` is unchanged.
+- Guides: `cp docs/design/ollama-agent/guides/ws-machine-spawn.md
+  internal/cli/guides/`; `guides/ws.md` gains the codes (row 1:
+  `endpoint_unreachable`, `model_without_tools`, `runner_failed`; row 3:
+  `endpoint_unknown`, `model_not_served`) if T17 didn't add them;
+  `guides/ws-machine.md` gains the codes and the `--runner` line in its
+  synopsis.
+- Docs: apply the README's diff to `docs/tools/ws-machine.md`;
+  `docs/state.md` gains `daemon/` and `secrets.env`; `docs/config.md`
+  links `ws daemon`.
+
+**Acceptance** (`internal/cli` with mocks; the daemon client behind an
+interface):
+
+- `--runner ws` with no model anywhere → `config_invalid`; `--endpoint`
+  with `--runner claude` → `usage`; `-- "x" --permission-mode auto` for a
+  `ws` child → `usage`; each preflight error → its code and `details`, and
+  no workspace created; with `fallback = "claude"` → a Claude child with
+  `runner: "claude"` and the warning.
+- Success → reference.md's spawn JSON, the session recorded as `runner`,
+  `spawn.toml` for a role, `run.toml` without secrets. A Claude spawn's
+  JSON is T8's, unchanged.
+- `ws machine rm` of a runner child with the daemon mock failing → stops
+  it directly and removes it. `ws restore` resumes only `stopped` ones.
+- `WS_DAEMON_AUTOSTART=0` and no daemon → `daemon_unavailable`.
+- `TestGuideTopics` and `go test ./internal/cli/` pass.
+
+**Verify**
+
+```console
+$ go generate ./internal/cli/ ./internal/lifetime/
+$ go test -p 2 ./internal/lifetime/
+$ go test ./internal/cli/
+$ make lint
+```
+
+---
+
+## T19. `e2e/runner`: harness, scenarios, `make fakes`, `make e2e-runner`, CI
+
+**Depends on:** T2, T3, T18. **Parallel with:** T21.
+**ADR:** [0067](../../adrs/0067-runner-tests-use-vendored-fakes.md)
+(Three layers, Scenarios).
+
+**Read:** `internal/exectest/exectest.go`, the `Makefile`,
+`.github/workflows/ci.yml`, reference.md, [fake-ollama/](fake-ollama/) and
+[fake-mcp/](fake-mcp/) (their READMEs say how the harness fills
+placeholders).
+
+**Create** `e2e/runner/{harness_test.go,scenarios_test.go,daemon_test.go,mcp_test.go,realmodel_test.go,mcpsmoke_test.go}`
+(build tag `e2e`) and `e2e/runner/testdata/` (`cp
+docs/design/ollama-agent/fake-ollama/*.yaml
+docs/design/ollama-agent/fake-mcp/*.yaml e2e/runner/testdata/`).
+
+- `Makefile`: `e2e-runner: build fakes` → `go test -tags e2e -p 1 -timeout
+  20m ./e2e/runner/`; `.PHONY`. No network, no llm-router.
+- Harness: `startFakeOllama(t, config)` runs `$WS_FAKE_OLLAMA` or
+  `bin/fake-ollama --config … --listen 127.0.0.1:0 --control-listen
+  127.0.0.1:0` and reads both listening lines from stdout;
+  `startFakeMCPHTTP(t, config)` likewise with `--http 127.0.0.1:0`; a
+  missing binary → `t.Fatal("… not found; run make fakes")`. Helpers
+  `setFaults`, `requests`, `recorded(t, file)`. `newEnv(t)`: a temp
+  `WS_CONFIG_DIR`, `XDG_RUNTIME_DIR` and `HOME` (with a `.claude.json`
+  naming the fake MCP servers), a bare upstream repo, a fake `claude`
+  (`exectest`), a parent workspace record, `config.toml` with endpoint
+  `fake` (`probe = "ollama"`), model alias `coder` → `fake-coder`
+  (`context_tokens = 32768`), and `runWS(t, env, args...)` running
+  `bin/ws`. Each test stops its daemon (`ws daemon stop`) in `t.Cleanup`.
+- One `t.Run` per scenario in 0067's table (21), waiting with `ws machine
+  wait --timeout 2m`; daemon scenarios kill the runner by the pid in
+  `status.json`.
+- `realmodel_test.go`: `E2E_RUNNER_URL` (+ `E2E_RUNNER_MODEL`, default
+  `qwen3-coder:30b`; `E2E_RUNNER_API`, default `openai`) runs `edit-file`
+  and `review-verdict`, asserting only `exit == "done"` and a verdict;
+  otherwise `t.Skip`.
+- `mcpsmoke_test.go`: `E2E_MCP_SMOKE=<server>:<tool>[,…]` uses the real
+  `HOME`'s Claude config, fake-ollama scripted to call those tools with
+  `{}`, and a role allowing exactly them; asserts each call succeeded and
+  that no `env` or `headers` value of those definitions appears in the
+  transcript or `runner.log`. Otherwise `t.Skip`. Never in CI.
+- `.github/workflows/ci.yml`: job `e2e-runner` (ubuntu-latest, Go
+  1.27.x) running `make e2e-runner`.
+
+**Acceptance**
+
+- `make e2e-runner` passes all 21 scenarios from a clean checkout with no
+  network beyond loopback (CI proves it).
+- With `bin/fake-ollama` deleted and `WS_FAKE_OLLAMA` unset, it fails
+  with the "run make fakes" message.
+- Without the opt-in variables, the real-model and MCP smoke tests skip.
+
+**Verify**
+
+```console
+$ make build && make fakes
+$ make e2e-runner
+```
+
+---
+
+## T20. `ws-online` keeps a managed daemon running
+
+**Depends on:** T16. **Parallel with:** T10–T19.
+**ADR:** [0068](../../adrs/0068-ws-daemon.md) (Where it runs).
+
+**Read:** `desktop/src-tauri/src/online/server.rs` (`run`, the
+`tokio::spawn` calls), `desktop/src-tauri/src/loops.rs` (`tick_forever`,
+how it runs `ws`), `desktop/src-tauri/src/runner.rs` (how the app finds
+and runs `ws`), `docs/online.md`.
+
+**Create** `desktop/src-tauri/src/online/daemon.rs` (+ tests in the same
+file).
+
+```rust
+/// Keeps `ws daemon run --origin managed` running for the life of the
+/// server (ADR 0068): restarts it when it exits, with backoff 1 s
+/// doubling to 60 s, reset after 10 min of uptime. Its stderr goes to the
+/// server's log. A `daemon_running` exit (4) means another daemon holds
+/// the lock: wait 60 s and try again, without logging an error each time.
+pub async fn keep_running(ws: WsCommand) -> !
+fn next_backoff(prev: Duration, uptime: Duration) -> Duration
+```
+
+`server.rs` `run`: `tokio::spawn(online::daemon::keep_running(…))` beside
+the loop tick task, started before the HTTP listener. The daemon inherits
+the container's environment. `docs/online.md`: a "Background work"
+paragraph: the server runs `ws loop tick`, the review and notification
+tasks, and a managed `ws daemon`, which resumes runner children after a
+pod restart; `/tmp` holds its socket and needn't persist.
+
+**Acceptance**
+
+- `next_backoff`: 1 → 2 → … → 60 s cap; reset after 10 min of uptime.
+- A test with a fake `ws` script that exits at once: restarted with the
+  backoff (tokio paused time); exit 4 → the 60 s wait.
+- `cargo test --no-default-features --features online` and `cargo clippy
+  --all-targets --no-default-features --features online -- -D warnings`
+  pass.
+
+**Verify**
+
+```console
+$ cd desktop/src-tauri && cargo test -j 2 --no-default-features --features online online::daemon
+$ cd desktop/src-tauri && cargo clippy --all-targets --no-default-features --features online -- -D warnings
+```
+
+---
+
+## T21. Desktop: a quiet model label on every agent, the runner transcript, Settings › Models
+
+**Depends on:** T18. **Parallel with:** T19.
+**Design:** the [Screens](README.md#screens) table and rules, and
+[mockups.html](mockups.html) (`#agents-tree`, `#transcript`,
+`#settings-models`, `#settings-models-errors`). Match the PNGs in
+[img/](img/).
+
+**Read:** `desktop/src-tauri/src/model.rs` (`WsSession`,
+`workspace_entry`), `desktop/src-tauri/src/transcript.rs` (public fns),
+`desktop/src-tauri/src/ws_config.rs`,
+`desktop/src/features/agents/{EntryRow.tsx,EntryPane.tsx,AgentsActions.tsx}`,
+`desktop/src/features/conversation/{rows.ts,ConversationView.tsx}`,
+`desktop/src/features/settings/{SettingsPane.tsx,SettingsList.tsx,ForgesGroup.tsx,Row.tsx}`,
+`desktop/src/api.ts`, `desktop/src/test/fixtures.ts`.
+
+**Change**
+
+- `model.rs`: `WsSession` gains `runner: Option<String>`, `model:
+  Option<String>` and `ws_runner: Option<WsRunner>` (reference.md's
+  fields), `#[serde(default)]`. `Entry` gains `runner` (`"claude"`,
+  `"ws"` or `""`), `model: Option<String>` (display form: a `claude-`
+  prefix removed, so `claude-sonnet-5-5` → `sonnet-5-5`), and `ws_runner`.
+  For `runner == "ws"`, don't look up a Claude job: status from `state`.
+- `transcript.rs`: `pub fn runner_transcript(state_dir, id) ->
+  Vec<ConversationRow>` mapping `transcript.jsonl` events to the existing
+  row kinds: `response` → assistant text (and reasoning), `tool_calls` →
+  tool rows (name + first 120 chars of arguments), `tool_result` →
+  result rows (ok/error, bytes, first 20 lines), `retry`, `compaction`,
+  `truncated`, `nudge`, `invalid_call`, `mcp_start`, `mcp_error`,
+  `tool_search`, `restart` → a muted system row, `exit` → a final row
+  (`done` in the normal colour, others with the reason in the warning
+  colour, as any failed agent's last row). The conversation command
+  dispatches on the entry's runner.
+- **Every agent's model, quietly.** `EntryRow.tsx`: after the name and
+  summary, the model as secondary text (`--text-muted`, normal case,
+  12px, no background, no border), for every agent with a model, Claude or
+  not; nothing for shells or a Claude agent with no model yet. The row's
+  `title` tooltip: `ws` child → `qwen3-coder:30b · coder on gpu
+  (http://…, openai)`; Claude agent → `sonnet-5-5 · Claude Code`. **No
+  runner chip, badge, icon or colour anywhere.** The summary line is
+  unchanged for Claude; for a `ws` child it is `step {step}/{maxSteps}`.
+- `EntryPane.tsx` and `AgentsActions.tsx`: a "Model" meta row for every
+  agent (the full id), and for `ws` children plain-text rows Endpoint
+  (`gpu · http://…`), API, Steps, Tokens (`512k in · 18k out`), Restarts,
+  MCP servers, and the exit reason when finished. Attach, Send and
+  Continue are hidden for `ws` children; Remove works as for any child.
+- **New** `desktop/src/features/settings/ModelsGroup.tsx` (+
+  `.module.css`, `.test.tsx`), "Models" in `SettingsList` after "Forges",
+  as in `#settings-models`:
+  1. *Endpoints*: name, URL, API (`OpenAI-compatible` only, others shown
+     disabled as "later"), probe, timeouts, token (write-only); Add, Edit,
+     Remove; saving runs `ws config set endpoints.<name>.<key>` per
+     changed key, and the token through a new Tauri command
+     `endpoint_token_set(name, token)` that calls `config::SetSecret`'s
+     equivalent (`ws` writes `secrets.env`; add a hidden `ws runner
+     secret set <NAME>` reading the value on stdin if Rust can't write the
+     file safely itself). The frontend never receives a token back, only
+     `token_source`.
+  2. *Models*: alias, endpoint, id, context, max output, temperature.
+  3. *Test connection* per endpoint: a Tauri command `runner_check` runs
+     `ws runner check --json <endpoint> [--model <m>]` and shows `✓ 4 models ·
+     qwen3-coder:30b supports tools · context 65536`, or the error banners
+     of `#settings-models-errors` (`endpoint_unreachable`,
+     `model_not_served`, `model_without_tools`).
+  4. *Roles*: per role (`implementer`, `reviewer`, `verifier`, plus `ws
+     machine roles`): runner (Claude Code / ws runner), model alias, MCP
+     servers (from the user's Claude Code config names), `ws config set
+     runner.roles.<role>.…`.
+  5. *Fallback*: "When preflight fails, start a Claude child instead"
+     (`runner.fallback`).
+  Daemon status is not shown here (deferred, ADR 0068).
+- The Tauri mock (`fixtures.ts`) gains a `ws` child with a model, Claude
+  agents with models, `settings_get` with the new tables, `runner_check`,
+  and a runner conversation, so the four screens render from fixtures.
+
+**Acceptance**
+
+- Rust: `workspace_entry` maps a runner session (no job lookup) and a
+  Claude session's model (`claude-` stripped); `runner_transcript` maps a
+  fixture JSONL with every event kind. `cargo test -j 2` and `cargo clippy
+  --all-targets -- -D warnings` pass, default and `--no-default-features
+  --features online`.
+- TS: every agent row with a model shows it as muted text and nothing
+  else; no element in the agents tree has a runner-specific class or
+  colour (a test asserts the row markup is the same for a Claude and a
+  `ws` entry apart from the text); the tooltip text is as above; Attach
+  and Send are hidden for `ws` entries. `ModelsGroup` renders, calls `ws
+  config set` with the right keys, never renders a token, shows a check
+  result and the three error states, and saves role routing. `npm run
+  typecheck` and `npm test -- --maxWorkers=2 --testTimeout=60000` pass.
+- Layout: at 1280×800 and 390×844, no clipped inputs, no horizontal
+  scroll, tap targets ≥ 40px on phone widths. A screenshot child checks
+  this against [img/](img/); put it in the report.
+
+**Verify**
+
+```console
+$ cd desktop && npm ci && npm run typecheck && npm test -- --maxWorkers=2 --testTimeout=60000
+$ cd desktop/src-tauri && cargo test -j 2 && cargo clippy --all-targets -- -D warnings
+$ cd desktop/src-tauri && cargo test -j 2 --no-default-features --features online
+```
