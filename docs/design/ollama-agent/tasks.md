@@ -428,8 +428,10 @@ $ make lint && make fakes
 
 **Read:** `internal/config/config.go`, `internal/config/edit.go`
 (`fixedRules`, `profileRule`, `parseKeyWith`, `normalizeOne`, `Settings`,
-`tokenHint`), `config_test.go` and `edit_test.go` (style only),
-`docs/config.md` "Schema", reference.md [config.toml](reference.md#configtoml).
+`tokenHint`), `internal/config/loader.go` (`Load`), `config_test.go` and
+`edit_test.go` (style only), `docs/config.md` "Schema", reference.md
+[config.toml](reference.md#configtoml) and
+[re-resolution](reference.md#re-resolving-the-endpoint-mid-run).
 
 **Create** `internal/config/runner.go` and `runner_test.go`.
 
@@ -500,10 +502,12 @@ var (
 	ErrEndpointUnknown   = errors.New("endpoint not configured")
 	ErrNoModel           = errors.New("no runner model given or configured")
 	ErrAPINotImplemented = errors.New("api not implemented yet")
+	ErrModelGone         = errors.New("model alias no longer configured")
 )
 
-// Resolved is everything a spawn needs to start a ws child, defaults filled in.
-type Resolved struct {
+// Target is the part of a resolution a run may re-read mid-run (ADR 0064,
+// re-resolution): the model on its endpoint, defaults filled in.
+type Target struct {
 	ModelAlias    string // "" when a raw id was given
 	ModelID       string
 	EndpointName  string
@@ -512,6 +516,21 @@ type Resolved struct {
 	MaxOutput     int
 	Temperature   float64
 	Reasoning     string
+}
+
+// RunKey is what a run's resolution started from; run.toml keeps it, and
+// it stays fixed for the run.
+type RunKey struct {
+	ModelAlias    string // run.toml model_alias; "" for a raw id
+	ModelID       string // the raw id, when ModelAlias is ""
+	EndpointAlias string // for a raw id: the alias whose endpoint it runs on
+	EndpointFlag  string // --endpoint, or ""
+}
+
+// Resolved is everything a spawn needs to start a ws child, defaults filled in.
+type Resolved struct {
+	Target
+	EndpointAlias string // for a raw id: the alias whose endpoint was used; else ""
 	MaxSteps      int
 	Timeout       time.Duration
 	MaxTokens     int
@@ -529,6 +548,17 @@ func (c *Config) RunnerFor(role string) string
 // warning), the role's model, runner.model; endpointFlag overrides the
 // alias's endpoint. Budgets from the role, else DefaultBudget(role).
 func (c *Config) Resolve(role, endpointFlag, modelFlag string) (Resolved, error)
+// Key is the RunKey a spawn writes to run.toml for r and endpointFlag.
+func (r *Resolved) Key(endpointFlag string) RunKey
+// Reresolve reads the run's alias (or, for a raw id, EndpointAlias's
+// endpoint) as the configuration is now, with EndpointFlag still winning.
+// It never chooses another alias. ErrModelGone, ErrEndpointUnknown or
+// ErrAPINotImplemented when the key no longer resolves.
+func (c *Config) Reresolve(key RunKey) (Target, error)
+// ReadFile reads, parses and validates a config.toml the way Load does,
+// but never creates one: a missing file is an error. The runner uses it
+// to re-resolve.
+func ReadFile(path string) (Config, error)
 // KeepsGitTokens is runner.keep_git_tokens, default true.
 func (r *Runner) KeepsGitTokens() bool
 // ResumesOnStart is daemon.resume_on_start, default true.
@@ -613,6 +643,16 @@ and the `int`/`float` types.
   models.qwen9b.context_tokens 4096` → `ErrValueInvalid`; `unset
   models.qwen9b` removes the table. An empty `config.toml` still parses to `Default()`. Existing
   tests pass unchanged.
+- `Reresolve(Resolve(…).Key(""))` equals the `Resolve` result's `Target`.
+  After `models.qwen9b.endpoint` changes from `gpu` to `cpu`, it returns
+  `cpu`'s endpoint and the alias's id; after `endpoints.gpu.url` changes,
+  the new URL. With `EndpointFlag = "gpu"`, a changed alias endpoint is
+  ignored. A changed `runner.model` or role `model` doesn't change the
+  result (the alias is fixed). The alias removed → `ErrModelGone`; the
+  flag's endpoint removed → `ErrEndpointUnknown`. A raw id key follows
+  `EndpointAlias`'s endpoint and keeps the id.
+- `ReadFile`: a missing file → an error and no file created; invalid TOML
+  or a failing check → the same error `Load` gives.
 
 **Verify**
 
