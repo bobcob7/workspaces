@@ -303,12 +303,17 @@ package fakemcp
 
 // Config is a fake-mcp YAML file (docs/design/ollama-agent/fake-mcp).
 type Config struct {
-	Name          string            `yaml:"name"`           // server name in initialize; default "fake"
+	Server        ServerInfo        `yaml:"server"`         // initialize's serverInfo and instructions
 	RequireEnv    map[string]string `yaml:"require_env"`    // stdio: initialize fails unless each is set to the value
 	RequireHeader map[string]string `yaml:"require_header"` // http: each request must carry each header with the value
 	Faults        Faults            `yaml:"faults"`
 	Tools         []Tool            `yaml:"tools"`
 	Generate      *Generate         `yaml:"generate"`
+}
+type ServerInfo struct {
+	Name         string `yaml:"name"`    // default "fake"
+	Version      string `yaml:"version"` // default "0.0.0-fake"
+	Instructions string `yaml:"instructions"`
 }
 type Faults struct {
 	SlowInitialize  time.Duration `yaml:"slow_initialize"`
@@ -319,9 +324,12 @@ type Tool struct {
 	Name        string         `yaml:"name"`
 	Description string         `yaml:"description"`
 	InputSchema map[string]any `yaml:"input_schema"` // default {"type":"object"}
-	ReadOnly    *bool          `yaml:"read_only"`    // readOnlyHint
-	Destructive *bool          `yaml:"destructive"`  // destructiveHint
+	Annotations Annotations    `yaml:"annotations"`
 	Replies     []Reply        `yaml:"replies"`
+}
+type Annotations struct {
+	ReadOnlyHint    *bool `yaml:"readOnlyHint"`
+	DestructiveHint *bool `yaml:"destructiveHint"`
 }
 // Reply: the first whose Match (a regexp on the canonical JSON arguments;
 // empty matches all) matches is sent.
@@ -333,7 +341,7 @@ type Reply struct {
 }
 type Generate struct {
 	Count  int    `yaml:"count"`
-	Prefix string `yaml:"prefix"` // tools <prefix>_001…, read-only, replying "ok"
+	Prefix string `yaml:"prefix"` // tools <prefix>001…, read-only, one-line description, replying "ok"
 }
 
 func LoadConfig(path string) (Config, error)
@@ -355,9 +363,10 @@ fakes` with `go build -o $(BIN)/fake-mcp ./cmd/fake-mcp`.
 **Acceptance** (in-process, `mcp.NewInMemoryTransports` and an SDK
 client):
 
-- The three configs in [fake-mcp/](fake-mcp/) load. `generate: {count:
-  80, prefix: lookup}` lists 80 tools plus the scripted ones, with
-  `readOnlyHint` set.
+- The three configs in [fake-mcp/](fake-mcp/) load. `many-tools.yaml`
+  lists 80 generated tools (`list_thing_001` …) plus the two scripted
+  ones, with `readOnlyHint` on the generated ones and `destructiveHint`
+  on `delete_dashboard`; `server.instructions` reaches the client.
 - A call matching a reply gets its text; `error` gives `isError`;
   `protocol_error` gives a JSON-RPC error; `--record` gets one line per
   call.

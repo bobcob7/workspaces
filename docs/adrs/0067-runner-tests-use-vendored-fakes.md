@@ -168,7 +168,7 @@ themselves, `cmd/fake-*` and `e2e/`.
 | `token-redacted` | `secrets.env` has `WS_ENDPOINT_TOKEN_FAKE`; a `run` of `env` | `/requests` shows `auth`; the transcript and `runner.log` don't contain the token; `env` output lacks it |
 | `mcp-stdio` | fake-mcp stdio with `require_env`; a rule calls `mcp__fake__lookup` | the call reached fake-mcp (`--record`), the result is in the transcript, the env value isn't |
 | `mcp-http` | fake-mcp HTTP with `require_header` from a `${VAR}` header | as above, for the header |
-| `mcp-filter` | fake-mcp `generate: {count: 80}`; role allows `lookup_*` | request bodies offer only allowed tools; a destructive tool not named exactly is refused |
+| `mcp-filter` | fake-mcp `generate: {count: 80}` plus a destructive `delete_dashboard`; role allows `mcp__fake__query_*` and `mcp__fake__list_*` | request bodies offer only allowed tools; the destructive tool, matched by no exact name, is never offered |
 | `mcp-tool-search` | 40 allowed tools, `mcp_upfront = 8`; rules call `tool_search`, then a found tool | the second request offers the found tool; the call succeeds |
 | `mcp-server-fails` | fake-mcp `crash_after_calls: 1` | an `mcp_error` event, the run continues, the next call answers an error |
 | `mixed-wait` | fake `claude` child plus `edit-file` | one `ws machine wait` returns both; `runner` and `model` are right |
