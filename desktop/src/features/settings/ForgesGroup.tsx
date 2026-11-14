@@ -269,47 +269,51 @@ const HostLists = ({ hosts, onSetToken, onSave }: HostListsProps): JSX.Element =
   const others = hosts.filter((host) => !host.configured);
   return (
     <>
-      <table className={styles.table} aria-label="Hosts">
-        <thead>
-          <tr>
-            <th>Host</th>
-            <th>Forge</th>
-            <th>Token</th>
-            <th>Account</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {configuredViews.map((host, index) => (
-            <HostRow
-              key={host.host}
-              host={host}
-              first={index === 0}
-              last={index === configuredViews.length - 1}
-              onSetToken={onSetToken}
-              onKind={(kind) => onSave(configured.map((item) => (item.name === host.host ? { ...item, kind } : item)))}
-              onMove={(by) => onSave(moved(configured, index, by))}
-              onRemove={() => onSave(configured.filter((_, i) => i !== index))}
-            />
-          ))}
-        </tbody>
-      </table>
-      {others.length > 0 && (
-        <table className={styles.table} aria-label="Other hosts">
+      <div className={styles.scroll}>
+        <table className={styles.table} aria-label="Hosts">
           <thead>
             <tr>
               <th>Host</th>
               <th>Forge</th>
+              <th>Token</th>
               <th>Account</th>
-              <th>Add</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {others.map((host) => (
-              <OtherHostRow key={host.host} host={host} onAdd={() => onSave([...configured, { name: host.host, kind: "auto" }])} />
+            {configuredViews.map((host, index) => (
+              <HostRow
+                key={host.host}
+                host={host}
+                first={index === 0}
+                last={index === configuredViews.length - 1}
+                onSetToken={onSetToken}
+                onKind={(kind) => onSave(configured.map((item) => (item.name === host.host ? { ...item, kind } : item)))}
+                onMove={(by) => onSave(moved(configured, index, by))}
+                onRemove={() => onSave(configured.filter((_, i) => i !== index))}
+              />
             ))}
           </tbody>
         </table>
+      </div>
+      {others.length > 0 && (
+        <div className={styles.scroll}>
+          <table className={styles.table} aria-label="Other hosts">
+            <thead>
+              <tr>
+                <th>Host</th>
+                <th>Forge</th>
+                <th>Account</th>
+                <th>Add</th>
+              </tr>
+            </thead>
+            <tbody>
+              {others.map((host) => (
+                <OtherHostRow key={host.host} host={host} onAdd={() => onSave([...configured, { name: host.host, kind: "auto" }])} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <p className={styles.caption}>
         Short specs such as owner/name are tried on these hosts in order; the first is the primary. Saved in config.toml as [[hosts]]. GitHub
