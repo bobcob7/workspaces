@@ -95,13 +95,16 @@ timeout = "45m"
 ```
 
 Endpoint and role names are lowercase letters, digits and hyphens. A
-`token` key is an unknown key: an endpoint's bearer token comes from
-`WS_OLLAMA_TOKEN_<NAME>` (the name uppercased, `-` to `_`), sent as
-`Authorization: Bearer`. It is never written to disk and is removed from
-the runner's tool environment
-([0066](0066-ollama-runner-security-boundaries.md)). The desktop app's
-Settings › Models edits these keys through `ws config`, and keeps tokens in
-the OS keychain.
+`token` key is an unknown key. An endpoint's bearer token, sent as
+`Authorization: Bearer`, comes from `WS_OLLAMA_TOKEN_<NAME>` (the name
+uppercased, with `-` → `_`), or else from `CONFIG_DIR/ollama-tokens.json`
+(mode 0600, `{"version":1,"tokens":{"<name>":"…"}}`). That file is written
+only by the desktop app's Settings › Models, the way it keeps Forgejo
+tokens in `forge-tokens.json`[^forge-tokens]. It is in `CONFIG_DIR`, not
+beside `desktop.json`, so a runner spawned from the CLI finds it too. The
+token is removed from the runner's tool environment and redacted from
+transcripts ([0066](0066-ollama-runner-security-boundaries.md)). Settings
+› Models edits every other key through `ws config`.
 
 **Preflight**, run by `ws machine spawn` before the workspace is created,
 with a 10 s limit per request:
@@ -134,7 +137,8 @@ reason ([0065](0065-ollama-agent-loop-tools-and-budgets.md)).
 2. **Fail fast.** Preflight costs two or three small requests, and turns
    the commonest failures into distinct codes before anything is created.
    Fallback is opt-in and visible.
-3. **Secrets** stay in the environment or the keychain, as for forges.
+3. **Secrets** stay in the environment or a 0600 token file, as for
+   forges, never in `config.toml`.
 4. **Editable.** Named tables are a form `ws config` already edits. Model
    names are values, never keys.
 5. **Honest context.** `context_tokens` lives on the endpoint because
@@ -215,4 +219,5 @@ things for the two runners.
 [^router-errors]: llm-router README, "Errors" @9789c32 (read 2026-11-13). "Backend returned a `4xx` | Passed through unchanged".
 [^ollama-src-truncate]: ollama/ollama `server/prompt.go` and `server/routes.go` @a5864fc (accessed 2026-11-13), <https://github.com/ollama/ollama/blob/a5864fcb33969705de3c0ebfedf4b2a16c970bcc/server/prompt.go>. "chatPrompt truncates any messages that exceed the context window of the model, making sure to always include 1) the latest message and 2) system messages"; `truncate := req.Truncate == nil || *req.Truncate`. Issue #14259 reports that truncation "happens silently with no user-visible indication", <https://github.com/ollama/ollama/issues/14259>.
 [^ollama-ctx]: Ollama, "Context length." <https://docs.ollama.com/context-length> (accessed 2026-11-13). "Ollama defaults to the following context lengths based on VRAM: < 24 GiB VRAM: 4k context; 24-48 GiB: 32k; >= 48 GiB: 256k". Example: `OLLAMA_CONTEXT_LENGTH=64000 ollama serve`.
+[^forge-tokens]: workspaces `desktop/src-tauri/src/reviews/tokens.rs` @98697f3 (read 2026-11-13). "Forgejo access tokens: environment first, then forge-tokens.json (ADR 0060)."
 [^config]: [docs/config.md](../config.md), "Changing it with `ws config`". "A key written in a form `ws config` doesn't edit, such as a dotted key or an inline table, fails with `config_uneditable`."

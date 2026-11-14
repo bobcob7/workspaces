@@ -455,7 +455,7 @@ Fake data only. Rendered from [mockups.html](mockups.html) at 1280×800
 | `ws machine spawn --runner ollama` | [img/cli-spawn.png](img/cli-spawn.png) |
 | `ws machine children` and `wait` with mixed runners | [img/cli-children-wait.png](img/cli-children-wait.png) |
 | Error states: endpoint down, model without tools, runner gave up | [img/cli-errors.png](img/cli-errors.png) |
-| `ws list` with an Ollama child | [img/cli-list.png](img/cli-list.png) |
+| `ws list` with an Ollama child (the table layout is illustrative; only `--json` is a contract) | [img/cli-list.png](img/cli-list.png) |
 | Desktop Agents tree with an Ollama badge | [img/agents-tree.png](img/agents-tree.png) |
 | Desktop transcript of an Ollama child | [img/transcript.png](img/transcript.png) |
 | Settings › Models (endpoints, role routing) | [img/settings-models.png](img/settings-models.png) |
