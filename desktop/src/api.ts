@@ -292,10 +292,20 @@ export interface HostView {
   readonly forge: ForgeKind | null;
   readonly choice: ForgeChoice;
   readonly detected: boolean;
+  /** Listed in config.toml's [[hosts]]. */
+  readonly configured: boolean;
+  /** The first configured host, which short specs try first. */
+  readonly primary: boolean;
   readonly login: string | null;
   readonly token: "env" | "file" | null;
   readonly tokenEnv: string | null;
   readonly error: AppError | null;
+}
+
+/** A host as config.toml's [[hosts]] lists it. */
+export interface ConfiguredHost {
+  readonly name: string;
+  readonly kind: ForgeChoice;
 }
 
 /** An open pull request in a watched repo, with its reviews. */
@@ -708,8 +718,8 @@ export interface Settings {
   readonly open: OpenSettings;
 }
 
-export type ConfigType = "string" | "strings" | "duration" | "bool";
-export type ConfigValue = string | boolean | readonly string[];
+export type ConfigType = "string" | "strings" | "duration" | "bool" | "hosts";
+export type ConfigValue = string | boolean | readonly string[] | readonly ConfiguredHost[];
 
 /** One key of config.toml, with its effective value and default (ws config). */
 export interface ConfigSetting {
@@ -1128,8 +1138,7 @@ export const api = {
   reviewsLoadRepos: async (): Promise<ReviewsView> => call<ReviewsView>("reviews_load_repos"),
   reviewsSetWatch: async (repo: string, watch: boolean, autoReview: boolean): Promise<ReviewsView> =>
     call<ReviewsView>("reviews_set_watch", { repo, watch, autoReview }),
-  reviewsSetForge: async (host: string, kind: ForgeChoice): Promise<ReviewsView> =>
-    call<ReviewsView>("reviews_set_forge", { host, kind }),
+  reviewsSetHosts: async (hosts: readonly ConfiguredHost[]): Promise<ReviewsView> => call<ReviewsView>("reviews_set_hosts", { hosts }),
   reviewsSetToken: async (host: string, token: string): Promise<ReviewsView> =>
     call<ReviewsView>("reviews_set_token", { host, token }),
   reviewsDismiss: async (repo: string, number: number, head: string): Promise<ReviewsView> =>

@@ -78,9 +78,12 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   it was built from, and the `ws` and `claude` it runs, with their versions
   and where they are on its PATH. A warning says when the app and `ws`
   were built from different commits, so one needs rebuilding.
-- **Repos settings** (Settings, Repos): the default host and owners in
-  `config.toml` (`ws config`), and a box that shows what a spec resolves
-  to with those settings (`ws cache resolve`, `ws cache search`).
+- **Repos settings** (Settings, Repos): the default owners in `config.toml`
+  (`ws config`), the hosts it lists, and a box that shows what a spec
+  resolves to with those settings (`ws cache resolve`, `ws cache search`).
+- **Forges settings** (Settings, Forges): the ordered host list in
+  `config.toml` (`[[hosts]]`), with each host's forge kind, token and
+  account; add, remove, reorder and re-kind hosts there.
 - **Agent roles** (Settings, Agent roles): the built-in and custom roles
   that `ws machine spawn --role` starts, edited or removed in the app
   (`ws machine roles`).

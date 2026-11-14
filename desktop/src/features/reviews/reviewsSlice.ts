@@ -3,7 +3,7 @@ import {
   toAppError,
   type AppError,
   type AskStarted,
-  type ForgeChoice,
+  type ConfiguredHost,
   type MergeStatus,
   type PullRequest,
   type ReviewPlan,
@@ -108,16 +108,11 @@ export const setWatch = createAppThunk<ReviewsView, WatchChange>(
   },
 );
 
-export interface ForgeChange {
-  readonly host: string;
-  readonly kind: ForgeChoice;
-}
-
-export const setForge = createAppThunk<ReviewsView, ForgeChange>(
-  "reviews/setForge",
-  async ({ host, kind }, { extra, dispatch, rejectWithValue }) => {
+export const setHosts = createAppThunk<ReviewsView, readonly ConfiguredHost[]>(
+  "reviews/setHosts",
+  async (hosts, { extra, dispatch, rejectWithValue }) => {
     try {
-      return await extra.api.reviewsSetForge(host, kind);
+      return await extra.api.reviewsSetHosts(hosts);
     } catch (err: unknown) {
       return rejectWithValue(failed(err, dispatch));
     }
@@ -291,7 +286,7 @@ const reviewsSlice = createSlice({
       .addCase(checkNow.fulfilled, setView)
       .addCase(loadRepos.fulfilled, setView)
       .addCase(setWatch.fulfilled, setView)
-      .addCase(setForge.fulfilled, setView)
+      .addCase(setHosts.fulfilled, setView)
       .addCase(setToken.fulfilled, setView)
       .addCase(dismissPr.fulfilled, setView)
       .addCase(restorePr.fulfilled, setView)

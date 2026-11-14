@@ -11,7 +11,7 @@ import {
   mergeFiltered,
   openStartDialog,
   reviewsReducer,
-  setForge,
+  setHosts,
   startReview,
   type ReviewsState,
 } from "./reviewsSlice";
@@ -154,13 +154,14 @@ describe("filter reducers", () => {
   });
 });
 
-describe("setForge", () => {
-  it("replaces the view with the one the API returns", async () => {
+describe("setHosts", () => {
+  it("stores the returned view", async () => {
     const view = reviewsView({ checkedAtMs: 42 });
-    const api = fakeApi({ reviewsSetForge: vi.fn(async () => view) });
+    const api = fakeApi({ reviewsSetHosts: vi.fn(async () => view) });
     const store = testStore({ api });
-    await store.dispatch(setForge({ host: "git.example.com", kind: "forgejo" }));
-    expect(api.reviewsSetForge).toHaveBeenCalledWith("git.example.com", "forgejo");
+    const hosts = [{ name: "git.example.com", kind: "forgejo" as const }];
+    await store.dispatch(setHosts(hosts));
+    expect(api.reviewsSetHosts).toHaveBeenCalledWith(hosts);
     expect(store.getState().reviews.view).toEqual(view);
   });
 });

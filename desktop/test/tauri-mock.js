@@ -50,12 +50,12 @@
 
   const checks = (passed, failed, pending) => ({ total: passed + failed + pending, passed, failed, pending });
 
-  // Hosts' forges and tokens; reviews_set_forge and reviews_set_token change them.
+  // Hosts' forges and tokens; reviews_set_hosts and reviews_set_token change them.
   const hosts = {
     "ghe.example.com": { forge: "github", choice: "auto", detected: false, login: "bob", token: null, tokenEnv: null, error: null },
     "git.example.com": {
       forge: "forgejo",
-      choice: "auto",
+      choice: "forgejo",
       detected: true,
       login: "bob",
       token: "env",
@@ -77,10 +77,21 @@
     },
   };
 
-  const hostsView = () =>
-    Object.keys(hosts)
-      .sort()
-      .map((host) => ({ host, ...hosts[host] }));
+  // The hosts in config.toml come first, in order; the other cached hosts follow, sorted.
+  const configuredHosts = () => data.config.settings.find((setting) => setting.key === "hosts")?.value ?? [];
+
+  const hostsView = () => {
+    const configured = configuredHosts();
+    const others = Object.keys(hosts)
+      .filter((host) => !configured.some((item) => item.name === host))
+      .sort();
+    return [...configured.map((item) => item.name), ...others].map((host, index) => ({
+      host,
+      ...hosts[host],
+      configured: index < configured.length,
+      primary: configured.length > 0 && index === 0,
+    }));
+  };
 
   const pullRequest = (overrides) => ({
     repo: buffBear,
@@ -665,8 +676,18 @@
     config: {
       path: "/Users/me/Library/Application Support/workspaces/config.toml",
       settings: [
-        { key: "defaults.host", type: "string", value: "github.com", default: "github.com", set: true },
+        { key: "defaults.host", type: "string", value: "github.com", default: "github.com", set: false },
         { key: "defaults.owners", type: "strings", value: ["bobcob7", "acme"], default: [], set: true },
+        {
+          key: "hosts",
+          type: "hosts",
+          value: [
+            { name: "github.com", kind: "auto" },
+            { name: "git.example.com", kind: "forgejo" },
+          ],
+          default: [{ name: "github.com", kind: "auto" }],
+          set: true,
+        },
         { key: "review.timeout", type: "duration", value: "1h", default: "60m", set: false },
         { key: "review.remove_finished", type: "bool", value: true, default: true, set: false },
         { key: "review.profiles.security.when", type: "string", value: "", default: "", set: false },
@@ -786,6 +807,7 @@
   const configKinds = {
     "defaults.host": "string",
     "defaults.owners": "strings",
+    hosts: "hosts",
     "review.timeout": "duration",
     "review.remove_finished": "bool",
   };
@@ -804,8 +826,16 @@
     return [...settings, ...missing];
   };
 
+  // A host as ws config set hosts takes it: NAME or NAME=KIND.
+  const hostEntry = (value) => {
+    const [name, kind = "auto"] = value.split("=");
+    return { name: name.toLowerCase(), kind };
+  };
+
   const configValue = (key, values) => {
     switch (configKinds[key] ?? "string") {
+      case "hosts":
+        return values.map(hostEntry);
       case "strings":
         return values.map((value) => value.toLowerCase());
       case "bool":
@@ -1005,11 +1035,16 @@
     reviews_check_now: reviewsView,
     reviews_load_repos: reviewsView,
     reviews_set_watch: reviewsView,
-    reviews_set_forge: ({ host, kind }) => {
-      hosts[host].choice = kind;
-      if (kind !== "auto") {
-        hosts[host].forge = kind;
+    reviews_set_hosts: ({ hosts: list }) => {
+      for (const { name, kind } of list) {
+        hosts[name] ??= { forge: null, choice: "auto", detected: false, login: null, token: null, tokenEnv: null, error: null };
+        hosts[name].choice = kind;
+        if (kind !== "auto") {
+          hosts[name].forge = kind;
+        }
       }
+      const current = data.config.settings.find((setting) => setting.key === "hosts");
+      replaceSetting({ ...current, value: list, set: true });
       return reviewsView();
     },
     reviews_set_token: ({ host, token }) => {

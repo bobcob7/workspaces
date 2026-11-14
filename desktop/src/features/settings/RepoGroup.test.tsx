@@ -1,8 +1,8 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Api, ConfigListing, Resolution } from "../../api";
-import { fakeApi, testStore } from "../../test/fixtures";
+import { configListing, fakeApi, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { groupChosen } from "./settingsSlice";
 import { SettingsPane } from "./SettingsPane";
@@ -16,12 +16,24 @@ const resolution = (overrides: Partial<Resolution> = {}): Resolution => ({
   ...overrides,
 });
 
-const open = async (api = fakeApi()): Promise<Api> => {
+const twoHostsListing = (): ConfigListing => {
+  const listing = configListing();
+  return {
+    ...listing,
+    settings: listing.settings.map((setting) =>
+      setting.key === "hosts"
+        ? { ...setting, value: [{ name: "github.com", kind: "auto" }, { name: "git.example.com", kind: "forgejo" }], set: true }
+        : setting,
+    ),
+  };
+};
+
+const open = async (api: Api = fakeApi()) => {
   const store = testStore({ api });
   store.dispatch(groupChosen("repos"));
   renderWithStore(<SettingsPane />, store);
-  await screen.findByRole("group", { name: "Default host" });
-  return api;
+  await screen.findByRole("group", { name: "Default owners" });
+  return { api, store };
 };
 
 const spec = (): HTMLElement => screen.getByRole("textbox", { name: "Repo spec" });
@@ -31,84 +43,78 @@ describe("Repos", () => {
     vi.useRealTimers();
   });
 
-  it("shows the default host and the owners from config.toml", async () => {
+  it("shows the owners from config.toml", async () => {
     await open();
-    expect(screen.getByRole("textbox", { name: "Default host" })).toHaveValue("github.com");
     expect(screen.getByText("bobcob7")).toBeInTheDocument();
     expect(screen.getByText("acme")).toBeInTheDocument();
   });
 
-  it("saves the default host on blur, trimmed", async () => {
-    const api = await open();
-    const host = screen.getByRole("textbox", { name: "Default host" });
-    await userEvent.clear(host);
-    await userEvent.type(host, "  gitlab.example.com ");
-    await userEvent.tab();
-    expect(api.configSet).toHaveBeenCalledWith("defaults.host", ["gitlab.example.com"]);
+  it("has no default host field", async () => {
+    await open();
+    expect(screen.queryByRole("textbox", { name: "Default host" })).not.toBeInTheDocument();
   });
 
-  it("shows a rejected host under its control and puts the old value back", async () => {
-    await open(
-      fakeApi({
-        configSet: vi.fn(async () => Promise.reject({ code: "config_value_invalid", message: "not a host name" })),
-      }),
-    );
-    const host = screen.getByRole("textbox", { name: "Default host" });
-    await userEvent.clear(host);
-    await userEvent.type(host, "bad host");
-    await userEvent.tab();
-    expect(await screen.findByRole("alert")).toHaveTextContent("not a host name");
-    expect(host).toHaveValue("github.com");
+  it("lists the hosts in order with the primary marked", async () => {
+    await open(fakeApi({ configList: vi.fn(async () => twoHostsListing()) }));
+    const hosts = await screen.findByRole("list", { name: "Hosts" });
+    expect(within(hosts).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByText("primary").closest("li")).toHaveTextContent("github.com");
+    expect(hosts).toHaveTextContent("git.example.com");
   });
 
-  it("resets the default host to its default", async () => {
-    const api = await open(
-      fakeApi({
-        configList: vi.fn(async (): Promise<ConfigListing> => ({
-          path: "/c/config.toml",
-          settings: [{ key: "defaults.host", type: "string", value: "gitlab.example.com", default: "github.com", set: true }],
-        })),
-      }),
-    );
-    await userEvent.click(await screen.findByRole("button", { name: "Reset default host" }));
-    expect(api.configUnset).toHaveBeenCalledWith("defaults.host");
+  it("Edit in Forges opens the Forges group", async () => {
+    const { store } = await open();
+    await userEvent.click(screen.getByRole("button", { name: "Edit in Forges" }));
+    expect(store.getState().settings.group).toBe("forges");
   });
 
   it("moves an owner up the list", async () => {
-    const api = await open();
+    const { api } = await open();
     await userEvent.click(screen.getByRole("button", { name: "Move acme up" }));
     expect(api.configSet).toHaveBeenCalledWith("defaults.owners", ["acme", "bobcob7"]);
   });
 
   it("removes an owner from the list", async () => {
-    const api = await open();
+    const { api } = await open();
     await userEvent.click(screen.getByRole("button", { name: "Remove bobcob7" }));
     expect(api.configSet).toHaveBeenCalledWith("defaults.owners", ["acme"]);
   });
 
   it("adds an owner when Enter is pressed", async () => {
-    const api = await open();
+    const { api } = await open();
     await userEvent.type(screen.getByRole("textbox", { name: "Add owner" }), "platform{Enter}");
     expect(api.configSet).toHaveBeenCalledWith("defaults.owners", ["bobcob7", "acme", "platform"]);
   });
 
   it("ignores a blank owner", async () => {
-    const api = await open();
+    const { api } = await open();
     await userEvent.type(screen.getByRole("textbox", { name: "Add owner" }), "  {Enter}");
     expect(api.configSet).not.toHaveBeenCalled();
   });
 
   it("says where a cached spec was found", async () => {
-    const api = await open(fakeApi({ cacheResolve: vi.fn(async () => resolution()) }));
+    const { api } = await open(fakeApi({ cacheResolve: vi.fn(async () => resolution()) }));
     await userEvent.type(spec(), "buff-bear");
     await userEvent.click(screen.getByRole("button", { name: "Resolve" }));
     expect(await screen.findByRole("status", { name: "Resolution" })).toHaveTextContent("Found by name in the cache.");
     expect(api.cacheResolve).toHaveBeenCalledWith("buff-bear");
   });
 
+  it("says a spec not cached is taken to be on the only host", async () => {
+    await open(fakeApi({ cacheResolve: vi.fn(async () => resolution({ cached: false, source: "default" })) }));
+    await userEvent.type(spec(), "buff-bear{Enter}");
+    expect(await screen.findByRole("status", { name: "Resolution" })).toHaveTextContent("Not cached: taken to be on the only host.");
+  });
+
+  it("says a spec found upstream is on a configured host", async () => {
+    await open(fakeApi({ cacheResolve: vi.fn(async () => resolution({ cached: false, source: "probe" })) }));
+    await userEvent.type(spec(), "buff-bear{Enter}");
+    expect(await screen.findByRole("status", { name: "Resolution" })).toHaveTextContent("Found upstream on a configured host.");
+  });
+
   it("lists the candidates of an ambiguous spec, and resolves the one clicked", async () => {
     const ambiguous = { code: "repo_ambiguous", message: "more than one", details: { candidates: ["github.com/bobcob7/api", "github.com/bobcob7/buff-bear"] } };
-    const api = await open(fakeApi({ cacheResolve: vi.fn(async () => Promise.reject(ambiguous)) }));
+    const { api } = await open(fakeApi({ cacheResolve: vi.fn(async () => Promise.reject(ambiguous)) }));
     await userEvent.type(spec(), "api{Enter}");
     await userEvent.click(await screen.findByRole("button", { name: "github.com/bobcob7/api" }));
     expect(screen.getByRole("button", { name: "github.com/bobcob7/buff-bear" })).toBeInTheDocument();
@@ -117,7 +123,7 @@ describe("Repos", () => {
 
   it("searches the cache for what is typed, after a pause", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const api = await open();
+    const { api } = await open();
     await userEvent.type(spec(), "bea");
     await waitFor(() => expect(api.cacheSearch).toHaveBeenCalledWith("bea", true, 8));
   });

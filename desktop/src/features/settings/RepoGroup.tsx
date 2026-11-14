@@ -1,23 +1,31 @@
 import { Alert, Button, CircularProgress, IconButton, TextField } from "@mui/material";
 import { useEffect, useState, type JSX } from "react";
-import type { AppError, ConfigListing, ConfigSetting, ConfigValue, Resolution, ResolveSource } from "../../api";
+import type { AppError, ConfiguredHost, ConfigListing, ConfigSetting, ConfigValue, Resolution, ResolveSource } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { ConfigSource } from "./ConfigSource";
 import { Row } from "./Row";
-import { fetchConfig, resolveSpec, searchSpecs, setConfig, settingOf, unsetConfig } from "./settingsSlice";
+import { fetchConfig, groupChosen, resolveSpec, searchSpecs, setConfig, settingOf } from "./settingsSlice";
 import settingsStyles from "./SettingsPane.module.css";
 import styles from "./RepoGroup.module.css";
 
 const matchedBy: Readonly<Record<ResolveSource, string>> = {
   spec: "The spec names its host.",
   cache: "Found by name in the cache.",
-  default: "Not cached: taken to be on the default host.",
-  probe: "Found upstream under a default owner.",
+  default: "Not cached: taken to be on the only host.",
+  probe: "Found upstream on a configured host.",
 };
 
-const isList = (value: ConfigValue | undefined): value is readonly string[] => Array.isArray(value);
-
 const isStringList = (value: unknown): value is readonly string[] => Array.isArray(value) && value.every((item) => typeof item === "string");
+
+const isConfiguredHost = (item: unknown): item is ConfiguredHost =>
+  typeof item === "object" && item !== null && "name" in item && typeof item.name === "string";
+
+const isHostList = (value: unknown): value is readonly ConfiguredHost[] => Array.isArray(value) && value.every(isConfiguredHost);
+
+const hostsOf = (setting: ConfigSetting | undefined): readonly ConfiguredHost[] => {
+  const value: unknown = setting?.value;
+  return isHostList(value) ? value : [];
+};
 
 const candidatesOf = (error: AppError): readonly string[] => {
   const found: unknown = error.details?.candidates;
@@ -35,59 +43,36 @@ const swapped = (list: readonly string[], index: number, by: -1 | 1): readonly s
   return list.map((owner, i) => (i === index ? neighbour : i === target ? item : owner));
 };
 
-/** A text setting saved when it loses focus, so typing doesn't save every keystroke. */
-const useDraft = (value: string): [string, (next: string) => void] => {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  return [draft, setDraft];
-};
-
-interface HostRowProps {
+interface HostsRowProps {
   readonly setting: ConfigSetting | undefined;
   readonly path: string;
-  readonly error: string | undefined;
 }
 
-const HostRow = ({ setting, path, error }: HostRowProps): JSX.Element => {
+const HostsRow = ({ setting, path }: HostsRowProps): JSX.Element => {
   const dispatch = useAppDispatch();
-  const saved = typeof setting?.value === "string" ? setting.value : "";
-  const [draft, setDraft] = useDraft(saved);
-  const save = (): void => {
-    const next = draft.trim();
-    setDraft(next);
-    if (next === saved) {
-      return;
-    }
-    void dispatch(setConfig({ key: "defaults.host", values: [next] })).then((result) => {
-      if (setConfig.rejected.match(result)) {
-        setDraft(saved);
-      }
-    });
-  };
+  const hosts = hostsOf(setting);
   return (
     <Row
-      label="Default host"
+      label="Hosts"
+      wide
       help={
         <>
-          For specs without one, such as owner/name. <ConfigSource setting={setting} path={path} />
+          Short specs are tried on these hosts in order. <ConfigSource setting={setting} path={path} />
         </>
       }
-      errors={[error]}
+      errors={[]}
     >
-      <div className={settingsStyles.inline}>
-        <TextField
-          size="small"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={save}
-          slotProps={{ htmlInput: { "aria-label": "Default host" } }}
-        />
-        {setting?.set === true && (
-          <Button size="small" aria-label="Reset default host" onClick={() => void dispatch(unsetConfig("defaults.host"))}>
-            Reset
-          </Button>
-        )}
-      </div>
+      <ul className={styles.owners} aria-label="Hosts">
+        {hosts.map((host, index) => (
+          <li key={host.name} className={styles.owner}>
+            <span className={settingsStyles.mono}>{host.name}</span>
+            {index === 0 && <span className={settingsStyles.help}>primary</span>}
+          </li>
+        ))}
+      </ul>
+      <Button size="small" onClick={() => dispatch(groupChosen("forges"))}>
+        Edit in Forges
+      </Button>
     </Row>
   );
 };
@@ -100,8 +85,8 @@ interface OwnersRowProps {
 
 const OwnersRow = ({ setting, path, error }: OwnersRowProps): JSX.Element => {
   const dispatch = useAppDispatch();
-  const value = setting?.value;
-  const owners = isList(value) ? value : [];
+  const value: ConfigValue | undefined = setting?.value;
+  const owners = isStringList(value) ? value : [];
   const [newOwner, setNewOwner] = useState("");
   const save = (next: readonly string[]): void => {
     void dispatch(setConfig({ key: "defaults.owners", values: next }));
@@ -266,7 +251,7 @@ const SpecRow = (): JSX.Element => {
   );
 };
 
-/** The Repos group: the default host and owners in config.toml, and a box that resolves a spec. */
+/** The Repos group: the default owners and the hosts in config.toml (edited in Forges), and a box that resolves a spec. */
 export const RepoGroup = (): JSX.Element => {
   const dispatch = useAppDispatch();
   const config: ConfigListing | null = useAppSelector((s) => s.settings.config);
@@ -284,7 +269,7 @@ export const RepoGroup = (): JSX.Element => {
       {configError === null && config === null && <CircularProgress size={20} aria-label="Loading repos settings" />}
       {configError === null && config !== null && (
         <>
-          <HostRow setting={settingOf(config, "defaults.host")} path={config.path} error={configErrors["defaults.host"]} />
+          <HostsRow setting={settingOf(config, "hosts")} path={config.path} />
           <OwnersRow setting={settingOf(config, "defaults.owners")} path={config.path} error={configErrors["defaults.owners"]} />
           <SpecRow />
         </>
