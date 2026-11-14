@@ -2176,18 +2176,20 @@ $ cd desktop/src-tauri && cargo clippy --all-targets --no-default-features --fea
   (`done` in the normal colour, others with the reason in the warning
   colour, as any failed agent's last row). The conversation command
   dispatches on the entry's runner.
-- **Every agent's model, quietly.** `EntryRow.tsx`: after the name and
-  summary, the model as secondary text (`--text-muted`, normal case,
-  12px, no background, no border), for every agent with a model, Claude or
-  not; nothing for shells or a Claude agent with no model yet. The row's
+- **Every agent's model, quietly.** `EntryRow.tsx`: at the right of the
+  summary line, the model as secondary text (`.modelLabel` in the mockup:
+  11px `--font-mono`, `--text-muted`, normal case, no background, no
+  border), for every agent with a model, Claude or not; nothing for shells or a Claude agent with no model yet. The row's
   `title` tooltip: `ws` child → `qwen3-coder:30b · coder on gpu
   (http://…, openai)`; Claude agent → `sonnet-5-5 · Claude Code`. **No
   runner chip, badge, icon or colour anywhere.** The summary line is
   unchanged for Claude; for a `ws` child it is `step {step}/{maxSteps}`.
-- `EntryPane.tsx` and `AgentsActions.tsx`: a "Model" meta row for every
-  agent (the full id), and for `ws` children plain-text rows Endpoint
-  (`gpu · http://…`), API, Steps, Tokens (`512k in · 18k out`), Restarts,
-  MCP servers, and the exit reason when finished. Attach, Send and
+- `EntryPane.tsx` and `AgentsActions.tsx`: the model id beside the title
+  in muted monospace for every agent (`.titleModel`), and for `ws`
+  children the existing neutral meta chips `step n / max`, `tokens 210k in
+  · 9.1k out`, the role, then muted text with the endpoint, session id and
+  state, plus restarts, MCP servers and the exit reason when there are
+  any (as `#transcript`). Attach, Send and
   Continue are hidden for `ws` children; Remove works as for any child.
 - **New** `desktop/src/features/settings/ModelsGroup.tsx` (+
   `.module.css`, `.test.tsx`), "Models" in `SettingsList` after "Forges",
