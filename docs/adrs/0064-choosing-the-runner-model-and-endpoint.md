@@ -18,7 +18,7 @@ is down or the model can't call tools?
 
 ### What a solution needs
 
-1. **Spawns stay short.** The handbook's spawn lines work unchanged, and
+1. **Spawns stay short.** Orchestrators' existing spawn lines work unchanged, and
    moving a role to another model is a config change.
 2. **Fail fast, never silently.** A bad endpoint or model fails the spawn
    with a clear error code. No fallback to Claude unless configured, and

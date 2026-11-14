@@ -232,7 +232,7 @@ headed `ws runner: <reason>`, followed by the last 20 transcript events.
 ### Observability
 
 The runner links the OpenTelemetry Go SDK (`internal/telemetry`), set up
-the way llm-router sets up its own[^router-otel]: tracer and meter
+the way llm-router sets up its own[^router-otel]. Tracer and meter
 providers always run, so trace ids exist; exporters are attached only
 when a standard `OTEL_EXPORTER_OTLP_*ENDPOINT` or `OTEL_*_EXPORTER`
 variable is set, and then follow the standard variables through

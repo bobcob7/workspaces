@@ -606,7 +606,7 @@ From it:
 - **the runner's telemetry** reads the standard `OTEL_*` variables from it
   ([0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md)).
 
-`secrets.env` is the only secrets store; there's no keychain integration.
+`secrets.env` is the only secrets store.
 
 ## MCP servers
 
@@ -686,7 +686,8 @@ New `usage` (exit 2) situations: `--runner` isn't `claude` or `ws`;
 claude --runner ws` without a prompt. `ws loop add|edit`: a bad
 `--runner`, `--endpoint` or `--permission-mode` with the other runner, or
 an unknown alias or endpoint, is `loop_invalid` (2). No model anywhere, a `token` key, a
-secret-looking `[runner.env]` name, a reserved `api`, or `context_tokens`
+secret-looking `[runner.env]` name, an `api` not implemented yet, a bad
+`reasoning`, or `context_tokens`
 under 16384 is `config_invalid` (exit 1).
 
 `ws machine logs`: `outside_workspace` (2), `usage` (2),

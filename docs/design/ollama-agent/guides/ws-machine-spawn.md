@@ -47,13 +47,14 @@ arguments without an extra prompt, give an empty one: `-- "" --model opus`.
 ## Runners
 
 A child runs on Claude Code (`claude`, the default) or on `ws`'s own
-runner (`ws`), which drives another model, such as one served by Ollama or
-llm-router. `--runner` chooses. Without it, `runner.roles.<role>.runner`
+runner (`ws`), which drives another model, such as one served by LM
+Studio, Ollama or llm-router. `--runner` chooses. Without it, `runner.roles.<role>.runner`
 in `config.toml` chooses for `--role`, and otherwise it's `claude`. Your
 output's `runner` says which one started, and `model` which model.
 
 A `ws` child uses `--model <m>` after the prompt, a model name from
-`config.toml` such as `coder`, or else the role's or the default model;
+`config.toml` such as `qwen9b`, or a model id as the endpoint lists it
+(`qwen/qwen3.5-9b`), or else the role's or the default model;
 no other `claude` arguments are accepted. `--endpoint` sends it to another
 configured endpoint. Before anything is created, spawn checks that the
 endpoint answers, serves the model, and, when the endpoint can say, that
@@ -106,8 +107,8 @@ For a `ws` child, `session` is the runner's id (`rn-…`) and:
 
 ```json
 "runner": "ws",
-"model": "qwen3-coder:30b",
-"ws_runner": {"model_alias": "coder", "endpoint": "gpu", "url": "http://ollama-a.inference.svc:11434",
+"model": "qwen/qwen3.5-9b",
+"ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "url": "http://gpu-a.inference.svc:1234",
               "api": "openai", "context_tokens": 65536, "mcp_servers": []}
 ```
 
@@ -162,5 +163,5 @@ $ ws machine spawn --name t1-review --role reviewer --var TASK=T1 --var TASKS=do
 $ ws machine spawn --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make lint; make test" buff-bear@feat/x
 $ ws machine spawn --runner ws --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make test" buff-bear@feat/x
 $ ws machine spawn --runner ws --endpoint gpu --name t2-impl --role implementer --var TASK=T2 \
-    --var TASKS=docs/design/x/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t2 buff-bear@feat/x -- "" --model coder
+    --var TASKS=docs/design/x/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t2 buff-bear@feat/x -- "" --model qwen9b-think
 ```

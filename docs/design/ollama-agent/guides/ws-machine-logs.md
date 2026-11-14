@@ -40,7 +40,7 @@ Output is always JSON; `--json` changes nothing.
   "id": "t1-impl-d8efb24f",
   "session": "rn-3f2a9c1e",
   "runner": "ws",
-  "model": "qwen3-coder:30b",
+  "model": "qwen/qwen3.5-9b",
   "events": [
     {"time": "2026-11-13T17:46:01Z", "step": 1, "kind": "request", "messages": 2, "tools": 7, "estimated_tokens": 3120},
     {"time": "2026-11-13T17:46:09Z", "step": 1, "kind": "response", "content": "",
