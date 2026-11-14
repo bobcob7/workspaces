@@ -78,9 +78,13 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   it was built from, and the `ws` and `claude` it runs, with their versions
   and where they are on its PATH. A warning says when the app and `ws`
   were built from different commits, so one needs rebuilding.
-- **Repos settings** (Settings, Repos): the default host and owners in
-  `config.toml` (`ws config`), and a box that shows what a spec resolves
-  to with those settings (`ws cache resolve`, `ws cache search`).
+- **Forge credentials** (Settings, Forges, "What access do the credentials need?"): GitHub uses `gh`'s login (classic `repo`, or fine-grained Metadata, Contents, Pull requests, Commit statuses and Checks, all read). A Forgejo or Gitea token needs `read:repository` and `read:user`, and is read from `WS_FORGEJO_TOKEN_<HOST>` or saved in the app. The same text is shown in the app.
+- **Repos settings** (Settings, Repos): the default owners in `config.toml`
+  (`ws config`), the hosts it lists, and a box that shows what a spec
+  resolves to with those settings (`ws cache resolve`, `ws cache search`).
+- **Forges settings** (Settings, Forges): the ordered host list in
+  `config.toml` (`[[hosts]]`), with each host's forge kind, token and
+  account; add, remove, reorder and re-kind hosts there.
 - **Agent roles** (Settings, Agent roles): the built-in and custom roles
   that `ws machine spawn --role` starts, edited or removed in the app
   (`ws machine roles`).
@@ -136,6 +140,14 @@ backend every 5 minutes by default
 | ![](docs/repos-add.png) | ![](docs/repos-remove.png) |
 
 ![A pull request waiting for review](docs/reviews.png)
+
+| Merge status badges and filters | Filtered by merge status |
+| --- | --- |
+| ![](docs/reviews-filters.png) | ![](docs/reviews-filters-merge.png) |
+| **Settings, Forges (GitHub and Forgejo hosts)** | **Phone width** |
+| ![](docs/reviews-forges-settings.png) | ![](docs/mobile-reviews-filters.png) |
+| **Adding a host in Forges** | **Forges at phone width** |
+| ![](docs/settings-forges-add.png) | ![](docs/mobile-settings-forges.png) |
 
 | A review out of date after new commits | Editing a review before starting it |
 | --- | --- |

@@ -78,6 +78,117 @@ func TestParse(t *testing.T) {
 		_, err := parse([]byte("[review]\ntimeout = \"-1m\"\n"))
 		assert.ErrorIs(t, err, ErrInvalid)
 	})
+	t.Run("hosts in order", func(t *testing.T) {
+		cfg, err := parse([]byte("[[hosts]]\nname = \"github.com\"\nkind = \"github\"\n\n[[hosts]]\nname = \"git.example.com\"\nkind = \"forgejo\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, []Host{{Name: "github.com", Kind: KindGithub}, {Name: "git.example.com", Kind: KindForgejo}}, cfg.Hosts)
+	})
+	t.Run("kind defaults to auto", func(t *testing.T) {
+		cfg, err := parse([]byte("[[hosts]]\nname = \"github.com\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, []Host{{Name: "github.com", Kind: KindAuto}}, cfg.Hosts)
+	})
+	t.Run("names are lowercased", func(t *testing.T) {
+		cfg, err := parse([]byte("[[hosts]]\nname = \"Git.Example.COM\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, "git.example.com", cfg.Hosts[0].Name)
+	})
+	t.Run("a port is allowed", func(t *testing.T) {
+		cfg, err := parse([]byte("[[hosts]]\nname = \"git.example.com:3000\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, "git.example.com:3000", cfg.Hosts[0].Name)
+	})
+	t.Run("empty name is invalid", func(t *testing.T) {
+		_, err := parse([]byte("[[hosts]]\n"))
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorContains(t, err, "hosts entry 1 has no name")
+	})
+	t.Run("bad name is invalid", func(t *testing.T) {
+		_, err := parse([]byte("[[hosts]]\nname = \"https://x\"\n"))
+		assert.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("unknown kind is invalid", func(t *testing.T) {
+		_, err := parse([]byte("[[hosts]]\nname = \"gitlab.com\"\nkind = \"gitlab\"\n"))
+		assert.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("repeated name is invalid", func(t *testing.T) {
+		_, err := parse([]byte("[[hosts]]\nname = \"GitHub.com\"\n\n[[hosts]]\nname = \"github.com\"\n"))
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorContains(t, err, `hosts lists "github.com" twice`)
+	})
+	t.Run("token is an unknown key with a hint", func(t *testing.T) {
+		_, err := parse([]byte("[[hosts]]\nname = \"git.example.com\"\ntoken = \"x\"\n"))
+		require.ErrorIs(t, err, ErrInvalid)
+		require.ErrorContains(t, err, "hosts.token")
+		assert.ErrorContains(t, err, "WS_FORGEJO_TOKEN_<HOST>")
+	})
+	t.Run("defaults.host and hosts together are invalid", func(t *testing.T) {
+		_, err := parse([]byte("[defaults]\nhost = \"gitlab.example.com\"\n\n[[hosts]]\nname = \"github.com\"\n"))
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorContains(t, err, `move "gitlab.example.com" into [[hosts]]`)
+	})
+	t.Run("defaults.host alone still works", func(t *testing.T) {
+		cfg, err := parse([]byte("[defaults]\nhost = \"gitlab.example.com\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, []Host{{Name: "gitlab.example.com", Kind: KindAuto}}, cfg.EffectiveHosts())
+	})
+	t.Run("the default file parses to Default()", func(t *testing.T) {
+		cfg, err := parse([]byte(defaultFile))
+		require.NoError(t, err)
+		assert.Equal(t, Default(), cfg)
+	})
+}
+
+func TestConfig_EffectiveHosts(t *testing.T) {
+	t.Run("is the hosts list when it is set", func(t *testing.T) {
+		cfg := Config{Hosts: []Host{{Name: "git.example.com", Kind: KindForgejo}}}
+		assert.Equal(t, []Host{{Name: "git.example.com", Kind: KindForgejo}}, cfg.EffectiveHosts())
+	})
+	t.Run("is defaults.host as auto when only it is set", func(t *testing.T) {
+		cfg := Config{Defaults: Defaults{Host: "gitlab.example.com"}}
+		assert.Equal(t, []Host{{Name: "gitlab.example.com", Kind: KindAuto}}, cfg.EffectiveHosts())
+	})
+	t.Run("is github.com when nothing is set", func(t *testing.T) {
+		assert.Equal(t, []Host{{Name: "github.com", Kind: KindAuto}}, Config{}.EffectiveHosts())
+	})
+}
+
+func TestConfig_SpecDefaults(t *testing.T) {
+	t.Run("lists the names in order, with the owners", func(t *testing.T) {
+		cfg := Config{
+			Defaults: Defaults{Owners: []string{"me"}},
+			Hosts:    []Host{{Name: "github.com", Kind: KindGithub}, {Name: "git.example.com", Kind: KindForgejo}},
+		}
+		assert.Equal(t, SpecDefaults{Hosts: []string{"github.com", "git.example.com"}, Owners: []string{"me"}}, cfg.SpecDefaults())
+	})
+	t.Run("is github.com when nothing is set", func(t *testing.T) {
+		assert.Equal(t, []string{"github.com"}, Config{}.SpecDefaults().Hosts)
+	})
+}
+
+func TestNormalizeHosts(t *testing.T) {
+	t.Run("nil is nil", func(t *testing.T) {
+		hosts, err := normalizeHosts(nil)
+		require.NoError(t, err)
+		assert.Nil(t, hosts)
+	})
+	tests := []struct {
+		name  string
+		hosts []Host
+		want  string
+	}{
+		{name: "empty name", hosts: []Host{{}}, want: "hosts entry 1 has no name"},
+		{name: "second entry's name", hosts: []Host{{Name: "github.com"}, {Name: "a/b"}}, want: `hosts entry 2: name "a/b"`},
+		{name: "unknown kind", hosts: []Host{{Name: "gitlab.com", Kind: "gitlab"}}, want: `hosts entry 1 (gitlab.com): kind must be auto, github, or forgejo, not "gitlab"`},
+		{name: "repeated name", hosts: []Host{{Name: "github.com"}, {Name: "GitHub.com"}}, want: `hosts lists "github.com" twice`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := normalizeHosts(tt.hosts)
+			require.ErrorIs(t, err, ErrInvalid)
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func TestReview_WaitTimeout(t *testing.T) {
@@ -94,26 +205,26 @@ func TestConfig_normalize(t *testing.T) {
 		return Config{Defaults: Defaults{Host: host, Owners: owners}}
 	}
 	t.Run("lowercases host and owners", func(t *testing.T) {
-		cfg, err := newConfig("GitLab.COM", "MyOrg").normalize()
+		cfg, err := newConfig("GitLab.COM", "MyOrg").normalize(false)
 		require.NoError(t, err)
 		assert.Equal(t, newConfig("gitlab.com", "myorg"), cfg)
 	})
 	t.Run("drops duplicate owners, keeping order", func(t *testing.T) {
-		cfg, err := newConfig("github.com", "b", "A", "a", "b").normalize()
+		cfg, err := newConfig("github.com", "b", "A", "a", "b").normalize(false)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"b", "a"}, cfg.Defaults.Owners)
 	})
 	t.Run("nil owners become empty", func(t *testing.T) {
-		cfg, err := newConfig("github.com").normalize()
+		cfg, err := newConfig("github.com").normalize(false)
 		require.NoError(t, err)
 		assert.NotNil(t, cfg.Defaults.Owners)
 	})
 	t.Run("rejects a bad host", func(t *testing.T) {
-		_, err := newConfig("").normalize()
+		_, err := newConfig("").normalize(false)
 		assert.ErrorIs(t, err, ErrInvalid)
 	})
 	t.Run("rejects a bad owner", func(t *testing.T) {
-		_, err := newConfig("github.com", "ok", "").normalize()
+		_, err := newConfig("github.com", "ok", "").normalize(false)
 		assert.ErrorIs(t, err, ErrInvalid)
 	})
 }

@@ -41,9 +41,9 @@ describe("WatchedReposDialog", () => {
     expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", false, false);
   });
 
-  it("lists other hosts as GitHub repos only", () => {
+  it("says to choose the forge for a repo whose host has none", () => {
     openDialog();
-    expect(screen.getByText("GitHub repos only")).toBeInTheDocument();
+    expect(screen.getByText("Choose its forge in Settings › Forges")).toBeInTheDocument();
   });
 
   it("goes to the review rules in Settings", async () => {

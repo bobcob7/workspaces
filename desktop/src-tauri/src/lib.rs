@@ -63,6 +63,7 @@ pub fn run() {
                 runner: state.runner.clone(),
                 store: state.store.clone(),
                 jobs_dir: state.jobs_dir.clone(),
+                http: Arc::new(reviews::http::ReqwestHttp::new()),
             };
             tauri::async_runtime::spawn(state.reviews.clone().run(deps));
             tauri::async_runtime::spawn(loops::tick_forever(state.runner.clone()));
@@ -107,6 +108,8 @@ pub fn run() {
             reviews::reviews_check_now,
             reviews::reviews_load_repos,
             reviews::reviews_set_watch,
+            reviews::reviews_set_hosts,
+            reviews::reviews_set_token,
             reviews::reviews_dismiss,
             reviews::reviews_restore,
             reviews::reviews_plan,

@@ -7,6 +7,7 @@ import { isWeb } from "../../platform";
 import { BrowserPushRow } from "../../web/BrowserPushRow";
 import { AboutGroup } from "./AboutGroup";
 import { ConfigSource } from "./ConfigSource";
+import { ForgesGroup } from "./ForgesGroup";
 import { Row } from "./Row";
 import { RepoGroup } from "./RepoGroup";
 import { RolesGroup } from "./RolesGroup";
@@ -456,6 +457,13 @@ export const SettingsPane = (): JSX.Element => {
     return (
       <div className={styles.root}>
         <RepoGroup />
+      </div>
+    );
+  }
+  if (group === "forges") {
+    return (
+      <div className={styles.root}>
+        <ForgesGroup />
       </div>
     );
   }

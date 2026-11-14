@@ -20,6 +20,7 @@ setting marked `# default` isn't in the file.
  "settings": [
    {"key": "defaults.host", "type": "string", "value": "github.com", "default": "github.com", "set": true},
    {"key": "defaults.owners", "type": "strings", "value": ["bobcob7", "acme"], "default": [], "set": true},
+   {"key": "hosts", "type": "hosts", "value": [{"name": "github.com", "kind": "auto"}], "default": [{"name": "github.com", "kind": "auto"}], "set": false},
    {"key": "review.timeout", "type": "duration", "value": "1h", "default": "1h", "set": false},
    {"key": "review.remove_finished", "type": "bool", "value": true, "default": true, "set": false},
    {"key": "review.profiles.security.model", "type": "string", "value": "opus", "default": "", "set": true}
@@ -27,7 +28,8 @@ setting marked `# default` isn't in the file.
  "warnings": []}
 ```
 
-- `type` is `string`, `strings`, `duration`, or `bool`. A `duration` is a string.
+- `type` is `string`, `strings`, `duration`, `bool`, or `hosts`. A `duration`
+  is a string, and `hosts` is an array of `{name, kind}` objects.
 - `value` is what the file sets, or else the default.
 - `set` is true when the file sets the key, even to the default.
 

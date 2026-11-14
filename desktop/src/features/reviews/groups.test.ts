@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { pullRequest, reviewPlan, reviewRun, reviewsView } from "../../test/fixtures";
 import { realReport } from "../../test/reportFixture";
-import { badgeCount, commandPreview, groupPrs, matchesFilter, summary, visibleOrder } from "./groups";
+import {
+  activeFilterCount,
+  authorsOf,
+  badgeCount,
+  checksSummary,
+  commandPreview,
+  groupPrs,
+  matchesFilter,
+  matchesFilters,
+  noFilters,
+  summary,
+  visibleOrder,
+  watchedCount,
+} from "./groups";
 
 describe("groupPrs", () => {
   it("orders groups To review, Reviewing, Reviewed, Dismissed", () => {
@@ -121,5 +134,101 @@ describe("summary with a report", () => {
   it("keeps the agent's result without a report", () => {
     const pr = pullRequest({ group: "reviewed", reviews: [reviewRun()] });
     expect(summary(pr, null)).toBe("buff-bear · alice · Two problems worth fixing before merge, one nit.");
+  });
+});
+
+describe("matchesFilters", () => {
+  it("matches the author case-insensitively", () => {
+    expect(matchesFilters(pullRequest(), { ...noFilters, author: "ALICE" })).toBe(true);
+    expect(matchesFilters(pullRequest(), { ...noFilters, author: "carol" })).toBe(false);
+  });
+
+  it("matches each involves choice", () => {
+    const mine = pullRequest({ mine: true, requested: false });
+    const requested = pullRequest({ mine: false, requested: true });
+    expect(matchesFilters(mine, { ...noFilters, involves: "mine" })).toBe(true);
+    expect(matchesFilters(requested, { ...noFilters, involves: "mine" })).toBe(false);
+    expect(matchesFilters(requested, { ...noFilters, involves: "requested" })).toBe(true);
+    expect(matchesFilters(mine, { ...noFilters, involves: "requested" })).toBe(false);
+    expect(matchesFilters(mine, { ...noFilters, involves: "meAny" })).toBe(true);
+    expect(matchesFilters(requested, { ...noFilters, involves: "meAny" })).toBe(true);
+    expect(matchesFilters(pullRequest({ mine: false, requested: false }), { ...noFilters, involves: "meAny" })).toBe(false);
+  });
+
+  it("matches the merge status", () => {
+    const failing = pullRequest({ merge: { status: "failing", reasons: ["failing"], checks: { total: 1, passed: 0, failed: 1, pending: 0 } } });
+    expect(matchesFilters(failing, { ...noFilters, merge: "failing" })).toBe(true);
+    expect(matchesFilters(pullRequest(), { ...noFilters, merge: "failing" })).toBe(false);
+  });
+
+  it("matches everything without filters", () => {
+    expect(matchesFilters(pullRequest({ mine: false, requested: false }), noFilters)).toBe(true);
+  });
+});
+
+describe("groupPrs with filters", () => {
+  const prs = [
+    pullRequest({ key: "alice", author: { login: "alice" } }),
+    pullRequest({ key: "carol", author: { login: "carol" }, group: "reviewed" }),
+  ];
+
+  it("drops pull requests that do not match and groups left empty", () => {
+    const groups = groupPrs(prs, "", { ...noFilters, author: "carol" });
+    expect(groups.map((g) => g.id)).toEqual(["reviewed"]);
+    expect(groups[0]?.prs.map((p) => p.key)).toEqual(["carol"]);
+  });
+
+  it("behaves as before without a third argument", () => {
+    expect(groupPrs(prs, "")).toEqual(groupPrs(prs, "", noFilters));
+  });
+});
+
+describe("authorsOf", () => {
+  it("returns the distinct logins, sorted", () => {
+    const prs = [
+      pullRequest({ author: { login: "carol" } }),
+      pullRequest({ author: { login: "Alice" } }),
+      pullRequest({ author: { login: "carol" } }),
+      pullRequest({ author: { login: "bob" } }),
+    ];
+    expect(authorsOf(prs)).toEqual(["Alice", "bob", "carol"]);
+  });
+});
+
+describe("activeFilterCount", () => {
+  it("counts author, involves other than anyone, and merge", () => {
+    expect(activeFilterCount(noFilters)).toBe(0);
+    expect(activeFilterCount({ author: "alice", involves: "mine", merge: "ready" })).toBe(3);
+    expect(activeFilterCount({ ...noFilters, involves: "requested" })).toBe(1);
+  });
+});
+
+describe("checksSummary", () => {
+  it("is null without checks", () => {
+    expect(checksSummary({ total: 0, passed: 0, failed: 0, pending: 0 })).toBeNull();
+  });
+
+  it("lists the non-zero parts", () => {
+    expect(checksSummary({ total: 7, passed: 5, failed: 1, pending: 1 })).toBe("5 passed, 1 failed, 1 running");
+    expect(checksSummary({ total: 2, passed: 2, failed: 0, pending: 0 })).toBe("2 passed");
+  });
+});
+
+describe("commandPreview for Forgejo", () => {
+  it("names the review and its commit instead of the pull request", () => {
+    const plan = reviewPlan({ forge: "forgejo", repo: "git.example.com/team/svc", head: "3f2a9c1e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c" });
+    expect(commandPreview(plan)).toBe("ws review start --name review-buff-bear-42-3f2a9c1 git.example.com/team/svc@3f2a9c1");
+  });
+});
+
+describe("watchedCount", () => {
+  it("ignores watched repos without a forge", () => {
+    const view = reviewsView({
+      repos: [
+        { id: "github.com/bobcob7/buff-bear", github: true, forge: "github", watch: true, autoReview: false, open: 1, checkedAtMs: 1, error: null },
+        { id: "gitlab.example.com/team/web", github: false, forge: null, watch: true, autoReview: false, open: null, checkedAtMs: null, error: null },
+      ],
+    });
+    expect(watchedCount(view)).toBe(1);
   });
 });

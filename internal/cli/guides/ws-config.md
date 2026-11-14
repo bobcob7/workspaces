@@ -29,8 +29,9 @@ Run `ws llm config <op>` for each one's guide.
 
 | Key                               | Type            | Default               | `set` takes                                              |
 | --------------------------------- | --------------- | --------------------- | -------------------------------------------------------- |
-| `defaults.host`                   | string          | `"github.com"`        | one bare host name                                       |
+| `defaults.host`                   | string          | `"github.com"`        | one bare host name; not while `[[hosts]]` is set                                       |
 | `defaults.owners`                 | list of strings | `[]`                  | zero or more owners, in order (none empties the list)    |
+| `hosts`                           | hosts           | `[{name = "github.com", kind = "auto"}]` | zero or more `NAME[=KIND]`, in order; none removes the list |
 | `review.timeout`                  | duration        | `"1h"`                | one Go duration greater than zero, such as `90m` or `2h` |
 | `review.remove_finished`          | bool            | `true`                | `true` or `false`                                        |
 | `review.profiles.<name>.when`     | string          | `""` (the profile's own) | `always`, `auto`, or `off`                            |
@@ -42,7 +43,8 @@ up after removing a profile.
 
 Values are stored the way `ws` reads them: host and owners are lower-cased,
 repeated owners are dropped, and a duration is written in short form, so
-`90m` is stored as `"1h30m"`.
+`90m` is stored as `"1h30m"`. A host's kind is `auto` (the default), `github`,
+or `forgejo`.
 
 ## How the file is changed
 
@@ -52,6 +54,10 @@ A key that isn't in the file is added after the last key of its table, and a
 missing table is added at the end of the file. A file that sets the key in a
 form these commands can't edit, such as a dotted key or an inline table, is
 left unchanged and fails with `config_uneditable`.
+
+`set hosts` rewrites the whole list as one block, where the first
+`[[hosts]]` table was, and removes the file's `defaults.host` line. Comment
+lines are kept.
 
 ## JSON output
 
@@ -65,6 +71,9 @@ left unchanged and fails with `config_uneditable`.
 | Not one of the keys above, or a bad profile name in the key          | `config_key_unknown`   | 2    |
 | A value that breaks the key's rule                                   | `config_value_invalid` | 2    |
 | `set` of a `review.profiles.<name>` key for a profile that doesn't exist | `profile_unknown`  | 2    |
+| A `set hosts` value breaks a rule, or names a host twice             | `config_value_invalid` | 2    |
+| `set defaults.host` while `[[hosts]]` is set                         | `config_value_invalid` | 2    |
+| `set` or `unset hosts` on an inline `hosts = [...]`                  | `config_uneditable`    | 1    |
 | `config.toml` doesn't parse, or breaks a rule, before the change     | `config_invalid`       | 1    |
 | The file sets the key in a form `ws config` can't edit               | `config_uneditable`    | 1    |
 | The file can't be read, locked, or written                           | `internal`             | 1    |
@@ -75,6 +84,7 @@ left unchanged and fails with `config_uneditable`.
 $ ws config list
 defaults.host = "github.com"  # default
 defaults.owners = ["bobcob7", "acme"]
+hosts = [{name = "github.com", kind = "auto"}]  # default
 review.timeout = "1h"  # default
 review.remove_finished = true  # default
 review.profiles.security.when = ""  # default

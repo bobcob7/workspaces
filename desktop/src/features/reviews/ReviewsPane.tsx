@@ -6,6 +6,7 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { MarkdownText } from "../conversation/ConversationView";
 import { sectionChosen, selected } from "../ui/uiSlice";
 import { commandPreview, isReviewing, ownerRepo, shortSha, watchedCount } from "./groups";
+import { MergeBadge } from "./MergeBadge";
 import { PrDot } from "./PrDot";
 import { ReportView } from "./ReportView";
 import { defaultTriage, fetchReport, reportKey, reviewViewed, tabChosen, type DetailTab } from "./reportsSlice";
@@ -93,7 +94,7 @@ const PrHeader = ({ pr, review }: PrHeaderProps): JSX.Element => {
         )}
         <span className={styles.spacer} />
         <Button size="small" onClick={() => void api.openExternal(pr.url)}>
-          Open on GitHub
+          {pr.forge === "forgejo" ? "Open on Forgejo" : "Open on GitHub"}
         </Button>
         <Button
           size="small"
@@ -153,6 +154,7 @@ const PrHeader = ({ pr, review }: PrHeaderProps): JSX.Element => {
           <span className={styles.adds}>+{pr.additions}</span> <span className={styles.dels}>−{pr.deletions}</span> in{" "}
           {plural(pr.changedFiles, "file")}
         </span>
+        <MergeBadge merge={pr.merge} />
         {pr.isDraft && <span className={styles.chip}>Draft</span>}
         {pr.requested && <span className={styles.warnChip}>Review requested from you</span>}
         {requester !== null && requester !== "" && (
@@ -337,8 +339,8 @@ const EmptyWatch = ({ error }: { readonly error: AppError | null }): JSX.Element
       <div className={styles.emptyBox}>
         <h2>Watch a repo to see its pull requests here</h2>
         <p>
-          Reviews checks your watched GitHub repos for open pull requests and starts a review agent for any of them in
-          one click.
+          Reviews checks your watched repos for open pull requests and starts a review agent for any of them in one
+          click.
         </p>
         <Button variant="contained" onClick={() => dispatch(watchedOpened())}>
           Choose repos to watch

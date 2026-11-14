@@ -2,14 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import { fakeApi, head, pullRequest, reviewPlan, reviewsView, testStore } from "../../test/fixtures";
 import {
   askAboutPr,
+  authorFiltered,
   dismissPr,
   dismissedToggled,
   fetchReviews,
+  filtersCleared,
+  involvesFiltered,
+  mergeFiltered,
   openStartDialog,
   reviewsReducer,
+  setHosts,
   startReview,
   type ReviewsState,
 } from "./reviewsSlice";
+import { noFilters } from "./groups";
 
 const initial = (): ReviewsState => reviewsReducer(undefined, { type: "init" });
 
@@ -121,5 +127,41 @@ describe("askAboutPr", () => {
   it("holds the pull request while it starts", () => {
     const state = reviewsReducer(initial(), askAboutPr.pending("req", pullRequest()));
     expect(state.asking).toContain("github.com/bobcob7/buff-bear#42");
+  });
+});
+
+describe("filter reducers", () => {
+  it("starts with no filters", () => {
+    expect(initial().filters).toEqual(noFilters);
+  });
+
+  it("sets the author, involves, and merge filters", () => {
+    let state = reviewsReducer(initial(), authorFiltered("alice"));
+    state = reviewsReducer(state, involvesFiltered("requested"));
+    state = reviewsReducer(state, mergeFiltered("failing"));
+    expect(state.filters).toEqual({ author: "alice", involves: "requested", merge: "failing" });
+  });
+
+  it("clears the author and merge filters with null", () => {
+    const set = reviewsReducer(reviewsReducer(initial(), authorFiltered("alice")), mergeFiltered("failing"));
+    const state = reviewsReducer(reviewsReducer(set, authorFiltered(null)), mergeFiltered(null));
+    expect(state.filters).toEqual(noFilters);
+  });
+
+  it("clears every filter", () => {
+    const set = reviewsReducer(reviewsReducer(initial(), authorFiltered("alice")), involvesFiltered("mine"));
+    expect(reviewsReducer(set, filtersCleared()).filters).toEqual(noFilters);
+  });
+});
+
+describe("setHosts", () => {
+  it("stores the returned view", async () => {
+    const view = reviewsView({ checkedAtMs: 42 });
+    const api = fakeApi({ reviewsSetHosts: vi.fn(async () => view) });
+    const store = testStore({ api });
+    const hosts = [{ name: "git.example.com", kind: "forgejo" as const }];
+    await store.dispatch(setHosts(hosts));
+    expect(api.reviewsSetHosts).toHaveBeenCalledWith(hosts);
+    expect(store.getState().reviews.view).toEqual(view);
   });
 });

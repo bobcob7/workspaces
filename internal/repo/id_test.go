@@ -99,6 +99,33 @@ func TestValidateHostPort(t *testing.T) {
 	})
 }
 
+func TestValidateHostName(t *testing.T) {
+	t.Run("accepts a host name", func(t *testing.T) {
+		assert.NoError(t, ValidateHost("github.com"))
+	})
+	t.Run("accepts a host with a port", func(t *testing.T) {
+		assert.NoError(t, ValidateHost("git.example.com:3000"))
+	})
+	t.Run("rejects empty", func(t *testing.T) {
+		assert.Error(t, ValidateHost(""))
+	})
+	t.Run("rejects a path", func(t *testing.T) {
+		assert.Error(t, ValidateHost("a/b"))
+	})
+	t.Run("rejects a user", func(t *testing.T) {
+		assert.Error(t, ValidateHost("a@b"))
+	})
+	t.Run("rejects port 0", func(t *testing.T) {
+		assert.Error(t, ValidateHost("h:0"))
+	})
+	t.Run("rejects a port above 65535", func(t *testing.T) {
+		assert.Error(t, ValidateHost("h:65536"))
+	})
+	t.Run("rejects a leading zero in the port", func(t *testing.T) {
+		assert.Error(t, ValidateHost("h:03"))
+	})
+}
+
 func TestValidateHost(t *testing.T) {
 	t.Run("accepts a host name", func(t *testing.T) {
 		assert.NoError(t, validateHost("gitlab.example-1.com"))

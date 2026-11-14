@@ -1,13 +1,16 @@
 //! What the Reviews section shows: each watched repo's open pull requests,
 //! joined with their review workspaces into groups (ADRs 0032, 0039).
 
+use super::forge::{self, ForgeChoice, ForgeKind};
 use super::github::{self, NewCommits, PullRequest};
+use super::hosts::{self, ConfiguredHost};
 use super::names;
 use super::store::StateFile;
+use super::tokens::{TokenSource, TokenStore};
 use crate::model::{Entry, Kind, Link, Status};
 use crate::runner::AppError;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// What the last check found for one repo. A failed check keeps the pull
 /// requests from the one before.
@@ -21,6 +24,16 @@ pub struct RepoCheck {
 /// The new commits between a reviewed commit and a pull request's head.
 pub type CompareKey = (String, String, String);
 
+/// What the last check decided about one host (ADR 0060).
+#[derive(Debug, Clone, Default)]
+pub struct HostState {
+    pub kind: Option<ForgeKind>,
+    /// Whether the probe, not the setting, chose the forge.
+    pub detected: bool,
+    pub token: Option<TokenSource>,
+    pub error: Option<AppError>,
+}
+
 #[derive(Debug, Default)]
 pub struct CheckState {
     pub checking: bool,
@@ -28,8 +41,14 @@ pub struct CheckState {
     pub error: Option<AppError>,
     /// Cached repo ids, from the last `ws cache list`.
     pub cached: Vec<String>,
-    /// Hosts `gh` is signed in to, with the login on each.
+    /// The login on each host: `gh`'s, and Forgejo's from its token.
     pub hosts: BTreeMap<String, String>,
+    /// Probe answers kept for the app's run: true = Forgejo.
+    pub probed: BTreeMap<String, bool>,
+    /// What the last check decided per host.
+    pub forges: BTreeMap<String, HostState>,
+    /// config.toml's effective hosts, in order, as the last check read them.
+    pub configured: Vec<ConfiguredHost>,
     pub repos: BTreeMap<String, RepoCheck>,
     pub compares: HashMap<CompareKey, NewCommits>,
     pub warnings: Vec<String>,
@@ -71,6 +90,8 @@ pub struct ReviewView {
 pub struct PrView {
     pub key: String,
     pub repo: String,
+    /// The repo's host's forge; GitHub when the check didn't find one.
+    pub forge: ForgeKind,
     #[serde(flatten)]
     pub pr: PullRequest,
     pub group: Group,
@@ -86,6 +107,7 @@ pub struct PrView {
 #[serde(rename_all = "camelCase")]
 pub struct RepoView {
     pub id: String,
+    pub forge: Option<ForgeKind>,
     pub github: bool,
     pub watch: bool,
     pub auto_review: bool,
@@ -94,12 +116,31 @@ pub struct RepoView {
     pub error: Option<String>,
 }
 
+/// A host with a cached repo, for Settings › Forges.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostView {
+    pub host: String,
+    pub forge: Option<ForgeKind>,
+    pub choice: ForgeChoice,
+    pub detected: bool,
+    /// Listed in config.toml's [[hosts]].
+    pub configured: bool,
+    /// The first configured host, which short specs try first.
+    pub primary: bool,
+    pub login: Option<String>,
+    pub token: Option<TokenSource>,
+    pub token_env: Option<String>,
+    pub error: Option<AppError>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewsView {
     pub checking: bool,
     pub checked_at_ms: Option<i64>,
     pub error: Option<AppError>,
+    pub hosts: Vec<HostView>,
     pub repos: Vec<RepoView>,
     pub prs: Vec<PrView>,
     pub warnings: Vec<String>,
@@ -114,17 +155,25 @@ pub fn is_reviewing(status: Status) -> bool {
 }
 
 /// Whether a workspace reviews the pull request: by its review record's
-/// repo and `pr.number` (ADR 0039), or, for a workspace without one, by
-/// ADR 0032's name.
+/// repo and `pr.number` (ADR 0039); for a Forgejo review, which has no
+/// `pr`, by its record's repo and the name prefix of the pull request
+/// (ADR 0060); or, for a workspace without a record, by ADR 0032's name.
 pub fn is_review_of(entry: &Entry, repo: &str, number: u64) -> bool {
-    match &entry.review {
-        Some(record) => {
-            record.repo == repo && record.pr.as_ref().is_some_and(|pr| pr.number == number)
-        }
+    let Some(record) = &entry.review else {
+        return entry
+            .workspace_id
+            .as_deref()
+            .is_some_and(|id| names::is_review_of(id, &entry.repos, repo, number));
+    };
+    if record.repo != repo {
+        return false;
+    }
+    match &record.pr {
+        Some(pr) => pr.number == number,
         None => entry
             .workspace_id
             .as_deref()
-            .is_some_and(|id| names::is_review_of(id, &entry.repos, repo, number)),
+            .is_some_and(|id| id.starts_with(&names::review_prefix(repo, number))),
     }
 }
 
@@ -199,6 +248,7 @@ fn pr_view(
     PrView {
         key: format!("{repo}#{}", pr.number),
         repo: repo.to_string(),
+        forge: repo_forge(&check.forges, repo).unwrap_or_default(),
         pr: pr.clone(),
         group: group_of(dismissed, found.first().copied()),
         out_of_date: out_of_date.is_some(),
@@ -232,14 +282,56 @@ fn pr_view(
     }
 }
 
-/// The watched repos `gh` can check: cached, on a GitHub host, and watched.
+/// The forge a repo's host runs, as the last check found it.
+pub fn repo_forge(forges: &BTreeMap<String, HostState>, repo: &str) -> Option<ForgeKind> {
+    forge::host_of(repo)
+        .and_then(|host| forges.get(host))
+        .and_then(|known| known.kind)
+}
+
+/// The watched repos a check can list: cached, watched, and on a host with a forge.
 pub fn watched_repos(check: &CheckState, state: &StateFile) -> Vec<String> {
     check
         .cached
         .iter()
-        .filter(|id| github::is_github(id, &check.hosts) && state.reviews.watch(id).watch)
+        .filter(|id| repo_forge(&check.forges, id).is_some() && state.reviews.watch(id).watch)
         .cloned()
         .collect()
+}
+
+/// One entry per configured host in list order, then each cached host
+/// that isn't configured, sorted by host.
+fn hosts_view(check: &CheckState) -> Vec<HostView> {
+    let configured: Vec<&str> = check.configured.iter().map(|h| h.name.as_str()).collect();
+    let cached: BTreeSet<&str> = check
+        .cached
+        .iter()
+        .filter_map(|id| forge::host_of(id))
+        .collect();
+    let others = cached.into_iter().filter(|host| !configured.contains(host));
+    configured
+        .iter()
+        .copied()
+        .chain(others)
+        .map(|host| host_view(check, host))
+        .collect()
+}
+
+fn host_view(check: &CheckState, host: &str) -> HostView {
+    let known = check.forges.get(host);
+    let forge = known.and_then(|k| k.kind);
+    HostView {
+        host: host.to_string(),
+        forge,
+        choice: hosts::choice(&check.configured, host),
+        detected: known.is_some_and(|k| k.detected),
+        configured: check.configured.iter().any(|h| h.name == host),
+        primary: check.configured.first().is_some_and(|h| h.name == host),
+        login: check.hosts.get(host).cloned(),
+        token: known.and_then(|k| k.token),
+        token_env: (forge == Some(ForgeKind::Forgejo)).then(|| TokenStore::env_name(host)),
+        error: known.and_then(|k| k.error.clone()),
+    }
 }
 
 pub fn build(check: &CheckState, entries: &[Entry], state: &StateFile) -> ReviewsView {
@@ -250,9 +342,11 @@ pub fn build(check: &CheckState, entries: &[Entry], state: &StateFile) -> Review
         .map(|id| {
             let watch = state.reviews.watch(id);
             let result = check.repos.get(id);
+            let forge = repo_forge(&check.forges, id);
             RepoView {
                 id: id.clone(),
-                github: github::is_github(id, &check.hosts),
+                forge,
+                github: forge == Some(ForgeKind::Github),
                 watch: watch.watch,
                 auto_review: watch.auto_review,
                 open: result
@@ -279,6 +373,7 @@ pub fn build(check: &CheckState, entries: &[Entry], state: &StateFile) -> Review
         checking: check.checking,
         checked_at_ms: check.checked_at_ms,
         error: check.error.clone(),
+        hosts: hosts_view(check),
         repos,
         prs,
         warnings: check.warnings.clone(),
@@ -317,6 +412,7 @@ pub mod tests {
             }],
             created_at: "2026-10-24T09:00:00Z".to_string(),
             updated_at: "2026-10-24T09:00:00Z".to_string(),
+            ..PullRequest::default()
         }
     }
 
@@ -373,6 +469,13 @@ pub mod tests {
         CheckState {
             cached: vec![REPO.to_string(), "gitlab.example.com/team/svc".to_string()],
             hosts: BTreeMap::from([("github.com".to_string(), "bobcob7".to_string())]),
+            forges: BTreeMap::from([(
+                "github.com".to_string(),
+                HostState {
+                    kind: Some(ForgeKind::Github),
+                    ..HostState::default()
+                },
+            )]),
             repos: BTreeMap::from([(
                 REPO.to_string(),
                 RepoCheck {
@@ -517,9 +620,19 @@ pub mod tests {
     }
 
     #[test]
-    fn review_record_without_pull_request_is_not_a_review_of_one() {
+    fn review_record_without_pull_request_matches_by_name_prefix() {
         let mut commit = recorded(42, HEAD, Status::Working, "2026-10-24T10:00:00Z");
         commit.workspace_id = Some(names::review_name(REPO, 42, HEAD));
+        if let Some(record) = commit.review.as_mut() {
+            record.pr = None;
+        }
+        assert_eq!(group(&[commit], &watching()).0, Group::Reviewing);
+    }
+
+    #[test]
+    fn review_record_without_pull_request_with_other_name_is_not_a_review() {
+        let mut commit = recorded(42, HEAD, Status::Working, "2026-10-24T10:00:00Z");
+        commit.workspace_id = Some("careful-look-d8efb24f".to_string());
         if let Some(record) = commit.review.as_mut() {
             record.pr = None;
         }
@@ -573,5 +686,108 @@ pub mod tests {
         assert_eq!(json["key"], "github.com/bobcob7/buff-bear#42");
         assert_eq!(json["headRefOid"], HEAD);
         assert_eq!(json["group"], "toReview");
+    }
+
+    #[test]
+    fn record_without_pr_matches_by_name_prefix() {
+        let entry = Entry {
+            workspace_id: Some("review-buff-bear-42-3f2a9c1-d8efb24f".to_string()),
+            review: Some(ReviewRecord {
+                repo: REPO.to_string(),
+                git_ref: HEAD.to_string(),
+                requester: String::new(),
+                profiles: vec![],
+                pr: None,
+            }),
+            ..review(42, HEAD, Status::Working, "2026-10-24T10:00:00Z")
+        };
+        assert!(is_review_of(&entry, REPO, 42));
+        assert!(!is_review_of(&entry, REPO, 41));
+        assert!(!is_review_of(&entry, "github.com/o/other", 42));
+    }
+
+    #[test]
+    fn hosts_list_every_cached_host_sorted_with_token_env_for_forgejo() {
+        let mut check = checked(vec![]);
+        check.cached.push("git.example.com/team/svc".to_string());
+        check.forges.insert(
+            "git.example.com".to_string(),
+            HostState {
+                kind: Some(ForgeKind::Forgejo),
+                detected: true,
+                token: Some(TokenSource::File),
+                error: None,
+            },
+        );
+        let view = build(&check, &[], &watching());
+        let names: Vec<&str> = view.hosts.iter().map(|h| h.host.as_str()).collect();
+        assert_eq!(
+            names,
+            ["git.example.com", "github.com", "gitlab.example.com"]
+        );
+        let forgejo = &view.hosts[0];
+        assert_eq!(forgejo.forge, Some(ForgeKind::Forgejo));
+        assert!(forgejo.detected);
+        assert_eq!(forgejo.token, Some(TokenSource::File));
+        assert_eq!(
+            forgejo.token_env.as_deref(),
+            Some("WS_FORGEJO_TOKEN_GIT_EXAMPLE_COM")
+        );
+        assert_eq!(view.hosts[1].token_env, None);
+    }
+
+    #[test]
+    fn repo_view_github_flag_follows_forge() {
+        let mut check = checked(vec![]);
+        check.cached.push("git.example.com/team/svc".to_string());
+        check.forges.insert(
+            "git.example.com".to_string(),
+            HostState {
+                kind: Some(ForgeKind::Forgejo),
+                ..HostState::default()
+            },
+        );
+        let view = build(&check, &[], &watching());
+        let github = view.repos.iter().find(|r| r.id == REPO).unwrap();
+        assert!(github.github);
+        assert_eq!(github.forge, Some(ForgeKind::Github));
+        let forgejo = view
+            .repos
+            .iter()
+            .find(|r| r.id == "git.example.com/team/svc")
+            .unwrap();
+        assert!(!forgejo.github);
+        assert_eq!(forgejo.forge, Some(ForgeKind::Forgejo));
+    }
+
+    #[test]
+    fn host_view_serializes_configured_and_primary() {
+        let host = HostView {
+            host: "github.com".to_string(),
+            forge: Some(ForgeKind::Github),
+            choice: ForgeChoice::Github,
+            detected: false,
+            configured: true,
+            primary: true,
+            login: Some("bobcob7".to_string()),
+            token: None,
+            token_env: None,
+            error: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&host).unwrap(),
+            serde_json::json!({
+                "host": "github.com",
+                "forge": "github",
+                "choice": "github",
+                "detected": false,
+                "configured": true,
+                "primary": true,
+                "login": "bobcob7",
+                "token": null,
+                "tokenEnv": null,
+                "error": null
+            })
+        );
     }
 }

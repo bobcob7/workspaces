@@ -60,6 +60,16 @@ describe("ReviewsPane", () => {
     expect(screen.getByText("token bucket").tagName).toBe("STRONG");
   });
 
+  it("shows the merge status in the header", () => {
+    renderPane(reviewsView());
+    expect(screen.getByText("Ready to merge")).toBeInTheDocument();
+  });
+
+  it("opens Forgejo pull requests on Forgejo", () => {
+    renderPane(reviewsView({ prs: [pullRequest({ forge: "forgejo", repo: "git.example.com/team/svc" })] }));
+    expect(screen.getByRole("button", { name: "Open on Forgejo" })).toBeInTheDocument();
+  });
+
   it("shows the command a review will run", async () => {
     renderPane(reviewsView());
     expect(await screen.findByText("ws review start --pr 42 github.com/bobcob7/buff-bear")).toBeInTheDocument();

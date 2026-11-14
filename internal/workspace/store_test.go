@@ -94,7 +94,7 @@ func newGitEnv(t *testing.T) *gitEnv {
 	runner := git.NewRunner(discardLogger(), "git", up.Environ)
 	paths := config.NewPaths(t.TempDir())
 	require.NoError(t, os.MkdirAll(paths.Cache, 0o750))
-	c := cache.New(discardLogger(), runner, paths.Cache, config.Defaults{Host: gittest.Host, Owners: []string{"o"}})
+	c := cache.New(discardLogger(), runner, paths.Cache, config.SpecDefaults{Hosts: []string{gittest.Host}, Owners: []string{"o"}})
 	rec := &recordingGit{runner: runner}
 	s := newTestStore(t, rec, c)
 	s.root, s.stateDir = paths.Workspaces, paths.State

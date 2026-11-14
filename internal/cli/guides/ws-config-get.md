@@ -4,7 +4,7 @@
 ws config get [--json] <key>
 ```
 
-Prints one setting's value. Without `--json` the value is bare: a list prints
+Prints one setting's value. Hosts print one `NAME=KIND` per line. Without `--json` the value is bare: a list prints
 one item per line, a bool prints `true` or `false`, and an empty string prints
 an empty line.
 

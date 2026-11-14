@@ -17,8 +17,12 @@ import (
 	"github.com/bobcob7/workspaces/internal/review/profile"
 )
 
-// configOwnersKey is the one setting that takes any number of values (ADR 0054).
-const configOwnersKey = "defaults.owners"
+// configOwnersKey and configHostsKey are the settings that take any number
+// of values (ADR 0054, ADR 0061).
+const (
+	configOwnersKey = "defaults.owners"
+	configHostsKey  = "hosts"
+)
 
 // newConfigCmd is ws config: list, get, set, and unset config.toml's keys (ADR 0054).
 func (a *App) newConfigCmd() *cobra.Command {
@@ -114,7 +118,7 @@ func configSetArgs(cmd *cobra.Command, args []string) error {
 	if _, err := config.Lookup(nil, key); err != nil {
 		return configError(err)
 	}
-	if key == configOwnersKey || len(args) == 2 {
+	if key == configOwnersKey || key == configHostsKey || len(args) == 2 {
 		return nil
 	}
 	return usageErrorf("%s takes exactly one value for %s", commandName(cmd), key)
@@ -259,15 +263,19 @@ func (a *App) printConfigChange(setting config.Setting, changed bool) error {
 }
 
 // printConfigValue prints a value bare, as ws config get does: a list has one
-// item per line.
+// item per line, and a host list one name=kind per line.
 func (a *App) printConfigValue(value any) {
-	list, ok := value.([]string)
-	if !ok {
+	switch v := value.(type) {
+	case []string:
+		for _, s := range v {
+			fmt.Fprintln(a.stdout, s)
+		}
+	case []config.Host:
+		for _, h := range v {
+			fmt.Fprintln(a.stdout, h.Name+"="+h.Kind)
+		}
+	default:
 		fmt.Fprintln(a.stdout, value)
-		return
-	}
-	for _, s := range list {
-		fmt.Fprintln(a.stdout, s)
 	}
 }
 
@@ -292,6 +300,12 @@ func configTOML(value any) string {
 			quoted = append(quoted, strconv.Quote(s))
 		}
 		return "[" + strings.Join(quoted, ", ") + "]"
+	case []config.Host:
+		tables := make([]string, 0, len(v))
+		for _, h := range v {
+			tables = append(tables, "{name = "+strconv.Quote(h.Name)+", kind = "+strconv.Quote(h.Kind)+"}")
+		}
+		return "[" + strings.Join(tables, ", ") + "]"
 	}
 	return strconv.Quote(fmt.Sprint(value))
 }

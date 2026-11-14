@@ -1,0 +1,157 @@
+.group {
+  max-width: 820px;
+}
+
+.title {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.host {
+  min-width: 150px;
+  font: 12px var(--font-mono);
+  overflow-wrap: break-word;
+}
+
+.token {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.primary {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-sans, inherit);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.order {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.error {
+  color: #f85149;
+}
+
+.actions {
+  padding: 8px 24px 16px;
+}
+
+.caption {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .table thead {
+    display: none;
+  }
+
+  .table {
+    min-width: 0;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .table :global(.MuiTextField-root) {
+    width: 100%;
+  }
+
+  .group :global(.MuiButton-root),
+  .group :global(.MuiIconButton-root),
+  .group :global(.MuiInputBase-root),
+  .actions :global(.MuiButton-root) {
+    min-height: 40px;
+  }
+}
+
+.help {
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.help summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.help p,
+.help ul {
+  margin: 6px 0;
+}
+
+.help code {
+  overflow-wrap: anywhere;
+}
+
+.helpTitle {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+}

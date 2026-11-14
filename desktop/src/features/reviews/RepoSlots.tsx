@@ -5,16 +5,16 @@ import { useAppSelector } from "../../store";
 import styles from "./RepoSlots.module.css";
 
 /**
- * Whether gh can check a repo: one the last check marked as GitHub, or, for
- * a repo not cached yet, one on github.com (ADR 0035).
+ * Whether Reviews can check a repo: one the last check resolved to a forge,
+ * or, for a repo not cached yet, one on github.com (ADR 0035).
  */
 export const isGitHubRepo = (repoId: string, view: ReviewsView | null): boolean => {
   const known = view?.repos.find((r) => r.id === repoId);
   if (known !== undefined) {
-    return known.github;
+    return known.forge !== null;
   }
   const parts = repoId.split("/");
-  return parts.length === 3 && (parts[0] === "github.com" || (view?.repos.some((r) => r.github && r.id.startsWith(`${parts[0] ?? ""}/`)) ?? false));
+  return parts.length === 3 && (parts[0] === "github.com" || (view?.repos.some((r) => r.forge !== null && r.id.startsWith(`${parts[0] ?? ""}/`)) ?? false));
 };
 
 interface RepoIdProps {

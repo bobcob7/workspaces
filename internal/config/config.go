@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/bobcob7/workspaces/internal/repo"
 )
 
 // ErrInvalid marks a config.toml that can't be parsed or holds bad values.
@@ -22,12 +24,17 @@ const defaultHost = "github.com"
 const defaultFile = `# ws configuration. Edit it by hand, or with ws config set; ws keeps your comments.
 
 [defaults]
-# Host for repo specs without one, such as "owner/name".
-host = "github.com"
-
 # Owners to try, in order, for a bare repo name that isn't cached,
 # for example ["your-name", "your-org"].
 owners = []
+
+# Hosts for repo specs without one, such as "owner/name", tried in order;
+# the first is the primary host. With none, github.com is used.
+# kind is auto, github, or forgejo (read by the desktop app's Reviews).
+# Edit with ws config set hosts github.com git.example.com=forgejo
+# [[hosts]]
+# name = "github.com"
+# kind = "auto"
 
 # [review]
 # How long ws review wait waits for a review by default.
@@ -47,9 +54,23 @@ owners = []
 // timeout isn't set (ADR 0039).
 const defaultReviewTimeout = 60 * time.Minute
 
+// Host kinds (ADR 0061). Only the desktop acts on them.
+const (
+	KindAuto    = "auto"
+	KindGithub  = "github"
+	KindForgejo = "forgejo"
+)
+
+// Host is one [[hosts]] table (ADR 0061).
+type Host struct {
+	Name string `toml:"name" json:"name"`
+	Kind string `toml:"kind" json:"kind"`
+}
+
 // Config is the contents of config.toml.
 type Config struct {
 	Defaults Defaults `toml:"defaults"`
+	Hosts    []Host   `toml:"hosts"`
 	Review   Review   `toml:"review"`
 }
 
@@ -57,6 +78,34 @@ type Config struct {
 type Defaults struct {
 	Host   string   `toml:"host"`
 	Owners []string `toml:"owners"`
+}
+
+// SpecDefaults is what short specs resolve against (ADRs 0007, 0061).
+type SpecDefaults struct {
+	Hosts  []string // effective host names, in order; never empty
+	Owners []string // defaults.owners
+}
+
+// EffectiveHosts is [[hosts]], or defaults.host, or github.com; never empty.
+func (c Config) EffectiveHosts() []Host { //nolint:gocritic // hugeParam: the contract takes Config by value, like the rest of this file.
+	if len(c.Hosts) > 0 {
+		return slices.Clone(c.Hosts)
+	}
+	host := c.Defaults.Host
+	if host == "" {
+		host = defaultHost
+	}
+	return []Host{{Name: host, Kind: KindAuto}}
+}
+
+// SpecDefaults returns the effective hosts' names and defaults.owners.
+func (c Config) SpecDefaults() SpecDefaults { //nolint:gocritic // hugeParam: the contract takes Config by value, like the rest of this file.
+	hosts := c.EffectiveHosts()
+	names := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		names = append(names, host.Name)
+	}
+	return SpecDefaults{Hosts: names, Owners: c.Defaults.Owners}
 }
 
 // Review configures ws review (ADRs 0038, 0039).
@@ -109,17 +158,33 @@ func parse(data []byte) (Config, error) {
 		for _, key := range undecoded {
 			keys = append(keys, key.String())
 		}
-		return Config{}, fmt.Errorf("%w: unknown keys %s", ErrInvalid, strings.Join(keys, ", "))
+		return Config{}, fmt.Errorf("%w: unknown keys %s%s", ErrInvalid, strings.Join(keys, ", "), tokenHint(keys))
 	}
-	return cfg.normalize()
+	return cfg.normalize(meta.IsDefined("defaults", "host"))
+}
+
+// tokenHint says where a token goes when keys includes hosts.token.
+func tokenHint(keys []string) string {
+	if !slices.Contains(keys, "hosts.token") {
+		return ""
+	}
+	return "; tokens don't go in config.toml: use WS_FORGEJO_TOKEN_<HOST> or Settings › Forges"
 }
 
 // normalize lowercases names, since canonical ids are lowercase (ADR 0007),
-// and rejects values that can't appear in a repo id.
-func (c Config) normalize() (Config, error) {
+// and rejects values that can't appear in a repo id. hostSet is whether the
+// file sets defaults.host, which can't be used together with [[hosts]].
+func (c Config) normalize(hostSet bool) (Config, error) { //nolint:gocritic // hugeParam: the contract takes Config by value, like the rest of this file.
+	hosts, err := normalizeHosts(c.Hosts)
+	if err != nil {
+		return Config{}, err
+	}
 	host := strings.ToLower(c.Defaults.Host)
 	if err := validateHost(host); err != nil {
 		return Config{}, err
+	}
+	if hostSet && len(hosts) > 0 {
+		return Config{}, fmt.Errorf("%w: set defaults.host or [[hosts]], not both; move %q into [[hosts]] with ws config set hosts", ErrInvalid, host)
 	}
 	owners := make([]string, 0, len(c.Defaults.Owners))
 	for _, owner := range c.Defaults.Owners {
@@ -134,7 +199,48 @@ func (c Config) normalize() (Config, error) {
 	if err := c.Review.check(); err != nil {
 		return Config{}, err
 	}
-	return Config{Defaults: Defaults{Host: host, Owners: owners}, Review: c.Review}, nil
+	return Config{Defaults: Defaults{Host: host, Owners: owners}, Hosts: hosts, Review: c.Review}, nil
+}
+
+// normalizeHosts lowercases names, fills an empty kind with "auto", and
+// checks the rules in docs/config.md. Shared by parse and by ws config set
+// hosts. It returns nil for no hosts.
+func normalizeHosts(hosts []Host) ([]Host, error) {
+	if len(hosts) == 0 {
+		return nil, nil
+	}
+	normalized := make([]Host, 0, len(hosts))
+	for i, host := range hosts {
+		entry, err := normalizeHostEntry(i+1, host)
+		if err != nil {
+			return nil, err
+		}
+		if slices.ContainsFunc(normalized, func(h Host) bool { return h.Name == entry.Name }) {
+			return nil, fmt.Errorf("%w: hosts lists %q twice", ErrInvalid, entry.Name)
+		}
+		normalized = append(normalized, entry)
+	}
+	return normalized, nil
+}
+
+// normalizeHostEntry checks the n-th [[hosts]] table, counting from 1.
+func normalizeHostEntry(n int, host Host) (Host, error) {
+	name := strings.ToLower(host.Name)
+	if name == "" {
+		return Host{}, fmt.Errorf("%w: hosts entry %d has no name", ErrInvalid, n)
+	}
+	if err := repo.ValidateHost(name); err != nil {
+		return Host{}, fmt.Errorf("%w: hosts entry %d: name %q: %w", ErrInvalid, n, name, err)
+	}
+	kind := host.Kind
+	if kind == "" {
+		kind = KindAuto
+	}
+	switch kind {
+	case KindAuto, KindGithub, KindForgejo:
+		return Host{Name: name, Kind: kind}, nil
+	}
+	return Host{}, fmt.Errorf("%w: hosts entry %d (%s): kind must be auto, github, or forgejo, not %q", ErrInvalid, n, name, host.Kind)
 }
 
 // check rejects a negative timeout and a when that isn't always, auto, or

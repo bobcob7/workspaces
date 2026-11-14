@@ -257,10 +257,62 @@ export interface NewCommits {
   readonly subjects: readonly string[];
 }
 
+export type ForgeKind = "github" | "forgejo";
+export type ForgeChoice = "auto" | ForgeKind;
+
+/** A merge status, in precedence order for the reasons (reference.md). */
+export type MergeStatus =
+  | "draft"
+  | "conflicting"
+  | "failing"
+  | "behind"
+  | "changesRequested"
+  | "awaitingApproval"
+  | "blocked"
+  | "pending"
+  | "unknown"
+  | "ready";
+
+export interface Checks {
+  readonly total: number;
+  readonly passed: number;
+  readonly failed: number;
+  readonly pending: number;
+}
+
+export interface MergeInfo {
+  readonly status: MergeStatus;
+  readonly reasons: readonly MergeStatus[];
+  readonly checks: Checks;
+}
+
+/** A forge host of a cached repo, with its forge, login and token state. */
+export interface HostView {
+  readonly host: string;
+  readonly forge: ForgeKind | null;
+  readonly choice: ForgeChoice;
+  readonly detected: boolean;
+  /** Listed in config.toml's [[hosts]]. */
+  readonly configured: boolean;
+  /** The first configured host, which short specs try first. */
+  readonly primary: boolean;
+  readonly login: string | null;
+  readonly token: "env" | "file" | null;
+  readonly tokenEnv: string | null;
+  readonly error: AppError | null;
+}
+
+/** A host as config.toml's [[hosts]] lists it. */
+export interface ConfiguredHost {
+  readonly name: string;
+  readonly kind: ForgeChoice;
+}
+
 /** An open pull request in a watched repo, with its reviews. */
 export interface PullRequest {
   readonly key: string;
   readonly repo: string;
+  readonly forge: ForgeKind;
   readonly number: number;
   readonly title: string;
   readonly author: { readonly login: string };
@@ -282,12 +334,14 @@ export interface PullRequest {
   /** Newest first. */
   readonly reviews: readonly ReviewRun[];
   readonly newCommits: NewCommits | null;
+  readonly merge: MergeInfo;
 }
 
 /** A cached repo, and whether its pull requests are watched. */
 export interface WatchRepo {
   readonly id: string;
   readonly github: boolean;
+  readonly forge: ForgeKind | null;
   readonly watch: boolean;
   readonly autoReview: boolean;
   readonly open: number | null;
@@ -300,6 +354,7 @@ export interface ReviewsView {
   readonly checkedAtMs: number | null;
   readonly error: AppError | null;
   readonly repos: readonly WatchRepo[];
+  readonly hosts: readonly HostView[];
   readonly prs: readonly PullRequest[];
   readonly warnings: readonly string[];
 }
@@ -318,6 +373,7 @@ export interface ProfileChoice {
 export interface ReviewPlan {
   readonly name: string;
   readonly repo: string;
+  readonly forge: ForgeKind;
   readonly number: number;
   readonly head: string;
   /** Empty leaves the choice to ws and config.toml. */
@@ -662,8 +718,8 @@ export interface Settings {
   readonly open: OpenSettings;
 }
 
-export type ConfigType = "string" | "strings" | "duration" | "bool";
-export type ConfigValue = string | boolean | readonly string[];
+export type ConfigType = "string" | "strings" | "duration" | "bool" | "hosts";
+export type ConfigValue = string | boolean | readonly string[] | readonly ConfiguredHost[];
 
 /** One key of config.toml, with its effective value and default (ws config). */
 export interface ConfigSetting {
@@ -1082,6 +1138,9 @@ export const api = {
   reviewsLoadRepos: async (): Promise<ReviewsView> => call<ReviewsView>("reviews_load_repos"),
   reviewsSetWatch: async (repo: string, watch: boolean, autoReview: boolean): Promise<ReviewsView> =>
     call<ReviewsView>("reviews_set_watch", { repo, watch, autoReview }),
+  reviewsSetHosts: async (hosts: readonly ConfiguredHost[]): Promise<ReviewsView> => call<ReviewsView>("reviews_set_hosts", { hosts }),
+  reviewsSetToken: async (host: string, token: string): Promise<ReviewsView> =>
+    call<ReviewsView>("reviews_set_token", { host, token }),
   reviewsDismiss: async (repo: string, number: number, head: string): Promise<ReviewsView> =>
     call<ReviewsView>("reviews_dismiss", { repo, number, head }),
   reviewsRestore: async (repo: string, number: number): Promise<ReviewsView> =>

@@ -8,6 +8,7 @@ import type {
   ConfigSetting,
   Entry,
   FixPlan,
+  HostView,
   ListedProfile,
   Loop,
   LoopHistoryRun,
@@ -93,6 +94,7 @@ export const head = "3f2a9c1e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c";
 export const pullRequest = (overrides: Partial<PullRequest> = {}): PullRequest => ({
   key: "github.com/bobcob7/buff-bear#42",
   repo: "github.com/bobcob7/buff-bear",
+  forge: "github",
   number: 42,
   title: "Add rate limiting to login",
   author: { login: "alice" },
@@ -113,6 +115,7 @@ export const pullRequest = (overrides: Partial<PullRequest> = {}): PullRequest =
   mine: false,
   reviews: [],
   newCommits: null,
+  merge: { status: "ready", reasons: [], checks: { total: 2, passed: 2, failed: 0, pending: 0 } },
   ...overrides,
 });
 
@@ -132,14 +135,29 @@ export const reviewRun = (overrides: Partial<ReviewRun> = {}): ReviewRun => ({
   ...overrides,
 });
 
+export const hostView = (overrides: Partial<HostView> = {}): HostView => ({
+  host: "github.com",
+  forge: "github",
+  choice: "auto",
+  detected: false,
+  configured: true,
+  primary: false,
+  login: null,
+  token: null,
+  tokenEnv: null,
+  error: null,
+  ...overrides,
+});
+
 export const reviewsView = (overrides: Partial<ReviewsView> = {}): ReviewsView => ({
   checking: false,
   checkedAtMs: Date.parse("2026-10-24T10:00:00Z"),
   error: null,
   repos: [
-    { id: "github.com/bobcob7/buff-bear", github: true, watch: true, autoReview: false, open: 1, checkedAtMs: 1, error: null },
-    { id: "gitlab.example.com/team/svc", github: false, watch: false, autoReview: false, open: null, checkedAtMs: null, error: null },
+    { id: "github.com/bobcob7/buff-bear", github: true, forge: "github", watch: true, autoReview: false, open: 1, checkedAtMs: 1, error: null },
+    { id: "gitlab.example.com/team/svc", github: false, forge: null, watch: false, autoReview: false, open: null, checkedAtMs: null, error: null },
   ],
+  hosts: [hostView({ host: "github.com", forge: "github", login: "bobcob7" }), hostView({ host: "gitlab.example.com", forge: null })],
   prs: [pullRequest()],
   warnings: [],
   ...overrides,
@@ -148,6 +166,7 @@ export const reviewsView = (overrides: Partial<ReviewsView> = {}): ReviewsView =
 export const reviewPlan = (overrides: Partial<ReviewPlan> = {}): ReviewPlan => ({
   name: "review-buff-bear-42-3f2a9c1",
   repo: "github.com/bobcob7/buff-bear",
+  forge: "github",
   number: 42,
   head,
   profiles: [],
@@ -355,6 +374,7 @@ export const configListing = (): ConfigListing => ({
   settings: [
     { key: "defaults.host", type: "string", value: "github.com", default: "github.com", set: false },
     { key: "defaults.owners", type: "strings", value: ["bobcob7", "acme"], default: [], set: true },
+    { key: "hosts", type: "hosts", value: [{ name: "github.com", kind: "auto" }], default: [{ name: "github.com", kind: "auto" }], set: false },
     { key: "review.timeout", type: "duration", value: "1h", default: "1h", set: false },
     { key: "review.remove_finished", type: "bool", value: true, default: true, set: false },
     { key: "review.profiles.security.when", type: "string", value: "", default: "", set: false },
@@ -566,6 +586,8 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   reviewsCheckNow: vi.fn(async () => reviewsView()),
   reviewsLoadRepos: vi.fn(async () => reviewsView()),
   reviewsSetWatch: vi.fn(async () => reviewsView()),
+  reviewsSetHosts: vi.fn(async () => reviewsView()),
+  reviewsSetToken: vi.fn(async () => reviewsView()),
   reviewsDismiss: vi.fn(async () => reviewsView()),
   reviewsRestore: vi.fn(async () => reviewsView()),
   reviewsPlan: vi.fn(async () => reviewPlan()),

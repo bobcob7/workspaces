@@ -37,11 +37,12 @@ const (
 	TypeStrings  Type = "strings"
 	TypeDuration Type = "duration"
 	TypeBool     Type = "bool"
+	TypeHosts    Type = "hosts"
 )
 
 // Setting is one key of config.toml, as ws config lists it. Value is the
 // effective value: the file's, or Default. Value and Default are string,
-// []string, or bool; a duration is its short string ("1h30m").
+// []string, bool, or []Host; a duration is its short string ("1h30m").
 type Setting struct {
 	Key     string `json:"key"`
 	Type    Type   `json:"type"`
@@ -60,8 +61,8 @@ type keyRule struct {
 
 // Settings parses data as config.toml, with the same checks as Load, and
 // returns every key in docs/tools/ws-config.md order: defaults.host,
-// defaults.owners, review.timeout, review.remove_finished, then .when and
-// .model for each [review.profiles.<name>] table, sorted by name.
+// defaults.owners, hosts, review.timeout, review.remove_finished, then .when
+// and .model for each [review.profiles.<name>] table, sorted by name.
 func Settings(data []byte) ([]Setting, error) {
 	cfg, meta, err := load(data)
 	if err != nil {
@@ -69,11 +70,11 @@ func Settings(data []byte) ([]Setting, error) {
 	}
 	var settings []Setting
 	for _, rule := range fixedRules() {
-		settings = append(settings, settingFor(rule, cfg, meta))
+		settings = append(settings, settingFor(rule, &cfg, meta))
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Review.Profiles)) {
 		for _, leaf := range []string{"when", "model"} {
-			settings = append(settings, settingFor(profileRule(name, leaf), cfg, meta))
+			settings = append(settings, settingFor(profileRule(name, leaf), &cfg, meta))
 		}
 	}
 	return settings, nil
@@ -91,22 +92,28 @@ func Lookup(data []byte, key string) (Setting, error) {
 	if err != nil {
 		return Setting{}, err
 	}
-	return settingFor(rule, cfg, meta), nil
+	return settingFor(rule, &cfg, meta), nil
 }
 
 // Set returns data with key set to values, plus whether the text changed.
 // Values are checked and normalized by the key's rule (ErrValueInvalid).
-// Only key's lines change (see docs/tools/ws-config.md). The result is
-// parsed again and must decode to the normalized value, or Set returns
-// ErrUneditable.
+// Only key's lines change (see docs/tools/ws-config.md), except that hosts
+// rewrites its whole list (rewriteHosts). The result is parsed again and
+// must decode to the normalized value, or Set returns ErrUneditable.
 func Set(data []byte, key string, values []string) ([]byte, bool, error) {
 	rule, err := parseKey(key)
 	if err != nil {
 		return nil, false, err
 	}
+	if rule.typ == TypeHosts {
+		return replaceHosts(data, values)
+	}
 	want, err := normalize(rule, values)
 	if err != nil {
 		return nil, false, err
+	}
+	if rule.key == "defaults.host" && hostsListSet(data) {
+		return nil, false, fmt.Errorf("%w: defaults.host can't be set while [[hosts]] is; use ws config set hosts", ErrValueInvalid)
 	}
 	lines, err := setLines(splitLines(data), rule, rule.leaf+" = "+encode(want))
 	if err != nil {
@@ -121,11 +128,15 @@ func Set(data []byte, key string, values []string) ([]byte, bool, error) {
 
 // Unset returns data without key, plus whether the text changed. A key
 // that isn't set leaves data as it is. A [review.profiles.<name>] table
-// left with no keys loses its header line too.
+// left with no keys loses its header line too. Unset of hosts removes
+// every [[hosts]] table.
 func Unset(data []byte, key string) ([]byte, bool, error) {
 	rule, err := parseUnsetKey(key)
 	if err != nil {
 		return nil, false, err
+	}
+	if rule.typ == TypeHosts {
+		return replaceHosts(data, nil)
 	}
 	lines := splitLines(data)
 	sp, found, err := findSpan(lines, rule)
@@ -138,7 +149,7 @@ func Unset(data []byte, key string) ([]byte, bool, error) {
 	lines = dropEmptyProfile(slices.Delete(lines, sp.first, sp.last+1), rule.table)
 	out := []byte(strings.Join(lines, ""))
 	cfg, meta, err := load(out)
-	if err != nil || settingFor(rule, cfg, meta).Set {
+	if err != nil || settingFor(rule, &cfg, meta).Set {
 		return nil, false, fmt.Errorf("%w: %s", ErrUneditable, rule.key)
 	}
 	return out, !bytes.Equal(data, out), nil
@@ -187,6 +198,7 @@ func fixedRules() []keyRule {
 	return []keyRule{
 		{key: "defaults.host", typ: TypeString, table: "defaults", leaf: "host"},
 		{key: "defaults.owners", typ: TypeStrings, table: "defaults", leaf: "owners"},
+		{key: "hosts", typ: TypeHosts, table: "", leaf: "hosts"},
 		{key: "review.timeout", typ: TypeDuration, table: "review", leaf: "timeout"},
 		{key: "review.remove_finished", typ: TypeBool, table: "review", leaf: "remove_finished"},
 	}
@@ -247,23 +259,29 @@ func load(data []byte) (Config, *toml.MetaData, error) {
 }
 
 // settingFor is rule's Setting for a parsed file.
-func settingFor(rule keyRule, cfg Config, meta *toml.MetaData) Setting {
+func settingFor(rule keyRule, cfg *Config, meta *toml.MetaData) Setting {
+	set := meta.IsDefined(strings.Split(rule.key, ".")...)
+	if rule.typ == TypeHosts {
+		set = set && len(cfg.Hosts) > 0
+	}
 	return Setting{
 		Key:     rule.key,
 		Type:    rule.typ,
 		Value:   valueOf(rule, cfg),
 		Default: defaultOf(rule),
-		Set:     meta.IsDefined(strings.Split(rule.key, ".")...),
+		Set:     set,
 	}
 }
 
 // valueOf is rule's effective value in cfg.
-func valueOf(rule keyRule, cfg Config) any {
+func valueOf(rule keyRule, cfg *Config) any {
 	switch rule.key {
 	case "defaults.host":
-		return cfg.Defaults.Host
+		return cfg.EffectiveHosts()[0].Name
 	case "defaults.owners":
 		return cfg.Defaults.Owners
+	case "hosts":
+		return cfg.EffectiveHosts()
 	case "review.timeout":
 		return FormatDuration(cfg.Review.WaitTimeout())
 	case "review.remove_finished":
@@ -283,6 +301,8 @@ func defaultOf(rule keyRule) any {
 		return defaultHost
 	case "defaults.owners":
 		return []string{}
+	case "hosts":
+		return []Host{{Name: defaultHost, Kind: KindAuto}}
 	case "review.timeout":
 		return FormatDuration(defaultReviewTimeout)
 	case "review.remove_finished":
@@ -400,6 +420,200 @@ func normalizeModel(value string) (string, error) {
 	return value, nil
 }
 
+// parseHostValues reads the NAME or NAME=KIND values of ws config set hosts.
+func parseHostValues(values []string) ([]Host, error) {
+	hosts := make([]Host, 0, len(values))
+	for _, value := range values {
+		if err := checkText(value); err != nil {
+			return nil, err
+		}
+		name, kind, found := strings.Cut(value, "=")
+		if !found {
+			kind = KindAuto
+		}
+		hosts = append(hosts, Host{Name: name, Kind: kind})
+	}
+	normalized, err := normalizeHosts(hosts)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValueInvalid, err)
+	}
+	return normalized, nil
+}
+
+// replaceHosts is Set and Unset for hosts: values become the whole list, and
+// none removes it. A file that doesn't set hosts stays as it is for none.
+func replaceHosts(data []byte, values []string) ([]byte, bool, error) {
+	want, err := parseHostValues(values)
+	if err != nil {
+		return nil, false, err
+	}
+	_, meta, err := load(data)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(want) == 0 && !meta.IsDefined("hosts") {
+		return data, false, nil
+	}
+	lines, err := rewriteHosts(splitLines(data), want)
+	if err != nil {
+		return nil, false, err
+	}
+	out := []byte(strings.Join(lines, ""))
+	if err := verifyHosts(out, want); err != nil {
+		return nil, false, err
+	}
+	return out, !bytes.Equal(data, out), nil
+}
+
+// hostsListSet reports whether data sets [[hosts]] with at least one entry.
+func hostsListSet(data []byte) bool {
+	cfg, _, err := load(data)
+	return err == nil && len(cfg.Hosts) > 0
+}
+
+// rewriteHosts returns lines with every [[hosts]] table replaced by hosts,
+// written as one block where the first table was. defaults.host is removed
+// too, and comment lines are kept (reference-hosts.md).
+func rewriteHosts(lines []string, hosts []Host) ([]string, error) {
+	if err := checkHostsForm(lines); err != nil {
+		return nil, err
+	}
+	drop, err := dropMarks(lines)
+	if err != nil {
+		return nil, err
+	}
+	kept := make([]string, 0, len(lines))
+	at := -1
+	for i, line := range lines {
+		if !drop[i] {
+			kept = append(kept, line)
+			continue
+		}
+		if at < 0 && isHostsHeader(lineText(line)) {
+			at = len(kept)
+		}
+	}
+	if len(hosts) == 0 {
+		return kept, nil
+	}
+	eol := newline(lines)
+	block := hostsBlock(hosts, eol)
+	if at < 0 {
+		return appendBlock(kept, block, eol), nil
+	}
+	return insertBlock(kept, at, block, eol), nil
+}
+
+// checkHostsForm rejects hosts set in a form rewriteHosts can't edit, such
+// as an inline hosts = [...].
+func checkHostsForm(lines []string) error {
+	meta, err := toml.Decode(strings.Join(lines, ""), &Config{})
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	if !meta.IsDefined("hosts") || slices.ContainsFunc(lines, func(line string) bool { return isHostsHeader(lineText(line)) }) {
+		return nil
+	}
+	return fmt.Errorf("%w: hosts", ErrUneditable)
+}
+
+// dropMarks marks the lines rewriteHosts removes: each [[hosts]] header,
+// each key of a hosts table with all the lines of its value, and the
+// defaults.host line.
+func dropMarks(lines []string) ([]bool, error) {
+	names := sectionNames(lines)
+	drop := make([]bool, len(lines))
+	for i := 0; i < len(lines); i++ {
+		text := lineText(lines[i])
+		if isHostsHeader(text) {
+			drop[i] = true
+			continue
+		}
+		if names[i] != "[hosts" || keyName(text) == "" {
+			continue
+		}
+		sp, ok := spanAt(lines, i)
+		if !ok {
+			return nil, fmt.Errorf("%w: hosts", ErrUneditable)
+		}
+		markRange(drop, sp.first, sp.last)
+		i = sp.last
+	}
+	sp, found, err := findSpan(lines, keyRule{key: "defaults.host", table: "defaults", leaf: "host"})
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		markRange(drop, sp.first, sp.last)
+	}
+	return drop, nil
+}
+
+// markRange sets drop from first through last.
+func markRange(drop []bool, first, last int) {
+	for i := first; i <= last; i++ {
+		drop[i] = true
+	}
+}
+
+// isHostsHeader reports whether text is a [[hosts]] header, spaces and tabs
+// aside.
+func isHostsHeader(text string) bool {
+	return strings.HasPrefix(withoutBlanks(text), "[[hosts]]")
+}
+
+// hostsBlock is hosts as [[hosts]] tables, with a blank line between them.
+func hostsBlock(hosts []Host, eol string) []string {
+	var block []string
+	for i, host := range hosts {
+		if i > 0 {
+			block = append(block, eol)
+		}
+		block = append(block, "[[hosts]]"+eol, "name = "+quote(host.Name)+eol, "kind = "+quote(host.Kind)+eol)
+	}
+	return block
+}
+
+// insertBlock puts block at index at of kept, with a blank line after it
+// when a non-blank line follows.
+func insertBlock(kept []string, at int, block []string, eol string) []string {
+	if at > 0 && lineEnding(kept[at-1]) == "" {
+		kept[at-1] += eol
+	}
+	out := slices.Insert(kept, at, block...)
+	after := at + len(block)
+	if after < len(out) && strings.TrimSpace(lineText(out[after])) != "" {
+		out = slices.Insert(out, after, eol)
+	}
+	return out
+}
+
+// appendBlock adds block at the end of kept, after one blank line, the way
+// appendTable adds a table.
+func appendBlock(kept, block []string, eol string) []string {
+	if len(kept) == 0 {
+		return block
+	}
+	if lineEnding(kept[len(kept)-1]) == "" {
+		kept[len(kept)-1] += eol
+	}
+	kept = append(kept, eol)
+	return append(kept, block...)
+}
+
+// verifyHosts checks that out sets hosts to want and doesn't set defaults.host.
+func verifyHosts(out []byte, want []Host) error {
+	hosts, err := Lookup(out, "hosts")
+	if err != nil || hosts.Set != (len(want) > 0) || (hosts.Set && !reflect.DeepEqual(hosts.Value, want)) {
+		return fmt.Errorf("%w: hosts", ErrUneditable)
+	}
+	host, err := Lookup(out, "defaults.host")
+	if err != nil || host.Set {
+		return fmt.Errorf("%w: hosts", ErrUneditable)
+	}
+	return nil
+}
+
 // encode is value as TOML text.
 func encode(value any) string {
 	switch v := value.(type) {
@@ -460,13 +674,17 @@ func headerName(text string) (string, bool) {
 		return "", false
 	}
 	inner, _, _ := strings.Cut(trimmed[1:], "]")
-	name := strings.Map(func(r rune) rune {
+	return withoutBlanks(inner), true
+}
+
+// withoutBlanks is text with spaces and tabs removed.
+func withoutBlanks(text string) string {
+	return strings.Map(func(r rune) rune {
 		if r == ' ' || r == '\t' {
 			return -1
 		}
 		return r
-	}, inner)
-	return name, true
+	}, text)
 }
 
 // keyName is the key a "key = value" line sets, dotted names included, or ""

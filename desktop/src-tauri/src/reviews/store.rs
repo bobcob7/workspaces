@@ -1,6 +1,7 @@
 //! `desktop.json`: watched repos, dismissals, auto-review records, and
 //! settings (ADR 0034). The backend is its only writer.
 
+use super::forge::ForgeChoice;
 use crate::runner::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -142,12 +143,27 @@ pub struct OpenSettings {
     pub editor: String,
 }
 
+/// A host's forge setting (ADR 0060).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ForgeHost {
+    pub kind: ForgeChoice,
+}
+
+/// Legacy (ADR 0060): moved to config.toml by ADR 0061; read once by hosts::migrate.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ForgeSettings {
+    pub hosts: BTreeMap<String, ForgeHost>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub reviews: ReviewSettings,
     pub notifications: NotificationSettings,
     pub open: OpenSettings,
+    pub forges: ForgeSettings,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -668,5 +684,49 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"open":{"editor":"zed"}}"#).unwrap();
         assert_eq!(settings.open.file_manager, "");
         assert_eq!(settings.open.editor, "zed");
+    }
+
+    #[test]
+    fn file_without_forges_loads_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"settings":{"reviews":{"skipDrafts":false}}}"#,
+        )
+        .unwrap();
+        let data = Store::open(Some(path)).get();
+        assert_eq!(data.settings.forges, ForgeSettings::default());
+    }
+
+    #[test]
+    fn legacy_forges_still_load() {
+        let forges: ForgeSettings =
+            serde_json::from_str(r#"{"hosts":{"git.example.com":{"kind":"forgejo"}}}"#).unwrap();
+        assert_eq!(
+            forges.hosts.into_iter().collect::<Vec<_>>(),
+            vec![(
+                "git.example.com".to_string(),
+                ForgeHost {
+                    kind: ForgeChoice::Forgejo
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn forges_serialize_as_in_reference() {
+        let forges = ForgeSettings {
+            hosts: BTreeMap::from([(
+                "git.example.com".to_string(),
+                ForgeHost {
+                    kind: ForgeChoice::Forgejo,
+                },
+            )]),
+        };
+        assert_eq!(
+            serde_json::to_value(&forges).unwrap(),
+            serde_json::json!({"hosts": {"git.example.com": {"kind": "forgejo"}}})
+        );
     }
 }
