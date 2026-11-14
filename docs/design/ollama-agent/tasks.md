@@ -1853,8 +1853,26 @@ func NewSessionID() string // "rn-" + 8 random lowercase hex
 
 // Run is run.toml (reference.md), including MCPServers, MCPTools, MCPDeny,
 // MCPUpfront, UserInstructions, ModelAlias, API, MaxOutput, Temperature,
-// Reasoning, Parent ("" for none) and TraceID.
+// Reasoning, Parent ("" for none), TraceID, EndpointAlias, EndpointFlag
+// and EndpointHistory.
 type Run struct{ /* every key in reference.md's run.toml, toml tags */ }
+// EndpointEntry is one [[endpoint_history]] entry.
+type EndpointEntry struct {
+	Since         time.Time `toml:"since"`
+	Step          int       `toml:"step"`
+	Reason        string    `toml:"reason"` // spawn | retry | resume
+	Endpoint      string    `toml:"endpoint"`
+	URL           string    `toml:"url"`
+	API           string    `toml:"api"`
+	Model         string    `toml:"model"`
+	ContextTokens int       `toml:"context_tokens"`
+}
+// Key is the run's config.RunKey (model_alias, model, endpoint_alias,
+// endpoint_flag).
+func (r *Run) Key() config.RunKey
+// Current is the last EndpointHistory entry (the spawn's resolution when
+// the history is empty, for runs written before it existed).
+func (r *Run) Current() EndpointEntry
 // Status is status.json; Exit and ExitMessage are null while running.
 type Status struct {
 	Version          int          `json:"version"`
@@ -1871,6 +1889,10 @@ type Status struct {
 	ExitMessage      *string      `json:"exit_message"`
 	Verdict          *string      `json:"verdict"`
 	UpdatedAt        time.Time    `json:"updated_at"`
+	Endpoint         string       `json:"endpoint"`
+	Model            string       `json:"model"`
+	EndpointChanges  int          `json:"endpoint_changes"`
+	Endpoints        []agent.EndpointUsage `json:"endpoints"` // per target, in order; seeds Run's prior on resume
 }
 // Usage is usage.json under state/<root>/machine/<child>/ (reference.md).
 type Usage struct{ /* fields as reference.md, json/v2 */ }
@@ -1879,6 +1901,9 @@ type Files struct{ Dir string } // state/<id>/runner
 func FilesFor(stateDir, id string) Files
 func (f Files) WriteRun(r *Run) error
 func (f Files) ReadRun() (Run, error)
+// AppendEndpoint re-reads run.toml, appends e to EndpointHistory and
+// writes it back (temp + rename). Only the runner calls it, after spawn.
+func (f Files) AppendEndpoint(e EndpointEntry) error
 func (f Files) WriteStatus(s *Status) error // temp + rename
 func (f Files) ReadStatus() (Status, error) // fs.ErrNotExist when missing
 func (f Files) Transcript() string
@@ -1922,8 +1947,9 @@ doesn't):
 
 1. read `run.toml`; write `status.json` (`starting`, pid, start time from
    `internal/proc`), keeping `restarts` from the previous status;
-2. build: the provider (`providers.New` with the token from
-   `WS_ENDPOINT_TOKEN_<NAME>` in its own environment); the redactor
+2. build: the provider for `run.Current()`'s endpoint (`providers.New`
+   with the token from `WS_ENDPOINT_TOKEN_<NAME>` in its own environment;
+   not the spawn-time `url` when the history has moved on); the redactor
    (token, `tools.Secrets`); the tools (`tools.Environ(os.Environ(),
    keepGit, secretNames)` where `secretNames` is
    `WS_RUNNER_SECRET_NAMES`, a comma list the daemon sets (T16)); MCP
@@ -1949,8 +1975,15 @@ doesn't):
    the trace id is created by `ws machine spawn` into `run.toml`
    (`trace_id`, T19) so it survives `--resume`, and goes to
    `agent.Config.TraceID`, `StartRun`, the `restart` event and
-   `usage.json`; `run.Reasoning` goes to `agent.Config.Reasoning`;
+   `usage.json`; `agent.Config.Target` is built from `run.Current()`
+   (endpoint, model, window) and the run's `max_output`, `temperature` and
+   `reasoning`; `Reresolver` stays nil here (T28 sets it); `prior` is the
+   previous `status.json`'s `endpoints` on `--resume`; `OnStatus` also
+   writes `endpoint`, `model`, `endpoint_changes` and `endpoints`;
 4. on exit: `Finalize` unless the model's verdict was recorded; exit 0.
+   `usage.json`'s `endpoint`, `url`, `api` and `model` are the last
+   history entry's, and `endpoints` joins `Status.Endpoints` with the
+   history's `url` and `api`, in order.
    Exit 1 only when `run.toml` can't be read or `status.json` can't be
    written.
 
@@ -1965,8 +1998,13 @@ usage.json), `machine/<child>/usage.json`.
   `working`; same pid, other start time → `stopped`; `exit` set → `idle`,
   pid 0; `restarts` grew within 3 min, no `exit`, dead pid → `starting`;
   invalid JSON → `unknown`.
-- `Finalize` writes the fail verdict, report header, `usage.json` and
-  `exit`, and sets `status.json`'s `verdict`; for `stopped` it writes no
+- `Run` with two `endpoint_history` entries round-trips; `Current` is the
+  second; with none it's the top-level keys; `AppendEndpoint` keeps every
+  other key and comment-free formatting, and the file stays 0600.
+  `ws runner run --resume` of a run whose history ends on endpoint `b`
+  sends its requests to `b`'s URL.
+- `Finalize` writes the fail verdict, report header, `usage.json` (with
+  `endpoints`) and `exit`, and sets `status.json`'s `verdict`; for `stopped` it writes no
   verdict. With `parent = ""` the report is `runner/report.md` and
   `usage.json` is in `runner/`; nothing is written under `machine/`.
 - Session records round-trip; version 3 → "written by a newer ws"; `kind
