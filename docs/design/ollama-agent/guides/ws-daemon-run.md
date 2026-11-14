@@ -1,7 +1,7 @@
 # ws daemon run
 
 ```
-ws daemon run [--origin transient|managed]
+ws daemon run [--origin transient|managed|app]
 ```
 
 Runs the `ws` daemon in the foreground until it gets `SIGTERM` or
@@ -14,7 +14,10 @@ listens, it adopts runners that are still running and, unless
 `--origin managed`, the default, runs until stopped: use it from launchd,
 systemd or a container. `--origin transient` is what `ws` uses when it
 starts a daemon on demand: it exits after 15 minutes with no running agent
-and no request.
+and no request. `--origin app` is what the desktop app starts: it runs
+until stopped while the process that started it lives, and acts as
+`transient` once that process has gone (the app quit), so runners stay
+supervised until they finish.
 
 `--json` is refused: it prints no result, only log lines.
 
@@ -22,7 +25,7 @@ and no request.
 
 | Flag | Meaning |
 | ---- | ------- |
-| `--origin transient\|managed` | Whether it exits when idle (`transient`) or runs until stopped (`managed`, the default) |
+| `--origin transient\|managed\|app` | Whether it exits when idle (`transient`), runs until stopped (`managed`, the default), or runs until its parent app quits and then exits when idle (`app`) |
 
 ## Running it as a service
 

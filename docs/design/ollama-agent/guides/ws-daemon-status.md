@@ -34,7 +34,7 @@ how it was started, and which runners it watches. It never starts one.
 
 When no daemon runs, `running` is `false`, `pid`, `origin`, `started_at`
 and `ws_version` are `null`, `socket` is where it would listen, and
-`runners` is `[]`. `origin` is `managed` or `transient`. `adopted` is
+`runners` is `[]`. `origin` is `managed`, `transient` or `app` (started by the desktop app). `adopted` is
 `true` for a runner an earlier daemon started. A warning says when
 `secrets.env` is ignored because its mode is looser than 0600, or when the
 daemon is an older `ws` than this one.

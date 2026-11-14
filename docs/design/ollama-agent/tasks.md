@@ -2018,7 +2018,7 @@ type Info struct { // daemon.json
 	Version   int       `json:"version"`
 	PID       int       `json:"pid"`
 	StartedAt time.Time `json:"started_at"`
-	Origin    string    `json:"origin"` // transient | managed
+	Origin    string    `json:"origin"` // transient | managed | app
 	Socket    string    `json:"socket"`
 	WSVersion string    `json:"ws_version"`
 }
@@ -2039,7 +2039,9 @@ type Supervisor interface {
 // daemon.json, prepares the socket directory (0700, owned by uid) and
 // socket (0600), checks every connection's peer uid, and serves /v1/*
 // until ctx ends, a shutdown request, or, for transient, 15 min of Idle()
-// and no request.
+// and no request. For app, it polls os.Getppid() every 2 s; once the
+// parent pid differs from the one at start (the app quit), it logs
+// "parent gone; acting as transient" and applies the transient rule.
 func Serve(ctx context.Context, p Paths, origin string, sup Supervisor, log *slog.Logger) error
 
 // Client talks to a running daemon.
@@ -2067,7 +2069,7 @@ reference.md's table. The server never takes a command, path or
 environment in a request.
 
 **`ws daemon`** (`internal/cli/daemon.go`): `run [--origin
-transient|managed]` (default `managed`; `--json` refused; `ErrRunning` →
+transient|managed|app]` (default `managed`; `--json` refused; `ErrRunning` →
 `daemon_running`, exit 4, `details.pid`), `status [--json]` (never
 starts one; not running → `running: false`, exit 0), `stop
 [--keep-runners] [--json]` (not running → `stopped: false`, exit 0; not
@@ -2094,7 +2096,9 @@ temp dir):
   someone else (simulate with a mode check) → error.
 - Client `Status` against `Serve` with `NopSupervisor`; `Shutdown` ends
   `Serve`; a transient daemon with a 100 ms idle limit (unexported field)
-  exits by itself; a managed one doesn't.
+  exits by itself; a managed one doesn't; an `app` one with an unexported
+  parent-pid function that changes value exits after the idle limit, and
+  doesn't while it stays the same.
 - `Ensure` with `autostart=false` and nothing running → `ErrUnavailable`;
   with a test `exe` script that runs a fake server → a client within 5 s.
 - A client whose daemon answers an older `ws_version` than it needs →
@@ -2178,6 +2182,11 @@ type processStarter interface {
   alias; no `--model` → the first alias (sorted by name) whose endpoint is
   that endpoint, else `runner.model`. `PreflightRequest` gains `Check
   bool` to select these rules instead of `Resolve`'s role order.
+- **`ws runner stop [--json] <workspace-id>`** (hidden, for the desktop's
+  Stop): `Ensure`, then `StopRunner`; prints `{"id", "session",
+  "stopped", "warnings"}` (reference.md). The `stop` request answers
+  `{"stopped": false}` when `status.json` already has `exit`. No runner
+  session in that workspace → `workspace_not_found` (3).
 - **Warnings** in `GET /v1/status` and `ws daemon status`: `secrets.env`
   ignored because its mode is looser than 0600 (from `ReadSecrets`), and
   any `config.toml` error met at the last runner start.
@@ -2207,8 +2216,10 @@ dirs; one test with real processes using a test `exe` script):
 - `Start` builds the environment in the documented order and passes
   `WS_RUNNER_SECRET_NAMES`; a starter whose process writes no
   `status.json` → `runner_failed` within 10 s (100 ms in tests).
-- `Stop` writes `stop` and signals; `StopAll(false)` signals without
-  `stop`.
+- `Stop` writes `stop` and signals; on a finished runner it returns
+  `stopped: false` and signals nothing; `StopAll(false)` signals without
+  `stop`. `ws runner stop` on a mock daemon prints the object; a
+  workspace without a runner session → `workspace_not_found`.
 - Preflight through a real socket against an `httptest` OpenAI server →
   the check object; a closed port → `endpoint_unreachable` with `url`.
 

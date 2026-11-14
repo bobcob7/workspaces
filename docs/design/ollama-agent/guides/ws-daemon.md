@@ -1,7 +1,7 @@
 # ws daemon
 
 ```
-ws daemon run [--origin transient|managed]
+ws daemon run [--origin transient|managed|app]
 ws daemon status [--json]
 ws daemon stop [--keep-runners] [--json]
 ```
@@ -19,9 +19,10 @@ tell a person what you need.
 
 ## When to use it
 
-- Usually never: the commands that need it start it (`ws machine spawn
-  --runner ws`, `ws restore`, `ws rm` of such an agent), and `ws-online`
-  keeps one running.
+- Usually never: the desktop app keeps one running while it's open,
+  `ws-online` keeps one running, and the commands that need it start one
+  otherwise (`ws machine spawn --runner ws`, `ws claude --runner ws`, a
+  loop run on the runner, `ws restore`, `ws rm` of such an agent).
 - `ws daemon status` to see whether it runs, since when, and which runners
   it watches.
 - `ws daemon run` under launchd or systemd, so runners resume after a
