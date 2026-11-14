@@ -195,3 +195,16 @@ describe("hostProblem", () => {
     expect(hostProblem("github.com", [{ name: "github.com", kind: "auto" }])).toBe("Already in the list");
   });
 });
+
+describe("token help", () => {
+  it("lists the GitHub and Forgejo access a user needs", () => {
+    renderGroup();
+    const help = screen.getByText("What access do the credentials need?").closest("details");
+    expect(help).not.toBeNull();
+    expect(help).toHaveTextContent("gh auth login");
+    expect(help).toHaveTextContent("Pull requests (read)");
+    expect(help).toHaveTextContent("read:repository");
+    expect(help).toHaveTextContent("read:user");
+    expect(help).toHaveTextContent("WS_FORGEJO_TOKEN_");
+  });
+});

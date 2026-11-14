@@ -66,6 +66,50 @@ const accountOf = (host: HostView): ReactNode => {
   return host.login === null ? null : `signed in as ${host.login}`;
 };
 
+/** What access each forge's credentials need, so users don't have to read the repo. */
+export const TokenHelp = (): JSX.Element => (
+  <details className={styles.help}>
+    <summary>What access do the credentials need?</summary>
+    <h2 className={styles.helpTitle}>GitHub (including GitHub Enterprise)</h2>
+    <p>
+      No token is entered here. The app runs <code>gh</code>, so sign in with <code>gh auth login</code> (add <code>--hostname</code> for an
+      Enterprise host) and the app uses that login.
+    </p>
+    <ul>
+      <li>
+        Classic token: <code>repo</code> for private repos, or <code>public_repo</code> for public ones. <code>read:org</code> is only
+        needed for team review requests.
+      </li>
+      <li>
+        Fine-grained token, on the repos you watch: Metadata (read), Contents (read), Pull requests (read), Commit statuses (read) and
+        Checks (read). Posting a review comment from the app needs Pull requests (write).
+      </li>
+      <li>Without the status and checks permissions, the Merge status shows no CI result.</li>
+    </ul>
+    <h2 className={styles.helpTitle}>Forgejo and Gitea</h2>
+    <p>
+      Create a token in the host&apos;s Settings › Applications. The app only reads: it never writes to a Forgejo host. Public repos work with no
+      token, but then there is no &quot;me&quot; and rate limits are tighter.
+    </p>
+    <ul>
+      <li>
+        <code>read:repository</code>: lists pull requests, their reviews and CI status.
+      </li>
+      <li>
+        <code>read:user</code>: finds your login, for the &quot;me&quot; filters.
+      </li>
+      <li>
+        Approvals required and &quot;needs update&quot; come from branch protection, which some hosts only show to repo admins. Without that
+        access the app assumes one approval is needed and never shows &quot;needs update&quot;.
+      </li>
+    </ul>
+    <p>
+      The token is read from <code>{"WS_FORGEJO_TOKEN_<HOST>"}</code> (host in capitals, dots and dashes as underscores), or the one saved here,
+      stored in a file only you can read. It is never shown again.
+    </p>
+  </details>
+);
+
 interface TokenDialogProps {
   readonly host: string;
   readonly onClose: () => void;
@@ -93,6 +137,7 @@ const TokenDialog = ({ host, onClose }: TokenDialogProps): JSX.Element => {
       <DialogTitle>Set token for {host}</DialogTitle>
       <DialogContent className={dialogStyles.content}>
         {error !== null && <Alert severity="error">{error}</Alert>}
+        <p className={styles.caption}>Needs read:repository and read:user on a Forgejo or Gitea host. Open Forges › What access do the credentials need? for details.</p>
         <TextField
           autoFocus
           fullWidth
@@ -321,6 +366,7 @@ const HostLists = ({ hosts, onSetToken, onSave }: HostListsProps): JSX.Element =
         machine and is never shown again.
       </p>
       <AddHost configured={configured} onAdd={(host) => onSave([...configured, host])} />
+      <TokenHelp />
     </>
   );
 };

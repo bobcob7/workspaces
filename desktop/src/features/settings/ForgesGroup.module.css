@@ -129,3 +129,29 @@
     min-height: 40px;
   }
 }
+
+.help {
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.help summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.help p,
+.help ul {
+  margin: 6px 0;
+}
+
+.help code {
+  overflow-wrap: anywhere;
+}
+
+.helpTitle {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+}
