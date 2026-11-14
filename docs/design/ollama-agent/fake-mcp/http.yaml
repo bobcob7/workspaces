@@ -1,0 +1,16 @@
+# Scenario: mcp-http. Run as: fake-mcp --config http.yaml --http 127.0.0.1:0
+server: {name: fake, version: 0.0.0-fake}
+require_header: {Authorization: "Bearer e2e-secret-4c1d"}
+tools:
+  - name: lookup_service
+    description: Look up a service by name and return its owner and port.
+    input_schema:
+      type: object
+      properties: {name: {type: string}}
+      required: [name]
+    annotations: {readOnlyHint: true}
+    replies:
+      - match: '"name":"api"'
+        text: "api: owner team-a, port 8080"
+      - match: '"name":"worker"'
+        text: "worker: owner team-b, port 9090"

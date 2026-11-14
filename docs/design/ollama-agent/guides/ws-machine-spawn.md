@@ -1,14 +1,14 @@
 # ws machine spawn
 
 ```
-ws machine spawn [--runner claude|ollama] [--endpoint <name>] [--name <name>] [--offline] [--hidden]
+ws machine spawn [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden]
                  [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, and
-starts a Claude Code background agent in it, as your child: it is
-`ws claude --json --parent <your workspace>`. Removing your workspace
-removes it.
+starts an agent in it, as your child: a Claude Code background agent, as
+`ws claude --json --parent <your workspace>` does, or with `--runner ws`
+`ws`'s own runner (see Runners). Removing your workspace removes it.
 
 ## When to use it
 
@@ -46,24 +46,27 @@ arguments without an extra prompt, give an empty one: `-- "" --model opus`.
 
 ## Runners
 
-A child runs on Claude Code (`claude`, the default) or on an on-prem
-model through `ws`'s own Ollama runner (`ollama`). `--runner` chooses.
-Without it, `ollama.roles.<role>.runner` in `config.toml` chooses for
-`--role`, and otherwise it's `claude`. Your output's `runner` says which
-one started.
+A child runs on Claude Code (`claude`, the default) or on `ws`'s own
+runner (`ws`), which drives another model, such as one served by Ollama or
+llm-router. `--runner` chooses. Without it, `runner.roles.<role>.runner`
+in `config.toml` chooses for `--role`, and otherwise it's `claude`. Your
+output's `runner` says which one started, and `model` which model.
 
-An `ollama` child talks to `--endpoint`, or the role's or default
-endpoint from `config.toml`. It uses `--model <m>` after the prompt, or
-the configured model; no other `claude` arguments are accepted. Before
-anything is created, spawn checks that the endpoint answers, serves the
-model, and that the model supports tools. A failure is an error, not a
-silent switch to Claude, unless the user set `ollama.fallback = "claude"`;
-then a Claude child starts and a warning says why.
+A `ws` child uses `--model <m>` after the prompt, a model name from
+`config.toml` such as `coder`, or else the role's or the default model;
+no other `claude` arguments are accepted. `--endpoint` sends it to another
+configured endpoint. Before anything is created, spawn checks that the
+endpoint answers, serves the model, and, when the endpoint can say, that
+the model supports tools. A failure is an error, not a silent switch to
+Claude, unless the user set `runner.fallback = "claude"`; then a Claude
+child starts and a warning says why. `ws`'s background service, the `ws`
+daemon, starts and watches the child; spawn starts the daemon when it isn't
+running.
 
-An `ollama` child records its own verdict, or `ws` records a fail verdict
-for it with a report whose first line gives the reason, such as `ws ollama
-runner: looping`. Read its log with `ws machine logs <id>`, not `claude
-logs`. It can't be attached to or sent messages.
+A `ws` child records its own verdict, or `ws` records a fail verdict for
+it with a report whose first line gives the reason, such as `ws runner:
+looping`. Read its log with `ws machine logs <id>`, not `claude logs`. It
+can't be attached to or sent messages.
 
 ## Flags
 
@@ -74,8 +77,8 @@ logs`. It can't be attached to or sent messages.
 | `--hidden`          | Hide the workspace from `ws list` and the desktop app's default views. Off by default: children show in the tree |
 | `--role <name>`     | Start the child from this role                              |
 | `--var KEY=VALUE`   | A value for the role's prompt; repeatable; only with `--role` |
-| `--runner claude\|ollama` | Which agent runs the child; default from `config.toml` for the role, else `claude` |
-| `--endpoint <name>` | An Ollama endpoint from `config.toml`; only with the `ollama` runner |
+| `--runner claude\|ws` | Which agent runs the child; default from `config.toml` for the role, else `claude` |
+| `--endpoint <name>` | An endpoint from `config.toml` instead of the model's own; only with the `ws` runner |
 
 Output is always JSON; `--json` changes nothing.
 
@@ -94,20 +97,25 @@ Output is always JSON; `--json` changes nothing.
   "warnings": [],
   "role": null,
   "runner": "claude",
-  "ollama": null
+  "model": "opus",
+  "ws_runner": null
 }
 ```
 
-For an `ollama` child, `session` is the runner's id (`ol-…`) and:
+For a `ws` child, `session` is the runner's id (`rn-…`) and:
 
 ```json
-"runner": "ollama",
-"ollama": {"endpoint": "gpu", "url": "http://ollama-a.inference.svc:11434", "model": "qwen3-coder:30b", "context_tokens": 65536}
+"runner": "ws",
+"model": "qwen3-coder:30b",
+"ws_runner": {"model_alias": "coder", "endpoint": "gpu", "url": "http://ollama-a.inference.svc:11434",
+              "api": "openai", "context_tokens": 65536, "mcp_servers": []}
 ```
 
-`ws claude --json`'s object; `parent` is your workspace's id, `role`
-the role's name or `null`, `runner` `claude` or `ollama`, and `ollama`
-the endpoint and model for an Ollama child, else `null`.
+`ws claude --json`'s object; `parent` is your workspace's id, `role` the
+role's name or `null`, `runner` `claude` or `ws`, `model` the model it
+runs (for Claude, the `--model` it was started with, or `null` for the
+default), and `ws_runner` the model's endpoint for a `ws` child, else
+`null`.
 
 ## Exit codes
 
@@ -126,16 +134,18 @@ the endpoint and model for an Ollama child, else `null`.
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root           | `claude_untrusted` | 1    |
 | `claude --bg` failed; `details.stderr` has its output  | `claude_failed`    | 1    |
-| `--runner` isn't `claude` or `ollama`; `--endpoint` with `claude`; an argument other than `--model` after an `ollama` child's prompt | `usage` | 2 |
+| `--runner` isn't `claude` or `ws`; `--endpoint` with `claude`; an argument other than `--model` after a `ws` child's prompt | `usage` | 2 |
 | The endpoint isn't in `config.toml`; `details.endpoints` lists them | `endpoint_unknown` | 3 |
-| No endpoint or model configured for an `ollama` child   | `config_invalid`   | 1    |
-| The endpoint didn't answer; `details.url`, `details.cause` | `ollama_unreachable` | 1 |
-| The model isn't on the endpoint; `details.models`      | `ollama_model_missing` | 3 |
-| The model doesn't support tools; `details.capabilities` | `ollama_no_tools` | 1  |
+| No model configured for a `ws` child, or a bad `[models]` or `[endpoints]` entry | `config_invalid` | 1 |
+| The endpoint didn't answer; `details.url`, `details.cause` | `endpoint_unreachable` | 1 |
+| The endpoint doesn't serve the model; `details.models` | `model_not_served` | 3 |
+| The model doesn't support tools; `details.capabilities` | `model_without_tools` | 1 |
 | The runner didn't start; `details.log`                  | `runner_failed`    | 1    |
+| The `ws` daemon isn't running and couldn't be started; `details.log` | `daemon_unavailable` | 1 |
 
-On `ollama_unreachable`, `ollama_model_missing` or `ollama_no_tools`,
-tell a person, or spawn the child with `--runner claude`.
+On `endpoint_unreachable`, `model_not_served`, `model_without_tools` or
+`daemon_unavailable`, tell a person, or spawn the child with `--runner
+claude`.
 
 On `claude_untrusted`, tell the person to run `claude` once in
 `details.directory` and accept the trust prompt.
@@ -150,7 +160,7 @@ $ ws machine spawn --name t1-impl --role implementer --var TASK=T1 --var TASKS=d
 $ ws machine spawn --name t1-review --role reviewer --var TASK=T1 --var TASKS=docs/design/x/tasks.md \
     --var BASE=feat/x buff-bear@feat/x-t1
 $ ws machine spawn --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make lint; make test" buff-bear@feat/x
-$ ws machine spawn --runner ollama --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make test" buff-bear@feat/x
-$ ws machine spawn --runner ollama --endpoint gpu --name t2-impl --role implementer --var TASK=T2 \
-    --var TASKS=docs/design/x/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t2 buff-bear@feat/x -- "" --model qwen3-coder:30b
+$ ws machine spawn --runner ws --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make test" buff-bear@feat/x
+$ ws machine spawn --runner ws --endpoint gpu --name t2-impl --role implementer --var TASK=T2 \
+    --var TASKS=docs/design/x/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t2 buff-bear@feat/x -- "" --model coder
 ```

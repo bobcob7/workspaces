@@ -123,7 +123,7 @@ process group, without the `stop` file `ws rm` writes, so no exit reason is
 recorded) and its workspace kept; they read `stopped` and are resumed when
 a daemon next starts. With it, runners keep running and are listed in
 `runners_kept`. No daemon running: `{"stopped": false, "pid": null, …}`,
-exit 0.
+exit 0. A daemon that hasn't exited within 30 s is `daemon_unavailable`.
 
 ### `ws runner run` (hidden)
 

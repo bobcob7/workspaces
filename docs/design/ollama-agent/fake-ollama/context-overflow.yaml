@@ -1,4 +1,4 @@
-# Scenario: context-overflow. The runner's endpoint config sets
+# Scenario: context-overflow. The test's [models.small] alias sets
 # context_tokens = 16384 (the minimum) while fake-small truncates at 4096
 # words, so the truncation check fires; the test also writes a 40 KiB
 # big.txt so read_file forces compaction.

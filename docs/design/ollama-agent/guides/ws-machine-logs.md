@@ -4,10 +4,10 @@
 ws machine logs [--tail <n>] <workspace>
 ```
 
-Prints the log of a child you started, as JSON. For an Ollama child
-(`runner: "ollama"`), it's the last events of its transcript: each
-request, the model's replies and tool calls, the tool results, retries,
-context compaction, and why it stopped. For a Claude child it's the text of
+Prints the log of a child you started, as JSON. For a child on `ws`'s
+own runner (`runner: "ws"`), it's the last events of its transcript: each
+request, the model's replies and tool calls, the tool results (MCP tools
+included), retries, context compaction, and why it stopped. For a Claude child it's the text of
 `claude logs <session>`.
 
 A workspace is named by its id, path, or session id, and must be one of
@@ -18,9 +18,10 @@ named by its id while its state is kept; otherwise it's
 ## When to use it
 
 - After `ws machine wait` reports a child `fail` or `missing`, to see what
-  it did and why it stopped. For an Ollama child, also read
+  it did and why it stopped. For a `ws` child, also read
   `result.report`, whose first line names the reason.
-- Instead of `claude logs`, which doesn't know Ollama sessions (`ol-…`).
+- Instead of `claude logs`, which doesn't know `ws` runner sessions
+  (`rn-…`).
 - Not to watch a child while it runs: wait for it with `ws machine wait`
   as a background command.
 
@@ -37,13 +38,14 @@ Output is always JSON; `--json` changes nothing.
 ```json
 {
   "id": "t1-impl-d8efb24f",
-  "session": "ol-3f2a9c1e",
-  "runner": "ollama",
+  "session": "rn-3f2a9c1e",
+  "runner": "ws",
+  "model": "qwen3-coder:30b",
   "events": [
-    {"time": "2026-11-13T17:46:01Z", "step": 1, "kind": "request", "messages": 2, "estimated_tokens": 3120},
+    {"time": "2026-11-13T17:46:01Z", "step": 1, "kind": "request", "messages": 2, "tools": 7, "estimated_tokens": 3120},
     {"time": "2026-11-13T17:46:09Z", "step": 1, "kind": "response", "content": "",
      "tool_calls": [{"id": "call_ab12cd34", "name": "read_file", "arguments": "{\"path\":\"docs/design/x/tasks.md\"}"}],
-     "finish_reason": "tool_calls", "usage": {"prompt_tokens": 3051, "completion_tokens": 41}},
+     "stop_reason": "tool_calls", "usage": {"input_tokens": 3051, "output_tokens": 41}},
     {"time": "2026-11-13T17:46:09Z", "step": 1, "kind": "tool_result", "id": "call_ab12cd34", "name": "read_file",
      "ok": true, "bytes": 8123, "truncated": false, "text": "1\t# x: tasks\n…"},
     {"time": "2026-11-13T18:04:20Z", "step": 31, "kind": "exit", "reason": "done", "message": "", "verdict": "PASS"}
@@ -54,10 +56,12 @@ Output is always JSON; `--json` changes nothing.
 }
 ```
 
-- `events`: an Ollama child's transcript events, oldest first. `kind` is
+- `events`: a `ws` child's transcript events, oldest first. `kind` is
   `start`, `request`, `response`, `tool_result`, `invalid_call`, `nudge`,
-  `compaction`, `truncated`, `retry` or `exit`. It's `[]` for a Claude
-  child.
+  `compaction`, `truncated`, `retry`, `mcp_start`, `mcp_error`,
+  `tool_search`, `restart` or `exit`. Secrets are already replaced by
+  `[redacted]`. It's `[]` for a Claude child.
+- `model`: as in `ws machine wait`.
 - `text`: a Claude child's `claude logs` output, else `null`.
 - `truncated`: `true` when `--tail` left older events out.
 
@@ -75,6 +79,6 @@ Output is always JSON; `--json` changes nothing.
 
 ```console
 $ ws machine logs t1-impl-d8efb24f
-$ ws machine logs --tail 20 ol-3f2a9c1e
+$ ws machine logs --tail 20 rn-3f2a9c1e
 $ ws machine logs --tail 0 t1-impl-d8efb24f
 ```

@@ -1,16 +1,21 @@
 <!doctype html>
 <!--
-  Static mockups for the Ollama runner (docs/design/ollama-agent). Open with
-  a hash to pick a screen, e.g. mockups.html#settings-models. The PNGs in
-  img/ are rendered from this file with headless Chromium at 1280x800
-  (terminal screens at 1100 wide); see README.md › Screens. Colors and type
-  match docs/design/desktop-sections/mockups.html (desktop/src/index.css).
-  All data is fake.
+  Static mockups for ws's own agent runner and the ws daemon
+  (docs/design/ollama-agent; ADRs 0062-0069). Open with a hash to pick a
+  screen, e.g. mockups.html#settings-models. Screens: cli-spawn,
+  cli-children-wait, cli-errors, cli-list, cli-daemon (terminal, 1100 wide,
+  height fitting the content) and agents-tree, transcript, settings-models,
+  settings-models-errors (desktop app, 1280x800). The PNGs in img/ are
+  rendered from this file with headless Chromium through Playwright; see
+  README.md › Screens. Every agent, Claude or not, shows its model as quiet
+  text; provider and endpoint are only in tooltips and the detail pane.
+  Colors and type match docs/design/desktop-sections/mockups.html
+  (desktop/src/index.css). All data is fake.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Ollama runner mockups</title>
+<title>Runner mockups</title>
 <style>
 :root {
   color-scheme: dark;
@@ -33,7 +38,7 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 .termBar span { margin-left: 8px; }
 pre.out { margin: 0; padding: 14px 16px; font: 12.5px/1.55 var(--font-mono); color: #d4d8e0; white-space: pre-wrap; word-break: break-word; }
 .p { color: var(--status-done); } .c { color: var(--text-muted); } .k { color: #7ee0d6; } .s { color: #e6c07b; }
-.n { color: #d19a66; } .e { color: var(--danger); } .w { color: var(--status-needs-input); } .o { color: var(--status-running); font-weight: 700; }
+.n { color: #d19a66; } .e { color: var(--danger); } .w { color: var(--status-needs-input); }
 
 /* App frame (desktop-sections) */
 .root { display: flex; flex-direction: column; height: 800px; width: 1280px; }
@@ -68,8 +73,6 @@ pre.out { margin: 0; padding: 14px 16px; font: 12.5px/1.55 var(--font-mono); col
 .summary { padding-left: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status-stopped); }
 .dot.working { background: var(--status-working); } .dot.idle { background: var(--status-idle); } .dot.done { background: var(--status-done); } .dot.needs { background: var(--status-needs-input); }
-.runnerChip { flex: none; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #d2b8ff; background: color-mix(in srgb, var(--status-running) 18%, transparent); }
-.claudeChip { flex: none; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); background: #2a303b; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .header { padding: 14px 18px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .titleRow { display: flex; align-items: center; gap: 12px; }
@@ -116,88 +119,97 @@ td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border
 .switch::after { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; top: 2px; left: 2px; background: #c9ced8; }
 .switch.on { background: var(--accent); } .switch.on::after { left: 16px; background: #fff; }
 .statusDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-.form { display: grid; grid-template-columns: 150px 1fr 150px 1fr; gap: 10px 12px; align-items: center; font-size: 13px; }
+.form { display: grid; grid-template-columns: 120px 1.5fr 110px 1fr; gap: 10px 12px; align-items: center; font-size: 13px; }
 .form label { color: var(--text-muted); }
+.modelLabel { flex: none; margin-left: auto; padding-left: 8px; font: 11px var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+.summaryRow { display: flex; align-items: baseline; gap: 8px; padding-left: 17px; min-width: 0; }
+.summaryRow .summary { padding-left: 0; flex: 1 1 auto; min-width: 0; }
+.root.tall { height: auto; min-height: 800px; }
+.root.tall .content { overflow: visible; }
+.titleModel { font: 13px var(--font-mono); color: var(--text-muted); }
 </style>
 </head>
 <body>
 
-<!-- 1. ws machine spawn --runner ollama -->
+<!-- 1. ws machine spawn --runner ws -->
 <section class="screen" id="cli-spawn">
-<div class="term"><div class="termBar"><i></i><i></i><i></i><span>orchestrator · workspaces/orch-ollama-1a2b3c4d/workspaces</span></div>
-<pre class="out"><span class="p">$</span> ws machine spawn --runner ollama --name x-t2-impl --role implementer \
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>orchestrator · workspaces/orch-x-1a2b3c4d/workspaces</span></div>
+<pre class="out"><span class="p">$</span> ws machine spawn --runner ws --name x-t2-impl --role implementer \
     --var TASK=T2 --var TASKS=docs/design/x/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t2 \
     workspaces@feat/x | jq .
 {
   <span class="k">"id"</span>: <span class="s">"x-t2-impl-7c41e0b2"</span>,
-  <span class="k">"session"</span>: <span class="s">"ol-3f2a9c1e"</span>,
+  <span class="k">"session"</span>: <span class="s">"rn-3f2a9c1e"</span>,
   <span class="k">"path"</span>: <span class="s">"/home/me/.config/workspaces/workspaces/x-t2-impl-7c41e0b2"</span>,
-  <span class="k">"parent"</span>: <span class="s">"orch-ollama-1a2b3c4d"</span>,
+  <span class="k">"parent"</span>: <span class="s">"orch-x-1a2b3c4d"</span>,
   <span class="k">"repos"</span>: [
     {<span class="k">"id"</span>: <span class="s">"github.com/example/workspaces"</span>, <span class="k">"path"</span>: <span class="s">"workspaces"</span>, <span class="k">"ref"</span>: <span class="s">"feat/x"</span>,
      <span class="k">"ref_kind"</span>: <span class="s">"branch"</span>, <span class="k">"commit"</span>: <span class="s">"5be0a9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7"</span>}
   ],
   <span class="k">"warnings"</span>: [],
   <span class="k">"role"</span>: <span class="s">"implementer"</span>,
-  <span class="k">"runner"</span>: <span class="s">"ollama"</span>,
-  <span class="k">"ollama"</span>: {
+  <span class="k">"runner"</span>: <span class="s">"ws"</span>,
+  <span class="k">"model"</span>: <span class="s">"qwen3-coder:30b"</span>,
+  <span class="k">"ws_runner"</span>: {
+    <span class="k">"model_alias"</span>: <span class="s">"coder"</span>,
     <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>,
     <span class="k">"url"</span>: <span class="s">"http://ollama-a.inference.svc:11434"</span>,
-    <span class="k">"model"</span>: <span class="s">"qwen3-coder:30b"</span>,
-    <span class="k">"context_tokens"</span>: <span class="n">65536</span>
+    <span class="k">"api"</span>: <span class="s">"openai"</span>,
+    <span class="k">"context_tokens"</span>: <span class="n">65536</span>,
+    <span class="k">"mcp_servers"</span>: []
   }
 }
 
-<span class="c"># the role is configured to run on Ollama, so --runner can be left out:</span>
-<span class="p">$</span> ws config get ollama.roles.verifier.runner
-ollama
+<span class="c"># the role is configured to run on the ws runner, so --runner can be left out:</span>
+<span class="p">$</span> ws config get runner.roles.verifier.runner
+ws
 <span class="p">$</span> ws machine spawn --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make lint; make test" \
-    workspaces@feat/x | jq -c '{id, session, runner, model: .ollama.model}'
-{"id":"x-verify-0d9e2f61","session":"ol-91b0c7aa","runner":"ollama","model":"qwen3-coder:30b"}
+    workspaces@feat/x | jq -c '{id, session, runner, model}'
+{"id":"x-verify-0d9e2f61","session":"rn-91b0c7aa","runner":"ws","model":"qwen3-coder:30b"}
 
-<span class="c"># override only the model for one child:</span>
-<span class="p">$</span> ws machine spawn --runner ollama --name x-t3-impl --role implementer --var TASK=T3 … workspaces@feat/x \
-    -- "" --model devstral-small-2:24b | jq -r .ollama.model
-devstral-small-2:24b</pre></div>
+<span class="c"># override only the model for one child, by alias:</span>
+<span class="p">$</span> ws machine spawn --runner ws --name x-t3-impl --role implementer --var TASK=T3 … workspaces@feat/x \
+    -- "" --model devstral | jq -c '{model, alias: .ws_runner.model_alias}'
+{"model":"devstral-small-2:24b","alias":"devstral"}</pre></div>
 </section>
 
 <!-- 2. children + wait, mixed runners -->
 <section class="screen" id="cli-children-wait">
 <div class="term"><div class="termBar"><i></i><i></i><i></i><span>orchestrator · mixed runners</span></div>
-<pre class="out"><span class="p">$</span> ws machine children | jq -r '.workspaces[] | [.id, .session.runner, .session.state, (.session.ollama.model // "-"), (.result.verdict // "-")] | @tsv'
-x-base-2c9d11f0       ollama   idle      qwen3-coder:30b   PASS
-x-design-8a1f3e22     claude   idle      -                 PASS
-x-t1-impl-41aa0b7c    ollama   working   qwen3-coder:30b   -
-x-t1-review-c3d5e7f9  claude   starting  -                 -
+<pre class="out"><span class="p">$</span> ws machine children | jq -r '.workspaces[] | [.id, .session.runner, .session.model, .session.state, (.result.verdict // "-")] | @tsv'
+x-base-2c9d11f0       ws       qwen3-coder:30b     idle      PASS
+x-design-8a1f3e22     claude   claude-opus-5-5     idle      PASS
+x-t1-impl-41aa0b7c    ws       qwen3-coder:30b     working   -
+x-t1-review-c3d5e7f9  claude   claude-sonnet-5-5   starting  -
 
 <span class="p">$</span> ws machine wait x-t1-impl-41aa0b7c x-t2-impl-7c41e0b2    <span class="c"># run in the background</span>
 {"children": [
-  {"id": "x-t1-impl-41aa0b7c", "session": "ol-5d2e8b10", "role": "implementer",
+  {"id": "x-t1-impl-41aa0b7c", "session": "rn-5d2e8b10", "role": "implementer",
    "status": "idle", "finished": true, "outcome": "pass",
    "result": {"verdict": "PASS", "outcome": "pass",
-              "report": "/…/state/orch-ollama-1a2b3c4d/machine/x-t1-impl-41aa0b7c/report.md",
+              "report": "/…/state/orch-x-1a2b3c4d/machine/x-t1-impl-41aa0b7c/report.md",
               "recorded_at": "2026-11-13T18:04:05Z"},
    "error": null,
-   "runner": "ollama",
-   "ollama": {"endpoint": "gpu", "model": "qwen3-coder:30b", "exit": <span class="s">"done"</span>, "steps": 31,
-              "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
-              "wall_seconds": 1104, "usage_file": "/…/machine/x-t1-impl-41aa0b7c/usage.json"}},
-  {"id": "x-t2-impl-7c41e0b2", "session": "ol-3f2a9c1e", "role": "implementer",
+   "runner": "ws", "model": "qwen3-coder:30b",
+   "ws_runner": {"model_alias": "coder", "endpoint": "gpu", "exit": <span class="s">"done"</span>, "steps": 31, "restarts": 0,
+                 "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
+                 "wall_seconds": 1104, "usage_file": "/…/machine/x-t1-impl-41aa0b7c/usage.json"}},
+  {"id": "x-t2-impl-7c41e0b2", "session": "rn-3f2a9c1e", "role": "implementer",
    "status": "idle", "finished": true, "outcome": "fail",
    "result": {"verdict": "FAIL", "outcome": "fail",
-              "report": "/…/state/orch-ollama-1a2b3c4d/machine/x-t2-impl-7c41e0b2/report.md",
+              "report": "/…/state/orch-x-1a2b3c4d/machine/x-t2-impl-7c41e0b2/report.md",
               "recorded_at": "2026-11-13T18:21:40Z"},
    "error": {"code": <span class="e">"child_failed"</span>, "message": "x-t2-impl-7c41e0b2 finished with FAIL"},
-   "runner": "ollama",
-   "ollama": {"endpoint": "gpu", "model": "qwen3-coder:30b", "exit": <span class="w">"looping"</span>, "steps": 47,
-              "usage": {"requests": 47, "prompt_tokens": 1630221, "completion_tokens": 22015},
-              "wall_seconds": 2079, "usage_file": "/…/machine/x-t2-impl-7c41e0b2/usage.json"}}
+   "runner": "ws", "model": "qwen3-coder:30b",
+   "ws_runner": {"model_alias": "coder", "endpoint": "gpu", "exit": <span class="w">"looping"</span>, "steps": 47, "restarts": 0,
+                 "usage": {"requests": 47, "prompt_tokens": 1630221, "completion_tokens": 22015},
+                 "wall_seconds": 2079, "usage_file": "/…/machine/x-t2-impl-7c41e0b2/usage.json"}}
  ],
  "warnings": []}
 <span class="c">exit status 1</span>
 
 <span class="p">$</span> head -3 /…/machine/x-t2-impl-7c41e0b2/report.md
-ws ollama runner: looping
+ws runner: looping
 
 The model called run {"command":"go test ./internal/config/"} 5 times in a row with the same arguments.
 
@@ -209,23 +221,23 @@ The model called run {"command":"go test ./internal/config/"} 5 times in a row w
 <section class="screen" id="cli-errors">
 <div class="term"><div class="termBar"><i></i><i></i><i></i><span>error states</span></div>
 <pre class="out"><span class="c"># endpoint down: preflight fails before anything is created</span>
-<span class="p">$</span> ws machine spawn --runner ollama --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x
-{"error": {"code": <span class="e">"ollama_unreachable"</span>, "message": "ollama endpoint gpu (http://ollama-a.inference.svc:11434) didn't answer GET /v1/models: dial tcp 10.43.7.21:11434: connect: connection refused", "details": {"url": "http://ollama-a.inference.svc:11434", "cause": "connection refused"}}}
+<span class="p">$</span> ws machine spawn --runner ws --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x
+{"error": {"code": <span class="e">"endpoint_unreachable"</span>, "message": "endpoint gpu (http://ollama-a.inference.svc:11434) didn't answer GET /v1/models: dial tcp 10.43.7.21:11434: connect: connection refused", "details": {"url": "http://ollama-a.inference.svc:11434", "cause": "connection refused"}}}
 <span class="c">exit status 1</span>
 
-<span class="c"># the model can't call tools (api = "ollama": /api/show says so)</span>
-<span class="p">$</span> ws machine spawn --runner ollama --role verifier … workspaces@feat/x -- "" --model gemma3:12b
-{"error": {"code": <span class="e">"ollama_no_tools"</span>, "message": "model gemma3:12b on endpoint gpu doesn't support tools; pick a model whose capabilities include tools", "details": {"model": "gemma3:12b", "capabilities": ["completion", "vision"]}}}
+<span class="c"># the model can't call tools (the endpoint's probe says so)</span>
+<span class="p">$</span> ws machine spawn --runner ws --role verifier … workspaces@feat/x -- "" --model gemma
+{"error": {"code": <span class="e">"model_without_tools"</span>, "message": "model gemma3:12b on endpoint gpu doesn't support tools; pick a model whose capabilities include tools", "details": {"model": "gemma3:12b", "capabilities": ["completion", "vision"]}}}
 <span class="c">exit status 1</span>
 
-<span class="c"># the model isn't pulled there</span>
-<span class="p">$</span> ws machine spawn --runner ollama --role verifier … workspaces@feat/x -- "" --model qwen3-coder:480b
-{"error": {"code": <span class="e">"ollama_model_missing"</span>, "message": "model qwen3-coder:480b isn't on endpoint gpu", "details": {"model": "qwen3-coder:480b", "models": ["devstral-small-2:24b", "gpt-oss:20b", "qwen3-coder:30b"]}}}
+<span class="c"># the model isn't served there</span>
+<span class="p">$</span> ws machine spawn --runner ws --role verifier … workspaces@feat/x -- "" --model qwen3-coder:480b
+{"error": {"code": <span class="e">"model_not_served"</span>, "message": "model qwen3-coder:480b isn't served by endpoint gpu", "details": {"model": "qwen3-coder:480b", "models": ["devstral-small-2:24b", "gpt-oss:20b", "qwen3-coder:30b"]}}}
 <span class="c">exit status 3</span>
 
-<span class="c"># with ollama.fallback = "claude": a Claude child, and a warning</span>
+<span class="c"># with runner.fallback = "claude": a Claude child, and a warning</span>
 <span class="p">$</span> ws machine spawn --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x | jq -c '{id, runner, warnings}'
-{"id":"verifier-5e6f7a8b","runner":"claude","warnings":[<span class="w">"ollama preflight failed (ollama_unreachable: connection refused); started a claude child because ollama.fallback = \"claude\""</span>]}
+{"id":"verifier-5e6f7a8b","runner":"claude","warnings":[<span class="w">"runner preflight failed (endpoint_unreachable: connection refused); started a claude child because runner.fallback = \"claude\""</span>]}
 
 <span class="c"># the endpoint goes down mid-run: the runner retries 3 times, then records FAIL with the reason</span>
 <span class="p">$</span> ws machine logs --tail 4 x-verify-0d9e2f61 | jq -c '.events[] | {step, kind, error, reason}'
@@ -239,30 +251,67 @@ The model called run {"command":"go test ./internal/config/"} 5 times in a row w
 <section class="screen" id="cli-list">
 <div class="term"><div class="termBar"><i></i><i></i><i></i><span>ws list</span></div>
 <pre class="out"><span class="p">$</span> ws list
-ID                           SESSION                  AGE   REPOS
-orch-ollama-1a2b3c4d         e8cdf5d8 working         42m   workspaces@main
-└ x-base-2c9d11f0            <span class="o">ollama</span> ol-91b0c7aa idle    38m   workspaces@main
-└ x-t1-impl-41aa0b7c         <span class="o">ollama</span> ol-5d2e8b10 working  6m   workspaces@feat/x
-└ x-t1-review-c3d5e7f9       c3d5e7f9 starting        0m   workspaces@feat/x-t1
-fix-login-d8efb24f           e8cdf5d8 idle            2h    buff-bear@main
+ID                           SESSION              MODEL                AGE   REPOS
+orch-x-1a2b3c4d              e8cdf5d8 working     claude-sonnet-5-5    42m   workspaces@main
+└ x-base-2c9d11f0            rn-91b0c7aa idle     qwen3-coder:30b      38m   workspaces@main
+└ x-t1-impl-41aa0b7c         rn-5d2e8b10 working  qwen3-coder:30b       6m   workspaces@feat/x
+└ x-t1-review-c3d5e7f9       c3d5e7f9 starting    claude-sonnet-5-5     0m   workspaces@feat/x-t1
+fix-login-d8efb24f           7a40c2d9 idle        claude-opus-5-5       2h   buff-bear@main
+notes-3b2a1c0d               shell running        -                    10m   (empty)
 
 <span class="p">$</span> ws list --json | jq '.workspaces[2].session'
 {
   <span class="k">"kind"</span>: <span class="s">"agent"</span>,
-  <span class="k">"id"</span>: <span class="s">"ol-5d2e8b10"</span>,
+  <span class="k">"id"</span>: <span class="s">"rn-5d2e8b10"</span>,
   <span class="k">"state"</span>: <span class="s">"working"</span>,
   <span class="k">"pid"</span>: <span class="n">51234</span>,
   <span class="k">"stale"</span>: null,
-  <span class="k">"runner"</span>: <span class="s">"ollama"</span>,
-  <span class="k">"ollama"</span>: {
-    <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>,
-    <span class="k">"model"</span>: <span class="s">"qwen3-coder:30b"</span>,
-    <span class="k">"step"</span>: <span class="n">12</span>,
-    <span class="k">"max_steps"</span>: <span class="n">80</span>,
+  <span class="k">"runner"</span>: <span class="s">"ws"</span>,
+  <span class="k">"model"</span>: <span class="s">"qwen3-coder:30b"</span>,
+  <span class="k">"ws_runner"</span>: {
+    <span class="k">"model_alias"</span>: <span class="s">"coder"</span>, <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>, <span class="k">"step"</span>: <span class="n">12</span>, <span class="k">"max_steps"</span>: <span class="n">80</span>, <span class="k">"restarts"</span>: <span class="n">0</span>,
     <span class="k">"usage"</span>: {<span class="k">"requests"</span>: <span class="n">12</span>, <span class="k">"prompt_tokens"</span>: <span class="n">210344</span>, <span class="k">"completion_tokens"</span>: <span class="n">9120</span>},
+    <span class="k">"mcp"</span>: [],
     <span class="k">"exit"</span>: null
   }
-}</pre></div>
+}
+
+<span class="p">$</span> ws list --json | jq -c '.workspaces[0].session | {runner, model, ws_runner}'
+{"runner":"claude","model":"claude-sonnet-5-5","ws_runner":null}</pre></div>
+</section>
+
+<!-- 5. ws daemon -->
+<section class="screen" id="cli-daemon">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>ws daemon</span></div>
+<pre class="out"><span class="c"># in the ws-online pod, ws-online keeps a managed daemon running</span>
+<span class="p">$</span> ws daemon status --json
+{"running": true, "pid": 40211, "origin": "managed", "started_at": "2026-11-14T08:00:03Z",
+ "ws_version": "v0.31.0", "socket": "/tmp/ws-1000/3be1f0a94c21.sock", "config_dir": "/data/ws",
+ "runners": [{"workspace": "x-t1-impl-41aa0b7c", "session": "rn-5d2e8b10", "pid": 51234,
+              "state": "working", "restarts": 0, "adopted": false}],
+ "warnings": []}
+
+<span class="c"># on a laptop with no daemon running, the first spawn starts one</span>
+<span class="p">$</span> ws daemon status | jq -c '{running}'
+{"running":false}
+<span class="p">$</span> ws machine spawn --runner ws --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make test" \
+    workspaces@feat/x | jq -c '{session, model, ws_runner}'
+{"session":"rn-91b0c7aa","model":"qwen3-coder:30b","ws_runner":{"model_alias":"coder","endpoint":"gpu","url":"http://localhost:11434","api":"openai","context_tokens":65536,"mcp_servers":[]}}
+<span class="p">$</span> ws daemon status --json | jq -c '{running, origin}'
+{"running":true,"origin":"transient"}
+
+<span class="c"># refresh the daemon's environment without interrupting runners</span>
+<span class="p">$</span> ws daemon stop --keep-runners --json
+{"stopped": true, "pid": 40388, "runners_stopped": [], "runners_kept": ["rn-91b0c7aa"], "warnings": []}
+
+<span class="c"># the next daemon adopts the runner that kept going</span>
+<span class="p">$</span> ws daemon status --json | jq -c '.runners[] | {session, state, adopted}'
+{"session":"rn-91b0c7aa","state":"working","adopted":true}
+
+<span class="c"># without auto-start, a missing daemon is an error</span>
+<span class="p">$</span> WS_DAEMON_AUTOSTART=0 ws machine spawn --runner ws --role verifier … workspaces@feat/x
+{"error": {"code": <span class="e">"daemon_unavailable"</span>, "message": "no ws daemon answered on /tmp/ws-1000/3be1f0a94c21.sock and WS_DAEMON_AUTOSTART=0", "details": {"socket": "/tmp/ws-1000/3be1f0a94c21.sock", "log": "/data/ws/daemon/daemon.log"}}}
+<span class="c">exit status 1</span></pre></div>
 </section>
 
 <script>
@@ -275,28 +324,37 @@ const rail = (active) => `
 </nav>`;
 const topBar = `<header class="topBar"><span class="brand">Workspaces</span><span class="spacer"></span><button class="btn outlined small">New agent</button></header>`;
 
+// Every agent shows its model the same way: quiet text on the summary line.
+// Provider and endpoint are only in the tooltip and the detail pane.
+const agent = ({name, dot, age, summary, model, tip, child, current}) => `
+      <li class="item${child ? " child" : ""}${current ? " current" : ""}"><div class="row"><span class="dot ${dot}"></span><span class="name">${name}</span><span class="age">${age}</span></div>
+        <div class="summaryRow"><span class="summary">${summary}</span><span class="modelLabel" title="${tip}">${model}</span></div></li>`;
+const claudeTip = (id) => `${id} · Claude Code`;
+const wsTip = `qwen3-coder:30b · alias coder · endpoint gpu (http://ollama-a.inference.svc:11434) · OpenAI-compatible`;
+
 const tree = `
 <aside class="sidebar">
   <div class="search">Search agents</div>
   <div class="list">
-    <h2 class="heading">Agents <span>5</span></h2>
+    <h2 class="heading">Agents <span>6</span></h2>
     <ul class="items">
-      <li class="item"><div class="row"><span class="dot working"></span><span class="name">orch-ollama</span><span class="age">42m</span></div><div class="summary">Orchestrating feature x: T1 of 4</div></li>
-      <li class="item child"><div class="row"><span class="dot done"></span><span class="name">x-base</span><span class="runnerChip">Ollama</span><span class="age">38m</span></div><div class="summary">qwen3-coder:30b @ gpu · PASS · 14 steps</div></li>
-      <li class="item child"><div class="row"><span class="dot done"></span><span class="name">x-design</span><span class="age">35m</span></div><div class="summary">PASS · design docs pushed</div></li>
-      <li class="item child current"><div class="row"><span class="dot working"></span><span class="name">x-t1-impl</span><span class="runnerChip">Ollama</span><span class="age">6m</span></div><div class="summary">qwen3-coder:30b @ gpu · step 12/80</div></li>
-      <li class="item child"><div class="row"><span class="dot needs"></span><span class="name">x-t2-impl</span><span class="runnerChip">Ollama</span><span class="age">3m</span></div><div class="summary">FAIL · looping · 47 steps</div></li>
-      <li class="item"><div class="row"><span class="dot idle"></span><span class="name">fix-login</span><span class="age">2h</span></div><div class="summary">Waiting for review</div></li>
+      ${agent({name: "orch-x", dot: "working", age: "42m", summary: "Orchestrating feature x: T1 of 4", model: "sonnet-5-5", tip: claudeTip("claude-sonnet-5-5")})}
+      ${agent({name: "x-base", dot: "done", age: "38m", summary: "PASS · 14 steps", model: "qwen3-coder:30b", tip: wsTip, child: true})}
+      ${agent({name: "x-design", dot: "done", age: "35m", summary: "PASS · design docs pushed", model: "opus-5-5", tip: claudeTip("claude-opus-5-5"), child: true})}
+      ${agent({name: "x-t1-impl", dot: "working", age: "6m", summary: "step 12/80", model: "qwen3-coder:30b", tip: wsTip, child: true, current: true})}
+      ${agent({name: "x-t2-impl", dot: "needs", age: "3m", summary: "FAIL · looping", model: "devstral-small-2:24b", tip: "devstral-small-2:24b · alias devstral · endpoint gpu (http://ollama-a.inference.svc:11434) · OpenAI-compatible", child: true})}
+      ${agent({name: "x-t1-review", dot: "working", age: "1m", summary: "Reviewing T1", model: "haiku-5-5", tip: claudeTip("claude-haiku-5-5"), child: true})}
+      ${agent({name: "fix-login", dot: "idle", age: "2h", summary: "Waiting for review", model: "opus-5-5", tip: claudeTip("claude-opus-5-5")})}
     </ul>
   </div>
 </aside>`;
 
 const header = `
 <section class="header">
-  <div class="titleRow"><h1 class="title">x-t1-impl</h1><span class="runnerChip" style="font-size:11px;padding:2px 8px">Ollama</span><span class="spacer"></span>
+  <div class="titleRow"><h1 class="title">x-t1-impl</h1><span class="titleModel" title="${wsTip}">qwen3-coder:30b</span><span class="spacer"></span>
     <button class="btn outlined small">Open</button><button class="btn danger small">Remove</button></div>
-  <div class="meta"><span class="chip mono">gpu · http://ollama-a.inference.svc:11434</span><span class="chip mono">qwen3-coder:30b</span>
-    <span class="chip">step 12 / 80</span><span class="chip">tokens 210k in · 9.1k out</span><span class="chip">implementer · T1</span><span class="muted">ol-5d2e8b10 · working 6m</span></div>
+  <div class="meta"><span class="chip">step 12 / 80</span><span class="chip">tokens 210k in · 9.1k out</span><span class="chip">implementer · T1</span>
+    <span class="muted">endpoint gpu · rn-5d2e8b10 · working 6m</span></div>
 </section>`;
 
 const transcript = `
@@ -305,18 +363,18 @@ const transcript = `
   <div class="think">I'll read the task section first.</div>
   <div class="tool"><b>read_file</b> docs/design/x/tasks.md <span class="ck"></span> 212 lines</div>
   <div class="tool"><b>read_file</b> internal/config/config.go offset 60 limit 120 <span class="ck"></span> 120 lines</div>
-  <div class="msg">The task adds an <code>Ollama</code> section to <code>Config</code>. I'll create <code>internal/config/ollama.go</code>.</div>
-  <div class="tool"><b>write_file</b> internal/config/ollama.go <span class="ck"></span> wrote 4 120 bytes</div>
-  <div class="tool"><b>run</b> go test ./internal/config/ <span class="bad">exit 1</span> · ollama_test.go:41: expected "gpu", got ""</div>
+  <div class="msg">The task adds a <code>Runner</code> section to <code>Config</code>. I'll create <code>internal/config/runner.go</code>.</div>
+  <div class="tool"><b>write_file</b> internal/config/runner.go <span class="ck"></span> wrote 4 120 bytes</div>
+  <div class="tool"><b>run</b> go test ./internal/config/ <span class="bad">exit 1</span> · runner_test.go:41: expected "gpu", got ""</div>
   <div class="sys">invalid tool call: edit_file missing "new" · answered with the schema</div>
-  <div class="tool"><b>edit_file</b> internal/config/ollama.go old "return Run{}, nil" → 1 replacement <span class="ck"></span></div>
+  <div class="tool"><b>edit_file</b> internal/config/runner.go old "return Run{}, nil" → 1 replacement <span class="ck"></span></div>
   <div class="sys warn">retry 1/3 after 503 Service Unavailable · waited 2s</div>
   <div class="tool"><b>run</b> go test ./internal/config/ <span class="ok">exit 0</span> · ok  github.com/example/workspaces/internal/config 0.41s</div>
   <div class="sys">context compacted: 41k → 19k tokens · 6 tool results elided</div>
   <div class="tool"><b>run</b> make lint <span class="ok">exit 0</span></div>
   <div class="msg"><span class="muted">working… step 12 of 80</span></div>
 </div>
-<div class="noreply">Ollama children run unattended: there's no reply box, Attach or Continue. Remove stops the runner.</div>`;
+<div class="noreply">Children on the ws runner run unattended: there's no reply box, Attach or Continue. Remove stops the runner.</div>`;
 
 const settingsList = (active) => `
 <aside class="sidebar settingsList" style="width:240px">
@@ -325,61 +383,84 @@ const settingsList = (active) => `
   </ul></div>
 </aside>`;
 
+const dot = (color, text) => `<span class="statusDot" style="background:${color}"></span>${text}`;
+const ok = "var(--status-done)", bad = "var(--danger)", warn = "var(--status-needs-input)";
+
 const endpointsCard = (errors) => `
 <div class="card">
   <div class="cardHead">Endpoints <span class="spacer"></span><button class="btn small">Add endpoint</button></div>
   <div class="cardBody" style="padding:4px 4px">
   <table>
-    <colgroup><col style="width:90px"><col style="width:300px"><col style="width:130px"><col style="width:160px"><col style="width:90px"><col></colgroup>
-    <tr><th>Name</th><th>URL</th><th>API</th><th>Default model</th><th>Context</th><th>Status</th></tr>
-    <tr><td><b>gpu</b> <span class="muted">default</span></td><td class="mono">http://ollama-a.inference.svc:11434</td><td>Ollama</td><td class="mono">qwen3-coder:30b</td><td>65 536</td>
-      <td>${errors ? `<span class="statusDot" style="background:var(--danger)"></span>unreachable` : `<span class="statusDot" style="background:var(--status-done)"></span>4 models · tools <span class="ck"></span>`}</td></tr>
-    <tr><td><b>router</b></td><td class="mono">http://llm-router.inference.svc:8080</td><td>OpenAI / llm-router</td><td class="mono">${errors ? "gemma3:12b" : "gpt-oss:20b"}</td><td>32 768</td>
-      <td>${errors ? `<span class="statusDot" style="background:var(--status-needs-input)"></span>model lacks tools` : `<span class="statusDot" style="background:var(--status-done)"></span>6 models`}</td></tr>
+    <colgroup><col style="width:100px"><col style="width:310px"><col style="width:170px"><col style="width:100px"><col></colgroup>
+    <tr><th>Name</th><th>URL</th><th>API</th><th>Probe</th><th>Status</th></tr>
+    <tr><td><b>gpu</b></td><td class="mono">http://ollama-a.inference.svc:11434</td><td>OpenAI-compatible</td><td>Ollama</td>
+      <td>${errors ? dot(bad, "unreachable") : dot(ok, "4 models")}</td></tr>
+    <tr><td><b>router</b></td><td class="mono">http://llm-router.inference.svc:8080</td><td>OpenAI-compatible</td><td class="muted">none</td>
+      <td>${dot(ok, "6 models")}</td></tr>
+  </table></div>
+</div>`;
+
+const modelsCard = (errors) => `
+<div class="card">
+  <div class="cardHead">Models <span class="spacer"></span><button class="btn small">Add model</button></div>
+  <div class="cardBody" style="padding:4px 4px">
+  <table>
+    <colgroup><col style="width:110px"><col style="width:100px"><col style="width:220px"><col style="width:100px"><col></colgroup>
+    <tr><th>Alias</th><th>Endpoint</th><th>Model id</th><th>Context</th><th>Status</th></tr>
+    <tr><td><b>coder</b> <span class="muted">default</span></td><td>gpu</td><td class="mono">qwen3-coder:30b</td><td>65 536</td>
+      <td>${errors ? dot(bad, "endpoint unreachable") : dot(ok, "tools <span class=\"ck\"></span>")}</td></tr>
+    <tr><td><b>devstral</b></td><td>gpu</td><td class="mono">devstral-small-2:24b</td><td>65 536</td>
+      <td>${errors ? dot(bad, "endpoint unreachable") : dot(ok, "tools <span class=\"ck\"></span>")}</td></tr>
+    <tr><td><b>small</b></td><td>router</td><td class="mono">${errors ? "gemma3:12b" : "gpt-oss:20b"}</td><td>32 768</td>
+      <td>${errors ? dot(warn, "can't check tools: no probe") : `<span class="muted">served · no probe</span>`}</td></tr>
   </table></div>
 </div>`;
 
 const settingsModels = (errors) => `
-<div class="root">${topBar}<div class="body">${rail("Settings")}${settingsList("Models")}
+<div class="root tall">${topBar}<div class="body">${rail("Settings")}${settingsList("Models")}
 <main class="main"><section class="header"><div class="titleRow"><h1 class="title">Models</h1></div>
-<div class="meta">On-prem models for <span class="mono">ws machine</span> children. Saved to <span class="mono">config.toml</span> with <span class="mono">ws config</span>; tokens to <span class="mono">ollama-tokens.json</span>.</div></section>
+<div class="meta">Models for ws runner children (any OpenAI-compatible server now; other APIs later). Saved to <span class="mono">config.toml</span> with <span class="mono">ws config</span>; tokens to <span class="mono">secrets.env</span>.</div></section>
 <div class="content" style="max-width:980px">
 ${errors ? `
-<div class="alert err"><span class="ico err">!</span><div><b>gpu is unreachable.</b> GET http://ollama-a.inference.svc:11434/v1/models: dial tcp 10.43.7.21:11434: connect: connection refused. New children that use it fail with <span class="mono">ollama_unreachable</span> until it answers. Fallback is off, so no Claude child is started instead.</div><span class="spacer"></span><button class="btn small">Test again</button></div>
-<div class="alert warn"><span class="ico warn">!</span><div><b>gemma3:12b on router doesn't support tools.</b> The router can't report capabilities, so a run would stop on its first request with <span class="mono">model_no_tools</span>. Pick another default model for router.</div></div>` : ""}
+<div class="alert err"><span class="ico err">!</span><div><b>gpu is unreachable.</b> GET http://ollama-a.inference.svc:11434/v1/models: dial tcp 10.43.7.21:11434: connect: connection refused. New children that use it fail with <span class="mono">endpoint_unreachable</span> until it answers. Fallback is off, so no Claude child is started instead.</div><span class="spacer"></span><button class="btn small">Test again</button></div>
+<div class="alert warn"><span class="ico warn">!</span><div><b>gemma3:12b on router doesn't support tools.</b> The router has no probe, so a run would stop on its first request with <span class="mono">model_no_tools</span>. Point the alias <span class="mono">small</span> at a model that can call tools.</div></div>` : ""}
 ${endpointsCard(errors)}
+${modelsCard(errors)}
 ${errors ? "" : `
 <div class="card"><div class="cardHead">Edit endpoint · gpu<span class="spacer"></span><button class="btn small">Test connection</button><button class="btn contained small">Save</button></div>
 <div class="cardBody"><div class="form">
-  <label>Name</label><div class="field mono">gpu</div><label>API</label><div class="field select">Ollama (native checks)</div>
-  <label>URL</label><div class="field mono">http://ollama-a.inference.svc:11434</div><label>Default model</label><div class="field select mono">qwen3-coder:30b</div>
-  <label>Context tokens</label><div class="field">65536 <span class="muted">· server OLLAMA_CONTEXT_LENGTH</span></div><label>Token</label><div class="field muted">•••••••• from WS_OLLAMA_TOKEN_GPU</div>
+  <label>Name</label><div class="field mono">gpu</div><label>API</label><div class="field select">OpenAI-compatible</div>
+  <label>URL</label><div class="field mono">http://ollama-a.inference.svc:11434</div><label></label><div class="muted">Ollama native, OpenAI Responses, Anthropic: later</div>
+  <label>Probe</label><div class="field select">Auto (found Ollama)</div><label>Token</label><div class="field muted">•••••••• from secrets.env</div>
   <label>Request timeout</label><div class="field">10m</div><label>Idle timeout</label><div class="field">90s</div>
 </div>
 <div class="alert info" style="margin-top:12px"><span class="ico info">i</span><div>Ollama 0.40.16 · 4 models · <span class="mono">qwen3-coder:30b</span> supports tools · its context length 262 144 ≥ 65 536</div></div>
 </div></div>`}
 <div class="setRow" style="padding:4px 0"><div class="lbl"><div>Fall back to Claude</div><div class="muted">When an endpoint is down or a model can't call tools, start a Claude child instead of failing the spawn.</div></div><div><span class="switch"></span></div></div>
 <div class="card"><div class="cardHead">Roles</div><div class="cardBody" style="padding:4px 4px"><table>
-  <colgroup><col style="width:150px"><col style="width:140px"><col style="width:140px"><col style="width:200px"><col></colgroup>
-  <tr><th>Role</th><th>Runner</th><th>Endpoint</th><th>Model</th><th>Budget</th></tr>
-  <tr><td>implementer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">-</td><td class="muted">haiku (role)</td><td class="muted">-</td></tr>
-  <tr><td>reviewer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">-</td><td class="muted">sonnet (role)</td><td class="muted">-</td></tr>
-  <tr><td>verifier</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Ollama</span></td><td>gpu</td><td class="mono">qwen3-coder:30b</td><td class="muted">40 steps · 60m</td></tr>
+  <colgroup><col style="width:140px"><col style="width:120px"><col style="width:150px"><col style="width:220px"><col></colgroup>
+  <tr><th>Role</th><th>Runner</th><th>Model</th><th>MCP servers</th><th>Budget</th></tr>
+  <tr><td>implementer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">haiku (role)</td><td class="muted">Claude Code's</td><td class="muted">-</td></tr>
+  <tr><td>reviewer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">sonnet (role)</td><td class="muted">Claude Code's</td><td class="muted">-</td></tr>
+  <tr><td>verifier</td><td><span class="field select" style="min-height:28px;padding:3px 8px">ws</span></td><td class="mono">coder</td><td class="muted">none</td><td class="muted">40 steps · 60m</td></tr>
+  <tr><td>oncall</td><td><span class="field select" style="min-height:28px;padding:3px 8px">ws</span></td><td class="mono">coder</td><td>mcp-grafana <span class="muted">(9 tools)</span></td><td class="muted">60 steps · 60m</td></tr>
 </table></div></div>
 </div></main></div></div>`;
 
 const screens = {
-  "agents-tree": `<div class="root">${topBar}<div class="body">${rail("Agents")}${tree}<main class="main">${header}${transcript.replace(/<div class="convo">[\s\S]*<\/div>\s*<div class="noreply">[\s\S]*<\/div>/, `<div class="content">
-    <div class="card"><div class="cardHead">Ollama run</div><div class="cardBody"><table>
+  "agents-tree": `<div class="root">${topBar}<div class="body">${rail("Agents")}${tree}<main class="main">${header}<div class="content">
+    <div class="card"><div class="cardHead">Run</div><div class="cardBody"><table>
       <colgroup><col style="width:180px"><col></colgroup>
-      <tr><td class="muted">Endpoint</td><td class="mono">gpu · http://ollama-a.inference.svc:11434 (Ollama)</td></tr>
-      <tr><td class="muted">Model</td><td class="mono">qwen3-coder:30b · context 65 536</td></tr>
-      <tr><td class="muted">Progress</td><td>step 12 of 80 · 6m of 60m · 210k of 4M tokens</td></tr>
+      <tr><td class="muted">Runner</td><td>ws</td></tr>
+      <tr><td class="muted">Model</td><td class="mono">qwen3-coder:30b · alias coder · context 65 536</td></tr>
+      <tr><td class="muted">Endpoint</td><td class="mono">gpu · http://ollama-a.inference.svc:11434 · OpenAI-compatible</td></tr>
+      <tr><td class="muted">Progress</td><td>step 12 of 80 · 6m of 60m · 210k of 4M tokens · 0 restarts</td></tr>
+      <tr><td class="muted">MCP servers</td><td class="muted">none for this role</td></tr>
       <tr><td class="muted">Last event</td><td class="mono">run go test ./internal/config/ → exit 0</td></tr>
-      <tr><td class="muted">Session</td><td class="mono">ol-5d2e8b10 · pid 51234</td></tr>
+      <tr><td class="muted">Session</td><td class="mono">rn-5d2e8b10 · pid 51234</td></tr>
     </table></div></div>
-    <div class="alert info"><span class="ico info">i</span><div>This child runs on an on-prem model through the ws Ollama runner. Open the transcript to follow it; it records its own verdict, or ws records FAIL with the reason when it stops early.</div></div>
-  </div>`)}</main></div></div>`,
+    <div class="alert info"><span class="ico info">i</span><div>This child runs on ws's own runner (model qwen3-coder:30b on endpoint gpu). Open the transcript to follow it; it records its own verdict, or ws records FAIL with the reason when it stops early.</div></div>
+  </div></main></div></div>`,
   "transcript": `<div class="root">${topBar}<div class="body">${rail("Agents")}${tree}<main class="main">${header}${transcript}</main></div></div>`,
   "settings-models": settingsModels(false),
   "settings-models-errors": settingsModels(true),

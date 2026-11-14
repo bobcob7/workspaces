@@ -1,0 +1,46 @@
+# Scenarios: mcp-stdio, mcp-http, mcp-filter, mcp-tool-search,
+# mcp-server-fails. The e2e config names the fake MCP server "fake", so its
+# tools are offered as mcp__fake__<tool>. The test picks the case with a
+# marker in the task prompt: MCP_CALL, MCP_SEARCH or MCP_DESTRUCTIVE.
+strict_capabilities: true
+models:
+  - {name: fake-coder, capabilities: [tools], context_length: 32768}
+rules:
+  # mcp-stdio, mcp-http, mcp-server-fails: call an allowed tool, twice.
+  - match: MCP_CALL
+    turn: 0
+    tool: mcp__fake__lookup_service
+    arguments: '{"name":"api"}'
+  - match: MCP_CALL
+    turn: 1
+    tool: mcp__fake__lookup_service
+    arguments: '{"name":"worker"}'
+  - match: MCP_CALL
+    turn: 2
+    tool: record_result
+    arguments: '{"verdict":"PASS","report":"Looked up api and worker."}'
+  # mcp-tool-search: the tool isn't offered up front; search, then call it.
+  - match: MCP_SEARCH
+    turn: 0
+    tool: tool_search
+    arguments: '{"query":"loki logs"}'
+  - match: MCP_SEARCH
+    turn: 1
+    match_tool_result: "mcp__fake__query_loki_logs"
+    tool: mcp__fake__query_loki_logs
+    arguments: '{"logql":"{app=\"api\"}","limit":5}'
+  - match: MCP_SEARCH
+    turn: 2
+    tool: record_result
+    arguments: '{"verdict":"PASS","report":"Found and queried the logs tool."}'
+  # mcp-filter: a destructive tool allowed only by a glob must be refused.
+  - match: MCP_DESTRUCTIVE
+    turn: 0
+    tool: mcp__fake__delete_dashboard
+    any_tool: true
+    arguments: '{"uid":"abc"}'
+  - match: MCP_DESTRUCTIVE
+    turn: 1
+    match_tool_result: "^error: "
+    tool: record_result
+    arguments: '{"verdict":"PASS","report":"The destructive tool was refused."}'

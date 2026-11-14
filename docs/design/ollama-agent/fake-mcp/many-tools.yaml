@@ -1,0 +1,26 @@
+# Scenarios: mcp-filter, mcp-tool-search. The role allows
+# mcp__fake__query_* and mcp__fake__list_* by glob (so delete_dashboard,
+# destructive, is refused) and sets mcp_upfront = 8, so most allowed tools
+# are deferred behind tool_search.
+server: {name: fake, version: 0.0.0-fake}
+generate: {count: 80, prefix: list_thing_}   # generated tools are read-only, with a one-line description
+tools:
+  - name: query_loki_logs
+    description: Query Loki logs with a LogQL expression and return matching lines.
+    input_schema:
+      type: object
+      properties: {logql: {type: string}, limit: {type: integer}}
+      required: [logql]
+    annotations: {readOnlyHint: true}
+    replies:
+      - match: 'app=\\"api\\"'
+        text: "2026-11-14T08:00:01Z api GET /healthz 200"
+  - name: delete_dashboard
+    description: Delete a dashboard by uid.
+    input_schema:
+      type: object
+      properties: {uid: {type: string}}
+      required: [uid]
+    annotations: {destructiveHint: true}
+    replies:
+      - text: "deleted"

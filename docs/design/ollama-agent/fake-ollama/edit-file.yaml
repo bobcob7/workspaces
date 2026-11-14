@@ -1,4 +1,7 @@
-# Scenarios: edit-file, endpoint-down-mid-run, mid-stream-drop, restore, mixed-wait.
+# Scenarios: edit-file, endpoint-down-mid-run, mid-stream-drop, mixed-wait,
+# token-redacted, daemon-resume, daemon-crash-limit, daemon-restart,
+# daemon-start-resumes. The daemon scenarios set a hang fault on turn 1
+# through the control API, then kill or stop processes.
 strict_capabilities: true
 models:
   - {name: fake-coder, capabilities: [tools], context_length: 32768}

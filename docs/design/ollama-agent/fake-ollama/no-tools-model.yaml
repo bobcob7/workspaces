@@ -1,4 +1,7 @@
-# Scenarios: no-tools-model, model-missing (spawn with model "absent").
+# Scenarios: no-tools-model (probe = "ollama" fails the spawn with
+# model_without_tools; probe = "none" lets it start and the first request
+# gets the 400, exit model_no_tools), model-not-served (an alias whose id
+# is "absent").
 strict_capabilities: true
 models:
   - {name: fake-notools, capabilities: [], context_length: 32768}
