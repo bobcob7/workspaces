@@ -33,6 +33,7 @@ rendered to [img/](img/).
 
 - [Review comments and where they're answered](#review-comments-and-where-theyre-answered)
 - [Second review: decisions](#second-review-decisions)
+- [Third review: endpoints can change mid-run](#third-review-endpoints-can-change-mid-run)
 - [Architecture](#architecture)
 - [One orchestrated run in mixed mode](#one-orchestrated-run-in-mixed-mode)
 - [The agent loop](#the-agent-loop)
@@ -85,7 +86,45 @@ decision in the ADRs; this is where to find it.
 | Claude Code on Ollama's Anthropic API | Dropped | [0062](../../adrs/0062-agent-runner-built-into-ws.md) |
 | Endpoint queue (`max_parallel`) | A non-goal | [0068](../../adrs/0068-ws-daemon.md) |
 | OTel | The runner links the OpenTelemetry SDK, GenAI conventions as in llm-router, no content | [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md), task T13 |
-| Fallback scope | Unchanged; still open | [Open questions](#open-questions) |
+| Fallback scope | Decided in the third review: no mid-run fallback to Claude; a running agent re-resolves its endpoint instead | [Third review](#third-review-endpoints-can-change-mid-run), [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md) |
+
+## Third review: endpoints can change mid-run
+
+The second draft's one open question was whether `runner.fallback =
+"claude"` should also cover a mid-run `endpoint_down`. The owner: "No,
+endpoints can change mid-run", and chose to **re-resolve the endpoint
+mid-run**. The decision is in
+[0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md)
+("Re-resolution mid-run"), with the loop's side in
+[0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md) and the
+contract in [reference.md](reference.md#re-resolving-the-endpoint-mid-run).
+
+| Point | Decision |
+| ----- | -------- |
+| Mid-run fallback to Claude | Not done. `runner.fallback` stays preflight-only; a run that can't continue records an exit reason for the orchestrator |
+| What a run is bound to | Its model alias (or raw id) and `--endpoint`, fixed in `run.toml`; not the URL resolved at spawn. Never another alias |
+| When it re-resolves | After each retry's backoff, just before the retry's request; and at every resume. Never while its requests succeed |
+| Who reads the configuration | The runner, from `config.toml` (as `ws config set` and Settings › Models leave it, replaced atomically). The daemon pushes nothing, so this works while the daemon is down |
+| Tokens and environment | The new endpoint's `WS_ENDPOINT_TOKEN_<NAME>`, read from `secrets.env` as it is then, else the runner's environment; the rest of the environment changes only at resume ([0068](../../adrs/0068-ws-daemon.md)) |
+| Check before switching | The spawn's preflight against the new endpoint (served, tools, context length); never a switch to a model without tools. A different model id is accepted if it passes; a smaller window recomputes compaction, or rejects the switch when the conversation can't fit |
+| Unusable configuration | Keep the current endpoint, a `config_warning` event |
+| Retry budget | 3 retries per request across endpoints. Then `endpoint_down` (the live configuration's endpoint failed too) or `endpoint_rejected` (it points at an endpoint the check refused) |
+| Records | `endpoint_changed`, `endpoint_rejected` and `config_warning` events; `endpoint_history` in `run.toml`; `endpoint` and `endpoint_changes` in `status.json`, and additively in `ws list`, `children` and `wait`; usage per endpoint in `usage.json`; OTel span events and a counter, no content |
+| Tests | Two fake-ollama processes: A goes down and the alias is repointed to B, the run finishes on B; a repoint to a model without tools is rejected; an invalid `config.toml` mid-run is ignored (tasks T4, T7, T11, T13, T14, T15, T19, T22, and the new T28) |
+
+```mermaid
+stateDiagram-v2
+    [*] --> Current : spawn resolves the alias, preflight passes
+    Current --> Current : request succeeds (config not read)
+    Current --> Reresolve : retryable error, after its backoff
+    Reresolve --> Current : same target, unusable config (config_warning), or switch rejected (endpoint_rejected)
+    Reresolve --> Probe : the alias now points at another endpoint, URL, api or id
+    Probe --> Switched : served, with tools, and the conversation fits
+    Probe --> Current : unreachable (counts as a failed retry)
+    Probe --> Current : not served, no tools, or does not fit (endpoint_rejected)
+    Switched --> Current : endpoint_changed; the new target is current
+    Current --> [*] : third retry failed (endpoint_down or endpoint_rejected)
+```
 
 ## Architecture
 
@@ -208,9 +247,10 @@ stateDiagram-v2
     CheckBudget --> Request : under it
     Compact --> Request : fits
     Compact --> Exit : does not fit (context_overflow)
-    Request --> Backoff : retryable error, at most 3 times
-    Backoff --> Request : after 2 s, 8 s, 30 s
-    Request --> Exit : retries used up (endpoint_down)
+    Request --> Backoff : retryable error, at most 3 times across endpoints
+    Backoff --> Reresolve : after 2 s, 8 s, 30 s
+    Reresolve --> Request : the alias's endpoint from config.toml now, checked if it changed
+    Request --> Exit : retries used up (endpoint_down or endpoint_rejected)
     Request --> Dispatch : response
     Dispatch --> CheckBudget : no tool call, so a nudge (at most 2 in a row)
     Dispatch --> CheckBudget : invalid call, so an error answer (at most 3 in a row)
@@ -232,6 +272,9 @@ Each state change rewrites `status.json`, and each step appends to
 `transcript.jsonl`. `stop` (written by `ws rm` and by the desktop's Stop)
 is checked between steps; `SIGTERM` cancels the request in flight. The
 details are in [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md).
+`Reresolve` reads `config.toml` again and may move the run to another
+endpoint ([Third review](#third-review-endpoints-can-change-mid-run)); a
+resume does the same before its first request.
 
 **Preamble** (the system prompt; task T11 embeds this text as `internal/agent/preamble.md`):
 
@@ -280,6 +323,7 @@ the first draft was: nothing. Now ([0068](../../adrs/0068-ws-daemon.md)):
 | The ws-online pod restarts | `ws-online serve` starts `ws daemon run --origin managed` at once; it resumes every unfinished runner |
 | `ws rm` / `ws machine rm` | Asks the daemon to stop the runner (or stops it directly if no daemon answers), then removes the workspace |
 | `ws daemon stop` | Interrupts runners (they read `stopped`, resumable) or, with `--keep-runners`, leaves them for the next daemon |
+| The endpoint fails mid-run, or the alias is repointed | The runner re-resolves the alias before each retry and moves to the endpoint the configuration names now, after checking it; no daemon involved |
 | The desktop's **Stop** on one agent | `ws runner stop`: the runner exits `stopped` after its step; its workspace and transcript stay; it isn't resumed |
 | A runner hangs | Its own `timeout` budget ends it |
 
@@ -291,7 +335,8 @@ Models; the only secrets store), then `WS_RUNNER=ws`, `WS_WORKSPACE`,
 `WS_CONFIG_DIR`, `WS_RUNNER_SECRET_NAMES`. The spawning agent's
 environment is never used; when the desktop app hosts the daemon, layer 1
 is the app's environment with its resolved login-shell `PATH`. `config.toml` and `secrets.env` are re-read at every start and
-resume. Tools get that environment scrubbed; MCP stdio servers get it
+resume, and by the runner itself when it re-resolves its endpoint between
+retries (only `config.toml` and the new endpoint's token). Tools get that environment scrubbed; MCP stdio servers get it
 whole, plus their own `env`
 ([0066](../../adrs/0066-runner-security-boundaries.md)).
 
@@ -434,7 +479,7 @@ Full key list: [reference.md › config.toml](reference.md#configtoml). In
 short: `[endpoints.<name>]` is where and how to talk to a server (`url`,
 `api`, `probe`, timeouts); `[models.<alias>]` is a model on an endpoint
 (`id`, `context_tokens`, `max_output`, `temperature`, `reasoning`); `[runner]` holds
-the default model alias and the fallback; `[runner.roles.<role>]` the
+the default model alias and the preflight-only fallback; `[runner.roles.<role>]` the
 runner, model, budgets and MCP selection per role; `[runner.env]` plain
 variables for runners; `[daemon]` `resume_on_start`. Tokens go in
 `WS_ENDPOINT_TOKEN_<NAME>`, normally in `CONFIG_DIR/secrets.env`.
@@ -449,7 +494,7 @@ Proposed addition to the generated `config.toml` (commented out):
 # [runner]
 # Run some agents on other models (ws llm machine spawn).
 # model = "qwen9b"
-# fallback = "none"          # or "claude": start a Claude child when preflight fails
+# fallback = "none"          # or "claude": start a Claude child when preflight fails (never mid-run)
 #
 # [endpoints.gpu]
 # url = "http://localhost:1234"
@@ -479,15 +524,15 @@ Proposed addition to the generated `config.toml` (commented out):
 | `loop_invalid` | 2 | (existing code) a loop's runner, endpoint, model or permission mode don't fit together |
 
 Mid-run failures aren't error codes. They are exit reasons
-(`endpoint_down`, `looping`, `crashed`, …) with a fail verdict, which
+(`endpoint_down`, `endpoint_rejected`, `looping`, `crashed`, …) with a fail verdict, which
 `wait` reports as `child_failed` with `ws_runner.exit` set. See
 [reference.md](reference.md#errors-and-exit-codes).
 
 ## Observability
 
 - **Transcript**: `state/<id>/runner/transcript.jsonl`, one event per
-  request, response, tool call, retry, compaction, MCP event, restart and
-  exit, redacted. Read it with `ws machine logs <id>` (JSON) or the
+  request, response, tool call, retry, endpoint change or rejection,
+  config warning, compaction, MCP event, restart and exit, redacted. Read it with `ws machine logs <id>` (JSON) or the
   desktop's conversation view.
 - **Live status**: `status.json` (step, usage, restarts, MCP servers),
   shown in `ws list` and the desktop tree. `ws daemon status` lists what
@@ -642,7 +687,7 @@ so code implementers stay on Claude and a docs-only task is moved with
 | Silent context truncation | Ollama `server/prompt.go`[^trunc] | own budget plus a truncation check |
 | Quantization raises tool-name hallucination | up to 2.5×[^quant] | unknown-tool answers; few tools per request |
 | Too many tools | a large MCP server offers 80 | no MCP by default, per-role allow-lists, `mcp_upfront`, `tool_search` |
-| Endpoint down mid-run | | 3 retries, then `endpoint_down`; the orchestrator respawns on Claude |
+| Endpoint down mid-run | | 3 retries, re-resolving the alias from `config.toml` before each, so a repointed or failed-over endpoint is picked up; then `endpoint_down`, and the orchestrator respawns on Claude |
 | Runner crash, reboot, pod restart, app quit | | the daemon resumes; `crashed` after 3 restarts |
 
 **Measured-run plan before widening.** In this order, one change at a
@@ -690,7 +735,11 @@ design):
 >    `max_steps`, `endpoint_down`, `no_result`, `malformed_tool_calls`,
 >    `context_overflow`, `crashed`) means the model or endpoint couldn't do
 >    it: **respawn the same task once with `--runner claude`**, don't retry
->    on the runner. Record the exit in the run log.
+>    on the runner. Record the exit in the run log. `endpoint_rejected`
+>    means `config.toml` points the model at an endpoint that can't run it
+>    (its report says why): tell the user, then respawn on Claude.
+>    Repointing an alias with `ws config set` reaches running children at
+>    their next retry, so fix an endpoint before the children give up.
 > 4. **Logs**: `ws machine logs <id>`, not `claude logs`, for `ws`
 >    children.
 > 5. **One GPU, one heavy child.** Until it's measured how an endpoint
@@ -750,11 +799,14 @@ These are applied by task T19, not now.
 -     "error": null}
 +     "error": null, "runner": "ws", "model": "qwen/qwen3.5-9b",
 +     "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "exit": "done", "steps": 31, "restarts": 0,
-+                   "usage": {…}, "wall_seconds": 1104, "usage_file": "/…/usage.json"}}
++                   "usage": {…}, "wall_seconds": 1104, "usage_file": "/…/usage.json",
++                   "endpoint_changes": 0}}
 +`runner` is `claude` or `ws`; `model` is every child's model; `ws_runner`
 +is null for a Claude child. `ws_runner.exit` is why the runner stopped:
 +`done` when the model recorded its verdict, otherwise a reason such as
 +`looping` or `endpoint_down`, with a fail verdict recorded by `ws`.
++`ws_runner.endpoint` is the endpoint the run used last; `endpoint_changes`
++counts how often it moved to another one when its endpoint failed.
 
 +## ws machine logs
 +
@@ -791,7 +843,9 @@ scenario table. In short:
 - `make fakes`: builds `bin/fake-ollama` and `bin/fake-mcp` from this repo.
   No network, no llm-router.
 - `make e2e-runner`: the real `ws` binary (and its daemon) with fake-ollama
-  and fake-mcp processes, 23 scenarios: runner exits, preflight errors,
+  and fake-mcp processes, 26 scenarios: runner exits, preflight errors,
+  re-resolving the endpoint mid-run (a failover to a second fake, a
+  rejected repoint to a model without tools, an invalid config),
   token redaction, MCP over stdio and HTTP, filtering, `tool_search`, a
   failing server, daemon resume, crash limit, adoption and resume on
   start, Stop, and a loop run on the runner. The fake serves
@@ -837,20 +891,18 @@ detail pane give the alias, endpoint, URL and API for a `ws` child, and
 `ws` child; **Stop** (while it's `working` or `starting`) ends its run
 and keeps the workspace, and Remove works as for any child. The
 conversation view renders `transcript.jsonl` with the same message, tool
-and result rows as Claude transcripts, plus `retry`, `compaction`, MCP and
-`exit` rows. The loop form and the New agent dialog share one set of
+and result rows as Claude transcripts, plus `retry`, `endpoint_changed`
+(and `endpoint_rejected`, `config_warning`), `compaction`, MCP and `exit`
+rows; the detail pane shows the current endpoint. The mockups predate the
+endpoint rows and weren't re-rendered. The loop form and the New agent dialog share one set of
 runner and model fields; Permission mode shows only for Claude Code.
 
 ## Open questions
 
-The owner answered the rest in the second review (see
-[Second review: decisions](#second-review-decisions)). One is still open:
-
-1. **Fallback scope.** Should `fallback = "claude"` also cover a mid-run
-   `endpoint_down` by respawning automatically? This design says no: a
-   fallback happens only at preflight, before anything is created, and a
-   runner that fails mid-run records `endpoint_down` for the orchestrator
-   to act on ([0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md)).
+None. The second review answered the first draft's questions
+([Second review: decisions](#second-review-decisions)); the third answered
+the last one, fallback scope
+([Third review](#third-review-endpoints-can-change-mid-run)).
 
 [^qwen-ids]: LM Studio, <https://lmstudio.ai/models/qwen/qwen3.5-9b>; Ollama library, <https://ollama.com/library/qwen3.5/tags> (accessed 2026-11-14 by a research subagent; ids and the 6.6 GB size not re-opened here).
 [^qwen-card]: Qwen, "Qwen3.5-9B" model card, <https://huggingface.co/Qwen/Qwen3.5-9B> (accessed 2026-11-14). "Context Length: 262,144 natively"; layout "8 × (3 × (Gated DeltaNet → FFN) → 1 × (Gated Attention → FFN))"; BFCL-V4 66.1, TAU2-Bench 79.1, LiveCodeBench v6 65.6, IFEval 91.5; "Qwen3.5 models operate in thinking mode by default"; "does not officially support the soft switch of Qwen3, i.e., `/think` and `/nothink`"; license Apache-2.0. The parameter count of about 9.7B is Ollama's and Artificial Analysis's figure, via the research subagent. The sampling recommendations (0.6 for thinking on precise coding, 0.7 without) are from the same card, via the research subagent.
