@@ -922,3 +922,739 @@ $ make lint
 ```
 
 ---
+
+## T8. A `model` for every agent; `.Runner` and `.Model` in role templates
+
+**Depends on:** nothing. **Parallel with:** T1, T3–T6.
+**ADRs:** [0063](../../adrs/0063-runner-children-are-supervised-sessions.md)
+("Every agent reports its model"),
+[0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md) (Prompts).
+
+This is the data half of the review's "mark every agent with its model":
+Claude agents get `runner` and `model` now; T14 adds runner sessions and
+T21 shows the label.
+
+**Read:** `internal/claude/transcript.go` (`readTail`, `transcriptEntry`,
+`transcriptPath`), `internal/lifetime/lifetime.go` (`Session`),
+`internal/lifetime/judge.go` (where a Claude session is built),
+`internal/lifetime/interfaces.go`, `internal/cli/list.go`
+(`listSessionJSON`), `internal/cli/machine.go` (`machineSpawnJSON`),
+`internal/cli/machine_wait.go` (`machineWaitItemJSON`),
+`internal/machine/role/role.go` (`Render`),
+`internal/machine/role/roles/implementer.md`.
+
+**Change**
+
+- `internal/claude/transcript.go`: `func (c *Client) Model(s *Session)
+  (string, error)`: the `message.model` of the last assistant entry in the
+  transcript tail, `""` when there is none (a missing transcript is `"",
+  nil`). `transcriptEntry` gains `Message.Model`.
+- `internal/lifetime`: `claudeClient` gains `Model`; regenerate mocks.
+  `Session` gains `Runner string` (`"claude"` for agents, `""` for
+  shells) and `Model string`. `judge` fills both for Claude agents; a
+  `Model` error is ignored (logged at debug), leaving `""`.
+- `internal/cli/list.go`: `listSessionJSON` gains, after `stale`, `Runner
+  *string `json:"runner"``, `Model *string `json:"model"`` and `WSRunner
+  *listWSRunnerJSON `json:"ws_runner"`` (always `null` in this task; T14
+  defines the struct's fields, here an empty struct type). `null` for
+  empty values.
+- `internal/cli/machine.go`: `machineSpawnJSON` gains `Runner string
+  `json:"runner"`` (`"claude"`), `Model *string `json:"model"`` (the
+  `--model` value the child was started with, from the role or the claude
+  args, else `null`) and `WSRunner *spawnWSRunnerJSON `json:"ws_runner"``
+  (`null`).
+- `internal/cli/machine_wait.go` and `children`: each item gains `runner`,
+  `model`, `ws_runner` (`null`) from the live session; a gone child gets
+  `null` for all three.
+- `internal/machine/role/role.go`: template data gains `Runner` and
+  `Model`. New `RenderFor(vars map[string]string, extra, runner, model
+  string)`; `Render` calls it with `"claude"` and `""`. `implementer.md`'s
+  trailer becomes `{{if eq .Runner "ws"}}Generated-By: ws runner
+  ({{.Model}}){{else}}Co-Authored-By: Claude Haiku 5.5
+  <noreply@anthropic.com>{{end}}`.
+- `internal/cli/guides/ws-list.md`: after the `session.stale` bullet:
+  ``- `session.runner`: `claude` or `ws` for an agent, `null` for a shell.
+  `session.model`: the agent's model (`claude-sonnet-5-5`, `qwen3-coder:30b`),
+  `null` for a shell or an agent that hasn't answered yet.
+  `session.ws_runner`: details for a `ws` child (see `ws llm machine
+  wait`), otherwise `null`.``, and the JSON example gains the three fields.
+
+**Acceptance**
+
+- `Model` on a fixture transcript whose last assistant entry has `model:
+  "claude-sonnet-5-5"` → that; no assistant entry → `""`; no file → `""`,
+  nil.
+- `ws list --json` (mocks) shows `"runner": "claude", "model":
+  "claude-sonnet-5-5", "ws_runner": null` for an agent and three `null`s
+  for a shell; all other fields byte-identical to before.
+- A spawn with `--role reviewer` whose role sets `model: sonnet` prints
+  `"runner": "claude", "model": "sonnet", "ws_runner": null`; without any
+  `--model`, `"model": null`.
+- Rendering `implementer` with `Render` is byte-identical to before (golden
+  test); `RenderFor(…, "ws", "qwen3-coder:30b")` ends with
+  `Generated-By: ws runner (qwen3-coder:30b)`.
+- `TestGuideTopics` passes.
+
+**Verify**
+
+```console
+$ go generate ./internal/lifetime/ ./internal/cli/
+$ go test -p 2 ./internal/claude/ ./internal/lifetime/ ./internal/machine/...
+$ go test ./internal/cli/ -run 'TestApp_.*List|TestApp_.*Machine|TestGuideTopics'
+$ make lint
+```
+
+---
+
+## T9. `internal/mcp`: server definitions, expansion, names, filter
+
+**Depends on:** nothing. **Parallel with:** T2, T7, T11, T15, T16.
+**ADR:** [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
+(Where servers come from, Naming, the annotation rule),
+[0066](../../adrs/0066-runner-security-boundaries.md) items 6–7.
+
+**Read:** reference.md [MCP servers](reference.md#mcp-servers);
+`internal/claude/session.go` for how `CLAUDE_CONFIG_DIR` is resolved
+today (ADR 0024 item 7). Look at the shape of your own `~/.claude.json`
+`mcpServers` with `jq 'del(..|.env?, .headers?) | .mcpServers | map_values(keys)'`
+only; never copy a value into a test.
+
+**Create** `internal/mcp/{defs.go,expand.go,names.go,filter.go}` with
+tests and `testdata/` (hand-written `.mcp.json` and `claude.json` files with
+fake values). Pure Go; no SDK, no processes.
+
+```go
+// Package mcp is the runner's MCP client (ADR 0069).
+package mcp
+
+// ServerDef is one server definition, Claude Code's shape.
+type ServerDef struct {
+	Name    string
+	Source  string // "project" or "user"
+	Type    string // "stdio" (default when Command is set), "http", "sse"; others skipped
+	Command string
+	Args    []string
+	Env     map[string]string
+	URL     string
+	Headers map[string]string
+}
+
+// ClaudeConfigPath is $CLAUDE_CONFIG_DIR/.claude.json when set, else
+// $HOME/.claude.json.
+func ClaudeConfigPath(environ []string) string
+// LoadDefs reads <repoDir>/.mcp.json (project) and claudeJSON's top-level
+// mcpServers (user); project wins on a name. Unsupported types (ws, and
+// definitions with an "oauth" block) are left out with a warning. Missing
+// files are fine; an unparsable one is an error naming the file.
+func LoadDefs(repoDir, claudeJSON string) (map[string]ServerDef, []string, error)
+// Select returns the defs names lists, in that order; an unknown name is a
+// warning, not an error.
+func Select(defs map[string]ServerDef, names []string) ([]ServerDef, []string)
+
+// Expand applies ${VAR} and ${VAR:-default} to Command, Args, Env, URL and
+// Headers from getenv. It returns the expanded def and every value it
+// substituted plus every literal Headers value (for the redactor). An
+// unset ${VAR} without a default is *UnsetVarError naming VAR.
+func Expand(d ServerDef, getenv func(string) (string, bool)) (ServerDef, []string, error)
+type UnsetVarError struct{ Server, Var string }
+
+// ToolName is mcp__<server>__<tool>, characters outside [A-Za-z0-9_-]
+// replaced by "_"; over 64 characters: the first 55, "_", and 8 hex digits
+// of SHA-256 of the full name.
+func ToolName(server, tool string) string
+
+// ToolInfo is one tool a server offers.
+type ToolInfo struct {
+	Server, Tool, Name, Description string // Name = ToolName(Server, Tool)
+	Schema                          map[string]any
+	ReadOnly, Destructive           bool // annotations
+}
+// Filter keeps tools matching allow (exact names or path.Match globs on
+// Name), minus deny; a tool that isn't ReadOnly, or is Destructive, only
+// when allow names it exactly. Order: allow's order, then the server's.
+func Filter(tools []ToolInfo, allow, deny []string) []ToolInfo
+```
+
+**Acceptance**
+
+- `LoadDefs` with both files: project `grafana` beats user `grafana`;
+  `type` defaults to `stdio` with `command`; a `type: "ws"` server and one
+  with `oauth` are left out with warnings; no files → empty, nil.
+- `ClaudeConfigPath` with and without `CLAUDE_CONFIG_DIR`.
+- `Expand`: `${A}`, `${B:-x}` (unset → `x`), `$A` (unchanged; Claude only
+  expands braces), in every field; the returned secrets include each
+  substituted value and the literal `Authorization` header; unset `${C}` →
+  `UnsetVarError{Var: "C"}` whose message has no value in it.
+- `ToolName("mcp-grafana", "query_loki_logs")` = `mcp__mcp-grafana__query_loki_logs`;
+  `("my server", "a.b")` = `mcp__my_server__a_b`; a 70-character result is
+  64 long and stable.
+- `Filter`: `mcp__g__query_*` allows read-only `query_x`, not
+  non-read-only `query_y`; listing `mcp__g__query_y` exactly allows it;
+  `deny` removes after allow; `["*"]` allows only read-only tools.
+
+**Verify**
+
+```console
+$ go test ./internal/mcp/
+$ make lint
+```
+
+---
+
+## T10. `internal/mcp`: the client (stdio, streamable HTTP, SSE)
+
+**Depends on:** T3, T9. **Parallel with:** T20.
+**ADR:** [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
+(Starting and calling).
+
+**Read:** `internal/mcp/defs.go`, `names.go`, `filter.go` (types only);
+`internal/fakemcp/server.go` (`NewServer`); the SDK's `mcp.Client`,
+`ClientSession.ListTools`/`CallTool`, `mcp.CommandTransport`,
+`mcp.StreamableClientTransport`, `mcp.SSEClientTransport` (if present),
+`mcp.NewInMemoryTransports` (`go doc`).
+
+**Create** `internal/mcp/{client.go,result.go,manager.go,interfaces.go}`
+with tests and `moq_test.go`.
+
+```go
+// StartOptions is how servers are started for one run.
+type StartOptions struct {
+	Dir     string        // stdio servers' working directory (the session directory)
+	Environ []string      // the runner's unscrubbed environment (ADR 0068)
+	Stderr  io.Writer     // runner.log
+	Timeout time.Duration // initialize + list tools; 30 s
+	HTTP    *http.Client
+}
+
+// Server is one started server.
+type Server struct{ /* def name, session, tools, state */ }
+// Start expands def, connects (stdio: own process group; http; sse), and
+// lists tools. The error never contains an expanded value.
+func Start(ctx context.Context, def ServerDef, opts StartOptions) (*Server, []string, error) // []string: secrets for the redactor
+func (s *Server) Tools() []ToolInfo
+// Call runs one tool with JSON arguments, 120 s limit (callTimeout field).
+func (s *Server) Call(ctx context.Context, tool, arguments string) (CallResult, error)
+func (s *Server) Close() error // kills a stdio server's group
+
+type CallResult struct{ Text string; IsError bool }
+
+// Status is one server's line in status.json's mcp.
+type Status struct {
+	Server string  `json:"server"`
+	State  string  `json:"state"` // starting, connected, failed
+	Tools  int     `json:"tools"`
+	Loaded int     `json:"loaded"`
+	Error  *string `json:"error"`
+}
+
+// Manager starts a run's servers in parallel and routes calls by tool name.
+type Manager struct{ /* servers by name, tools by offered name */ }
+func StartAll(ctx context.Context, defs []ServerDef, opts StartOptions, log *slog.Logger) (*Manager, []string)
+func (m *Manager) Tools() []ToolInfo            // every connected server's tools
+func (m *Manager) Call(ctx context.Context, name, arguments string) (CallResult, error) // by offered name
+func (m *Manager) Status() []Status
+func (m *Manager) Close() error
+```
+
+- `result.go`: text contents joined with `\n`; image and audio →
+  `[image omitted: this runner has no vision]`; resource links → their
+  URI; embedded text resources → their text. `isError` → `IsError`.
+- A server that fails to start is `failed` with its error, and its tools
+  are absent; `Call` on a dead server returns an error and marks it
+  `failed`; it isn't restarted.
+- `sse`: if the SDK has no SSE client transport, `Start` returns an error
+  `sse transport not supported by this build` (state `failed`).
+- The stdio `exec.Cmd` is built here only; add a lint rule:
+  `@! grep -rn 'mcp.CommandTransport' --include='*.go' . | grep -vE '^\./internal/mcp/'`.
+
+**Acceptance** (in-process `fakemcp` servers over in-memory transports,
+plus one real stdio test that runs `go run ./cmd/fake-mcp` built once into
+`t.TempDir()`, and one HTTP test on `httptest` with `RequireHeaders`):
+
+- Tools listed with annotations mapped; `Call` returns text; an `error`
+  reply → `IsError`; an image → the placeholder.
+- stdio with `require_env`: started with the variable in `Environ` →
+  connected; without → failed, and the error names the variable only.
+- HTTP with `Authorization: Bearer ${T}` and `T` in `Environ` → connected;
+  the returned secrets contain the token.
+- `StartAll` with one good and one `slow_initialize: 5s` server, 200 ms
+  timeout → one `connected`, one `failed`; total time under 1 s.
+- `crash_after_calls: 1` → the second `Call` errors and `Status` says
+  `failed`. `Close` leaves no child process (check with the pid).
+
+**Verify**
+
+```console
+$ go generate ./internal/mcp/
+$ go test -p 2 ./internal/mcp/
+$ make lint
+```
+
+---
+
+## T11. `internal/agent`: the loop (copied), budgets, compaction, transcript, preamble, project instructions
+
+**Depends on:** T5, T6. **Parallel with:** T2, T7, T9, T15, T16.
+**ADRs:** [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md)
+(all), [0062](../../adrs/0062-agent-runner-built-into-ws.md) (the copy),
+[0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
+(project instructions).
+
+**Spawn with** `llm-router@9789c32` as a second, read-only repo spec.
+
+**Read:** llm-router `internal/agent/agent.go` (`Run`, `execute`) and
+`tools.go`; this repo's `internal/llm/llm.go` and
+`internal/agent/tools/tools.go` (types only); the README's
+[agent loop](README.md#the-agent-loop) and preamble; reference.md
+[transcript](reference.md#stateidrunnertranscriptjsonl) and
+[exit reasons](reference.md#runner-exit-reasons).
+
+**Create** `internal/agent/{agent.go,budget.go,compact.go,transcript.go,prompt.go,preamble.md,instructions.go,toolset.go,interfaces.go,moq_test.go}`
+and a `_test.go` for each `.go` file. `agent.go`'s doc comment: `Copied
+from llm-router internal/agent @9789c32 (ADR 0062); maintained here.` The
+copy keeps the loop's shape; the OpenAI specifics went to T7.
+
+```go
+//go:generate go tool moq -out moq_test.go . chatter clock Toolset
+
+// chatter is llm.Provider's Chat.
+type chatter interface {
+	Chat(ctx context.Context, req llm.Request) (llm.Response, error)
+}
+type clock interface {
+	Now() time.Time
+	Sleep(ctx context.Context, d time.Duration) error
+}
+
+// Toolset is what the loop offers and calls. T11 has StaticToolset; T12
+// adds MCP tools and tool_search.
+type Toolset interface {
+	Definitions() []llm.Tool // for this request
+	Call(ctx context.Context, name, arguments string) (tools.Result, error)
+	Known(name string) bool
+}
+// StaticToolset offers ts unchanged.
+func StaticToolset(ts []tools.Tool) Toolset
+
+const (
+	ExitDone = "done"; ExitMaxSteps = "max_steps"; ExitTimeout = "timeout"
+	ExitMaxTokens = "max_tokens"; ExitEndpointDown = "endpoint_down"
+	ExitModelNoTools = "model_no_tools"; ExitModelMissing = "model_missing"
+	ExitMalformed = "malformed_tool_calls"; ExitNoResult = "no_result"
+	ExitLooping = "looping"; ExitContextOverflow = "context_overflow"
+	ExitStopped = "stopped"; ExitCrashed = "crashed"; ExitInternal = "internal"
+)
+
+type Config struct {
+	Model         string
+	ContextTokens int
+	MaxOutput     int
+	Temperature   float64
+	Budget        Budget
+	Tools         Toolset
+	System        string // rendered preamble + project instructions
+	Task          string // rendered role prompt (first user message)
+	TraceID       string
+	Stop          func() bool  // true once `stop` exists
+	ResultWritten func() bool  // true once result.toml exists (ws machine result via run)
+	OnStatus      func(Status) // on every state change
+}
+type Budget struct{ MaxSteps int; Timeout time.Duration; MaxTokens int }
+type Status struct{ State string; Step int; Usage Usage } // working | waiting_model | exited
+type Usage struct {
+	Requests         int `json:"requests"`
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+type Outcome struct{ Exit, Message, Verdict string; Usage Usage; Steps int }
+
+func New(c chatter, clk clock, tr *Transcript, cfg Config, log *slog.Logger) *Agent
+// Run starts, or resumes from history (non-empty), until an exit reason.
+// It never returns an error: every failure is an Outcome.
+func (a *Agent) Run(ctx context.Context, history []llm.Message, step int) Outcome
+```
+
+**Loop**, in this order per step (ADR 0065):
+
+1. `Stop()` → `ExitStopped`; `ResultWritten()` → `ExitDone` (verdict
+   read by the caller); a used-up budget → `ExitTimeout`, `ExitMaxSteps`
+   or `ExitMaxTokens`.
+2. `Compact`; if it can't fit → `ExitContextOverflow`.
+3. `Chat` with `TraceParent(TraceID)`. `llm.Retryable` → wait 2 s, 8 s,
+   30 s (or `Retry-After` if longer, ≤ 60 s), a `retry` event each; after
+   3 → `ExitEndpointDown`. `ErrNoTools` → `ExitModelNoTools`;
+   `ErrModelMissing` → `ExitModelMissing`; `ErrContextExceeded` → force a
+   compaction once, then `ExitContextOverflow`; other errors →
+   `ExitEndpointDown` with the message.
+4. Add usage. `prompt_tokens` under 80% of the estimate → `truncated`
+   event; the second time, lower the working limit to it.
+5. No tool call → user message `Call a tool. When the task is done, call
+   record_result.`; the third in a row → `ExitNoResult`.
+6. Per call: unknown name (`!Known`), invalid JSON or a decode error →
+   tool message `error: <what>; the arguments must match: <compact
+   schema>` and `invalid_call`; three in a row → `ExitMalformed`. Valid →
+   `Call`, result sent as `<tool_result tool="NAME">…</tool_result>`. The
+   same name and arguments as the previous two → also the nudge `You
+   already did this; its result is above. Do something else.`; the fifth
+   → `ExitLooping`.
+7. `Result.Done` → `ExitDone` with the verdict.
+
+**Compaction** (`compact.go`), byte estimate `len/3`:
+
+```go
+func EstimateTokens(lastPrompt, bytesSince int) int // lastPrompt + ceil(bytesSince/3)
+// Compact fits messages under limit (contextTokens - maxOutput): above 70%,
+// elide tool results outside the last 6 messages, oldest first, to under
+// 50%; still above 70%, drop whole assistant+tool turns after the task and
+// insert one user message "Progress so far (written by ws, not by you):"
+// listing written/edited paths and run commands with exit codes. ok=false
+// when the task and last turn alone don't fit.
+func Compact(msgs []llm.Message, system string, estimate, limit int, done []ToolRecord) ([]llm.Message, CompactionEvent, bool)
+type ToolRecord struct{ Name, Summary string; ExitCode *int }
+type CompactionEvent struct{ BeforeTokens, AfterTokens, Elided, DroppedTurns int }
+```
+
+Elided text: `[elided by ws: <tool> <first 80 chars of the arguments>, <N>
+lines; run it again if you need it]`.
+
+**Transcript** (`transcript.go`): `OpenTranscript(path string, r
+*tools.Redactor) (*Transcript, error)` (append, 0o600); `Write(ev Event)
+error` redacts every string field through `r` before marshalling;
+`Close`. `Event` has `Time`, `Step`, `Kind` and one `omitzero` field per
+column of reference.md's table, MCP ones included (`Server`, `Transport`,
+`Allowed`, `Query`, `Loaded`, `Dropped`, `Restarts`, `Reason`). `ReadHistory(path)
+([]llm.Message, int, error)` rebuilds the conversation for `--resume`
+(start's task, responses as assistant messages with `ReasoningOpaque`
+dropped when its provider differs from the current one, tool results,
+invalid calls and nudges as sent; and the last step). `Tail(path, n)
+([]Event, bool, error)`.
+
+**Prompt** (`prompt.go` + `preamble.md`, `//go:embed`): the README's
+preamble text verbatim.
+
+```go
+type PreambleData struct {
+	Dir                    string
+	StepsLeft, MinutesLeft int
+	Verdicts               string
+	MCP                    bool   // MCP tools are offered
+	Deferred               string // "server: a, b, c" lines, ≤ 2 KiB (T12 fills it)
+	Unavailable            []string // MCP servers that failed to start
+	Instructions           string
+}
+func Preamble(d PreambleData) (string, error)
+```
+
+**Project instructions** (`instructions.go`):
+
+```go
+// LoadInstructions reads CLAUDE.md then AGENTS.md at repoDir and, when
+// different, workspaceDir; then, when userFile != "", that file. Joined
+// with "\n\n", cut at 8 KiB with "[instructions cut at 8 KiB by ws]".
+// @path imports are left as text.
+func LoadInstructions(repoDir, workspaceDir, userFile string) (string, error)
+```
+
+**Acceptance** (`chatterMock`, `clockMock`; no network):
+
+- Happy path: `write_file` → `run` → `record_result PASS` → `Outcome{Exit:
+  "done", Verdict: "PASS", Steps: 3}`; transcript `start`, 3
+  request/response pairs, 3 `tool_result`s, `exit`, in order.
+- One scripted test per exit reason: `max_steps`, `timeout`, `max_tokens`,
+  `endpoint_down` (sleeps 2 s, 8 s, 30 s), recovery after 2 retryable
+  errors, `model_no_tools`, `model_missing`, `context_overflow`,
+  `malformed_tool_calls`, recovery after one malformed call, `no_result`,
+  `looping` (nudge after the third), `stopped`, and `done` via
+  `ResultWritten`.
+- `Compact` elides oldest first keeping the last 6, then drops turns and
+  inserts the note; `ok=false` for an oversized task;
+  `EstimateTokens(1000, 300)` = 1100. The limit drops after two
+  `truncated` events.
+- `ReadHistory` of a run's transcript equals the next request's messages;
+  `Write` redacts a registered secret in a tool result and in reasoning.
+- `Preamble` renders every field; with `MCP` false the MCP lines are
+  absent. `LoadInstructions`: order, the 8 KiB cut, missing files skipped,
+  the user file only when given.
+
+**Verify**
+
+```console
+$ go generate ./internal/agent/
+$ go test ./internal/agent/...
+$ make lint
+```
+
+---
+
+## T12. MCP tools in the loop: the toolset and `tool_search`
+
+**Depends on:** T10, T11. **Parallel with:** none.
+**ADR:** [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
+(Deferral).
+
+**Read:** `internal/agent/toolset.go`, `prompt.go`; `internal/mcp/client.go`,
+`manager.go`, `filter.go` (types only); reference.md [MCP limits](reference.md#mcp-servers).
+
+**Create** `internal/mcp/search.go` (+ test) and extend
+`internal/agent/toolset.go` (+ test).
+
+```go
+// Search ranks tools by case-insensitive word overlap of query with Name
+// (split on _ and -), then Description; ties keep input order; at most n.
+func Search(tools []ToolInfo, query string, n int) []ToolInfo
+
+// in internal/agent:
+// mcpCaller is *mcp.Manager's Call.
+type mcpCaller interface {
+	Call(ctx context.Context, name, arguments string) (mcp.CallResult, error)
+}
+// NewToolset offers builtin, the first upfront of allowed, and, when
+// len(allowed) > upfront, tool_search. Loaded tools stay; past 24 MCP
+// tools the least recently called loaded one is dropped. onSearch gets
+// each search for the transcript.
+func NewToolset(builtin []tools.Tool, allowed []mcp.ToolInfo, upfront int, mc mcpCaller, onSearch func(query string, loaded, dropped []string)) *MCPToolset
+// Deferred is the preamble's "server: tool, tool" lines for the tools not
+// offered up front, cut at 2 KiB.
+func (t *MCPToolset) Deferred() string
+```
+
+- `tool_search {query: string (required)}`, description `Find more tools
+  by a few words; matching tools become callable.` Answer: up to 5 lines
+  `name: first line of description`, or `no tools match "<query>"`.
+- An MCP call: `IsError` → `error: <text>`; a Go error → `error: <err>`
+  (the loop logs `mcp_error`); results get the 16 KiB cap and the
+  `<tool_result tool="NAME" server="S">` framing.
+- `Known` is true for built-ins, `tool_search`, and offered MCP tools; a
+  deferred tool not yet loaded is unknown (the error says to call
+  `tool_search`).
+
+**Acceptance**
+
+- 40 allowed, `upfront` 8 → `Definitions` has 7 built-ins + 8 + `tool_search`;
+  `tool_search {"query":"loki logs"}` loads `query_loki_logs` first; the
+  next `Definitions` includes it; `Deferred` lists the rest by server
+  under 2 KiB.
+- 8 or fewer allowed → no `tool_search`. 30 loaded → 24 MCP definitions,
+  the least recently called dropped and reported to `onSearch`.
+- A call to a deferred, unloaded tool → not `Known`. MCP results framed
+  and capped.
+
+**Verify**
+
+```console
+$ go test ./internal/mcp/ ./internal/agent/...
+$ make lint
+```
+
+---
+
+## T13. `internal/runner`, session kind `runner`, hidden `ws runner run`
+
+**Depends on:** T4, T7, T12. **Parallel with:** none.
+**ADRs:** [0063](../../adrs/0063-runner-children-are-supervised-sessions.md),
+[0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md) (Exit
+reasons), [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md).
+
+**Read:** `internal/workspace/session.go`, `internal/machine/store.go`
+(`WriteResult`, root and ancestors as `ws machine result` computes them in
+`internal/cli/machine_result.go`), `internal/cli/app.go` (`AddCommand`),
+`internal/proc/proc.go`, reference.md [Files](reference.md#files).
+
+**Create** `internal/runner/{files.go,state.go,finalize.go,ids.go,interfaces.go}`
+with tests and `moq_test.go`; `internal/cli/runner.go` and
+`runner_test.go`.
+
+```go
+// Package runner holds a runner session's files and the rules for reading
+// them (ADR 0063). internal/daemon starts and stops the processes.
+package runner
+
+const SessionPrefix = "rn-"
+func NewSessionID() string // "rn-" + 8 random lowercase hex
+
+// Run is run.toml (reference.md), including MCPServers, MCPTools, MCPDeny,
+// MCPUpfront, UserInstructions, ModelAlias, API, MaxOutput, Temperature.
+type Run struct{ /* every key in reference.md's run.toml, toml tags */ }
+// Status is status.json; Exit and ExitMessage are null while running.
+type Status struct {
+	Version          int          `json:"version"`
+	Session          string       `json:"session"`
+	PID              int          `json:"pid"`
+	ProcessStartedAt time.Time    `json:"process_started_at"`
+	State            string       `json:"state"`
+	Step             int          `json:"step"`
+	MaxSteps         int          `json:"max_steps"`
+	Restarts         int          `json:"restarts"`
+	Usage            agent.Usage  `json:"usage"`
+	MCP              []mcp.Status `json:"mcp"`
+	Exit             *string      `json:"exit"`
+	ExitMessage      *string      `json:"exit_message"`
+	UpdatedAt        time.Time    `json:"updated_at"`
+}
+// Usage is usage.json under state/<root>/machine/<child>/ (reference.md).
+type Usage struct{ /* fields as reference.md, json/v2 */ }
+
+type Files struct{ Dir string } // state/<id>/runner
+func FilesFor(stateDir, id string) Files
+func (f Files) WriteRun(r *Run) error
+func (f Files) ReadRun() (Run, error)
+func (f Files) WriteStatus(s *Status) error // temp + rename
+func (f Files) ReadStatus() (Status, error) // fs.ErrNotExist when missing
+func (f Files) Transcript() string
+func (f Files) Log() string
+func (f Files) RequestStop() error
+func (f Files) StopRequested() bool
+
+// State is ADR 0063's table: working, starting, idle, stopped, unknown.
+// resumePending is true when the daemon has scheduled a resume.
+func (f Files) State(now, recordedAt time.Time, procs processReader) (state string, pid int, st *Status)
+
+// Finalize ends a run that has no verdict from the model: unless exit is
+// "stopped", it records the role's first fail verdict (FAIL without a
+// role) with the report "ws runner: <exit>\n\n<message>\n\n## Last events\n"
+// plus the last 20 transcript events as a JSON-lines block; it writes
+// usage.json and the final status.json. Used by `ws runner run` and, for
+// "crashed", by the daemon.
+func Finalize(ctx context.Context, f Files, run Run, exit, message string, out FinalizeInput, store resultStore) error
+
+//go:generate go tool moq -out moq_test.go . processReader resultStore
+type processReader interface{ StartTime(pid int) (time.Time, error) }
+type resultStore interface{ /* machine.Store's WriteResult and paths */ }
+```
+
+**`internal/workspace/session.go`**: `SessionRunner SessionKind =
+"runner"`; `Session` gains `RunnerSessionID string
+`toml:"runner_session_id,omitempty"``; `RecordRunnerSession(id,
+runnerSessionID string) error` writes `version = 2`; `check` accepts
+`runner` with a `runner_session_id` starting `rn-`; versions up to 2 are
+read; a higher one is "written by a newer ws".
+
+**`ws runner run [--resume] <id>`** (`internal/cli/runner.go`, `Hidden:
+true`; `TestGuideTopics` skips hidden commands, add the skip if it
+doesn't):
+
+1. read `run.toml`; write `status.json` (`starting`, pid, start time from
+   `internal/proc`), keeping `restarts` from the previous status;
+2. build: the provider (`providers.New` with the token from
+   `WS_ENDPOINT_TOKEN_<NAME>` in its own environment); the redactor
+   (token, `tools.Secrets`); the tools (`tools.Environ(os.Environ(),
+   keepGit, secretNames)` where `secretNames` is
+   `WS_RUNNER_SECRET_NAMES`, a comma list the daemon sets (T15)); MCP
+   (`mcp.LoadDefs` + `Select(run.MCPServers)` + `StartAll` with the
+   unscrubbed environment, secrets added to the redactor,
+   `Filter(manager.Tools(), MCPTools, MCPDeny)`, `NewToolset`); the
+   transcript; the system prompt (`Preamble` + `LoadInstructions`, with
+   `~/.claude/CLAUDE.md` only when `run.UserInstructions`);
+3. `agent.Run` (`ReadHistory` and a `restart` event for `--resume`),
+   `OnStatus` → `WriteStatus` with `manager.Status()`;
+4. on exit: `Finalize` unless the model's verdict was recorded; exit 0.
+   Exit 1 only when `run.toml` can't be read or `status.json` can't be
+   written.
+
+**docs/state.md**: `runner/` (run.toml, status.json, transcript.jsonl,
+runner.log, stop), `machine/<child>/usage.json`.
+
+**Acceptance**
+
+- `Files.State`: no status, recorded 3 s ago → `starting`; 20 s →
+  `stopped`; `working` with a live pid whose start time matches →
+  `working`; same pid, other start time → `stopped`; `exit` set → `idle`,
+  pid 0; `restarts` grew within 3 min, no `exit`, dead pid → `starting`;
+  invalid JSON → `unknown`.
+- `Finalize` writes the fail verdict, report header, `usage.json` and
+  `exit`; for `stopped` it writes no verdict.
+- Session records round-trip; version 3 → "written by a newer ws"; `kind
+  = "runner"` without `runner_session_id` → error.
+- `ws runner run` against an `httptest` server replaying T7's fixtures and
+  an in-process fake MCP: a 3-step happy path writes `result.toml` PASS,
+  `usage.json`, and `exit "done"`; a 503-forever endpoint records `FAIL`
+  with a report starting `ws runner: endpoint_down` (fast backoff via an
+  unexported clock); a `--resume` continues at the next step. No token or
+  MCP header value appears in `transcript.jsonl` or `runner.log`.
+
+**Verify**
+
+```console
+$ go generate ./internal/runner/
+$ go test -p 2 ./internal/runner/ ./internal/workspace/
+$ go test ./internal/cli/ -run 'TestApp_.*Runner|TestGuideTopics'
+$ make lint
+```
+
+---
+
+## T14. `lifetime` reads runner sessions; `runner`/`model`/`ws_runner` in `ws list`, `children`, `wait`; `ws machine logs`
+
+**Depends on:** T8, T13. **Parallel with:** T17.
+**ADR:** [0063](../../adrs/0063-runner-children-are-supervised-sessions.md).
+
+**Read:** `internal/lifetime/{interfaces.go,judge.go,remove.go,restore.go}`
+(the switches on `SessionShell` or `ClaudeSessionID`),
+`internal/cli/list.go`, `machine_wait.go`, `machine.go`
+(`runMachineChildren`), `internal/runner/state.go`, reference.md
+[JSON output](reference.md#json-output), [guides/ws-machine-logs.md](guides/ws-machine-logs.md).
+
+**Change**
+
+- `internal/lifetime/interfaces.go`: new `runnerReader` (regenerate mocks):
+  ```go
+  // runnerReader reads runner sessions (ADR 0063); stopping and resuming
+  // go through the daemon (T18).
+  type runnerReader interface {
+  	State(id string, recordedAt time.Time) (state string, pid int, st *runner.Status, run *runner.Run)
+  	Exists(id string) bool // state/<id>/runner exists
+  }
+  ```
+  `Manager.UseRunners(r runnerReader)`; without it, `runner` sessions
+  read as `unknown` and are kept.
+- `judge`: `SessionRunner` → `Session{Kind: KindAgent, ID: runner id,
+  State, PID, Runner: "ws", Model: run.Model, WSRunner: st+run}`; gone only
+  when `!Exists`. `lifetime.Session` gains `WSRunner *RunnerInfo` (alias,
+  endpoint, step, max steps, restarts, usage, MCP, exit).
+- `internal/cli/list.go`: `listWSRunnerJSON` gets reference.md's fields
+  (`model_alias`, `endpoint`, `step`, `max_steps`, `restarts`, `usage`,
+  `mcp`, `exit`); wire `UseRunners` where the Manager is built.
+- `wait` and `children` items: `runner: "ws"`, `model`, and `ws_runner`
+  (`model_alias`, `endpoint`, `exit`, `steps`, `restarts`, `usage`,
+  `wall_seconds`, `usage_file`); for a gone child, from `usage.json` when
+  it exists.
+- **New** `internal/cli/machine_logs.go`: `ws machine logs [--tail N]
+  <workspace>` with `wait`'s caller and descendant checks. `ws` child →
+  `agent.Tail`; Claude child → `a.claude.Logs(ctx, session)` (add `Logs`
+  to `internal/claude` running `claude logs <id>`, tested with
+  `exectest`, and to the cli `claudeClient`; regenerate mocks).
+- Guides: `cp docs/design/ollama-agent/guides/ws-machine-logs.md
+  docs/design/ollama-agent/guides/ws-machine-wait.md internal/cli/guides/`;
+  topic `"machine logs"` after `"machine children"` in
+  `guideTopicsBeforeReview`; in `guides/ws.md` the bullet
+  `` - `ws llm machine logs`: print a child's log: a `ws` child's
+  transcript, or a Claude child's `claude logs` `` after `machine
+  children`, and in "Rules for agents" "follow it with `claude logs
+  <session>`." becomes "follow it with `ws machine logs <id>`.";
+  `guides/ws-machine.md` gains `ws machine logs` in its synopsis and list.
+  `docs/tools/ws-list.md`: the three `session` fields.
+
+**Acceptance**
+
+- Lifetime with `runnerReaderMock`: `List` shows `kind agent`, `runner
+  ws`, the model and the mock's state; a workspace is gone only when
+  `Exists` is false. Without `UseRunners`: `unknown`, kept.
+- `ws list --json` for a runner workspace matches reference.md's
+  `session`; Claude agents unchanged from T8.
+- `wait` on a finished runner child → `outcome`, `runner`, `model`,
+  `ws_runner.exit`, `usage_file`; on a removed one, the same from
+  `usage.json`.
+- `ws machine logs` → reference.md's shape for both runners; `--tail 2`
+  sets `truncated`; `not_descendant` for a sibling.
+- `TestGuideTopics` and `go test ./internal/cli/` pass.
+
+**Verify**
+
+```console
+$ go generate ./internal/lifetime/ ./internal/cli/ ./internal/claude/
+$ go test -p 2 ./internal/lifetime/ ./internal/claude/
+$ go test ./internal/cli/
+$ make lint
+```
+
+---
