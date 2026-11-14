@@ -9,6 +9,7 @@ pub mod fix;
 pub mod forge;
 pub mod forgejo;
 pub mod github;
+pub mod hosts;
 pub mod http;
 pub mod merge;
 pub mod names;
@@ -26,12 +27,13 @@ use crate::runner::AppError;
 use checker::Started;
 use comment::{CommentPlan, PostRequest, Posted};
 use fix::{FixFinding, FixPlan, FixStarted, StartFix};
-use forge::{ForgeChoice, ForgeKind};
+use forge::ForgeKind;
 use plan::ReviewPlan;
 use profiles::{ListedProfile, ProfileDetail, ProfileDraft};
 use report::DecideRequest;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeSet;
 use store::{NotificationSettings, PrHead, RepoWatch, ReviewSettings, Settings};
 #[cfg(feature = "desktop")]
 use tauri::Manager;
@@ -83,20 +85,35 @@ pub fn reviews_set_watch(
     Ok(view(&state))
 }
 
-/// Sets a host's forge in Settings › Forges; Auto detects it again.
+/// Replaces config.toml's [[hosts]] (Settings › Forges, ADR 0061).
 #[cfg_attr(feature = "desktop", tauri::command)]
-pub fn reviews_set_forge(
+pub async fn reviews_set_hosts(
     state: State<'_, AppState>,
-    host: String,
-    kind: ForgeChoice,
+    hosts: Vec<hosts::ConfiguredHost>,
 ) -> CmdResult<ReviewsView> {
-    check_host(&host)?;
-    state
-        .store
-        .update(|d| d.settings.forges.set_choice(&host, kind))?;
-    state.reviews.forget_host(&host);
+    check_hosts(&hosts)?;
+    let previous = state.reviews.configured();
+    let saved = hosts::write(&state.runner, &hosts).await?;
+    for host in previous.iter().chain(&saved.hosts) {
+        state.reviews.forget_host(&host.name);
+    }
+    state.reviews.set_configured(saved.hosts);
     state.reviews.check_now();
     Ok(view(&state))
+}
+
+fn check_hosts(hosts: &[hosts::ConfiguredHost]) -> CmdResult<()> {
+    let mut seen = BTreeSet::new();
+    for host in hosts {
+        check_host(&host.name)?;
+        if !seen.insert(host.name.as_str()) {
+            return Err(AppError::new(
+                "setting_invalid",
+                format!("\"{}\" is listed twice", host.name),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Saves a host's token in forge-tokens.json; an empty token removes it.

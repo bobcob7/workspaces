@@ -20,6 +20,13 @@ pub struct ConfigSetting {
     pub set: bool,
 }
 
+/// The result of `ws config get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigGet {
+    pub path: String,
+    pub setting: ConfigSetting,
+}
+
 /// Every key of config.toml, from `ws config list`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfigListing {
@@ -47,6 +54,17 @@ async fn list(runner: &Runner) -> CmdResult<ConfigListing> {
         .await
 }
 
+/// One key (`ws config get -- <key>`).
+pub(crate) async fn get(runner: &Runner, key: &str) -> CmdResult<ConfigGet> {
+    let args = [
+        "config".to_string(),
+        "get".to_string(),
+        "--".to_string(),
+        key.to_string(),
+    ];
+    runner.ws_json(&args).await
+}
+
 /// Sets a key (`ws config set -- <key> <values...>`).
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn config_set(
@@ -57,7 +75,7 @@ pub async fn config_set(
     set(&state.runner, &key, &values).await
 }
 
-async fn set(runner: &Runner, key: &str, values: &[String]) -> CmdResult<ConfigChange> {
+pub(crate) async fn set(runner: &Runner, key: &str, values: &[String]) -> CmdResult<ConfigChange> {
     let mut args = vec![
         "config".to_string(),
         "set".to_string(),
@@ -74,7 +92,7 @@ pub async fn config_unset(state: State<'_, AppState>, key: String) -> CmdResult<
     unset(&state.runner, &key).await
 }
 
-async fn unset(runner: &Runner, key: &str) -> CmdResult<ConfigChange> {
+pub(crate) async fn unset(runner: &Runner, key: &str) -> CmdResult<ConfigChange> {
     let args = [
         "config".to_string(),
         "unset".to_string(),
@@ -85,13 +103,13 @@ async fn unset(runner: &Runner, key: &str) -> CmdResult<ConfigChange> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
 
     /// A directory holding a fake `ws` script, for PATH. The script also
     /// writes its arguments to `args` in the same directory.
-    fn fake_ws(body: &str) -> (tempfile::TempDir, Runner) {
+    pub(crate) fn fake_ws(body: &str) -> (tempfile::TempDir, Runner) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ws");
         let script = format!(
@@ -104,7 +122,7 @@ mod tests {
         (dir, runner)
     }
 
-    fn args(dir: &tempfile::TempDir) -> String {
+    pub(crate) fn args(dir: &tempfile::TempDir) -> String {
         std::fs::read_to_string(dir.path().join("args"))
             .unwrap()
             .trim()
@@ -121,6 +139,16 @@ mod tests {
         assert_eq!(args(&dir), "config --json set -- defaults.owners a b");
         assert!(change.changed);
         assert_eq!(change.setting.value, serde_json::json!(["a", "b"]));
+    }
+
+    #[tokio::test]
+    async fn get_passes_key() {
+        let (dir, runner) = fake_ws(
+            r#"echo '{"path":"/c/config.toml","setting":{"key":"hosts","type":"hosts","value":[],"default":[],"set":false}}'"#,
+        );
+        let got = get(&runner, "hosts").await.unwrap();
+        assert_eq!(args(&dir), "config --json get -- hosts");
+        assert_eq!(got.setting.key, "hosts");
     }
 
     #[tokio::test]

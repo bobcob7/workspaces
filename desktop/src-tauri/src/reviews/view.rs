@@ -3,6 +3,7 @@
 
 use super::forge::{self, ForgeChoice, ForgeKind};
 use super::github::{self, NewCommits, PullRequest};
+use super::hosts::{self, ConfiguredHost};
 use super::names;
 use super::store::StateFile;
 use super::tokens::{TokenSource, TokenStore};
@@ -46,6 +47,8 @@ pub struct CheckState {
     pub probed: BTreeMap<String, bool>,
     /// What the last check decided per host.
     pub forges: BTreeMap<String, HostState>,
+    /// config.toml's effective hosts, in order, as the last check read them.
+    pub configured: Vec<ConfiguredHost>,
     pub repos: BTreeMap<String, RepoCheck>,
     pub compares: HashMap<CompareKey, NewCommits>,
     pub warnings: Vec<String>,
@@ -121,6 +124,10 @@ pub struct HostView {
     pub forge: Option<ForgeKind>,
     pub choice: ForgeChoice,
     pub detected: bool,
+    /// Listed in config.toml's [[hosts]].
+    pub configured: bool,
+    /// The first configured host, which short specs try first.
+    pub primary: bool,
     pub login: Option<String>,
     pub token: Option<TokenSource>,
     pub token_env: Option<String>,
@@ -292,30 +299,39 @@ pub fn watched_repos(check: &CheckState, state: &StateFile) -> Vec<String> {
         .collect()
 }
 
-/// One entry per distinct cached host, sorted by host.
-fn hosts_view(check: &CheckState, state: &StateFile) -> Vec<HostView> {
-    let hosts: BTreeSet<&str> = check
+/// One entry per configured host in list order, then each cached host
+/// that isn't configured, sorted by host.
+fn hosts_view(check: &CheckState) -> Vec<HostView> {
+    let configured: Vec<&str> = check.configured.iter().map(|h| h.name.as_str()).collect();
+    let cached: BTreeSet<&str> = check
         .cached
         .iter()
         .filter_map(|id| forge::host_of(id))
         .collect();
-    hosts
-        .into_iter()
-        .map(|host| {
-            let known = check.forges.get(host);
-            let forge = known.and_then(|k| k.kind);
-            HostView {
-                host: host.to_string(),
-                forge,
-                choice: state.settings.forges.choice(host),
-                detected: known.is_some_and(|k| k.detected),
-                login: check.hosts.get(host).cloned(),
-                token: known.and_then(|k| k.token),
-                token_env: (forge == Some(ForgeKind::Forgejo)).then(|| TokenStore::env_name(host)),
-                error: known.and_then(|k| k.error.clone()),
-            }
-        })
+    let others = cached.into_iter().filter(|host| !configured.contains(host));
+    configured
+        .iter()
+        .copied()
+        .chain(others)
+        .map(|host| host_view(check, host))
         .collect()
+}
+
+fn host_view(check: &CheckState, host: &str) -> HostView {
+    let known = check.forges.get(host);
+    let forge = known.and_then(|k| k.kind);
+    HostView {
+        host: host.to_string(),
+        forge,
+        choice: hosts::choice(&check.configured, host),
+        detected: known.is_some_and(|k| k.detected),
+        configured: check.configured.iter().any(|h| h.name == host),
+        primary: check.configured.first().is_some_and(|h| h.name == host),
+        login: check.hosts.get(host).cloned(),
+        token: known.and_then(|k| k.token),
+        token_env: (forge == Some(ForgeKind::Forgejo)).then(|| TokenStore::env_name(host)),
+        error: known.and_then(|k| k.error.clone()),
+    }
 }
 
 pub fn build(check: &CheckState, entries: &[Entry], state: &StateFile) -> ReviewsView {
@@ -357,7 +373,7 @@ pub fn build(check: &CheckState, entries: &[Entry], state: &StateFile) -> Review
         checking: check.checking,
         checked_at_ms: check.checked_at_ms,
         error: check.error.clone(),
-        hosts: hosts_view(check, state),
+        hosts: hosts_view(check),
         repos,
         prs,
         warnings: check.warnings.clone(),
@@ -742,5 +758,36 @@ pub mod tests {
             .unwrap();
         assert!(!forgejo.github);
         assert_eq!(forgejo.forge, Some(ForgeKind::Forgejo));
+    }
+
+    #[test]
+    fn host_view_serializes_configured_and_primary() {
+        let host = HostView {
+            host: "github.com".to_string(),
+            forge: Some(ForgeKind::Github),
+            choice: ForgeChoice::Github,
+            detected: false,
+            configured: true,
+            primary: true,
+            login: Some("bobcob7".to_string()),
+            token: None,
+            token_env: None,
+            error: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&host).unwrap(),
+            serde_json::json!({
+                "host": "github.com",
+                "forge": "github",
+                "choice": "github",
+                "detected": false,
+                "configured": true,
+                "primary": true,
+                "login": "bobcob7",
+                "token": null,
+                "tokenEnv": null,
+                "error": null
+            })
+        );
     }
 }

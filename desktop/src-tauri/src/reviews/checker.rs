@@ -4,6 +4,7 @@ use super::auto;
 use super::forge::{self, ForgeChoice, ForgeKind};
 use super::forgejo::{self, Probe};
 use super::github::{self, PullRequest};
+use super::hosts::{self, ConfiguredHost};
 use super::http::Http;
 use super::plan::{self, ReviewPlan};
 use super::profiles;
@@ -275,7 +276,9 @@ impl Checker {
     }
 
     async fn check_steps(&self, deps: &Deps) -> Result<Option<AppError>, AppError> {
+        let mut warnings = Vec::new();
         self.load_cached(&deps.runner).await?;
+        self.read_hosts(deps, &mut warnings).await;
         let (gh_hosts, gh_error) = match github::signed_in_hosts(&deps.runner).await {
             Ok(hosts) => (hosts, None),
             Err(err) => (BTreeMap::new(), Some(err)),
@@ -293,7 +296,6 @@ impl Checker {
             })
             .unwrap_or_default();
         let results = list_all(deps, list_jobs(&watched, &decisions)).await;
-        let mut warnings = Vec::new();
         let mut rate_limited = false;
         for (repo, result) in &results {
             match result {
@@ -350,6 +352,36 @@ impl Checker {
         Ok(gh_error.filter(|_| all_github))
     }
 
+    /// Moves the legacy forge settings into config.toml, then reads the
+    /// configured hosts (ADR 0061). A failure is a warning.
+    async fn read_hosts(&self, deps: &Deps, warnings: &mut Vec<String>) {
+        if let Err(err) = hosts::migrate(&deps.runner, &deps.store).await {
+            warnings.push(format!(
+                "moving forge settings to config.toml: {}",
+                err.message
+            ));
+        }
+        let configured = match hosts::read(&deps.runner).await {
+            Ok(list) => list.hosts,
+            Err(err) => {
+                warnings.push(format!("ws config get hosts: {}", err.message));
+                Vec::new()
+            }
+        };
+        self.with_state(|s| s.configured = configured);
+    }
+
+    /// config.toml's effective hosts, as the last check read them.
+    pub fn configured(&self) -> Vec<ConfiguredHost> {
+        self.with_state(|s| s.configured.clone())
+            .unwrap_or_default()
+    }
+
+    /// Records the hosts just saved in Settings › Forges.
+    pub fn set_configured(&self, hosts: Vec<ConfiguredHost>) {
+        self.with_state(|s| s.configured = hosts);
+    }
+
     /// Asks each host that needs it whether it runs Forgejo, once per run
     /// (ADR 0060, rule 3). Returns the hosts that gave no answer.
     async fn probe_hosts(
@@ -357,11 +389,11 @@ impl Checker {
         deps: &Deps,
         gh_hosts: &BTreeMap<String, String>,
     ) -> BTreeSet<String> {
-        let settings = deps.store.get().settings.forges;
+        let configured = self.configured();
         let gh_host_set = host_set(gh_hosts);
         let mut unreachable = BTreeSet::new();
-        for host in self.cached_hosts() {
-            let choice = settings.choice(&host);
+        for host in self.known_hosts(&configured) {
+            let choice = hosts::choice(&configured, &host);
             if self.is_probed(&host) || !forge::needs_probe(&host, choice, &gh_host_set) {
                 continue;
             }
@@ -385,17 +417,25 @@ impl Checker {
         self.with_state(|s| s.probed.insert(host.to_string(), forgejo));
     }
 
-    /// The hosts of the cached repos, sorted.
-    fn cached_hosts(&self) -> Vec<String> {
-        self.with_state(|s| {
-            let hosts: BTreeSet<&str> = s
-                .cached
-                .iter()
-                .filter_map(|id| forge::host_of(id))
-                .collect();
-            hosts.into_iter().map(str::to_string).collect()
-        })
-        .unwrap_or_default()
+    /// The configured hosts in list order, then the cached hosts that
+    /// aren't configured, sorted.
+    fn known_hosts(&self, configured: &[ConfiguredHost]) -> Vec<String> {
+        let cached: BTreeSet<String> = self
+            .with_state(|s| {
+                s.cached
+                    .iter()
+                    .filter_map(|id| forge::host_of(id))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut known: Vec<String> = configured.iter().map(|h| h.name.clone()).collect();
+        known.extend(
+            cached
+                .into_iter()
+                .filter(|host| !configured.iter().any(|h| h.name == *host)),
+        );
+        known
     }
 
     /// Decides each cached host's forge, login, token and error (ADR 0060).
@@ -407,6 +447,7 @@ impl Checker {
         unreachable: &BTreeSet<String>,
     ) -> Decisions {
         let state = deps.store.get();
+        let configured = self.configured();
         let (probes, cached) = self
             .with_state(|s| (s.probed.clone(), s.cached.clone()))
             .unwrap_or_default();
@@ -421,8 +462,8 @@ impl Checker {
             logins: gh_hosts.clone(),
             ..Decisions::default()
         };
-        for host in self.cached_hosts() {
-            let choice = state.settings.forges.choice(&host);
+        for host in self.known_hosts(&configured) {
+            let choice = hosts::choice(&configured, &host);
             let probed = probes.get(&host).copied();
             let kind = forge::resolve_kind(&host, choice, &gh_host_set, probed);
             let mut known = HostState {
@@ -752,6 +793,22 @@ mod tests {
     /// logs its arguments to `ws.log`; `ws_review` is `ws review start`.
     /// What the fake `ws review list` lists: one removed review of
     /// buff-bear#38.
+    /// `ws config get -- hosts` for a config.toml with no [[hosts]].
+    const CONFIG_DEFAULT: &str = r#"{"path":"/c/config.toml","setting":{"key":"hosts","type":"hosts","value":[{"name":"github.com","kind":"auto"}],"default":[{"name":"github.com","kind":"auto"}],"set":false}}"#;
+
+    /// `ws config get -- hosts` with git.example.com as a Forgejo host.
+    const CONFIG_FORGEJO: &str = r#"{"path":"/c/config.toml","setting":{"key":"hosts","type":"hosts","value":[{"name":"git.example.com","kind":"forgejo"}],"default":[{"name":"github.com","kind":"auto"}],"set":true}}"#;
+
+    /// `ws config get -- hosts` listing github.com before git.example.com.
+    const CONFIG_TWO_HOSTS: &str = r#"{"path":"/c/config.toml","setting":{"key":"hosts","type":"hosts","value":[{"name":"github.com","kind":"github"},{"name":"git.example.com","kind":"forgejo"}],"default":[{"name":"github.com","kind":"auto"}],"set":true}}"#;
+
+    /// `ws config set` or `unset`'s answer.
+    const CONFIG_CHANGE: &str = r#"{"path":"/c/config.toml","setting":{"key":"hosts","type":"hosts","value":[],"default":[{"name":"github.com","kind":"auto"}],"set":true},"changed":true,"warnings":[]}"#;
+
+    fn config_answer(json: &str) -> String {
+        format!("echo '{json}'")
+    }
+
     const REMOVED: &str = r#"{"reviews":[{"id":"review-buff-bear-38-a41c9f2-d8efb24f","review":{"repo":"github.com/bobcob7/buff-bear","ref":"a41c9f2d0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c","requester":"","started_at":"2026-10-28T09:00:00Z","profiles":[],"pr":{"number":38,"url":"u"}},"agent":null}],"warnings":[]}"#;
 
     fn fake_programs(gh: &str, ws_review: &str) -> tempfile::TempDir {
@@ -764,6 +821,17 @@ mod tests {
 
     /// `fake_programs`, with `cache` as `ws cache list`'s answer.
     fn fake_programs_cached(gh: &str, ws_review: &str, cache: &str) -> tempfile::TempDir {
+        fake_programs_configured(gh, ws_review, cache, &config_answer(CONFIG_DEFAULT))
+    }
+
+    /// `fake_programs_cached`, with `config_get` as the shell body that
+    /// answers `ws config get`; other config calls succeed with a change.
+    fn fake_programs_configured(
+        gh: &str,
+        ws_review: &str,
+        cache: &str,
+        config_get: &str,
+    ) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("ws.log");
         let ws = format!(
@@ -771,6 +839,7 @@ mod tests {
 case "$1" in
   cache) echo '{cache}' ;;
   list) echo '{{"workspaces":[],"warnings":[]}}' ;;
+  config) case "$3" in get) {config_get} ;; *) echo '{CONFIG_CHANGE}' ;; esac ;;
   review) case "$2 $3" in profiles*) echo '{PROFILES}' ;; "--json list") echo '{REMOVED}' ;; *) {ws_review} ;; esac ;;
 esac"#,
             log.display()
@@ -1316,21 +1385,96 @@ esac"#
     }
 
     #[tokio::test]
-    async fn explicit_forge_skips_the_probe() {
+    async fn hosts_come_from_config_toml() {
+        let dir = fake_programs_configured(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+            &config_answer(CONFIG_FORGEJO),
+        );
+        let http = Arc::new(forgejo_http((200, FJ_PULLS)));
+        let deps = deps_with(&dir, false, http.clone(), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        assert_eq!(version_calls(&http), 0);
+        assert!(checker.view(&deps.store).prs.iter().any(|p| p.repo == SVC));
+    }
+
+    #[tokio::test]
+    async fn configured_hosts_come_first_in_the_view() {
+        let cache = r#"{"repos":[{"id":"git.example.com/team/svc"},{"id":"github.com/bobcob7/buff-bear"},{"id":"a.example.org/x/y"}]}"#;
+        let dir = fake_programs_configured(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            cache,
+            &config_answer(CONFIG_TWO_HOSTS),
+        );
+        let deps = deps_with(&dir, false, Arc::new(forgejo_http((200, FJ_PULLS))), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let rows: Vec<(String, bool, bool)> = checker
+            .view(&deps.store)
+            .hosts
+            .iter()
+            .map(|h| (h.host.clone(), h.configured, h.primary))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("github.com".to_string(), true, true),
+                ("git.example.com".to_string(), true, false),
+                ("a.example.org".to_string(), false, false),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn config_failure_is_a_warning() {
+        let failing =
+            r#"echo '{"error":{"code":"config_invalid","message":"bad file"}}' >&2; exit 1"#;
+        let dir = fake_programs_configured(
+            &gh_script(&format!("echo '{PRS}'")),
+            "exit 1",
+            FORGEJO_CACHE,
+            failing,
+        );
+        let deps = deps_with(&dir, false, Arc::new(FakeHttp::new()), None);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let view = checker.view(&deps.store);
+        assert!(view
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("ws config get hosts: ")));
+        assert!(view.hosts.iter().all(|h| h.choice == ForgeChoice::Auto));
+    }
+
+    #[tokio::test]
+    async fn migration_runs_in_the_check() {
         let dir = fake_programs_cached(
             &gh_script(&format!("echo '{PRS}'")),
             "exit 1",
             FORGEJO_CACHE,
         );
-        let http = Arc::new(forgejo_http((200, FJ_PULLS)));
-        let deps = deps_with(&dir, false, http.clone(), None);
+        let deps = deps_with(&dir, false, Arc::new(forgejo_http((200, FJ_PULLS))), None);
         deps.store
-            .update(|d| d.settings.forges.set_choice(SVC_HOST, ForgeChoice::Forgejo))
+            .update(|d| {
+                d.settings.forges.hosts.insert(
+                    SVC_HOST.to_string(),
+                    crate::reviews::store::ForgeHost {
+                        kind: ForgeChoice::Forgejo,
+                    },
+                );
+            })
             .unwrap();
         let checker = Checker::default();
         checker.check(&deps).await;
-        assert_eq!(version_calls(&http), 0);
-        assert!(checker.view(&deps.store).prs.iter().any(|p| p.repo == SVC));
+        assert!(deps.store.get().settings.forges.hosts.is_empty());
+        let log = std::fs::read_to_string(dir.path().join("ws.log")).unwrap();
+        assert!(
+            log.contains("config --json set -- hosts github.com=auto git.example.com=forgejo"),
+            "{log}"
+        );
     }
 
     #[tokio::test]

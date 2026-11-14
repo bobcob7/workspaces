@@ -108,7 +108,7 @@ pub fn run() {
             reviews::reviews_check_now,
             reviews::reviews_load_repos,
             reviews::reviews_set_watch,
-            reviews::reviews_set_forge,
+            reviews::reviews_set_hosts,
             reviews::reviews_set_token,
             reviews::reviews_dismiss,
             reviews::reviews_restore,

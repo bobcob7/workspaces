@@ -143,34 +143,18 @@ pub struct OpenSettings {
     pub editor: String,
 }
 
-/// A host's forge setting (ADR 0060). A host with no entry is `auto`.
+/// A host's forge setting (ADR 0060).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ForgeHost {
     pub kind: ForgeChoice,
 }
 
+/// Legacy (ADR 0060): moved to config.toml by ADR 0061; read once by hosts::migrate.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ForgeSettings {
     pub hosts: BTreeMap<String, ForgeHost>,
-}
-
-impl ForgeSettings {
-    /// The host's setting: `Auto` when it has none.
-    pub fn choice(&self, host: &str) -> ForgeChoice {
-        self.hosts.get(host).map_or(ForgeChoice::Auto, |h| h.kind)
-    }
-
-    /// Sets a host's setting; `Auto` removes its entry.
-    pub fn set_choice(&mut self, host: &str, choice: ForgeChoice) {
-        if choice == ForgeChoice::Auto {
-            self.hosts.remove(host);
-        } else {
-            self.hosts
-                .insert(host.to_string(), ForgeHost { kind: choice });
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -716,19 +700,30 @@ mod tests {
     }
 
     #[test]
-    fn set_choice_auto_removes_host() {
-        let mut forges = ForgeSettings::default();
-        forges.set_choice("git.example.com", ForgeChoice::Forgejo);
-        assert_eq!(forges.choice("git.example.com"), ForgeChoice::Forgejo);
-        forges.set_choice("git.example.com", ForgeChoice::Auto);
-        assert!(forges.hosts.is_empty());
-        assert_eq!(forges.choice("git.example.com"), ForgeChoice::Auto);
+    fn legacy_forges_still_load() {
+        let forges: ForgeSettings =
+            serde_json::from_str(r#"{"hosts":{"git.example.com":{"kind":"forgejo"}}}"#).unwrap();
+        assert_eq!(
+            forges.hosts.into_iter().collect::<Vec<_>>(),
+            vec![(
+                "git.example.com".to_string(),
+                ForgeHost {
+                    kind: ForgeChoice::Forgejo
+                }
+            )]
+        );
     }
 
     #[test]
     fn forges_serialize_as_in_reference() {
-        let mut forges = ForgeSettings::default();
-        forges.set_choice("git.example.com", ForgeChoice::Forgejo);
+        let forges = ForgeSettings {
+            hosts: BTreeMap::from([(
+                "git.example.com".to_string(),
+                ForgeHost {
+                    kind: ForgeChoice::Forgejo,
+                },
+            )]),
+        };
         assert_eq!(
             serde_json::to_value(&forges).unwrap(),
             serde_json::json!({"hosts": {"git.example.com": {"kind": "forgejo"}}})
