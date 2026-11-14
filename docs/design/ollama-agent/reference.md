@@ -423,7 +423,9 @@ header or environment value is ever written here.
  "usage": {"requests": 12, "prompt_tokens": 210344, "completion_tokens": 9120},
  "mcp": [{"server": "metrics", "state": "connected", "tools": 6, "loaded": 3, "error": null}],
  "exit": null, "exit_message": null, "verdict": null, "updated_at": "2026-11-13T17:52:40Z",
- "endpoint": "gpu", "model": "qwen/qwen3.5-9b", "endpoint_changes": 0}
+ "endpoint": "gpu", "model": "qwen/qwen3.5-9b", "endpoint_changes": 0,
+ "endpoints": [{"endpoint": "gpu", "model": "qwen/qwen3.5-9b",
+                "usage": {"requests": 12, "prompt_tokens": 210344, "completion_tokens": 9120}}]}
 ```
 
 `verdict` is the recorded verdict once there is one, from the model or
@@ -431,7 +433,9 @@ the finalizer, for every run (with or without a parent). `state` is `starting`, 
 request is in flight) or `exited`. Written to a temp file and renamed.
 `restarts` is set by the daemon when it resumes after a crash. `endpoint`
 and `model` are the current target (the last `endpoint_history` entry);
-`endpoint_changes` counts switches since the spawn.
+`endpoint_changes` counts switches since the spawn; `endpoints` is the
+usage per endpoint used, one entry per `endpoint_history` entry, kept
+across resumes and copied into `usage.json`.
 
 ### `state/<id>/runner/transcript.jsonl`
 
@@ -449,7 +453,7 @@ One JSON object per line:
 | `truncated` | `estimated_tokens`, `prompt_tokens` |
 | `retry` | `attempt`, `error`, `wait_ms`, `endpoint` (the name the failed attempt went to) |
 | `endpoint_changed` | `reason` (`retry`, `resume`), `attempt` (`null` for `resume`), `from_endpoint`, `to_endpoint`, `from_model`, `to_model`, `from_context_tokens`, `to_context_tokens`, `api`, `changed` (the keys that differ: `endpoint`, `url`, `api`, `id`, `context_tokens`, `max_output`, `temperature`, `reasoning`, `request_timeout`, `idle_timeout`), `version` and `capabilities` from the probe (`null` without one) |
-| `endpoint_rejected` | `reason`, `attempt`, `endpoint` (the rejected one's name), `model`, `code` (`model_not_served`, `model_without_tools`, `context_too_small`), `message`, `kept_endpoint` |
+| `endpoint_rejected` | `reason`, `attempt`, `endpoint` (the rejected one's name), `model`, `code` (`model_not_served`, `model_without_tools`, `context_too_small`; at a resume also `endpoint_unreachable`), `message`, `kept_endpoint` |
 | `config_warning` | `code` (`config_invalid`, `model_gone`, `endpoint_unknown`, `api_not_implemented`), `message` (names the key, never a value), `kept_endpoint` |
 | `mcp_start` | `server`, `transport` (`stdio`, `http`, `sse`), `ok`, `tools`, `allowed`, `error` |
 | `mcp_error` | `server`, `tool` or `null`, `error` |
@@ -712,6 +716,10 @@ Outcomes for one retry:
 | Points elsewhere; id not served, no tools, or the conversation doesn't fit the smaller window | stays | `endpoint_rejected` |
 | Doesn't parse or validate; the alias or `endpoint_flag` is gone; `api` not implemented | stays | `config_warning`, and a `runner.log` warning |
 | Only `max_output`, `temperature`, `reasoning` or a timeout changed | applies them, no probe (a smaller window is still checked) | `endpoint_changed` with `changed` naming them |
+
+At a resume there's no retry to spend: an unreachable new endpoint keeps
+the last one with an `endpoint_rejected` event, code
+`endpoint_unreachable`, and the first request then retries as usual.
 
 When the third retry fails: `endpoint_down` if the last attempt went to
 the endpoint the live configuration resolves to; `endpoint_rejected` if
