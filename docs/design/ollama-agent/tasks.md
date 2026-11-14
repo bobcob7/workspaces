@@ -2643,20 +2643,19 @@ $ cd desktop/src-tauri && cargo clippy --all-targets -- -D warnings
 
 ---
 
-## T24. Desktop: a quiet model label on every agent, the runner transcript, Settings › Models
+## T24. Desktop: a quiet model label on every agent, the runner transcript, Stop
 
 **Depends on:** T19. **Parallel with:** T20, T21.
 **Design:** the [Screens](README.md#screens) table and rules, and
-[mockups.html](mockups.html) (`#agents-tree`, `#transcript`,
-`#settings-models`, `#settings-models-errors`). Match the PNGs in
-[img/](img/).
+[mockups.html](mockups.html) (`#agents-tree`, `#transcript`). Match the
+PNGs in [img/](img/).
 
 **Read:** `desktop/src-tauri/src/model.rs` (`WsSession`,
 `workspace_entry`), `desktop/src-tauri/src/transcript.rs` (public fns),
-`desktop/src-tauri/src/ws_config.rs`,
+`desktop/src-tauri/src/commands.rs` (how a command runs `ws` through
+`Runner`),
 `desktop/src/features/agents/{EntryRow.tsx,EntryPane.tsx,AgentsActions.tsx}`,
 `desktop/src/features/conversation/{rows.ts,ConversationView.tsx}`,
-`desktop/src/features/settings/{SettingsPane.tsx,SettingsList.tsx,ForgesGroup.tsx,Row.tsx}`,
 `desktop/src/api.ts`, `desktop/src/test/fixtures.ts`.
 
 **Change**
@@ -2665,7 +2664,8 @@ $ cd desktop/src-tauri && cargo clippy --all-targets -- -D warnings
   Option<String>` and `ws_runner: Option<WsRunner>` (reference.md's
   fields), `#[serde(default)]`. `Entry` gains `runner` (`"claude"`,
   `"ws"` or `""`), `model: Option<String>` (display form: a `claude-`
-  prefix removed, so `claude-sonnet-5-5` → `sonnet-5-5`), and `ws_runner`.
+  prefix removed, so `claude-sonnet-5-5` → `sonnet-5-5`; any other id,
+  `qwen/qwen3.5-9b` included, unchanged), and `ws_runner`.
   For `runner == "ws"`, don't look up a Claude job: status from `state`.
 - `transcript.rs`: `pub fn runner_transcript(state_dir, id) ->
   Vec<ConversationRow>` mapping `transcript.jsonl` events to the existing
@@ -2680,68 +2680,51 @@ $ cd desktop/src-tauri && cargo clippy --all-targets -- -D warnings
 - **Every agent's model, quietly.** `EntryRow.tsx`: at the right of the
   summary line, the model as secondary text (`.modelLabel` in the mockup:
   11px `--font-mono`, `--text-muted`, normal case, no background, no
-  border), for every agent with a model, Claude or not; nothing for shells or a Claude agent with no model yet. The row's
-  `title` tooltip: `ws` child → `qwen3-coder:30b · coder on gpu
-  (http://…, openai)`; Claude agent → `sonnet-5-5 · Claude Code`. **No
-  runner chip, badge, icon or colour anywhere.** The summary line is
-  unchanged for Claude; for a `ws` child it is `step {step}/{maxSteps}`.
+  border), for every agent with a model, Claude or not; nothing for
+  shells or a Claude agent with no model yet. The row's `title` tooltip:
+  `ws` child → `qwen/qwen3.5-9b · alias qwen9b · endpoint gpu
+  (http://…, OpenAI-compatible)`; Claude agent → `sonnet-5-5 · Claude
+  Code`. **No runner chip, badge, icon or colour anywhere.** The summary
+  line is unchanged for Claude; for a `ws` child it is `step
+  {step}/{maxSteps}`.
 - `EntryPane.tsx` and `AgentsActions.tsx`: the model id beside the title
   in muted monospace for every agent (`.titleModel`). For `ws` children,
   the existing neutral meta chips (`step n / max`, `tokens 210k in · 9.1k
   out`, the role) and muted text with the endpoint, session id and state
   (`#transcript`), and a "Run" card with rows Runner, Model (id, alias,
-  context), Endpoint (name, URL, API), Progress, MCP servers, Last event,
-  Session, and the exit reason when finished (`#agents-tree`). Attach, Send and
-  Continue are hidden for `ws` children; Remove works as for any child.
-- **New** `desktop/src/features/settings/ModelsGroup.tsx` (+
-  `.module.css`, `.test.tsx`), "Models" in `SettingsList` after "Forges",
-  as in `#settings-models`:
-  1. *Endpoints*: name, URL, API (`OpenAI-compatible` only, others shown
-     disabled as "later"), probe, timeouts, token (write-only); Add, Edit,
-     Remove; saving runs `ws config set endpoints.<name>.<key>` per
-     changed key, and the token through a new Tauri command
-     `endpoint_token_set(name, token)` in **new**
-     `desktop/src-tauri/src/secrets.rs`, which writes the
-     `WS_ENDPOINT_TOKEN_<NAME>` line of `CONFIG_DIR/secrets.env` with the
-     rules of T16's `SetSecret` (temp file, rename, 0600, other lines
-     kept), modelled on `reviews/tokens.rs`; an empty token removes the
-     line. The frontend never receives a token back, only `token_source`
-     from `runner_check`.
-  2. *Models*: alias, endpoint, id, context, max output, temperature.
-  3. *Test connection* per endpoint: a Tauri command `runner_check` runs
-     `ws runner check --json <endpoint> [--model <m>]` and shows `✓ 4 models ·
-     qwen3-coder:30b supports tools · context 65536`, or the error banners
-     of `#settings-models-errors` (`endpoint_unreachable`,
-     `model_not_served`, `model_without_tools`).
-  4. *Roles*: per role (`implementer`, `reviewer`, `verifier`, plus `ws
-     machine roles`): runner (Claude Code / ws runner), model alias, MCP
-     servers (from the user's Claude Code config names), `ws config set
-     runner.roles.<role>.…`.
-  5. *Fallback*: "When preflight fails, start a Claude child instead"
-     (`runner.fallback`).
-  Daemon status is not shown here (deferred, ADR 0068).
-- The Tauri mock (`fixtures.ts`) gains a `ws` child with a model, Claude
-  agents with models, `settings_get` with the new tables, `runner_check`,
-  and a runner conversation, so the four screens render from fixtures.
+  context, reasoning), Endpoint (name, URL, API), Progress, MCP servers,
+  Last event, Session, Trace (the `trace_id`), and the exit reason when
+  finished (`#agents-tree`). Attach, Send and Continue are hidden for `ws`
+  children; Remove works as for any child.
+- **Stop.** For a `ws` agent whose state is `working` or `starting`, a
+  **Stop** button (outlined, small) before Remove in the pane's header and
+  in `AgentsActions`. It calls a new Tauri command `runner_stop(id)`
+  (`commands.rs`) that runs `ws runner stop --json <id>` and returns its
+  object. While it runs, the button is disabled; afterwards the listing
+  refreshes and the agent reads `idle` with exit `stopped`. A confirmation
+  isn't needed (nothing is deleted). Stop isn't shown for Claude agents.
+- The Tauri mock (`fixtures.ts`) gains a `ws` child with the model
+  `qwen/qwen3.5-9b`, Claude agents with models, `runner_stop`, and a runner
+  conversation, so `#agents-tree` and `#transcript` render from fixtures.
 
 **Acceptance**
 
 - Rust: `workspace_entry` maps a runner session (no job lookup) and a
-  Claude session's model (`claude-` stripped); `runner_transcript` maps a
-  fixture JSONL with every event kind. `cargo test -j 2` and `cargo clippy
-  --all-targets -- -D warnings` pass, default and `--no-default-features
-  --features online`.
+  Claude session's model (`claude-` stripped, `qwen/qwen3.5-9b` kept
+  whole); `runner_transcript` maps a fixture JSONL with every event kind;
+  `runner_stop`'s arguments are `["runner", "stop", "--json", id]`.
+  `cargo test -j 2` and `cargo clippy --all-targets -- -D warnings` pass,
+  default and `--no-default-features --features online`.
 - TS: every agent row with a model shows it as muted text and nothing
   else; no element in the agents tree has a runner-specific class or
   colour (a test asserts the row markup is the same for a Claude and a
   `ws` entry apart from the text); the tooltip text is as above; Attach
-  and Send are hidden for `ws` entries. `ModelsGroup` renders, calls `ws
-  config set` with the right keys, never renders a token, shows a check
-  result and the three error states, and saves role routing. `npm run
-  typecheck` and `npm test -- --maxWorkers=2 --testTimeout=60000` pass.
+  and Send are hidden for `ws` entries; Stop shows only for a working or
+  starting `ws` entry and calls `runner_stop` once. `npm run typecheck`
+  and `npm test -- --maxWorkers=2 --testTimeout=60000` pass.
 - Layout: at 1280×800 and 390×844, no clipped inputs, no horizontal
-  scroll, tap targets ≥ 40px on phone widths. A screenshot child checks
-  this against [img/](img/); put it in the report.
+  scroll, tap targets ≥ 40px on phone widths (Stop included). A
+  screenshot child checks this against [img/](img/); put it in the report.
 
 **Verify**
 
@@ -2749,4 +2732,225 @@ $ cd desktop/src-tauri && cargo clippy --all-targets -- -D warnings
 $ cd desktop && npm ci && npm run typecheck && npm test -- --maxWorkers=2 --testTimeout=60000
 $ cd desktop/src-tauri && cargo test -j 2 && cargo clippy --all-targets -- -D warnings
 $ cd desktop/src-tauri && cargo test -j 2 --no-default-features --features online
+```
+
+---
+
+## T25. Desktop: Settings › Models, with the Runner service line
+
+**Depends on:** T23, T24. **Parallel with:** T22.
+**Design:** [mockups.html](mockups.html) (`#settings-models`,
+`#settings-models-errors`) and the PNGs in [img/](img/);
+[0068](../../adrs/0068-ws-daemon.md) (The desktop app hosts the daemon:
+Status).
+
+**Read:** `desktop/src-tauri/src/ws_config.rs`,
+`desktop/src-tauri/src/reviews/tokens.rs` (the pattern for
+`secrets.rs`), `desktop/src-tauri/src/commands.rs` (how a command runs
+`ws`),
+`desktop/src/features/settings/{SettingsPane.tsx,SettingsList.tsx,ForgesGroup.tsx,Row.tsx}`,
+`desktop/src/api.ts`, `desktop/src/test/fixtures.ts`; reference.md
+[config.toml](reference.md#configtoml) and [ws runner
+check](reference.md#ws-runner-check-hidden).
+
+**Change**
+
+- `ws_config.rs`: `runner_settings_get()` (Tauri command) returning
+  `{runner: {model, fallback}, endpoints: [...], models: [...], roles:
+  [...]}` from `ws config list --json`, each model with `alias`,
+  `endpoint`, `id`, `context_tokens`, `max_output`, `temperature`,
+  `reasoning`. T26 reuses it.
+- **New** `desktop/src/features/settings/ModelsGroup.tsx` (+
+  `.module.css`, `.test.tsx`), "Models" in `SettingsList` after "Forges",
+  as in `#settings-models`:
+  1. *Runner service*: one line from a new Tauri command `daemon_status`
+     (`ws daemon status --json`): a status dot and `running · started by
+     this app · pid 40211 · 2 runners` (`origin` `app` → "this app",
+     `transient` → "a terminal", `managed` → "a service manager"), or
+     `not running`; a **Restart** button (new command `daemon_restart`:
+     `ws daemon stop --keep-runners --json`; the host restarts it, T23);
+     warnings from the status shown under it.
+  2. *Endpoints*: name, URL, API (`OpenAI-compatible` only; Ollama native
+     shown disabled as "next", the others as "later"), probe, timeouts,
+     token (write-only); Add, Edit, Remove; saving runs `ws config set
+     endpoints.<name>.<key>` per changed key, and the token through a new
+     Tauri command `endpoint_token_set(name, token)` in **new**
+     `desktop/src-tauri/src/secrets.rs`, which writes the
+     `WS_ENDPOINT_TOKEN_<NAME>` line of `CONFIG_DIR/secrets.env` with the
+     rules of T16's `SetSecret` (temp file, rename, 0600, other lines
+     kept), modelled on `reviews/tokens.rs`; an empty token removes the
+     line. The frontend never receives a token back, only `token_source`
+     from `runner_check`.
+  3. *Models*: alias, endpoint, id (shown whole, `qwen/qwen3.5-9b`),
+     context, max output, temperature, reasoning (a select: server
+     default, none, low, medium, high).
+  4. *Test connection* per endpoint: a Tauri command `runner_check` runs
+     `ws runner check --json <endpoint> [--model <m>]` and shows `✓ 2
+     models · qwen/qwen3.5-9b · context 65536 · no probe` (or, with a probe,
+     `supports tools`), or the error banners of `#settings-models-errors`
+     (`endpoint_unreachable`, `model_not_served`, `model_without_tools`).
+  5. *Roles*: per role (`implementer`, `reviewer`, `verifier`, plus `ws
+     machine roles`): runner (Claude Code / ws runner), model alias, MCP
+     servers (from the user's Claude Code config names; "none" by
+     default), budget; `ws config set runner.roles.<role>.…`.
+  6. *Fallback*: "When preflight fails, start a Claude child instead"
+     (`runner.fallback`).
+- The Tauri mock (`fixtures.ts`) gains `runner_settings_get`,
+  `daemon_status`, `daemon_restart` and `runner_check`, so the two screens
+  render from fixtures.
+
+**Acceptance**
+
+- Rust: `secrets.rs` writes, replaces and removes a line, mode 0600, other
+  lines kept; `daemon_status`, `daemon_restart` and `runner_check` build
+  the documented arguments. `cargo test -j 2` and `cargo clippy
+  --all-targets -- -D warnings` pass, default and
+  `--no-default-features --features online`.
+- TS: `ModelsGroup` renders the Runner service line for each `origin` and
+  for not running, calls `daemon_restart` once on Restart, calls `ws
+  config set` with the right keys (including `models.<alias>.reasoning`),
+  never renders a token, shows a check result and the three error states,
+  and saves role routing. `npm run typecheck` and `npm test --
+  --maxWorkers=2 --testTimeout=60000` pass.
+- Layout: at 1280 wide and 390×844, no clipped inputs, no horizontal
+  scroll, tap targets ≥ 40px on phone widths. A screenshot child checks it.
+
+**Verify**
+
+```console
+$ cd desktop && npm ci && npm run typecheck && npm test -- --maxWorkers=2 --testTimeout=60000
+$ cd desktop/src-tauri && cargo test -j 2 && cargo clippy --all-targets -- -D warnings
+$ cd desktop/src-tauri && cargo test -j 2 --no-default-features --features online
+```
+
+---
+
+## T26. Desktop: runner and model pickers in the loop form and the New agent dialog
+
+**Depends on:** T20, T21, T25. **Parallel with:** T27.
+**ADR:** [0070](../../adrs/0070-runner-agents-for-people-and-loops.md)
+(The desktop app). **Design:** [mockups.html](mockups.html) (`#loop-form`)
+and [img/loop-form.png](img/loop-form.png).
+
+**Read:** `desktop/src/features/loops/{LoopForm.tsx,formValues.ts,Card.tsx}`
+(the Agent section and card), `desktop/src/features/create/NewAgentDialog.tsx`
+(`models`, `permissionModes`), `desktop/src-tauri/src/loops.rs`
+(`NewLoop`, `Loop`, `add_args`, `edit_args`),
+`desktop/src-tauri/src/commands.rs` (`NewAgent`, `new_agent_args`),
+`desktop/src-tauri/src/ws_config.rs` (`runner_settings_get`, T25).
+
+**Change**
+
+- **New** `desktop/src/features/create/RunnerModelFields.tsx` (+ test):
+  props `{runner, model, endpoint, permissionMode, onChange, settings}`.
+  Runner select ("Claude Code", "ws runner"). For Claude Code: today's
+  model select (`models`) and Permission mode select. For ws runner: a
+  Model select of `settings.models` shown as `qwen9b · qwen/qwen3.5-9b`,
+  first "Default (runner.model: qwen9b)"; an Endpoint select, first "The
+  model's endpoint", then each endpoint; no Permission mode. Switching
+  the runner clears the model, the endpoint and the permission mode. With
+  no `[models]` configured, the ws runner option is disabled with the
+  helper text "Add a model in Settings › Models".
+- `LoopForm.tsx`: the **Agent** section uses `RunnerModelFields`;
+  `formValues.ts` gains `runner` (`"claude"` default) and `endpoint`, read
+  from and written to the loop. `Card.tsx` (the loop detail's Agent card)
+  shows Runner and Model (and Endpoint when set).
+- `NewAgentDialog.tsx` uses `RunnerModelFields`; with ws runner the prompt
+  is required (the Create button is disabled without one).
+- `loops.rs`: `NewLoop` and `Loop` gain `runner: Option<String>` and
+  `endpoint: Option<String>` (`#[serde(default)]`); `add_args` pushes
+  `--runner=ws` and `--endpoint=<e>` when set; `edit_args` always pushes
+  `--runner=<claude|ws>` and `--endpoint=<e or "">`, and omits
+  `--permission-mode` for a `ws` loop. `commands.rs`: `NewAgent` gains
+  `runner` and `endpoint`; `new_agent_args` puts `--runner=ws` and
+  `--endpoint=…` before the specs and, after `--` and the prompt,
+  `--model <m>` only (no `--permission-mode`).
+- The Tauri mock (`fixtures.ts`) gains a `ws` loop and the settings, so
+  `#loop-form` renders from fixtures.
+
+**Acceptance**
+
+- Rust: `add_args`/`edit_args` for a `ws` loop and a Claude loop
+  (golden argument lists), `edit_args` clearing an endpoint, and
+  `new_agent_args` for a `ws` agent. `cargo test -j 2` and `cargo clippy
+  --all-targets -- -D warnings` pass.
+- TS: `RunnerModelFields` shows the right fields per runner, clears on
+  switch, disables ws without models; `LoopForm` round-trips a `ws` loop
+  (`runner`, `model`, `endpoint`) and a Claude loop unchanged; the New
+  agent dialog requires a prompt for ws. `npm run typecheck` and `npm test
+  -- --maxWorkers=2 --testTimeout=60000` pass.
+- Layout: the Agent section at 1280 wide and 390×844 has no clipped or
+  overlapping fields and tap targets ≥ 40px. A screenshot child checks it.
+
+**Verify**
+
+```console
+$ cd desktop && npm ci && npm run typecheck && npm test -- --maxWorkers=2 --testTimeout=60000
+$ cd desktop/src-tauri && cargo test -j 2 && cargo clippy --all-targets -- -D warnings
+```
+
+---
+
+## T27. *Optional:* `internal/llm/ollama`, the Ollama-native provider
+
+**Depends on:** T2, T7. **Parallel with:** T26.
+**ADR:** [0062](../../adrs/0062-agent-runner-built-into-ws.md) (`ollama`,
+planned next, and the normalization table's Ollama column).
+
+Run this task only when the owner asks for it; the plan ships without it.
+
+**Read:** `internal/llm/llm.go`, `internal/llm/openai/provider.go` and
+`probe.go` (the pattern, and the probe this provider reuses),
+`internal/llm/providers/providers.go`, `internal/config/runner.go`
+(`ReservedAPIs`), `internal/fakeollama/api.go` and `server.go`; Ollama's
+"Chat" API docs (<https://docs.ollama.com/api/chat>) and "Thinking"
+(<https://docs.ollama.com/capabilities/thinking>), re-read when the task
+runs.
+
+**Change**
+
+- `internal/fakeollama`: `POST /api/chat` with Ollama's native shapes:
+  request `{model, messages, tools, stream, think, options: {num_ctx,
+  temperature, num_predict}}`; streamed NDJSON chunks `{message: {content,
+  thinking, tool_calls: [{function: {name, arguments: {…}}}]}, done,
+  done_reason, prompt_eval_count, eval_count}`; the same rules, faults and
+  recording as `/v1`; a request's `options.num_ctx` caps its context the
+  way `context_length` does, and is recorded.
+- **New** `internal/llm/ollama/{provider.go,stream.go}` with tests:
+  `New(ep llm.Endpoint, httpClient *http.Client, log *slog.Logger)
+  *Provider`. `Chat`: `options.num_ctx` = the run's `context_tokens`
+  (passed through a new `llm.Request.ContextTokens int`, set by the loop
+  from `Config.ContextTokens`; other providers ignore it), `num_predict` =
+  `MaxOutput`, `temperature`; `think` = `false` for `Reasoning` `none`,
+  the level for `low`/`medium`/`high`, absent for `""`; tool arguments
+  marshalled from the object; tool-call ids `call_<step>_<n>` (the
+  provider counts); tool results as `role: "tool"` with `tool_name`;
+  `thinking` → `Reasoning`, never sent back; `done_reason` and the counts
+  mapped as the table says; the same error classification as `openai`
+  (`does not support tools` 400 → `NoToolsError`, 404 →
+  `ModelMissingError`, 429/5xx → `RetryableError`). `Models`: `GET
+  /api/tags`. `Probe`: always the Ollama probe.
+- `config.ReservedAPIs()` drops `ollama`; `providers.New` maps `ollama`
+  to this provider; T13's `ProviderName("ollama")` is `ollama`.
+- reference.md and ADR 0062: `ollama` moves from "planned next" to
+  implemented; the Settings › Models API select enables "Ollama native".
+- `make lint`: `/api/chat` appears only in `internal/llm/ollama` and
+  `internal/fakeollama` (`@! grep -rn '"/api/chat"' --include='*.go' . | grep -vE '^\./internal/(llm/ollama|fakeollama)/' | grep -v '_test\.go:'`).
+
+**Acceptance** (`httptest` against the fake's handler; no network)
+
+- A two-turn tool run against `qwen3.5:9b` in the fake: the first request
+  carries `options.num_ctx` 65536 and `think: false` for `Reasoning`
+  `none`; the tool call's object arguments come back as JSON text with id
+  `call_1_1`; the tool result goes back with `tool_name`; usage maps from
+  `prompt_eval_count`/`eval_count`.
+- `thinking` chunks fill `Reasoning` and are absent from the next request.
+- Each error class as for T7. `api = "ollama"` parses; `providers.New`
+  returns this provider.
+
+**Verify**
+
+```console
+$ go test -p 2 ./internal/fakeollama/... ./internal/llm/...
+$ make lint
 ```
