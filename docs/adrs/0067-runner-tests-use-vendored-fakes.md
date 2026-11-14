@@ -5,7 +5,9 @@
   into this repo instead of built from a pinned llm-router clone; fake MCP
   server added); revised 2026-11-14 after the second review (fake models
   named like the starting model, generic MCP examples, two scenarios for
-  Stop and loop runs)
+  Stop and loop runs); revised 2026-11-14 after the third review (three
+  scenarios for re-resolving the endpoint mid-run, with two fake-ollama
+  processes)
 
 ## Context
 
@@ -162,6 +164,9 @@ themselves, `cmd/fake-*` and `e2e/`.
 | `review-verdict` | `read_file` → `run` (`git diff`) → `record_result CHANGES_REQUESTED` | outcome `fail`, `child_failed`, report text |
 | `endpoint-down` | fault `down` before spawn | spawn fails `endpoint_unreachable`, exit 1, no workspace left |
 | `endpoint-down-mid-run` | `status: 503`, `retry_after: 1`, `count: 4` from turn 2 | 3 retries in the transcript, exit `endpoint_down`, FAIL with reason |
+| `endpoint-failover` | two fakes, A and B, on `failover.yaml`; `[endpoints.fake]` is A, `[endpoints.fake-b]` is B with `WS_ENDPOINT_TOKEN_FAKE_B` in `secrets.env`; during turn 0's `run` (`sleep 2`), fault `down` on A; at the first `retry` event, `ws config set models.qwen9b.endpoint fake-b` | an `endpoint_changed` event `fake` → `fake-b`, reason `retry`; B's `/requests` has turns 1 and 2 with B's token's `auth`; `run.toml` has two `endpoint_history` entries; `wait` shows `ws_runner.endpoint` `fake-b` and `endpoint_changes` 1; exit `done`, PASS; no token in the transcript |
+| `endpoint-repoint-no-tools` | as `endpoint-failover`, but B runs `failover-notools.yaml` (`qwen/qwen3.5-9b` without `tools`) | `endpoint_rejected` events with `model_without_tools`; B gets `/v1/models` and `/api/show` but no chat request; exit `endpoint_rejected`, FAIL, the report names `fake-b` and `model_without_tools` |
+| `config-invalid-mid-run` | one fake on `failover.yaml`; during turn 0's `run`, fault `status: 503`, `count: 1` on it and overwrite `config.toml` with invalid TOML | a `config_warning` event (`config_invalid`); the retry goes to the same endpoint; exit `done` |
 | `malformed-tool-call` | `raw_arguments: '{"path": '` once, then valid; three in a row | recovers; `malformed_tool_calls` |
 | `unknown-tool` | `any_tool` call to `delete_repo` | error answer, then recovery |
 | `mid-stream-drop` | `drop_after_chunks: 2`, `count: 1` | one retry, then `done` |
