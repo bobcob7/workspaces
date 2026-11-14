@@ -399,6 +399,8 @@ internal/fakemcp/                  NEW  scripted MCP server on the Go SDK (T3)
 internal/llm/                      NEW  Provider, neutral types, errors, Preflight
 internal/llm/openai/               NEW  chat completions (stream), models, Ollama probe
 internal/llm/providers/            NEW  the registry: api name → Provider
+internal/llm/ollama/               LATER  Ollama's native /api/chat (T27, optional)
+internal/telemetry/                NEW  OpenTelemetry setup (after llm-router's), Provider and Toolset decorators (T13)
 internal/agent/                    NEW  loop copied from llm-router internal/agent @9789c32
   agent.go budget.go compact.go transcript.go prompt.go preamble.md instructions.go toolset.go
 internal/agent/tools/              NEW  the seven tools, path guard, command guard, env scrub, redactor
@@ -409,17 +411,20 @@ internal/claude/                   + Model (from the transcript tail), Logs
 internal/workspace/session.go      kind "runner", runner_session_id, version 2
 internal/lifetime/judge.go         runner sessions via runnerReader
 internal/config/                   [runner], [runner.env], [runner.roles], [endpoints], [models], [daemon]; secrets.env
-internal/cli/machine*.go           --runner, --endpoint, preflight through the daemon, logs
-internal/cli/daemon.go             NEW  ws daemon run|status|stop
-internal/cli/runner.go             NEW  hidden ws runner run|check
-internal/cli/guides/               ws-machine-logs.md, ws-daemon*.md NEW; ws-machine-spawn.md, ws-machine-wait.md, ws-list.md, ws.md updated
+internal/cli/machine*.go           --runner, --endpoint, preflight through the daemon, logs; the shared runner start
+internal/cli/claude.go             --runner, --endpoint for ws claude (T20)
+internal/cli/loop*.go, internal/loop/   --runner, --endpoint, record version 4, runs on the runner (T21)
+internal/cli/daemon.go             NEW  ws daemon run|status|stop (--origin app)
+internal/cli/runner.go             NEW  hidden ws runner run|check|stop
+internal/cli/guides/               ws-machine-logs.md, ws-daemon*.md NEW; ws-machine-spawn.md, ws-machine-wait.md, ws-list.md, ws-claude.md, ws-loop-add.md, ws-loop-edit.md, ws.md updated
 internal/machine/role/roles/implementer.md  .Runner/.Model conditional trailer
 e2e/runner/                        NEW  build tag e2e: harness, scenarios, testdata
 desktop/src-tauri/src/model.rs     runner, model, ws_runner fields
-desktop/src-tauri/src/online/      keeps `ws daemon run --origin managed` running
-desktop/src/features/agents/…      quiet model label for every agent, runner transcript view
+desktop/src-tauri/src/daemon_host.rs  NEW  keeps a daemon running: --origin app in the app, managed in ws-online (T23)
+desktop/src/features/agents/…      quiet model label for every agent, runner transcript view, Stop (T24)
 desktop/src-tauri/src/secrets.rs   NEW  writes endpoint tokens to secrets.env
-desktop/src/features/settings/ModelsGroup.tsx  NEW Settings › Models
+desktop/src/features/settings/ModelsGroup.tsx  NEW Settings › Models, with the Runner service line (T25)
+desktop/src/features/loops/, create/  RunnerModelFields in the loop form and New agent dialog (T26)
 Makefile                           fakes, e2e-runner, lint rules
 ```
 
@@ -428,30 +433,33 @@ Makefile                           fakes, e2e-runner, lint rules
 Full key list: [reference.md › config.toml](reference.md#configtoml). In
 short: `[endpoints.<name>]` is where and how to talk to a server (`url`,
 `api`, `probe`, timeouts); `[models.<alias>]` is a model on an endpoint
-(`id`, `context_tokens`, `max_output`, `temperature`); `[runner]` holds
+(`id`, `context_tokens`, `max_output`, `temperature`, `reasoning`); `[runner]` holds
 the default model alias and the fallback; `[runner.roles.<role>]` the
 runner, model, budgets and MCP selection per role; `[runner.env]` plain
 variables for runners; `[daemon]` `resume_on_start`. Tokens go in
 `WS_ENDPOINT_TOKEN_<NAME>`, normally in `CONFIG_DIR/secrets.env`.
 Per-spawn overrides are `--runner`, `--endpoint` and `-- "" --model
-<alias>`.
+<alias>`; `ws claude` and loops take the same (ADR 0070). A model id with
+`/` or `:` (`qwen/qwen3.5-9b`, `qwen3.5:9b`) is only ever a value, never a
+key, and is never split.
 
 Proposed addition to the generated `config.toml` (commented out):
 
 ```toml
 # [runner]
-# Run some ws machine children on other models (ws llm machine spawn).
-# model = "coder"
+# Run some agents on other models (ws llm machine spawn).
+# model = "qwen9b"
 # fallback = "none"          # or "claude": start a Claude child when preflight fails
 #
 # [endpoints.gpu]
-# url = "http://localhost:11434"
-# api = "openai"             # OpenAI-compatible chat completions (Ollama, llm-router, LM Studio, vLLM)
+# url = "http://localhost:1234"
+# api = "openai"             # OpenAI-compatible chat completions (LM Studio, Ollama, llm-router, vLLM)
 #
-# [models.coder]
+# [models.qwen9b]
 # endpoint = "gpu"
-# id = "qwen3-coder:30b"
+# id = "qwen/qwen3.5-9b"     # as the endpoint lists it; on Ollama: qwen3.5:9b
 # context_tokens = 65536     # must match the server's context length for this model
+# reasoning = "none"         # thinking off; "" leaves the server's default
 #
 # [runner.roles.verifier]
 # runner = "ws"
@@ -468,6 +476,7 @@ Proposed addition to the generated `config.toml` (commented out):
 | `runner_failed` | 1 | the runner process didn't start |
 | `daemon_unavailable` | 1 | no daemon answered and none could be started |
 | `daemon_running` | 4 | `ws daemon run` while one runs |
+| `loop_invalid` | 2 | (existing code) a loop's runner, endpoint, model or permission mode don't fit together |
 
 Mid-run failures aren't error codes. They are exit reasons
 (`endpoint_down`, `looping`, `crashed`, …) with a fail verdict, which
@@ -485,18 +494,26 @@ Mid-run failures aren't error codes. They are exit reasons
   the daemon watches; `CONFIG_DIR/daemon/daemon.log` is its log.
 - **Every agent's model**: `model` in `ws list`, `children` and `wait`, for
   Claude and `ws` children alike.
-- **Usage that outlives the child**: `state/<root>/machine/<child>/usage.json`,
-  and in `ws machine wait`'s `ws_runner.usage`.
-- **Run-log metrics**: the handbook's `metrics.py` reads Claude
-  transcripts by session id. Proposed extension: for each `(role,
+- **Usage that outlives the child**: `state/<root>/machine/<child>/usage.json`
+  (`state/<id>/runner/usage.json` for an agent without a parent), and in
+  `ws machine wait`'s `ws_runner.usage`.
+- **Run-log metrics**: an orchestrator's run-metrics script that reads
+  Claude transcripts by session id can be extended. Proposed extension: for each `(role,
   "usage.json path")` pair, add a row with `model`, requests and tokens
   from `usage`, minutes from `wall_seconds`, and `usd` = 0 for on-prem
   endpoints. Add a `gpu_minutes` column (= `wall_seconds`/60). The
   orchestrator collects the paths from `wait`'s `ws_runner.usage_file`.
-- **OpenTelemetry**: `ws` doesn't link an OTel SDK. The runner sends a W3C
-  `traceparent` (one trace id per run, a span id per request) on every
-  model request and records `trace_id` in `usage.json`. Behind
-  llm-router, every request of a run is findable in Tempo by that id.
+- **OpenTelemetry**: the runner links the OTel Go SDK
+  ([0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md),
+  Observability) and, when the standard `OTEL_*` variables configure an
+  exporter, exports traces (`invoke_agent`, `chat`, `execute_tool` spans),
+  metrics (`gen_ai.client.operation.duration`, `gen_ai.client.token.usage`,
+  `ws_runner.runs`) and logs over OTLP, with the GenAI semantic conventions
+  llm-router uses. No prompt, completion, reasoning, argument or result is
+  ever recorded. Each run is one trace: `trace_id` is in `run.toml`,
+  `usage.json` and the transcript, kept across resumes, and `traceparent`
+  carries it to the endpoint, so llm-router's spans join it. The `OTEL_*`
+  variables reach the runner through the daemon's environment layers.
 
 ## Security
 
@@ -506,43 +523,150 @@ tokens from the tools' environment, confines file tools to the workspace,
 refuses a short list of dangerous commands, frames tool and MCP results as
 data, offers only the MCP tools a role allows (destructive ones only by
 exact name), and redacts tokens, MCP headers and expanded variables in
-transcripts. It doesn't sandbox commands or filter the network. Prompt
+transcripts. It doesn't sandbox commands or filter the network (both non-goals). Prompt
 injection from repo content and MCP results is mitigated, not prevented.
+`GH_TOKEN` stays in the tools' environment by default, so a hijacked
+runner can push wherever the token reaches; scoped tokens are deferred.
 Use runner children only on repos, and with MCP servers, you'd let an
 auto-mode Claude child use. The daemon's socket is user-only and takes
-workspace ids, not commands.
+workspace ids, not commands. Telemetry carries no content.
 
-## Which roles suit on-prem models
+## Which roles suit a 9B model
 
-The evidence is sourced in [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md).
-Nothing here has been measured with this runner yet.
+The starting model is **`qwen/qwen3.5-9b`** (LM Studio's id; `qwen3.5:9b`
+in Ollama's library)[^qwen-ids]. Nothing here has been measured with this
+runner yet; sourced facts are footnoted and guesses are marked as
+guesses.
 
-| Role | Fit | Why | Main failure modes |
-| ---- | --- | --- | ------------------ |
-| **Verifier** | **Good: start here** | It runs a given command list and reports exit codes. Few decisions, short tool chains | Misreading long test output (context rot); calling a FAIL a FLAKY; a 4k default context truncating output, so set `context_tokens` |
-| **Implementer, `small` task** | **Fair** | One or two files with exact signatures. Open models reach 60–72% on SWE-bench Verified with their own scaffolds[^swe] | Malformed edits, looping on a failing test, giving up with `no_result` |
-| **Implementer, larger task** | Poor | Multi-file changes over 30+ steps; multi-turn tool accuracy for 8–32B models is 30–48% on BFCL v4, against 68% for a frontier model[^bfcl] | Losing the task in a long context; compaction elides what it needs |
-| **Reviewer** | **Fair for `small` tasks, as a first pass** | It reads a diff and checks criteria | Approving defects; keep Sonnet or Haiku as the gate |
-| **Read-only helpers with MCP** (log or dashboard lookups, handbook search) | **Fair, untested** | Few, read-only tools behind an allow-list | Choosing the wrong tool from many; `tool_search` not used |
-| **Screenshot child** | Not suitable | Needs Playwright scripting and visual judgment; no vision yet | |
-| **Designer, orchestrator** | Not suitable | Long-horizon planning and judgment; ADR-quality writing with sources | |
+**What the evidence says about it**
 
-Failure modes common to all roles, and how the design handles them:
+- **Size and window.** About 9.7B dense parameters with a vision encoder;
+  32 layers, of which 8 use full (gated) attention and 24 Gated DeltaNet
+  linear attention; 262,144 tokens of native context; Apache-2.0[^qwen-card].
+  At 4-bit (Q4_K_M) Ollama's download is 6.6 GB[^ollama-tags]. *Guess:*
+  because only 8 of 32 layers keep a full KV cache, a 64K–128K window
+  should fit beside the weights on a 12–16 GB GPU; measure before relying
+  on it.
+- **Servers don't give it that window by default.** Ollama sizes its
+  default context by VRAM (4k under 24 GiB, 32k up to 48 GiB)[^ollama-ctx],
+  and the OpenAI-compatible API can't change it per request, so
+  `context_tokens` must match what the server was started with (a
+  Modelfile `num_ctx`, `OLLAMA_CONTEXT_LENGTH`, or LM Studio's load
+  setting). Per-request `num_ctx` is the reason Ollama-native is the next
+  provider ([0062](../../adrs/0062-agent-runner-built-into-ws.md)).
+- **Tool calling: decent on paper.** Its card reports BFCL-V4 66.1 and
+  TAU2-Bench 79.1, with IFEval 91.5 and LiveCodeBench v6 65.6, in thinking
+  mode[^qwen-card]. For scale, the BFCL v4 leaderboard gives multi-turn
+  accuracy of 41.75% to Qwen3-8B and 68.38% to Claude-Opus-4.5[^bfcl] (the
+  card's figure is an overall score, not multi-turn, so these aren't the
+  same measure).
+- **Agentic coding: weak.** No SWE-bench Verified score is published; an
+  independent harness measured Terminal-Bench 2.1 at 16.1 for the base
+  model[^ai2-tb].
+- **Thinking.** On by default; Qwen3.5 doesn't support Qwen3's `/think`
+  and `/nothink` switches[^qwen-card]. The card recommends temperature 0.6
+  for thinking on precise coding and 0.7 without thinking[^qwen-card].
+  Ollama's and LM Studio's `/v1` take `reasoning_effort`; LM Studio has an
+  open report that turning thinking off is ignored on `/v1`, and that a low
+  output limit leaves `content` empty while it thinks[^lmstudio-1990].
+  Thinking also costs time: Artificial Analysis measured about 44 s to the
+  first answer token with reasoning[^aa] (a single benchmark setup).
+- **Server bugs.** For the Qwen 3.5 family Ollama has open reports of tool
+  calls rendered in the wrong format, `</think>` left unclosed in
+  multi-turn tool history, and repeat and presence penalties
+  ignored[^ollama-14493]; and of `qwen3.5:9b` printing a `<tool_call>` as
+  text instead of calling the tool[^ollama-14745]. The runner nudges on a
+  text tool call ([0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md))
+  and records the server's version from the probe when there is one; pin
+  and note the server version in each measured run.
+
+**The roles chosen**
+
+| Role | Model alias | Why it might work | Main risks |
+| ---- | ----------- | ----------------- | ---------- |
+| **1. Verifier** (start here) | `qwen9b`: thinking off, 65,536 tokens | It runs a given command list and reports exit codes: instruction following (IFEval 91.5) and short tool chains (TAU2 79.1), no planning | Misreading long test output; calling a FAIL a FLAKY; thinking left on despite `reasoning = "none"` (the transcript shows it) |
+| **2. Implementer, `small` and docs-only** (one or two markdown files, a doc check as the verify command) | `qwen9b-think`: thinking on, 131,072 tokens | Exact files and text; mistakes are cheap and the Claude reviewer still gates them | Weak agentic coding evidence (Terminal-Bench 16.1); malformed edits; looping on a failing check |
+| Not yet: first-pass reviewer, advisory only | `qwen9b-think` | Read-only and cheap to be wrong | No benchmark for review; Artificial Analysis measured a high hallucination rate on its knowledge test[^aa], so expect invented findings. Try it only after 1 and 2 are measured, never as the gate |
+
+Everything else stays on Claude: code implementers, the reviewer gate,
+the designer, the orchestrator, and the screenshot child.
+
+**Budgets for these roles** (in `config.toml`; the code defaults stay as
+in [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md) for any
+other model). All are guesses until measured:
+
+```toml
+[models.qwen9b]
+endpoint = "gpu"
+id = "qwen/qwen3.5-9b"
+context_tokens = 65536      # Ollama recommends at least 64000 for agents
+reasoning = "none"
+temperature = "0.7"         # the card's non-thinking setting
+
+[models.qwen9b-think]
+endpoint = "gpu"
+id = "qwen/qwen3.5-9b"
+context_tokens = 131072     # the card advises 128K+ to keep thinking intact
+max_output = 16384          # thinking spends output tokens before the answer
+temperature = "0.6"         # the card's thinking setting for precise coding
+
+[runner.roles.verifier]
+runner = "ws"
+model = "qwen9b"
+max_steps = 30              # a CHECKS list rarely needs more than 2 requests per command
+timeout = "30m"
+max_tokens = 1500000        # about 23 full 65K windows
+```
+
+```toml
+[runner.roles.implementer]
+# runner stays "claude": only tasks spawned with --runner ws use these
+model = "qwen9b-think"
+max_steps = 40
+timeout = "45m"
+max_tokens = 3000000        # about 23 full 131K windows
+```
+
+A role's `model` and budgets apply only when it runs on the `ws` runner,
+so code implementers stay on Claude and a docs-only task is moved with
+`--runner ws` alone.
+
+**Failure modes common to every role**, and how the design handles them:
 
 | Failure | Evidence | Handling |
 | ------- | -------- | -------- |
 | Malformed or dropped tool calls | Ollama #17274, #19187[^issues] | schema error answers; `malformed_tool_calls` after 3 |
+| A tool call printed as text | Ollama #14745[^ollama-14745] | a specific nudge; counts as no tool call |
+| Thinking uses the whole output limit | LM Studio #1990[^lmstudio-1990] | `max_output` sized for thinking; counts as no tool call |
 | Tool-call loops | Ollama #19672[^issues] | repeat detection: nudge at 3, `looping` at 5 |
 | Silent context truncation | Ollama `server/prompt.go`[^trunc] | own budget plus a truncation check |
 | Quantization raises tool-name hallucination | up to 2.5×[^quant] | unknown-tool answers; few tools per request |
-| Too many tools | 80 in `mcp-grafana` | per-role allow-lists, `mcp_upfront`, `tool_search` |
+| Too many tools | a large MCP server offers 80 | no MCP by default, per-role allow-lists, `mcp_upfront`, `tool_search` |
 | Endpoint down mid-run | | 3 retries, then `endpoint_down`; the orchestrator respawns on Claude |
-| Runner crash, reboot, pod restart | | the daemon resumes; `crashed` after 3 restarts |
+| Runner crash, reboot, pod restart, app quit | | the daemon resumes; `crashed` after 3 restarts |
 
-## Proposed handbook text: mixed mode
+**Measured-run plan before widening.** In this order, one change at a
+time, recording each run's exits, steps, tokens, wall time and the server
+version:
 
-To add to "Procedure: multi-agent feature build" as a new section (not
-edited by this design):
+1. **Smoke**: `E2E_RUNNER_URL=… E2E_RUNNER_MODEL=qwen/qwen3.5-9b make
+   e2e-runner` (the `edit-file` and `review-verdict` scenarios).
+2. **Verifiers only**, for three orchestrated runs: the baseline and the
+   final verifier on the runner, everything else on Claude. Compare each
+   verdict with a Claude verifier's on the same branch.
+3. If verifiers agree with Claude in all three: **docs-only `small`
+   implementers** for the next three runs. Judge by first-pass approvals
+   from the Claude reviewer and by how many tasks needed a Claude respawn.
+4. Only then consider the advisory reviewer, or code tasks, or changing
+   the code defaults in 0065.
+
+Stop widening at the first step whose runs need more than one Claude
+respawn in three.
+
+## Proposed orchestration guidance: mixed mode
+
+For whatever procedure an orchestrator follows (not edited by this
+design):
 
 > ### Mixed mode: children on other models
 >
@@ -550,10 +674,11 @@ edited by this design):
 > names a model alias. Check it once with a throwaway verifier on `main`
 > before the run.
 >
-> 1. **Which children.** Run the baseline and final **verifiers** on the
->    `ws` runner. Run implementers there only for tasks marked `small`, and
->    keep the **reviewer on Claude** (Haiku for `small`, Sonnet otherwise):
->    it's the gate. The designer, orchestrator and screenshot child stay on
+> 1. **Which children.** Follow the measured-run plan: first the baseline
+>    and final **verifiers** on the `ws` runner; later docs-only `small`
+>    implementers with `--runner ws -- "" --model qwen9b-think`. Keep the
+>    **reviewer on Claude** (Haiku for `small`, Sonnet otherwise): it's
+>    the gate. The designer, orchestrator and screenshot child stay on
 >    Claude.
 > 2. **How.** Prefer config (`[runner.roles.verifier] runner = "ws"`) over
 >    flags. Override per spawn with `--runner claude` or `--runner ws`. Keep
@@ -569,16 +694,15 @@ edited by this design):
 > 4. **Logs**: `ws machine logs <id>`, not `claude logs`, for `ws`
 >    children.
 > 5. **One GPU, one heavy child.** Until it's measured how an endpoint
->    handles two agent loops at once, don't run two `ws` implementers at
->    once against one endpoint.
-> 6. **MCP.** Give a role MCP servers only when its task needs them, with
->    read-only tools in `mcp_tools`.
-> 7. **Metrics.** Pass each `ws` child's `ws_runner.usage_file` to
->    `metrics.py`. Report on-prem rows with `usd = 0` and their GPU
->    minutes. Record which tasks went to the runner, their exit reasons,
->    and how many needed a Claude respawn.
-> 8. **Experiment** for the first runs: verifiers only. Then add `small`
->    implementers. Judge by first-pass approvals and Claude respawns.
+>    handles two agent loops at once, don't run two `ws` children at once
+>    against one endpoint. `ws` doesn't queue them (a non-goal).
+> 6. **MCP.** No role has MCP servers by default. Give a role servers only
+>    when its task needs them, with read-only tools in `mcp_tools`.
+> 7. **Metrics.** Collect each `ws` child's `ws_runner.usage_file`. Report
+>    on-prem rows with `usd = 0` and their GPU minutes. Record which tasks
+>    went to the runner, their exit reasons, and how many needed a Claude
+>    respawn. With an OTLP collector, each run's trace is findable by the
+>    `trace_id` in `usage.json`.
 
 ## Proposed changes to docs/tools/ws-machine.md
 
@@ -755,7 +879,15 @@ These are for the owner to decide.
 15. **Fallback scope.** Should `fallback = "claude"` also cover a mid-run
     `endpoint_down` by respawning automatically? This design says no.
 
-[^swe]: gpt-oss model card (60.7%, 62.4%) and Mistral "Devstral 2" (72.2%, Small 2 68.0%); full citations in [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md).
+[^qwen-ids]: LM Studio, <https://lmstudio.ai/models/qwen/qwen3.5-9b>; Ollama library, <https://ollama.com/library/qwen3.5/tags> (accessed 2026-11-14 by a research subagent; ids and the 6.6 GB size not re-opened here).
+[^qwen-card]: Qwen, "Qwen3.5-9B" model card, <https://huggingface.co/Qwen/Qwen3.5-9B> (accessed 2026-11-14). "Context Length: 262,144 natively"; layout "8 × (3 × (Gated DeltaNet → FFN) → 1 × (Gated Attention → FFN))"; BFCL-V4 66.1, TAU2-Bench 79.1, LiveCodeBench v6 65.6, IFEval 91.5; "Qwen3.5 models operate in thinking mode by default"; "does not officially support the soft switch of Qwen3, i.e., `/think` and `/nothink`"; license Apache-2.0. The parameter count of about 9.7B is Ollama's and Artificial Analysis's figure, via the research subagent. The sampling recommendations (0.6 for thinking on precise coding, 0.7 without) are from the same card, via the research subagent.
+[^ollama-tags]: Ollama library, `qwen3.5` tags, <https://ollama.com/library/qwen3.5/tags> (accessed 2026-11-14 by a research subagent): `qwen3.5:9b` (Q4_K_M) 6.6 GB.
+[^ollama-ctx]: Ollama, "Context length," <https://docs.ollama.com/context-length> (accessed 2026-11-13): "< 24 GiB VRAM: 4k context; 24-48 GiB: 32k; >= 48 GiB: 256k", and "agents, and coding tools should be set to at least 64000 tokens".
+[^ai2-tb]: Ai2, <https://huggingface.co/allenai/qwen35-9b-swesmith> (accessed 2026-11-14 by a research subagent; not re-opened): the base model at Terminal-Bench 2.1 16.1.
+[^lmstudio-1990]: lmstudio-ai/lmstudio-bug-tracker #1990, <https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1990> (accessed 2026-11-14 by a research subagent; open): `enableThinking:false` ignored on `/v1` for qwen3.5-9b; with a low `max_tokens`, `content` can be empty.
+[^aa]: Artificial Analysis, <https://artificialanalysis.ai/models/qwen3-5-9b> and <https://artificialanalysis.ai/articles/qwen3-5-small-models> (accessed 2026-11-14 by a research subagent; not re-opened): 43.7 s to the first answer token with reasoning; an 82% hallucination rate on AA-Omniscience.
+[^ollama-14493]: ollama/ollama #14493, opened 2026-02-27, open, <https://github.com/ollama/ollama/issues/14493> (accessed 2026-11-14), reported on the 27B: "The tool call is rendered inside an unclosed <think> block"; penalties "accepted but have no effect". A maintainer disputed the title's "completely non-functional".
+[^ollama-14745]: ollama/ollama #14745, <https://github.com/ollama/ollama/issues/14745> (accessed 2026-11-14 by a research subagent): qwen3.5:9b printing `<tool_call>` as text; closed by PR #15022, reported again on 0.18.x.
 [^bfcl]: BFCL v4, updated 2026-04-12, <https://gorilla.cs.berkeley.edu/leaderboard.html> (accessed 2026-11-13); figures in [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md).
 [^issues]: <https://github.com/ollama/ollama/issues/17274>, <https://github.com/ollama/ollama/issues/19187>, <https://github.com/ollama/ollama/issues/19672> (accessed 2026-11-13).
 [^trunc]: <https://github.com/ollama/ollama/blob/a5864fcb33969705de3c0ebfedf4b2a16c970bcc/server/prompt.go> (accessed 2026-11-13).
