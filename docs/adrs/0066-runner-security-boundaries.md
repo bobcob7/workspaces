@@ -1,15 +1,16 @@
-# 0066. The Ollama runner's security boundary is the user's account, with a scrubbed environment and guard rails, not a sandbox
+# 0066. The runner's security boundary is the user's account, with a scrubbed environment, filtered MCP tools and guard rails, not a sandbox
 
 - Status: Proposed
-- Date: 2026-11-13
+- Date: 2026-11-13; reworked 2026-11-14 after review (environment from
+  the daemon, MCP servers)
 
 ## Context
 
 ### Problem
 
-The runner ([0065](0065-ollama-agent-loop-tools-and-budgets.md)) executes
-shell commands and writes files chosen by a model, and it reads repository
-content an attacker may control. What does it protect, with what, and what
+The runner ([0065](0065-runner-agent-loop-tools-and-budgets.md)) executes
+shell commands, writes files and calls MCP tools chosen by a model, and it
+reads repository content, and MCP results, an attacker may control. What does it protect, with what, and what
 does it honestly not protect?
 
 ### What a solution needs
@@ -44,13 +45,19 @@ does it honestly not protect?
 
 **The boundary is the user's account**, as for Claude children. Within it:
 
-1. **Environment.** `run` commands get the runner's environment minus
-   every variable whose name matches `WS_OLLAMA_TOKEN_*`,
-   `WS_FORGEJO_TOKEN_*`, `*_API_KEY`, `*_TOKEN` or `*_SECRET`, except
-   `GH_TOKEN` and `GITHUB_TOKEN`, which `git push` and `gh` may need. That
-   exception is listed in the reference, and the user can turn it off with
-   `ollama.keep_git_tokens = false`. `HOME`, `PATH`, `USER`, `LANG`,
-   `TMPDIR` and git's variables are kept. `WS_RUNNER=ollama` is added.
+1. **Environment.** The runner's own environment is built by the daemon
+   ([0068](0068-ws-daemon.md)): its environment, `[runner.env]`,
+   `secrets.env`, then `ws`'s own variables. `run` commands get that minus
+   every variable whose name matches `WS_ENDPOINT_TOKEN_*`,
+   `WS_FORGEJO_TOKEN_*`, `*_API_KEY`, `*_TOKEN`, `*_SECRET`,
+   `*_PASSWORD`, or any name defined in `secrets.env`, except `GH_TOKEN`
+   and `GITHUB_TOKEN`, which `git push` and `gh` may need. That exception
+   is listed in the reference, and the user can turn it off with
+   `runner.keep_git_tokens = false`. `HOME`, `PATH`, `USER`, `LANG`,
+   `TMPDIR` and git's variables are kept. `WS_RUNNER=ws` is added.
+   **MCP stdio servers** get the unscrubbed runner environment plus their
+   own `env` block, since they need their tokens; the model never sees
+   either ([0069](0069-runner-mcp-tools-and-claude-code-parity.md)).
 2. **Files.** File tools resolve symlinks and refuse paths outside the
    workspace, and anything under `.git/`. `run`'s working directory is the
    session directory.
@@ -66,10 +73,21 @@ does it honestly not protect?
    instructions, and that only the system and first user message give
    instructions. This lowers the risk; it doesn't remove it.
 6. **Transcript.** The transcript stores tool arguments and results as the
-   model saw them, after the environment scrub. Before writing a request,
-   the runner replaces the endpoint token and any value of a scrubbed
-   variable in it with `[redacted]`. `state/` is mode 0700, as today.
-7. **Network.** Nothing is filtered. A `run` command can reach anything the
+   model saw them, after the environment scrub. Before writing any event,
+   the runner replaces with `[redacted]` the endpoint token, every value of
+   a scrubbed variable, and every value it expanded into an MCP server's
+   `env`, `headers`, `args` or `url` (including literal header values such
+   as an `Authorization` written into `~/.claude.json`). MCP server
+   definitions themselves are never written to the transcript, the log or
+   `status.json`; only server names, tool names and states. `state/` is
+   mode 0700, as today.
+7. **MCP tools.** A role gets no MCP server unless its config names it,
+   and only the tools its allow-list matches. Tools whose MCP annotations
+   say `destructiveHint: true`, or that don't say `readOnlyHint: true`, are
+   refused unless named exactly in the allow-list (not by a glob).
+   Annotations are the server's claim, not a guarantee. Each MCP result is
+   framed like any tool result (point 5).
+8. **Network.** Nothing is filtered. A `run` command can reach anything the
    user can. The endpoint itself is reached over the URL in config;
    `http://` is allowed (on-prem), and a warning is printed when a token is
    sent over plain HTTP to a non-loopback host.
@@ -79,14 +97,16 @@ does it honestly not protect?
 1. **No worse.** The same account and the same push rights as Claude
    children in auto mode, plus a scrubbed environment those don't have.
 2. **Secrets.** Scrubbing and redaction cover the tokens `ws` knows about.
-3. **Honest.** Points 3, 5 and 7 say what isn't enforced.
+3. **Honest.** Points 3, 5, 7 and 8 say what isn't enforced.
 4. **Portable.** Nothing here needs root, namespaces or an OS-specific
    sandbox.
 
 Where it's weak: a prompt-injected or confused model can read anything the
 user can, run anything, and send it anywhere: all three legs of the
-trifecta[^trifecta]. Run Ollama children only on repos you'd let an
-auto-mode Claude child work on. Keeping `GH_TOKEN` lets a hijacked runner
+trifecta[^trifecta]. MCP servers add more of each leg: an allowed
+read-only `grafana` or `outline` tool is still private data, and its
+results are untrusted content. Run runner children only on repos, and with
+MCP servers, you'd let an auto-mode Claude child use. Keeping `GH_TOKEN` lets a hijacked runner
 push to any repo the token can reach.
 
 ## Alternatives
@@ -102,7 +122,7 @@ push to any repo the token can reach.
 - It isn't available in the unprivileged pod (bubblewrap needs user
   namespaces), and Landlock needs kernel ≥ 5.13 plus Go bindings. There's
   nothing equivalent on macOS. It could be an opt-in later
-  (`ollama.sandbox`); see the open questions.
+  (`runner.sandbox`); see the open questions.
 
 ### Ask a person before each command
 
@@ -128,11 +148,12 @@ push to any repo the token can reach.
 
 ## Consequences
 
-- `internal/agent/tools` has an `Environ(os.Environ())` scrub function and
-  a `checkPath`, each with table tests, plus a redactor used by the
-  transcript writer.
-- The handbook's mixed-mode procedure says which repos may run on Ollama
-  children.
+- `internal/agent/tools` has an `Environ` scrub function and a
+  `CheckPath`, each with table tests, plus a redactor used by the
+  transcript writer; `internal/mcp` registers every expanded secret with
+  that redactor and applies the annotation rule.
+- The handbook's mixed-mode procedure says which repos and MCP servers may
+  be used by runner children.
 - Unverified: how well the tool-result framing resists injection in the
   chosen models. A fake-ollama scenario can only check that the framing is
   present, not that a model obeys it.

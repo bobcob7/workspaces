@@ -1,13 +1,14 @@
-# 0065. The Ollama agent's loop: seven tools, hard budgets, deterministic context compaction, and a recorded verdict on every exit
+# 0065. The runner's loop: seven built-in tools plus selected MCP tools, hard budgets, deterministic context compaction, and a recorded verdict on every exit
 
 - Status: Proposed
-- Date: 2026-11-13
+- Date: 2026-11-13; reworked 2026-11-14 after review (provider-neutral
+  names, MCP tools, project instructions, `crashed`)
 
 ## Context
 
 ### Problem
 
-The runner ([0062](0062-ollama-runner-built-into-ws.md)) has to do an
+The runner ([0062](0062-agent-runner-built-into-ws.md)) has to do an
 implementer's, reviewer's or verifier's job with a model much weaker at
 tool use than Claude, in a context window as small as 4k tokens by
 default. Which tools does it offer, how does the loop run and stop, how
@@ -46,6 +47,8 @@ adapted, and what must it never do?
   LLMs[^context-rot].
 - Ollama truncates history silently past the context
   length[^ollama-truncate], and ignores `tool_choice`[^ollama-openai].
+  Other providers report an overflow as an error instead; the provider
+  maps it to `ErrContextExceeded` ([0062](0062-agent-runner-built-into-ws.md)).
 - The built-in roles tell the child to run `ws machine result <VERDICT>
   --file <report>` as its last step. The implementer's commit trailer
   names "Claude Haiku 5.5"[^roles].
@@ -56,7 +59,7 @@ adapted, and what must it never do?
 
 ### Tools
 
-Seven tools, with short names and flat JSON-schema arguments. Every path is
+Seven built-in tools, with short names and flat JSON-schema arguments. Every path is
 relative to the repo directory the session starts in (the workspace's
 session directory, [0028](0028-single-repo-session-directory.md)). A
 result is plain text of at most 16 KiB, cut with a `[truncated: N more
@@ -77,6 +80,15 @@ already assume. If the model runs `ws machine result …` through `run` and
 it succeeds, the runner notices the new `result.toml` and ends the run,
 like `record_result` would.
 
+**MCP tools** are added per role, as [0069](0069-runner-mcp-tools-and-claude-code-parity.md)
+decides: none by default; the role's allowed MCP tools are offered as
+`mcp__<server>__<tool>`, and when there are more than the role's
+`mcp_upfront` (default 8), only their names are listed in the system
+message and an eighth built-in, **`tool_search`** `{query}`, loads up to 5
+matching tools into the request for the rest of the run. MCP results go
+through the same 16 KiB cap, tool-result framing and validation as
+built-in ones.
+
 ### The loop
 
 ```
@@ -90,14 +102,19 @@ start ─▶ preflight-ok ─▶ ┌──────────── step �
 any stop ─▶ write usage.json ─▶ (no verdict yet? record fail verdict + reason) ─▶ exit
 ```
 
-- **Per request**: streamed with `include_usage`, `temperature` 0.2,
-  `max_tokens` 4096. The request ends at `request_timeout`, and a stream
-  with no chunk for `idle_timeout` counts as dropped.
+- **Per request**: through the endpoint's provider
+  ([0062](0062-agent-runner-built-into-ws.md)), streamed where the API
+  allows, with the model's `temperature` (default 0.2) and `max_output`
+  (default 4096) as the output limit. The request ends at
+  `request_timeout`, and a stream with no chunk for `idle_timeout` counts
+  as dropped.
 - **Retries**: connection refused or reset, 429, 502, 503, 504 (honouring
   `Retry-After` up to 60 s), and a dropped or stalled stream are retried up
   to 3 times, with 2 s, 8 s and 30 s backoff. Then the run stops with
-  `endpoint_down`. A 400 `does not support tools` stops with
-  `model_no_tools`. A 404 model stops with `model_missing`.
+  `endpoint_down`. The provider's `ErrNoTools` (Ollama's 400 `does not
+  support tools`) stops with `model_no_tools`, `ErrModelMissing` (a 404
+  model) with `model_missing`, and `ErrContextExceeded` triggers the
+  compaction below once, then `context_overflow`.
 - **Validation**: unknown tool names and arguments that aren't valid JSON,
   or fail the schema's required fields and types, are answered with a tool
   message: `error: <what>; the arguments must match: <schema>`. Three
@@ -111,7 +128,7 @@ any stop ─▶ write usage.json ─▶ (no verdict yet? record fail verdict + r
 
 ### Budgets
 
-Each comes from the role's config (`ollama.roles.<role>`), with these
+Each comes from the role's config (`runner.roles.<role>`), with these
 defaults:
 
 | Budget | implementer | reviewer | verifier | no role | Stops with |
@@ -126,7 +143,7 @@ The runner keeps its own estimate of the prompt size: the last response's
 `prompt_tokens`, plus 1 token per 3 bytes of what was added since. Before
 each request:
 
-1. If the estimate is above **70%** of `context_tokens − max_tokens`,
+1. If the estimate is above **70%** of `context_tokens − max_output`,
    replace the oldest tool results, apart from the last 6 messages, with
    `[elided by ws: <tool> <args summary>, <N> lines; run it again if you
    need it]`, until it is under 50%.
@@ -145,15 +162,18 @@ it happens twice, the runner lowers its working limit to the observed
 
 ### Prompts
 
-The system message is the runner's **preamble**: the tools, the rules
-below, the budgets left, the working directory, and "finish by calling
-`record_result` with one of: <the role's verdicts>". It's followed by the
-role's prompt, rendered from the same file as for Claude, as the first user
-message. The template data gains `.Runner` (`claude` or `ollama`). The
-built-in implementer's trailer becomes `{{if eq .Runner "ollama"}}Generated
-by ws ollama runner{{else}}Co-Authored-By: Claude Haiku 5.5
-<noreply@anthropic.com>{{end}}`, which renders exactly as before for
-Claude. A role prompt after `--` is appended as today.
+The system prompt is the runner's **preamble**: the tools (and, with
+deferred MCP tools, their names by server), the rules below, the budgets
+left, the working directory, and "finish by calling `record_result` with
+one of: <the role's verdicts>". After it come the **project instructions**
+that [0069](0069-runner-mcp-tools-and-claude-code-parity.md) selects
+(`CLAUDE.md` and `AGENTS.md` of the repo, capped at 8 KiB). The role's
+prompt, rendered from the same file as for Claude, is the first user
+message. The template data gains `.Runner` (`claude` or `ws`) and `.Model`
+(the model id). The built-in implementer's trailer becomes `{{if eq .Runner
+"ws"}}Generated-By: ws runner ({{.Model}}){{else}}Co-Authored-By: Claude
+Haiku 5.5 <noreply@anthropic.com>{{end}}`, which renders exactly as before
+for Claude. A role prompt after `--` is appended as today.
 
 ### What the agent must not do
 
@@ -166,7 +186,7 @@ The preamble says so, and the runner enforces what it can:
   machine result`), `claude`, `sudo`, `git push` with `--force` to
   anything but the role's `BRANCH`, and `git push` to `main` or `master`.
   These checks catch mistakes, not attacks
-  ([0066](0066-ollama-runner-security-boundaries.md)).
+  ([0066](0066-runner-security-boundaries.md)).
 - Don't open pull requests, don't edit outside the task's files, and don't
   start other agents: the runner has no `ws machine spawn`.
 
@@ -175,17 +195,18 @@ The preamble says so, and the runner enforces what it can:
 `done` (the model recorded a verdict), `max_steps`, `timeout`,
 `max_tokens`, `endpoint_down`, `model_no_tools`, `model_missing`,
 `malformed_tool_calls`, `no_result`, `looping`, `context_overflow`,
-`stopped` (by `ws rm`), `internal`. For every reason but `done` and
-`stopped`, the runner records the role's first fail verdict, with a report
-headed `ws ollama runner: <reason>`, followed by the last 20 transcript
-events.
+`stopped` (by `ws rm`), `crashed` (the daemon restarted it three times
+and it died again; [0068](0068-ws-daemon.md)), `internal`. For every reason
+but `done` and `stopped`, the runner, or the daemon for `crashed`, records
+the role's first fail verdict through one shared function, with a report
+headed `ws runner: <reason>`, followed by the last 20 transcript events.
 
 ### Why this option
 
 1. **A verdict on every exit** keeps `wait`'s fail-closed rule meaningful,
    and the reason is in the report's first line.
 2. **Bounded** by three budgets, plus the loop and nudge limits.
-3. **Robust**: the error-and-schema answers are what llm-router's fake
+3. **Robust**: the error-and-schema answers are what the vendored fake
    expects too, and the limits are small enough that a broken model fails
    in minutes.
 4. **Fits the window** without asking the model to summarize, which small
@@ -194,7 +215,8 @@ events.
 5. **One set of roles**; the only template change renders the same for
    Claude.
 
-Where it's weak: seven tools are far fewer than Claude Code's. Elided
+Where it's weak: seven tools and a filtered MCP set are far fewer than
+Claude Code's. Elided
 results make the model re-read files. The command deny-list is easy to get
 around. The 3-bytes-per-token estimate is rough for code, and the
 truncation check catches its errors only after the fact.
@@ -234,7 +256,7 @@ truncation check catches its errors only after the fact.
 - `missing` hides the reason. The orchestrator would have to read the
   transcript to tell `endpoint_down` from `looping`.
 
-### Use Ollama's `tool_choice` or grammar-constrained output
+### Use `tool_choice` or grammar-constrained output
 
 **Pros**
 
@@ -247,11 +269,13 @@ truncation check catches its errors only after the fact.
 
 ## Consequences
 
-- The fork in `internal/agent` gains `Transcript`, `Budget`, `Compactor`
-  and `Validator`, each with its own tests. `internal/agent/tools` holds the
-  tools, and runs `run` through `internal/gate`.
+- The loop copied into `internal/agent` gains `Transcript`, `Budget`,
+  `Compactor` and `Validator`, each with its own tests, and a tool set that
+  can grow during a run (`tool_search`). `internal/agent/tools` holds the
+  built-in tools, and runs `run` through `internal/gate`. The fail-verdict
+  finalizer lives in `internal/runner`, shared with the daemon.
 - The exit reasons are stable values in `status.json`, `usage.json`, the
-  report's first line, and `ws machine wait`'s `ollama.exit`.
+  report's first line, and `ws machine wait`'s `ws_runner.exit`.
 - The defaults are guesses until measured; the design's open questions
   ask for one real run per role.
 
