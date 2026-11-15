@@ -45,7 +45,7 @@ func (r *Reresolver) Reresolve(ctx context.Context, current agent.Target) agent.
 	if len(changes) == 0 {
 		return agent.Resolution{}
 	}
-	if !switchesEndpoint(changes) {
+	if !agent.SwitchesEndpoint(changes) {
 		return r.sameEndpoint(current, target, changes)
 	}
 	return r.otherEndpoint(ctx, target, changes)
@@ -204,17 +204,6 @@ func Changes(from, to config.Target) []string { //nolint:gocritic // hugeParam: 
 		}
 	}
 	return keys
-}
-
-// switchesEndpoint reports whether a change needs the endpoint checked.
-func switchesEndpoint(changes []string) bool {
-	return slices.ContainsFunc(changes, func(key string) bool {
-		switch key {
-		case "endpoint", "url", "api", "id":
-			return true
-		}
-		return false
-	})
 }
 
 func rebuildsProvider(changes []string) bool {

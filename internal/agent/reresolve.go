@@ -102,12 +102,27 @@ func (r *run) switchTo(res *Resolution, reason string, attempt *int) {
 	}
 	r.truncations, r.truncatedTo = 0, 0
 	r.rejection = nil
-	r.changes++
-	r.endpoints = append(r.endpoints, EndpointUsage{Endpoint: r.target.Endpoint, Model: r.target.Model})
+	endpoint := SwitchesEndpoint(res.Changes)
+	if endpoint {
+		r.changes++
+		r.endpoints = append(r.endpoints, EndpointUsage{Endpoint: r.target.Endpoint, Model: r.target.Model})
+	}
 	if r.agent.cfg.OnSwitch != nil {
-		r.agent.cfg.OnSwitch(from, r.target, reason, r.step)
+		r.agent.cfg.OnSwitch(from, r.target, endpoint, reason, r.step)
 	}
 	r.setState("working")
+}
+
+// SwitchesEndpoint reports whether changes (reference.md's keys) move the run
+// to another endpoint, URL, API or model, as opposed to only its settings.
+func SwitchesEndpoint(changes []string) bool {
+	return slices.ContainsFunc(changes, func(key string) bool {
+		switch key {
+		case "endpoint", "url", "api", "id":
+			return true
+		}
+		return false
+	})
 }
 
 // dropReasoningOpaque removes reasoning that only the old provider accepts.
