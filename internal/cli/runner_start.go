@@ -66,9 +66,12 @@ func (a *App) startRunnerAgent(ctx context.Context, rs runnerStart) (runnerStart
 	if err != nil {
 		return runnerStarted{}, err
 	}
-	client, checkWarnings, err := a.checkRunner(ctx, &rs)
+	client, check, err := a.checkRunner(ctx, &rs)
 	if err != nil {
 		return runnerStarted{}, err
+	}
+	if check.ContextTokens > 0 {
+		resolved.ContextTokens = check.ContextTokens
 	}
 	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: rs.Name, Specs: parseSpecs(rs.Specs), Offline: rs.Offline, Hidden: rs.Hidden, Parent: rs.Parent})
 	if err != nil {
@@ -80,7 +83,7 @@ func (a *App) startRunnerAgent(ctx context.Context, rs runnerStart) (runnerStart
 		a.discardRunner(ctx, ws.ID)
 		return runnerStarted{}, err
 	}
-	warnings := slices.Concat(resolved.Warnings, checkWarnings)
+	warnings := slices.Concat(resolved.Warnings, check.Warnings)
 	if ro != nil {
 		if err := a.writeSpawn(ro, rs.Vars, ws.ID); err != nil {
 			warnings = append(warnings, fmt.Sprintf("couldn't record role %s for %s: %v", ro.Name, ws.ID, err))
@@ -121,17 +124,17 @@ func (a *App) runnerPrompt(rs *runnerStart, resolved *config.Resolved) (*role.Ro
 
 // checkRunner has the daemon check rs's endpoint and model (ADR 0064), which
 // starts the daemon when none runs. A failed check is returned with the code
-// the daemon answered; the warnings are its own.
-func (a *App) checkRunner(ctx context.Context, rs *runnerStart) (runnerDaemon, []string, error) {
+// the daemon answered; the response carries the window and warnings it chose.
+func (a *App) checkRunner(ctx context.Context, rs *runnerStart) (runnerDaemon, daemon.PreflightResponse, error) {
 	client, err := a.dialDaemon(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, daemon.PreflightResponse{}, err
 	}
 	res, err := client.Preflight(ctx, daemon.PreflightRequest{Role: rs.Role, Endpoint: rs.Endpoint, Model: rs.Model})
 	if err != nil {
-		return nil, nil, remoteRunnerError(err)
+		return nil, daemon.PreflightResponse{}, remoteRunnerError(err)
 	}
-	return client, res.Warnings, nil
+	return client, res, nil
 }
 
 // launchRunner writes ws's run, records its runner session, has the daemon
@@ -153,7 +156,7 @@ func (a *App) launchRunner(ctx context.Context, client runnerDaemon, ws *workspa
 
 // newRun is the run.toml a spawn writes for a runner agent (reference.md):
 // what the resolution chose, with its first endpoint history entry. The
-// configured context size is kept, not the one a preflight probe reduces.
+// context size is the preflighted one, which a probe may have reduced.
 func (a *App) newRun(l *runnerLaunch) runner.Run {
 	r, start := l.resolved, l.start
 	now := a.now().UTC().Truncate(time.Second)

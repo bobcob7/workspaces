@@ -151,6 +151,21 @@ func TestApp_startRunnerAgent(t *testing.T) {
 		assert.Equal(t, "cpu", run.Endpoint)
 		assert.Equal(t, "http://cpu.example:1234", run.URL)
 	})
+	t.Run("a preflight window smaller than the configured one is the run's window, and the spawn's", func(t *testing.T) {
+		e := newRunnerEnv(t, runnerToml)
+		e.daemon.PreflightFunc = func(context.Context, daemon.PreflightRequest) (daemon.PreflightResponse, error) {
+			return daemon.PreflightResponse{ContextTokens: 32768, Warnings: []string{"the model's context is 32768"}}, nil
+		}
+		got, err := e.app.startRunnerAgent(t.Context(), runnerStart{Name: "Fix Login", Prompt: "fix it"})
+		require.NoError(t, err)
+		run := readRun(t, e, got.Workspace.ID)
+		assert.Equal(t, 32768, run.ContextTokens)
+		require.Len(t, run.EndpointHistory, 1)
+		assert.Equal(t, 32768, run.EndpointHistory[0].ContextTokens)
+		assert.Equal(t, 32768, got.Resolved.ContextTokens)
+		assert.Equal(t, 32768, runnerSpawnJSON("", &got, &claudeResult{}).WSRunner.ContextTokens)
+		assert.Contains(t, got.Warnings, "the model's context is 32768")
+	})
 	t.Run("no model anywhere is config_invalid, and nothing is created", func(t *testing.T) {
 		e := newRunnerEnv(t, "[endpoints.gpu]\nurl = \"http://gpu-a.inference.svc:1234\"\n")
 		_, err := e.app.startRunnerAgent(t.Context(), runnerStart{Name: "Fix Login", Prompt: "fix it"})
