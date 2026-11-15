@@ -92,6 +92,26 @@ func TestTracedProvider_Chat(t *testing.T) {
 		assert.Equal(t, "00-"+testTraceID+"-"+span.SpanContext().SpanID().String()+"-01", sent)
 		assert.Equal(t, span.SpanContext().SpanID().String(), resp.SpanID)
 	})
+	t.Run("names each chat span after its endpoint", func(t *testing.T) {
+		rec := newRecorder()
+		ctx, end := rec.tel.StartRun(t.Context(), testTraceID, RunInfo{Role: "implementer"})
+		inner := &ProviderMock{ChatFunc: func(context.Context, llm.Request) (llm.Response, error) {
+			return llm.Response{}, nil
+		}}
+		for _, name := range []string{"fake", "fake-b"} {
+			ep := llm.Endpoint{Name: name, URL: testEndpointURL, API: "openai"}
+			_, err := rec.tel.Provider(inner, ep).Chat(ctx, llm.Request{Model: "qwen3.5:9b"})
+			require.NoError(t, err)
+		}
+		end("done")
+		var names []string
+		for _, s := range rec.spans.Ended() {
+			if s.Name() == "chat qwen3.5:9b" {
+				names = append(names, attrOf(s.Attributes(), AttrEndpoint).AsString())
+			}
+		}
+		assert.ElementsMatch(t, []string{"fake", "fake-b"}, names)
+	})
 	t.Run("records the finish reason and token usage", func(t *testing.T) {
 		rec := newRecorder()
 		ctx, end := rec.tel.StartRun(t.Context(), testTraceID, RunInfo{Role: "implementer"})

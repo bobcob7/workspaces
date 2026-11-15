@@ -82,6 +82,7 @@ func TestTelemetry_EndpointEvent(t *testing.T) {
 		require.Len(t, span.Events(), 1)
 		event := span.Events()[0]
 		assert.Equal(t, EventEndpointChanged, event.Name)
+		assert.NotContains(t, spanText(span), "http")
 		assert.Equal(t, "fake-b", attrOf(event.Attributes, AttrEndpointTo).AsString())
 		assert.Equal(t, "qwen3.5:9b", attrOf(event.Attributes, AttrModelTo).AsString())
 		assert.Equal(t, "retry", attrOf(event.Attributes, AttrEndpointReason).AsString())
@@ -100,6 +101,7 @@ func TestTelemetry_EndpointEvent(t *testing.T) {
 		require.Len(t, span.Events(), 1)
 		event := span.Events()[0]
 		assert.Equal(t, EventEndpointRejected, event.Name)
+		assert.NotContains(t, spanText(span), "http")
 		assert.Equal(t, "model_without_tools", attrOf(event.Attributes, "error.type").AsString())
 		m := metricNamed(t, rec.metrics, MetricEndpointChanges)
 		sum, ok := m.Data.(metricdata.Sum[int64])
