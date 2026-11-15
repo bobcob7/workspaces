@@ -136,8 +136,9 @@ func changedEvent(from *Target, res *Resolution, reason string, attempt *int) En
 	}
 	if res.Probe != nil {
 		version := res.Probe.Version
+		capabilities := res.Probe.Capabilities
 		ev.Version = &version
-		ev.Capabilities = res.Probe.Capabilities
+		ev.Capabilities = &capabilities
 	}
 	return ev
 }

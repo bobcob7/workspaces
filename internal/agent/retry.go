@@ -26,6 +26,9 @@ func (r *run) retry(ctx context.Context, err error) *exitInfo {
 	}
 	r.lastErr = err
 	for {
+		if r.spent == maxRetries {
+			return r.exhausted()
+		}
 		r.spent++
 		wait := retryWait(r.spent, after)
 		r.recordRetry(err, wait)
@@ -33,9 +36,6 @@ func (r *run) retry(ctx context.Context, err error) *exitInfo {
 			return interrupted()
 		}
 		failure := r.reresolve(ctx)
-		if r.spent == maxRetries {
-			return r.exhausted()
-		}
 		if failure == nil {
 			return nil
 		}

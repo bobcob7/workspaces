@@ -67,7 +67,7 @@ func TestAgent_Reresolve(t *testing.T) {
 		assert.Equal(t, []string{"sleep", "reresolve"}, order)
 	})
 	t.Run("ends endpoint_rejected after three rejected switches", func(t *testing.T) {
-		chat := scripted(t, fail(retryable()), fail(retryable()), fail(retryable()))
+		chat := scripted(t, fail(retryable()), fail(retryable()), fail(retryable()), fail(retryable()))
 		resolver := &reresolverMock{ReresolveFunc: func(context.Context, Target) Resolution {
 			return Resolution{Rejected: &Rejection{Endpoint: "gpu-b", Model: "qwen3.5:9b", Code: "model_not_served", Message: "not listed"}}
 		}}
@@ -82,7 +82,7 @@ func TestAgent_Reresolve(t *testing.T) {
 		assert.Equal(t, []string{"model_not_served:retry", "model_not_served:retry", "model_not_served:retry"}, rejects)
 	})
 	t.Run("ends endpoint_down when an unchanged answer follows the failures", func(t *testing.T) {
-		chat := scripted(t, fail(retryable()), fail(retryable()), fail(retryable()))
+		chat := scripted(t, fail(retryable()), fail(retryable()), fail(retryable()), fail(retryable()))
 		cfg := testConfig(chat)
 		cfg.Reresolver = &reresolverMock{ReresolveFunc: func(context.Context, Target) Resolution { return Resolution{} }}
 		out, _ := runWithTranscript(t, cfg, advancingClock(), nil)

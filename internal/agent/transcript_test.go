@@ -16,6 +16,17 @@ import (
 
 func TestTranscript_Write(t *testing.T) {
 	t.Parallel()
+	writeChangedLine := func(t *testing.T, payload EndpointChangedEvent) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "transcript.jsonl")
+		tr, err := OpenTranscript(path, nil)
+		require.NoError(t, err)
+		require.NoError(t, tr.Write(Event{Time: time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC), Step: 1, Kind: kindEndpointChanged, Payload: payload}))
+		require.NoError(t, tr.Close())
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		return strings.TrimSpace(string(raw))
+	}
 	t.Run("redacts a registered secret in a tool result and in reasoning", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "transcript.jsonl")
 		tr, err := OpenTranscript(path, tools.NewRedactor("sk-live-secret-value"))
@@ -42,6 +53,18 @@ func TestTranscript_Write(t *testing.T) {
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"time":"2026-11-14T12:00:00Z","step":2,"kind":"nudge","reason":"repeat"}`, strings.TrimSpace(string(raw)))
+	})
+	t.Run("writes version and capabilities as null for an endpoint_changed without a probe", func(t *testing.T) {
+		line := writeChangedLine(t, EndpointChangedEvent{Reason: "retry", Changed: []string{}})
+		assert.Contains(t, line, `"version":null`)
+		assert.Contains(t, line, `"capabilities":null`)
+	})
+	t.Run("writes version and capabilities from the probe for an endpoint_changed", func(t *testing.T) {
+		version := "0.9.0"
+		capabilities := []string{"completion", "tools"}
+		line := writeChangedLine(t, EndpointChangedEvent{Reason: "retry", Changed: []string{}, Version: &version, Capabilities: &capabilities})
+		assert.Contains(t, line, `"version":"0.9.0"`)
+		assert.Contains(t, line, `"capabilities":["completion","tools"]`)
 	})
 	t.Run("creates the file with mode 0o600", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "transcript.jsonl")

@@ -331,18 +331,18 @@ type RetryEvent struct {
 
 // EndpointChangedEvent is a switch to another endpoint or model.
 type EndpointChangedEvent struct {
-	Reason            string   `json:"reason"`
-	Attempt           *int     `json:"attempt"`
-	FromEndpoint      string   `json:"from_endpoint"`
-	ToEndpoint        string   `json:"to_endpoint"`
-	FromModel         string   `json:"from_model"`
-	ToModel           string   `json:"to_model"`
-	FromContextTokens int      `json:"from_context_tokens"`
-	ToContextTokens   int      `json:"to_context_tokens"`
-	API               string   `json:"api"`
-	Changed           []string `json:"changed"`
-	Version           *string  `json:"version"`
-	Capabilities      []string `json:"capabilities"`
+	Reason            string    `json:"reason"`
+	Attempt           *int      `json:"attempt"`
+	FromEndpoint      string    `json:"from_endpoint"`
+	ToEndpoint        string    `json:"to_endpoint"`
+	FromModel         string    `json:"from_model"`
+	ToModel           string    `json:"to_model"`
+	FromContextTokens int       `json:"from_context_tokens"`
+	ToContextTokens   int       `json:"to_context_tokens"`
+	API               string    `json:"api"`
+	Changed           []string  `json:"changed"`
+	Version           *string   `json:"version"`
+	Capabilities      *[]string `json:"capabilities"`
 }
 
 // EndpointRejectedEvent is a switch the check refused, or a resume that
