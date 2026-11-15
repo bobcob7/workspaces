@@ -11,6 +11,9 @@ import (
 	json "encoding/json/v2"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/bobcob7/workspaces/internal/agent"
+	"github.com/bobcob7/workspaces/internal/mcp"
 )
 
 const (
@@ -86,10 +89,18 @@ func (f Files) ReadStatus() (Status, error) {
 	return st, nil
 }
 
-// WriteStatus writes status.json through a temp file and a rename.
+// WriteStatus writes status.json through a temp file and a rename. Its lists
+// are written as [] rather than null, so readers can always range over them.
 func (f Files) WriteStatus(st *Status) error {
 	st.Version = statusVersion
-	data, err := json.Marshal(st)
+	out := *st
+	if out.MCP == nil {
+		out.MCP = []mcp.Status{}
+	}
+	if out.Endpoints == nil {
+		out.Endpoints = []agent.EndpointUsage{}
+	}
+	data, err := json.Marshal(&out)
 	if err != nil {
 		return fmt.Errorf("encoding status.json: %w", err)
 	}

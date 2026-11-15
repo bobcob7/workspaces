@@ -160,6 +160,16 @@ func TestFiles_WriteStatus(t *testing.T) {
 		assert.Equal(t, 3, got.Usage.Requests)
 		assert.Nil(t, got.Exit)
 	})
+	t.Run("writes empty lists as [] when the run has none yet", func(t *testing.T) {
+		files := FilesFor(t.TempDir(), "ws-1")
+		st := Status{State: "starting"}
+		require.NoError(t, files.WriteStatus(&st))
+		raw, err := os.ReadFile(files.path(statusFile))
+		require.NoError(t, err)
+		assert.Contains(t, string(raw), `"mcp":[]`)
+		assert.Contains(t, string(raw), `"endpoints":[]`)
+		assert.Nil(t, st.MCP, "the caller's status is not changed")
+	})
 	t.Run("fails when the directory can't be created", func(t *testing.T) {
 		parent := t.TempDir()
 		blocker := filepath.Join(parent, "blocked")
