@@ -124,7 +124,7 @@ func TestAgent_Run(t *testing.T) {
 		assert.Equal(t, ExitDone, out.Exit)
 		requests := chat.ChatCalls()
 		require.Len(t, requests, 4)
-		assert.Equal(t, progressNoteOpening+"\n- write_file a.go\n- run go test ./... (exit 3)\n- run go vet ./... (exit 0)", requests[3].Req.Messages[1].Content)
+		assert.Equal(t, progressNoteOpening+"\n- write_file a.go\n- run go test ./... (exit 3)", requests[3].Req.Messages[1].Content)
 		compactions := eventsOf(events, kindCompaction)
 		require.Len(t, compactions, 1)
 		assert.Equal(t, 1, payloadOf[*CompactionEvent](t, compactions[0]).DroppedTurns)

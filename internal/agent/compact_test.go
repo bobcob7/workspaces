@@ -68,6 +68,24 @@ func TestCompact(t *testing.T) {
 		assert.Contains(t, out[1].Content, "- run go test (exit 0)")
 		assert.Equal(t, msgs[len(msgs)-2:], out[len(out)-2:])
 	})
+	t.Run("drops turns down to the last turn when that is what fits", func(t *testing.T) {
+		msgs := []llm.Message{{Role: llm.RoleUser, Content: "task"}}
+		for _, id := range []string{"a", "b"} {
+			msgs = append(msgs,
+				llm.Message{Role: llm.RoleAssistant, Content: strings.Repeat("a", 1200), ToolCalls: []llm.ToolCall{{ID: id, Name: "run", Arguments: "{}"}}},
+				llm.Message{Role: llm.RoleTool, ToolCallID: id, ToolName: "run", Content: strings.Repeat("t", 1200)},
+			)
+		}
+		msgs = append(msgs,
+			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "c", Name: "run", Arguments: "{}"}}},
+			llm.Message{Role: llm.RoleTool, ToolCallID: "c", ToolName: "run", Content: "ok"},
+		)
+		out, ev, ok := Compact(msgs, "sys", 1604, 1000, nil)
+		require.True(t, ok)
+		assert.LessOrEqual(t, ev.AfterTokens, 1000)
+		assert.Equal(t, 2, ev.DroppedTurns)
+		assert.Equal(t, msgs[len(msgs)-2:], out[len(out)-2:])
+	})
 	t.Run("reports ok=false when the task and last turn alone don't fit", func(t *testing.T) {
 		msgs := []llm.Message{{Role: llm.RoleUser, Content: strings.Repeat("t", 10000)}}
 		_, _, ok := Compact(msgs, "sys", 3334, 1000, nil)

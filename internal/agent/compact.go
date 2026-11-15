@@ -128,7 +128,7 @@ func dropTurns(msgs []llm.Message, est, limit int, done []ToolRecord) ([]llm.Mes
 	dropped := 0
 	for overPercent(est, limit, compactAbovePercent) {
 		end := nextAssistant(msgs, 2)
-		if end < 0 || end >= lastAssistant(msgs) {
+		if end < 0 {
 			break
 		}
 		est -= bytesOf(msgs[1:end]) / bytesPerToken
