@@ -266,6 +266,46 @@ mod tests {
         assert_ne!(child_sid, own_sid);
     }
 
+    /// Supervises the fake `ws` running `script` through `run_once`, and
+    /// returns when `count` runs have started. It waits on a channel, not a
+    /// timer: a sleep here would let paused time jump past the real child.
+    async fn real_start_times(script: &str, count: usize) -> Vec<Instant> {
+        let dir = fake_ws(script);
+        let runner = Runner::new(path_with(&dir));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let task = tokio::spawn(supervise(move || {
+            tx.send(Instant::now()).ok();
+            let runner = runner.clone();
+            async move { run_once(&runner, Host::App).await }
+        }));
+        let mut starts = Vec::new();
+        while starts.len() < count {
+            starts.push(rx.recv().await.unwrap());
+        }
+        task.abort();
+        starts
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn supervise_backs_off_over_a_real_ws_exiting_1() {
+        let starts = real_start_times("exit 1", 9).await;
+
+        assert_eq!(
+            gaps(&starts),
+            [1, 2, 4, 8, 16, 32, 60, 60].map(Duration::from_secs)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn supervise_waits_a_minute_over_a_real_ws_exiting_4() {
+        let starts = real_start_times("exit 4", 3).await;
+
+        assert_eq!(
+            gaps(&starts),
+            [Duration::from_secs(60), Duration::from_secs(60)]
+        );
+    }
+
     #[tokio::test]
     async fn run_once_reports_exit_code_4_from_a_real_ws() {
         let dir = fake_ws("exit 4");
