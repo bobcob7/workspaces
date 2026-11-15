@@ -73,7 +73,7 @@ func serve(ctx context.Context, p Paths, origin string, sup Supervisor, log *slo
 	if err != nil {
 		return err
 	}
-	info := Info{Version: 1, PID: os.Getpid(), StartedAt: time.Now().UTC(), Origin: origin, Socket: p.Socket, WSVersion: versionFrom(ctx)}
+	info := Info{Version: 1, PID: os.Getpid(), StartedAt: time.Now().UTC().Truncate(time.Second), Origin: origin, Socket: p.Socket, WSVersion: versionFrom(ctx)}
 	if err := writeInfo(p.Info, info); err != nil {
 		_ = ln.Close()
 		return err
