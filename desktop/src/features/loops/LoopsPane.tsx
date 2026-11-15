@@ -102,18 +102,34 @@ const ReposCard = ({ loop }: { readonly loop: Loop }): JSX.Element => (
   </Card>
 );
 
-const AgentCard = ({ loop }: { readonly loop: Loop }): JSX.Element => (
-  <Card title="Agent">
-    <dl className={styles.rows}>
-      <dt>Model</dt>
-      <dd>{loop.model ?? "Default"}</dd>
-      <dt>Permission mode</dt>
-      <dd>{loop.permissionMode ?? "Default"}</dd>
-      <dt>Runs</dt>
-      <dd>{loop.hidden ? "Hidden unless blocked" : "Shown in Agents"}</dd>
-    </dl>
-  </Card>
-);
+const AgentCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
+  const ws = loop.runner === "ws";
+  const endpoint = loop.endpoint ?? "";
+  return (
+    <Card title="Agent">
+      <dl className={styles.rows}>
+        <dt>Runner</dt>
+        <dd>{ws ? "ws runner" : "Claude Code"}</dd>
+        <dt>Model</dt>
+        <dd>{loop.model ?? "Default"}</dd>
+        {endpoint !== "" && (
+          <>
+            <dt>Endpoint</dt>
+            <dd>{endpoint}</dd>
+          </>
+        )}
+        {!ws && (
+          <>
+            <dt>Permission mode</dt>
+            <dd>{loop.permissionMode ?? "Default"}</dd>
+          </>
+        )}
+        <dt>Runs</dt>
+        <dd>{loop.hidden ? "Hidden unless blocked" : "Shown in Agents"}</dd>
+      </dl>
+    </Card>
+  );
+};
 
 const GateCard = ({ loop }: { readonly loop: Loop }): JSX.Element => (
   <Card title="Gate script">
