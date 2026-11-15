@@ -49,7 +49,7 @@ const useLastReply = (sessionId: string | null, wanted: boolean): string | null 
     if (sessionId === null || !wanted) {
       return undefined;
     }
-    void dispatch(fetchConversation(sessionId));
+    void dispatch(fetchConversation({ sessionId, workspaceId: null }));
     return () => {
       dispatch(conversationClosed(sessionId));
     };

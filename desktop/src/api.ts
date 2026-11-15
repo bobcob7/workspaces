@@ -14,6 +14,9 @@ export type Status =
 
 export type EntryKind = "agent" | "shell" | "pending" | "unknown";
 
+/** What runs an agent: `claude`, `ws`, or "" for a shell or a workspace with no agent (ADR 0063). */
+export type EntryRunner = "claude" | "ws" | "";
+
 export interface Repo {
   readonly id: string;
   readonly path: string;
@@ -52,6 +55,42 @@ export interface Entry {
   readonly parentId: string | null;
   /** Set for a loop run's workspace (ADR 0057). */
   readonly loopRun: EntryLoopRun | null;
+  /** What runs the agent, quietly labelled in the list (ADR 0063). */
+  readonly runner: EntryRunner;
+  /** The agent's model for display: a `claude-` prefix dropped, any other id whole. */
+  readonly model: string | null;
+  /** A `ws` runner's progress and endpoint; null for anything else. */
+  readonly wsRunner: WsRunner | null;
+}
+
+/** A `ws` runner's progress and endpoint, from ws list (reference.md). */
+export interface WsRunner {
+  readonly modelAlias: string | null;
+  readonly endpoint: string | null;
+  readonly url: string | null;
+  readonly api: string | null;
+  readonly contextTokens: number | null;
+  readonly step: number | null;
+  readonly maxSteps: number | null;
+  readonly restarts: number | null;
+  readonly usage: WsRunnerUsage | null;
+  readonly mcp: readonly WsRunnerMcp[];
+  /** The exit reason once the runner has finished, else null. */
+  readonly exit: string | null;
+  readonly endpointChanges: number | null;
+}
+
+export interface WsRunnerUsage {
+  readonly requests: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+}
+
+export interface WsRunnerMcp {
+  readonly server: string;
+  readonly state: string;
+  readonly tools: number;
+  readonly loaded: number;
 }
 
 /** What a loop run asks of a person (ADR 0057). */
@@ -146,7 +185,7 @@ interface ItemBase {
 
 /** One thing shown in an agent's conversation, read from its transcript. */
 export type ConversationItem =
-  | (ItemBase & { readonly kind: "user" | "assistant" | "thinking" | "notice"; readonly text: string })
+  | (ItemBase & { readonly kind: "user" | "assistant" | "thinking" | "notice" | "warning"; readonly text: string })
   | (ItemBase & {
       readonly kind: "toolUse";
       readonly toolUseId: string;
@@ -155,6 +194,15 @@ export type ConversationItem =
       readonly input: string;
     })
   | (ItemBase & { readonly kind: "toolResult"; readonly toolUseId: string; readonly text: string; readonly isError: boolean });
+
+/** What `ws runner stop` printed for a runner (reference.md). */
+export interface RunnerStopped {
+  readonly id: string;
+  readonly session: string;
+  /** False when the runner had already exited. */
+  readonly stopped: boolean;
+  readonly warnings: readonly unknown[];
+}
 
 /** The transcript lines written since an offset. */
 export interface TranscriptChunk {
@@ -1109,6 +1157,8 @@ export const api = {
   setWorkspaceHidden: async (workspaceId: string, hidden: boolean): Promise<HiddenSet> =>
     call<HiddenSet>("set_workspace_hidden", { workspaceId, hidden }),
   stopAgent: async (sessionId: string): Promise<void> => call<void>("stop_agent", { sessionId }),
+  runnerStop: async (workspaceId: string): Promise<RunnerStopped> =>
+    call<RunnerStopped>("runner_stop", { id: workspaceId }),
   restoreAgents: async (): Promise<readonly string[]> => call<string[]>("restore_agents"),
   openExternal: async (target: string): Promise<void> => {
     if (!isWeb()) {
@@ -1118,8 +1168,8 @@ export const api = {
       window.open(target, "_blank", "noopener");
     }
   },
-  readTranscript: async (sessionId: string, offset: number): Promise<TranscriptChunk> =>
-    call<TranscriptChunk>("read_transcript", { sessionId, offset }),
+  readTranscript: async (sessionId: string, offset: number, workspaceId: string | null): Promise<TranscriptChunk> =>
+    call<TranscriptChunk>("read_transcript", { sessionId, offset, workspaceId }),
   terminalOpen: async (
     spec: TermSpec,
     cols: number,

@@ -29,18 +29,29 @@ interface Read {
   readonly chunk: TranscriptChunk;
 }
 
+/**
+ * Where a conversation is read from: a Claude agent's session, or, with a
+ * workspace id, a `ws` runner's transcript in that workspace.
+ */
+export interface TranscriptSource {
+  readonly sessionId: string;
+  readonly workspaceId: string | null;
+}
+
 /** Reads what the session's transcript gained since the last read. */
-export const fetchConversation = createAppThunk<Read, string>(
+export const fetchConversation = createAppThunk<Read, TranscriptSource>(
   "conversations/fetch",
-  async (sessionId, { extra, getState, rejectWithValue }) => {
-    const offset = getState().conversations.bySession[sessionId]?.next ?? 0;
+  async (source, { extra, getState, rejectWithValue }) => {
+    const offset = getState().conversations.bySession[source.sessionId]?.next ?? 0;
     try {
-      return { offset, chunk: await extra.api.readTranscript(sessionId, offset) };
+      return { offset, chunk: await extra.api.readTranscript(source.sessionId, offset, source.workspaceId) };
     } catch (err: unknown) {
       return rejectWithValue(toAppError(err));
     }
   },
-  { condition: (sessionId, { getState }) => getState().conversations.bySession[sessionId]?.loading !== true },
+  {
+    condition: (source, { getState }) => getState().conversations.bySession[source.sessionId]?.loading !== true,
+  },
 );
 
 /** Adds a chunk to what was read before, keeping at most maxItems. */
@@ -77,12 +88,12 @@ const conversationsSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(fetchConversation.pending, (state, action) =>
-        put(state, action.meta.arg, (current) => ({ ...current, loading: true })),
+        put(state, action.meta.arg.sessionId, (current) => ({ ...current, loading: true })),
       )
       // A read that started from somewhere else, such as one still running
       // when the conversation was closed and opened again, is stale.
       .addCase(fetchConversation.fulfilled, (state, action) =>
-        put(state, action.meta.arg, (current) =>
+        put(state, action.meta.arg.sessionId, (current) =>
           current.next === action.payload.offset
             ? appendChunk(current, action.payload.chunk)
             : { ...current, loading: false },
@@ -90,7 +101,12 @@ const conversationsSlice = createSlice({
       )
       .addCase(fetchConversation.rejected, (state, action) => {
         const error = action.payload ?? { code: "internal", message: action.error.message ?? "reading failed" };
-        return put(state, action.meta.arg, (current) => ({ ...current, loading: false, loaded: true, error }));
+        return put(state, action.meta.arg.sessionId, (current) => ({
+          ...current,
+          loading: false,
+          loaded: true,
+          error,
+        }));
       });
   },
 });
