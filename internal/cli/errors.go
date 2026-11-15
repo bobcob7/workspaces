@@ -84,6 +84,9 @@ const (
 	codeMemoryConflict errorCode = "memory_conflict"
 	codeMemoryFull     errorCode = "memory_full"
 	codeNotLoopRun     errorCode = "not_loop_run"
+	// From ADR 0068.
+	codeDaemonUnavailable errorCode = "daemon_unavailable"
+	codeDaemonRunning     errorCode = "daemon_running"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -127,7 +130,7 @@ func (c errorCode) exitCode() int {
 	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing,
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
-		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable:
+		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
@@ -139,7 +142,8 @@ func (c errorCode) exitCode() int {
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
-		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun:
+		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
+		codeDaemonRunning:
 		return exitRefused
 	}
 	return exitFailed

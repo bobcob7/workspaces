@@ -168,10 +168,10 @@ messages aren't.
 | Exit | Meaning                       | Error codes |
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
-| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `config_uneditable`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout` |
+| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `config_uneditable`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout`, `daemon_unavailable` |
 | 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid`, `memory_invalid` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown`, `memory_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin`, `memory_conflict`, `memory_full`, `not_loop_run` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin`, `memory_conflict`, `memory_full`, `not_loop_run`, `daemon_running` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -227,6 +227,10 @@ For people and the desktop app, not agents:
 - `ws llm unhide`: show a hidden workspace again
 - `ws llm restore`: restart agents that stopped, after a reboot or crash
 - `ws llm restart`: restart Claude Code's background service and every agent
+- `ws llm daemon`: ws's background service for runners, and its subcommands:
+  - `ws llm daemon run`: run the daemon in the foreground
+  - `ws llm daemon status`: whether the daemon runs, and its runners
+  - `ws llm daemon stop`: stop the daemon, interrupting or keeping its runners
 - `ws llm continue`: tell agents stopped by a usage limit to carry on once it resets
 - `ws llm loop`: start an agent in a new workspace every period, with the same prompt, and its subcommands:
   - `ws llm loop add`: add a loop
