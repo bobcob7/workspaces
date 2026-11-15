@@ -102,7 +102,6 @@ func TestApp_runDaemonRun(t *testing.T) {
 }
 
 func TestDaemonRunError(t *testing.T) {
-	t.Parallel()
 	t.Run("a daemon that already runs is daemon_running with its pid", func(t *testing.T) {
 		err := daemonRunError(&daemon.RunningError{PID: 4242})
 		requireCode(t, codeDaemonRunning, err)
@@ -171,7 +170,6 @@ func TestApp_runDaemonStop(t *testing.T) {
 }
 
 func TestDaemonUnavailable(t *testing.T) {
-	t.Parallel()
 	paths := daemon.PathsFor("/cfg", func(string) string { return "" }, 1000)
 	err := daemonUnavailable(errors.New("no answer"), paths)
 	requireCode(t, codeDaemonUnavailable, err)
@@ -183,7 +181,6 @@ func TestDaemonUnavailable(t *testing.T) {
 }
 
 func TestApp_daemonVersionWarnings(t *testing.T) {
-	t.Parallel()
 	app, _, _ := newTestApp()
 	app.version = "v0.31.0"
 	older := "v0.30.0"
@@ -200,7 +197,6 @@ func TestApp_daemonVersionWarnings(t *testing.T) {
 }
 
 func TestEnvironValue(t *testing.T) {
-	t.Parallel()
 	environ := []string{"A=1", "XDG_RUNTIME_DIR=/run/user/1000", "B=x=y"}
 	t.Run("returns the value of a set variable", func(t *testing.T) {
 		assert.Equal(t, "/run/user/1000", environValue(environ, "XDG_RUNTIME_DIR"))

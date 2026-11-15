@@ -134,7 +134,6 @@ func TestPrepareSocketDir(t *testing.T) {
 }
 
 func TestOlder(t *testing.T) {
-	t.Parallel()
 	cases := []struct {
 		name       string
 		have, want string
