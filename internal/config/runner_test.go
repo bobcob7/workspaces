@@ -45,7 +45,6 @@ func mustParse(t *testing.T, text string) Config {
 }
 
 func TestConfig_RunnerFor(t *testing.T) {
-	t.Parallel()
 	t.Run("a configured ws role runs on ws", func(t *testing.T) {
 		cfg := mustParse(t, runnerBase)
 		assert.Equal(t, RunnerWS, cfg.RunnerFor("implementer"))
@@ -67,7 +66,6 @@ func TestConfig_RunnerFor(t *testing.T) {
 }
 
 func TestConfig_Resolve(t *testing.T) {
-	t.Parallel()
 	t.Run("the role's model gives its endpoint and budgets", func(t *testing.T) {
 		cfg := mustParse(t, runnerBase)
 		got, err := cfg.Resolve("implementer", "", "")
@@ -116,7 +114,7 @@ func TestConfig_Resolve(t *testing.T) {
 	t.Run("an unknown endpoint flag is an error", func(t *testing.T) {
 		cfg := mustParse(t, runnerBase)
 		_, err := cfg.Resolve("implementer", "nope", "")
-		assert.ErrorIs(t, err, ErrEndpointUnknown)
+		require.ErrorIs(t, err, ErrEndpointUnknown)
 	})
 	t.Run("a raw id runs on the chosen alias's endpoint with a warning", func(t *testing.T) {
 		cfg := mustParse(t, runnerBase)
@@ -144,11 +142,8 @@ func TestConfig_Resolve(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, cfg.RunnerError(), err)
 	})
-}
-
-func TestConfig_Resolve_roleBudgets(t *testing.T) {
-	t.Parallel()
-	cfg := mustParse(t, `
+	t.Run("a role's budgets and MCP settings are used", func(t *testing.T) {
+		cfg := mustParse(t, `
 [runner]
 model = "qwen9b"
 [endpoints.gpu]
@@ -166,19 +161,19 @@ mcp_tools = ["mcp__metrics__query_*"]
 mcp_deny = ["mcp__metrics__get_panel_image"]
 mcp_upfront = 3
 `)
-	got, err := cfg.Resolve("verifier", "", "")
-	require.NoError(t, err)
-	assert.Equal(t, 30, got.MaxSteps)
-	assert.Equal(t, 30*time.Minute, got.Timeout)
-	assert.Equal(t, 1_500_000, got.MaxTokens)
-	assert.Equal(t, []string{"metrics"}, got.MCPServers)
-	assert.Equal(t, []string{"mcp__metrics__query_*"}, got.MCPTools)
-	assert.Equal(t, []string{"mcp__metrics__get_panel_image"}, got.MCPDeny)
-	assert.Equal(t, 3, got.MCPUpfront)
+		got, err := cfg.Resolve("verifier", "", "")
+		require.NoError(t, err)
+		assert.Equal(t, 30, got.MaxSteps)
+		assert.Equal(t, 30*time.Minute, got.Timeout)
+		assert.Equal(t, 1_500_000, got.MaxTokens)
+		assert.Equal(t, []string{"metrics"}, got.MCPServers)
+		assert.Equal(t, []string{"mcp__metrics__query_*"}, got.MCPTools)
+		assert.Equal(t, []string{"mcp__metrics__get_panel_image"}, got.MCPDeny)
+		assert.Equal(t, 3, got.MCPUpfront)
+	})
 }
 
 func TestConfig_RunnerError(t *testing.T) {
-	t.Parallel()
 	const gpu = "[endpoints.gpu]\nurl = \"http://gpu\"\n"
 	cases := []struct {
 		name string
@@ -199,7 +194,6 @@ func TestConfig_RunnerError(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			cfg := mustParse(t, tc.text)
 			err := cfg.RunnerError()
 			require.Error(t, err)
@@ -208,13 +202,9 @@ func TestConfig_RunnerError(t *testing.T) {
 			assert.Equal(t, err, resolveErr)
 		})
 	}
-}
-
-func TestConfig_RunnerError_keepsClaudePath(t *testing.T) {
-	t.Parallel()
-	base := "[defaults]\nhost = \"git.example.com\"\n[review]\ntimeout = \"20m\"\n"
-	clean := mustParse(t, base)
 	t.Run("a half-written runner table still loads the rest", func(t *testing.T) {
+		base := "[defaults]\nhost = \"git.example.com\"\n[review]\ntimeout = \"20m\"\n"
+		clean := mustParse(t, base)
 		got := mustParse(t, base+"[endpoints.gpu\nurl = \"http://x\"\n")
 		require.Error(t, got.RunnerError())
 		assert.Equal(t, clean.Defaults, got.Defaults)
@@ -223,23 +213,22 @@ func TestConfig_RunnerError_keepsClaudePath(t *testing.T) {
 		assert.Equal(t, RunnerClaude, got.RunnerFor(""))
 	})
 	t.Run("an invalid table keeps the other fields and the other roles", func(t *testing.T) {
+		base := "[defaults]\nhost = \"git.example.com\"\n"
+		clean := mustParse(t, base)
 		got := mustParse(t, base+strings.Replace(runnerBase, "http://gpu-a.inference.svc:1234", "ftp://x", 1))
 		require.Error(t, got.RunnerError())
 		assert.Equal(t, clean.Defaults, got.Defaults)
 		assert.Equal(t, RunnerWS, got.RunnerFor("implementer"))
 		assert.Equal(t, RunnerClaude, got.RunnerFor("reviewer"))
 	})
-}
-
-func TestConfig_RunnerError_idRoundTrips(t *testing.T) {
-	t.Parallel()
-	cfg := mustParse(t, "[endpoints.gpu]\nurl = \"http://x\"\n[models.qwen9b]\nendpoint = \"gpu\"\nid = \"qwen/qwen3.5-9b\"\ncontext_tokens = 65536\n")
-	require.NoError(t, cfg.RunnerError())
-	assert.Equal(t, "qwen/qwen3.5-9b", cfg.Models["qwen9b"].ID)
+	t.Run("a model id with slashes and colons round-trips", func(t *testing.T) {
+		cfg := mustParse(t, gpu+"[models.qwen9b]\nendpoint = \"gpu\"\nid = \"qwen/qwen3.5-9b\"\ncontext_tokens = 65536\n")
+		require.NoError(t, cfg.RunnerError())
+		assert.Equal(t, "qwen/qwen3.5-9b", cfg.Models["qwen9b"].ID)
+	})
 }
 
 func TestConfig_Reresolve(t *testing.T) {
-	t.Parallel()
 	cfg := mustParse(t, runnerBase)
 	resolved, err := cfg.Resolve("implementer", "", "")
 	require.NoError(t, err)
@@ -276,12 +265,12 @@ func TestConfig_Reresolve(t *testing.T) {
 	t.Run("a removed alias is ErrModelGone", func(t *testing.T) {
 		gone := mustParse(t, "[endpoints.gpu]\nurl = \"http://gpu\"\n[models.other]\nendpoint = \"gpu\"\nid = \"x\"\ncontext_tokens = 65536\n")
 		_, err := gone.Reresolve(resolved.Key(""))
-		assert.ErrorIs(t, err, ErrModelGone)
+		require.ErrorIs(t, err, ErrModelGone)
 	})
 	t.Run("a removed flag endpoint is ErrEndpointUnknown", func(t *testing.T) {
 		gone := mustParse(t, "[endpoints.gpu]\nurl = \"http://gpu\"\n[models.qwen9b-think]\nendpoint = \"gpu\"\nid = \"x\"\ncontext_tokens = 65536\n")
 		_, err := gone.Reresolve(RunKey{ModelAlias: "qwen9b-think", EndpointFlag: "cpu"})
-		assert.ErrorIs(t, err, ErrEndpointUnknown)
+		require.ErrorIs(t, err, ErrEndpointUnknown)
 	})
 	t.Run("a raw id follows its alias's endpoint and keeps the id", func(t *testing.T) {
 		raw, err := cfg.Resolve("x", "", "qwen3.5:9b")
@@ -295,7 +284,6 @@ func TestConfig_Reresolve(t *testing.T) {
 }
 
 func TestResolved_Key(t *testing.T) {
-	t.Parallel()
 	t.Run("an alias key has no raw id", func(t *testing.T) {
 		var resolved Resolved
 		resolved.ModelAlias = "qwen9b"
@@ -311,8 +299,8 @@ func TestResolved_Key(t *testing.T) {
 }
 
 func TestReadFile(t *testing.T) {
-	t.Parallel()
 	t.Run("a missing file is an error and isn't created", func(t *testing.T) {
+		t.Parallel()
 		path := filepath.Join(t.TempDir(), "config.toml")
 		_, err := ReadFile(path)
 		require.Error(t, err)
@@ -320,6 +308,7 @@ func TestReadFile(t *testing.T) {
 		assert.ErrorIs(t, statErr, os.ErrNotExist)
 	})
 	t.Run("invalid TOML is an error naming the file", func(t *testing.T) {
+		t.Parallel()
 		path := filepath.Join(t.TempDir(), "config.toml")
 		require.NoError(t, os.WriteFile(path, []byte("[defaults\n"), 0o600))
 		_, err := ReadFile(path)
@@ -327,6 +316,7 @@ func TestReadFile(t *testing.T) {
 		assert.Contains(t, err.Error(), path)
 	})
 	t.Run("a valid file is read", func(t *testing.T) {
+		t.Parallel()
 		path := filepath.Join(t.TempDir(), "config.toml")
 		require.NoError(t, os.WriteFile(path, []byte(runnerBase), 0o600))
 		cfg, err := ReadFile(path)
@@ -336,21 +326,18 @@ func TestReadFile(t *testing.T) {
 }
 
 func TestRunner_KeepsGitTokens(t *testing.T) {
-	t.Parallel()
 	off := false
 	assert.True(t, (&Runner{}).KeepsGitTokens())
 	assert.False(t, (&Runner{KeepGitTokens: &off}).KeepsGitTokens())
 }
 
 func TestDaemon_ResumesOnStart(t *testing.T) {
-	t.Parallel()
 	off := false
 	assert.True(t, (&Daemon{}).ResumesOnStart())
 	assert.False(t, (&Daemon{ResumeOnStart: &off}).ResumesOnStart())
 }
 
 func TestDefaultBudget(t *testing.T) {
-	t.Parallel()
 	steps, timeout, tokens := DefaultBudget("reviewer")
 	assert.Equal(t, 40, steps)
 	assert.Equal(t, 30*time.Minute, timeout)
@@ -362,12 +349,10 @@ func TestDefaultBudget(t *testing.T) {
 }
 
 func TestTokenEnv(t *testing.T) {
-	t.Parallel()
 	assert.Equal(t, "WS_ENDPOINT_TOKEN_GPU_A", TokenEnv("gpu-a"))
 }
 
 func TestRunnerEdit_Set(t *testing.T) {
-	t.Parallel()
 	t.Run("a model's context size is written and comments are kept", func(t *testing.T) {
 		data := []byte(runnerBase + "# keep me\n")
 		out, changed, err := Set(data, "models.qwen9b.context_tokens", []string{"98304"})
@@ -387,11 +372,11 @@ func TestRunnerEdit_Set(t *testing.T) {
 	})
 	t.Run("a context size under the floor is ErrValueInvalid", func(t *testing.T) {
 		_, _, err := Set([]byte(runnerBase), "models.qwen9b.context_tokens", []string{"4096"})
-		assert.ErrorIs(t, err, ErrValueInvalid)
+		require.ErrorIs(t, err, ErrValueInvalid)
 	})
 	t.Run("a write that breaks the runner's tables is refused", func(t *testing.T) {
 		_, _, err := Set([]byte(runnerBase), "models.qwen9b.endpoint", []string{"nope"})
-		assert.ErrorIs(t, err, ErrValueInvalid)
+		require.ErrorIs(t, err, ErrValueInvalid)
 	})
 	t.Run("a role's list takes several values", func(t *testing.T) {
 		out, _, err := Set([]byte(runnerBase), "runner.roles.implementer.mcp_servers", []string{"metrics", "docs"})
@@ -413,16 +398,15 @@ func TestRunnerEdit_Set(t *testing.T) {
 	})
 	t.Run("a runner env name with a secret suffix is refused", func(t *testing.T) {
 		_, _, err := Set(nil, "runner.env.METRICS_TOKEN", []string{"x"})
-		assert.ErrorIs(t, err, ErrValueInvalid)
+		require.ErrorIs(t, err, ErrValueInvalid)
 	})
 	t.Run("the fallback key isn't one ws config knows", func(t *testing.T) {
 		_, _, err := Set(nil, "runner.fallback", []string{"claude"})
-		assert.ErrorIs(t, err, ErrKeyUnknown)
+		require.ErrorIs(t, err, ErrKeyUnknown)
 	})
 }
 
 func TestRunnerEdit_Unset(t *testing.T) {
-	t.Parallel()
 	t.Run("a model table that nothing uses is removed whole", func(t *testing.T) {
 		data := []byte(runnerBase + "\n[models.spare]\nendpoint = \"gpu\"\nid = \"x\"\ncontext_tokens = 65536\n")
 		out, changed, err := Unset(data, "models.spare")
@@ -435,7 +419,7 @@ func TestRunnerEdit_Unset(t *testing.T) {
 	})
 	t.Run("a model the runner uses is refused", func(t *testing.T) {
 		_, _, err := Unset([]byte(runnerBase), "models.qwen9b")
-		assert.ErrorIs(t, err, ErrValueInvalid)
+		require.ErrorIs(t, err, ErrValueInvalid)
 	})
 	t.Run("an endpoint table nothing uses is removed", func(t *testing.T) {
 		out, changed, err := Unset([]byte(runnerBase), "endpoints.cpu")
@@ -452,7 +436,6 @@ func TestRunnerEdit_Unset(t *testing.T) {
 }
 
 func TestRunnerEdit_Settings(t *testing.T) {
-	t.Parallel()
 	settings, err := Settings([]byte(runnerBase))
 	require.NoError(t, err)
 	keys := make([]string, 0, len(settings))
