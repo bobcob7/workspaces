@@ -41,6 +41,7 @@ func (r *Reresolver) Reresolve(ctx context.Context, current agent.Target) agent.
 	if err != nil {
 		return r.warning(err)
 	}
+	target = r.keepWindow(target)
 	changes := Changes(r.Current, target)
 	if len(changes) == 0 {
 		return agent.Resolution{}
@@ -56,6 +57,17 @@ func (r *Reresolver) Reresolve(ctx context.Context, current agent.Target) agent.
 func (r *Reresolver) Adopt() config.Target {
 	r.Current = r.next
 	return r.Current
+}
+
+// keepWindow caps the configured window at the one in use while the endpoint,
+// URL, API and model stay the same. A probe may have lowered that window, and
+// a settings change must not widen it past what the model serves.
+func (r *Reresolver) keepWindow(target config.Target) config.Target { //nolint:gocritic // hugeParam: a target copied once per retry.
+	if r.Current.ContextTokens <= 0 || agent.SwitchesEndpoint(Changes(r.Current, target)) {
+		return target
+	}
+	target.ContextTokens = min(target.ContextTokens, r.Current.ContextTokens)
+	return target
 }
 
 // sameEndpoint applies settings that don't need a probe. Only a timeout
@@ -91,9 +103,10 @@ func (r *Reresolver) otherEndpoint(ctx context.Context, target config.Target, ch
 	case err != nil:
 		return agent.Resolution{Failed: err}
 	}
+	target.ContextTokens = res.ContextTokens
 	r.next = target
 	return agent.Resolution{
-		Target:  withSettings(agent.Target{Chat: p}, target, res.ContextTokens),
+		Target:  withSettings(agent.Target{Chat: p}, target, target.ContextTokens),
 		Changed: true,
 		Changes: changes,
 		Probe:   probeOf(res),

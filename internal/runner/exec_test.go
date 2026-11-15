@@ -296,7 +296,7 @@ func TestExecute(t *testing.T) {
 		assert.Equal(t, agent.ExitStopped, *st.Exit)
 		assert.Nil(t, st.Verdict)
 		second := newModelServer(t, script(recordPass))
-		require.NoError(t, files.AppendEndpoint(EndpointEntry{Reason: "retry", Endpoint: "gpu", URL: second.URL, API: "openai", Model: "qwen/qwen3.5-9b"}))
+		require.NoError(t, files.AppendEndpoint(EndpointEntry{Reason: "retry", Endpoint: "gpu", URL: second.URL, API: "openai", Model: "qwen/qwen3.5-9b", ContextTokens: 65536}))
 		require.NoError(t, Execute(t.Context(), testInput(t, files, workspace, true)))
 		assert.Contains(t, second.lastBody(), `"role":"tool"`)
 		assert.Equal(t, 1, second.requests())
@@ -582,6 +582,26 @@ func writeKeyedMCPJSON(t *testing.T, workspace, url, key string) {
 	t.Helper()
 	data := fmt.Sprintf(`{"mcpServers":{"metrics":{"type":"http","url":%q,"headers":{"X-Metrics-Key":%q}}}}`, url, key)
 	require.NoError(t, os.WriteFile(filepath.Join(workspace, ".mcp.json"), []byte(data), fileMode))
+}
+
+func TestSession_agentConfig(t *testing.T) {
+	t.Parallel()
+	t.Run("a resumed run's window is the one its last endpoint entry records", func(t *testing.T) {
+		t.Parallel()
+		files, workspace := newRunFixture(t, "http://gpu.example", func(run *Run) {
+			run.EndpointHistory = append(run.EndpointHistory, EndpointEntry{
+				Since: run.CreatedAt, Reason: "retry", Endpoint: "gpu", URL: run.URL, API: "openai", Model: run.Model, ContextTokens: 8192,
+			})
+		})
+		run, err := files.ReadRun()
+		require.NoError(t, err)
+		s, err := openSession(testInput(t, files, workspace, true), &run)
+		require.NoError(t, err)
+		t.Cleanup(s.close)
+		cfg, err := s.agentConfig(t.Context(), nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, 8192, cfg.Target.ContextTokens)
+	})
 }
 
 func TestDropUnanswered(t *testing.T) {

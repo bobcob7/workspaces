@@ -296,6 +296,29 @@ func TestReresolver_Reresolve(t *testing.T) {
 		assert.Equal(t, adopted, r.Current)
 		assert.Empty(t, Changes(r.Current, targetOf(t, spy.dir, r.Key)))
 	})
+	t.Run("a settings change keeps the window a probe lowered", func(t *testing.T) {
+		t.Parallel()
+		r, spy := newSpyResolver(t)
+		spy.writeConfig(t, strings.Replace(onFakeB(), "context_tokens = 65536", "context_tokens = 32768", 1))
+		spy.preflightRes = llm.PreflightResult{ContextTokens: 8192}
+		require.True(t, r.Reresolve(t.Context(), agent.Target{}).Changed)
+		assert.Equal(t, 8192, r.Adopt().ContextTokens)
+		spy.writeConfig(t, strings.Replace(onFakeB(), "context_tokens = 65536", "context_tokens = 32768\ntemperature = \"0.5\"", 1))
+		res := r.Reresolve(t.Context(), agent.Target{Chat: &fakeProvider{name: "fake-b"}})
+		require.True(t, res.Changed)
+		assert.Equal(t, []string{"temperature"}, res.Changes)
+		assert.Equal(t, 8192, res.Target.ContextTokens)
+		assert.Len(t, spy.preflights, 1)
+	})
+	t.Run("the first retry after a spawn keeps a window stored probe-lowered", func(t *testing.T) {
+		t.Parallel()
+		r, spy := newSpyResolver(t)
+		spy.writeConfig(t, strings.Replace(reresolveConfig, "context_tokens = 65536", "context_tokens = 32768", 1))
+		r.Current.ContextTokens = 8192
+		assert.Equal(t, agent.Resolution{}, r.Reresolve(t.Context(), agent.Target{}))
+		assert.Empty(t, spy.builds)
+		assert.Empty(t, spy.preflights)
+	})
 }
 
 func TestChanges(t *testing.T) {
