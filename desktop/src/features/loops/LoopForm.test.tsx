@@ -1,8 +1,8 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
-import { loop, testStore } from "../../test/fixtures";
+import { loop, testStore, wsLoop } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { LoopForm, type LoopFormProps } from "./LoopForm";
 
@@ -45,6 +45,8 @@ describe("LoopForm", () => {
       model: "",
       permissionMode: "",
       hidden: true,
+      runner: "claude",
+      endpoint: "",
     });
   });
 
@@ -77,7 +79,38 @@ describe("LoopForm", () => {
       scriptTimeout: "45s",
       vars: [{ key: "A", value: "1" }],
       hidden: true,
+      runner: "claude",
+      endpoint: "",
     });
+  });
+
+  it("round-trips a ws loop's runner, model and endpoint", async () => {
+    const { onSubmit } = renderForm({ loop: wsLoop({ endpoint: "gpu" }) });
+    expect(screen.getByRole("combobox", { name: "Runner" })).toHaveTextContent("ws runner");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ runner: "ws", model: "qwen9b", endpoint: "gpu", permissionMode: "" }),
+    );
+  });
+
+  it("keeps a Claude loop's model and permission mode, with no endpoint", async () => {
+    const { onSubmit } = renderForm({ loop: loop({ model: "opus", permissionMode: "acceptEdits" }) });
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ runner: "claude", model: "opus", permissionMode: "acceptEdits", endpoint: "" }),
+    );
+  });
+
+  it("clears the model and permission mode when the runner is switched to ws", async () => {
+    const { onSubmit } = renderForm({ loop: loop({ model: "opus", permissionMode: "acceptEdits" }) });
+    await userEvent.click(screen.getByRole("combobox", { name: "Runner" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: "ws runner" })).not.toHaveAttribute("aria-disabled", "true"));
+    await userEvent.click(screen.getByRole("option", { name: "ws runner" }));
+    expect(screen.queryByRole("combobox", { name: "Permission mode" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ runner: "ws", model: "", permissionMode: "", endpoint: "" }),
+    );
   });
 
   it("shows the hide switch on for a new loop", () => {
