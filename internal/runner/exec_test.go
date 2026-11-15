@@ -349,8 +349,7 @@ func TestExecute_consoleResume(t *testing.T) {
 	}
 	var files Files
 	var workspace string
-	var first *modelServer
-	first = newModelServer(t, func(n int, w http.ResponseWriter) {
+	first := newModelServer(t, func(n int, w http.ResponseWriter) {
 		if n != 1 {
 			http.Error(w, "unexpected request", http.StatusInternalServerError)
 			return
