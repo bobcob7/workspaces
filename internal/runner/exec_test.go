@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,7 +21,6 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/agent/tools"
-	"github.com/bobcob7/workspaces/internal/fakemcp"
 	"github.com/bobcob7/workspaces/internal/llm"
 )
 
@@ -338,27 +336,22 @@ func runConsoleHelper(t *testing.T) {
 
 const testTraceID = "4bf92f3577b34da6a3ce929d0e0e4736"
 
-// serveMetricsServer serves a fake MCP server with one tool, ping, over
-// streamable HTTP, and returns its URL.
+// serveMetricsServer serves an MCP server with one read-only tool, ping,
+// over streamable HTTP, and returns its URL.
 func serveMetricsServer(t *testing.T) string {
 	t.Helper()
-	readOnly := true
-	cfg := fakemcp.Config{
-		Server: fakemcp.ServerInfo{Name: "metrics", Version: "1.0.0"},
-		Tools: []fakemcp.Tool{{
-			Name:        "ping",
-			Description: "answer pong",
-			InputSchema: map[string]any{"type": "object"},
-			Annotations: fakemcp.Annotations{ReadOnlyHint: &readOnly},
-			Replies:     []fakemcp.Reply{{Text: "pong"}},
-		}},
-	}
-	fake, err := fakemcp.NewServer(cfg, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	require.NoError(t, err)
-	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return fake }, nil)
-	ts := httptest.NewServer(handler)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "metrics", Version: "1.0.0"}, nil)
+	srv.AddTool(&mcp.Tool{
+		Name:        "ping",
+		Description: "answer pong",
+		InputSchema: map[string]any{"type": "object"},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "pong"}}}, nil
+	})
+	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil))
 	t.Cleanup(ts.Close)
-	return ts.URL + "/mcp"
+	return ts.URL
 }
 
 // writeMCPJSON writes the workspace's .mcp.json with one HTTP server at url.
