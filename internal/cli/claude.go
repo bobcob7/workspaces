@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -18,6 +21,8 @@ type claudeOptions struct {
 	offline    bool
 	hidden     bool
 	parent     string
+	runner     string
+	endpoint   string
 	specs      []string
 	claudeArgs []string
 	// started, when set, runs after the session is recorded and before the
@@ -33,15 +38,18 @@ func (a *App) newClaudeCmd() *cobra.Command {
 		Use:   "claude [OPTIONS] [<SPEC>...] [-- <CLAUDE ARGS>...]",
 		Short: "New workspace with a Claude Code background agent",
 		Long:  "New workspace with a Claude Code background agent.\n\nFor people and the desktop app. Agents use ws machine spawn instead; see `ws llm machine spawn`.",
-		Args:  allArgs(specsBeforeDash, claudeArgsAfterDash),
+		Args:  allArgs(specsBeforeDash, claudeArgsAfterDash, claudeRunnerArgs(&opts)),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			opts.specs, opts.claudeArgs = splitAtDash(cmd, args)
+			opts.result = claudeAgentResult(opts.claudeArgs)
 			return a.runClaude(cmd.Context(), &opts)
 		})),
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
 	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views")
 	cmd.Flags().StringVar(&opts.parent, "parent", "", "the workspace this one is removed with, or none; default: the one ws runs in")
+	cmd.Flags().StringVar(&opts.runner, "runner", config.RunnerClaude, "claude or ws: which agent runs it; a ws agent needs a prompt and can't be attached")
+	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "with --runner ws, another endpoint from config.toml")
 	return cmd
 }
 
@@ -54,6 +62,56 @@ type claudeResult struct {
 	Parent   *string      `json:"parent"`
 	Repos    []claudeRepo `json:"repos"`
 	Warnings []string     `json:"warnings"`
+	// Runner is what runs the agent: claude, or ws (ADR 0070).
+	Runner string `json:"runner"`
+	// Model is a Claude agent's --model, or a ws agent's model id; null when none.
+	Model *string `json:"model"`
+	// WSRunner is a ws agent's runner details; null for a Claude agent.
+	WSRunner *spawnWSRunnerJSON `json:"ws_runner"`
+}
+
+// claudeAgentResult is ws claude's JSON for a Claude agent: runner "claude",
+// the --model after "--" or null, and no ws_runner (ADR 0070).
+func claudeAgentResult(claudeArgs []string) func(claudeResult) any {
+	return func(r claudeResult) any {
+		r.Runner = lifetime.RunnerClaude
+		r.Model = optional(claudeModel(claudeArgs))
+		return r
+	}
+}
+
+// claudeRunnerArgs checks ws claude's arguments before anything is created.
+func claudeRunnerArgs(opts *claudeOptions) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		_, after := splitAtDash(cmd, args)
+		return checkClaudeRunner(opts.runner, opts.endpoint, after)
+	}
+}
+
+// checkClaudeRunner is usage unless the runner's arguments fit it: a ws agent
+// takes a prompt and then only --model, and --endpoint needs a ws agent (ADR 0070).
+func checkClaudeRunner(runner, endpoint string, after []string) error {
+	switch runner {
+	case "", config.RunnerClaude:
+		if endpoint != "" {
+			return usageErrorf("--endpoint needs --runner ws")
+		}
+		return nil
+	case config.RunnerWS:
+		_, _, err := runnerPromptArgs(after)
+		return err
+	}
+	return usageErrorf("--runner must be claude or ws, not %q", runner)
+}
+
+// runnerPromptArgs reads a ws agent's arguments after "--": the prompt, which
+// is required, then only --model <m>.
+func runnerPromptArgs(after []string) (prompt, model string, err error) {
+	if len(after) == 0 || strings.TrimSpace(after[0]) == "" {
+		return "", "", usageErrorf("a ws runner agent needs a prompt; it can't be attached")
+	}
+	model, err = runnerModelArgs(after[1:])
+	return after[0], model, err
 }
 
 type claudeRepo struct {
@@ -73,7 +131,11 @@ type claudeRepo struct {
 // the workspace is removed. A session started without a prompt is
 // attached to when ws runs on a terminal without --json and wasn't
 // interrupted or hung up on; otherwise ws prints the result and exits.
+// With --runner ws it starts a runner agent instead (runWSClaude).
 func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
+	if opts.runner == config.RunnerWS {
+		return a.runWSClaude(ctx, opts)
+	}
 	if err := a.claude.Check(ctx); err != nil {
 		return domainError(err)
 	}
@@ -99,6 +161,32 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 		return nil
 	}
 	return a.printClaudeResult(&ws, started.ID, opts.result)
+}
+
+// runWSClaude starts ws's own runner agent in a new workspace, with the
+// parent ws claude chooses (ADR 0070). It never attaches a terminal.
+func (a *App) runWSClaude(ctx context.Context, opts *claudeOptions) error {
+	prompt, model, err := runnerPromptArgs(opts.claudeArgs)
+	if err != nil {
+		return err
+	}
+	parent, err := a.enclosingOr(opts.parent)
+	if err != nil {
+		return err
+	}
+	started, err := a.startRunnerAgent(ctx, runnerStart{
+		Name: opts.name, Parent: parent, Endpoint: opts.endpoint, Model: model,
+		Specs: opts.specs, Hidden: opts.hidden, Offline: opts.offline, Prompt: prompt,
+	})
+	if err != nil {
+		return err
+	}
+	return a.printClaudeResult(&started.Workspace, started.Session, func(r claudeResult) any {
+		r.Runner = lifetime.RunnerWS
+		r.Model = optional(started.Resolved.ModelID)
+		r.WSRunner = wsRunnerJSON(&started.Resolved)
+		return r
+	})
 }
 
 // handOff runs startAgent while catching SIGHUP, so closing the terminal
@@ -232,7 +320,7 @@ func (a *App) claudeResultOf(ws *workspace.Workspace, session string) claudeResu
 	for _, r := range ws.Repos {
 		repos = append(repos, claudeRepo{ID: r.ID, Path: r.Path, Ref: r.Ref, RefKind: r.RefKind, Commit: r.Commit})
 	}
-	return claudeResult{ID: ws.ID, Session: session, Path: ws.Path, Parent: optional(ws.Parent), Repos: repos, Warnings: a.warnings()}
+	return claudeResult{ID: ws.ID, Session: session, Path: ws.Path, Parent: optional(ws.Parent), Repos: repos, Warnings: a.warnings(), Runner: lifetime.RunnerClaude}
 }
 
 // specsBeforeDash checks the repo specs before "--". There may be none,
