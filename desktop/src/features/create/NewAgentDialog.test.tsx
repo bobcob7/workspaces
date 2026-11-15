@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { fakeApi, testStore } from "../../test/fixtures";
@@ -18,6 +18,13 @@ const openDialog = (api = fakeApi()): ReturnType<typeof testStore> => {
   return store;
 };
 
+/** Picks the ws runner once the runner's models have loaded and enabled it. */
+const chooseWsRunner = async (): Promise<void> => {
+  await userEvent.click(screen.getByRole("combobox", { name: "Runner" }));
+  await waitFor(() => expect(screen.getByRole("option", { name: "ws runner" })).not.toHaveAttribute("aria-disabled", "true"));
+  await userEvent.click(screen.getByRole("option", { name: "ws runner" }));
+};
+
 describe("NewAgentDialog", () => {
   it("starts an agent with the name and task", async () => {
     const api = fakeApi();
@@ -28,6 +35,28 @@ describe("NewAgentDialog", () => {
     expect(api.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({ name: "fix-login", prompt: "Fix the bug", specs: [] }),
     );
+  });
+
+  it("starts a ws runner agent with its model and endpoint, and no permission mode", async () => {
+    const api = fakeApi();
+    openDialog(api);
+    await chooseWsRunner();
+    await userEvent.type(screen.getByLabelText("Task"), "Fix the bug");
+    await userEvent.click(screen.getByRole("combobox", { name: "Model" }));
+    await userEvent.click(screen.getByRole("option", { name: "qwen9b · qwen/qwen3.5-9b" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ runner: "ws", model: "qwen9b", endpoint: "", permissionMode: "", prompt: "Fix the bug" }),
+    );
+  });
+
+  it("requires a task for the ws runner, and starts once one is typed", async () => {
+    openDialog();
+    await chooseWsRunner();
+    const start = screen.getByRole("button", { name: "Start agent" });
+    expect(start).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Task"), "Fix the bug");
+    expect(start).toBeEnabled();
   });
 
   it("closes once the agent has started", async () => {
