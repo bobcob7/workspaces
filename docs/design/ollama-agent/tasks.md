@@ -2,7 +2,8 @@
 
 Implements ADRs [0062](../../adrs/0062-agent-runner-built-into-ws.md) to
 [0070](../../adrs/0070-runner-agents-for-people-and-loops.md) and
-[reference.md](reference.md). Every task targets **this repo**
+[reference.md](reference.md), under the alignment rules of
+[0071](../../adrs/0071-claude-code-default-runner-as-peer.md). Every task targets **this repo**
 (workspaces); nothing is done in llm-router, and nothing clones it. Each
 task builds, passes its tests, and can be merged on its own. Each task is
 one commit, conventional and imperative, for example `feat: add the
@@ -71,6 +72,15 @@ disagree, reference.md wins. Don't read whole packages.
 
 **Rules for every task**
 
+- **The Claude path is untouched** (ADR 0071). Spawning, `ws claude` and
+  loop runs with the default runner (`claude`) behave exactly as today:
+  they never contact the daemon, run a preflight, read or validate
+  `[runner]`, `[endpoints]`, `[models]` or `secrets.env`, or depend on an
+  endpoint being up. Every task that touches a start path (T4, T19, T20,
+  T21) has an acceptance item proving it, and T22's
+  `claude-default-untouched` scenario checks it end to end. There is no
+  automatic fallback between runners: a failed `ws` start fails with its
+  code.
 - Go 1.27. Follow the code in the package you edit. Errors are wrapped
   with `fmt.Errorf("…: %w", err)`, lower case, with no "failed to".
   **No blank lines inside function bodies.** Return early. Keep functions
