@@ -789,6 +789,89 @@ export interface ConfigChange {
   readonly changed: boolean;
 }
 
+/** `runner_settings_get`: the runner's keys, as config.toml holds them. */
+export interface RunnerSettings {
+  readonly runner: { readonly model: string };
+  readonly endpoints: readonly EndpointSettings[];
+  readonly models: readonly ModelSettings[];
+  readonly roles: readonly RoleSettings[];
+}
+
+export interface EndpointSettings {
+  readonly name: string;
+  readonly url: string;
+  readonly api: string;
+  readonly probe: string;
+  readonly request_timeout: string;
+  readonly idle_timeout: string;
+}
+
+export interface ModelSettings {
+  readonly alias: string;
+  readonly endpoint: string;
+  readonly id: string;
+  readonly context_tokens: number;
+  readonly max_output: number;
+  readonly temperature: number;
+  readonly reasoning: string;
+}
+
+export interface RoleSettings {
+  readonly role: string;
+  readonly runner: string;
+  readonly model: string;
+  readonly max_steps: number;
+  readonly timeout: string;
+  readonly max_tokens: number;
+  readonly mcp_servers: readonly string[];
+}
+
+/** `daemon_status`: whether the runner service runs, and who started it. */
+export interface DaemonStatus {
+  readonly running: boolean;
+  readonly pid: number | null;
+  readonly origin: string | null;
+  readonly started_at: string | null;
+  readonly ws_version: string | null;
+  readonly socket: string | null;
+  readonly config_dir: string | null;
+  readonly runners: readonly DaemonRunner[];
+  readonly warnings: readonly string[];
+}
+
+export interface DaemonRunner {
+  readonly workspace: string;
+  readonly session: string;
+  readonly pid: number | null;
+  readonly state: string;
+  readonly restarts: number;
+  readonly adopted: boolean;
+}
+
+/** `daemon_restart`: what the service stopped, and what it kept running. */
+export interface DaemonStopped {
+  readonly stopped: boolean;
+  readonly pid: number | null;
+  readonly runners_stopped: readonly string[];
+  readonly runners_kept: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+/** `runner_check`: what an endpoint serves, and whether a model is ready. */
+export interface RunnerCheck {
+  readonly endpoint: string;
+  readonly url: string;
+  readonly api: string;
+  readonly probe: string;
+  readonly model: string;
+  readonly version: string | null;
+  readonly capabilities: readonly string[] | null;
+  readonly context_tokens: number;
+  readonly models: readonly string[];
+  readonly token_source: string | null;
+  readonly warnings: readonly string[];
+}
+
 /** Workspace Online's WS_ONLINE_* settings; never the password itself. */
 export interface OnlineSettings {
   readonly username: string;
@@ -1148,6 +1231,11 @@ export const api = {
   configList: async (): Promise<ConfigListing> => call<ConfigListing>("config_list"),
   configSet: async (key: string, values: readonly string[]): Promise<ConfigChange> => call<ConfigChange>("config_set", { key, values }),
   configUnset: async (key: string): Promise<ConfigChange> => call<ConfigChange>("config_unset", { key }),
+  runnerSettingsGet: async (): Promise<RunnerSettings> => call<RunnerSettings>("runner_settings_get"),
+  daemonStatus: async (): Promise<DaemonStatus> => call<DaemonStatus>("daemon_status"),
+  daemonRestart: async (): Promise<DaemonStopped> => call<DaemonStopped>("daemon_restart"),
+  runnerCheck: async (endpoint: string, model: string): Promise<RunnerCheck> => call<RunnerCheck>("runner_check", { endpoint, model }),
+  endpointTokenSet: async (name: string, token: string): Promise<void> => call<void>("endpoint_token_set", { name, token }),
   settingsEnvironment: async (): Promise<Environment> => call<Environment>("settings_environment"),
   createAgent: async (request: NewAgent): Promise<Created> => call<Created>("create_agent", { request }),
   removeEntry: async (workspaceId: string | null, sessionId: string | null, keepChildren = false): Promise<void> =>
