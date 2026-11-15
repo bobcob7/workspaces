@@ -393,6 +393,28 @@ func TestExecute(t *testing.T) {
 		assert.NoFileExists(t, files.path(reportFile))
 		assert.NoFileExists(t, files.path(usageFile))
 	})
+	t.Run("an MCP header value never reaches the transcript or the log", func(t *testing.T) {
+		t.Parallel()
+		const key = "mcp-hdr-53c1e7a9"
+		server := serveKeyedMetricsServer(t, key)
+		model := newModelServer(t, script(
+			toolSSE("c1", "mcp__metrics__ping", `{}`),
+			recordPass,
+		))
+		files, workspace := newRunFixture(t, model.URL, func(run *Run) {
+			run.MCPServers = []string{"metrics"}
+		})
+		writeKeyedMCPJSON(t, workspace, server, key)
+		require.NoError(t, Execute(t.Context(), testInput(t, files, workspace, false)))
+
+		transcript := readTranscript(t, files)
+		assert.Contains(t, transcript, `"ok":true`)
+		assert.Contains(t, transcript, "[redacted]")
+		assert.NotContains(t, transcript, key)
+		logData, err := os.ReadFile(files.Log())
+		require.NoError(t, err)
+		assert.NotContains(t, string(logData), key)
+	})
 }
 
 // TestExecute_consoleSpans runs a run in a child process with the console span
@@ -499,6 +521,31 @@ const testTraceID = "4bf92f3577b34da6a3ce929d0e0e4736"
 // over streamable HTTP, and returns its URL.
 func serveMetricsServer(t *testing.T) string {
 	t.Helper()
+	return serveHTTP(t, newMetricsServer("pong"))
+}
+
+// serveKeyedMetricsServer is serveMetricsServer behind a required
+// X-Metrics-Key header, and its ping answers with the key: a server that
+// leaks its own credential, for the redactor to remove.
+func serveKeyedMetricsServer(t *testing.T, key string) string {
+	t.Helper()
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return newMetricsServer("pong " + key)
+	}, nil)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Metrics-Key") != key {
+			http.Error(w, "missing key", http.StatusUnauthorized)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+	return ts.URL
+}
+
+// newMetricsServer is an MCP server with one read-only tool, ping, that
+// answers with answer.
+func newMetricsServer(answer string) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "metrics", Version: "1.0.0"}, nil)
 	srv.AddTool(&mcp.Tool{
 		Name:        "ping",
@@ -506,8 +553,14 @@ func serveMetricsServer(t *testing.T) string {
 		InputSchema: map[string]any{"type": "object"},
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "pong"}}}, nil
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: answer}}}, nil
 	})
+	return srv
+}
+
+// serveHTTP serves srv over streamable HTTP and returns its URL.
+func serveHTTP(t *testing.T, srv *mcp.Server) string {
+	t.Helper()
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil))
 	t.Cleanup(ts.Close)
 	return ts.URL
@@ -517,6 +570,14 @@ func serveMetricsServer(t *testing.T) string {
 func writeMCPJSON(t *testing.T, workspace, url string) {
 	t.Helper()
 	data := fmt.Sprintf(`{"mcpServers":{"metrics":{"type":"http","url":%q}}}`, url)
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, ".mcp.json"), []byte(data), fileMode))
+}
+
+// writeKeyedMCPJSON writes the workspace's .mcp.json with one HTTP server at
+// url that is sent X-Metrics-Key: key.
+func writeKeyedMCPJSON(t *testing.T, workspace, url, key string) {
+	t.Helper()
+	data := fmt.Sprintf(`{"mcpServers":{"metrics":{"type":"http","url":%q,"headers":{"X-Metrics-Key":%q}}}}`, url, key)
 	require.NoError(t, os.WriteFile(filepath.Join(workspace, ".mcp.json"), []byte(data), fileMode))
 }
 
