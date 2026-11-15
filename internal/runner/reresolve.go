@@ -27,8 +27,9 @@ type Reresolver struct {
 	Redact    func(secret string)
 	Log       *slog.Logger
 
-	next   config.Target   // the target of the last Changed resolution
-	warned map[string]bool // the distinct warnings already logged
+	next       config.Target   // the target of the last Changed resolution
+	configured int             // context_tokens as config.toml had it at the last read; 0 before the first
+	warned     map[string]bool // the distinct warnings already logged
 }
 
 // Reresolve implements agent's reresolver.
@@ -41,7 +42,9 @@ func (r *Reresolver) Reresolve(ctx context.Context, current agent.Target) agent.
 	if err != nil {
 		return r.warning(err)
 	}
+	configured := target.ContextTokens
 	target = r.keepWindow(target)
+	r.configured = configured
 	changes := Changes(r.Current, target)
 	if len(changes) == 0 {
 		return agent.Resolution{}
@@ -60,10 +63,13 @@ func (r *Reresolver) Adopt() config.Target {
 }
 
 // keepWindow caps the configured window at the one in use while the endpoint,
-// URL, API and model stay the same. A probe may have lowered that window, and
-// a settings change must not widen it past what the model serves.
+// URL, API and model stay the same and context_tokens is as the last read left
+// it. A probe may have lowered the window in use, so an unchanged setting must
+// not widen it past what the model serves. An edited setting applies. Before
+// the first read the setting counts as unchanged.
 func (r *Reresolver) keepWindow(target config.Target) config.Target { //nolint:gocritic // hugeParam: a target copied once per retry.
-	if r.Current.ContextTokens <= 0 || agent.SwitchesEndpoint(Changes(r.Current, target)) {
+	edited := r.configured != 0 && target.ContextTokens != r.configured
+	if edited || r.Current.ContextTokens <= 0 || agent.SwitchesEndpoint(Changes(r.Current, target)) {
 		return target
 	}
 	target.ContextTokens = min(target.ContextTokens, r.Current.ContextTokens)
