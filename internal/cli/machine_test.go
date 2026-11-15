@@ -970,12 +970,12 @@ func TestApp_spawnRunner(t *testing.T) {
 		wantUsage bool
 	}{
 		{name: "claude unless named", toml: runnerToml, want: "claude"},
-		{name: "--runner ws", toml: runnerToml, opts: machineSpawnOptions{runner: "ws"}, want: "ws"},
+		{name: "--runner ws", toml: runnerToml, opts: machineSpawnOptions{claudeOptions: claudeOptions{runner: "ws"}}, want: "ws"},
 		{name: "a role routed to ws by its runner", toml: routed, opts: machineSpawnOptions{role: "implementer"}, want: "ws"},
-		{name: "--runner claude overrides the role's runner", toml: routed, opts: machineSpawnOptions{role: "implementer", runner: "claude"}, want: "claude"},
-		{name: "an unknown runner is usage", toml: runnerToml, opts: machineSpawnOptions{runner: "gpu"}, wantUsage: true},
-		{name: "--endpoint with claude is usage", toml: runnerToml, opts: machineSpawnOptions{endpoint: "cpu"}, wantUsage: true},
-		{name: "--endpoint with --runner claude is usage", toml: runnerToml, opts: machineSpawnOptions{runner: "claude", endpoint: "cpu"}, wantUsage: true},
+		{name: "--runner claude overrides the role's runner", toml: routed, opts: machineSpawnOptions{role: "implementer", claudeOptions: claudeOptions{runner: "claude"}}, want: "claude"},
+		{name: "an unknown runner is usage", toml: runnerToml, opts: machineSpawnOptions{claudeOptions: claudeOptions{runner: "gpu"}}, wantUsage: true},
+		{name: "--endpoint with claude is usage", toml: runnerToml, opts: machineSpawnOptions{claudeOptions: claudeOptions{endpoint: "cpu"}}, wantUsage: true},
+		{name: "--endpoint with --runner claude is usage", toml: runnerToml, opts: machineSpawnOptions{claudeOptions: claudeOptions{runner: "claude", endpoint: "cpu"}}, wantUsage: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

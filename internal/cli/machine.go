@@ -49,14 +49,12 @@ func (a *App) newMachineCmd() *cobra.Command {
 	return cmd
 }
 
-// machineSpawnOptions is ws machine spawn's: ws claude's plus a role, and the
-// runner and endpoint for a ws child (ADR 0070).
+// machineSpawnOptions is ws machine spawn's: ws claude's, which include the
+// runner and endpoint for a ws child (ADR 0070), plus a role.
 type machineSpawnOptions struct {
 	claudeOptions
-	role     string
-	vars     []string
-	runner   string
-	endpoint string
+	role string
+	vars []string
 }
 
 // machineSpawnJSON is ws claude --json's object plus the role, the runner
@@ -78,6 +76,22 @@ type spawnWSRunnerJSON struct {
 	API           string   `json:"api"`
 	ContextTokens int      `json:"context_tokens"`
 	MCPServers    []string `json:"mcp_servers"`
+}
+
+// wsRunnerJSON is a ws runner agent's details in the JSON ws prints for it.
+func wsRunnerJSON(res *config.Resolved) *spawnWSRunnerJSON {
+	mcpServers := res.MCPServers
+	if mcpServers == nil {
+		mcpServers = []string{}
+	}
+	return &spawnWSRunnerJSON{
+		ModelAlias:    optional(res.ModelAlias),
+		Endpoint:      res.EndpointName,
+		URL:           res.Endpoint.URL,
+		API:           res.Endpoint.API,
+		ContextTokens: res.ContextTokens,
+		MCPServers:    mcpServers,
+	}
 }
 
 // claudeModel is the model named by --model (or --model=) in args: the
@@ -303,23 +317,12 @@ func runnerModelArgs(args []string) (string, error) {
 // runnerSpawnJSON is ws machine spawn's object for a ws child (reference.md).
 func runnerSpawnJSON(roleName string, started *runnerStarted, r *claudeResult) machineSpawnJSON {
 	res := started.Resolved
-	mcpServers := res.MCPServers
-	if mcpServers == nil {
-		mcpServers = []string{}
-	}
 	return machineSpawnJSON{
 		claudeResult: *r,
 		Role:         optional(roleName),
 		Runner:       lifetime.RunnerWS,
 		Model:        optional(res.ModelID),
-		WSRunner: &spawnWSRunnerJSON{
-			ModelAlias:    optional(res.ModelAlias),
-			Endpoint:      res.EndpointName,
-			URL:           res.Endpoint.URL,
-			API:           res.Endpoint.API,
-			ContextTokens: res.ContextTokens,
-			MCPServers:    mcpServers,
-		},
+		WSRunner:     wsRunnerJSON(&res),
 	}
 }
 

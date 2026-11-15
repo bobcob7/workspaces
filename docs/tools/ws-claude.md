@@ -88,7 +88,28 @@ workspace.
 | `--offline`     | Don't fetch; use the cache as-is                            |
 | `--hidden`      | Hide the workspace from `ws list` (without `-a`) and the desktop app's default views; for helpers started by scripts or agents. See [`ws hide`](ws-hide.md) and [0043](../adrs/0043-hidden-workspaces.md) |
 | `--parent <WORKSPACE>\|none` | The workspace this one is removed with ([0044](../adrs/0044-workspace-trees.md)); default: the workspace `ws` runs in, so an agent's helpers are its children; `none` for a top-level workspace |
-| `--json`        | Print `{"id", "session", "path", "parent", "repos", "warnings"}` |
+| `--runner claude\|ws` | Which agent runs it: Claude Code (the default), or `ws`'s own runner ([0070](../adrs/0070-runner-agents-for-people-and-loops.md)) |
+| `--endpoint <name>` | With `--runner ws`, another endpoint from `config.toml`; `usage` without it |
+| `--json`        | Print `{"id", "session", "path", "parent", "repos", "warnings", "runner", "model", "ws_runner"}` |
+
+## Runner agents
+
+With `--runner ws`, the agent runs on `ws`'s own runner, not Claude Code,
+and no `claude` process is started for it. The start is the one `ws machine
+spawn --runner ws` uses: `ws` checks the endpoint and model with the daemon
+first, so a failed check fails the command with its code and creates nothing,
+then creates the workspace, and starts the runner with the prompt
+([0070](../adrs/0070-runner-agents-for-people-and-loops.md)). A prompt after
+`--` is required, and only `--model <m>` may follow it; the agent can't be
+attached, so `ws` always prints the result. The model is `--model`, else
+`runner.model`. Without `--runner ws`, `ws claude` runs as it always has, with
+no daemon and no `[runner]`, `[endpoints]` or `[models]` tables
+([0071](../adrs/0071-claude-code-default-runner-as-peer.md)).
+
+The JSON output gains three fields: `runner` (`"claude"` or `"ws"`), `model`
+(a Claude agent's `--model`, a ws agent's model id, or `null`), and `ws_runner`
+(`null` for a Claude agent, else the alias, endpoint, URL, API, context size
+and MCP servers the runner uses).
 
 ## Trust
 

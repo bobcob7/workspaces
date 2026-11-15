@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/gittest"
 	"github.com/bobcob7/workspaces/internal/lockfile"
@@ -432,7 +434,10 @@ func TestApp_runClaude(t *testing.T) {
 			"repos": []any{map[string]any{
 				"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch", "commit": "3f2a9c1e",
 			}},
-			"warnings": []any{"left something"},
+			"warnings":  []any{"left something"},
+			"runner":    "claude",
+			"model":     nil,
+			"ws_runner": nil,
 		}, got)
 		assert.Empty(t, e.stderr.String())
 	})
@@ -756,7 +761,7 @@ func TestApp_printClaudeResult(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.app.global.json = true
 		require.NoError(t, e.app.printClaudeResult(&workspace.Workspace{ID: "x", Path: "/p"}, "e8cdf5d8", nil))
-		assert.JSONEq(t, `{"id":"x","session":"e8cdf5d8","path":"/p","parent":null,"repos":[],"warnings":[]}`, e.stdout.String())
+		assert.JSONEq(t, `{"id":"x","session":"e8cdf5d8","path":"/p","parent":null,"repos":[],"warnings":[],"runner":"claude","model":null,"ws_runner":null}`, e.stdout.String())
 	})
 }
 
@@ -859,4 +864,197 @@ func TestAddCreateFlags(t *testing.T) {
 	require.NoError(t, cmd.ParseFlags([]string{"--name", "fix-login", "--offline"}))
 	assert.Equal(t, "fix-login", name)
 	assert.True(t, offline)
+}
+
+// noClaude is a Claude Code client that fails the test if it is used.
+func noClaude(t *testing.T) *claudeClientMock {
+	t.Helper()
+	return &claudeClientMock{
+		CheckFunc: func(context.Context) error {
+			t.Error("ws claude checked Claude Code")
+			return errTest
+		},
+		StartFunc: func(context.Context, claude.StartOptions) (claude.Started, error) {
+			t.Error("ws claude started a Claude agent")
+			return claude.Started{}, errTest
+		},
+	}
+}
+
+func TestApp_newClaudeCmd_runner(t *testing.T) {
+	app, _, _ := newTestApp()
+	parse := func(t *testing.T, args ...string) (*cobra.Command, []string) {
+		t.Helper()
+		cmd := app.newClaudeCmd()
+		require.NoError(t, cmd.ParseFlags(args))
+		return cmd, cmd.Flags().Args()
+	}
+	t.Run("has the runner flags, defaulting to claude with no endpoint", func(t *testing.T) {
+		cmd := app.newClaudeCmd()
+		assertFlag(t, cmd, "runner", "claude")
+		assertFlag(t, cmd, "endpoint", "")
+	})
+	t.Run("a ws agent takes a prompt and then --model", func(t *testing.T) {
+		cmd, args := parse(t, "--runner", "ws", "--", "write docs", "--model", "qwen9b")
+		assert.NoError(t, cmd.Args(cmd, args))
+	})
+	t.Run("a ws agent without a prompt is usage", func(t *testing.T) {
+		cmd, args := parse(t, "--runner", "ws", "buff-bear")
+		requireUsageError(t, cmd.Args(cmd, args))
+	})
+	t.Run("a ws agent with anything but --model after the prompt is usage", func(t *testing.T) {
+		cmd, args := parse(t, "--runner", "ws", "--", "write docs", "--permission-mode", "auto")
+		requireUsageError(t, cmd.Args(cmd, args))
+	})
+	t.Run("--endpoint needs a ws agent", func(t *testing.T) {
+		cmd, args := parse(t, "--endpoint", "gpu", "--", "fix it")
+		requireUsageError(t, cmd.Args(cmd, args))
+	})
+	t.Run("an unknown runner is usage", func(t *testing.T) {
+		cmd, args := parse(t, "--runner", "gpu", "--", "fix it")
+		requireUsageError(t, cmd.Args(cmd, args))
+	})
+}
+
+func TestApp_runClaude_runner(t *testing.T) {
+	run := func(t *testing.T, e *runnerEnv, args ...string) int {
+		t.Helper()
+		argv := append([]string{"claude", "--json", "--runner", "ws", "--name", "Fix Login"}, args...)
+		return e.app.execute(t.Context(), e.app.newRootCmd(), argv)
+	}
+	t.Run("starts a ws agent under the parent ws claude chooses, and prints it as JSON", func(t *testing.T) {
+		e := newRunnerEnv(t, runnerToml)
+		e.app.claude = noClaude(t)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		code := run(t, e, "--", "fix it", "--model", "qwen9b")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		var got struct {
+			Session  string  `json:"session"`
+			Parent   *string `json:"parent"`
+			Runner   string  `json:"runner"`
+			Model    *string `json:"model"`
+			WSRunner *struct {
+				ModelAlias    *string `json:"model_alias"`
+				Endpoint      string  `json:"endpoint"`
+				ContextTokens int     `json:"context_tokens"`
+			} `json:"ws_runner"`
+		}
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got), e.stdout.String())
+		assert.True(t, strings.HasPrefix(got.Session, "rn-"))
+		require.NotNil(t, got.Parent)
+		assert.Equal(t, "plan", *got.Parent)
+		assert.Equal(t, "ws", got.Runner)
+		require.NotNil(t, got.Model)
+		assert.Equal(t, "qwen/qwen3.5-9b", *got.Model)
+		require.NotNil(t, got.WSRunner)
+		require.NotNil(t, got.WSRunner.ModelAlias)
+		assert.Equal(t, "qwen9b", *got.WSRunner.ModelAlias)
+		assert.Equal(t, "gpu", got.WSRunner.Endpoint)
+		assert.Equal(t, 65536, got.WSRunner.ContextTokens)
+		require.Len(t, e.store.CreateCalls(), 1)
+		assert.Equal(t, "plan", e.store.CreateCalls()[0].Opts.Parent)
+		assert.Equal(t, "plan", readRun(t, e, "fix-login-d8efb24f").Parent)
+		require.Len(t, e.daemon.StartRunnerCalls(), 1)
+	})
+	t.Run("--parent none makes it top-level", func(t *testing.T) {
+		e := newRunnerEnv(t, runnerToml)
+		e.app.claude = noClaude(t)
+		code := run(t, e, "--parent", "none", "--", "fix it")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		var got struct {
+			Parent *string `json:"parent"`
+		}
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got), e.stdout.String())
+		assert.Nil(t, got.Parent)
+		require.Len(t, e.store.CreateCalls(), 1)
+		assert.Empty(t, e.store.CreateCalls()[0].Opts.Parent)
+		assert.Empty(t, readRun(t, e, "fix-login-d8efb24f").Parent)
+	})
+	t.Run("a missing or unusable prompt, or other arguments after it, is usage, and nothing is created", func(t *testing.T) {
+		cases := map[string][]string{
+			"no prompt":                  nil,
+			"a blank prompt":             {"--", "  "},
+			"--permission-mode after it": {"--", "fix it", "--permission-mode", "auto"},
+		}
+		for name, args := range cases {
+			t.Run(name, func(t *testing.T) {
+				e := newRunnerEnv(t, runnerToml)
+				e.app.claude = noClaude(t)
+				code := run(t, e, args...)
+				assert.Equal(t, exitUsage, code)
+				assert.Equal(t, "usage", errorCodeOf(t, e.stderr))
+				assert.Empty(t, e.store.CreateCalls())
+				assert.Empty(t, e.daemon.PreflightCalls())
+			})
+		}
+	})
+	t.Run("--endpoint without --runner ws is usage, and nothing is created", func(t *testing.T) {
+		e := newRunnerEnv(t, runnerToml)
+		e.app.claude = noClaude(t)
+		code := e.app.execute(t.Context(), e.app.newRootCmd(), []string{"claude", "--json", "--endpoint", "cpu", "--", "fix it"})
+		assert.Equal(t, exitUsage, code)
+		assert.Equal(t, "usage", errorCodeOf(t, e.stderr))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("a preflight failure is its code, with no workspace and no Claude agent", func(t *testing.T) {
+		e := newRunnerEnv(t, runnerToml)
+		e.app.claude = noClaude(t)
+		e.daemon.PreflightFunc = func(context.Context, daemon.PreflightRequest) (daemon.PreflightResponse, error) {
+			return daemon.PreflightResponse{}, &daemon.RemoteError{Code: "model_not_served", Message: "not served"}
+		}
+		code := run(t, e, "--", "fix it")
+		assert.Equal(t, exitNotFound, code)
+		assert.Equal(t, "model_not_served", errorCodeOf(t, e.stderr))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+}
+
+func TestApp_runClaude_untouched(t *testing.T) {
+	// ADR 0071: a Claude agent starts exactly as it did before the runner
+	// existed, whatever the runner tables say, and never asks the daemon.
+	variants := map[string][]string{
+		"without --runner":     nil,
+		"with --runner claude": {"--runner", "claude"},
+	}
+	for name, flags := range variants {
+		t.Run(name, func(t *testing.T) {
+			e := newClaudeEnv(t)
+			e.app.dialDaemon = func(context.Context) (runnerDaemon, error) {
+				t.Error("the Claude path asked the daemon")
+				return nil, errTest
+			}
+			cfg := testConfig()
+			cfg.RunnerErr = errors.New("a broken [runner] table")
+			e.app.configs = &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
+				return config.NewPaths(t.TempDir()), cfg, nil
+			}}
+			e.app.newStores = func(config.Paths, config.Config) stores {
+				return stores{cache: stubCache(), workspaces: e.store, lifetime: stubLifetime()}
+			}
+			argv := append([]string{"claude", "--json", "--name", "Fix Login"}, flags...)
+			argv = append(argv, "--", "fix it", "--model", "opus")
+			code := e.app.execute(t.Context(), e.app.newRootCmd(), argv)
+			require.Equal(t, exitOK, code, e.stderr.String())
+			var got map[string]any
+			require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got), e.stdout.String())
+			assert.Equal(t, "claude", got["runner"])
+			assert.Equal(t, "opus", got["model"])
+			assert.Nil(t, got["ws_runner"])
+			require.Len(t, e.claude.StartCalls(), 1)
+			assert.Equal(t, []string{"fix it", "--model", "opus"}, e.claude.StartCalls()[0].Opts.Args)
+		})
+	}
+	t.Run("prints the same line without --json", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.dialDaemon = func(context.Context) (runnerDaemon, error) {
+			t.Error("the Claude path asked the daemon")
+			return nil, errTest
+		}
+		e.app.newStores = func(config.Paths, config.Config) stores {
+			return stores{cache: stubCache(), workspaces: e.store, lifetime: stubLifetime()}
+		}
+		code := e.app.execute(t.Context(), e.app.newRootCmd(), []string{"claude", "--name", "Fix Login", "--", "fix it"})
+		require.Equal(t, exitOK, code, e.stderr.String())
+		assert.Equal(t, "x  e8cdf5d8  /cfg/workspaces/x\n", e.stdout.String())
+	})
 }
