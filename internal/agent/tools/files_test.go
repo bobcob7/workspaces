@@ -155,6 +155,14 @@ func TestSearch(t *testing.T) {
 func TestWriteFileTool(t *testing.T) {
 	cfg := testConfig(t)
 	write := writeFileTool(&cfg)
+	t.Run("requires content", func(t *testing.T) {
+		_, err := write.Call(t.Context(), `{"path":"a.txt"}`)
+		require.EqualError(t, err, "missing content")
+	})
+	t.Run("refuses null content", func(t *testing.T) {
+		_, err := write.Call(t.Context(), `{"path":"a.txt","content":null}`)
+		require.EqualError(t, err, "missing content")
+	})
 	t.Run("requires a path", func(t *testing.T) {
 		_, err := write.Call(t.Context(), `{"content":"x"}`)
 		require.EqualError(t, err, "missing path")
@@ -168,6 +176,14 @@ func TestWriteFileTool(t *testing.T) {
 func TestEditFileTool(t *testing.T) {
 	cfg := testConfig(t)
 	edit := editFileTool(&cfg)
+	t.Run("requires new", func(t *testing.T) {
+		_, err := edit.Call(t.Context(), `{"path":"a.txt","old":"x"}`)
+		require.EqualError(t, err, "missing new")
+	})
+	t.Run("refuses null new", func(t *testing.T) {
+		_, err := edit.Call(t.Context(), `{"path":"a.txt","old":"x","new":null}`)
+		require.EqualError(t, err, "missing new")
+	})
 	t.Run("requires old", func(t *testing.T) {
 		_, err := edit.Call(t.Context(), `{"path":"a.txt","new":"y"}`)
 		require.EqualError(t, err, "missing old")
@@ -183,7 +199,7 @@ func TestWriteFile(t *testing.T) {
 	t.Run("creates parent directories and the file", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
-		res, err := writeFile(&cfg, writeFileArgs{Path: "new/dir/f.txt", Content: "hello"})
+		res, err := writeFile(&cfg, writeFileArgs{Path: "new/dir/f.txt", Content: new("hello")})
 		require.NoError(t, err)
 		assert.Equal(t, "wrote 5 bytes to new/dir/f.txt", res.Text)
 		data, err := os.ReadFile(filepath.Join(cfg.Dir, "new", "dir", "f.txt"))
@@ -192,7 +208,7 @@ func TestWriteFile(t *testing.T) {
 	})
 	t.Run("refuses writes under .git", func(t *testing.T) {
 		t.Parallel()
-		_, err := writeFile(new(testConfig(t)), writeFileArgs{Path: ".git/HEAD", Content: "x"})
+		_, err := writeFile(new(testConfig(t)), writeFileArgs{Path: ".git/HEAD", Content: new("x")})
 		require.ErrorContains(t, err, "under .git")
 	})
 	t.Run("requires a path", func(t *testing.T) {
@@ -208,7 +224,7 @@ func TestEditFile(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
 		p := writeTestFile(t, cfg.Dir, "a.txt", "alpha beta")
-		res, err := editFile(&cfg, editFileArgs{Path: "a.txt", Old: "alpha", New: "gamma"})
+		res, err := editFile(&cfg, editFileArgs{Path: "a.txt", Old: "alpha", New: new("gamma")})
 		require.NoError(t, err)
 		assert.Equal(t, "replaced 1 occurrence(s) in a.txt", res.Text)
 		data, err := os.ReadFile(p)
@@ -219,14 +235,14 @@ func TestEditFile(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
 		writeTestFile(t, cfg.Dir, "a.txt", "x x")
-		_, err := editFile(&cfg, editFileArgs{Path: "a.txt", Old: "x", New: "y"})
+		_, err := editFile(&cfg, editFileArgs{Path: "a.txt", Old: "x", New: new("y")})
 		require.EqualError(t, err, "old occurs 2 times; add context or set all")
 	})
 	t.Run("replaces every occurrence with all", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
 		p := writeTestFile(t, cfg.Dir, "a.txt", "x x")
-		res, err := editFile(&cfg, editFileArgs{Path: "a.txt", Old: "x", New: "y", All: true})
+		res, err := editFile(&cfg, editFileArgs{Path: "a.txt", Old: "x", New: new("y"), All: true})
 		require.NoError(t, err)
 		assert.Equal(t, "replaced 2 occurrence(s) in a.txt", res.Text)
 		data, err := os.ReadFile(p)
@@ -237,7 +253,7 @@ func TestEditFile(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
 		writeTestFile(t, cfg.Dir, "a.txt", "x")
-		_, err := editFile(&cfg, editFileArgs{Path: "a.txt", Old: "zzz", New: "y"})
+		_, err := editFile(&cfg, editFileArgs{Path: "a.txt", Old: "zzz", New: new("y")})
 		require.EqualError(t, err, "old not found in a.txt")
 	})
 	t.Run("requires old", func(t *testing.T) {
@@ -248,7 +264,7 @@ func TestEditFile(t *testing.T) {
 }
 
 func TestReplaceText(t *testing.T) {
-	args := editFileArgs{Path: "f", Old: "a", New: "b"}
+	args := editFileArgs{Path: "f", Old: "a", New: new("b")}
 	got, n, err := replaceText("a a", args)
 	require.Error(t, err)
 	assert.Empty(t, got)

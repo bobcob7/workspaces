@@ -307,8 +307,8 @@ func (s *searcher) text() string {
 }
 
 type writeFileArgs struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path    string  `json:"path"`
+	Content *string `json:"content"`
 }
 
 func writeFileTool(cfg *Config) Tool {
@@ -329,6 +329,10 @@ func writeFile(cfg *Config, args writeFileArgs) (Result, error) {
 	if args.Path == "" {
 		return Result{}, errors.New("missing path")
 	}
+	if args.Content == nil {
+		return Result{}, errors.New("missing content")
+	}
+	content := *args.Content
 	target, err := CheckPath(cfg.Root, cfg.Dir, args.Path)
 	if err != nil {
 		return Result{}, err
@@ -336,17 +340,17 @@ func writeFile(cfg *Config, args writeFileArgs) (Result, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil { //nolint:gosec // parents are 0755 by spec (ADR 0065)
 		return Result{}, fmt.Errorf("creating directories for %s: %w", args.Path, err)
 	}
-	if err := os.WriteFile(target, []byte(args.Content), 0o644); err != nil { //nolint:gosec // model-written files are 0644 by spec (ADR 0065)
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil { //nolint:gosec // model-written files are 0644 by spec (ADR 0065)
 		return Result{}, fmt.Errorf("writing %s: %w", args.Path, err)
 	}
-	return Result{Text: fmt.Sprintf("wrote %d bytes to %s", len(args.Content), args.Path)}, nil
+	return Result{Text: fmt.Sprintf("wrote %d bytes to %s", len(content), args.Path)}, nil
 }
 
 type editFileArgs struct {
-	Path string `json:"path"`
-	Old  string `json:"old"`
-	New  string `json:"new"`
-	All  bool   `json:"all"`
+	Path string  `json:"path"`
+	Old  string  `json:"old"`
+	New  *string `json:"new"`
+	All  bool    `json:"all"`
 }
 
 func editFileTool(cfg *Config) Tool {
@@ -371,6 +375,9 @@ func editFile(cfg *Config, args editFileArgs) (Result, error) {
 	}
 	if args.Old == "" {
 		return Result{}, errors.New("missing old")
+	}
+	if args.New == nil {
+		return Result{}, errors.New("missing new")
 	}
 	target, err := CheckPath(cfg.Root, cfg.Dir, args.Path)
 	if err != nil {
@@ -400,7 +407,7 @@ func replaceText(text string, args editFileArgs) (string, int, error) {
 	case count > 1 && !args.All:
 		return "", 0, fmt.Errorf("old occurs %d times; add context or set all", count)
 	case args.All:
-		return strings.ReplaceAll(text, args.Old, args.New), count, nil
+		return strings.ReplaceAll(text, args.Old, *args.New), count, nil
 	}
-	return strings.Replace(text, args.Old, args.New, 1), 1, nil
+	return strings.Replace(text, args.Old, *args.New, 1), 1, nil
 }

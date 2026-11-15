@@ -8,6 +8,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestRedactor_Add(t *testing.T) {
+	r := NewRedactor()
+	r.Add("secret-one", "abc")
+	assert.Equal(t, "[redacted] abc", r.Redact("secret-one abc"))
+	r.Add("token-value")
+	assert.Equal(t, "[redacted]", r.Redact("token-value"))
+}
+
 func TestRedactor_Redact(t *testing.T) {
 	t.Run("replaces the longest registered value first", func(t *testing.T) {
 		r := NewRedactor("abc", "abcdef")
