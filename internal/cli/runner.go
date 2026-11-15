@@ -97,6 +97,9 @@ type runnerStopResult struct {
 // runRunnerStop stops workspace id's runner through the daemon. A workspace
 // without a runner session is workspace_not_found.
 func (a *App) runRunnerStop(ctx context.Context, id string) error {
+	if !daemon.ValidWorkspaceID(id) {
+		return newError(codeWorkspaceNotFound, fmt.Errorf("workspace %s has no runner session", id))
+	}
 	run, err := runner.FilesFor(a.paths.State, id).ReadRun()
 	if errors.Is(err, fs.ErrNotExist) {
 		return newError(codeWorkspaceNotFound, fmt.Errorf("workspace %s has no runner session", id))

@@ -237,6 +237,25 @@ func TestSupervisor_Start(t *testing.T) {
 		assert.Equal(t, first, second)
 		assert.Len(t, starter.StartCalls(), 1)
 	})
+	t.Run("a start after a stop clears the stop file before the runner starts", func(t *testing.T) {
+		f := newSessionFixture(t)
+		starter := f.starter()
+		sup := f.supervisor(starter, nil)
+		_, err := sup.Start(t.Context(), "ws-1", false)
+		require.NoError(t, err)
+		stopped, err := sup.Stop(t.Context(), "ws-1")
+		require.NoError(t, err)
+		require.True(t, stopped)
+		require.FileExists(t, filepath.Join(f.files.Dir, "stop"))
+		startProcess := starter.StartFunc
+		starter.StartFunc = func(exe string, args []string, dir, logPath string, env []string) (int, error) {
+			assert.NoFileExists(t, filepath.Join(f.files.Dir, "stop"))
+			return startProcess(exe, args, dir, logPath, env)
+		}
+		_, err = sup.Start(t.Context(), "ws-1", true)
+		require.NoError(t, err)
+		assert.Contains(t, starter.StartCalls()[1].Args, "--resume")
+	})
 }
 
 func TestSupervisor_Stop(t *testing.T) {
@@ -296,6 +315,19 @@ func TestSupervisor_Stop(t *testing.T) {
 		require.NotNil(t, st.Exit)
 		assert.Equal(t, "stopped", *st.Exit)
 		assert.FileExists(t, filepath.Join(f.files.Dir, "usage.json"))
+	})
+	t.Run("a runner that died without an exit is finalized as stopped", func(t *testing.T) {
+		f := newSessionFixture(t)
+		f.writeStatus(7, nil)
+		starter := &processStarterMock{SignalFunc: func(int, syscall.Signal) error { return nil }}
+		sup := f.supervisor(starter, nil)
+		stopped, err := sup.Stop(t.Context(), "ws-1")
+		require.NoError(t, err)
+		assert.True(t, stopped)
+		assert.Empty(t, starter.SignalCalls())
+		st := f.readStatus()
+		require.NotNil(t, st.Exit)
+		assert.Equal(t, "stopped", *st.Exit)
 	})
 }
 
