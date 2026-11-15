@@ -43,7 +43,7 @@ func (r *run) handleCall(ctx context.Context, call llm.ToolCall) *exitInfo {
 	if ex := r.countRepeat(call); ex != nil {
 		return ex
 	}
-	res, err := r.agent.cfg.Tools.Call(ctx, call.Name, call.Arguments)
+	res, err := r.agent.cfg.Tools.Call(WithToolCallID(ctx, call.ID), call.Name, call.Arguments)
 	return r.answer(call, res, err)
 }
 
