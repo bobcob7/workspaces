@@ -30,6 +30,8 @@ lint:
 	@! grep -rnE '(syscall|unix)\.Exec\b' --include='*.go' . | grep -v '^\./internal/claude/'
 	@# ADR 0067: the fakes are imported only by themselves, cmd/fake-* and e2e/.
 	@! grep -rnE '"github.com/bobcob7/workspaces/internal/fake(ollama|mcp)' --include='*.go' . | grep -vE '^\./(internal/fake(ollama|mcp)|cmd/fake-[a-z]+|e2e)/'
+	@# ADR 0062: only the openai provider and the fake requests chat/completions.
+	@! grep -rn 'chat/completions' --include='*.go' . | grep -vE '^\./internal/(llm/openai|fakeollama)/' | grep -v '_test\.go:'
 
 fmt:
 	go tool golangci-lint fmt ./...

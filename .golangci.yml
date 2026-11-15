@@ -211,6 +211,12 @@ linters:
         linters:
           - gocritic
         text: hugeParam
+      # internal/llm/openai and internal/llm/providers take the endpoint and the
+      # request by value, as the provider seam does (ADR 0062).
+      - path: ^internal/llm/(openai|providers)/
+        linters:
+          - gocritic
+        text: hugeParam
       # main is where the real streams and the exit code belong.
       - path: ^cmd/(ws|fake-ollama|fake-mcp)/
         linters:
