@@ -69,12 +69,20 @@ func TestStore_Session(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, Session{Version: 1, Kind: SessionShell}, got)
 	})
+	t.Run("a runner record is version 2", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		writeFile(t, s.sessionPath("x"), "version = 2\nkind = \"runner\"\nrunner_session_id = \"rn-3f2a9c1e\"\n")
+		got, err := s.Session("x")
+		require.NoError(t, err)
+		assert.Equal(t, Session{Version: 2, Kind: SessionRunner, RunnerSessionID: "rn-3f2a9c1e"}, got)
+	})
 	t.Run("a newer version", func(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
-		writeFile(t, s.sessionPath("x"), "version = 2\nkind = \"shell\"\nhost = \"h\"\n")
+		writeFile(t, s.sessionPath("x"), "version = 3\nkind = \"shell\"\nhost = \"h\"\n")
 		_, err := s.Session("x")
-		assert.ErrorContains(t, err, "written by a newer ws (version 2; this ws reads up to 1); upgrade ws")
+		assert.ErrorContains(t, err, "written by a newer ws (version 3; this ws reads up to 2); upgrade ws")
 	})
 	t.Run("a negative version", func(t *testing.T) {
 		t.Parallel()
@@ -244,8 +252,36 @@ func TestSession_check(t *testing.T) {
 	t.Run("agent without its id", func(t *testing.T) {
 		assert.Error(t, (&Session{Kind: SessionClaude}).check())
 	})
+	t.Run("runner with its id", func(t *testing.T) {
+		assert.NoError(t, (&Session{Kind: SessionRunner, RunnerSessionID: "rn-3f2a9c1e"}).check())
+	})
+	t.Run("runner without its id", func(t *testing.T) {
+		assert.Error(t, (&Session{Kind: SessionRunner}).check())
+	})
+	t.Run("runner with another prefix", func(t *testing.T) {
+		assert.Error(t, (&Session{Kind: SessionRunner, RunnerSessionID: "e8cdf5d8"}).check())
+	})
 	t.Run("unknown kind", func(t *testing.T) {
 		assert.Error(t, (&Session{Kind: "vm"}).check())
+	})
+}
+
+func TestStore_RecordRunnerSession(t *testing.T) {
+	t.Parallel()
+	t.Run("writes version 2 with the runner id and start time", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		putWorkspace(t, s, "x", testNow())
+		require.NoError(t, s.RecordRunnerSession("x", "rn-3f2a9c1e"))
+		var got Session
+		_, err := toml.DecodeFile(s.sessionPath("x"), &got)
+		require.NoError(t, err)
+		assert.Equal(t, Session{Version: 2, Kind: SessionRunner, RunnerSessionID: "rn-3f2a9c1e", StartedAt: testNow()}, got)
+	})
+	t.Run("an invalid id", func(t *testing.T) {
+		t.Parallel()
+		err := newTestStore(t, nil, nil).RecordRunnerSession("..", "rn-3f2a9c1e")
+		assert.ErrorIs(t, err, ErrNotFound)
 	})
 }
 

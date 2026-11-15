@@ -211,3 +211,17 @@ func TestMCPToolset_Deferred(t *testing.T) {
 		assert.False(t, strings.HasSuffix(deferred, ","))
 	})
 }
+
+func TestMCPToolset_LoadedByServer(t *testing.T) {
+	t.Run("counts the loaded tools of each server", func(t *testing.T) {
+		ts := NewToolset(fakeTools(), mcpToolSet(40), 8, &mcpCallerMock{}, nil)
+		counts := ts.LoadedByServer()
+		assert.Equal(t, 8, counts["misc"])
+		assert.Zero(t, counts["logs"])
+	})
+	t.Run("a tool searched in counts once it is loaded", func(t *testing.T) {
+		ts := NewToolset(fakeTools(), mcpToolSet(40), 8, &mcpCallerMock{}, nil)
+		searchNamed(t, ts, "loki logs")
+		assert.Equal(t, 1, ts.LoadedByServer()["logs"])
+	})
+}

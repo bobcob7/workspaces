@@ -286,3 +286,12 @@ func searchDefinition() llm.Tool {
 		},
 	}
 }
+
+// LoadedByServer counts the loaded MCP tools of each server, for status.json.
+func (t *MCPToolset) LoadedByServer() map[string]int {
+	counts := make(map[string]int)
+	for name := range t.lastUsed {
+		counts[t.serverOf(name)]++
+	}
+	return counts
+}
