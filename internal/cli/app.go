@@ -249,7 +249,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		cmd.GroupID = peopleGroup
 		root.AddCommand(cmd)
 	}
-	root.AddCommand(a.newMachineCmd(), a.newReviewCmd(), a.newLLMCmd())
+	root.AddCommand(a.newMachineCmd(), a.newReviewCmd(), a.newLLMCmd(), a.newRunnerCmd())
 	return root
 }
 
