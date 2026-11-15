@@ -110,6 +110,23 @@ owners = []
 # [review.profiles.security]
 # when = "always"
 # model = "opus"
+#
+# Run some agents on other models (ws llm machine spawn).
+# [runner]
+# model = "qwen9b"
+#
+# [endpoints.gpu]
+# url = "http://localhost:1234"
+# api = "openai"             # OpenAI-compatible chat completions (LM Studio, Ollama, llm-router, vLLM)
+#
+# [models.qwen9b]
+# endpoint = "gpu"
+# id = "qwen/qwen3.5-9b"     # as the endpoint lists it; on Ollama: qwen3.5:9b
+# context_tokens = 65536     # must match the server's context length for this model
+# reasoning = "none"         # thinking off; "" leaves the server's default
+#
+# [runner.roles.verifier]
+# runner = "ws"
 ```
 
 - **Only `ws config` changes it.** Edit it freely. Apart from creating
@@ -253,6 +270,68 @@ model = "opus"
 [review.profiles.efficiency]
 when = "auto"
 ```
+
+### `[runner]`
+
+| Key | Type | Default | Used for |
+| --- | ---- | ------- | -------- |
+| `model` | string | none | The default model alias for `ws` agents (children, `ws claude --runner ws`, `ws` loops) |
+| `keep_git_tokens` | bool | `true` | Keep `GH_TOKEN` and `GITHUB_TOKEN` in the tools' environment |
+| `user_instructions` | bool | `false` | Also load `~/.claude/CLAUDE.md` into the system prompt; an opt-in per machine |
+
+### `[runner.env]`
+
+`NAME = "value"` pairs added to every runner's environment, for example
+`METRICS_URL`. Names match `^[A-Z_][A-Z0-9_]*$`. A name ending `_TOKEN`,
+`_KEY`, `_SECRET` or `_PASSWORD` is refused: put secrets in `secrets.env`.
+
+### `[endpoints.<name>]`
+
+| Key | Type | Default | Used for |
+| --- | ---- | ------- | -------- |
+| `url` | string | required | Base URL without `/v1`: `http(s)://host[:port][/path]`, with no user info, query or fragment |
+| `api` | string | `"openai"` | The wire protocol: `openai` (OpenAI-compatible chat completions). `ollama`, `openai-responses` and `anthropic` are reserved and refused as not implemented yet |
+| `probe` | string | `"auto"` | `auto`, `ollama` or `none`: how preflight learns capabilities and context length |
+| `request_timeout` | duration | `"10m"` | One completion, including a cold model load |
+| `idle_timeout` | duration | `"90s"` | The longest gap between streamed chunks |
+
+### `[models.<alias>]`
+
+| Key | Type | Default | Used for |
+| --- | ---- | ------- | -------- |
+| `endpoint` | string | required | An `[endpoints.<name>]` |
+| `id` | string | required | The model id on that endpoint, exactly as it lists it (`qwen/qwen3.5-9b`, `qwen3.5:9b`); any non-empty string without control characters |
+| `context_tokens` | int | required | The server's context length for it; at least 16384 |
+| `max_output` | int | `4096` | Output tokens per request |
+| `temperature` | float, as a string | `"0.2"` | Sampling temperature, `0`–`2` |
+| `reasoning` | string | `""` | `""` (send nothing: the server's default), `none`, `low`, `medium` or `high` |
+
+### `[runner.roles.<role>]`
+
+| Key | Type | Default | Used for |
+| --- | ---- | ------- | -------- |
+| `runner` | string | `"claude"` | `claude` or `ws`, for `spawn --role <role>` without `--runner` |
+| `model` | string | `runner.model` | A model alias |
+| `max_steps` | int | per role (implementer 80, reviewer 40, verifier 40, other 60) | Requests per run |
+| `timeout` | duration | `"60m"` (reviewer `"30m"`) | Wall-clock limit per run |
+| `max_tokens` | int | 4 000 000 (reviewer and verifier 2 000 000) | Prompt plus completion tokens per run |
+| `mcp_servers` | strings | `[]` | MCP servers to start |
+| `mcp_tools` | strings | `["*"]` | Allowed tools: full `mcp__<server>__<tool>` names or globs |
+| `mcp_deny` | strings | `[]` | Globs removed from the allowed tools |
+| `mcp_upfront` | int | `8` | MCP tool definitions sent up front; more are reached with `tool_search` |
+
+### `[daemon]`
+
+| Key | Type | Default | Used for |
+| --- | ---- | ------- | -------- |
+| `resume_on_start` | bool | `true` | Resume `stopped` runners when a daemon starts |
+
+A `token` key anywhere in these tables is an error: tokens go in
+`WS_ENDPOINT_TOKEN_<NAME>` in the environment or `secrets.env`, never in
+`config.toml`. A problem in these tables is reported by the runner, `ws
+config`, and the daemon, and never stops other commands such as `ws claude`.
+`ws config list` shows the runner's fixed keys, and each endpoint, model and
+role, only once the file has those tables.
 
 ### Keys that aren't here
 

@@ -17,13 +17,6 @@ import (
 	"github.com/bobcob7/workspaces/internal/review/profile"
 )
 
-// configOwnersKey and configHostsKey are the settings that take any number
-// of values (ADR 0054, ADR 0061).
-const (
-	configOwnersKey = "defaults.owners"
-	configHostsKey  = "hosts"
-)
-
 // newConfigCmd is ws config: list, get, set, and unset config.toml's keys (ADR 0054).
 func (a *App) newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -114,14 +107,14 @@ func configSetArgs(cmd *cobra.Command, args []string) error {
 	if err := atLeastOneArg("a setting key")(cmd, args); err != nil {
 		return err
 	}
-	key := args[0]
-	if _, err := config.Lookup(nil, key); err != nil {
+	setting, err := config.Lookup(nil, args[0])
+	if err != nil {
 		return configError(err)
 	}
-	if key == configOwnersKey || key == configHostsKey || len(args) == 2 {
+	if setting.Type == config.TypeStrings || setting.Type == config.TypeHosts || len(args) == 2 {
 		return nil
 	}
-	return usageErrorf("%s takes exactly one value for %s", commandName(cmd), key)
+	return usageErrorf("%s takes exactly one value for %s", commandName(cmd), setting.Key)
 }
 
 func (a *App) configList() error {
@@ -294,6 +287,8 @@ func configTOML(value any) string {
 	switch v := value.(type) {
 	case bool:
 		return strconv.FormatBool(v)
+	case int:
+		return strconv.Itoa(v)
 	case []string:
 		quoted := make([]string, 0, len(v))
 		for _, s := range v {

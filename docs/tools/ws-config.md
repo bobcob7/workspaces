@@ -29,6 +29,25 @@ pass.
 | `review.remove_finished` | bool | `true` | `true` or `false` |
 | `review.profiles.<name>.when` | string | `""` (the profile's own) | `always`, `auto`, or `off` |
 | `review.profiles.<name>.model` | string | `""` (the session's) | one model alias or id without spaces, or `""` |
+| `runner.model` | string | `""` | one model alias, or `""` |
+| `runner.keep_git_tokens` | bool | `true` | `true` or `false` |
+| `runner.user_instructions` | bool | `false` | `true` or `false` |
+| `runner.env.<NAME>` | string | `""` | one value; `<NAME>` matches `^[A-Z_][A-Z0-9_]*$` and isn't a secret name |
+| `endpoints.<name>.{url,api,probe}` | string | see the schema | one value; `api` and `probe` are checked against the runner's rules |
+| `endpoints.<name>.{request_timeout,idle_timeout}` | duration | `"10m"`, `"90s"` | one Go duration greater than zero |
+| `models.<alias>.{endpoint,id,reasoning}` | string | `""` | one value; `id` is kept exactly, so `qwen/qwen3.5-9b` and `qwen3.5:9b` are both valid |
+| `models.<alias>.context_tokens` | int | required | a whole number of at least 16384 |
+| `models.<alias>.max_output` | int | `4096` | a whole number, `0` or more |
+| `models.<alias>.temperature` | float (stored as a string) | `"0.2"` | a number from 0 to 2, such as `0.7` |
+| `runner.roles.<role>.{runner,model}` | string | see the schema | one value |
+| `runner.roles.<role>.{max_steps,max_tokens,mcp_upfront}` | int | see the schema | a whole number, `0` or more |
+| `runner.roles.<role>.timeout` | duration | per role | one Go duration greater than zero |
+| `runner.roles.<role>.{mcp_servers,mcp_tools,mcp_deny}` | list of strings | see the schema | zero or more values, in order |
+| `daemon.resume_on_start` | bool | `true` | `true` or `false` |
+
+`unset endpoints.<name>`, `unset models.<alias>` and `unset runner.roles.<role>`
+remove the whole table. `set` refuses a write that leaves `config.toml`'s
+runner tables unusable, naming the key, and keeps the file as it was.
 
 `<name>` is a review profile's name: lowercase letters, digits, and `-`.
 `set` refuses a name that `ws review profiles` doesn't list. `unset`
