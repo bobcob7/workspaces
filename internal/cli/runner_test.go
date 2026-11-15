@@ -2,9 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +19,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/machine"
+	"github.com/bobcob7/workspaces/internal/proc"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -29,7 +35,7 @@ func TestApp_newRunnerCmd(t *testing.T) {
 		for _, sub := range cmd.Commands() {
 			names = append(names, sub.Name())
 		}
-		assert.ElementsMatch(t, []string{"run"}, names)
+		assert.ElementsMatch(t, []string{"check", "run", "stop"}, names)
 	})
 	t.Run("without an operation prints its help", func(t *testing.T) {
 		app, stdout, _ := newTestApp()
@@ -209,4 +215,167 @@ context_tokens = 65536
 	dir := filepath.Join(state, "ws-1", "runner")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "run.toml"), []byte(toml), 0o600))
+}
+
+// serveRunnerDaemon runs an in-process managed daemon with the real
+// supervisor for app's config directory, until the test ends. Runners are not
+// resumed at start, so nothing is started.
+func serveRunnerDaemon(t *testing.T, app *App) {
+	t.Helper()
+	resume := false
+	app.config.Daemon.ResumeOnStart = &resume
+	ctx, cancel := context.WithCancel(daemon.WithVersion(t.Context(), app.version))
+	t.Cleanup(cancel)
+	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sup := daemon.NewSupervisor(app.supervisorConfig(os.Args[0]), proc.Reader{}, daemon.OSStarter{}, log)
+	go func() { _ = daemon.Serve(ctx, app.daemonPaths(), daemon.OriginManaged, sup, log) }()
+	require.Eventually(t, func() bool {
+		_, err := daemon.Dial(app.daemonPaths()).Status(ctx)
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// writeRunnerConfig writes app's config.toml: one endpoint, gpu, at url, serving
+// gemma3:12b with no probe.
+func writeRunnerConfig(t *testing.T, app *App, url string) {
+	t.Helper()
+	body := fmt.Sprintf("[runner]\nmodel = \"gemma\"\n\n[endpoints.gpu]\nurl = %q\nprobe = \"none\"\n\n"+
+		"[models.gemma]\nendpoint = \"gpu\"\nid = \"gemma3:12b\"\ncontext_tokens = 32768\n", url)
+	require.NoError(t, os.WriteFile(app.paths.ConfigFile, []byte(body), 0o600))
+}
+
+// modelsEndpoint is an httptest server whose /v1/models lists gemma3:12b.
+func modelsEndpoint(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"gemma3:12b","object":"model"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// closedEndpoint is an address nothing listens on.
+func closedEndpoint(t *testing.T) string {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+	return "http://" + addr
+}
+
+func TestApp_newRunnerCheckCmd(t *testing.T) {
+	t.Run("takes at most one endpoint", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newRunnerCheckCmd()
+		require.NoError(t, cmd.Args(cmd, nil))
+		require.NoError(t, cmd.Args(cmd, []string{"gpu"}))
+		requireUsageError(t, cmd.Args(cmd, []string{"gpu", "lab"}))
+	})
+	t.Run("has a model flag", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		assert.NotNil(t, app.newRunnerCheckCmd().Flags().Lookup("model"))
+	})
+}
+
+func TestApp_runRunnerCheck(t *testing.T) {
+	t.Run("prints the check object as JSON with --json", func(t *testing.T) {
+		app, stdout, _ := newDaemonTestApp(t)
+		app.global.json = true
+		writeRunnerConfig(t, app, modelsEndpoint(t))
+		serveRunnerDaemon(t, app)
+		require.NoError(t, app.runRunnerCheck(t.Context(), []string{"gpu"}, "gemma"))
+		obj := decodeJSONObject(t, stdout)
+		assert.Equal(t, "gpu", obj["endpoint"])
+		assert.Equal(t, "gemma3:12b", obj["model"])
+		assert.Equal(t, []any{"gemma3:12b"}, obj["models"])
+	})
+	t.Run("prints a line without --json", func(t *testing.T) {
+		app, stdout, _ := newDaemonTestApp(t)
+		url := modelsEndpoint(t)
+		writeRunnerConfig(t, app, url)
+		serveRunnerDaemon(t, app)
+		require.NoError(t, app.runRunnerCheck(t.Context(), nil, ""))
+		assert.Contains(t, stdout.String(), "gpu ("+url+"): gemma3:12b, context 32768 tokens")
+	})
+	t.Run("an endpoint that doesn't answer keeps its code and url", func(t *testing.T) {
+		app, _, _ := newDaemonTestApp(t)
+		url := closedEndpoint(t)
+		writeRunnerConfig(t, app, url)
+		serveRunnerDaemon(t, app)
+		ce := asCLIError(app.runRunnerCheck(t.Context(), []string{"gpu"}, ""))
+		assert.Equal(t, codeEndpointUnreachable, ce.code)
+		assert.Equal(t, url, ce.details["url"])
+	})
+	t.Run("with autostart off and no daemon it is daemon_unavailable", func(t *testing.T) {
+		app, _, _ := newDaemonTestApp(t)
+		app.environ = append(app.environ, "WS_DAEMON_AUTOSTART=0")
+		assert.Equal(t, codeDaemonUnavailable, asCLIError(app.runRunnerCheck(t.Context(), nil, "")).code)
+	})
+}
+
+func TestApp_newRunnerStopCmd(t *testing.T) {
+	t.Run("needs exactly one workspace", func(t *testing.T) {
+		app, _, _ := newTestApp()
+		cmd := app.newRunnerStopCmd()
+		requireUsageError(t, cmd.Args(cmd, nil))
+	})
+}
+
+func TestApp_runRunnerStop(t *testing.T) {
+	t.Run("a workspace without a runner session is workspace_not_found", func(t *testing.T) {
+		app, _, _ := newDaemonTestApp(t)
+		assert.Equal(t, codeWorkspaceNotFound, asCLIError(app.runRunnerStop(t.Context(), "ws-1")).code)
+	})
+	t.Run("stops a runner that isn't running and prints its object", func(t *testing.T) {
+		app, stdout, _ := newDaemonTestApp(t)
+		app.global.json = true
+		files := runner.FilesFor(app.paths.State, "ws-1")
+		require.NoError(t, files.WriteRun(&runner.Run{Version: 1, Session: "rn-1"}))
+		require.NoError(t, files.WriteStatus(&runner.Status{Session: "rn-1", PID: 999999}))
+		serveRunnerDaemon(t, app)
+		require.NoError(t, app.runRunnerStop(t.Context(), "ws-1"))
+		obj := decodeJSONObject(t, stdout)
+		assert.Equal(t, "ws-1", obj["id"])
+		assert.Equal(t, "rn-1", obj["session"])
+		assert.Equal(t, true, obj["stopped"])
+		assert.FileExists(t, filepath.Join(files.Dir, "stop"))
+	})
+	t.Run("a runner that had exited says so", func(t *testing.T) {
+		app, stdout, _ := newDaemonTestApp(t)
+		files := runner.FilesFor(app.paths.State, "ws-1")
+		require.NoError(t, files.WriteRun(&runner.Run{Version: 1, Session: "rn-1"}))
+		exit := "stopped"
+		require.NoError(t, files.WriteStatus(&runner.Status{Session: "rn-1", PID: 999999, Exit: &exit}))
+		serveRunnerDaemon(t, app)
+		require.NoError(t, app.runRunnerStop(t.Context(), "ws-1"))
+		assert.Contains(t, stdout.String(), "runner rn-1 had already exited")
+	})
+}
+
+func TestRemoteRunnerError(t *testing.T) {
+	t.Parallel()
+	t.Run("a plain error is returned as it is", func(t *testing.T) {
+		plain := errors.New("plain")
+		assert.Equal(t, plain, remoteRunnerError(plain))
+	})
+	t.Run("a remote error keeps its code and details", func(t *testing.T) {
+		ce := asCLIError(remoteRunnerError(&daemon.RemoteError{Code: "model_not_served", Details: map[string]any{"model": "m"}}))
+		assert.Equal(t, codeModelNotServed, ce.code)
+		assert.Equal(t, "m", ce.details["model"])
+		assert.Equal(t, exitNotFound, ce.exitCode())
+	})
+}
+
+func TestApp_supervisorConfig(t *testing.T) {
+	t.Parallel()
+	app, _, _ := newDaemonTestApp(t)
+	app.config.Daemon.ResumeOnStart = nil
+	cfg := app.supervisorConfig("/bin/ws")
+	assert.Equal(t, app.paths.State, cfg.StateDir)
+	assert.Equal(t, app.paths.Root, cfg.ConfigDir)
+	assert.Equal(t, "/bin/ws", cfg.Exe)
+	assert.True(t, cfg.ResumeOnStart)
 }
