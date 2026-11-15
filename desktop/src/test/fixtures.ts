@@ -332,8 +332,14 @@ export const loop = (overrides: Partial<Loop> = {}): Loop => ({
   vars: {},
   lastGate: null,
   hidden: true,
+  runner: "claude",
+  endpoint: null,
   ...overrides,
 });
+
+/** A loop on ws's own runner: the qwen9b model, through the gpu endpoint. */
+export const wsLoop = (overrides: Partial<Loop> = {}): Loop =>
+  loop({ runner: "ws", model: "qwen9b", permissionMode: null, endpoint: "gpu", ...overrides });
 
 export const loopHistoryRun = (overrides: Partial<LoopHistoryRun> = {}): LoopHistoryRun => ({
   seq: 1,
