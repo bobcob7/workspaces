@@ -198,15 +198,31 @@ func withoutRunnerTables(data []byte) []byte {
 	var kept []string
 	skip := false
 	for _, line := range strings.SplitAfter(string(data), "\n") {
-		if name, ok := headerName(line); ok {
-			top, _, _ := strings.Cut(name, ".")
-			skip = slices.Contains(runnerTableNames(), top)
+		text := lineText(line)
+		if name, ok := headerName(text); ok {
+			skip = isRunnerHeader(name, strings.Contains(text, "]"))
 		}
 		if !skip {
 			kept = append(kept, line)
 		}
 	}
 	return []byte(strings.Join(kept, ""))
+}
+
+// isRunnerHeader is whether the table header name belongs to the runner. An
+// unclosed header counts when its name starts with a runner table's name, so
+// a half-written "[runner" is cut out like a finished one.
+func isRunnerHeader(name string, closed bool) bool {
+	top, _, _ := strings.Cut(name, ".")
+	if slices.Contains(runnerTableNames(), top) {
+		return true
+	}
+	if closed {
+		return false
+	}
+	return slices.ContainsFunc(runnerTableNames(), func(table string) bool {
+		return strings.HasPrefix(name, table)
+	})
 }
 
 func parseCore(data []byte) (Config, error) {

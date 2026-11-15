@@ -212,6 +212,19 @@ func TestConfig_RunnerError(t *testing.T) {
 		assert.Equal(t, clean.Review.Timeout, got.Review.Timeout)
 		assert.Equal(t, RunnerClaude, got.RunnerFor(""))
 	})
+	t.Run("an unclosed runner header still loads the rest", func(t *testing.T) {
+		base := "[defaults]\nhost = \"git.example.com\"\n[review]\ntimeout = \"20m\"\n"
+		clean := mustParse(t, base)
+		for _, header := range []string{"[runner", "[models.x", "[daemon"} {
+			t.Run(header, func(t *testing.T) {
+				got := mustParse(t, base+header+"\nmodel = \"1\"\n")
+				require.Error(t, got.RunnerError())
+				assert.Equal(t, clean.Defaults, got.Defaults)
+				assert.Equal(t, clean.Hosts, got.Hosts)
+				assert.Equal(t, clean.Review.Timeout, got.Review.Timeout)
+			})
+		}
+	})
 	t.Run("an invalid table keeps the other fields and the other roles", func(t *testing.T) {
 		base := "[defaults]\nhost = \"git.example.com\"\n"
 		clean := mustParse(t, base)
