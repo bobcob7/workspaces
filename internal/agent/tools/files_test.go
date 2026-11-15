@@ -130,6 +130,13 @@ func TestSearch(t *testing.T) {
 		_, err := search(new(testConfig(t)), searchArgs{Pattern: "("})
 		require.ErrorContains(t, err, "pattern:")
 	})
+	t.Run("rejects an invalid glob", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig(t)
+		writeTestFile(t, cfg.Dir, "a.txt", "x\n")
+		_, err := search(&cfg, searchArgs{Pattern: "x", Glob: "["})
+		require.ErrorContains(t, err, "glob:")
+	})
 	t.Run("stops after the match limit", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)

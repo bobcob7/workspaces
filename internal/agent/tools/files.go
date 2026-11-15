@@ -213,6 +213,9 @@ func search(cfg *Config, args searchArgs) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("pattern: %w", err)
 	}
+	if _, err = path.Match(args.Glob, ""); err != nil {
+		return Result{}, fmt.Errorf("glob: %w", err)
+	}
 	start, err := CheckPath(cfg.Root, cfg.Dir, orDot(args.Path))
 	if err != nil {
 		return Result{}, err
