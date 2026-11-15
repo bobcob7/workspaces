@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
-.PHONY: build test fakes lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
+.PHONY: build test fakes e2e-runner lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN)/ws ./cmd/ws
@@ -15,6 +15,11 @@ test:
 fakes:
 	go build -o $(BIN)/fake-ollama ./cmd/fake-ollama
 	go build -o $(BIN)/fake-mcp ./cmd/fake-mcp
+
+# The runner's end-to-end scenarios (ADR 0067): the real ws, fake-ollama and
+# fake-mcp on loopback. No network beyond loopback.
+e2e-runner: build fakes
+	go test -tags e2e -p 1 -timeout 20m ./e2e/runner/
 
 lint:
 	go tool golangci-lint run ./...

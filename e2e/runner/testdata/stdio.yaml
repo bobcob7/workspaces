@@ -1,0 +1,18 @@
+# Scenarios: mcp-stdio, mcp-server-fails.
+server: {name: fake, version: 0.0.0-fake, instructions: "Look up services by name."}
+require_env: {FAKE_MCP_TOKEN: "e2e-secret-4c1d"}
+tools:
+  - name: lookup_service
+    description: Look up a service by name and return its owner and port.
+    input_schema:
+      type: object
+      properties: {name: {type: string, description: The service name}}
+      required: [name]
+    annotations: {readOnlyHint: true}
+    replies:
+      - match: '"name":"api"'
+        text: "api: owner team-a, port 8080"
+      - match: '"name":"worker"'
+        text: "worker: owner team-b, port 9090"
+      - error: "no such service"
+faults: {}
