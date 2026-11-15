@@ -16,13 +16,13 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"go.opentelemetry.io/otel/trace"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/agent/tools"
@@ -117,12 +117,12 @@ func spanText(s sdktrace.ReadOnlySpan) string {
 	var b strings.Builder
 	b.WriteString(s.Name() + " " + s.Status().Description + "\n")
 	for _, kv := range s.Attributes() {
-		b.WriteString(string(kv.Key) + "=" + kv.Value.Emit() + "\n")
+		b.WriteString(string(kv.Key) + "=" + kv.Value.String() + "\n")
 	}
 	for _, e := range s.Events() {
 		b.WriteString(e.Name + "\n")
 		for _, kv := range e.Attributes {
-			b.WriteString(string(kv.Key) + "=" + kv.Value.Emit() + "\n")
+			b.WriteString(string(kv.Key) + "=" + kv.Value.String() + "\n")
 		}
 	}
 	return b.String()
@@ -203,7 +203,7 @@ func TestTelemetry_Shutdown(t *testing.T) {
 
 func TestExportConfigured(t *testing.T) {
 	t.Run("is true for each exporter variable", func(t *testing.T) {
-		for _, key := range exporterEnv {
+		for _, key := range exporterEnv() {
 			getenv := func(name string) string {
 				if name == key {
 					return "otlp"
@@ -298,7 +298,7 @@ func TestTelemetry_NoContent(t *testing.T) {
 	}
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, rec.metrics.Collect(t.Context(), &rm))
-	all.WriteString(fmt.Sprintf("%+v", rm))
+	fmt.Fprintf(&all, "%+v", rm)
 	all.WriteString(rec.logs.String())
 	assert.NotContains(t, all.String(), marker)
 }

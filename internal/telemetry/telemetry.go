@@ -30,14 +30,16 @@ const ServiceName = "ws-runner"
 // exporterEnv are the environment variables that turn on OTLP export. With
 // none of them set, telemetry is collected (so trace IDs exist) but not sent
 // anywhere, so local runs don't fail to reach a collector.
-var exporterEnv = []string{
-	"OTEL_EXPORTER_OTLP_ENDPOINT",
-	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-	"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-	"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-	"OTEL_TRACES_EXPORTER",
-	"OTEL_METRICS_EXPORTER",
-	"OTEL_LOGS_EXPORTER",
+func exporterEnv() []string {
+	return []string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+		"OTEL_TRACES_EXPORTER",
+		"OTEL_METRICS_EXPORTER",
+		"OTEL_LOGS_EXPORTER",
+	}
 }
 
 // Telemetry is the runner's tracer, meter and logger.
@@ -79,7 +81,7 @@ func (t *Telemetry) Shutdown(ctx context.Context) error {
 }
 
 func exportConfigured(getenv func(string) string) bool {
-	for _, key := range exporterEnv {
+	for _, key := range exporterEnv() {
 		if getenv(key) != "" {
 			return true
 		}
@@ -135,8 +137,9 @@ func (t *Telemetry) logBridge(ctx context.Context, res *resource.Resource, handl
 	if err != nil {
 		return nil, fmt.Errorf("creating log exporter: %w", err)
 	}
+	//nolint:forbidigo // the OTel log SDK is the bridge's exporter; records still go through the injected handler
 	lp := sdklog.NewLoggerProvider(sdklog.WithResource(res), sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)))
-	t.shutdown = append(t.shutdown, lp.Shutdown)
+	t.shutdown = append(t.shutdown, lp.Shutdown) //nolint:forbidigo // shuts down the bridge's provider
 	bridge := &levelHandler{Handler: otelslog.NewHandler(ServiceName, otelslog.WithLoggerProvider(lp)), level: slog.LevelInfo}
 	return slog.NewMultiHandler(handler, bridge), nil
 }

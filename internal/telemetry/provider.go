@@ -28,6 +28,8 @@ func ProviderName(api string) string {
 
 // Provider wraps p so that each Chat is a "chat <model>" span, sent to the
 // endpoint as W3C traceparent, and counted in the GenAI metrics (ADR 0065).
+//
+//nolint:gocritic // the signature is the spec; the endpoint is copied once here
 func (t *Telemetry) Provider(p llm.Provider, ep llm.Endpoint) llm.Provider {
 	return &tracedProvider{
 		Provider:     p,
@@ -45,18 +47,20 @@ type tracedProvider struct {
 }
 
 // Chat runs the request inside its chat span, and sets the response's SpanID.
+//
+//nolint:gocritic // the signature is the provider seam's (ADR 0062)
 func (p *tracedProvider) Chat(ctx context.Context, req llm.Request) (llm.Response, error) {
-	attrs := p.requestAttributes(req)
+	attrs := p.requestAttributes(&req)
 	ctx, span := p.t.tracer.Start(ctx, "chat "+req.Model, trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(attrs...))
 	req.TraceParent = traceParentOf(ctx)
 	start := time.Now()
 	resp, err := p.Provider.Chat(ctx, req)
 	resp.SpanID = span.SpanContext().SpanID().String()
-	p.finish(ctx, span, start, attrs, resp, err)
+	p.finish(ctx, span, start, attrs, &resp, err)
 	return resp, err
 }
 
-func (p *tracedProvider) requestAttributes(req llm.Request) []attribute.KeyValue {
+func (p *tracedProvider) requestAttributes(req *llm.Request) []attribute.KeyValue {
 	host, port := serverAddress(p.endpoint.URL)
 	return []attribute.KeyValue{
 		semconv.GenAIOperationNameKey.String(string(genaiconv.OperationNameChat)),
@@ -70,7 +74,7 @@ func (p *tracedProvider) requestAttributes(req llm.Request) []attribute.KeyValue
 
 // finish ends the span and records the request's duration and tokens. The
 // metrics carry only the request's attributes, never the response's counts.
-func (p *tracedProvider) finish(ctx context.Context, span trace.Span, start time.Time, attrs []attribute.KeyValue, resp llm.Response, err error) {
+func (p *tracedProvider) finish(ctx context.Context, span trace.Span, start time.Time, attrs []attribute.KeyValue, resp *llm.Response, err error) {
 	span.SetAttributes(responseAttributes(resp)...)
 	if err != nil {
 		typ := chatErrorType(err)
@@ -89,7 +93,7 @@ func (p *tracedProvider) finish(ctx context.Context, span trace.Span, start time
 }
 
 // responseAttributes are the finish reason and token counts of a response.
-func responseAttributes(resp llm.Response) []attribute.KeyValue {
+func responseAttributes(resp *llm.Response) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 	if resp.StopReason != "" {
 		attrs = append(attrs, semconv.GenAIResponseFinishReasons(string(resp.StopReason)))

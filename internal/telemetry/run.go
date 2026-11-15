@@ -39,6 +39,8 @@ func (t *Telemetry) StartRun(ctx context.Context, traceID string, info RunInfo) 
 
 // EndpointEvent adds an endpoint switch to the run's span, or a refusal when
 // e.Code is set, and counts it. Only names and ids are recorded.
+//
+//nolint:gocritic // the signature is the spec
 func (t *Telemetry) EndpointEvent(ctx context.Context, e EndpointChange) {
 	outcome, name := OutcomeSwitched, EventEndpointChanged
 	attrs := []attribute.KeyValue{

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/bobcob7/workspaces/internal/llm"
@@ -128,10 +128,10 @@ func TestTracedProvider_Chat(t *testing.T) {
 
 func TestResponseAttributes(t *testing.T) {
 	t.Run("is empty for a response with no reason and no usage", func(t *testing.T) {
-		assert.Empty(t, responseAttributes(llm.Response{}))
+		assert.Empty(t, responseAttributes(&llm.Response{}))
 	})
 	t.Run("holds the finish reason and the reported usage", func(t *testing.T) {
-		attrs := responseAttributes(llm.Response{StopReason: llm.StopEnd, Usage: llm.Usage{InputTokens: 1, OutputTokens: 2, Reported: true}})
+		attrs := responseAttributes(&llm.Response{StopReason: llm.StopEnd, Usage: llm.Usage{InputTokens: 1, OutputTokens: 2, Reported: true}})
 		assert.Len(t, attrs, 3)
 	})
 }
@@ -169,14 +169,14 @@ func TestServerAddress(t *testing.T) {
 
 func TestChatErrorType(t *testing.T) {
 	cases := map[string]error{
-		"unreachable":       llm.ErrUnreachable,
-		"retryable":         llm.ErrRetryable,
-		"stream_dropped":    llm.ErrStreamDropped,
-		"stream_stalled":    llm.ErrStreamStalled,
-		"model_missing":     llm.ErrModelMissing,
-		"no_tools":          llm.ErrNoTools,
-		"context_exceeded":  llm.ErrContextExceeded,
-		"other":             errBoom,
+		"unreachable":      llm.ErrUnreachable,
+		"retryable":        llm.ErrRetryable,
+		"stream_dropped":   llm.ErrStreamDropped,
+		"stream_stalled":   llm.ErrStreamStalled,
+		"model_missing":    llm.ErrModelMissing,
+		"no_tools":         llm.ErrNoTools,
+		"context_exceeded": llm.ErrContextExceeded,
+		"other":            errBoom,
 	}
 	for want, err := range cases {
 		assert.Equal(t, want, chatErrorType(err), want)
