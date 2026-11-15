@@ -129,6 +129,9 @@ export interface NewAgent {
   readonly model: string;
   readonly permissionMode: string;
   readonly offline: boolean;
+  /** "claude" or "ws" (ADR 0070); left out for claude. */
+  readonly runner?: string;
+  readonly endpoint?: string;
 }
 
 export interface Created {
@@ -933,6 +936,10 @@ export interface Loop {
   readonly lastGate: LoopGate | null;
   /** Whether runs start hidden (ADR 0057). */
   readonly hidden: boolean;
+  /** What runs each run: "claude" or "ws" (ADR 0070). */
+  readonly runner: string | null;
+  /** The endpoint a ws loop's runs use instead of the model's. */
+  readonly endpoint: string | null;
 }
 
 /** A loop's last gate check, from `ws loop list --json` (ADR 0049). */
@@ -967,6 +974,9 @@ export interface NewLoop {
   readonly vars?: readonly LoopVar[];
   /** Left out to keep ws's default or the loop's setting (ADR 0057). */
   readonly hidden?: boolean;
+  /** "claude" or "ws"; the form sends it on every edit (ADR 0070). */
+  readonly runner?: string;
+  readonly endpoint?: string;
 }
 
 /** The workspace a loop run started. */
