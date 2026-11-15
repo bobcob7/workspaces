@@ -189,6 +189,7 @@ func TestReresolver_Reresolve(t *testing.T) {
 		res := r.Reresolve(t.Context(), agent.Target{})
 		require.Error(t, res.Failed)
 		require.ErrorIs(t, res.Failed, llm.ErrUnreachable)
+		assert.Equal(t, "fake-b", res.Target.Endpoint)
 		assert.Nil(t, res.Rejected)
 		assert.False(t, res.Changed)
 	})
