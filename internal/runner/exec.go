@@ -373,7 +373,7 @@ func (s *session) agentConfig(ctx context.Context, provider llm.Provider, toolse
 			API:           current.API,
 			Endpoint:      current.Endpoint,
 			Model:         current.Model,
-			ContextTokens: s.run.ContextTokens,
+			ContextTokens: current.ContextTokens,
 			MaxOutput:     s.run.MaxOutput,
 			Temperature:   s.run.Temperature,
 			Reasoning:     s.run.Reasoning,
