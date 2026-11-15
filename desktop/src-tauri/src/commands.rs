@@ -326,14 +326,20 @@ pub fn open_external(app: tauri::AppHandle, target: String) -> CmdResult<()> {
     result.map_err(|e| AppError::new("open_failed", e.to_string()))
 }
 
-/// Reads a background session's conversation from offset on, so the
-/// frontend can follow it by asking again from the `next` it returns.
+/// Reads an agent's conversation from offset on, so the frontend can follow
+/// it by asking again from the `next` it returns. A `ws` runner's agent
+/// passes its workspace id; a Claude agent passes none and reads its
+/// background session.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn read_transcript(
     state: State<'_, AppState>,
     session_id: String,
     offset: u64,
+    workspace_id: Option<String>,
 ) -> CmdResult<Chunk> {
+    if let Some(id) = workspace_id {
+        return runner_conversation(id, offset).await;
+    }
     let jobs_dir = state
         .jobs_dir
         .clone()
@@ -359,6 +365,67 @@ fn conversation(jobs_dir: &Path, session_id: &str, offset: u64) -> CmdResult<Chu
             format!("reading {}: {e}", path.display()),
         )
     })
+}
+
+/// Reads a `ws` runner's transcript from offset on, from ws's state directory.
+async fn runner_conversation(workspace_id: String, offset: u64) -> CmdResult<Chunk> {
+    let state_dir = ws_state_dir(|name| std::env::var(name).ok())
+        .ok_or_else(|| AppError::new("transcript_missing", "no ws config directory"))?;
+    let read = tokio::task::spawn_blocking(move || {
+        transcript::runner_transcript(&state_dir, &workspace_id, offset)
+    })
+    .await
+    .map_err(|e| AppError::new("internal", e.to_string()))?;
+    read.map_err(|e| {
+        AppError::new(
+            "transcript_unreadable",
+            format!("reading the runner transcript: {e}"),
+        )
+    })
+}
+
+/// ws's state directory, where runners keep their files: `state` under
+/// `WS_CONFIG_DIR`, else under the platform config directory's `workspaces`
+/// (the same root `ws` uses).
+pub fn ws_state_dir(get: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    let non_empty = |name: &str| get(name).filter(|value| !value.is_empty());
+    let root = match non_empty("WS_CONFIG_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => user_config_dir(&non_empty)?.join("workspaces"),
+    };
+    Some(root.join("state"))
+}
+
+fn user_config_dir(non_empty: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    let home = PathBuf::from(non_empty("HOME")?);
+    if cfg!(target_os = "macos") {
+        return Some(home.join("Library").join("Application Support"));
+    }
+    match non_empty("XDG_CONFIG_HOME") {
+        Some(dir) => Some(PathBuf::from(dir)),
+        None => Some(home.join(".config")),
+    }
+}
+
+/// `ws runner stop`'s object: whether the runner was still running.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct RunnerStopped {
+    pub id: String,
+    pub session: String,
+    pub stopped: bool,
+    #[serde(default)]
+    pub warnings: Vec<Value>,
+}
+
+pub fn runner_stop_args(workspace_id: &str) -> Vec<String> {
+    strings(&["runner", "stop", "--json", workspace_id])
+}
+
+/// Stops a `ws` runner without removing its workspace: `ws runner stop`
+/// through the daemon.
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn runner_stop(state: State<'_, AppState>, id: String) -> CmdResult<RunnerStopped> {
+    state.runner.ws_json_as_given(&runner_stop_args(&id)).await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
@@ -449,6 +516,49 @@ mod tests {
         let runner = Runner::new(dir.path().display().to_string());
         let err = ws_items(&runner, &["rm", "x"]).await.unwrap_err();
         assert_eq!(err.code, "workspace_not_found");
+    }
+
+    #[test]
+    fn runner_stop_args_stop_one_workspace_as_json() {
+        assert_eq!(
+            runner_stop_args("t1-impl-d8efb24f"),
+            vec!["runner", "stop", "--json", "t1-impl-d8efb24f"]
+        );
+    }
+
+    #[test]
+    fn ws_state_dir_prefers_ws_config_dir() {
+        let env = |name: &str| (name == "WS_CONFIG_DIR").then(|| "/c".to_string());
+        assert_eq!(ws_state_dir(env), Some(PathBuf::from("/c/state")));
+    }
+
+    #[test]
+    fn ws_state_dir_ignores_an_empty_ws_config_dir() {
+        let env = |name: &str| match name {
+            "WS_CONFIG_DIR" => Some(String::new()),
+            "HOME" => Some("/h".to_string()),
+            _ => None,
+        };
+        assert!(ws_state_dir(env).is_some_and(|p| p.ends_with("state")));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ws_state_dir_defaults_under_the_xdg_config_home() {
+        let env = |name: &str| match name {
+            "XDG_CONFIG_HOME" => Some("/x".to_string()),
+            "HOME" => Some("/h".to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            ws_state_dir(env),
+            Some(PathBuf::from("/x/workspaces/state"))
+        );
+    }
+
+    #[test]
+    fn ws_state_dir_needs_a_home_without_ws_config_dir() {
+        assert_eq!(ws_state_dir(|_| None), None);
     }
 
     #[test]
