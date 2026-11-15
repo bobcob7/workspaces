@@ -54,10 +54,32 @@ type machineSpawnOptions struct {
 	vars []string
 }
 
-// machineSpawnJSON is ws claude --json's object plus the role.
+// machineSpawnJSON is ws claude --json's object plus the role, the runner
+// and the model the child was started with.
 type machineSpawnJSON struct {
 	claudeResult
-	Role *string `json:"role"`
+	Role     *string            `json:"role"`
+	Runner   string             `json:"runner"`
+	Model    *string            `json:"model"`
+	WSRunner *spawnWSRunnerJSON `json:"ws_runner"`
+}
+
+// spawnWSRunnerJSON is a ws runner child's details; null for a Claude child.
+type spawnWSRunnerJSON struct{}
+
+// claudeModel is the model named by --model (or --model=) in args: the
+// last one, or "" when there is none.
+func claudeModel(args []string) string {
+	model := ""
+	for i, arg := range args {
+		if value, ok := strings.CutPrefix(arg, "--model="); ok {
+			model = value
+		}
+		if arg == "--model" && i+1 < len(args) {
+			model = args[i+1]
+		}
+	}
+	return model
 }
 
 func (a *App) newMachineSpawnCmd() *cobra.Command {
@@ -186,7 +208,7 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 	}
 	opts.parent = caller
 	opts.result = func(r claudeResult) any {
-		return machineSpawnJSON{claudeResult: r, Role: optional(opts.role)}
+		return machineSpawnJSON{claudeResult: r, Role: optional(opts.role), Runner: lifetime.RunnerClaude, Model: optional(claudeModel(opts.claudeArgs))}
 	}
 	if opts.role != "" {
 		ro, vars, err := a.spawnRole(opts)

@@ -35,6 +35,7 @@ type claudeClient interface {
 	StopDaemon(ctx context.Context) error
 	RunDaemon(ctx context.Context) (int, error)
 	UsageLimit(s *claude.Session, message string) (*claude.Limit, error)
+	Model(s *claude.Session) (string, error)
 	Send(ctx context.Context, s *claude.Session, message string) error
 }
 

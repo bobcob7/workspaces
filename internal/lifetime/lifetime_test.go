@@ -102,6 +102,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	f.claude = &claudeClientMock{
 		AgentsFunc: func(context.Context, claude.ListOptions) ([]claude.Session, error) { return f.sessions, nil },
+		ModelFunc:  func(*claude.Session) (string, error) { return "", nil },
 		StopFunc:   func(context.Context, string) error { return nil },
 		RemoveFunc: func(context.Context, string) error { return nil },
 		RespawnFunc: func(_ context.Context, id string) error {

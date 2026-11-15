@@ -44,12 +44,17 @@ type machineWaitItemJSON struct {
 	Outcome  string                 `json:"outcome"`
 	Result   *machineResultInfoJSON `json:"result"`
 	Error    *itemErrorJSON         `json:"error"`
+	Runner   *string                `json:"runner"`
+	Model    *string                `json:"model"`
+	WSRunner *listWSRunnerJSON      `json:"ws_runner"`
 }
 
 // childState is one poll's view of a target.
 type childState struct {
 	status   string
 	session  string
+	runner   string
+	model    string
 	quiet    bool // idle or stopped, and no descendant working or starting
 	finished bool
 	record   machine.Record
@@ -200,6 +205,8 @@ func pollChild(t *waitTarget, entries []lifetime.Entry, rec machine.Record) chil
 	} else {
 		st.status = string(entry.Session.State)
 		st.session = entry.Session.ID
+		st.runner = entry.Session.Runner
+		st.model = entry.Session.Model
 	}
 	idle := st.status == string(lifetime.StateIdle) || st.status == string(lifetime.StateStopped)
 	st.quiet = idle && !busyDescendant(entries, t.id)
@@ -260,6 +267,8 @@ func (a *App) printWait(targets []waitTarget, states []childState, opts *machine
 			Finished: s.finished,
 			Outcome:  waitOutcome(s),
 			Result:   resultInfo(&s.record),
+			Runner:   optional(s.runner),
+			Model:    optional(s.model),
 		}
 		item.Error = items.add(id, waitItemError(id, s, opts, anyFinished))
 		results = append(results, item)

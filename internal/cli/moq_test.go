@@ -1855,6 +1855,9 @@ var _ claudeClient = &claudeClientMock{}
 //			JobExistsFunc: func(id string) (bool, error) {
 //				panic("mock out the JobExists method")
 //			},
+//			ModelFunc: func(s *claude.Session) (string, error) {
+//				panic("mock out the Model method")
+//			},
 //			RemoveFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the Remove method")
 //			},
@@ -1906,6 +1909,9 @@ type claudeClientMock struct {
 
 	// JobExistsFunc mocks the JobExists method.
 	JobExistsFunc func(id string) (bool, error)
+
+	// ModelFunc mocks the Model method.
+	ModelFunc func(s *claude.Session) (string, error)
 
 	// RemoveFunc mocks the Remove method.
 	RemoveFunc func(ctx context.Context, id string) error
@@ -1967,6 +1973,11 @@ type claudeClientMock struct {
 		JobExists []struct {
 			// ID is the id argument value.
 			ID string
+		}
+		// Model holds details about calls to the Model method.
+		Model []struct {
+			// S is the s argument value.
+			S *claude.Session
 		}
 		// Remove holds details about calls to the Remove method.
 		Remove []struct {
@@ -2046,6 +2057,7 @@ type claudeClientMock struct {
 	lockCheck        sync.RWMutex
 	lockDaemonStatus sync.RWMutex
 	lockJobExists    sync.RWMutex
+	lockModel        sync.RWMutex
 	lockRemove       sync.RWMutex
 	lockRespawn      sync.RWMutex
 	lockRunDaemon    sync.RWMutex
@@ -2223,6 +2235,38 @@ func (mock *claudeClientMock) JobExistsCalls() []struct {
 	mock.lockJobExists.RLock()
 	calls = mock.calls.JobExists
 	mock.lockJobExists.RUnlock()
+	return calls
+}
+
+// Model calls ModelFunc.
+func (mock *claudeClientMock) Model(s *claude.Session) (string, error) {
+	if mock.ModelFunc == nil {
+		panic("claudeClientMock.ModelFunc: method is nil but claudeClient.Model was just called")
+	}
+	callInfo := struct {
+		S *claude.Session
+	}{
+		S: s,
+	}
+	mock.lockModel.Lock()
+	mock.calls.Model = append(mock.calls.Model, callInfo)
+	mock.lockModel.Unlock()
+	return mock.ModelFunc(s)
+}
+
+// ModelCalls gets all the calls that were made to Model.
+// Check the length with:
+//
+//	len(mockedclaudeClient.ModelCalls())
+func (mock *claudeClientMock) ModelCalls() []struct {
+	S *claude.Session
+} {
+	var calls []struct {
+		S *claude.Session
+	}
+	mock.lockModel.RLock()
+	calls = mock.calls.Model
+	mock.lockModel.RUnlock()
 	return calls
 }
 

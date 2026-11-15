@@ -50,6 +50,7 @@ type transcriptEntry struct {
 		} `json:"rate_limit_info"`
 	} `json:"apiErrorParams"`
 	Message struct {
+		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 }
@@ -95,6 +96,31 @@ func lastLimit(entries []transcriptEntry, message string) *Limit {
 		}
 	}
 	return limit
+}
+
+// Model is the model that answered s most recently: the model of the last
+// assistant entry in its transcript tail. It is "" when there is none, or
+// when there is no transcript.
+func (c *Client) Model(s *Session) (string, error) {
+	path, err := c.transcriptPath(s)
+	if err != nil || path == "" {
+		return "", err
+	}
+	entries, err := readTail(path)
+	if err != nil {
+		return "", fmt.Errorf("reading the transcript of Claude Code session %s: %w", s.ID, err)
+	}
+	return lastModel(entries), nil
+}
+
+// lastModel is Model on entries, oldest first.
+func lastModel(entries []transcriptEntry) string {
+	for i := len(entries) - 1; i >= 0; i-- {
+		if e := &entries[i]; e.conversational() && e.Type == "assistant" {
+			return e.Message.Model
+		}
+	}
+	return ""
 }
 
 // Recorded reports whether s's transcript has a user message that is
