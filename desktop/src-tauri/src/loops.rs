@@ -724,7 +724,15 @@ mod tests {
         };
         assert_eq!(
             add_args(&req),
-            ["loop", "add", "--every=24h", "--prompt=hi", "--model=opus", "--", "deps"]
+            [
+                "loop",
+                "add",
+                "--every=24h",
+                "--prompt=hi",
+                "--model=opus",
+                "--",
+                "deps"
+            ]
         );
     }
 

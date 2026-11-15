@@ -158,8 +158,9 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
             .filter(|s| !s.is_empty())
             .map(str::to_string),
     );
-    let model_args: Vec<String> = non_empty(req.model.as_ref())
-        .map_or_else(Vec::new, |model| vec!["--model".to_string(), model.to_string()]);
+    let model_args: Vec<String> = non_empty(req.model.as_ref()).map_or_else(Vec::new, |model| {
+        vec!["--model".to_string(), model.to_string()]
+    });
     let prompt_args: Vec<String> = non_empty(req.prompt.as_ref())
         .map(str::to_string)
         .into_iter()
@@ -168,7 +169,9 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
         [prompt_args, model_args].concat()
     } else {
         let mode_args: Vec<String> = non_empty(req.permission_mode.as_ref())
-            .map_or_else(Vec::new, |mode| vec!["--permission-mode".to_string(), mode.to_string()]);
+            .map_or_else(Vec::new, |mode| {
+                vec!["--permission-mode".to_string(), mode.to_string()]
+            });
         [model_args, mode_args, prompt_args].concat()
     };
     if !claude_args.is_empty() {
@@ -752,7 +755,10 @@ mod tests {
             endpoint: Some(" ".into()),
             ..request()
         };
-        assert_eq!(new_agent_args(&req), ["claude", "--runner=ws", "--", "Fix it"]);
+        assert_eq!(
+            new_agent_args(&req),
+            ["claude", "--runner=ws", "--", "Fix it"]
+        );
     }
 
     #[test]
