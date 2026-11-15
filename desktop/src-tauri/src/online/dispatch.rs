@@ -102,6 +102,7 @@ pub const COMMANDS: &[&str] = &[
     "restore_agents",
     "open_external",
     "read_transcript",
+    "runner_stop",
     "terminal_open",
     "terminal_write",
     "terminal_resize",
@@ -236,8 +237,19 @@ pub async fn dispatch(
         "restore_agents" => result(commands::restore_agents(State::new(&ctx.state)).await),
         "open_external" => unsupported("open_external"),
         "read_transcript" => {
-            let (session_id, offset) = args!(args, { session_id: String, offset: u64 });
-            result(commands::read_transcript(State::new(&ctx.state), session_id, offset).await)
+            let (session_id, offset, workspace_id) = args!(args, {
+                session_id: String,
+                offset: u64,
+                workspace_id: Option<String>,
+            });
+            result(
+                commands::read_transcript(State::new(&ctx.state), session_id, offset, workspace_id)
+                    .await,
+            )
+        }
+        "runner_stop" => {
+            let id = args!(args, { id: String });
+            result(commands::runner_stop(State::new(&ctx.state), id).await)
         }
         "terminal_open" => {
             let (spec, cols, rows, on_event) = args!(args, {
