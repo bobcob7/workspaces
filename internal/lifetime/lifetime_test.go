@@ -189,6 +189,12 @@ func (f *fixture) shell(id string) workspace.Workspace {
 	return f.add(id)
 }
 
+// runner adds workspace id with a ws runner session, rn-3f2a9c1e.
+func (f *fixture) runner(id string) workspace.Workspace {
+	f.records[id] = workspace.Session{Kind: workspace.SessionRunner, RunnerSessionID: "rn-3f2a9c1e", StartedAt: testNow().Add(-time.Hour)}
+	return f.add(id)
+}
+
 // listedPID is the process of every session listed.
 const listedPID = 4242
 

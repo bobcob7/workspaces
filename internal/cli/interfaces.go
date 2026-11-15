@@ -6,6 +6,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/lifetime"
@@ -16,7 +17,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -50,11 +51,20 @@ type workspaceStore interface {
 	Find(arg string) (workspace.Workspace, error)
 	Containing(dir string) (workspace.Workspace, error)
 	RecordSession(id string, kind workspace.SessionKind, claudeSessionID string) error
+	RecordRunnerSession(id, runnerSessionID string) error
 	RecordTrust(id, dir string, createdEntry bool) error
 	Remove(id string, opts workspace.RemoveOptions) error
 	Rename(id, name string) (workspace.Workspace, error)
 	SetHidden(id string, hidden bool) (workspace.Workspace, error)
 	Warnings() []string
+}
+
+// runnerDaemon is what ws uses of the daemon's client to check, start and
+// stop runners (ADR 0068). dialDaemon starts the daemon when none runs.
+type runnerDaemon interface {
+	Preflight(ctx context.Context, req daemon.PreflightRequest) (daemon.PreflightResponse, error)
+	StartRunner(ctx context.Context, id string, resume bool) (int, error)
+	StopRunner(ctx context.Context, id string) (bool, error)
 }
 
 // lifetimeManager keeps each workspace as long as its session: the

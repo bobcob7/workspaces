@@ -9,7 +9,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . workspaceStore claudeClient processReader powerReader reviewJudge runnerReader
+//go:generate go tool moq -out moq_test.go . workspaceStore claudeClient processReader powerReader reviewJudge runnerReader runnerControl
 
 // workspaceStore is the set of workspaces and their state (ADRs 0012,
 // 0022, 0023).
@@ -63,4 +63,11 @@ type reviewJudge interface {
 type runnerReader interface {
 	State(id string, recordedAt time.Time) (state string, pid int, st *runner.Status, run *runner.Run)
 	Exists(id string) bool
+}
+
+// runnerControl stops and resumes ws runners (ADRs 0063, 0068). Stop returns
+// once the runner is no longer running, or an error when it still may be.
+type runnerControl interface {
+	Stop(ctx context.Context, id string) error
+	Resume(ctx context.Context, id string) error
 }

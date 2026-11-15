@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/machine"
@@ -48,11 +49,14 @@ func (a *App) newMachineCmd() *cobra.Command {
 	return cmd
 }
 
-// machineSpawnOptions is ws machine spawn's: ws claude's plus a role.
+// machineSpawnOptions is ws machine spawn's: ws claude's plus a role, and the
+// runner and endpoint for a ws child (ADR 0070).
 type machineSpawnOptions struct {
 	claudeOptions
-	role string
-	vars []string
+	role     string
+	vars     []string
+	runner   string
+	endpoint string
 }
 
 // machineSpawnJSON is ws claude --json's object plus the role, the runner
@@ -65,8 +69,16 @@ type machineSpawnJSON struct {
 	WSRunner *spawnWSRunnerJSON `json:"ws_runner"`
 }
 
-// spawnWSRunnerJSON is a ws runner child's details; null for a Claude child.
-type spawnWSRunnerJSON struct{}
+// spawnWSRunnerJSON is a ws runner child's details; null for a Claude child
+// (reference.md).
+type spawnWSRunnerJSON struct {
+	ModelAlias    *string  `json:"model_alias"`
+	Endpoint      string   `json:"endpoint"`
+	URL           string   `json:"url"`
+	API           string   `json:"api"`
+	ContextTokens int      `json:"context_tokens"`
+	MCPServers    []string `json:"mcp_servers"`
+}
 
 // claudeModel is the model named by --model (or --model=) in args: the
 // last one, or "" when there is none.
@@ -98,6 +110,8 @@ func (a *App) newMachineSpawnCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views (off by default)")
 	cmd.Flags().StringVar(&opts.role, "role", "", "start the child from this role (ws machine roles)")
 	cmd.Flags().StringArrayVar(&opts.vars, "var", nil, "KEY=VALUE for the role's prompt; repeatable, with --role")
+	cmd.Flags().StringVar(&opts.runner, "runner", "", "claude or ws: which agent runs the child (default: the role's runner, else claude)")
+	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "the endpoint from config.toml instead of the model's; only with --runner ws")
 	return cmd
 }
 
@@ -198,7 +212,8 @@ func (a *App) caller() (string, error) {
 }
 
 // runMachineSpawn is ws claude --json --parent <caller>, from the role
-// when there is one, and records the role for the child (ADR 0050).
+// when there is one, and records the role for the child (ADR 0050). With the
+// ws runner it starts a runner agent instead (ADR 0070).
 func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) error {
 	caller, err := a.caller()
 	if err != nil {
@@ -206,6 +221,13 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 	}
 	if opts.role == "" && len(opts.vars) > 0 {
 		return usageErrorf("--var needs --role")
+	}
+	which, err := a.spawnRunner(opts)
+	if err != nil {
+		return err
+	}
+	if which == config.RunnerWS {
+		return a.runMachineSpawnRunner(ctx, opts, caller)
 	}
 	opts.parent = caller
 	opts.result = func(r claudeResult) any {
@@ -221,16 +243,106 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 	return a.runClaude(ctx, &opts.claudeOptions)
 }
 
+// spawnRunner is the runner ws machine spawn starts the child with: --runner,
+// else the role's (ADR 0070). --endpoint is only for ws, so with claude it is
+// usage, as is a runner that isn't one of the two.
+func (a *App) spawnRunner(opts *machineSpawnOptions) (string, error) {
+	which := opts.runner
+	if which == "" {
+		which = a.config.RunnerFor(opts.role)
+	}
+	switch {
+	case which != config.RunnerClaude && which != config.RunnerWS:
+		return "", usageErrorf("--runner must be claude or ws, not %q", which)
+	case which == config.RunnerClaude && opts.endpoint != "":
+		return "", usageErrorf("--endpoint needs --runner ws")
+	}
+	return which, nil
+}
+
+// runMachineSpawnRunner starts a ws child (ADR 0070). After the prompt, only
+// --model <m> may follow; the role, when there is one, is rendered with the
+// prompt, not given to Claude Code.
+func (a *App) runMachineSpawnRunner(ctx context.Context, opts *machineSpawnOptions, caller string) error {
+	var prompt string
+	after := opts.claudeArgs
+	if len(after) > 0 {
+		prompt, after = after[0], after[1:]
+	}
+	model, err := runnerModelArgs(after)
+	if err != nil {
+		return err
+	}
+	vars, err := loop.ParseVars(opts.vars)
+	if err != nil {
+		return newError(codeUsage, err)
+	}
+	started, err := a.startRunnerAgent(ctx, runnerStart{
+		Name: opts.name, Role: opts.role, Parent: caller, Endpoint: opts.endpoint, Model: model,
+		Specs: opts.specs, Hidden: opts.hidden, Offline: opts.offline, Vars: vars, Prompt: prompt,
+	})
+	if err != nil {
+		return err
+	}
+	result := func(r claudeResult) any { return runnerSpawnJSON(opts.role, &started, &r) }
+	return a.printClaudeResult(&started.Workspace, started.Session, result)
+}
+
+// runnerModelArgs is the model named by the arguments after a ws child's
+// prompt: none, or exactly --model <m>. Anything else is usage.
+func runnerModelArgs(args []string) (string, error) {
+	switch {
+	case len(args) == 0:
+		return "", nil
+	case len(args) == 2 && args[0] == "--model" && args[1] != "":
+		return args[1], nil
+	}
+	return "", usageErrorf("a ws child takes only --model <m> after its prompt, not %q", strings.Join(args, " "))
+}
+
+// runnerSpawnJSON is ws machine spawn's object for a ws child (reference.md).
+func runnerSpawnJSON(roleName string, started *runnerStarted, r *claudeResult) machineSpawnJSON {
+	res := started.Resolved
+	mcpServers := res.MCPServers
+	if mcpServers == nil {
+		mcpServers = []string{}
+	}
+	return machineSpawnJSON{
+		claudeResult: *r,
+		Role:         optional(roleName),
+		Runner:       lifetime.RunnerWS,
+		Model:        optional(res.ModelID),
+		WSRunner: &spawnWSRunnerJSON{
+			ModelAlias:    optional(res.ModelAlias),
+			Endpoint:      res.EndpointName,
+			URL:           res.Endpoint.URL,
+			API:           res.Endpoint.API,
+			ContextTokens: res.ContextTokens,
+			MCPServers:    mcpServers,
+		},
+	}
+}
+
+// loadRole is the role named name, or role_unknown, or config_invalid when
+// the roles can't be read.
+func (a *App) loadRole(name string) (role.Role, error) {
+	ro, ok, err := role.NewSet(a.paths.MachineRoles).Load(name)
+	if err != nil {
+		return role.Role{}, newError(codeConfigInvalid, err)
+	}
+	if !ok {
+		return role.Role{}, newError(codeRoleUnknown, fmt.Errorf("no role named %q; ws machine roles lists them", name))
+	}
+	return ro, nil
+}
+
 // spawnRole loads the role, checks and renders the prompt, and rewrites
 // opts.claudeArgs to role.Args(prompt, <args after the prompt>). It runs
 // before runClaude, so nothing is created on an error.
 func (a *App) spawnRole(opts *machineSpawnOptions) (role.Role, map[string]string, error) {
-	ro, ok, err := role.NewSet(a.paths.MachineRoles).Load(opts.role)
+	ro, err := a.loadRole(opts.role)
 	if err != nil {
-		return role.Role{}, nil, newError(codeConfigInvalid, err)
-	}
-	if !ok {
-		return role.Role{}, nil, newError(codeRoleUnknown, fmt.Errorf("no role named %q; ws machine roles lists them", opts.role))
+		return role.Role{}, nil, err
 	}
 	vars, err := loop.ParseVars(opts.vars)
 	if err != nil {

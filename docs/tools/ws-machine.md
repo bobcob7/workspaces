@@ -7,10 +7,11 @@ children are started from.
 ## Synopsis
 
 ```
-ws machine spawn [OPTIONS] [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>...]
+ws machine spawn [OPTIONS] [--runner claude|ws] [--endpoint <name>] [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ws machine wait [--any] [--timeout <duration>] <WORKSPACE>...
 ws machine result <VERDICT> [--file <path> | --file -]
 ws machine children [--all]
+ws machine logs [--tail <n>] <WORKSPACE>
 ws machine rm [--dry-run] [--keep-children] (<WORKSPACE>... | --all)
 ws machine roles
 ws machine roles show <name>
@@ -75,7 +76,8 @@ given. Read it with your file tools.
 Creates a workspace and starts a Claude Code background agent in it, as
 the caller's child: `ws claude --json --parent <caller>`. Everything
 after `--` goes to `claude`; the first argument is the prompt. `spawn`
-never attaches a terminal.
+never attaches a terminal. With `--runner ws` it starts `ws`'s own runner
+instead, as described under [Runners](#runners).
 
 | Option              | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
@@ -84,6 +86,8 @@ never attaches a terminal.
 | `--hidden`          | Hide the workspace from `ws list` and the desktop app's default views. Off by default: children show in the workspace tree |
 | `--role <name>`     | Start the child from this role: its prompt template, model, `claude` arguments, and verdicts |
 | `--var KEY=VALUE`   | A value for the role's prompt; repeatable; only with `--role` |
+| `--runner claude\|ws` | Which agent runs the child. Default: the role's `runner` in `[runner.roles]`, else `claude` |
+| `--endpoint <name>` | With `--runner ws`: another endpoint from `config.toml`, instead of the model's. `usage` with `claude` |
 
 Without `--role`, the prompt after `--` is required (`usage`).
 
@@ -108,9 +112,32 @@ Without `--role`, the prompt after `--` is required (`usage`).
 
 Every check in steps 1 and 2 happens before anything is created.
 
-Prints `ws claude --json`'s object plus `role`:
-`{"id", "session", "path", "parent", "repos", "warnings", "role"}`.
-`role` is the role's name, or `null`.
+Prints `ws claude --json`'s object plus `role`, `runner` and `model`:
+`{"id", "session", "path", "parent", "repos", "warnings", "role", "runner", "model", "ws_runner"}`.
+`role` is the role's name, or `null`. `runner` is `claude` or `ws`, and
+`model` is the child's model, or `null`. `ws_runner` is `null` for a Claude
+child; for a `ws` child it has `model_alias`, `endpoint`, `url`, `api`,
+`context_tokens` and `mcp_servers`.
+
+### Runners
+
+A child runs on Claude Code (`claude`, the default) or on `ws`'s own runner
+(`ws`), which drives a model configured in `config.toml`, such as one on
+LM Studio, Ollama or llm-router. `--runner` chooses; without it,
+`runner.roles.<role>.runner` does for `--role`, else `claude`.
+
+A `ws` child takes `--model <alias>`, or a raw model id, after the prompt,
+and nothing else there (`usage` otherwise). Without it, the role's model
+is used, else `runner.model`. Before anything is created, the daemon
+(started on demand, unless `WS_DAEMON_AUTOSTART=0`) checks that the
+endpoint answers, serves the model and, when it can tell, that the model
+supports tools: `endpoint_unreachable`, `model_not_served`,
+`model_without_tools`. A failed check fails the spawn and nothing else
+starts. There is no fallback to Claude Code: spawn again with
+`--runner claude` if you want the task on Claude.
+
+A `claude` child never uses the daemon, and never reads the runner's
+configuration, so a broken `[runner]` table can't stop it.
 
 ## ws machine wait
 
@@ -230,6 +257,12 @@ others:
 | Option  | Description                               |
 | ------- | ----------------------------------------- |
 | `--all` | Every descendant, not only direct children |
+
+## ws machine logs
+
+Prints a descendant's log as JSON: a `ws` child's transcript events, or a
+Claude child's `claude logs` text. Use it instead of `claude logs`, which
+doesn't know runner sessions (`rn-…`).
 
 ## ws machine rm
 
@@ -409,6 +442,12 @@ $ ws machine memory set --expect-rev 3 seen "#412 #415 #418"
 | `result BLOCKED`: from anything but a loop run's own workspace, or without `--file` | `result_invalid` | 2 |
 | `roles add` and `edit`: an invalid name, description, verdict, var name, or `claude_args`, the same verdict in `pass` and `fail`, an empty `pass` or `fail`, or a prompt that is blank, doesn't parse, or doesn't render with its `vars` | `role_invalid` | 2 |
 | `spawn --role`, `roles show`, `edit`, `rm`: no role has the name | `role_unknown` | 3 |
+| `spawn`: `--runner` isn't `claude` or `ws`; `--endpoint` with `claude`; after a `ws` child's prompt, anything but `--model <m>` | `usage` | 2 |
+| `spawn --runner ws`: no model is configured, or a `[runner]` table is broken | `config_invalid` | 1 |
+| `spawn --runner ws`: the endpoint isn't in `config.toml` | `endpoint_unknown` | 3 |
+| `spawn --runner ws`: the endpoint is unreachable, or the model has no tools | `endpoint_unreachable`, `model_without_tools` | 1 |
+| `spawn --runner ws`: the model isn't served by the endpoint | `model_not_served` | 3 |
+| `spawn --runner ws`: no daemon answers, or the runner didn't write its status within 10 s | `daemon_unavailable`, `runner_failed` | 1 |
 | Workspace not found; for `wait`, also not a gone child with a result | `workspace_not_found` | 3 |
 | `rm` or `wait` of a workspace that isn't the caller's descendant | `not_descendant` | 4 |
 | `roles add`: a role already has the name        | `role_exists`       | 4    |

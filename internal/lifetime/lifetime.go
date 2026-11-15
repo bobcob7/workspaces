@@ -30,6 +30,9 @@ type Manager struct {
 	power  powerReader
 	// runners reads runner sessions; nil keeps them, unknown (ADR 0063).
 	runners runnerReader
+	// control stops and resumes runner sessions; ws rm and ws restore need it
+	// for them (ADR 0063).
+	control runnerControl
 	// stamp is the file whose modification time is when the removal pass
 	// last ran.
 	stamp string
@@ -52,6 +55,12 @@ type Manager struct {
 // runners (ADR 0063).
 func (m *Manager) UseRunners(runners runnerReader) {
 	m.runners = runners
+}
+
+// UseRunnerControl makes ws rm stop a runner session, and ws restore resume
+// a stopped one, through control (ADR 0063).
+func (m *Manager) UseRunnerControl(control runnerControl) {
+	m.control = control
 }
 
 // RemoveFinishedReviews makes the removal pass remove reviews that
@@ -191,7 +200,8 @@ type Listing struct {
 // Removed is a workspace that was removed, or would be with a dry run.
 type Removed struct {
 	Workspace workspace.Workspace
-	// SessionID is its agent's Claude Code session id; empty otherwise.
+	// SessionID is its agent's session id: Claude Code's, or a ws runner's rn- id;
+	// empty otherwise.
 	SessionID string
 }
 

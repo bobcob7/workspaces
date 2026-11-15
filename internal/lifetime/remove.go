@@ -39,8 +39,29 @@ func (m *Manager) Remove(ctx context.Context, ws *workspace.Workspace, dryRun bo
 		return Removed{}, err
 	case sess.Kind == workspace.SessionShell:
 		return m.removeShell(ws, dryRun)
+	case sess.Kind == workspace.SessionRunner:
+		return m.removeRunner(ctx, ws, sess.RunnerSessionID, dryRun)
 	}
 	return m.removeAgent(ctx, ws, sess.ClaudeSessionID, dryRun)
+}
+
+// errNoRunnerControl is what removing a runner session without a control
+// fails with: nothing could stop the runner, so the workspace stays.
+var errNoRunnerControl = errors.New("no control over ws runners")
+
+// removeRunner stops workspace ws's runner session id through the control,
+// then removes the workspace. A runner that may still run keeps it.
+func (m *Manager) removeRunner(ctx context.Context, ws *workspace.Workspace, id string, dryRun bool) (Removed, error) {
+	if dryRun {
+		return Removed{Workspace: *ws, SessionID: id}, nil
+	}
+	if m.control == nil {
+		return Removed{}, fmt.Errorf("%w: %s", errNoRunnerControl, ws.ID)
+	}
+	if err := m.control.Stop(ctx, ws.ID); err != nil {
+		return Removed{}, fmt.Errorf("stopping runner %s: %w", id, err)
+	}
+	return m.removeWorkspace(ws, id, false)
 }
 
 func (m *Manager) removeShell(ws *workspace.Workspace, dryRun bool) (Removed, error) {
