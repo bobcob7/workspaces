@@ -205,12 +205,14 @@ linters:
           - gochecknoglobals
       # internal/fakeollama is copied from llm-router (ADR 0067). Its request
       # and config types are passed by value there too; the copy keeps them.
-      - path: ^internal/fakeollama/
+      # internal/fakemcp is a test fake too (ADR 0067) and takes its Config
+      # by value, as the fake-mcp API does.
+      - path: ^internal/(fakeollama|fakemcp)/
         linters:
           - gocritic
         text: hugeParam
       # main is where the real streams and the exit code belong.
-      - path: ^cmd/(ws|fake-ollama)/
+      - path: ^cmd/(ws|fake-ollama|fake-mcp)/
         linters:
           - forbidigo
         text: os\.(Stdout|Stderr|Stdin|Exit)

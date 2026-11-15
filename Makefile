@@ -14,6 +14,7 @@ test:
 # The fakes (ADR 0067) are test tools, built here and never shipped.
 fakes:
 	go build -o $(BIN)/fake-ollama ./cmd/fake-ollama
+	go build -o $(BIN)/fake-mcp ./cmd/fake-mcp
 
 lint:
 	go tool golangci-lint run ./...
