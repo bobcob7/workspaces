@@ -5,7 +5,13 @@ and other helpers), agents people start with `ws claude`, and loop runs
 run on `ws`'s own agent **runner** instead of Claude Code: first on
 on-prem models behind an OpenAI-compatible API (LM Studio, Ollama,
 llm-router, vLLM), starting with `qwen/qwen3.5-9b`; next on Ollama's native
-API; later perhaps on others. The orchestrator stays on Claude. A small
+API; later perhaps on others. **Claude Code stays the default and the
+supported path**: anything may opt into the runner, nothing is moved to
+it, a default (Claude) start behaves exactly as today with no dependency
+on the runner, its config, the daemon or an endpoint, and there is no
+automatic fallback between runners
+([0071](../../adrs/0071-claude-code-default-runner-as-peer.md)). The
+orchestrator stays on Claude. A small
 **`ws` daemon**, hosted by the desktop app when it runs, supervises
 runners and gives them their environment. Runners can use the MCP servers
 Claude Code is configured with, when a role is given them, and export
@@ -26,7 +32,10 @@ tools, budgets, context), [0066](../../adrs/0066-runner-security-boundaries.md)
 (tests and fakes kept in this repo), [0068](../../adrs/0068-ws-daemon.md)
 (the `ws` daemon, hosted by the desktop app), [0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)
 (MCP and Claude Code parity), [0070](../../adrs/0070-runner-agents-for-people-and-loops.md)
-(`ws claude` and loops on the runner). The full contract (flags, JSON, files,
+(`ws claude` and loops on the runner), [0071](../../adrs/0071-claude-code-default-runner-as-peer.md)
+(Claude Code stays the default; the runner is an opt-in peer; the rules
+that keep alignment). The long-term direction, independence from any one
+model or provider, is the [roadmap](../../roadmap.md). The full contract (flags, JSON, files,
 config, errors) is [reference.md](reference.md). The implementation plan
 is [tasks.md](tasks.md). Screens are in [mockups.html](mockups.html),
 rendered to [img/](img/).
@@ -34,6 +43,8 @@ rendered to [img/](img/).
 - [Review comments and where they're answered](#review-comments-and-where-theyre-answered)
 - [Second review: decisions](#second-review-decisions)
 - [Third review: endpoints can change mid-run](#third-review-endpoints-can-change-mid-run)
+- [Fourth review: no fallback; Claude Code stays the default](#fourth-review-no-fallback-claude-code-stays-the-default)
+- [How this fits the long-term direction](#how-this-fits-the-long-term-direction)
 - [Architecture](#architecture)
 - [One orchestrated run in mixed mode](#one-orchestrated-run-in-mixed-mode)
 - [The agent loop](#the-agent-loop)
@@ -86,12 +97,14 @@ decision in the ADRs; this is where to find it.
 | Claude Code on Ollama's Anthropic API | Dropped | [0062](../../adrs/0062-agent-runner-built-into-ws.md) |
 | Endpoint queue (`max_parallel`) | A non-goal | [0068](../../adrs/0068-ws-daemon.md) |
 | OTel | The runner links the OpenTelemetry SDK, GenAI conventions as in llm-router, no content | [0065](../../adrs/0065-runner-agent-loop-tools-and-budgets.md), task T13 |
-| Fallback scope | Decided in the third review: no mid-run fallback to Claude; a running agent re-resolves its endpoint instead | [Third review](#third-review-endpoints-can-change-mid-run), [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md) |
+| Fallback scope | No fallback to Claude, ever: not mid-run (third review; a running agent re-resolves its endpoint instead) and not at preflight (fourth review) | [Third review](#third-review-endpoints-can-change-mid-run), [Fourth review](#fourth-review-no-fallback-claude-code-stays-the-default), [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md) |
 
 ## Third review: endpoints can change mid-run
 
-The second draft's one open question was whether `runner.fallback =
-"claude"` should also cover a mid-run `endpoint_down`. The owner: "No,
+The second draft's one open question was whether its preflight fallback
+to Claude (since removed, see the
+[fourth review](#fourth-review-no-fallback-claude-code-stays-the-default))
+should also cover a mid-run `endpoint_down`. The owner: "No,
 endpoints can change mid-run", and chose to **re-resolve the endpoint
 mid-run**. The decision is in
 [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md)
@@ -101,7 +114,7 @@ contract in [reference.md](reference.md#re-resolving-the-endpoint-mid-run).
 
 | Point | Decision |
 | ----- | -------- |
-| Mid-run fallback to Claude | Not done. `runner.fallback` stays preflight-only; a run that can't continue records an exit reason for the orchestrator |
+| Mid-run fallback to Claude | Not done; a run that can't continue records an exit reason for the orchestrator. There is no automatic fallback, ever |
 | What a run is bound to | Its model alias (or raw id) and `--endpoint`, fixed in `run.toml`; not the URL resolved at spawn. Never another alias |
 | When it re-resolves | After each retry's backoff, just before the retry's request; and at every resume. Never while its requests succeed |
 | Who reads the configuration | The runner, from `config.toml` (as `ws config set` and Settings › Models leave it, replaced atomically). The daemon pushes nothing, so this works while the daemon is down |
@@ -126,6 +139,38 @@ stateDiagram-v2
     Current --> [*] : third retry failed (endpoint_down or endpoint_rejected)
 ```
 
+## Fourth review: no fallback; Claude Code stays the default
+
+The owner: "Remove the fallback behavior. Ideally anything can use a
+runner, but Claude is the most powerful I have right now and works
+effectively; I don't want to disrupt that functionality." And: "Add a
+short ADR that keeps alignment. Maybe a roadmap document with the
+long-term goal of complete independence of any LLM model and provider."
+
+| Point | Decision | Where |
+| ----- | -------- | ----- |
+| `runner.fallback` | Removed, with every behaviour built on it: the key, its `ws config` key, the Settings row, the `errUseClaude` path in spawn, `ws claude` and loop runs, and the warning | [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md), [0070](../../adrs/0070-runner-agents-for-people-and-loops.md), [reference.md](reference.md#ws-machine-spawn-new-flags), tasks T4, T19, T20, T21, T25 |
+| A failed preflight | Fails the start with its existing code (`endpoint_unreachable`, `model_not_served`, `model_without_tools`, …); nothing else starts. A person or orchestrator decides, for example respawning with `--runner claude` | [0064](../../adrs/0064-choosing-the-runner-model-and-endpoint.md) |
+| The Claude path | Untouched: a default start never contacts the daemon, preflights, reads or validates the runner's tables, or needs an endpoint. Invalid runner tables can't fail it (T4 keeps them in `RunnerErr`). An acceptance item in T4, T19, T20, T21, and the e2e scenario `claude-default-untouched` | [0071](../../adrs/0071-claude-code-default-runner-as-peer.md), [0067](../../adrs/0067-runner-tests-use-vendored-fakes.md), tasks T4, T19–T22 |
+| Alignment | ADR 0071: Claude Code is the default; the runner is an opt-in peer; disturbing the Claude path needs measured runs and the owner; review rules for the seam, parity rows, neutral names and the session model | [0071](../../adrs/0071-claude-code-default-runner-as-peer.md) |
+| Long-term goal | Independence from any one model, provider or harness, in phases with exit criteria | [roadmap](../../roadmap.md) |
+
+No task was removed or renumbered: T4, T19, T20, T21 and T25 shrink, and
+T22 gains one scenario (27 in all).
+
+## How this fits the long-term direction
+
+This design is phase 1 of the [roadmap](../../roadmap.md): the runner for
+low-risk roles (verifiers, then docs-only implementers) on
+`qwen/qwen3.5-9b`, with measured runs before anything widens. It follows
+[0071](../../adrs/0071-claude-code-default-runner-as-peer.md)'s rules: the
+`Provider` seam is the only place a wire protocol is known; the
+[parity table](#parity-with-claude-code) records each Claude Code feature
+as v1, `later` or `never`; records and JSON use neutral `runner` and
+`model` fields; and runner sessions are supervised by the `ws` daemon, not
+by `claude --bg`. Everything that runs on Claude Code today keeps doing
+so, unchanged, until measured runs and the owner say otherwise.
+
 ## Architecture
 
 ```mermaid
@@ -143,7 +188,7 @@ flowchart TB
     otel["OTLP collector, when OTEL_* variables are set"]
 
     orch -->|"spawn, wait, children, logs"| cli
-    cli -->|"runner = claude"| cc
+    cli -->|"runner = claude (default): today's path, no daemon, no runner config"| cc
     cli -->|"runner = ws: preflight, then start (user-only Unix socket)"| daemon
     hosts -.->|"keeps it running"| daemon
     daemon -->|"starts with env: own, then [runner.env], then secrets.env"| runner
@@ -229,6 +274,12 @@ sequenceDiagram
     Note over O,C: when a ws child fails
     W-->>O: outcome fail, ws_runner.exit "looping" (report line 1 says so)
     O->>W: respawn the same task with --runner claude (a procedure step, never automatic)
+
+    Note over O,C: when the endpoint is down at spawn
+    O->>W: spawn --role verifier (routed to ws)
+    W-->>O: error endpoint_unreachable, exit 1, nothing created
+    O->>W: spawn --runner claude --role verifier (the orchestrator's choice)
+    W->>C: claude --bg
 ```
 
 What the orchestrator sees differs in only three ways: `runner`, `model`
@@ -479,7 +530,7 @@ Full key list: [reference.md › config.toml](reference.md#configtoml). In
 short: `[endpoints.<name>]` is where and how to talk to a server (`url`,
 `api`, `probe`, timeouts); `[models.<alias>]` is a model on an endpoint
 (`id`, `context_tokens`, `max_output`, `temperature`, `reasoning`); `[runner]` holds
-the default model alias and the preflight-only fallback; `[runner.roles.<role>]` the
+the default model alias; `[runner.roles.<role>]` the
 runner, model, budgets and MCP selection per role; `[runner.env]` plain
 variables for runners; `[daemon]` `resume_on_start`. Tokens go in
 `WS_ENDPOINT_TOKEN_<NAME>`, normally in `CONFIG_DIR/secrets.env`.
@@ -494,7 +545,6 @@ Proposed addition to the generated `config.toml` (commented out):
 # [runner]
 # Run some agents on other models (ws llm machine spawn).
 # model = "qwen9b"
-# fallback = "none"          # or "claude": start a Claude child when preflight fails (never mid-run)
 #
 # [endpoints.gpu]
 # url = "http://localhost:1234"
@@ -726,10 +776,12 @@ design):
 >    the gate. The designer, orchestrator and screenshot child stay on
 >    Claude.
 > 2. **How.** Prefer config (`[runner.roles.verifier] runner = "ws"`) over
->    flags. Override per spawn with `--runner claude` or `--runner ws`. Keep
->    `runner.fallback = "none"` so a down endpoint fails the spawn
->    (`endpoint_unreachable`) instead of silently spending Claude usage;
->    then decide.
+>    flags. Override per spawn with `--runner claude` or `--runner ws`.
+>    There is no fallback: a down endpoint fails the spawn
+>    (`endpoint_unreachable`, `model_not_served`, `model_without_tools`)
+>    and nothing starts. Decide: fix the endpoint and spawn again, or
+>    spawn the task with `--runner claude`. Children on Claude (the
+>    default) never depend on the endpoint or the daemon.
 > 3. **Waiting** is unchanged. Read `ws_runner.exit` in the wait JSON.
 >    `done` with `FAIL` is a real task failure. Any other exit (`looping`,
 >    `max_steps`, `endpoint_down`, `no_result`, `malformed_tool_calls`,
@@ -780,8 +832,11 @@ These are applied by task T19, not now.
 +model, and `--endpoint` to override its endpoint. Through the `ws` daemon
 +(started on demand), spawn first checks that the endpoint answers, serves
 +the model, and, when it can tell, that the model supports tools:
-+`endpoint_unreachable`, `model_not_served`, `model_without_tools`. The
-+output gains `runner`, `model` and `ws_runner`.
++`endpoint_unreachable`, `model_not_served`, `model_without_tools`. A
++failed check fails the spawn and nothing else starts; spawn again with
++`--runner claude` if you want the task on Claude. A `claude` child never
++uses the daemon or the runner's config. The output gains `runner`,
++`model` and `ws_runner`.
 
  ### Flags
 +| `--runner claude\|ws`  | Which agent runs the child |
@@ -843,7 +898,8 @@ scenario table. In short:
 - `make fakes`: builds `bin/fake-ollama` and `bin/fake-mcp` from this repo.
   No network, no llm-router.
 - `make e2e-runner`: the real `ws` binary (and its daemon) with fake-ollama
-  and fake-mcp processes, 26 scenarios: runner exits, preflight errors,
+  and fake-mcp processes, 27 scenarios: the default Claude path with no
+  runner config and no daemon, runner exits, preflight errors,
   re-resolving the endpoint mid-run (a failover to a second fake, a
   rejected repoint to a model without tools, an invalid config),
   token redaction, MCP over stdio and HTTP, filtering, `tool_search`, a
@@ -902,7 +958,10 @@ runner and model fields; Permission mode shows only for Claude Code.
 None. The second review answered the first draft's questions
 ([Second review: decisions](#second-review-decisions)); the third answered
 the last one, fallback scope
-([Third review](#third-review-endpoints-can-change-mid-run)).
+([Third review](#third-review-endpoints-can-change-mid-run)); the fourth
+removed the preflight fallback and added ADR 0071 and the
+[roadmap](../../roadmap.md)
+([Fourth review](#fourth-review-no-fallback-claude-code-stays-the-default)).
 
 [^qwen-ids]: LM Studio, <https://lmstudio.ai/models/qwen/qwen3.5-9b>; Ollama library, <https://ollama.com/library/qwen3.5/tags> (accessed 2026-11-14 by a research subagent; ids and the 6.6 GB size not re-opened here).
 [^qwen-card]: Qwen, "Qwen3.5-9B" model card, <https://huggingface.co/Qwen/Qwen3.5-9B> (accessed 2026-11-14). "Context Length: 262,144 natively"; layout "8 × (3 × (Gated DeltaNet → FFN) → 1 × (Gated Attention → FFN))"; BFCL-V4 66.1, TAU2-Bench 79.1, LiveCodeBench v6 65.6, IFEval 91.5; "Qwen3.5 models operate in thinking mode by default"; "does not officially support the soft switch of Qwen3, i.e., `/think` and `/nothink`"; license Apache-2.0. The parameter count of about 9.7B is Ollama's and Artificial Analysis's figure, via the research subagent. The sampling recommendations (0.6 for thinking on precise coding, 0.7 without) are from the same card, via the research subagent.
