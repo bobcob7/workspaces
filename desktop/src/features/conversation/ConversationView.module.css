@@ -200,6 +200,11 @@
   white-space: pre-wrap;
 }
 
+.warning {
+  composes: notice;
+  color: var(--status-error, #f85149);
+}
+
 .working {
   display: flex;
   align-items: center;

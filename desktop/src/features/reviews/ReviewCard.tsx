@@ -19,8 +19,8 @@ const Reply = ({ sessionId, live }: { readonly sessionId: string; readonly live:
   const dispatch = useAppDispatch();
   const conversation = useAppSelector((s) => s.conversations.bySession[sessionId]);
   useEffect(() => {
-    void dispatch(fetchConversation(sessionId));
-    const timer = live ? window.setInterval(() => void dispatch(fetchConversation(sessionId)), replyInterval) : null;
+    void dispatch(fetchConversation({ sessionId, workspaceId: null }));
+    const timer = live ? window.setInterval(() => void dispatch(fetchConversation({ sessionId, workspaceId: null })), replyInterval) : null;
     return () => {
       if (timer !== null) {
         window.clearInterval(timer);
