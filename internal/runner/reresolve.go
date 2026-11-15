@@ -95,13 +95,13 @@ func (r *Reresolver) otherEndpoint(ctx context.Context, target config.Target, ch
 	res, err := r.Preflight(ctx, p, ep, target.ModelID, target.ContextTokens)
 	switch {
 	case errors.Is(err, llm.ErrUnreachable):
-		return agent.Resolution{Failed: err}
+		return failed(target, err)
 	case errors.Is(err, llm.ErrModelMissing):
 		return rejected(target, "model_not_served", err)
 	case errors.Is(err, llm.ErrNoTools):
 		return rejected(target, "model_without_tools", err)
 	case err != nil:
-		return agent.Resolution{Failed: err}
+		return failed(target, err)
 	}
 	target.ContextTokens = res.ContextTokens
 	r.next = target
@@ -233,6 +233,15 @@ func withSettings(t agent.Target, target config.Target, contextTokens int) agent
 	t.Temperature = target.Temperature
 	t.Reasoning = target.Reasoning
 	return t
+}
+
+// failed is the resolution for a changed endpoint that failed its check. Its
+// target names the endpoint the attempt went to, for the retry event.
+func failed(target config.Target, err error) agent.Resolution { //nolint:gocritic // hugeParam: a target copied once per retry.
+	return agent.Resolution{
+		Target: agent.Target{Endpoint: target.EndpointName, Model: target.ModelID},
+		Failed: err,
+	}
 }
 
 func rejected(target config.Target, code string, err error) agent.Resolution { //nolint:gocritic // hugeParam: a target copied once per retry.
