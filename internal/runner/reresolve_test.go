@@ -233,6 +233,16 @@ func TestReresolver_Reresolve(t *testing.T) {
 		require.NotNil(t, res.Warning)
 		assert.Equal(t, "config_invalid", res.Warning.Code)
 	})
+	t.Run("runner.model changed to another alias is unchanged, since the alias is fixed", func(t *testing.T) {
+		t.Parallel()
+		r, spy := newSpyResolver(t)
+		spy.writeConfig(t, strings.Replace(reresolveConfig, `model = "qwen9b"`, `model = "other"`, 1)+"\n[models.other]\nendpoint = \"fake-b\"\nid = \"qwen/other\"\ncontext_tokens = 65536\n")
+		assert.Equal(t, agent.Resolution{}, r.Reresolve(t.Context(), agent.Target{}))
+		assert.Empty(t, spy.builds)
+		assert.Empty(t, spy.preflights)
+		assert.Empty(t, spy.redacted)
+		assert.Zero(t, spy.getenvs)
+	})
 	t.Run("a model alias that is gone is a model_gone warning, with no URL in it", func(t *testing.T) {
 		t.Parallel()
 		r, spy := newSpyResolver(t)
@@ -399,6 +409,24 @@ func TestExecuteReresolve(t *testing.T) {
 		var in *Input
 		gpu := newModelServer(t, func(_ int, w http.ResponseWriter) {
 			_ = os.WriteFile(filepath.Join(in.ConfigDir, "config.toml"), []byte("[runner"), fileMode)
+			http.Error(w, "down", http.StatusServiceUnavailable)
+		})
+		files, workspace := newRunFixture(t, gpu.URL, nil)
+		in = testInput(t, files, workspace, false)
+		require.NoError(t, os.WriteFile(filepath.Join(in.ConfigDir, "config.toml"), []byte(e2eConfig(gpu.URL, gpu.URL, "none", "gpu")), fileMode))
+		require.NoError(t, Execute(t.Context(), in))
+
+		st, err := files.ReadStatus()
+		require.NoError(t, err)
+		require.NotNil(t, st.Exit)
+		assert.Equal(t, agent.ExitEndpointDown, *st.Exit)
+		assert.Contains(t, readTranscript(t, files), `"kind":"config_warning"`)
+	})
+	t.Run("a config.toml removed mid-run ends endpoint_down with config warnings", func(t *testing.T) {
+		t.Parallel()
+		var in *Input
+		gpu := newModelServer(t, func(_ int, w http.ResponseWriter) {
+			_ = os.Remove(filepath.Join(in.ConfigDir, "config.toml"))
 			http.Error(w, "down", http.StatusServiceUnavailable)
 		})
 		files, workspace := newRunFixture(t, gpu.URL, nil)
