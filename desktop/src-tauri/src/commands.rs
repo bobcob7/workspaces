@@ -115,6 +115,11 @@ pub struct NewAgent {
     pub permission_mode: Option<String>,
     #[serde(default)]
     pub offline: bool,
+    /// `claude` or `ws`; blank or None is `claude` (ADR 0070).
+    #[serde(default)]
+    pub runner: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -129,13 +134,22 @@ fn non_empty(value: Option<&String>) -> Option<&str> {
 }
 
 /// The arguments for `ws claude`, without `--json`, which the runner adds.
+/// A `ws` runner agent gets `--runner=ws` and `--endpoint=<e>` before the
+/// specs, and after `--` only the prompt and `--model <m>` (ADR 0070).
 pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
+    let ws = non_empty(req.runner.as_ref()) == Some("ws");
     let mut args = vec!["claude".to_string()];
     if let Some(name) = non_empty(req.name.as_ref()) {
         args.extend(["--name".to_string(), name.to_string()]);
     }
     if req.offline {
         args.push("--offline".to_string());
+    }
+    if ws {
+        args.push("--runner=ws".to_string());
+        if let Some(endpoint) = non_empty(req.endpoint.as_ref()) {
+            args.push(format!("--endpoint={endpoint}"));
+        }
     }
     args.extend(
         req.specs
@@ -144,16 +158,19 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
             .filter(|s| !s.is_empty())
             .map(str::to_string),
     );
-    let mut claude_args = Vec::new();
-    if let Some(model) = non_empty(req.model.as_ref()) {
-        claude_args.extend(["--model".to_string(), model.to_string()]);
-    }
-    if let Some(mode) = non_empty(req.permission_mode.as_ref()) {
-        claude_args.extend(["--permission-mode".to_string(), mode.to_string()]);
-    }
-    if let Some(prompt) = non_empty(req.prompt.as_ref()) {
-        claude_args.push(prompt.to_string());
-    }
+    let model_args: Vec<String> = non_empty(req.model.as_ref())
+        .map_or_else(Vec::new, |model| vec!["--model".to_string(), model.to_string()]);
+    let prompt_args: Vec<String> = non_empty(req.prompt.as_ref())
+        .map(str::to_string)
+        .into_iter()
+        .collect();
+    let claude_args = if ws {
+        [prompt_args, model_args].concat()
+    } else {
+        let mode_args: Vec<String> = non_empty(req.permission_mode.as_ref())
+            .map_or_else(Vec::new, |mode| vec!["--permission-mode".to_string(), mode.to_string()]);
+        [model_args, mode_args, prompt_args].concat()
+    };
     if !claude_args.is_empty() {
         args.push("--".to_string());
         args.extend(claude_args);
@@ -658,6 +675,8 @@ mod tests {
             model: None,
             permission_mode: None,
             offline: false,
+            runner: None,
+            endpoint: None,
         }
     }
 
@@ -675,6 +694,8 @@ mod tests {
             model: Some("opus".into()),
             permission_mode: Some("acceptEdits".into()),
             offline: true,
+            runner: None,
+            endpoint: None,
         };
         assert_eq!(
             new_agent_args(&req),
@@ -692,6 +713,46 @@ mod tests {
                 "Fix it",
             ]
         );
+    }
+
+    #[test]
+    fn new_agent_args_for_ws_agent_puts_runner_before_specs_and_model_after_prompt() {
+        let req = NewAgent {
+            name: Some("Fix Login".into()),
+            specs: vec!["buff-bear@main".into()],
+            prompt: Some("Fix it".into()),
+            model: Some("qwen9b".into()),
+            permission_mode: Some("acceptEdits".into()),
+            runner: Some("ws".into()),
+            endpoint: Some("gpu".into()),
+            ..request()
+        };
+        assert_eq!(
+            new_agent_args(&req),
+            [
+                "claude",
+                "--name",
+                "Fix Login",
+                "--runner=ws",
+                "--endpoint=gpu",
+                "buff-bear@main",
+                "--",
+                "Fix it",
+                "--model",
+                "qwen9b",
+            ]
+        );
+    }
+
+    #[test]
+    fn new_agent_args_for_ws_agent_without_endpoint_or_model_sends_only_the_runner() {
+        let req = NewAgent {
+            prompt: Some("Fix it".into()),
+            runner: Some("ws".into()),
+            endpoint: Some(" ".into()),
+            ..request()
+        };
+        assert_eq!(new_agent_args(&req), ["claude", "--runner=ws", "--", "Fix it"]);
     }
 
     #[test]
