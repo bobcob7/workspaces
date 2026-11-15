@@ -38,6 +38,26 @@ type Input struct {
 	ConfigDir string // CONFIG_DIR: config.toml, read for keep_git_tokens
 	Environ   []string
 	Store     resultStore
+	// Sleep waits between retries; nil waits on the wall clock.
+	Sleep func(ctx context.Context, d time.Duration) error
+}
+
+// runClock is the loop's clock: the wall clock, with Sleep as in Input.
+type runClock struct {
+	sleep func(context.Context, time.Duration) error
+}
+
+// Now is the wall clock.
+func (runClock) Now() time.Time {
+	return time.Now()
+}
+
+// Sleep waits d, through Input.Sleep when it is set.
+func (c runClock) Sleep(ctx context.Context, d time.Duration) error {
+	if c.sleep != nil {
+		return c.sleep(ctx, d)
+	}
+	return agent.SystemClock{}.Sleep(ctx, d)
 }
 
 // session is one process run's state.
@@ -308,7 +328,7 @@ func (s *session) setup(ctx context.Context) (context.Context, prepared, error) 
 	if err != nil {
 		return ctx, prepared{}, err
 	}
-	return ctx, prepared{agent: agent.New(agent.SystemClock{}, tr, cfg, s.log), history: history, step: step}, nil
+	return ctx, prepared{agent: agent.New(runClock{sleep: s.in.Sleep}, tr, cfg, s.log), history: history, step: step}, nil
 }
 
 // resumeHistory is the conversation to continue, with an unanswered tail
@@ -444,6 +464,9 @@ func keepsGitTokens(configDir string) (bool, error) {
 	if errors.Is(err, fs.ErrNotExist) {
 		cfg = config.Default()
 	} else if err != nil {
+		return false, err
+	}
+	if err := cfg.RunnerError(); err != nil {
 		return false, err
 	}
 	return cfg.Runner.KeepsGitTokens(), nil
