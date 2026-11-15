@@ -1,19 +1,20 @@
 # ws machine spawn
 
 ```
-ws machine spawn [--name <name>] [--offline] [--hidden] [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>...]
+ws machine spawn [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden]
+                 [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, and
-starts a Claude Code background agent in it, as your child: it is
-`ws claude --json --parent <your workspace>`. Removing your workspace
-removes it.
+starts an agent in it, as your child: a Claude Code background agent, as
+`ws claude --json --parent <your workspace>` does, or with `--runner ws`
+`ws`'s own runner (see Runners). Removing your workspace removes it.
 
 ## When to use it
 
 - To give a task to a helper agent in its own copy of the repos. Keep the
   returned `id`, wait for it with `ws machine wait <id>` as a background
-  command, and follow it with `claude logs <session>`.
+  command, and follow it with `ws machine logs <id>`.
 - With `--role`, to start a child from a stored role: `implementer`,
   `reviewer`, `verifier`, or one the user added (`ws machine roles`). The
   role gives the prompt, the model, and the verdicts the child records
@@ -43,6 +44,35 @@ address. `claude` gets the role's `--model` and arguments before yours, so
 a `--model` after the prompt overrides the role's. To pass `claude`
 arguments without an extra prompt, give an empty one: `-- "" --model opus`.
 
+## Runners
+
+A child runs on Claude Code (`claude`, the default) or on `ws`'s own
+runner (`ws`), which drives another model, such as one served by LM
+Studio, Ollama or llm-router. `--runner` chooses. Without it, `runner.roles.<role>.runner`
+in `config.toml` chooses for `--role`, and otherwise it's `claude`. Your
+output's `runner` says which one started, and `model` which model.
+
+A `ws` child uses `--model <m>` after the prompt, a model name from
+`config.toml` such as `qwen9b`, or a model id as the endpoint lists it
+(`qwen/qwen3.5-9b`), or else the role's or the default model;
+no other `claude` arguments are accepted. `--endpoint` sends it to another
+configured endpoint. Before anything is created, spawn checks that the
+endpoint answers, serves the model, and, when the endpoint can say, that
+the model supports tools. A failure is an error and nothing is started
+in its place; `ws` never switches a child to another runner, before or
+during its run. Decide yourself, for example by spawning the task again
+with `--runner claude`. A `claude` child (the default) never needs the
+daemon or an endpoint. When a `ws` child's endpoint fails
+mid-run, it re-reads `config.toml` before each retry and moves to the
+endpoint its model now names there, after the same checks. `ws`'s background service, the `ws`
+daemon, starts and watches the child; spawn starts the daemon when it isn't
+running.
+
+A `ws` child records its own verdict, or `ws` records a fail verdict for
+it with a report whose first line gives the reason, such as `ws runner:
+looping`. Read its log with `ws machine logs <id>`, not `claude logs`. It
+can't be attached to or sent messages.
+
 ## Flags
 
 | Flag                | Meaning                                                     |
@@ -52,6 +82,8 @@ arguments without an extra prompt, give an empty one: `-- "" --model opus`.
 | `--hidden`          | Hide the workspace from `ws list` and the desktop app's default views. Off by default: children show in the tree |
 | `--role <name>`     | Start the child from this role                              |
 | `--var KEY=VALUE`   | A value for the role's prompt; repeatable; only with `--role` |
+| `--runner claude\|ws` | Which agent runs the child; default from `config.toml` for the role, else `claude` |
+| `--endpoint <name>` | An endpoint from `config.toml` instead of the model's own; only with the `ws` runner |
 
 Output is always JSON; `--json` changes nothing.
 
@@ -68,12 +100,27 @@ Output is always JSON; `--json` changes nothing.
      "ref": "main", "ref_kind": "branch", "commit": "3f2a9c1e4b…"}
   ],
   "warnings": [],
-  "role": null
+  "role": null,
+  "runner": "claude",
+  "model": "opus",
+  "ws_runner": null
 }
 ```
 
-`ws claude --json`'s object; `parent` is your workspace's id, and `role`
-the role's name or `null`.
+For a `ws` child, `session` is the runner's id (`rn-…`) and:
+
+```json
+"runner": "ws",
+"model": "qwen/qwen3.5-9b",
+"ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "url": "http://gpu-a.inference.svc:1234",
+              "api": "openai", "context_tokens": 65536, "mcp_servers": []}
+```
+
+`ws claude --json`'s object; `parent` is your workspace's id, `role` the
+role's name or `null`, `runner` `claude` or `ws`, `model` the model it
+runs (for Claude, the `--model` it was started with, or `null` for the
+default), and `ws_runner` the model's endpoint for a `ws` child, else
+`null`.
 
 ## Exit codes
 
@@ -92,6 +139,18 @@ the role's name or `null`.
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root           | `claude_untrusted` | 1    |
 | `claude --bg` failed; `details.stderr` has its output  | `claude_failed`    | 1    |
+| `--runner` isn't `claude` or `ws`; `--endpoint` with `claude`; an argument other than `--model` after a `ws` child's prompt | `usage` | 2 |
+| The endpoint isn't in `config.toml`; `details.endpoints` lists them | `endpoint_unknown` | 3 |
+| No model configured for a `ws` child, or a bad `[models]` or `[endpoints]` entry | `config_invalid` | 1 |
+| The endpoint didn't answer; `details.url`, `details.cause` | `endpoint_unreachable` | 1 |
+| The endpoint doesn't serve the model; `details.models` | `model_not_served` | 3 |
+| The model doesn't support tools; `details.capabilities` | `model_without_tools` | 1 |
+| The runner didn't start; `details.log`                  | `runner_failed`    | 1    |
+| The `ws` daemon isn't running and couldn't be started; `details.log` | `daemon_unavailable` | 1 |
+
+On `endpoint_unreachable`, `model_not_served`, `model_without_tools` or
+`daemon_unavailable`, tell a person, or spawn the child with `--runner
+claude`.
 
 On `claude_untrusted`, tell the person to run `claude` once in
 `details.directory` and accept the trust prompt.
@@ -106,4 +165,7 @@ $ ws machine spawn --name t1-impl --role implementer --var TASK=T1 --var TASKS=d
 $ ws machine spawn --name t1-review --role reviewer --var TASK=T1 --var TASKS=docs/design/x/tasks.md \
     --var BASE=feat/x buff-bear@feat/x-t1
 $ ws machine spawn --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make lint; make test" buff-bear@feat/x
+$ ws machine spawn --runner ws --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make test" buff-bear@feat/x
+$ ws machine spawn --runner ws --endpoint gpu --name t2-impl --role implementer --var TASK=T2 \
+    --var TASKS=docs/design/x/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t2 buff-bear@feat/x -- "" --model qwen9b-think
 ```

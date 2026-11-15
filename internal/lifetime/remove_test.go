@@ -29,6 +29,18 @@ func TestManager_Remove(t *testing.T) {
 		assert.Equal(t, Removed{Workspace: ws}, got)
 		assert.Equal(t, []string{"x"}, f.removedIDs())
 	})
+	t.Run("a runner", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		control := &runnerControlMock{StopFunc: func(context.Context, string) error { return nil }}
+		f.m.UseRunnerControl(control)
+		got, err := f.m.Remove(t.Context(), &ws, false)
+		require.NoError(t, err)
+		assert.Equal(t, Removed{Workspace: ws, SessionID: "rn-3f2a9c1e"}, got)
+		assert.Equal(t, []string{"x"}, stoppedRunners(control))
+		assert.Equal(t, []string{"x"}, f.removedIDs())
+		assert.Empty(t, f.claudeRemoved())
+	})
 	t.Run("no session record", func(t *testing.T) {
 		f := newFixture(t)
 		ws := f.add("x")
@@ -46,6 +58,54 @@ func TestManager_Remove(t *testing.T) {
 		require.ErrorIs(t, err, errTest)
 		assert.Empty(t, f.removedIDs())
 	})
+}
+
+func TestManager_removeRunner(t *testing.T) {
+	t.Run("stops the runner, then removes the workspace", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		control := &runnerControlMock{StopFunc: func(context.Context, string) error { return nil }}
+		f.m.UseRunnerControl(control)
+		got, err := f.m.removeRunner(t.Context(), &ws, "rn-3f2a9c1e", false)
+		require.NoError(t, err)
+		assert.Equal(t, Removed{Workspace: ws, SessionID: "rn-3f2a9c1e"}, got)
+		assert.Equal(t, []string{"x"}, f.removedIDs())
+	})
+	t.Run("a dry run stops nothing", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		control := &runnerControlMock{StopFunc: func(context.Context, string) error { return nil }}
+		f.m.UseRunnerControl(control)
+		_, err := f.m.removeRunner(t.Context(), &ws, "rn-3f2a9c1e", true)
+		require.NoError(t, err)
+		assert.Empty(t, control.StopCalls())
+		assert.Empty(t, f.removedIDs())
+	})
+	t.Run("a runner that can't be stopped keeps the workspace", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		control := &runnerControlMock{StopFunc: func(context.Context, string) error { return errTest }}
+		f.m.UseRunnerControl(control)
+		_, err := f.m.removeRunner(t.Context(), &ws, "rn-3f2a9c1e", false)
+		require.ErrorIs(t, err, errTest)
+		assert.Empty(t, f.removedIDs())
+	})
+	t.Run("without a control the workspace is kept", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		_, err := f.m.removeRunner(t.Context(), &ws, "rn-3f2a9c1e", false)
+		require.ErrorIs(t, err, errNoRunnerControl)
+		assert.Empty(t, f.removedIDs())
+	})
+}
+
+// stoppedRunners is the ids control was asked to stop.
+func stoppedRunners(control *runnerControlMock) []string {
+	var ids []string
+	for _, call := range control.StopCalls() {
+		ids = append(ids, call.ID)
+	}
+	return ids
 }
 
 func TestManager_removeShell(t *testing.T) {

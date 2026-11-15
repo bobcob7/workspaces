@@ -1,7 +1,7 @@
 # ws machine
 
 ```
-ws machine spawn [--name <name>] [--offline] [--hidden] [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>...]
+ws machine spawn [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden] [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ws machine wait [--any] [--timeout <duration>] <workspace>...
 ws machine result <VERDICT> [--file <path> | --file -]
 ws machine children [--all]
@@ -58,10 +58,14 @@ Run `ws llm machine <op>` for each one's guide.
 | Situation                                       | Error code            | Exit |
 | ----------------------------------------------- | --------------------- | ---- |
 | Run outside a workspace                         | `outside_workspace`   | 2    |
-| An unknown operation, or wrong arguments or flags | `usage`             | 2    |
+| An unknown operation, or wrong arguments or flags; `--runner` isn't claude or ws; `--endpoint` with claude; after a ws child's prompt, anything but `--model <m>` | `usage` | 2    |
 | `result`: a malformed or disallowed verdict, or a bad report | `result_invalid` | 2 |
 | `roles add`, `edit`: an invalid role            | `role_invalid`        | 2    |
 | `spawn --role`, `roles`: no role has the name   | `role_unknown`        | 3    |
+| `spawn --runner ws`: no model, a broken `[runner]` table | `config_invalid` | 1    |
+| `spawn --runner ws`: the endpoint isn't in config.toml, or the model isn't on it | `endpoint_unknown`, `model_not_served` | 3    |
+| `spawn --runner ws`: the endpoint is unreachable, or the model has no tools | `endpoint_unreachable`, `model_without_tools` | 1    |
+| `spawn --runner ws`: no daemon answers, or the runner didn't start | `daemon_unavailable`, `runner_failed` | 1    |
 | `rm`, `wait`: a workspace that isn't one you started, or theirs | `not_descendant` | 4 |
 | `roles add`: the name is taken; `roles rm`: a built-in | `role_exists`, `role_builtin` | 4 |
 | `wait`: a child failed, or had no verdict       | `child_failed`        | 1    |

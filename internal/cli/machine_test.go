@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -882,4 +883,129 @@ func setParent(t *testing.T, paths *config.Paths, id, parent string) {
 	require.True(t, ok, "record starts with its version: %s", data)
 	text = fmt.Sprintf("version = 3\nparent = %q\n", parent) + text
 	require.NoError(t, os.WriteFile(path, []byte(text), 0o600))
+}
+
+func TestApp_runMachineSpawnRunner(t *testing.T) {
+	t.Run("without --runner the Claude path never asks the daemon, even with broken runner tables", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.dialDaemon = func(context.Context) (runnerDaemon, error) {
+			t.Error("the Claude path asked the daemon")
+			return nil, errTest
+		}
+		cfg := testConfig()
+		cfg.RunnerErr = errors.New("a broken [runner] table")
+		e.app.configs = &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
+			return config.NewPaths(t.TempDir()), cfg, nil
+		}}
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil }
+		e.app.newStores = func(config.Paths, config.Config) stores {
+			return stores{cache: stubCache(), workspaces: e.store, lifetime: stubLifetime()}
+		}
+		code := e.app.execute(t.Context(), e.app.newRootCmd(), []string{"machine", "spawn", "--name", "Fix Login", "buff-bear", "--", "fix it"})
+		require.Equal(t, exitOK, code, e.stderr.String())
+		assert.Contains(t, e.stdout.String(), `"runner":"claude"`)
+		assert.Contains(t, e.stdout.String(), `"ws_runner":null`)
+	})
+	t.Run("--endpoint with the Claude runner is usage, and nothing is created", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		e.app.newStores = func(config.Paths, config.Config) stores {
+			return stores{cache: stubCache(), workspaces: e.store, lifetime: stubLifetime()}
+		}
+		code := e.app.execute(t.Context(), e.app.newRootCmd(), []string{"machine", "spawn", "--endpoint", "cpu", "--", "fix it"})
+		assert.Equal(t, exitUsage, code)
+		assert.Equal(t, "usage", errorCodeOf(t, e.stderr))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("a ws child is started on the runner and printed as its JSON", func(t *testing.T) {
+		e := newRunnerEnv(t, runnerToml)
+		code := e.app.execute(t.Context(), e.app.newRootCmd(), []string{"machine", "spawn", "--runner", "ws", "--name", "Fix Login", "--", "fix it", "--model", "qwen9b"})
+		require.Equal(t, exitOK, code, e.stderr.String())
+		var got struct {
+			Session  string  `json:"session"`
+			Parent   *string `json:"parent"`
+			Runner   string  `json:"runner"`
+			Model    *string `json:"model"`
+			WSRunner *struct {
+				ModelAlias    *string  `json:"model_alias"`
+				Endpoint      string   `json:"endpoint"`
+				URL           string   `json:"url"`
+				ContextTokens int      `json:"context_tokens"`
+				MCPServers    []string `json:"mcp_servers"`
+			} `json:"ws_runner"`
+		}
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got), e.stdout.String())
+		assert.True(t, strings.HasPrefix(got.Session, "rn-"))
+		require.NotNil(t, got.Parent)
+		assert.Equal(t, "plan", *got.Parent)
+		assert.Equal(t, "ws", got.Runner)
+		require.NotNil(t, got.Model)
+		assert.Equal(t, "qwen/qwen3.5-9b", *got.Model)
+		require.NotNil(t, got.WSRunner)
+		require.NotNil(t, got.WSRunner.ModelAlias)
+		assert.Equal(t, "qwen9b", *got.WSRunner.ModelAlias)
+		assert.Equal(t, "gpu", got.WSRunner.Endpoint)
+		assert.Equal(t, "http://gpu-a.inference.svc:1234", got.WSRunner.URL)
+		assert.Equal(t, 65536, got.WSRunner.ContextTokens)
+		assert.NotNil(t, got.WSRunner.MCPServers)
+		assert.Empty(t, got.WSRunner.MCPServers)
+	})
+	t.Run("after a ws child's prompt, anything but --model is usage, and nothing is created", func(t *testing.T) {
+		e := newRunnerEnv(t, runnerToml)
+		code := e.app.execute(t.Context(), e.app.newRootCmd(), []string{"machine", "spawn", "--runner", "ws", "--name", "Fix Login", "--", "fix it", "--permission-mode", "auto"})
+		assert.Equal(t, exitUsage, code)
+		assert.Equal(t, "usage", errorCodeOf(t, e.stderr))
+		assert.Empty(t, e.store.CreateCalls())
+		assert.Empty(t, e.daemon.PreflightCalls())
+	})
+}
+
+func TestApp_spawnRunner(t *testing.T) {
+	routed := runnerToml + "\n[runner.roles.implementer]\nrunner = \"ws\"\n"
+	cases := []struct {
+		name      string
+		toml      string
+		opts      machineSpawnOptions
+		want      string
+		wantUsage bool
+	}{
+		{name: "claude unless named", toml: runnerToml, want: "claude"},
+		{name: "--runner ws", toml: runnerToml, opts: machineSpawnOptions{runner: "ws"}, want: "ws"},
+		{name: "a role routed to ws by its runner", toml: routed, opts: machineSpawnOptions{role: "implementer"}, want: "ws"},
+		{name: "--runner claude overrides the role's runner", toml: routed, opts: machineSpawnOptions{role: "implementer", runner: "claude"}, want: "claude"},
+		{name: "an unknown runner is usage", toml: runnerToml, opts: machineSpawnOptions{runner: "gpu"}, wantUsage: true},
+		{name: "--endpoint with claude is usage", toml: runnerToml, opts: machineSpawnOptions{endpoint: "cpu"}, wantUsage: true},
+		{name: "--endpoint with --runner claude is usage", toml: runnerToml, opts: machineSpawnOptions{runner: "claude", endpoint: "cpu"}, wantUsage: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newRunnerEnv(t, tc.toml)
+			got, err := e.app.spawnRunner(&tc.opts)
+			if tc.wantUsage {
+				requireUsageError(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestRunnerModelArgs(t *testing.T) {
+	t.Run("nothing after the prompt names no model", func(t *testing.T) {
+		model, err := runnerModelArgs(nil)
+		require.NoError(t, err)
+		assert.Empty(t, model)
+	})
+	t.Run("--model <m> names the model", func(t *testing.T) {
+		model, err := runnerModelArgs([]string{"--model", "qwen/qwen3.5-9b"})
+		require.NoError(t, err)
+		assert.Equal(t, "qwen/qwen3.5-9b", model)
+	})
+	t.Run("anything else is usage", func(t *testing.T) {
+		for _, args := range [][]string{{"--model"}, {"--model", ""}, {"--permission-mode", "auto"}, {"--model", "a", "b"}} {
+			_, err := runnerModelArgs(args)
+			requireUsageError(t, err)
+		}
+	})
 }

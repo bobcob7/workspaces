@@ -326,6 +326,8 @@ when = "auto"
 | --- | ---- | ------- | -------- |
 | `resume_on_start` | bool | `true` | Resume `stopped` runners when a daemon starts |
 
+The daemon itself is described in [`ws daemon`](tools/ws-daemon.md).
+
 A `token` key anywhere in these tables is an error: tokens go in
 `WS_ENDPOINT_TOKEN_<NAME>` in the environment or `secrets.env`, never in
 `config.toml`. A problem in these tables is reported by the runner, `ws

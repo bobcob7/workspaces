@@ -1288,3 +1288,125 @@ func (mock *runnerReaderMock) StateCalls() []struct {
 	mock.lockState.RUnlock()
 	return calls
 }
+
+// Ensure, that runnerControlMock does implement runnerControl.
+// If this is not the case, regenerate this file with moq.
+var _ runnerControl = &runnerControlMock{}
+
+// runnerControlMock is a mock implementation of runnerControl.
+//
+//	func TestSomethingThatUsesrunnerControl(t *testing.T) {
+//
+//		// make and configure a mocked runnerControl
+//		mockedrunnerControl := &runnerControlMock{
+//			ResumeFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the Resume method")
+//			},
+//			StopFunc: func(ctx context.Context, id string) error {
+//				panic("mock out the Stop method")
+//			},
+//		}
+//
+//		// use mockedrunnerControl in code that requires runnerControl
+//		// and then make assertions.
+//
+//	}
+type runnerControlMock struct {
+	// ResumeFunc mocks the Resume method.
+	ResumeFunc func(ctx context.Context, id string) error
+
+	// StopFunc mocks the Stop method.
+	StopFunc func(ctx context.Context, id string) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Resume holds details about calls to the Resume method.
+		Resume []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+		// Stop holds details about calls to the Stop method.
+		Stop []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+	}
+	lockResume sync.RWMutex
+	lockStop   sync.RWMutex
+}
+
+// Resume calls ResumeFunc.
+func (mock *runnerControlMock) Resume(ctx context.Context, id string) error {
+	if mock.ResumeFunc == nil {
+		panic("runnerControlMock.ResumeFunc: method is nil but runnerControl.Resume was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockResume.Lock()
+	mock.calls.Resume = append(mock.calls.Resume, callInfo)
+	mock.lockResume.Unlock()
+	return mock.ResumeFunc(ctx, id)
+}
+
+// ResumeCalls gets all the calls that were made to Resume.
+// Check the length with:
+//
+//	len(mockedrunnerControl.ResumeCalls())
+func (mock *runnerControlMock) ResumeCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockResume.RLock()
+	calls = mock.calls.Resume
+	mock.lockResume.RUnlock()
+	return calls
+}
+
+// Stop calls StopFunc.
+func (mock *runnerControlMock) Stop(ctx context.Context, id string) error {
+	if mock.StopFunc == nil {
+		panic("runnerControlMock.StopFunc: method is nil but runnerControl.Stop was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockStop.Lock()
+	mock.calls.Stop = append(mock.calls.Stop, callInfo)
+	mock.lockStop.Unlock()
+	return mock.StopFunc(ctx, id)
+}
+
+// StopCalls gets all the calls that were made to Stop.
+// Check the length with:
+//
+//	len(mockedrunnerControl.StopCalls())
+func (mock *runnerControlMock) StopCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockStop.RLock()
+	calls = mock.calls.Stop
+	mock.lockStop.RUnlock()
+	return calls
+}
