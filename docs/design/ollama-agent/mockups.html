@@ -240,9 +240,9 @@ The model called run {"command":"go test ./internal/config/"} 5 times in a row w
 {"error": {"code": <span class="e">"model_not_served"</span>, "message": "model qwen/qwen3.5-27b isn't served by endpoint gpu", "details": {"model": "qwen/qwen3.5-27b", "models": ["google/gemma-3-12b", "qwen/qwen3.5-9b"]}}}
 <span class="c">exit status 3</span>
 
-<span class="c"># with runner.fallback = "claude": a Claude child, and a warning</span>
-<span class="p">$</span> ws machine spawn --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x | jq -c '{id, runner, warnings}'
-{"id":"verifier-5e6f7a8b","runner":"claude","warnings":[<span class="w">"runner preflight failed (endpoint_unreachable: connection refused); started a claude child because runner.fallback = \"claude\""</span>]}
+<span class="c"># no automatic fallback: the orchestrator decides, and respawns on Claude Code itself</span>
+<span class="p">$</span> ws machine spawn --runner claude --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x | jq -c '{id, runner, warnings}'
+{"id":"verifier-5e6f7a8b","runner":"claude","warnings":[]}
 
 <span class="c"># the endpoint goes down mid-run: the runner retries 3 times, then records FAIL with the reason</span>
 <span class="p">$</span> ws machine logs --tail 4 x-verify-0d9e2f61 | jq -c '.events[] | {step, kind, error, reason}'
@@ -438,7 +438,7 @@ const settingsModels = (errors) => `
 <div class="meta">Models for agents on the ws runner (any OpenAI-compatible server now; Ollama native next). Saved to <span class="mono">config.toml</span> with <span class="mono">ws config</span>; tokens to <span class="mono">secrets.env</span>.</div></section>
 <div class="content" style="max-width:980px">
 ${errors ? `
-<div class="alert err"><span class="ico err">!</span><div><b>gpu is unreachable.</b> GET http://gpu-a.inference.svc:1234/v1/models: dial tcp 10.43.7.21:1234: connect: connection refused. New agents that use it fail with <span class="mono">endpoint_unreachable</span> until it answers. Fallback is off, so no Claude child is started instead.</div><span class="spacer"></span><button class="btn small">Test again</button></div>
+<div class="alert err"><span class="ico err">!</span><div><b>gpu is unreachable.</b> GET http://gpu-a.inference.svc:1234/v1/models: dial tcp 10.43.7.21:1234: connect: connection refused. New agents that use it fail with <span class="mono">endpoint_unreachable</span> until it answers.</div><span class="spacer"></span><button class="btn small">Test again</button></div>
 <div class="alert warn"><span class="ico warn">!</span><div><b>gemma3:12b on ollama doesn't support tools.</b> Its probe says <span class="mono">completion, vision</span>. Agents that use the alias <span class="mono">gemma</span> fail with <span class="mono">model_without_tools</span>; point it at a model that can call tools.</div></div>` : ""}
 ${serviceCard(errors)}
 ${endpointsCard(errors)}
@@ -453,7 +453,6 @@ ${errors ? "" : `
 </div>
 <div class="alert info" style="margin-top:12px"><span class="ico info">i</span><div>2 models · <span class="mono">qwen/qwen3.5-9b</span> is served · no probe, so tool support and the context length aren't checked: <span class="mono">context_tokens</span> must match the server's load setting</div></div>
 </div></div>`}
-<div class="setRow" style="padding:4px 0"><div class="lbl"><div>Fall back to Claude</div><div class="muted">When an endpoint is down or a model can't call tools, start a Claude child instead of failing the spawn.</div></div><div><span class="switch"></span></div></div>
 <div class="card"><div class="cardHead">Roles</div><div class="cardBody" style="padding:4px 4px"><table>
   <colgroup><col style="width:140px"><col style="width:120px"><col style="width:200px"><col style="width:170px"><col></colgroup>
   <tr><th>Role</th><th>Runner</th><th>Model on the ws runner</th><th>MCP servers</th><th>Budget</th></tr>
