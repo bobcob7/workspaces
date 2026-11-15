@@ -236,7 +236,7 @@ describe("SettingsList", () => {
 
   it("lists the seven groups in order", () => {
     renderWithStore(<SettingsList />, testStore());
-    expect(groupNames()).toEqual(["Repos", "Reviews", "Forges", "Agent roles", "Notifications", "Workspaces", "About"]);
+    expect(groupNames()).toEqual(["Repos", "Reviews", "Forges", "Models", "Agent roles", "Notifications", "Workspaces", "About"]);
   });
 
   it("still lists Workspaces in the web app", () => {
