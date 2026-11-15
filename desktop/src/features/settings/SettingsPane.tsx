@@ -8,6 +8,7 @@ import { BrowserPushRow } from "../../web/BrowserPushRow";
 import { AboutGroup } from "./AboutGroup";
 import { ConfigSource } from "./ConfigSource";
 import { ForgesGroup } from "./ForgesGroup";
+import { ModelsGroup } from "./ModelsGroup";
 import { Row } from "./Row";
 import { RepoGroup } from "./RepoGroup";
 import { RolesGroup } from "./RolesGroup";
@@ -464,6 +465,13 @@ export const SettingsPane = (): JSX.Element => {
     return (
       <div className={styles.root}>
         <ForgesGroup />
+      </div>
+    );
+  }
+  if (group === "models") {
+    return (
+      <div className={styles.root}>
+        <ModelsGroup />
       </div>
     );
   }
