@@ -29,8 +29,9 @@ func TestAgent_Reresolve(t *testing.T) {
 		cfg.Reresolver = resolver
 		var last Status
 		cfg.OnStatus = func(s Status) { last = s }
-		cfg.OnSwitch = func(from, to Target, reason string, _ int) {
+		cfg.OnSwitch = func(from, to Target, endpoint bool, reason string, _ int) {
 			switches = append(switches, from.Endpoint+">"+to.Endpoint+":"+reason)
+			assert.True(t, endpoint)
 		}
 		out, events := runWithTranscript(t, cfg, advancingClock(), nil)
 		assert.Equal(t, ExitDone, out.Exit)
@@ -48,6 +49,34 @@ func TestAgent_Reresolve(t *testing.T) {
 		assert.Equal(t, "gpu-b", payload.ToEndpoint)
 		assert.Equal(t, []string{"endpoint", "url"}, payload.Changed)
 		assert.Nil(t, payload.Version)
+	})
+	t.Run("a settings-only change is recorded but is not an endpoint switch", func(t *testing.T) {
+		chat := scripted(t, fail(retryable()), recordDone)
+		targetTemp := testTarget(chat)
+		targetTemp.Temperature = 0.5
+		resolver := &reresolverMock{ReresolveFunc: func(context.Context, Target) Resolution {
+			return Resolution{Target: targetTemp, Changed: true, Changes: []string{"temperature"}}
+		}}
+		var switches []bool
+		cfg := testConfig(chat)
+		cfg.Reresolver = resolver
+		cfg.OnSwitch = func(_, to Target, endpoint bool, reason string, _ int) {
+			switches = append(switches, endpoint)
+			assert.InDelta(t, 0.5, to.Temperature, 1e-9)
+			assert.Equal(t, "retry", reason)
+		}
+		var last Status
+		cfg.OnStatus = func(s Status) { last = s }
+		out, events := runWithTranscript(t, cfg, advancingClock(), nil)
+		assert.Equal(t, ExitDone, out.Exit)
+		assert.Equal(t, []bool{false}, switches)
+		assert.Equal(t, 0, last.EndpointChanges)
+		require.Len(t, out.Endpoints, 1)
+		assert.Equal(t, "gpu", out.Endpoints[0].Endpoint)
+		changed := eventsOf(events, kindEndpointChanged)
+		require.Len(t, changed, 1)
+		assert.Equal(t, []string{"temperature"}, payloadOf[*EndpointChangedEvent](t, changed[0]).Changed)
+		assert.Equal(t, "gpu", payloadOf[*EndpointChangedEvent](t, changed[0]).ToEndpoint)
 	})
 	t.Run("counts the failed attempt on the endpoint it was sent to, not the one switched to", func(t *testing.T) {
 		chatA := scripted(t, fail(retryable()))
@@ -213,5 +242,17 @@ func TestAgent_Reresolve(t *testing.T) {
 		rejected := eventsOf(events, kindEndpointRejected)
 		require.Len(t, rejected, 1)
 		assert.Equal(t, "endpoint_unreachable", payloadOf[*EndpointRejectedEvent](t, rejected[0]).Code)
+	})
+}
+
+func TestSwitchesEndpoint(t *testing.T) {
+	t.Run("an endpoint, url, api or id change is a switch", func(t *testing.T) {
+		assert.True(t, SwitchesEndpoint([]string{"endpoint", "url"}))
+		assert.True(t, SwitchesEndpoint([]string{"api"}))
+		assert.True(t, SwitchesEndpoint([]string{"id"}))
+	})
+	t.Run("settings alone are not a switch", func(t *testing.T) {
+		assert.False(t, SwitchesEndpoint(nil))
+		assert.False(t, SwitchesEndpoint([]string{"context_tokens", "max_output", "temperature", "reasoning", "request_timeout", "idle_timeout"}))
 	})
 }

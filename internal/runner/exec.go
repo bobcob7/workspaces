@@ -388,8 +388,8 @@ func (s *session) agentConfig(ctx context.Context, provider llm.Provider, toolse
 		ResultWritten: s.resultWritten,
 		OnStatus:      s.onStatus,
 		Reresolver:    s.rr,
-		OnSwitch: func(from, to agent.Target, reason string, step int) {
-			s.switched(ctx, from, to, reason, step)
+		OnSwitch: func(from, to agent.Target, endpoint bool, reason string, step int) {
+			s.switched(ctx, from, to, endpoint, reason, step)
 		},
 		OnReject: func(rej agent.Rejection, reason string) {
 			s.rejected(ctx, rej, reason)
@@ -421,10 +421,15 @@ func (s *session) reresolver() *Reresolver {
 	}
 }
 
-// switched records a switch the loop made: run.toml's endpoint history, the
-// telemetry event, and the new current target.
-func (s *session) switched(ctx context.Context, from, to agent.Target, reason string, step int) { //nolint:gocritic // hugeParam: a target copied once per switch.
+// switched takes over a change the loop made. The new current target always
+// moves on; run.toml's endpoint history and the telemetry event are recorded
+// only when the endpoint, URL, API or model changed. A settings-only change
+// is not a switch.
+func (s *session) switched(ctx context.Context, from, to agent.Target, endpoint bool, reason string, step int) { //nolint:gocritic // hugeParam: a target copied once per switch.
 	next := s.rr.Adopt()
+	if !endpoint {
+		return
+	}
 	entry := EndpointEntry{
 		Since:         time.Now().UTC(),
 		Step:          step,

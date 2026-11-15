@@ -66,7 +66,7 @@ type Config struct {
 	Target        Target
 	ModelAlias    string // the run's alias, for the transcript's start; "" for a raw model id
 	Reresolver    reresolver
-	OnSwitch      func(from, to Target, reason string, step int)
+	OnSwitch      func(from, to Target, endpoint bool, reason string, step int) // every accepted change; endpoint when SwitchesEndpoint
 	OnReject      func(r Rejection, reason string)
 	Budget        Budget
 	Tools         Toolset
