@@ -79,14 +79,20 @@ Preflight requests, each with a 10 s limit:
    and behaves as `ollama` if it answers, else as `none`. `none` skips this
    step.
 
-With `runner.fallback = "claude"`, a failure of steps 1–3
-(`endpoint_unreachable`, `model_not_served`, `model_without_tools`) starts a
-Claude child instead. Its output has `"runner": "claude"` and a warning
-`runner preflight failed (<code>: <message>); started a claude child because
-runner.fallback = "claude"`. The fallback applies only here, before
-anything is created; a running agent is never handed to Claude. Mid-run,
-the runner [re-resolves its endpoint](#re-resolving-the-endpoint-mid-run)
-instead.
+A failure of steps 1–3 fails the spawn with its code
+(`endpoint_unreachable`, `model_not_served`, `model_without_tools`) before
+anything is created. Nothing is started in its place: there is no
+automatic fallback to another runner, ever. The person or orchestrator
+decides what to do next, for example respawning with `--runner claude`.
+Mid-run, the runner [re-resolves its endpoint](#re-resolving-the-endpoint-mid-run)
+and, when that fails, records an exit reason.
+
+**The Claude path is untouched.** For `--runner claude`, or no `--runner`
+and no role routing to `ws`, none of the above runs: no daemon, no
+preflight, and `[runner]`, `[runner.roles]`, `[endpoints]`, `[models]` and
+`secrets.env` aren't read or validated. Such a spawn behaves exactly as
+today, with no `[runner]` table, no daemon and every endpoint down
+([0071](../../adrs/0071-claude-code-default-runner-as-peer.md)).
 
 ### `ws machine logs`
 
@@ -228,7 +234,10 @@ either is version 4. The loop JSON gains, after `hidden`: `"runner":
 A `ws` loop's run is started like `ws claude --runner ws`. A failed
 preflight fails the run with its code in `error_code`
 (`endpoint_unreachable`, `model_not_served`, `model_without_tools`,
-`endpoint_unknown`, `daemon_unavailable`, `config_invalid`).
+`endpoint_unknown`, `daemon_unavailable`, `config_invalid`); nothing
+else starts in its place, and the next tick tries again. A `claude` loop,
+and `ws claude` without `--runner ws`, start exactly as today and never
+read the runner's tables or need the daemon.
 
 ## JSON output
 
@@ -516,7 +525,6 @@ environment or secrets.env, never in config.toml`.
 | Key | Type | Default | Used for |
 | --- | ---- | ------- | -------- |
 | `model` | string | none | The default model alias for `ws` agents (children, `ws claude --runner ws`, `ws` loops) |
-| `fallback` | string | `"none"` | `none` or `claude`: what a start (spawn, `ws claude`, a loop run) does when preflight fails. Never applies mid-run |
 | `keep_git_tokens` | bool | `true` | Keep `GH_TOKEN` and `GITHUB_TOKEN` in the tools' environment |
 | `user_instructions` | bool | `false` | Also load `~/.claude/CLAUDE.md` into the system prompt; off by the owner's decision, an opt-in per machine ([0069](../../adrs/0069-runner-mcp-tools-and-claude-code-parity.md)) |
 
@@ -572,7 +580,7 @@ model alias that isn't defined is `config_invalid` when the file is read.
 | --- | ---- | ------- | -------- |
 | `resume_on_start` | bool | `true` | Resume `stopped` runners when a daemon starts |
 
-`ws config` keys: `runner.model`, `runner.fallback`,
+`ws config` keys: `runner.model`,
 `runner.keep_git_tokens`, `runner.user_instructions`, `runner.env.<NAME>`,
 `endpoints.<name>.<key>`, `models.<alias>.<key>`,
 `runner.roles.<role>.<key>`, `daemon.resume_on_start`. `ws config unset
@@ -814,7 +822,9 @@ claude --runner ws` without a prompt. `ws loop add|edit`: a bad
 an unknown alias or endpoint, is `loop_invalid` (2). No model anywhere, a `token` key, a
 secret-looking `[runner.env]` name, an `api` not implemented yet, a bad
 `reasoning`, or `context_tokens`
-under 16384 is `config_invalid` (exit 1).
+under 16384 is `config_invalid` (exit 1), but only for a start that uses
+the `ws` runner, `ws runner check` and `ws config`: a `claude` start never
+validates the runner's tables, so a broken `[runner]` can't fail it.
 
 `ws machine logs`: `outside_workspace` (2), `usage` (2),
 `workspace_not_found` (3), `not_descendant` (4), and `claude_failed` (1)
