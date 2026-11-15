@@ -40,6 +40,8 @@ describe("LoopsPane", () => {
       model: "",
       permissionMode: "",
       hidden: true,
+      runner: "claude",
+      endpoint: "",
     });
     expect(await screen.findByRole("heading", { name: "nightly" })).toBeInTheDocument();
   });
@@ -114,6 +116,8 @@ describe("LoopsPane", () => {
       scriptTimeout: "1m",
       vars: [{ key: "REPO", value: "buff-bear" }],
       hidden: true,
+      runner: "claude",
+      endpoint: "",
     });
   });
 
@@ -125,6 +129,22 @@ describe("LoopsPane", () => {
   it("says a loop's runs are shown in Agents when they are not hidden", () => {
     renderWithStore(<LoopsPane />, storeWithLoop(fakeApi(), { hidden: false }));
     expect(within(screen.getByRole("region", { name: "Agent" })).getByText("Shown in Agents")).toBeInTheDocument();
+  });
+
+  it("shows a ws loop's runner, model and endpoint in the Agent card", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop(fakeApi(), { runner: "ws", model: "qwen9b", endpoint: "gpu", permissionMode: null }));
+    const agent = within(screen.getByRole("region", { name: "Agent" }));
+    expect(agent.getByText("ws runner")).toBeInTheDocument();
+    expect(agent.getByText("qwen9b")).toBeInTheDocument();
+    expect(agent.getByText("gpu")).toBeInTheDocument();
+    expect(agent.queryByText("Permission mode")).not.toBeInTheDocument();
+  });
+
+  it("shows Claude Code as the runner of a loop without one", () => {
+    renderWithStore(<LoopsPane />, storeWithLoop(fakeApi(), { runner: "claude", endpoint: null }));
+    const agent = within(screen.getByRole("region", { name: "Agent" }));
+    expect(agent.getByText("Claude Code")).toBeInTheDocument();
+    expect(agent.queryByText("Endpoint")).not.toBeInTheDocument();
   });
 
   it("shows the script timeout only while there is a script", async () => {
