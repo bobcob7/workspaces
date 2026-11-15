@@ -1,11 +1,16 @@
 package role
 
 import (
+	"flag"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var update = flag.Bool("update", false, "rewrite the golden files")
 
 // validRole is a role that passes Validate, for tests to change one field of.
 func validRole() Role {
@@ -167,6 +172,14 @@ func TestRole_Render(t *testing.T) {
 
 func TestRole_RenderFor(t *testing.T) {
 	implementerVars := map[string]string{"TASK": "T8", "TASKS": "tasks.md", "BASE": "feat/x", "BRANCH": "feat/x-t8"}
+	t.Run("Render of implementer matches the golden file", func(t *testing.T) {
+		ro, ok, err := Builtin().Load("implementer")
+		require.NoError(t, err)
+		require.True(t, ok)
+		got, err := ro.Render(implementerVars, "")
+		require.NoError(t, err)
+		golden(t, "implementer.golden", got)
+	})
 	t.Run("a Claude child keeps the Co-Authored-By trailer", func(t *testing.T) {
 		ro, ok, err := Builtin().Load("implementer")
 		require.NoError(t, err)
@@ -285,4 +298,17 @@ func repeat(c rune, n int) string {
 		out[i] = c
 	}
 	return string(out)
+}
+
+func golden(t *testing.T, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	if *update {
+		require.NoError(t, os.MkdirAll("testdata", 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(got), 0o644))
+		return
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err, "run go test ./internal/machine/role -update to create %s", path)
+	assert.Equal(t, string(want), got)
 }
