@@ -389,8 +389,8 @@ const EndpointsSection = ({ endpoints, onChanged }: EndpointsSectionProps): JSX.
     setOutcomes((current) => ({ ...current, [name]: outcome }));
   };
   const remove = async (endpoint: EndpointSettings): Promise<void> => {
-    const writes = endpointKeys.map((key) => ({ key: `endpoints.${endpoint.name}.${key}`, values: [] }));
-    const failure = (await writeAll(dispatch, writes)) ?? (await saveToken(dispatch, endpoint.name, ""));
+    const failure =
+      (await writeAll(dispatch, [{ key: `endpoints.${endpoint.name}`, values: [] }])) ?? (await saveToken(dispatch, endpoint.name, ""));
     if (failure !== null) {
       setError(failure);
       return;

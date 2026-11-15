@@ -157,6 +157,16 @@ describe("ModelsGroup", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("removes an endpoint's whole table and clears its token", async () => {
+    const api = fakeApi();
+    renderGroup(api);
+    await userEvent.click(within(await endpointsTable()).getByRole("button", { name: "Remove" }));
+    expect(api.configUnset).toHaveBeenCalledTimes(1);
+    expect(api.configUnset).toHaveBeenCalledWith("endpoints.gpu");
+    expect(api.configSet).not.toHaveBeenCalled();
+    expect(api.endpointTokenSet).toHaveBeenCalledWith("gpu", "");
+  });
+
   it("refuses a new endpoint whose name is not a config name", async () => {
     const api = fakeApi();
     renderGroup(api);
