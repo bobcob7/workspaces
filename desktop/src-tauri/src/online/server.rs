@@ -6,6 +6,7 @@ use super::dispatch::{dispatch, ChannelSink, Ctx, DispatchError};
 use super::push::{self, Pusher, Subscriptions, VapidKeys};
 use super::wire::{ClientMsg, PushPayload, ServerMsg};
 use crate::commands::{self, AppState};
+use crate::daemon_host;
 use crate::loops;
 use crate::model::Entry;
 use crate::pty::Terminals;
@@ -275,6 +276,10 @@ fn start_background(online: &Arc<Online>) {
     };
     tokio::spawn(state.reviews.clone().run(deps));
     tokio::spawn(loops::tick_forever(state.runner.clone()));
+    tokio::spawn(daemon_host::keep_running(
+        state.runner.clone(),
+        daemon_host::Host::Online,
+    ));
     tokio::spawn(Arc::clone(&online.notifier).run());
 }
 

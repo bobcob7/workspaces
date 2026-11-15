@@ -242,6 +242,13 @@ and loops run in the server, with or without a browser open.
   or host directories you don't want agents to change.
 - `GET /healthz` is public and says only `ok` and the version.
 
+## Background work
+
+The server runs `ws loop tick`, the review and notification tasks, and a
+managed `ws daemon`. The daemon restarts if it exits and, after a pod
+restart, resumes unfinished runners at once. Its socket lives in `/tmp`,
+which needn't persist: the socket is recreated.
+
 ## Health check and logs
 
 The image's `HEALTHCHECK` calls `http://127.0.0.1:8080/healthz`. Server
