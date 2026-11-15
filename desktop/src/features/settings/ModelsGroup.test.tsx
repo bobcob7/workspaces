@@ -22,7 +22,7 @@ describe("daemonSummary", () => {
   it.each([
     ["transient", "a terminal"],
     ["managed", "a service manager"],
-  ])("says where an %s service was started from", (origin, from) => {
+  ])("says a %s service was started from %s", (origin, from) => {
     expect(daemonSummary(daemonStatus({ origin }))).toContain(`started by ${from}`);
   });
 
