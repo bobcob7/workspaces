@@ -79,6 +79,19 @@ func TestRunCommand(t *testing.T) {
 	})
 }
 
+func TestRunTool(t *testing.T) {
+	cfg := testConfig(t)
+	run := runTool(&cfg)
+	t.Run("requires a command", func(t *testing.T) {
+		_, err := run.Call(t.Context(), `{}`)
+		require.EqualError(t, err, "missing command")
+	})
+	t.Run("rejects a command that is not a string", func(t *testing.T) {
+		_, err := run.Call(t.Context(), `{"command":1}`)
+		require.ErrorContains(t, err, "arguments:")
+	})
+}
+
 func TestRunTimeout(t *testing.T) {
 	assert.Equal(t, runDefaultTimeout, runTimeout(0))
 	assert.Equal(t, 7*time.Second, runTimeout(7))

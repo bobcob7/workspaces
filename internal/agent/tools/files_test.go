@@ -152,6 +152,32 @@ func TestSearch(t *testing.T) {
 	})
 }
 
+func TestWriteFileTool(t *testing.T) {
+	cfg := testConfig(t)
+	write := writeFileTool(&cfg)
+	t.Run("requires a path", func(t *testing.T) {
+		_, err := write.Call(t.Context(), `{"content":"x"}`)
+		require.EqualError(t, err, "missing path")
+	})
+	t.Run("rejects content that is not a string", func(t *testing.T) {
+		_, err := write.Call(t.Context(), `{"path":"a.txt","content":3}`)
+		require.ErrorContains(t, err, "arguments:")
+	})
+}
+
+func TestEditFileTool(t *testing.T) {
+	cfg := testConfig(t)
+	edit := editFileTool(&cfg)
+	t.Run("requires old", func(t *testing.T) {
+		_, err := edit.Call(t.Context(), `{"path":"a.txt","new":"y"}`)
+		require.EqualError(t, err, "missing old")
+	})
+	t.Run("rejects all that is not a boolean", func(t *testing.T) {
+		_, err := edit.Call(t.Context(), `{"path":"a.txt","old":"x","new":"y","all":"yes"}`)
+		require.ErrorContains(t, err, "arguments:")
+	})
+}
+
 func TestWriteFile(t *testing.T) {
 	t.Parallel()
 	t.Run("creates parent directories and the file", func(t *testing.T) {

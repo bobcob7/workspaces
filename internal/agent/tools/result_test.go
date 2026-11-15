@@ -9,6 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRecordResultTool(t *testing.T) {
+	cfg := testConfig(t)
+	record := recordResultTool(&cfg)
+	t.Run("requires a report", func(t *testing.T) {
+		_, err := record.Call(t.Context(), `{"verdict":"PASS"}`)
+		require.EqualError(t, err, "missing report")
+	})
+	t.Run("rejects a verdict that is not a string", func(t *testing.T) {
+		_, err := record.Call(t.Context(), `{"verdict":true,"report":"r"}`)
+		require.ErrorContains(t, err, "arguments:")
+	})
+}
+
 func TestRecordResult(t *testing.T) {
 	t.Run("records a verdict and ends the run", func(t *testing.T) {
 		cfg := testConfig(t)
