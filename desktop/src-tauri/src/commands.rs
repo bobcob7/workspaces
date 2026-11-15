@@ -384,16 +384,20 @@ async fn runner_conversation(workspace_id: String, offset: u64) -> CmdResult<Chu
     })
 }
 
-/// ws's state directory, where runners keep their files: `state` under
-/// `WS_CONFIG_DIR`, else under the platform config directory's `workspaces`
-/// (the same root `ws` uses).
-pub fn ws_state_dir(get: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+/// ws's config directory (CONFIG_DIR): `WS_CONFIG_DIR`, else the platform
+/// config directory's `workspaces` (the same root `ws` uses).
+pub fn ws_config_dir(get: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     let non_empty = |name: &str| get(name).filter(|value| !value.is_empty());
-    let root = match non_empty("WS_CONFIG_DIR") {
-        Some(dir) => PathBuf::from(dir),
-        None => user_config_dir(&non_empty)?.join("workspaces"),
-    };
-    Some(root.join("state"))
+    match non_empty("WS_CONFIG_DIR") {
+        Some(dir) => Some(PathBuf::from(dir)),
+        None => Some(user_config_dir(&non_empty)?.join("workspaces")),
+    }
+}
+
+/// ws's state directory, where runners keep their files: `state` under the
+/// config directory.
+pub fn ws_state_dir(get: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    Some(ws_config_dir(get)?.join("state"))
 }
 
 fn user_config_dir(non_empty: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
