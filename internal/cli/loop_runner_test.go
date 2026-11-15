@@ -132,6 +132,10 @@ func TestApp_loopTickRunner(t *testing.T) {
 		require.True(t, ok)
 		assert.True(t, strings.HasPrefix(session, runner.SessionPrefix))
 		assert.Empty(t, e.claude.StartCalls())
+		require.Len(t, e.store.CreateCalls(), 1)
+		assert.Equal(t, "loop-deps", e.store.CreateCalls()[0].Opts.Name)
+		assert.Empty(t, e.store.CreateCalls()[0].Opts.Parent)
+		assert.True(t, e.store.CreateCalls()[0].Opts.Hidden)
 		require.Len(t, re.daemon.StartRunnerCalls(), 1)
 		run := readRun(t, re, "fix-login-d8efb24f")
 		assert.Empty(t, run.Parent)
@@ -164,6 +168,22 @@ func TestApp_loopTickRunner(t *testing.T) {
 		assert.True(t, rec.NextRunAt.After(testNow()))
 	})
 
+	t.Run("a claude loop with no runner table starts as before, and never dials the daemon", func(t *testing.T) {
+		e := newTickEnv(t)
+		dialed := false
+		e.app.dialDaemon = func(context.Context) (runnerDaemon, error) {
+			dialed = true
+			return nil, newError(codeDaemonUnavailable, errTest)
+		}
+		e.addDueLoop(t)
+		code, out := runLoop(t, e.app, e.stdout, "tick", "--json")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		items := listedLoops(t, out)
+		require.Len(t, items, 1)
+		assert.Equal(t, "started", items[0]["action"])
+		assert.Len(t, e.claude.StartCalls(), 1)
+		assert.False(t, dialed)
+	})
 	t.Run("a claude loop starts as before, with a runner config and a failing daemon", func(t *testing.T) {
 		e, re := newRunnerTickEnv(t)
 		dialed := false
