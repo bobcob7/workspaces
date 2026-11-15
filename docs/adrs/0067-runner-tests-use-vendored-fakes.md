@@ -7,7 +7,8 @@
   named like the starting model, generic MCP examples, two scenarios for
   Stop and loop runs); revised 2026-11-14 after the third review (three
   scenarios for re-resolving the endpoint mid-run, with two fake-ollama
-  processes)
+  processes); revised 2026-11-14 after the fourth review (a regression
+  scenario: the default Claude path needs no runner config or daemon)
 
 ## Context
 
@@ -186,6 +187,7 @@ themselves, `cmd/fake-*` and `e2e/`.
 | `daemon-start-resumes` | stop the daemon with runners stopped, start it | `stopped` runners resume |
 | `runner-stop` | `hang` fault on turn 1; `ws runner stop <id>` (the desktop's Stop) | exit `stopped`, no verdict, the workspace and transcript kept; `ws list` shows `idle`; a later daemon start doesn't resume it |
 | `loop-runner` | a loop with `--runner ws --model qwen9b`, then `ws loop run` | the run's session is `rn-…`, `runner: "ws"`; the loop's history has the run; `edit-file`'s file is committed |
+| `claude-default-untouched` | no fake running; `config.toml` with no `[runner]`, `[endpoints]` or `[models]`, then again with an invalid `[models.qwen9b]` (`context_tokens = 4096`); `WS_DAEMON_AUTOSTART=0`, no daemon | `ws machine spawn -- "x"`, `ws machine spawn --role verifier …`, `ws claude -- "x"` and a `claude` loop's `ws loop run` each start the fake `claude` with exactly the arguments they did before the runner existed; JSON `runner: "claude"`, `ws_runner: null`; no daemon socket created, no preflight request, no `endpoint_*`, `daemon_*` or `config_invalid` error ([0071](0071-claude-code-default-runner-as-peer.md)) |
 
 ### Why this option
 

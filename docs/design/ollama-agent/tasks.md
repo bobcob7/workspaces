@@ -444,7 +444,6 @@ $ make lint && make fakes
 // Runner is config.toml's [runner] (ADRs 0064, 0068, 0069).
 type Runner struct {
 	Model            string                `toml:"model" json:"model"`
-	Fallback         string                `toml:"fallback" json:"fallback"`
 	KeepGitTokens    *bool                 `toml:"keep_git_tokens" json:"keep_git_tokens"`
 	UserInstructions bool                  `toml:"user_instructions" json:"user_instructions"`
 	Env              map[string]string     `toml:"env" json:"env"`
@@ -573,16 +572,34 @@ func (d *Daemon) ResumesOnStart() bool
 func DefaultBudget(role string) (maxSteps int, timeout time.Duration, maxTokens int)
 // TokenEnv is WS_ENDPOINT_TOKEN_ + upper(name), '-' → '_'.
 func TokenEnv(name string) string
-func (c *Config) checkRunner() error // called from normalize
+func (c *Config) checkRunner() error // called from Load, kept in RunnerErr
+// RunnerError is RunnerErr: why the runner's tables can't be used, or nil.
+// Only a ws start, ws runner, ws daemon, ws config and Settings › Models
+// look at it.
+func (c *Config) RunnerError() error
 ```
 
 `Config` gains, after `Review`: `Runner Runner `toml:"runner"``,
 `Endpoints map[string]Endpoint `toml:"endpoints"``, `Models
-map[string]Model `toml:"models"``, `Daemon Daemon `toml:"daemon"``.
+map[string]Model `toml:"models"``, `Daemon Daemon `toml:"daemon"``, and
+`RunnerErr error `toml:"-"``.
+
+**The Claude path doesn't depend on these tables** (ADR 0071). `Load`
+decodes the existing keys exactly as today, then decodes `[runner]`,
+`[endpoints]`, `[models]` and `[daemon]` in a second pass. A decode error
+or a `checkRunner` error there is kept in `RunnerErr` and never makes
+`Load` fail, so a broken or half-written runner table can't stop `ws
+claude`, a Claude spawn, a Claude loop run or any other existing command.
+`Resolve`, `Reresolve` and `ReadFile` return `RunnerErr` first. `RunnerFor`
+reads only `runner.roles.<role>.runner`; when that one value can't be
+read, it returns `RunnerWS` for that role so the spawn fails with
+`config_invalid` rather than silently running on Claude. `ws config set`
+refuses a write that would set `RunnerErr`, as it refuses any invalid
+value today.
 
 **`checkRunner` rules** (each error names the key):
 
-- `fallback` ∈ {`""`, `none`, `claude`}; `runner` ∈ {`""`, `claude`, `ws`};
+- `runner` ∈ {`""`, `claude`, `ws`};
   `probe` ∈ {`""`, `auto`, `ollama`, `none`}; `api` is `""` or `openai`, a
   reserved name → `ErrAPINotImplemented` ("api = "anthropic" isn't
   implemented yet"), anything else invalid.
@@ -603,7 +620,7 @@ map[string]Model `toml:"models"``, `Daemon Daemon `toml:"daemon"``.
 
 **`ws config` keys** (`edit.go`): new types `TypeInt` (`int`) and
 `TypeFloat` (`float`, stored as a string). Fixed rules after the review
-ones: `runner.model`, `runner.fallback`, `runner.keep_git_tokens`,
+ones: `runner.model`, `runner.keep_git_tokens`,
 `runner.user_instructions`, `daemon.resume_on_start`. Pattern rules:
 `runner.env.<NAME>`; `endpoints.<name>.{url,api,probe,request_timeout,idle_timeout}`;
 `models.<alias>.{endpoint,id,context_tokens,max_output,temperature,reasoning}`;
@@ -637,12 +654,20 @@ and the `int`/`float` types.
   budget. No model anywhere → `ErrNoModel`.
 - `RunnerFor`: configured role → its runner; anything else → `claude`.
   `TokenEnv("gpu-a")` = `WS_ENDPOINT_TOKEN_GPU_A`.
-- Parsing fails, naming the key, for `context_tokens = 4096`, `url =
-  "ftp://x"`, `url = "http://u:p@x"`, `fallback = "always"`, `api =
+- `RunnerError()` is set, naming the key, for `context_tokens = 4096`, `url =
+  "ftp://x"`, `url = "http://u:p@x"`, `api =
   "anthropic"` (the message says not implemented yet), a model whose
   endpoint isn't defined, `reasoning = "max"`, an `id` with a newline,
-  `token = "x"`, `[runner.env] METRICS_TOKEN = "x"` and the name `GPU`.
-  `id = "qwen/qwen3.5-9b"` parses and round-trips unchanged.
+  `token = "x"`, `[runner.env] METRICS_TOKEN = "x"`, the name `GPU`,
+  and `context_tokens = "big"` (a type error); in each case `Load` still succeeds, every
+  pre-existing field equals what it was without the runner tables, and
+  `Resolve` returns the error. `id = "qwen/qwen3.5-9b"` parses and
+  round-trips unchanged.
+- **Claude path regression:** for a `config.toml` with no `[runner]`,
+  `[endpoints]` or `[models]`, and for one whose runner tables are
+  invalid, `Load` gives the same `Config` (runner fields aside) as
+  before this task, and `RunnerFor` returns `claude` for every role not
+  routed to `ws`. `runner.fallback` is an unknown key for `ws config set`.
 - `ws config set models.qwen9b.context_tokens 65536` and `ws config set
   models.qwen9b.id qwen/qwen3.5-9b` write them and keep comments; `set
   models.qwen9b.context_tokens 4096` → `ErrValueInvalid`; `unset
@@ -2457,7 +2482,9 @@ the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd
 - Error codes: use the ones T18 declared; add nothing to `errors.go`
   except the new `usage` messages.
 - `machine.go`: flags `--runner` and `--endpoint`. The runner is the flag,
-  else `cfg.RunnerFor(role)`. For `ws`, `usage` checks first (`--runner`
+  else `cfg.RunnerFor(role)`. For `claude` the code path after that choice
+  is today's, unchanged: it never calls `daemon.Ensure`, `Resolve`,
+  `Preflight` or `RunnerError`, and needs no `[runner]` table. For `ws`, `usage` checks first (`--runner`
   value; `--endpoint` with `claude`; any argument after the prompt other
   than `--model <m>`), then the shared start in **new**
   `internal/cli/runner_start.go`, which T20 (`ws claude`) and T21 (loop
@@ -2478,17 +2505,14 @@ the README's [proposed diff](README.md#proposed-changes-to-docstoolsws-machinemd
   	Resolved  config.Resolved
   	Warnings  []string
   }
-  // errUseClaude: preflight failed and runner.fallback = "claude"; the
-  // caller starts a Claude agent with the returned warning.
-  var errUseClaude = errors.New("runner preflight failed; falling back to claude")
   func (a *App) startRunnerAgent(ctx context.Context, rs runnerStart) (runnerStarted, error)
   ```
   in reference.md's order:
   1. (the caller's `usage` checks);
   2. `cfg.Resolve(role, endpoint, model)`;
   3. `daemon.Ensure` (`WS_DAEMON_AUTOSTART`), then `Preflight`. A preflight
-     error with `fallback = "claude"` → the Claude path with the warning;
-     otherwise the error;
+     error is returned as is, with its code; nothing else is started
+     (there is no fallback to another runner);
   4. create the workspace (as `runClaude`, holding the lock);
   5. `runner.FilesFor(…).WriteRun` (with `trace_id =
      llm.NewTraceID()`, `parent = rs.Parent`, `reasoning`) with the prompt
@@ -2531,8 +2555,12 @@ interface):
 - `--runner ws` with no model anywhere → `config_invalid`; `--endpoint`
   with `--runner claude` → `usage`; `-- "x" --permission-mode auto` for a
   `ws` child → `usage`; each preflight error → its code and `details`, and
-  no workspace created; with `fallback = "claude"` → a Claude child with
-  `runner: "claude"` and the warning.
+  no workspace created, and no Claude child started.
+- **Claude path untouched:** a spawn with no `--runner` (and no role
+  routed to `ws`), and one with `--runner claude`, with no `[runner]`
+  table, with invalid runner tables, and with the daemon client mock
+  failing every call, starts the Claude child exactly as before: the
+  daemon mock and the preflight are never called, and the JSON is T8's.
 - Success → reference.md's spawn JSON, the session recorded as `runner`,
   `spawn.toml` for a role, `run.toml` without secrets. A Claude spawn's
   JSON is T8's, unchanged.
@@ -2560,7 +2588,7 @@ $ make lint
 
 **Read:** `internal/cli/claude.go` (`newClaudeCmd`, `runClaude`, its
 JSON struct), `internal/cli/runner_start.go` (`runnerStart`,
-`startRunnerAgent`, `errUseClaude`), `internal/cli/guides/ws-claude.md`,
+`startRunnerAgent`), `internal/cli/guides/ws-claude.md`,
 reference.md [ws claude and ws loop](reference.md#ws-claude-and-ws-loop).
 
 **Change**
@@ -2571,8 +2599,9 @@ reference.md [ws claude and ws loop](reference.md#ws-claude-and-ws-loop).
   anything but `--model <m>` follows the prompt, or for `--endpoint` with
   `claude`. Then `startRunnerAgent(ctx, runnerStart{Name, Role: "",
   Parent: <the parent runClaude already computes, "" for none>, Endpoint,
-  Model, Specs, Hidden, Offline, Prompt})`; on `errUseClaude`, the normal
-  Claude path with the warning. `--runner ws` never attaches a terminal.
+  Model, Specs, Hidden, Offline, Prompt})`; its error is the command's
+  error. `--runner ws` never attaches a terminal. Without `--runner ws`,
+  `runClaude` is today's code: no daemon, no preflight, no runner tables.
 - The JSON struct gains, after the existing fields, `Runner string
   `json:"runner"``, `Model *string `json:"model"`` and `WSRunner
   *spawnWSRunnerJSON `json:"ws_runner"`` (reuse T19's type): `"claude"`,
@@ -2599,8 +2628,11 @@ reference.md [ws claude and ws loop](reference.md#ws-claude-and-ws-loop).
   has `parent` = that workspace, with `--parent none` `parent = ""`.
 - `--runner ws` with no prompt, or with `-- "x" --permission-mode auto` →
   `usage`; `--endpoint gpu` without `--runner ws` → `usage`.
-- A preflight failure → its code and no workspace; with `fallback =
-  "claude"` → a Claude agent and the warning.
+- A preflight failure → its code and no workspace, and no Claude agent.
+- **Claude path untouched:** `ws claude` without `--runner` and with
+  `--runner claude`, with no `[runner]` table, with invalid runner tables
+  and with the daemon mock failing, behaves as before (attach included)
+  and never calls the daemon or the preflight.
 - A Claude `ws claude` prints the old fields byte-identical, plus the
   three new ones. `TestGuideTopics` passes.
 
@@ -2662,9 +2694,9 @@ $ make lint
   Hidden: l.RunsHidden(), Prompt: prompt})`, then `writeRunMark` for the
   new workspace, and the `loop.Run` with `Session` the `rn-` id. Its
   error becomes the run's `ErrorCode`/`ErrorMessage` as for a Claude
-  start (`failedRun`). On `errUseClaude`, start the Claude path with
-  `loopClaudeArgs` minus `--permission-mode`. `ws loop run` uses the same
-  function.
+  start (`failedRun`); nothing else is started, and the next tick tries
+  the runner again. The `claude` branch is today's code, unchanged. `ws
+  loop run` uses the same function.
 - Guides (`internal/cli/guides/`): `ws-loop-add.md` synopsis gains
   `[--runner claude|ws] [--endpoint <name>]` after `[--permission-mode
   <P>]`; the flag list gains ``- `--runner claude|ws`: what runs each run:
@@ -2699,7 +2731,9 @@ $ make lint
   the run is started through `startRunnerAgent` with `Parent: ""` and the
   loop's `hidden`; its `Session` is `rn-…`; a preflight error is recorded
   as the run's `error_code`, `next_run_at` moves on as for any failed
-  start; a Claude loop's args are unchanged.
+  start, and no Claude run is started; a Claude loop's args are
+  unchanged, and with no `[runner]` table, invalid runner tables and the
+  daemon mock failing, a Claude loop's run starts exactly as before.
 - Every existing `internal/loop` and `loop_*` CLI test passes unchanged.
   `TestGuideTopics` passes.
 
@@ -2761,13 +2795,22 @@ docs/design/ollama-agent/fake-mcp/*.yaml e2e/runner/testdata/`).
   fake's `/requests` (paths and `auth`), `run.toml`'s `endpoint_history`,
   `wait`'s `ws_runner.endpoint`/`endpoint_changes`/`exit`, and that
   neither token's value is in the transcript or `runner.log`.
-- One `t.Run` per scenario in 0067's table (26), waiting with `ws machine
+- One `t.Run` per scenario in 0067's table (27), waiting with `ws machine
   wait --timeout 2m`; daemon scenarios kill the runner by the pid in
   `status.json`. `runner-stop` runs `bin/ws runner stop <id>` and then
   starts a new daemon to check the runner isn't resumed. `loop-runner`
   runs `ws loop add … --runner ws --model qwen9b --show` and `ws loop run`,
   waits for the run's `status.json` to have `exit`, and reads the loop's
   history and `runner/report.md`.
+- `claude-default-untouched` (the Claude path regression, ADR 0071): its
+  own `newEnv` variant with no `[runner]`, `[endpoints]` or `[models]`
+  and `WS_DAEMON_AUTOSTART=0`, then the same with an invalid
+  `[models.qwen9b]`. It runs `ws machine spawn -- "x"`, `ws machine spawn
+  --role verifier …`, `ws claude -- "x"` and `ws loop run` of a `claude`
+  loop, and compares the fake `claude`'s recorded arguments with a golden
+  file captured from `main` before T4 (`testdata/claude-args.golden`); it
+  asserts no daemon socket exists afterwards and no error code was
+  printed.
 - `realmodel_test.go`: `E2E_RUNNER_URL` (+ `E2E_RUNNER_MODEL`, default
   `qwen/qwen3.5-9b`; `E2E_RUNNER_API`, default `openai`) runs `edit-file`
   and `review-verdict`, asserting only `exit == "done"` and a verdict;
@@ -2782,7 +2825,7 @@ docs/design/ollama-agent/fake-mcp/*.yaml e2e/runner/testdata/`).
 
 **Acceptance**
 
-- `make e2e-runner` passes all 26 scenarios from a clean checkout with no
+- `make e2e-runner` passes all 27 scenarios from a clean checkout with no
   network beyond loopback (CI proves it).
 - With `bin/fake-ollama` deleted and `WS_FAKE_OLLAMA` unset, it fails
   with the "run make fakes" message.
@@ -2986,7 +3029,7 @@ check](reference.md#ws-runner-check-hidden).
 **Change**
 
 - `ws_config.rs`: `runner_settings_get()` (Tauri command) returning
-  `{runner: {model, fallback}, endpoints: [...], models: [...], roles:
+  `{runner: {model}, endpoints: [...], models: [...], roles:
   [...]}` from `ws config list --json`, each model with `alias`,
   `endpoint`, `id`, `context_tokens`, `max_output`, `temperature`,
   `reasoning`. T26 reuses it.
@@ -3023,8 +3066,9 @@ check](reference.md#ws-runner-check-hidden).
      machine roles`): runner (Claude Code / ws runner), model alias, MCP
      servers (from the user's Claude Code config names; "none" by
      default), budget; `ws config set runner.roles.<role>.…`.
-  6. *Fallback*: "When preflight fails, start a Claude child instead"
-     (`runner.fallback`).
+  There is no fallback setting: a failed preflight fails the start
+  (ADR 0071). The Models group only reads and writes the runner's keys;
+  nothing in it changes how Claude Code agents start.
 - The Tauri mock (`fixtures.ts`) gains `runner_settings_get`,
   `daemon_status`, `daemon_restart` and `runner_check`, so the two screens
   render from fixtures.
