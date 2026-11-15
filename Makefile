@@ -34,6 +34,8 @@ lint:
 	@! grep -rn 'chat/completions' --include='*.go' . | grep -vE '^\./internal/(llm/openai|fakeollama)/' | grep -v '_test\.go:'
 	@# ADR 0069: the SDK's stdio transport is built in internal/mcp only.
 	@! grep -rn 'mcp.CommandTransport' --include='*.go' . | grep -vE '^\./internal/mcp/'
+	@# ADR 0065: the OpenTelemetry SDK is imported by internal/telemetry only.
+	@! grep -rn '"go.opentelemetry.io/' --include='*.go' . | grep -vE '^\./internal/telemetry/'
 
 fmt:
 	go tool golangci-lint fmt ./...
