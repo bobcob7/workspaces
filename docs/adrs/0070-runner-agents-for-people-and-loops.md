@@ -1,7 +1,8 @@
 # 0070. `ws claude` and loops can start agents on `ws`'s runner: `--runner` and `--endpoint`, a loop record version 4, and runner and model pickers in the desktop
 
 - Status: Proposed
-- Date: 2026-11-14
+- Date: 2026-11-14; revised 2026-11-14 after the fourth review (no
+  fallback to Claude; a Claude agent or loop is untouched)
 
 ## Context
 
@@ -69,8 +70,12 @@ ws claude [--runner claude|ws] [--endpoint <name>] [OPTIONS] [<SPEC>...] [-- "<p
   `runner.model`. Preflight, workspace creation, `run.toml`, the session
   record and the start go through the same function `ws machine spawn`
   uses, with the parent `ws claude` already chooses (`--parent`, else the
-  workspace it runs in). `runner.fallback = "claude"` applies the same
-  way.
+  workspace it runs in). A failed preflight fails the command with its
+  code; nothing else is started in its place.
+- With `--runner claude` or no `--runner`, `ws claude` runs exactly
+  today's code: no preflight, no daemon, and no dependency on the
+  `[runner]`, `[endpoints]` or `[models]` tables
+  ([0071](0071-claude-code-default-runner-as-peer.md)).
 - The output gains `runner`, `model` and `ws_runner`, as `ws machine
   spawn`'s does ([reference.md](../design/ollama-agent/reference.md#ws-claude-and-ws-loop)).
   For a Claude agent they are `"claude"`, the `--model` value or `null`,
@@ -114,7 +119,10 @@ ws claude [--runner claude|ws] [--endpoint <name>] [OPTIONS] [<SPEC>...] [-- "<p
   failure is a failed start with its code (`endpoint_unreachable`,
   `model_not_served`, `model_without_tools`, `daemon_unavailable`) in the
   run's `error_code`, its history entry and the Loops section, as any
-  failed start is now. `runner.fallback` applies as for `ws claude`.
+  failed start is now; nothing else is started in its place, and the next
+  tick tries the runner again. A loop whose runner is `claude` starts its
+  runs exactly as today, whatever the runner configuration or the
+  daemon's state.
   `busy` and retention work unchanged, since a runner session reads
   `working`, `starting` or `idle` like a Claude one.
 - The loop's runs are agents without a parent (as `--parent none`), so
@@ -204,7 +212,9 @@ its transcript. The `--model` field means two things depending on
   `runner`, `model` and `ws_runner`.
 - The desktop gains `RunnerModelFields` and the fields in `NewLoop`.
 - How we'll know: unit tests for the record rules and versions; e2e
-  scenario `loop-runner` ([0067](0067-runner-tests-use-vendored-fakes.md)).
+  scenario `loop-runner`; regression checks that `ws claude` and a
+  `claude` loop run with no `[runner]` table and no daemon behave as
+  before ([0067](0067-runner-tests-use-vendored-fakes.md)).
 
 ## References
 
