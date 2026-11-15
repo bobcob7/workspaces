@@ -1,0 +1,13 @@
+# Scenario: token-redacted. The run prints the environment, which must not
+# hold the endpoint token; the test checks the transcript and runner.log.
+strict_capabilities: true
+tokens_per_word: 4
+models:
+  - {name: qwen/qwen3.5-9b, capabilities: [tools], context_length: 32768}
+rules:
+  - turn: 0
+    tool: run
+    arguments: '{"command":"env"}'
+  - turn: 1
+    tool: record_result
+    arguments: '{"verdict":"PASS","report":"Printed the environment."}'

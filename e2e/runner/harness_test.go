@@ -211,12 +211,23 @@ type testEnv struct {
 	claudeLog string
 	claudeCnt string
 	parent    string
+	root      string
+	extra     []string
 }
 
-// newEnv builds a scenario's world with a config.toml holding only [defaults],
-// a fake claude, a bare upstream o/n, and a parent workspace. A daemon the
-// scenario starts is stopped in t.Cleanup.
+// newEnv is newBareEnv with the parent workspace a person's `ws claude`
+// would have made.
 func newEnv(t *testing.T) *testEnv {
+	t.Helper()
+	env := newBareEnv(t)
+	env.parent = env.makeParent(t)
+	return env
+}
+
+// newBareEnv builds a scenario's world with a config.toml holding only
+// [defaults], a fake claude, and a bare upstream o/n, and no parent
+// workspace. A daemon the scenario starts is stopped in t.Cleanup.
+func newBareEnv(t *testing.T) *testEnv {
 	t.Helper()
 	root, err := os.MkdirTemp("", "wse2e") //nolint:usetesting // short: unix socket paths are limited.
 	require.NoError(t, err)
@@ -240,7 +251,7 @@ func newEnv(t *testing.T) *testEnv {
 	env.writeFakeClaude(t)
 	env.writeConfig(t, "")
 	env.writeSecrets(t, nil)
-	env.parent = env.makeParent(t)
+	env.root = root
 	t.Cleanup(func() { runWS(t, env, "daemon", "stop") })
 	return env
 }
@@ -366,7 +377,7 @@ func (e *testEnv) makeParent(t *testing.T) string {
 // environ is the environment ws runs in: fake claude first on PATH, every
 // state under the scenario's own directories, and no real git config.
 func (e *testEnv) environ() []string {
-	return []string{
+	return append([]string{
 		"PATH=" + e.bin + string(os.PathListSeparator) + gitDir() + ":/usr/bin:/bin",
 		"HOME=" + e.home,
 		"XDG_RUNTIME_DIR=" + e.runtime,
@@ -374,7 +385,7 @@ func (e *testEnv) environ() []string {
 		"CLAUDE_CONFIG_DIR=" + e.home,
 		"GIT_CONFIG_GLOBAL=" + e.gitConf,
 		"GIT_CONFIG_NOSYSTEM=1",
-	}
+	}, e.extra...)
 }
 
 // gitDir is the directory git lives in, so the scenario's PATH can run it.
