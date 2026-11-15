@@ -224,6 +224,15 @@ func TestReresolver_Reresolve(t *testing.T) {
 		require.NotNil(t, second.Warning)
 		assert.Equal(t, 1, strings.Count(spy.logs.String(), "configuration not used"))
 	})
+	t.Run("a runner.model naming an undefined alias is a config_invalid warning, since the file no longer validates", func(t *testing.T) {
+		t.Parallel()
+		r, spy := newSpyResolver(t)
+		spy.writeConfig(t, strings.Replace(reresolveConfig, `model = "qwen9b"`, `model = "gone"`, 1))
+		assert.Empty(t, spy.builds)
+		res := r.Reresolve(t.Context(), agent.Target{})
+		require.NotNil(t, res.Warning)
+		assert.Equal(t, "config_invalid", res.Warning.Code)
+	})
 	t.Run("a model alias that is gone is a model_gone warning, with no URL in it", func(t *testing.T) {
 		t.Parallel()
 		r, spy := newSpyResolver(t)
