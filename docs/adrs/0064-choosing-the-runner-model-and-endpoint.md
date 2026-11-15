@@ -6,7 +6,9 @@
   2026-11-14 after the second review (`qwen/qwen3.5-9b` as the starting
   model, `reasoning`, ids with `/` and `:`); revised 2026-11-14 after the
   third review (a run re-resolves its model alias mid-run; no mid-run
-  fallback to Claude)
+  fallback to Claude); revised 2026-11-14 after the fourth review (the
+  preflight fallback to Claude removed: there is no automatic fallback,
+  ever)
 
 ## Context
 
@@ -25,17 +27,22 @@ when its endpoint fails or the configuration points its model elsewhere?
 1. **Spawns stay short.** Orchestrators' existing spawn lines work unchanged, and
    moving a role to another model is a config change.
 2. **Fail fast, never silently.** A bad endpoint or model fails the spawn
-   with a clear error code. No fallback to Claude unless configured, and
-   then the output says so.
-3. **No secrets in `config.toml`** ([0061](0061-hosts-in-config-toml.md)).
-4. **Editable with `ws config`**, which edits named tables and plain values
+   with a clear error code, and nothing else starts in its place: there is
+   no automatic fallback to another runner, ever. A person or orchestrator
+   decides what to do next.
+3. **The Claude path is untouched.** A spawn whose runner is `claude` (the
+   default) behaves exactly as today: no preflight, no daemon, and no
+   dependency on `[runner]`, `[endpoints]`, `[models]` or any endpoint
+   being up ([0071](0071-claude-code-default-runner-as-peer.md)).
+4. **No secrets in `config.toml`** ([0061](0061-hosts-in-config-toml.md)).
+5. **Editable with `ws config`**, which edits named tables and plain values
    ([0054](0054-settings-all.md)).
-5. **Provider-neutral**: the same keys describe an Ollama server, llm-router,
+6. **Provider-neutral**: the same keys describe an Ollama server, llm-router,
    LM Studio, vLLM, and later the OpenAI and Anthropic APIs
    ([0062](0062-agent-runner-built-into-ws.md)).
-6. **Context size is honest**: over the OpenAI-compatible API it's the
+7. **Context size is honest**: over the OpenAI-compatible API it's the
    server's, not the request's[^ollama-openai-ctx].
-7. **Endpoints can change mid-run** (the owner's answer to the second
+8. **Endpoints can change mid-run** (the owner's answer to the second
    draft's open question). A run follows its model alias to wherever the
    configuration points it now, without a restart, and never moves to a
    model it hasn't checked.
@@ -96,7 +103,6 @@ child.
 ```toml
 [runner]
 model = "qwen9b"           # default model alias for ws children
-fallback = "none"          # none | claude: what spawn does when preflight fails
 
 [endpoints.gpu]
 url = "http://gpu-a.inference.svc:1234"
@@ -182,13 +188,19 @@ once and uses `ollama` if it answers, `none` otherwise. With no probe, a
 model without tools is caught by the first request's 400: the run stops at
 once with exit reason `model_no_tools` and a fail verdict.
 
-**Fallback.** With `runner.fallback = "claude"`, and only for
-`endpoint_unreachable`, `model_not_served` and `model_without_tools`, the
-spawn starts a Claude child instead. Its output says `"runner": "claude"`
-and carries a warning naming the preflight error. There's never a fallback
-once a runner has started: mid-run, the runner re-resolves (below) and,
-when that fails too, records an exit reason for the orchestrator. Handing
-a running agent to Claude was considered and rejected (Alternatives).
+**No fallback.** A failed preflight fails the spawn with its code and
+creates nothing; no other runner is started in its place. A person or an
+orchestrator decides what to do next, for example respawning with
+`--runner claude`. Mid-run, the runner re-resolves (below) and, when that
+fails too, records an exit reason for the orchestrator. There is no
+automatic fallback between runners, ever (Alternatives;
+[0071](0071-claude-code-default-runner-as-peer.md)).
+
+**The Claude path.** Preflight, the daemon and the `[runner]`,
+`[endpoints]` and `[models]` tables are used only when the chosen runner
+is `ws`. With `--runner claude`, or no `--runner` and no role routing to
+`ws`, spawn runs exactly today's code: an invalid or absent `[runner]`
+table, a missing daemon or an unreachable endpoint can't affect it.
 
 **Re-resolution mid-run** (third review). A run is bound to its model
 alias, not to the endpoint URL it resolved at spawn.
@@ -277,18 +289,20 @@ alias, not to the endpoint URL it resolved at spawn.
    every implementer. Aliases keep `--model qwen9b` short and stable when
    the id behind it changes.
 2. **Fail fast.** Two to four small requests turn the commonest failures
-   into distinct codes before anything is created. Preflight runs in the
-   daemon, so it sees the same environment and token as the runner will.
-3. **Secrets** live in the environment or `secrets.env`, never in
+   into distinct codes before anything is created, and nothing is started
+   in the failed runner's place. Preflight runs in the daemon, so it sees
+   the same environment and token as the runner will.
+3. **Claude path untouched.** None of this runs for a `claude` spawn.
+4. **Secrets** live in the environment or `secrets.env`, never in
    `config.toml`.
-4. **Editable.** Every key is a named table's plain value; model ids are
+5. **Editable.** Every key is a named table's plain value; model ids are
    values, never keys.
-5. **Provider-neutral.** `api` picks the protocol, `probe` the optional
+6. **Provider-neutral.** `api` picks the protocol, `probe` the optional
    metadata source; nothing is named after Ollama except the probe that
    only Ollama serves.
-6. **Honest context**: `context_tokens` lives on the model, checked against
+7. **Honest context**: `context_tokens` lives on the model, checked against
    the probe when there is one.
-7. **Endpoints can change mid-run**: a retrying run picks up a repointed
+8. **Endpoints can change mid-run**: a retrying run picks up a repointed
    or failed-over endpoint (another URL, another endpoint for the alias,
    llm-router in front) from the live configuration, at the moment it
    needs one, with the spawn's checks, and without the daemon.
@@ -401,15 +415,25 @@ When retries are used up, hand the run to a Claude child.
   every running agent at once, with a probe per change. Re-resolving only
   when retrying limits changes to runs that need a new endpoint.
 
-### Fall back to Claude by default
+### Fall back to Claude when preflight fails (`runner.fallback`)
+
+An earlier draft had `runner.fallback = "none" | "claude"`: with
+`claude`, a spawn whose preflight failed started a Claude child instead,
+with a warning. Defaulting it to `claude` was also considered.
 
 **Pros**
 
-- An orchestration never stalls.
+- An orchestration never stalls on a down endpoint.
 
 **Cons**
 
-- Silently spends Claude usage the user chose to avoid.
+- Spends Claude usage the user didn't choose, and hides from the
+  orchestrator which runner a task actually ran on.
+- Couples the two runners: the Claude path would gain a code path that
+  starts from the runner's preflight. Removed by the owner in the fourth
+  review ("Remove the fallback behavior"); a person or orchestrator
+  respawns with `--runner claude` when they want to
+  ([0071](0071-claude-code-default-runner-as-peer.md)).
 
 ## Consequences
 
@@ -423,7 +447,11 @@ When retries are used up, hand the run to a Claude child.
   `endpoint_alias`, `endpoint_flag` and `[[endpoint_history]]`; the
   transcript gains `endpoint_changed`, `endpoint_rejected` and
   `config_warning`; the exit reasons gain `endpoint_rejected`.
-- How we'll know: e2e scenarios against the fake for each preflight failure
+- `runner.fallback` doesn't exist; `ws config set runner.fallback` is an
+  unknown key like any other.
+- How we'll know: a regression e2e scenario spawns with the default
+  runner with no `[runner]` table and no daemon, and it starts a Claude
+  child exactly as before; e2e scenarios against the fake for each preflight failure
   and for re-resolution: an endpoint goes down and the alias is repointed
   to a second fake, and the run finishes there; a repoint to a model
   without tools is rejected and the run ends `endpoint_rejected`; an
