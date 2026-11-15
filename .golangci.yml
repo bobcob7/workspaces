@@ -86,6 +86,7 @@ linters:
             - $all
             - "!**/internal/cli/**"
             - "!**/cmd/ws/**"
+            - "!**/internal/fakeollama/cmd/**"
           deny:
             - pkg: github.com/spf13/cobra
               desc: cobra is imported only by internal/cli and cmd/ws (ADR 0005)
@@ -167,6 +168,7 @@ linters:
       case:
         rules:
           json: snake
+          yaml: snake
     testifylint:
       enable-all: true
 
@@ -201,8 +203,14 @@ linters:
         linters:
           - funlen
           - gochecknoglobals
+      # internal/fakeollama is copied from llm-router (ADR 0067). Its request
+      # and config types are passed by value there too; the copy keeps them.
+      - path: ^internal/fakeollama/
+        linters:
+          - gocritic
+        text: hugeParam
       # main is where the real streams and the exit code belong.
-      - path: ^cmd/ws/
+      - path: ^cmd/(ws|fake-ollama)/
         linters:
           - forbidigo
         text: os\.(Stdout|Stderr|Stdin|Exit)
