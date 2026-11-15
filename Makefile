@@ -36,6 +36,8 @@ lint:
 	@! grep -rn 'mcp.CommandTransport' --include='*.go' . | grep -vE '^\./internal/mcp/'
 	@# ADR 0065: the OpenTelemetry SDK is imported by internal/telemetry only.
 	@! grep -rn '"go.opentelemetry.io/' --include='*.go' . | grep -vE '^\./internal/telemetry/'
+	@# The daemon supervises runners: ws runner run is started only from internal/daemon.
+	@! grep -rn '"runner", "run"' --include='*.go' . | grep -vE '^\./internal/(daemon|cli)/' | grep -v '_test\.go:'
 
 fmt:
 	go tool golangci-lint fmt ./...
