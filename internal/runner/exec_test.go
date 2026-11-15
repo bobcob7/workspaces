@@ -387,6 +387,23 @@ func TestDropUnanswered(t *testing.T) {
 	})
 }
 
+func TestSession_saveStatus(t *testing.T) {
+	t.Parallel()
+	t.Run("keeps a verdict the run recorded on disk", func(t *testing.T) {
+		t.Parallel()
+		files := FilesFor(t.TempDir(), "ws-1")
+		verdict := "PASS"
+		require.NoError(t, files.WriteStatus(&Status{Verdict: &verdict}))
+		s := &session{in: Input{Files: files}}
+		require.NoError(t, s.saveStatus("working"))
+		got, err := files.ReadStatus()
+		require.NoError(t, err)
+		require.NotNil(t, got.Verdict)
+		assert.Equal(t, "PASS", *got.Verdict)
+		assert.Equal(t, "working", got.State)
+	})
+}
+
 func TestResumePrior(t *testing.T) {
 	t.Parallel()
 	t.Run("pads the usage to the history and ends on the current endpoint", func(t *testing.T) {
