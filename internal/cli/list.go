@@ -10,9 +10,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/machine"
+	"github.com/bobcob7/workspaces/internal/mcp"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/review/record"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -88,9 +90,21 @@ type listSessionJSON struct {
 	WSRunner *listWSRunnerJSON `json:"ws_runner"`
 }
 
-// listWSRunnerJSON is a ws runner child's details; null for every session
-// until the runner sessions are listed.
-type listWSRunnerJSON struct{}
+// listWSRunnerJSON is a ws runner child's details, null for any other
+// session (ADR 0063).
+type listWSRunnerJSON struct {
+	// ModelAlias is the model alias the run was spawned with, "" for a raw id.
+	ModelAlias string       `json:"model_alias"`
+	Endpoint   string       `json:"endpoint"`
+	Step       int          `json:"step"`
+	MaxSteps   int          `json:"max_steps"`
+	Restarts   int          `json:"restarts"`
+	Usage      agent.Usage  `json:"usage"`
+	MCP        []mcp.Status `json:"mcp"`
+	// Exit is the exit reason once the runner has finished, else null.
+	Exit            *string `json:"exit"`
+	EndpointChanges int     `json:"endpoint_changes"`
+}
 
 type listRepoJSON struct {
 	ID      string `json:"id"`
@@ -326,11 +340,34 @@ func listSession(s *lifetime.Session) *listSessionJSON {
 	if s == nil {
 		return nil
 	}
-	out := &listSessionJSON{Kind: s.Kind, ID: optional(s.ID), State: s.State, Stale: s.Stale, Runner: optional(s.Runner), Model: optional(s.Model)}
+	out := &listSessionJSON{Kind: s.Kind, ID: optional(s.ID), State: s.State, Stale: s.Stale, Runner: optional(s.Runner), Model: optional(s.Model), WSRunner: listWSRunner(s.WSRunner)}
 	if s.PID != 0 {
 		out.PID = &s.PID
 	}
 	return out
+}
+
+// listWSRunner is a ws runner's details as ws list shows them, nil for no
+// runner.
+func listWSRunner(info *lifetime.RunnerInfo) *listWSRunnerJSON {
+	if info == nil {
+		return nil
+	}
+	servers := info.MCP
+	if servers == nil {
+		servers = []mcp.Status{}
+	}
+	return &listWSRunnerJSON{
+		ModelAlias:      info.Alias,
+		Endpoint:        info.Endpoint,
+		Step:            info.Step,
+		MaxSteps:        info.MaxSteps,
+		Restarts:        info.Restarts,
+		Usage:           info.Usage,
+		MCP:             servers,
+		Exit:            info.Exit,
+		EndpointChanges: info.EndpointChanges,
+	}
 }
 
 // reviewRecord is workspace id's review record, or nil when it has none

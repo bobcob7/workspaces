@@ -5,6 +5,7 @@ ws machine spawn [--name <name>] [--offline] [--hidden] [--role <name> [--var KE
 ws machine wait [--any] [--timeout <duration>] <workspace>...
 ws machine result <VERDICT> [--file <path> | --file -]
 ws machine children [--all]
+ws machine logs [--tail <n>] <workspace>
 ws machine rm [--dry-run] [--keep-children] (<workspace>... | --all)
 ws machine roles [show | add | edit | rm] …
 ws machine memory [list | get | set | rm] …
@@ -45,6 +46,8 @@ changes nothing. Errors are one JSON line on stderr.
   `set` a value, then `get` or `list` it; use `--expect-rev` when runs overlap.
 - `ws machine children` to find your helpers and reviews, and check on
   their sessions and results.
+- `ws machine logs` to see what a child did and why it stopped, once
+  `wait` reports it `fail` or `missing`.
 - `ws machine rm` to remove each helper as soon as you've used its
   result. Its result stays readable until your tree's root is removed.
 

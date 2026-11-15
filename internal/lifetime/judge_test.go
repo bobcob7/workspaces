@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -40,6 +42,57 @@ func TestReader_judge(t *testing.T) {
 		assert.Equal(t, gone, v)
 		require.Len(t, f.claude.JobExistsCalls(), 1)
 		assert.Equal(t, "e8cdf5d8", f.claude.JobExistsCalls()[0].ID)
+	})
+}
+
+func TestReader_runner(t *testing.T) {
+	recordedAt := testNow()
+	rec := &record{sess: workspace.Session{Kind: workspace.SessionRunner, RunnerSessionID: "rn-3f2a9c1e", StartedAt: recordedAt}}
+	t.Run("unknown and kept without a runner reader", func(t *testing.T) {
+		f := newFixture(t)
+		sess, v := newReader(f.m, false).judge(t.Context(), "x", rec)
+		assert.Equal(t, &Session{Kind: KindAgent, ID: "rn-3f2a9c1e", State: StateUnknown, Runner: RunnerWS}, sess)
+		assert.Equal(t, keep, v)
+	})
+	t.Run("gone only when its directory doesn't exist", func(t *testing.T) {
+		f := newFixture(t)
+		f.m.UseRunners(&runnerReaderMock{ExistsFunc: func(string) bool { return false }})
+		_, v := newReader(f.m, false).judge(t.Context(), "x", rec)
+		assert.Equal(t, gone, v)
+	})
+	t.Run("reads the state, model and endpoint the status gives", func(t *testing.T) {
+		f := newFixture(t)
+		exit := "done"
+		st := &runner.Status{Model: "qwen3.5:9b", Endpoint: "fake-b", Step: 4, MaxSteps: 80, Restarts: 1, Usage: agent.Usage{Requests: 3}, Exit: &exit, EndpointChanges: 1}
+		run := &runner.Run{ModelAlias: "qwen9b", Model: "qwen/qwen3.5-9b", Endpoint: "fake"}
+		runners := &runnerReaderMock{
+			ExistsFunc: func(string) bool { return true },
+			StateFunc:  func(string, time.Time) (string, int, *runner.Status, *runner.Run) { return "idle", 0, st, run },
+		}
+		f.m.UseRunners(runners)
+		sess, v := newReader(f.m, false).judge(t.Context(), "x", rec)
+		assert.Equal(t, keep, v)
+		assert.Equal(t, &Session{
+			Kind: KindAgent, ID: "rn-3f2a9c1e", State: StateIdle, Runner: RunnerWS, Model: "qwen3.5:9b",
+			WSRunner: &RunnerInfo{Alias: "qwen9b", Endpoint: "fake-b", Step: 4, MaxSteps: 80, Restarts: 1, Usage: agent.Usage{Requests: 3}, Exit: &exit, EndpointChanges: 1},
+		}, sess)
+		require.Len(t, runners.StateCalls(), 1)
+		assert.Equal(t, recordedAt, runners.StateCalls()[0].RecordedAt)
+	})
+	t.Run("falls back to the run's current endpoint and model", func(t *testing.T) {
+		run := &runner.Run{Model: "qwen/qwen3.5-9b", Endpoint: "fake", EndpointHistory: []runner.EndpointEntry{{Endpoint: "fake", Model: "qwen/qwen3.5-9b"}, {Endpoint: "fake-b", Model: "qwen/qwen3.5-9b"}}}
+		model, endpoint := currentRunner(nil, run)
+		assert.Equal(t, "qwen/qwen3.5-9b", model)
+		assert.Equal(t, "fake-b", endpoint)
+	})
+	t.Run("unknown state with no status or run", func(t *testing.T) {
+		f := newFixture(t)
+		f.m.UseRunners(&runnerReaderMock{
+			ExistsFunc: func(string) bool { return true },
+			StateFunc:  func(string, time.Time) (string, int, *runner.Status, *runner.Run) { return "unknown", 0, nil, nil },
+		})
+		sess, _ := newReader(f.m, false).judge(t.Context(), "x", rec)
+		assert.Equal(t, &Session{Kind: KindAgent, ID: "rn-3f2a9c1e", State: StateUnknown, Runner: RunnerWS}, sess)
 	})
 }
 

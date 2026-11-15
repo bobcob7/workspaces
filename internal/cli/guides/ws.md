@@ -29,7 +29,7 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   "<prompt>"`, or `--role <name> --var KEY=VALUE...` for a stored role
   (`ws machine roles`), and keep the returned id. Wait for it with
   `ws machine wait <id>` as a background command, not by polling;
-  follow it with `claude logs <session>`.
+  follow it with `ws machine logs <id>`.
 - If an agent started you to do a task, finish with `ws machine result
   <VERDICT> --file <report>`: the verdicts your prompt names, else
   `PASS` or `FAIL`.
@@ -188,6 +188,7 @@ For agents:
   - `ws llm machine result`: record your verdict and report for the agent that started you
   - `ws llm machine wait`: wait for children to finish, then print each one's verdict
   - `ws llm machine children`: list the workspaces yours started
+  - `ws llm machine logs`: print a child's log: a `ws` child's transcript, or a Claude child's `claude logs`
   - `ws llm machine rm`: remove workspaces yours started, and theirs
   - `ws llm machine roles`: the roles children can be started as
   - `ws llm machine roles show`: one role, with its prompt template

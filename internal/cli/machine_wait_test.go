@@ -3,14 +3,18 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/machine"
+	"github.com/bobcob7/workspaces/internal/runner"
 )
 
 // listingOf is a listing of the machineTree workspaces named in states, with
@@ -343,5 +347,63 @@ func TestPollChild(t *testing.T) {
 		got := pollChild(&target, nil, machine.Record{})
 		assert.Equal(t, "gone", got.status)
 		assert.True(t, got.finished)
+	})
+}
+
+func TestApp_runMachineWait_wsRunner(t *testing.T) {
+	t.Run("a listed ws child reports its session's runner details", func(t *testing.T) {
+		e := newWaitApp(t)
+		writePassResult(t, e, "a")
+		exit := "done"
+		entry := []lifetime.Entry{{Workspace: machineTree()[2], Session: &lifetime.Session{
+			Kind: lifetime.KindAgent, ID: "rn-3f2a9c1e", State: lifetime.StateIdle, Runner: lifetime.RunnerWS, Model: "qwen3.5:9b",
+			WSRunner: &lifetime.RunnerInfo{Alias: "qwen9b", Endpoint: "fake-b", Step: 31, Usage: agent.Usage{Requests: 33}, Exit: &exit, EndpointChanges: 1},
+		}}}
+		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) { return lifetime.Listing{Workspaces: entry}, nil }
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		item := parseWait(t, e.stdout.String()).Children[0]
+		assert.Equal(t, "ws", *item.Runner)
+		assert.Equal(t, "qwen3.5:9b", *item.Model)
+		require.NotNil(t, item.WSRunner)
+		assert.Equal(t, "qwen9b", item.WSRunner.ModelAlias)
+		assert.Equal(t, "fake-b", item.WSRunner.Endpoint)
+		assert.Equal(t, 31, item.WSRunner.Steps)
+		assert.Equal(t, "done", *item.WSRunner.Exit)
+		assert.Equal(t, 1, item.WSRunner.EndpointChanges)
+		assert.Nil(t, item.WSRunner.UsageFile)
+	})
+	t.Run("a removed ws child is read from its usage.json", func(t *testing.T) {
+		e := newWaitApp(t)
+		require.NoError(t, machine.NewStore(e.app.paths.State).WriteResult("boss", "gone", &machine.Result{
+			Verdict:    "PASS",
+			Ancestors:  []string{"plan", "boss"},
+			RecordedAt: testNow(),
+		}, nil))
+		dir := machine.NewStore(e.app.paths.State).Dir("boss", "gone")
+		usage := `{"version":1,"runner":"ws","model":"qwen/qwen3.5-9b","model_alias":"qwen9b","endpoint":"fake-b","exit":"done","steps":31,"restarts":0,` +
+			`"usage":{"requests":33,"prompt_tokens":5,"completion_tokens":6},"endpoints":[{"endpoint":"fake"},{"endpoint":"fake-b"}],"wall_seconds":1104}`
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, runner.UsageName), []byte(usage), 0o600))
+		scriptListing(e, map[string]lifetime.State{})
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"gone"}, waitOptions(time.Minute)))
+		item := parseWait(t, e.stdout.String()).Children[0]
+		assert.Equal(t, "gone", item.Status)
+		assert.Equal(t, "ws", *item.Runner)
+		assert.Equal(t, "qwen/qwen3.5-9b", *item.Model)
+		require.NotNil(t, item.WSRunner)
+		assert.Equal(t, "qwen9b", item.WSRunner.ModelAlias)
+		assert.Equal(t, 31, item.WSRunner.Steps)
+		assert.Equal(t, 1104, *item.WSRunner.WallSeconds)
+		assert.Equal(t, filepath.Join(dir, runner.UsageName), *item.WSRunner.UsageFile)
+		assert.Equal(t, 1, item.WSRunner.EndpointChanges)
+	})
+	t.Run("a removed child without usage.json has no runner details", func(t *testing.T) {
+		e := newWaitApp(t)
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{})
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		item := parseWait(t, e.stdout.String()).Children[0]
+		assert.Nil(t, item.Runner)
+		assert.Nil(t, item.WSRunner)
 	})
 }

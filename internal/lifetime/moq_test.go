@@ -6,6 +6,7 @@ package lifetime
 import (
 	"context"
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 	"sync"
 	"time"
@@ -1169,5 +1170,121 @@ func (mock *reviewJudgeMock) CompleteCalls() []struct {
 	mock.lockComplete.RLock()
 	calls = mock.calls.Complete
 	mock.lockComplete.RUnlock()
+	return calls
+}
+
+// Ensure, that runnerReaderMock does implement runnerReader.
+// If this is not the case, regenerate this file with moq.
+var _ runnerReader = &runnerReaderMock{}
+
+// runnerReaderMock is a mock implementation of runnerReader.
+//
+//	func TestSomethingThatUsesrunnerReader(t *testing.T) {
+//
+//		// make and configure a mocked runnerReader
+//		mockedrunnerReader := &runnerReaderMock{
+//			ExistsFunc: func(id string) bool {
+//				panic("mock out the Exists method")
+//			},
+//			StateFunc: func(id string, recordedAt time.Time) (string, int, *runner.Status, *runner.Run) {
+//				panic("mock out the State method")
+//			},
+//		}
+//
+//		// use mockedrunnerReader in code that requires runnerReader
+//		// and then make assertions.
+//
+//	}
+type runnerReaderMock struct {
+	// ExistsFunc mocks the Exists method.
+	ExistsFunc func(id string) bool
+
+	// StateFunc mocks the State method.
+	StateFunc func(id string, recordedAt time.Time) (string, int, *runner.Status, *runner.Run)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Exists holds details about calls to the Exists method.
+		Exists []struct {
+			// ID is the id argument value.
+			ID string
+		}
+		// State holds details about calls to the State method.
+		State []struct {
+			// ID is the id argument value.
+			ID string
+			// RecordedAt is the recordedAt argument value.
+			RecordedAt time.Time
+		}
+	}
+	lockExists sync.RWMutex
+	lockState  sync.RWMutex
+}
+
+// Exists calls ExistsFunc.
+func (mock *runnerReaderMock) Exists(id string) bool {
+	if mock.ExistsFunc == nil {
+		panic("runnerReaderMock.ExistsFunc: method is nil but runnerReader.Exists was just called")
+	}
+	callInfo := struct {
+		ID string
+	}{
+		ID: id,
+	}
+	mock.lockExists.Lock()
+	mock.calls.Exists = append(mock.calls.Exists, callInfo)
+	mock.lockExists.Unlock()
+	return mock.ExistsFunc(id)
+}
+
+// ExistsCalls gets all the calls that were made to Exists.
+// Check the length with:
+//
+//	len(mockedrunnerReader.ExistsCalls())
+func (mock *runnerReaderMock) ExistsCalls() []struct {
+	ID string
+} {
+	var calls []struct {
+		ID string
+	}
+	mock.lockExists.RLock()
+	calls = mock.calls.Exists
+	mock.lockExists.RUnlock()
+	return calls
+}
+
+// State calls StateFunc.
+func (mock *runnerReaderMock) State(id string, recordedAt time.Time) (string, int, *runner.Status, *runner.Run) {
+	if mock.StateFunc == nil {
+		panic("runnerReaderMock.StateFunc: method is nil but runnerReader.State was just called")
+	}
+	callInfo := struct {
+		ID         string
+		RecordedAt time.Time
+	}{
+		ID:         id,
+		RecordedAt: recordedAt,
+	}
+	mock.lockState.Lock()
+	mock.calls.State = append(mock.calls.State, callInfo)
+	mock.lockState.Unlock()
+	return mock.StateFunc(id, recordedAt)
+}
+
+// StateCalls gets all the calls that were made to State.
+// Check the length with:
+//
+//	len(mockedrunnerReader.StateCalls())
+func (mock *runnerReaderMock) StateCalls() []struct {
+	ID         string
+	RecordedAt time.Time
+} {
+	var calls []struct {
+		ID         string
+		RecordedAt time.Time
+	}
+	mock.lockState.RLock()
+	calls = mock.calls.State
+	mock.lockState.RUnlock()
 	return calls
 }

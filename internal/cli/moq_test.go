@@ -1855,6 +1855,9 @@ var _ claudeClient = &claudeClientMock{}
 //			JobExistsFunc: func(id string) (bool, error) {
 //				panic("mock out the JobExists method")
 //			},
+//			LogsFunc: func(ctx context.Context, id string) (string, error) {
+//				panic("mock out the Logs method")
+//			},
 //			ModelFunc: func(s *claude.Session) (string, error) {
 //				panic("mock out the Model method")
 //			},
@@ -1909,6 +1912,9 @@ type claudeClientMock struct {
 
 	// JobExistsFunc mocks the JobExists method.
 	JobExistsFunc func(id string) (bool, error)
+
+	// LogsFunc mocks the Logs method.
+	LogsFunc func(ctx context.Context, id string) (string, error)
 
 	// ModelFunc mocks the Model method.
 	ModelFunc func(s *claude.Session) (string, error)
@@ -1971,6 +1977,13 @@ type claudeClientMock struct {
 		}
 		// JobExists holds details about calls to the JobExists method.
 		JobExists []struct {
+			// ID is the id argument value.
+			ID string
+		}
+		// Logs holds details about calls to the Logs method.
+		Logs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 			// ID is the id argument value.
 			ID string
 		}
@@ -2057,6 +2070,7 @@ type claudeClientMock struct {
 	lockCheck        sync.RWMutex
 	lockDaemonStatus sync.RWMutex
 	lockJobExists    sync.RWMutex
+	lockLogs         sync.RWMutex
 	lockModel        sync.RWMutex
 	lockRemove       sync.RWMutex
 	lockRespawn      sync.RWMutex
@@ -2235,6 +2249,42 @@ func (mock *claudeClientMock) JobExistsCalls() []struct {
 	mock.lockJobExists.RLock()
 	calls = mock.calls.JobExists
 	mock.lockJobExists.RUnlock()
+	return calls
+}
+
+// Logs calls LogsFunc.
+func (mock *claudeClientMock) Logs(ctx context.Context, id string) (string, error) {
+	if mock.LogsFunc == nil {
+		panic("claudeClientMock.LogsFunc: method is nil but claudeClient.Logs was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockLogs.Lock()
+	mock.calls.Logs = append(mock.calls.Logs, callInfo)
+	mock.lockLogs.Unlock()
+	return mock.LogsFunc(ctx, id)
+}
+
+// LogsCalls gets all the calls that were made to Logs.
+// Check the length with:
+//
+//	len(mockedclaudeClient.LogsCalls())
+func (mock *claudeClientMock) LogsCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockLogs.RLock()
+	calls = mock.calls.Logs
+	mock.lockLogs.RUnlock()
 	return calls
 }
 
