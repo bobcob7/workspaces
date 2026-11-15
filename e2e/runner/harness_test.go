@@ -140,11 +140,12 @@ func startFakeMCPHTTP(t *testing.T, config string, extra ...string) string {
 	return startProcess(t, bin, args...).expectLine(t, "MCP listening on ")
 }
 
-// fakeMCPStdio is the command line that starts fake-mcp over stdio.
+// fakeMCPStdio is the command line that starts fake-mcp over stdio with the
+// script at config, an absolute path, and records its calls to record.
 func fakeMCPStdio(t *testing.T, config, record string) (string, []string) {
 	t.Helper()
 	bin := binary(t, "WS_FAKE_MCP", "fake-mcp", "make fakes")
-	return bin, []string{"--config", testdata(t, config), "--record", record}
+	return bin, []string{"--config", config, "--record", record}
 }
 
 // setFaults replaces fake-ollama's faults with body, a JSON array of faults.
@@ -190,8 +191,12 @@ func recorded(t *testing.T, file string) []map[string]any {
 		return nil
 	}
 	require.NoError(t, err)
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return nil
+	}
 	var calls []map[string]any
-	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
+	for line := range strings.SplitSeq(trimmed, "\n") {
 		var call map[string]any
 		require.NoError(t, json.Unmarshal([]byte(line), &call))
 		calls = append(calls, call)

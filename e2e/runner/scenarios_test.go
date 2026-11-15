@@ -295,6 +295,11 @@ func TestScenarios(t *testing.T) {
 		{"no-tools-model", testNoToolsModel},
 		{"model-not-served", testModelNotServed},
 		{"token-redacted", testTokenRedacted},
+		{"mcp-stdio", testMCPStdio},
+		{"mcp-http", testMCPHTTP},
+		{"mcp-filter", testMCPFilter},
+		{"mcp-tool-search", testMCPToolSearch},
+		{"mcp-server-fails", testMCPServerFails},
 		{"claude-default-untouched", testClaudeDefaultUntouched},
 	}
 	for _, s := range scenarios {
