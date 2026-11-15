@@ -329,6 +329,12 @@ func TestApp_runRunnerStop(t *testing.T) {
 		app, _, _ := newDaemonTestApp(t)
 		assert.Equal(t, codeWorkspaceNotFound, asCLIError(app.runRunnerStop(t.Context(), "ws-1")).code)
 	})
+	t.Run("an id that isn't one path element is workspace_not_found without reading outside the state", func(t *testing.T) {
+		app, _, _ := newDaemonTestApp(t)
+		outside := runner.FilesFor(filepath.Dir(app.paths.State), "x")
+		require.NoError(t, outside.WriteRun(&runner.Run{Version: 1, Session: "rn-x"}))
+		assert.Equal(t, codeWorkspaceNotFound, asCLIError(app.runRunnerStop(t.Context(), "../x")).code)
+	})
 	t.Run("stops a runner that isn't running and prints its object", func(t *testing.T) {
 		app, stdout, _ := newDaemonTestApp(t)
 		app.global.json = true
@@ -341,7 +347,10 @@ func TestApp_runRunnerStop(t *testing.T) {
 		assert.Equal(t, "ws-1", obj["id"])
 		assert.Equal(t, "rn-1", obj["session"])
 		assert.Equal(t, true, obj["stopped"])
-		assert.FileExists(t, filepath.Join(files.Dir, "stop"))
+		st, err := files.ReadStatus()
+		require.NoError(t, err)
+		require.NotNil(t, st.Exit)
+		assert.Equal(t, "stopped", *st.Exit)
 	})
 	t.Run("a runner that had exited says so", func(t *testing.T) {
 		app, stdout, _ := newDaemonTestApp(t)

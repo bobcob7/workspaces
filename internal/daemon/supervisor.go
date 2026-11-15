@@ -328,6 +328,9 @@ func (s *Supervisor) spawn(id string, resume bool) (int, error) {
 	if err != nil {
 		return 0, runnerFailed(files, err)
 	}
+	if err = files.ClearStop(); err != nil {
+		return 0, runnerFailed(files, err)
+	}
 	pid, err := s.starter.Start(s.cfg.Exe, runnerArgs(id, resume), files.Dir, files.Log(), env)
 	if err != nil {
 		return 0, runnerFailed(files, err)
@@ -415,7 +418,7 @@ func logTail(path string) string {
 // readSession reads workspace id's run.toml. An id that isn't one path element,
 // or has no runner session, is workspace_not_found.
 func (s *Supervisor) readSession(id string) (runner.Run, error) {
-	if !validWorkspaceID(id) {
+	if !ValidWorkspaceID(id) {
 		return runner.Run{}, sessionError(id, fs.ErrNotExist)
 	}
 	run, err := s.files(id).ReadRun()
@@ -425,8 +428,8 @@ func (s *Supervisor) readSession(id string) (runner.Run, error) {
 	return run, nil
 }
 
-// validWorkspaceID reports whether id names one state directory.
-func validWorkspaceID(id string) bool {
+// ValidWorkspaceID reports whether id names one state directory.
+func ValidWorkspaceID(id string) bool {
 	return id != "" && id != "." && id != ".." && !strings.ContainsAny(id, `/\`)
 }
 
@@ -449,8 +452,14 @@ func (s *Supervisor) Stop(_ context.Context, id string) (bool, error) {
 	}
 	s.untrack(id)
 	state, pid, _ := files.State(s.cfg.Now(), run.CreatedAt, s.procs)
-	if state == stateIdle {
+	switch state {
+	case stateIdle:
 		return false, nil
+	case stateStopped:
+		if err := s.finish(files, &run, exitStopped, "stopped after the process had died"); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	if err := files.RequestStop(); err != nil {
 		return false, err

@@ -124,6 +124,16 @@ func (f Files) RequestStop() error {
 	return nil
 }
 
+// ClearStop removes the stop file, so a runner started after a stop isn't
+// stopped before its first step.
+func (f Files) ClearStop() error {
+	err := os.Remove(f.path(stopFile))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("removing stop: %w", err)
+	}
+	return nil
+}
+
 // StopRequested reports whether the stop file exists.
 func (f Files) StopRequested() bool {
 	_, err := os.Stat(f.path(stopFile))
