@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -250,6 +251,15 @@ func TestExecute(t *testing.T) {
 		require.NotNil(t, st.Verdict)
 		assert.Equal(t, "PASS", *st.Verdict)
 	})
+	t.Run("without OTEL variables nothing is printed as a span", func(t *testing.T) {
+		t.Parallel()
+		model := newModelServer(t, script(recordPass))
+		files, workspace := newRunFixture(t, model.URL, nil)
+		require.NoError(t, Execute(t.Context(), testInput(t, files, workspace, false)))
+		logData, err := os.ReadFile(files.Log())
+		require.NoError(t, err)
+		assert.NotContains(t, string(logData), `"Name": "`)
+	})
 	t.Run("an MCP tool call counts toward its server and its start is traced", func(t *testing.T) {
 		t.Parallel()
 		server := serveMetricsServer(t)
@@ -275,6 +285,55 @@ func TestExecute(t *testing.T) {
 		require.Len(t, st.MCP, 1)
 		assert.Equal(t, 1, st.MCP[0].Loaded)
 	})
+}
+
+// TestExecute_consoleSpans runs a run in a child process with the console span
+// exporter, which writes to the process's stdout as it was at start, and
+// checks the spans it prints.
+func TestExecute_consoleSpans(t *testing.T) {
+	if os.Getenv(helperEnv) == "1" {
+		runConsoleHelper(t)
+		return
+	}
+	model := newModelServer(t, script(
+		toolSSE("c1", "read_file", `{"path":"hello.txt"}`),
+		toolSSE("c2", "list_files", `{"path":"."}`),
+		recordPass,
+	))
+	files, workspace := newRunFixture(t, model.URL, nil)
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestExecute_consoleSpans$")
+	cmd.Env = append(os.Environ(), helperEnv+"=1", "OTEL_TRACES_EXPORTER=console",
+		"WS_RUNNER_TEST_STATE="+filepath.Dir(filepath.Dir(files.Dir)),
+		"WS_RUNNER_TEST_WORKSPACE="+workspace)
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	spans := string(out)
+	assert.Equal(t, 1, strings.Count(spans, `"Name":"invoke_agent implementer"`))
+	assert.Equal(t, 3, strings.Count(spans, `"Name":"chat `))
+	assert.Equal(t, 3, strings.Count(spans, `"Name":"execute_tool `))
+	assert.Equal(t, strings.Count(spans, `"TraceID":"`), strings.Count(spans, `"TraceID":"`+testTraceID+`"`))
+	assert.NotContains(t, spans, "Check hello.txt and report.")
+}
+
+// helperEnv marks the child process that TestExecute_consoleSpans starts.
+const helperEnv = "WS_RUNNER_TEST_CONSOLE_HELPER"
+
+// runConsoleHelper is the child's run: the state and workspace the parent
+// wrote, with the environment the parent set.
+func runConsoleHelper(t *testing.T) {
+	t.Helper()
+	files := FilesFor(os.Getenv("WS_RUNNER_TEST_STATE"), "ws-1")
+	in := &Input{
+		Files:     files,
+		Workspace: os.Getenv("WS_RUNNER_TEST_WORKSPACE"),
+		ConfigDir: t.TempDir(),
+		Environ:   os.Environ(),
+		Store:     &resultStoreMock{},
+		Sleep:     func(context.Context, time.Duration) error { return nil },
+	}
+	if err := Execute(t.Context(), in); err != nil {
+		t.Fatal(err)
+	}
 }
 
 const testTraceID = "4bf92f3577b34da6a3ce929d0e0e4736"
