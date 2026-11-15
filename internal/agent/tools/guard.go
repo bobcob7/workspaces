@@ -107,21 +107,59 @@ func checkWS(words []string) error {
 // checkPush applies the push rules to the words of one command segment,
 // if they are a git push.
 func checkPush(words []string, branch string) error {
-	for i := 0; i+1 < len(words); i++ {
-		if words[i] == "git" && words[i+1] == "push" {
-			return checkPushArgs(words[i+2:], branch)
-		}
+	args, ok := gitPushArgs(words)
+	if !ok {
+		return nil
 	}
-	return nil
+	return checkPushArgs(args, branch)
 }
 
-// checkPushArgs refuses pushes to main or master, and forced pushes to
-// anything but branch. The first target is the remote.
+// gitPushArgs returns the arguments of a git push among words: those after
+// git's global options and the subcommand push.
+func gitPushArgs(words []string) ([]string, bool) {
+	for i, word := range words {
+		if word != "git" {
+			continue
+		}
+		rest := skipGitOptions(words[i+1:])
+		if len(rest) > 0 && rest[0] == "push" {
+			return rest[1:], true
+		}
+	}
+	return nil, false
+}
+
+// skipGitOptions drops git's global options from the front of words. The
+// options that take their value as the next word are skipped with it.
+func skipGitOptions(words []string) []string {
+	for len(words) > 0 && strings.HasPrefix(words[0], "-") {
+		takesValue := isGitValueOption(words[0])
+		words = words[1:]
+		if takesValue && len(words) > 0 {
+			words = words[1:]
+		}
+	}
+	return words
+}
+
+func isGitValueOption(option string) bool {
+	switch option {
+	case "-C", "-c", "--git-dir", "--work-tree", "--namespace":
+		return true
+	}
+	return false
+}
+
+// checkPushArgs refuses pushes to main or master, pushes that update every
+// ref, and forced pushes to anything but branch. The first target is the
+// remote.
 func checkPushArgs(args []string, branch string) error {
 	var targets []string
 	force := false
 	for _, arg := range args {
 		switch {
+		case arg == "--all" || arg == "--mirror":
+			return fmt.Errorf("command refused: git push %s updates every ref", arg)
 		case isForceFlag(arg):
 			force = true
 		case !strings.HasPrefix(arg, "-"):
