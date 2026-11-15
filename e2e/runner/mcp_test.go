@@ -74,7 +74,7 @@ func stdioServer(t *testing.T, config, record string) map[string]any {
 }
 
 // offeredTools is the names of the tools a chat request offered the model.
-func offeredTools(req fakeRequest) []string {
+func offeredTools(req *fakeRequest) []string {
 	body, _ := req.Body.(map[string]any)
 	list, _ := body["tools"].([]any)
 	var names []string
@@ -185,7 +185,7 @@ func testMCPFilter(t *testing.T) {
 	chats := chatRequests(requests(t, fake.Control))
 	require.NotEmpty(t, chats)
 	for _, req := range chats {
-		offered := offeredTools(req)
+		offered := offeredTools(&req)
 		assert.Contains(t, offered, "mcp__fake__query_loki_logs")
 		assert.NotContains(t, offered, "mcp__fake__delete_dashboard")
 	}
@@ -203,7 +203,7 @@ func testMCPToolSearch(t *testing.T) {
 	assert.Equal(t, "done", w.WSRunner.Exit)
 	chats := chatRequests(requests(t, fake.Control))
 	require.GreaterOrEqual(t, len(chats), 2)
-	assert.True(t, slices.Contains(offeredTools(chats[1]), "mcp__fake__query_loki_logs"), "the request after tool_search must offer the found tool")
+	assert.True(t, slices.Contains(offeredTools(&chats[1]), "mcp__fake__query_loki_logs"), "the request after tool_search must offer the found tool")
 	assert.Contains(t, recordedTools(recorded(t, record)), "query_loki_logs")
 	assert.Contains(t, readFileString(t, env.transcriptOf(c.ID)), "api GET /healthz 200")
 }

@@ -38,6 +38,17 @@ jobs:
           check-latest: true
       - run: make lint
 
+  # ADR 0067: the runner's scenarios against the fakes, on loopback only.
+  e2e-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.x
+          check-latest: true
+      - run: make e2e-runner
+
   # ADR 0053: the Workspace Online image builds and starts; nothing is pushed.
   # Built natively on both architectures: the published image is multi-arch.
   docker:

@@ -51,9 +51,9 @@ func statusNum(status map[string]any, key string) int {
 	return int(n)
 }
 
-// statusString is a string field of a status.json; "" when it is absent.
-func statusString(status map[string]any, key string) string {
-	s, _ := status[key].(string)
+// statusExit is the exit reason of a status.json; "" while the run goes on.
+func statusExit(status map[string]any) string {
+	s, _ := status["exit"].(string)
 	return s
 }
 
@@ -181,7 +181,7 @@ func awaitResume(t *testing.T, env *testEnv, id string, dead int, d time.Duratio
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the daemon did not resume the runner within %s: dead pid %d, status pid %d (alive %t), restarts %d, exit %q", d, dead, pid, processAlive(pid), statusNum(status, "restarts"), statusString(status, "exit"))
+			t.Fatalf("the daemon did not resume the runner within %s: dead pid %d, status pid %d (alive %t), restarts %d, exit %q", d, dead, pid, processAlive(pid), statusNum(status, "restarts"), statusExit(status))
 		}
 		time.Sleep(pollInterval)
 	}
@@ -202,7 +202,7 @@ func testDaemonCrashLimit(t *testing.T) {
 	}
 	env.killRunner(t, c.ID)
 	eventually(t, eventWait, "the daemon did not finalize the runner", func() bool {
-		return statusString(env.statusOrNil(c.ID), "exit") != ""
+		return statusExit(env.statusOrNil(c.ID)) != ""
 	})
 	w := waitRunner(t, env, c.ID)
 
@@ -264,15 +264,15 @@ func testRunnerStop(t *testing.T) {
 	assert.Equal(t, "stopped", w.WSRunner.Exit)
 	assert.Nil(t, w.Result, "a stopped run records no verdict")
 	_, err := os.Stat(c.Path)
-	assert.NoError(t, err, "the workspace is kept")
+	require.NoError(t, err, "the workspace is kept")
 	_, err = os.Stat(transcript)
-	assert.NoError(t, err, "the transcript is kept")
+	require.NoError(t, err, "the transcript is kept")
 
 	runWS(t, env, "daemon", "stop")
 	setFaults(t, fake.Control, "[]")
 	second := spawnRunner(t, env, editPrompt)
 	waitRunner(t, env, second.ID)
-	assert.Equal(t, "stopped", statusString(env.readStatus(t, c.ID), "exit"), "a later daemon start must not resume a stopped run")
+	assert.Equal(t, "stopped", statusExit(env.readStatus(t, c.ID)), "a later daemon start must not resume a stopped run")
 	assert.Zero(t, statusNum(env.readStatus(t, c.ID), "restarts"))
 }
 
@@ -293,13 +293,13 @@ func testLoopRunner(t *testing.T) {
 	assert.True(t, strings.HasPrefix(started.Session, "rn-"), "the run's session is %q", started.Session)
 
 	eventually(t, wsTimeout, "the loop run did not exit", func() bool {
-		return statusString(env.statusOrNil(started.Workspace), "exit") != ""
+		return statusExit(env.statusOrNil(started.Workspace)) != ""
 	})
-	assert.Equal(t, "done", statusString(env.readStatus(t, started.Workspace), "exit"))
+	assert.Equal(t, "done", statusExit(env.readStatus(t, started.Workspace)))
 	history := runWS(t, env, "loop", "history", "--json", "loop-runner")
 	assert.Contains(t, history.Stdout, started.Session)
 	_, err := os.Stat(filepath.Join(env.runnerDir(started.Workspace), "report.md"))
-	assert.NoError(t, err, "a run without a parent writes runner/report.md")
+	require.NoError(t, err, "a run without a parent writes runner/report.md")
 	assert.Contains(t, gitOut(t, env, filepath.Join(started.Path, "n"), "log", "--oneline", "-1"), "feat: add hello")
 }
 

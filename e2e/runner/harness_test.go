@@ -123,8 +123,14 @@ type fakeOllama struct {
 // startFakeOllama runs fake-ollama on loopback with testdata/<config>.
 func startFakeOllama(t *testing.T, config string) fakeOllama {
 	t.Helper()
+	return startFakeOllamaAt(t, testdata(t, config))
+}
+
+// startFakeOllamaAt runs fake-ollama on loopback with the script at path.
+func startFakeOllamaAt(t *testing.T, path string) fakeOllama {
+	t.Helper()
 	bin := binary(t, "WS_FAKE_OLLAMA", "fake-ollama", "make fakes")
-	p := startProcess(t, bin, "--config", testdata(t, config),
+	p := startProcess(t, bin, "--config", path,
 		"--listen", "127.0.0.1:0", "--control-listen", "127.0.0.1:0")
 	return fakeOllama{
 		URL:     p.expectLine(t, "API listening on "),
