@@ -23,6 +23,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/agent/tools"
 	"github.com/bobcob7/workspaces/internal/llm"
+	"github.com/bobcob7/workspaces/internal/machine"
 )
 
 const testToken = "sekrit-token-123"
@@ -145,6 +146,28 @@ func testInput(t *testing.T, files Files, workspace string, resume bool) *Input 
 		Store: &resultStoreMock{},
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	}
+}
+
+// fixedLineage is machine.Store with a fixed lineage, as the CLI's
+// runnerRecords computes it for a child of root.
+type fixedLineage struct {
+	*machine.Store
+	root      string
+	ancestors []string
+}
+
+func (f fixedLineage) Lineage(string) (string, []string, error) {
+	return f.root, f.ancestors, nil
+}
+
+// childOfBoss is the store for a run whose workspace ws-1 is a child of boss-1.
+func childOfBoss(state string) fixedLineage {
+	return fixedLineage{Store: machine.NewStore(state), root: "boss-1", ancestors: []string{"boss-1"}}
+}
+
+// stateDir is the state directory that holds files' workspace.
+func stateDir(files Files) string {
+	return filepath.Dir(filepath.Dir(files.Dir))
 }
 
 func readTranscript(t *testing.T, files Files) string {
@@ -313,6 +336,35 @@ func TestExecute(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, st.MCP, 1)
 		assert.Equal(t, 1, st.MCP[0].Loaded)
+	})
+	t.Run("with a parent, a PASS lands in the parent's machine directory", func(t *testing.T) {
+		t.Parallel()
+		model := newModelServer(t, script(
+			toolSSE("c1", "read_file", `{"path":"hello.txt"}`),
+			toolSSE("c2", "list_files", `{"path":"."}`),
+			recordPass,
+		))
+		files, workspace := newRunFixture(t, model.URL, func(run *Run) { run.Parent = "boss-1" })
+		in := testInput(t, files, workspace, false)
+		state := stateDir(files)
+		in.Store = childOfBoss(state)
+		require.NoError(t, Execute(t.Context(), in))
+
+		rec, err := machine.NewStore(state).Read("boss-1", "ws-1")
+		require.NoError(t, err)
+		require.NotNil(t, rec.Result)
+		assert.Equal(t, "PASS", rec.Result.Verdict)
+		machineDir := filepath.Join(state, "boss-1", "machine", "ws-1")
+		report, err := os.ReadFile(filepath.Join(machineDir, reportFile))
+		require.NoError(t, err)
+		assert.Equal(t, "all good", string(report))
+		data, err := os.ReadFile(filepath.Join(machineDir, usageFile))
+		require.NoError(t, err)
+		var usage Usage
+		require.NoError(t, json.Unmarshal(data, &usage))
+		assert.Equal(t, agent.ExitDone, usage.Exit)
+		assert.NoFileExists(t, files.path(reportFile))
+		assert.NoFileExists(t, files.path(usageFile))
 	})
 }
 
