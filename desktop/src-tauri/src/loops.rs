@@ -66,6 +66,12 @@ pub struct Loop {
     /// Whether runs start hidden (ADR 0057).
     #[serde(default = "default_true")]
     pub hidden: bool,
+    /// What runs each run: `claude` or `ws` (ADR 0070).
+    #[serde(default)]
+    pub runner: Option<String>,
+    /// The endpoint a `ws` loop's runs use instead of the model's.
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -219,6 +225,11 @@ pub struct NewLoop {
     /// Not sent when None, so `ws` keeps its default or the loop's setting (ADR 0057).
     #[serde(default)]
     pub hidden: Option<bool>,
+    /// `claude` or `ws`; blank or None is `claude`. The form sends it on every edit.
+    #[serde(default)]
+    pub runner: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 
 fn non_blank(value: Option<&str>) -> Option<&str> {
@@ -227,12 +238,13 @@ fn non_blank(value: Option<&str>) -> Option<&str> {
 
 /// `ws loop add` without `--json`, which the runner adds:
 /// ["loop", "add", ("--title=<t>"), "--every=<every>", "--prompt=<prompt>",
-///  ("--keep=<n>"), ("--model=<m>"), ("--permission-mode=<p>"),
-///  ("--hidden=<b>"), ("--script=<s>"), ("--script-timeout=<t>"),
-///  ("--var=<k>=<v>")..., "--", <name>, <specs...>].
+///  ("--keep=<n>"), ("--runner=ws"), ("--endpoint=<e>"), ("--model=<m>"),
+///  ("--permission-mode=<p>"), ("--hidden=<b>"), ("--script=<s>"),
+///  ("--script-timeout=<t>"), ("--var=<k>=<v>")..., "--", <name>, <specs...>].
 /// Blank optional values, and blank specs, are left out; values are trimmed,
 /// except the script (whose whitespace matters) and a var's value.
-/// A script timeout needs a script; a var needs a non-blank key.
+/// A script timeout needs a script; a var needs a non-blank key. The claude
+/// runner adds no runner flag.
 pub fn add_args(req: &NewLoop) -> Vec<String> {
     let mut args = vec!["loop".to_string(), "add".to_string()];
     if let Some(title) = non_blank(req.title.as_deref()) {
@@ -242,6 +254,12 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
     args.push(format!("--prompt={}", req.prompt.trim()));
     if let Some(keep) = req.keep {
         args.push(format!("--keep={keep}"));
+    }
+    if non_blank(req.runner.as_deref()) == Some("ws") {
+        args.push("--runner=ws".to_string());
+    }
+    if let Some(endpoint) = non_blank(req.endpoint.as_deref()) {
+        args.push(format!("--endpoint={endpoint}"));
     }
     if let Some(model) = non_blank(req.model.as_deref()) {
         args.push(format!("--model={model}"));
@@ -277,10 +295,14 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
 /// `ws loop edit` without `--json`, which the runner adds. Every field is
 /// sent, so the request replaces the loop's editable fields (ADR 0052):
 /// ["loop", "edit", "--title=<t>", "--every=<every>", "--prompt=<prompt>",
-///  ("--keep=<n>"), "--model=<m>", "--permission-mode=<p>", ("--hidden=<b>"),
+///  ("--keep=<n>"), ("--runner=<r>", "--endpoint=<e or "">"), "--model=<m>",
+///  ("--permission-mode=<p>" unless the runner is ws), ("--hidden=<b>"),
 ///  ("--script=<s>", ("--script-timeout=<t>")) | "--no-script",
 ///  ("--var=<k>=<v>")... | "--no-vars", ("--no-specs"),
 ///  "--", <name>, <specs...>].
+/// The runner and endpoint are sent only when the request has a runner, which
+/// the form always does, so a blank endpoint clears one and a claude loop's
+/// runner is set back to claude (ADR 0070).
 /// Values are trimmed as in add_args (not the script or a var's value);
 /// a blank title, model or permission mode is sent as "" to clear it.
 pub fn edit_args(req: &NewLoop) -> Vec<String> {
@@ -295,10 +317,18 @@ pub fn edit_args(req: &NewLoop) -> Vec<String> {
     if let Some(keep) = req.keep {
         args.push(format!("--keep={keep}"));
     }
+    let runner = non_blank(req.runner.as_deref());
+    if let Some(runner) = runner {
+        args.push(format!("--runner={runner}"));
+        let endpoint = non_blank(req.endpoint.as_deref()).unwrap_or("");
+        args.push(format!("--endpoint={endpoint}"));
+    }
     let model = non_blank(req.model.as_deref()).unwrap_or("");
     args.push(format!("--model={model}"));
-    let mode = non_blank(req.permission_mode.as_deref()).unwrap_or("");
-    args.push(format!("--permission-mode={mode}"));
+    if runner != Some("ws") {
+        let mode = non_blank(req.permission_mode.as_deref()).unwrap_or("");
+        args.push(format!("--permission-mode={mode}"));
+    }
     if let Some(hidden) = req.hidden {
         args.push(format!("--hidden={hidden}"));
     }
@@ -604,6 +634,8 @@ mod tests {
             script_timeout: None,
             vars: vec![],
             hidden: None,
+            runner: None,
+            endpoint: None,
         }
     }
 
@@ -654,6 +686,118 @@ mod tests {
         assert!(!edit_args(&request())
             .iter()
             .any(|a| a.starts_with("--hidden")));
+    }
+
+    #[test]
+    fn add_args_for_ws_loop_sends_runner_and_endpoint_before_model() {
+        let req = NewLoop {
+            runner: Some("ws".into()),
+            endpoint: Some("gpu".into()),
+            model: Some("qwen9b".into()),
+            permission_mode: Some("acceptEdits".into()),
+            ..request()
+        };
+        assert_eq!(
+            add_args(&req),
+            [
+                "loop",
+                "add",
+                "--every=24h",
+                "--prompt=hi",
+                "--runner=ws",
+                "--endpoint=gpu",
+                "--model=qwen9b",
+                "--permission-mode=acceptEdits",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn add_args_for_claude_loop_sends_no_runner_flags() {
+        let req = NewLoop {
+            runner: Some("claude".into()),
+            endpoint: Some(" ".into()),
+            model: Some("opus".into()),
+            ..request()
+        };
+        assert_eq!(
+            add_args(&req),
+            ["loop", "add", "--every=24h", "--prompt=hi", "--model=opus", "--", "deps"]
+        );
+    }
+
+    #[test]
+    fn edit_args_for_ws_loop_sends_runner_and_endpoint_but_no_permission_mode() {
+        let req = NewLoop {
+            runner: Some("ws".into()),
+            endpoint: Some("gpu".into()),
+            model: Some("qwen9b".into()),
+            permission_mode: Some("acceptEdits".into()),
+            ..request()
+        };
+        assert_eq!(
+            edit_args(&req),
+            [
+                "loop",
+                "edit",
+                "--title=",
+                "--every=24h",
+                "--prompt=hi",
+                "--runner=ws",
+                "--endpoint=gpu",
+                "--model=qwen9b",
+                "--no-script",
+                "--no-vars",
+                "--no-specs",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn edit_args_switching_to_claude_clears_the_endpoint() {
+        let req = NewLoop {
+            runner: Some("claude".into()),
+            ..request()
+        };
+        assert_eq!(
+            edit_args(&req),
+            [
+                "loop",
+                "edit",
+                "--title=",
+                "--every=24h",
+                "--prompt=hi",
+                "--runner=claude",
+                "--endpoint=",
+                "--model=",
+                "--permission-mode=",
+                "--no-script",
+                "--no-vars",
+                "--no-specs",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn loop_record_reads_runner_and_endpoint_and_defaults_them() {
+        let ws = r#"{"name":"deps","every":"24h","prompt":"hi","specs":[],"model":"qwen9b",
+            "permission_mode":null,"keep":3,"paused":false,"created_at":"2026-11-01T00:00:00Z",
+            "next_run_at":null,"last_run":null,"runner":"ws","endpoint":"gpu"}"#;
+        let loop_: Loop = serde_json::from_str(ws).unwrap();
+        assert_eq!(loop_.runner.as_deref(), Some("ws"));
+        assert_eq!(loop_.endpoint.as_deref(), Some("gpu"));
+        let claude = r#"{"name":"deps","every":"24h","prompt":"hi","specs":[],"model":null,
+            "permission_mode":null,"keep":3,"paused":false,"created_at":"2026-11-01T00:00:00Z",
+            "next_run_at":null,"last_run":null}"#;
+        let loop_: Loop = serde_json::from_str(claude).unwrap();
+        assert_eq!(loop_.runner, None);
+        assert_eq!(loop_.endpoint, None);
     }
 
     #[test]
