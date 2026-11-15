@@ -61,8 +61,6 @@ func TestReadFile(t *testing.T) {
 }
 
 func TestReadWindow(t *testing.T) {
-	t.Parallel()
-
 	lines := []string{"a", "b", "c"}
 	assert.Equal(t, "1\ta\n2\tb\n3\tc", readWindow(lines, 0, 0))
 	assert.Equal(t, "[file has 3 lines; nothing at offset 9]", readWindow(lines, 9, 1))
@@ -97,14 +95,10 @@ func TestListFiles(t *testing.T) {
 }
 
 func TestListText(t *testing.T) {
-	t.Parallel()
-
 	t.Run("reports when nothing matches", func(t *testing.T) {
-		t.Parallel()
 		assert.Equal(t, "no files", listText("", ""))
 	})
 	t.Run("caps the list and says how many were left out", func(t *testing.T) {
-		t.Parallel()
 		var out []string
 		for i := range listMaxFiles + 2 {
 			out = append(out, fmt.Sprintf("f%04d", i))
@@ -221,8 +215,6 @@ func TestEditFile(t *testing.T) {
 }
 
 func TestReplaceText(t *testing.T) {
-	t.Parallel()
-
 	args := editFileArgs{Path: "f", Old: "a", New: "b"}
 	got, n, err := replaceText("a a", args)
 	require.Error(t, err)
@@ -251,15 +243,11 @@ func TestFileToolsCallDecodesArguments(t *testing.T) {
 }
 
 func TestMatchesGlob(t *testing.T) {
-	t.Parallel()
-
 	assert.True(t, matchesGlob("", "anything"))
 	assert.True(t, matchesGlob("*.go", "pkg/a.go"))
 	assert.False(t, matchesGlob("*.md", "pkg/a.go"))
 }
 
 func TestShellQuote(t *testing.T) {
-	t.Parallel()
-
 	assert.Equal(t, `'a'\''b'`, shellQuote("a'b"))
 }

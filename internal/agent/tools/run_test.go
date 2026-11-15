@@ -87,28 +87,21 @@ func TestRunCommand(t *testing.T) {
 }
 
 func TestRunTimeout(t *testing.T) {
-	t.Parallel()
-
 	assert.Equal(t, runDefaultTimeout, runTimeout(0))
 	assert.Equal(t, 7*time.Second, runTimeout(7))
 	assert.Equal(t, runMaxTimeout, runTimeout(901))
 }
 
 func TestOutputTail(t *testing.T) {
-	t.Parallel()
-
 	t.Run("keeps short output", func(t *testing.T) {
-		t.Parallel()
 		assert.Equal(t, "short", outputTail("short", false))
 	})
 	t.Run("keeps the last 8 KiB of long output", func(t *testing.T) {
-		t.Parallel()
 		got := outputTail(strings.Repeat("a", runOutputTail)+"END", false)
 		assert.True(t, strings.HasPrefix(got, "[truncated]\n"))
 		assert.True(t, strings.HasSuffix(got, "END"))
 	})
 	t.Run("marks output the gate already cut", func(t *testing.T) {
-		t.Parallel()
 		assert.Equal(t, "[truncated]\nx", outputTail("x", true))
 	})
 }

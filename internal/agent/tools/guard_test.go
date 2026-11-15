@@ -51,8 +51,6 @@ func TestCheckPath(t *testing.T) {
 }
 
 func TestCheckCommand(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name    string
 		command string
@@ -75,7 +73,6 @@ func TestCheckCommand(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			err := CheckCommand(tt.command, tt.branch)
 			if tt.wantErr == "" {
 				assert.NoError(t, err)

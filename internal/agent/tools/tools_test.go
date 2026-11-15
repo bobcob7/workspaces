@@ -57,8 +57,6 @@ func TestNew(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	t.Parallel()
-
 	schema := objectSchema(map[string]map[string]any{
 		"path":  field("string", ""),
 		"limit": field("integer", ""),
@@ -78,7 +76,6 @@ func TestValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			err := Validate(schema, tt.arguments)
 			if tt.wantErr == "" {
 				assert.NoError(t, err)
@@ -90,16 +87,12 @@ func TestValidate(t *testing.T) {
 }
 
 func TestCapText(t *testing.T) {
-	t.Parallel()
-
 	t.Run("keeps short text", func(t *testing.T) {
-		t.Parallel()
 		text, cut := capText("short")
 		assert.Equal(t, "short", text)
 		assert.False(t, cut)
 	})
 	t.Run("cuts long text with the byte count", func(t *testing.T) {
-		t.Parallel()
 		text, cut := capText(strings.Repeat("a", MaxResult+5))
 		assert.True(t, cut)
 		assert.True(t, strings.HasSuffix(text, "[truncated: 5 more bytes]"))

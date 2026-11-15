@@ -7,8 +7,6 @@ import (
 )
 
 func TestEnviron(t *testing.T) {
-	t.Parallel()
-
 	environ := []string{
 		"HOME=/h",
 		"PATH=/bin",
@@ -27,12 +25,10 @@ func TestEnviron(t *testing.T) {
 		"WS_RUNNER=claude",
 	}
 	t.Run("drops secrets and keeps the rest with WS_RUNNER set", func(t *testing.T) {
-		t.Parallel()
 		got := Environ(environ, false, []string{"MY_VAR"})
 		assert.Equal(t, []string{"HOME=/h", "PATH=/bin", "METRICS_URL=http://m", "OTEL_EXPORTER_OTLP_ENDPOINT=http://o", "WS_RUNNER=ws"}, got)
 	})
 	t.Run("keeps the git tokens with keepGit", func(t *testing.T) {
-		t.Parallel()
 		got := Environ(environ, true, nil)
 		assert.Contains(t, got, "GH_TOKEN=gh")
 		assert.NotContains(t, got, "NPM_TOKEN=n")
@@ -40,8 +36,6 @@ func TestEnviron(t *testing.T) {
 }
 
 func TestSecrets(t *testing.T) {
-	t.Parallel()
-
 	environ := []string{"PATH=/bin", "NPM_TOKEN=npm-value", "GH_TOKEN=gh-value", "MY_VAR=v"}
 	assert.Equal(t, []string{"npm-value", "gh-value", "v"}, Secrets(environ, false, []string{"MY_VAR"}))
 	assert.Equal(t, []string{"npm-value", "v"}, Secrets(environ, true, []string{"MY_VAR"}))
