@@ -40,6 +40,7 @@ func (a *App) newMachineCmd() *cobra.Command {
 		a.newMachineResultCmd(),
 		a.newMachineWaitCmd(),
 		a.newMachineChildrenCmd(),
+		a.newMachineLogsCmd(),
 		a.newMachineRmCmd(),
 		a.newMachineRolesCmd(),
 		a.newMachineMemoryCmd(),

@@ -46,7 +46,10 @@ Output is always JSON; `--json` changes nothing.
      "result": {"verdict": "PASS", "outcome": "pass",
                 "report": "/…/state/orch-1a2b3c4d/machine/t1-impl-d8efb24f/report.md",
                 "recorded_at": "2026-11-06T18:04:05Z"},
-     "error": null}
+     "error": null,
+     "runner": "claude",
+     "model": "claude-haiku-5-5",
+     "ws_runner": null}
   ],
   "warnings": []
 }
@@ -58,6 +61,26 @@ One item per workspace named, in order. `status` is `working`, `idle`,
 without recording one, or `pending` when it hasn't finished. `role` is
 the role it was spawned with, or `null`; `result` is `null` until it
 records one.
+
+`runner` is `claude` or `ws`, and `model` the model the child runs (for
+a Claude child, the one its last answer came from), or `null` when not
+known. For a `ws` child, `ws_runner` is `{"model_alias", "endpoint",
+"exit", "steps", "restarts", "usage": {"requests", "prompt_tokens",
+"completion_tokens"}, "wall_seconds", "usage_file", "endpoint_changes"}`,
+otherwise `null`. `endpoint` and `model` are the ones the child used last:
+when an endpoint fails mid-run, a `ws` child moves to the endpoint its
+model names in `config.toml` at that moment, and `endpoint_changes`
+counts those moves.
+`exit` is `null` while it runs, `done` when the model recorded its
+verdict, or why the runner stopped and recorded a fail verdict itself:
+`max_steps`, `timeout`, `max_tokens`, `endpoint_down`,
+`endpoint_rejected` (`config.toml` points the model at an endpoint that
+can't run it; the report says why, so tell a person), `model_no_tools`,
+`model_missing`, `malformed_tool_calls`, `no_result`, `looping`,
+`context_overflow`, `crashed`, `stopped` or `internal`. Any `exit` but
+`done` means the model or endpoint couldn't do the task: consider spawning
+it again with `--runner claude`. `usage_file` stays readable after `ws
+machine rm`.
 
 An item's `error` is `child_failed` when it finished with outcome `fail`
 or `missing`, and `wait_timeout` when it hadn't finished at the timeout
@@ -76,7 +99,7 @@ finished and passed.
 | An item: still not finished at the timeout; run `wait` again | `wait_timeout`    | 1    |
 
 On `child_failed` with outcome `missing`, read the child's log with
-`claude logs <session>` to see why it stopped; if it hit a usage limit,
+`ws machine logs <id>` to see why it stopped; if it hit a usage limit,
 tell a person.
 
 ## Examples

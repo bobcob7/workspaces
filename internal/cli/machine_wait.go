@@ -4,15 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/machine"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
+
+// waitGone is the status of a child whose workspace is no longer listed.
+const waitGone = "gone"
 
 // defaultMachinePoll is how often ws machine wait reads the sessions.
 const defaultMachinePoll = 5 * time.Second
@@ -46,7 +53,23 @@ type machineWaitItemJSON struct {
 	Error    *itemErrorJSON         `json:"error"`
 	Runner   *string                `json:"runner"`
 	Model    *string                `json:"model"`
-	WSRunner *listWSRunnerJSON      `json:"ws_runner"`
+	WSRunner *machineWaitRunnerJSON `json:"ws_runner"`
+}
+
+// machineWaitRunnerJSON is a ws runner child's details in ws machine wait
+// (ADR 0063): from its session while it's listed, and its usage.json once
+// it has one.
+type machineWaitRunnerJSON struct {
+	ModelAlias string      `json:"model_alias"`
+	Endpoint   string      `json:"endpoint"`
+	Exit       *string     `json:"exit"`
+	Steps      int         `json:"steps"`
+	Restarts   int         `json:"restarts"`
+	Usage      agent.Usage `json:"usage"`
+	// WallSeconds and UsageFile are null until the child has a usage.json.
+	WallSeconds     *int    `json:"wall_seconds"`
+	UsageFile       *string `json:"usage_file"`
+	EndpointChanges int     `json:"endpoint_changes"`
 }
 
 // childState is one poll's view of a target.
@@ -55,6 +78,7 @@ type childState struct {
 	session  string
 	runner   string
 	model    string
+	wsRunner *machineWaitRunnerJSON
 	quiet    bool // idle or stopped, and no descendant working or starting
 	finished bool
 	record   machine.Record
@@ -187,8 +211,70 @@ func (a *App) pollChildren(targets []waitTarget, entries []lifetime.Entry, root 
 			rec = machine.Record{Child: id}
 		}
 		states[i] = pollChild(&targets[i], entries, rec)
+		a.readUsage(&states[i], store.Dir(root, id), warnedRead)
 	}
 	return states
+}
+
+// readUsage fills a ws runner child's details from usage.json in dir, which
+// is all there is of a removed child. A listed child keeps its session's
+// details and gains where its usage is and how long it ran.
+func (a *App) readUsage(st *childState, dir string, warnedRead map[string]bool) {
+	path := filepath.Join(dir, runner.UsageName)
+	usage, err := runner.ReadUsage(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return
+	case err != nil:
+		if !warnedRead[path] {
+			warnedRead[path] = true
+			a.warned = append(a.warned, fmt.Sprintf("couldn't read %s: %v", path, err))
+		}
+		return
+	}
+	wall := usage.WallSeconds
+	if st.status == waitGone {
+		st.runner, st.model = lifetime.RunnerWS, usage.Model
+		st.wsRunner = usageRunnerJSON(&usage, path)
+		return
+	}
+	if st.wsRunner != nil {
+		st.wsRunner.WallSeconds, st.wsRunner.UsageFile = &wall, &path
+	}
+}
+
+// usageRunnerJSON is a ws runner child's details from its usage.json.
+func usageRunnerJSON(u *runner.Usage, path string) *machineWaitRunnerJSON {
+	changes := max(len(u.Endpoints)-1, 0)
+	wall := u.WallSeconds
+	return &machineWaitRunnerJSON{
+		ModelAlias:      u.ModelAlias,
+		Endpoint:        u.Endpoint,
+		Exit:            optional(u.Exit),
+		Steps:           u.Steps,
+		Restarts:        u.Restarts,
+		Usage:           u.Usage,
+		WallSeconds:     &wall,
+		UsageFile:       &path,
+		EndpointChanges: changes,
+	}
+}
+
+// waitRunnerJSON is a listed ws runner's details in ws machine wait, nil for
+// any other session.
+func waitRunnerJSON(info *lifetime.RunnerInfo) *machineWaitRunnerJSON {
+	if info == nil {
+		return nil
+	}
+	return &machineWaitRunnerJSON{
+		ModelAlias:      info.Alias,
+		Endpoint:        info.Endpoint,
+		Exit:            info.Exit,
+		Steps:           info.Step,
+		Restarts:        info.Restarts,
+		Usage:           info.Usage,
+		EndpointChanges: info.EndpointChanges,
+	}
 }
 
 // pollChild is t's state from entries and its record, and records whether
@@ -196,7 +282,7 @@ func (a *App) pollChildren(targets []waitTarget, entries []lifetime.Entry, root 
 func pollChild(t *waitTarget, entries []lifetime.Entry, rec machine.Record) childState {
 	entry, found := entryByID(entries, t.id)
 	if t.gone || !found {
-		return childState{status: "gone", finished: true, record: rec}
+		return childState{status: waitGone, finished: true, record: rec}
 	}
 	var st childState
 	st.record = rec
@@ -207,6 +293,7 @@ func pollChild(t *waitTarget, entries []lifetime.Entry, rec machine.Record) chil
 		st.session = entry.Session.ID
 		st.runner = entry.Session.Runner
 		st.model = entry.Session.Model
+		st.wsRunner = waitRunnerJSON(entry.Session.WSRunner)
 	}
 	idle := st.status == string(lifetime.StateIdle) || st.status == string(lifetime.StateStopped)
 	st.quiet = idle && !busyDescendant(entries, t.id)
@@ -269,6 +356,7 @@ func (a *App) printWait(targets []waitTarget, states []childState, opts *machine
 			Result:   resultInfo(&s.record),
 			Runner:   optional(s.runner),
 			Model:    optional(s.model),
+			WSRunner: s.wsRunner,
 		}
 		item.Error = items.add(id, waitItemError(id, s, opts, anyFinished))
 		results = append(results, item)

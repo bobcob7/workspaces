@@ -95,6 +95,7 @@ type claudeClient interface {
 	UsageLimit(s *claude.Session, message string) (*claude.Limit, error)
 	Model(s *claude.Session) (string, error)
 	Send(ctx context.Context, s *claude.Session, message string) error
+	Logs(ctx context.Context, id string) (string, error)
 }
 
 // ghClient runs the GitHub CLI; nothing else in ws does (ADR 0039).

@@ -98,6 +98,20 @@ func (t *Transcript) encode(ev Event) ([]byte, error) {
 	return joinObjects(head, body), nil
 }
 
+// MarshalJSON is ev as one transcript object, the head then the payload's
+// fields. Events are redacted when they are written, so this doesn't again.
+func (ev Event) MarshalJSON() ([]byte, error) {
+	head, err := json.Marshal(eventHead{Time: ev.Time, Step: ev.Step, Kind: ev.Kind})
+	if err != nil {
+		return nil, fmt.Errorf("encoding event head: %w", err)
+	}
+	body, err := json.Marshal(ev.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("encoding %s: %w", ev.Kind, err)
+	}
+	return joinObjects(head, body), nil
+}
+
 // redact replaces the strings in a decoded JSON value, recursively.
 func (t *Transcript) redact(v any) any {
 	switch x := v.(type) {

@@ -25,6 +25,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/power"
 	"github.com/bobcob7/workspaces/internal/proc"
 	"github.com/bobcob7/workspaces/internal/review/store"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/shell"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -141,10 +142,11 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		stopNotify:   signal.Stop,
 	}
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
-		runner := git.NewRunner(log, "git", environ)
-		c := cache.New(log, runner, paths.Cache, cfg.SpecDefaults())
-		ws := workspace.New(log, runner, c, a.claude, paths.Workspaces, paths.State)
+		gitRunner := git.NewRunner(log, "git", environ)
+		c := cache.New(log, gitRunner, paths.Cache, cfg.SpecDefaults())
+		ws := workspace.New(log, gitRunner, c, a.claude, paths.Workspaces, paths.State)
 		lm := lifetime.New(log, ws, a.claude, proc.Reader{}, power.Reader{}, paths.State)
+		lm.UseRunners(runner.NewReader(paths.State, proc.Reader{}))
 		if cfg.Review.RemovesFinished() {
 			lm.RemoveFinishedReviews(reviewJudge{state: paths.State, store: store.New(paths.Reviews)})
 		}

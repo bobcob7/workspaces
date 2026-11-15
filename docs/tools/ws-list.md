@@ -122,7 +122,13 @@ as no verdict.
 
 `session.state` is `working`, `idle`, `starting`, `stopped`, `unknown`, or
 `running` for a shell. It is `ws`'s reading, not Claude Code's own `state`
-field, which stays `working` on an idle session. `stale` is `true`
+field, which stays `working` on an idle session. `session.runner` is `claude`
+or `ws` for an agent (`ws` for a runner session, ADR 0063) and `null` for a
+shell. `session.model` is the model the agent uses, or `null` until a Claude
+agent has answered. `session.ws_runner` is `null` unless `runner` is `ws`; then
+it is `{"model_alias", "endpoint", "step", "max_steps", "restarts", "usage",
+"mcp", "exit", "endpoint_changes"}`, where `endpoint` and `model` are the ones
+the run uses now. `stale` is `true`
 when the session's process started before the background service's
 process, both start times read from the operating system; the service's
 pid comes from `claude daemon status`. It is `false` for an agent without
