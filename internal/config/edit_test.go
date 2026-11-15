@@ -341,6 +341,12 @@ func TestUnset(t *testing.T) {
 			want:  "[review.profiles.security]\nwhen = \"auto\"\n# keep me\n",
 		},
 		{
+			name:  "removes an endpoint table whole, keeping the next one",
+			input: "[endpoints.gpu]\nurl = \"http://gpu:1234\"\nprobe = \"ollama\"\n\n[endpoints.other]\nurl = \"http://other:1\"\n",
+			key:   "endpoints.gpu",
+			want:  "[endpoints.other]\nurl = \"http://other:1\"\n",
+		},
+		{
 			name:  "removes a key from a profile name Set refuses",
 			input: "[defaults]\nhost = \"a\"\n\n[review.profiles.Security]\nwhen = \"auto\"\n",
 			key:   "review.profiles.Security.when",
@@ -484,4 +490,22 @@ func TestWriteFile(t *testing.T) {
 		require.Len(t, entries, 1)
 		assert.Equal(t, "config.toml", entries[0].Name())
 	})
+}
+
+func TestIsEntryTable(t *testing.T) {
+	t.Parallel()
+	tests := map[string]bool{
+		"endpoints.gpu":        true,
+		"models.qwen9b":        true,
+		"runner.roles.checker": true,
+		"endpoints.gpu.url":    false,
+		"runner.model":         false,
+		"nope":                 false,
+	}
+	for key, want := range tests {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, want, IsEntryTable(key))
+		})
+	}
 }
