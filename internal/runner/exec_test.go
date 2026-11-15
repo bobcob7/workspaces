@@ -191,6 +191,20 @@ func TestExecute(t *testing.T) {
 		assert.Equal(t, model.URL, usage.URL)
 		assert.Equal(t, testTraceID, usage.TraceID)
 	})
+	t.Run("replays the fake-ollama stream fixture, whose unknown tool is an invalid call", func(t *testing.T) {
+		t.Parallel()
+		fixture, err := os.ReadFile(filepath.Join("..", "fakeollama", "testdata", "stream-tools.response.txt"))
+		require.NoError(t, err)
+		model := newModelServer(t, script(string(fixture), recordPass))
+		files, workspace := newRunFixture(t, model.URL, nil)
+		require.NoError(t, Execute(t.Context(), testInput(t, files, workspace, false)))
+		assert.Contains(t, readTranscript(t, files), `"kind":"invalid_call"`)
+		assert.Contains(t, readTranscript(t, files), `"name":"lookup_order_status"`)
+		st, err := files.ReadStatus()
+		require.NoError(t, err)
+		require.NotNil(t, st.Verdict)
+		assert.Equal(t, "PASS", *st.Verdict)
+	})
 	t.Run("the token reaches the endpoint but never the transcript or the log", func(t *testing.T) {
 		t.Parallel()
 		model := newModelServer(t, script(recordPass))
@@ -315,18 +329,67 @@ func TestExecute_consoleSpans(t *testing.T) {
 		recordPass,
 	))
 	files, workspace := newRunFixture(t, model.URL, nil)
-	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestExecute_consoleSpans$")
-	cmd.Env = append(os.Environ(), helperEnv+"=1", "OTEL_TRACES_EXPORTER=console",
-		"WS_RUNNER_TEST_STATE="+filepath.Dir(filepath.Dir(files.Dir)),
-		"WS_RUNNER_TEST_WORKSPACE="+workspace)
-	out, err := cmd.Output()
-	require.NoError(t, err)
-	spans := string(out)
+	state := filepath.Dir(filepath.Dir(files.Dir))
+	out := runConsoleChild(t, state, workspace, false)
+	spans := out
 	assert.Equal(t, 1, strings.Count(spans, `"Name":"invoke_agent implementer"`))
 	assert.Equal(t, 3, strings.Count(spans, `"Name":"chat `))
 	assert.Equal(t, 3, strings.Count(spans, `"Name":"execute_tool `))
 	assert.Equal(t, strings.Count(spans, `"TraceID":"`), strings.Count(spans, `"TraceID":"`+testTraceID+`"`))
 	assert.NotContains(t, spans, "Check hello.txt and report.")
+}
+
+// TestExecute_consoleResume stops a run after its first step and resumes it in
+// a second child process: the resume adds a second invoke_agent span in the
+// same trace.
+func TestExecute_consoleResume(t *testing.T) {
+	if os.Getenv(helperEnv) == "1" {
+		runConsoleHelper(t)
+		return
+	}
+	var files Files
+	var workspace string
+	var first *modelServer
+	first = newModelServer(t, func(n int, w http.ResponseWriter) {
+		if n != 1 {
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+			return
+		}
+		if err := files.RequestStop(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(w, toolSSE("c1", "read_file", `{"path":"hello.txt"}`))
+	})
+	files, workspace = newRunFixture(t, first.URL, nil)
+	state := filepath.Dir(filepath.Dir(files.Dir))
+	firstSpans := runConsoleChild(t, state, workspace, false)
+	assert.Equal(t, 1, strings.Count(firstSpans, `"Name":"invoke_agent implementer"`))
+	stopped, err := files.ReadStatus()
+	require.NoError(t, err)
+	require.NotNil(t, stopped.Exit)
+	assert.Equal(t, agent.ExitStopped, *stopped.Exit)
+	assert.Nil(t, stopped.Verdict)
+	require.NoError(t, os.Remove(files.path(stopFile)))
+
+	second := newModelServer(t, script(recordPass))
+	require.NoError(t, files.AppendEndpoint(EndpointEntry{Reason: "resume", Endpoint: "gpu", URL: second.URL, API: "openai", Model: "qwen/qwen3.5-9b"}))
+	resumeSpans := runConsoleChild(t, state, workspace, true)
+	assert.Equal(t, 1, strings.Count(resumeSpans, `"Name":"invoke_agent implementer"`))
+	assert.Equal(t, strings.Count(resumeSpans, `"TraceID":"`), strings.Count(resumeSpans, `"TraceID":"`+testTraceID+`"`))
+}
+
+// runConsoleChild runs Execute in a child process of this test binary, with the
+// console span exporter, and returns the spans it printed.
+func runConsoleChild(t *testing.T, state, workspace string, resume bool) string {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^"+t.Name()+"$")
+	cmd.Env = append(os.Environ(), helperEnv+"=1", "OTEL_TRACES_EXPORTER=console",
+		"WS_RUNNER_TEST_STATE="+state, "WS_RUNNER_TEST_WORKSPACE="+workspace,
+		fmt.Sprintf("WS_RUNNER_TEST_RESUME=%t", resume))
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	return string(out)
 }
 
 // helperEnv marks the child process that TestExecute_consoleSpans starts.
@@ -339,6 +402,7 @@ func runConsoleHelper(t *testing.T) {
 	files := FilesFor(os.Getenv("WS_RUNNER_TEST_STATE"), "ws-1")
 	in := &Input{
 		Files:     files,
+		Resume:    os.Getenv("WS_RUNNER_TEST_RESUME") == "true",
 		Workspace: os.Getenv("WS_RUNNER_TEST_WORKSPACE"),
 		ConfigDir: t.TempDir(),
 		Environ:   os.Environ(),
