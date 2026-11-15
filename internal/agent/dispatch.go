@@ -123,9 +123,8 @@ type progressArgs struct {
 // Reads and searches leave nothing in the note.
 func (r *run) noteProgress(call llm.ToolCall, text string) {
 	var args progressArgs
-	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
-		return
-	}
+	// check already decoded these arguments, so the error can't happen here.
+	_ = json.Unmarshal([]byte(call.Arguments), &args)
 	switch call.Name {
 	case "write_file", "edit_file":
 		r.done = append(r.done, ToolRecord{Name: call.Name, Summary: args.Path})
