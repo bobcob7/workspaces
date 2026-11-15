@@ -229,10 +229,10 @@ func TestReresolver_Reresolve(t *testing.T) {
 		t.Parallel()
 		r, spy := newSpyResolver(t)
 		spy.writeConfig(t, strings.Replace(reresolveConfig, `model = "qwen9b"`, `model = "gone"`, 1))
-		assert.Empty(t, spy.builds)
 		res := r.Reresolve(t.Context(), agent.Target{})
 		require.NotNil(t, res.Warning)
 		assert.Equal(t, "config_invalid", res.Warning.Code)
+		assert.Empty(t, spy.builds)
 	})
 	t.Run("runner.model changed to another alias is unchanged, since the alias is fixed", func(t *testing.T) {
 		t.Parallel()
@@ -318,6 +318,31 @@ func TestReresolver_Reresolve(t *testing.T) {
 		r.Current.ContextTokens = 8192
 		assert.Equal(t, agent.Resolution{}, r.Reresolve(t.Context(), agent.Target{}))
 		assert.Empty(t, spy.builds)
+		assert.Empty(t, spy.preflights)
+	})
+	t.Run("a raised context_tokens applies without a check, after a read saw the setting", func(t *testing.T) {
+		t.Parallel()
+		r, spy := newSpyResolver(t)
+		require.Equal(t, agent.Resolution{}, r.Reresolve(t.Context(), agent.Target{}))
+		spy.writeConfig(t, strings.Replace(reresolveConfig, "context_tokens = 65536", "context_tokens = 131072", 1))
+		res := r.Reresolve(t.Context(), agent.Target{})
+		require.True(t, res.Changed)
+		assert.Equal(t, []string{"context_tokens"}, res.Changes)
+		assert.Equal(t, 131072, res.Target.ContextTokens)
+		assert.Empty(t, spy.builds)
+		assert.Empty(t, spy.preflights)
+	})
+	t.Run("a raise above a window a probe lowered applies once the setting changes", func(t *testing.T) {
+		t.Parallel()
+		r, spy := newSpyResolver(t)
+		spy.writeConfig(t, strings.Replace(reresolveConfig, "context_tokens = 65536", "context_tokens = 32768", 1))
+		r.Current.ContextTokens = 8192
+		require.Equal(t, agent.Resolution{}, r.Reresolve(t.Context(), agent.Target{}))
+		spy.writeConfig(t, reresolveConfig)
+		res := r.Reresolve(t.Context(), agent.Target{})
+		require.True(t, res.Changed)
+		assert.Equal(t, []string{"context_tokens"}, res.Changes)
+		assert.Equal(t, 65536, res.Target.ContextTokens)
 		assert.Empty(t, spy.preflights)
 	})
 }
