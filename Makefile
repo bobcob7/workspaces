@@ -29,9 +29,11 @@ lint:
 	@# ADR 0025: only the Claude Code client replaces ws, with claude attach.
 	@! grep -rnE '(syscall|unix)\.Exec\b' --include='*.go' . | grep -v '^\./internal/claude/'
 	@# ADR 0067: the fakes are imported only by themselves, cmd/fake-* and e2e/.
-	@! grep -rnE '"github.com/bobcob7/workspaces/internal/fake(ollama|mcp)' --include='*.go' . | grep -vE '^\./(internal/fake(ollama|mcp)|cmd/fake-[a-z]+|e2e)/'
+	@! grep -rnE '"github.com/bobcob7/workspaces/internal/fake(ollama|mcp)' --include='*.go' . | grep -vE '^\./(internal/fake(ollama|mcp)|cmd/fake-[a-z]+|e2e)/' | grep -vE '^\./internal/mcp/[^:]*_test\.go:'
 	@# ADR 0062: only the openai provider and the fake requests chat/completions.
 	@! grep -rn 'chat/completions' --include='*.go' . | grep -vE '^\./internal/(llm/openai|fakeollama)/' | grep -v '_test\.go:'
+	@# ADR 0069: the SDK's stdio transport is built in internal/mcp only.
+	@! grep -rn 'mcp.CommandTransport' --include='*.go' . | grep -vE '^\./internal/mcp/'
 
 fmt:
 	go tool golangci-lint fmt ./...
