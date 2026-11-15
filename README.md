@@ -248,6 +248,11 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   notified once ([0057](docs/adrs/0057-loop-visibility-and-blocked-runs.md),
   proposed).
 
+Longer term, `ws` aims to depend on no particular model, provider or
+agent harness, with Claude Code staying the default until measured runs
+say otherwise: see the [model and provider roadmap](docs/roadmap.md) and
+[0071](docs/adrs/0071-claude-code-default-runner-as-peer.md).
+
 ## Development
 
 ```console

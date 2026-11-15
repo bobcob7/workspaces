@@ -1,0 +1,528 @@
+<!doctype html>
+<!--
+  Static mockups for ws's own agent runner and the ws daemon
+  (docs/design/ollama-agent; ADRs 0062-0070). Open with a hash to pick a
+  screen, e.g. mockups.html#settings-models. Screens: cli-spawn,
+  cli-children-wait, cli-errors, cli-list, cli-daemon (terminal, 1100 wide,
+  height fitting the content) and agents-tree, transcript, settings-models,
+  settings-models-errors, loop-form (desktop app, 1280x800). The PNGs in img/ are
+  rendered from this file with headless Chromium through Playwright; see
+  README.md › Screens. Every agent, Claude or not, shows its model as quiet
+  text; provider and endpoint are only in tooltips and the detail pane.
+  Colors and type match docs/design/desktop-sections/mockups.html
+  (desktop/src/index.css). All data is fake.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Runner mockups</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0f1115; --panel: #161920; --panel-raised: #1d212a; --border: #2a2f3a;
+  --text: #e3e6ec; --text-muted: #8d94a3; --accent: #58a6ff; --selected: #233047;
+  --danger: #f85149; --status-working: #58a6ff; --status-needs-input: #f0a43a;
+  --status-idle: #d8b04c; --status-done: #56c478; --status-stopped: #6e7681; --status-running: #a371f7;
+  --font-mono: "SF Mono", Menlo, Monaco, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "DejaVu Sans", sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+.screen { display: none; }
+.screen.on { display: block; }
+
+/* Terminal */
+.term { width: 1100px; min-height: 640px; background: #0b0d10; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.termBar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: #181b21; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+.termBar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; background: #3a404c; }
+.termBar span { margin-left: 8px; }
+pre.out { margin: 0; padding: 14px 16px; font: 12.5px/1.55 var(--font-mono); color: #d4d8e0; white-space: pre-wrap; word-break: break-word; }
+.p { color: var(--status-done); } .c { color: var(--text-muted); } .k { color: #7ee0d6; } .s { color: #e6c07b; }
+.n { color: #d19a66; } .e { color: var(--danger); } .w { color: var(--status-needs-input); }
+
+/* App frame (desktop-sections) */
+.root { display: flex; flex-direction: column; height: 800px; width: 1280px; }
+.topBar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--panel); min-height: 47px; }
+.brand { font-weight: 700; font-size: 15px; }
+.spacer { flex: 1; }
+.muted { color: var(--text-muted); font-size: 12px; }
+.mono { font-family: var(--font-mono); }
+.btn { white-space: nowrap; border: 0; background: none; color: var(--accent); font: 600 13px/1 inherit; font-family: inherit; padding: 8px 10px; border-radius: 8px; }
+.btn.outlined { border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); padding: 7px 10px; }
+.btn.contained { background: var(--accent); color: #0b1220; }
+.btn.danger { color: var(--danger); }
+.btn.small { font-size: 12px; padding: 5px 8px; }
+.body { flex: 1; display: flex; min-height: 0; }
+.rail { width: 72px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; border-right: 1px solid var(--border); }
+.railItem { position: relative; width: 60px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0 7px; border-radius: 10px; color: var(--text-muted); font-size: 11px; font-weight: 600; }
+.railItem svg { width: 20px; height: 20px; }
+.railItem.active { background: var(--selected); color: var(--text); }
+.railItem.active::before { content: ""; position: absolute; left: -6px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.railSpacer { flex: 1; }
+.sidebar { width: 320px; flex: none; border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+.search { margin: 10px 12px 2px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); font-size: 13px; background: var(--bg); }
+.list { padding: 8px 0 16px; }
+.heading { display: flex; gap: 6px; margin: 0; padding: 8px 16px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.items { list-style: none; margin: 0; padding: 0 8px; }
+.item { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 8px; }
+.item.current { background: var(--selected); }
+.item.child { margin-left: 18px; }
+.row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.age { margin-left: auto; flex: none; color: var(--text-muted); font-size: 11px; }
+.summary { padding-left: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status-stopped); }
+.dot.working { background: var(--status-working); } .dot.idle { background: var(--status-idle); } .dot.done { background: var(--status-done); } .dot.needs { background: var(--status-needs-input); }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.header { padding: 14px 18px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.titleRow { display: flex; align-items: center; gap: 12px; }
+.title { margin: 0; font-size: 18px; font-weight: 650; }
+.meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; color: var(--text-muted); font-size: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: #2a303b; color: var(--text); font-size: 12px; }
+.chip.ok { background: color-mix(in srgb, var(--status-done) 18%, transparent); color: #9fe2b4; }
+.chip.warn { background: color-mix(in srgb, var(--status-needs-input) 18%, transparent); color: var(--status-needs-input); font-weight: 600; }
+.content { flex: 1; overflow: hidden; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.card { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.cardHead { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; }
+.cardBody { padding: 12px 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); padding: 6px 10px; border-bottom: 1px solid var(--border); }
+td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alert { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.45; }
+.alert.info { background: color-mix(in srgb, var(--accent) 12%, transparent); color: #b9d8ff; }
+.alert.warn { background: color-mix(in srgb, var(--status-needs-input) 14%, transparent); color: #f5cf95; }
+.alert.err { background: color-mix(in srgb, var(--danger) 14%, transparent); color: #ffb3ad; }
+.alert b { color: var(--text); }
+/* Conversation */
+.convo { flex: 1; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.msg { max-width: 820px; font-size: 13px; line-height: 1.55; }
+.msg.user { align-self: flex-end; background: var(--panel-raised); padding: 8px 12px; border-radius: 10px; }
+.think { color: var(--text-muted); font-style: italic; font-size: 12px; }
+.tool { font: 12px var(--font-mono); color: var(--text-muted); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; width: fit-content; max-width: 900px; }
+.tool b { color: var(--text); }
+.tool .ok { color: var(--status-done); } .tool .bad { color: var(--danger); }
+.sys { font-size: 12px; color: var(--text-muted); border-left: 3px solid var(--status-stopped); padding: 2px 10px; }
+.sys.warn { border-color: var(--status-needs-input); color: #f5cf95; }
+.exit { padding: 8px 12px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--status-done) 14%, transparent); color: #9fe2b4; }
+.noreply { padding: 10px 12px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+/* Settings */
+.settingsList .item { flex-direction: row; align-items: center; }
+.setRow { display: grid; grid-template-columns: 260px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.setRow .lbl div:first-child { font-weight: 600; font-size: 13px; }
+.field { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font-size: 13px; color: var(--text); min-height: 34px; }
+.select { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; }
+.select::after { content: ""; border: 4px solid transparent; border-top: 5px solid var(--text-muted); margin-top: 4px; }
+.ck { display: inline-block; width: 5px; height: 9px; border: solid var(--status-done); border-width: 0 2px 2px 0; transform: rotate(45deg); margin: 0 4px 2px 3px; }
+.ico { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 800; color: #0b0d10; }
+.ico.err { background: var(--danger); } .ico.warn { background: var(--status-needs-input); } .ico.info { background: var(--accent); }
+.switch { width: 34px; height: 20px; border-radius: 999px; background: #3a404c; position: relative; flex: none; display: inline-block; }
+.switch::after { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; top: 2px; left: 2px; background: #c9ced8; }
+.switch.on { background: var(--accent); } .switch.on::after { left: 16px; background: #fff; }
+.statusDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.form { display: grid; grid-template-columns: 120px 1.5fr 110px 1fr; gap: 10px 12px; align-items: center; font-size: 13px; }
+.form label { color: var(--text-muted); }
+.modelLabel { flex: none; margin-left: auto; padding-left: 8px; font: 11px var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+.summaryRow { display: flex; align-items: baseline; gap: 8px; padding-left: 17px; min-width: 0; }
+.summaryRow .summary { padding-left: 0; flex: 1 1 auto; min-width: 0; }
+.root.tall { height: auto; min-height: 800px; }
+.root.tall .content { overflow: visible; }
+.titleModel { font: 13px var(--font-mono); color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<!-- 1. ws machine spawn --runner ws -->
+<section class="screen" id="cli-spawn">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>orchestrator · workspaces/orch-x-1a2b3c4d/workspaces</span></div>
+<pre class="out"><span class="p">$</span> ws machine spawn --runner ws --name x-t2-impl --role implementer \
+    --var TASK=T2 --var TASKS=docs/design/x/tasks.md --var BASE=feat/x --var BRANCH=feat/x-t2 \
+    workspaces@feat/x | jq .
+{
+  <span class="k">"id"</span>: <span class="s">"x-t2-impl-7c41e0b2"</span>,
+  <span class="k">"session"</span>: <span class="s">"rn-3f2a9c1e"</span>,
+  <span class="k">"path"</span>: <span class="s">"/home/me/.config/workspaces/workspaces/x-t2-impl-7c41e0b2"</span>,
+  <span class="k">"parent"</span>: <span class="s">"orch-x-1a2b3c4d"</span>,
+  <span class="k">"repos"</span>: [
+    {<span class="k">"id"</span>: <span class="s">"github.com/example/workspaces"</span>, <span class="k">"path"</span>: <span class="s">"workspaces"</span>, <span class="k">"ref"</span>: <span class="s">"feat/x"</span>,
+     <span class="k">"ref_kind"</span>: <span class="s">"branch"</span>, <span class="k">"commit"</span>: <span class="s">"5be0a9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7"</span>}
+  ],
+  <span class="k">"warnings"</span>: [],
+  <span class="k">"role"</span>: <span class="s">"implementer"</span>,
+  <span class="k">"runner"</span>: <span class="s">"ws"</span>,
+  <span class="k">"model"</span>: <span class="s">"qwen/qwen3.5-9b"</span>,
+  <span class="k">"ws_runner"</span>: {
+    <span class="k">"model_alias"</span>: <span class="s">"qwen9b"</span>,
+    <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>,
+    <span class="k">"url"</span>: <span class="s">"http://gpu-a.inference.svc:1234"</span>,
+    <span class="k">"api"</span>: <span class="s">"openai"</span>,
+    <span class="k">"context_tokens"</span>: <span class="n">65536</span>,
+    <span class="k">"mcp_servers"</span>: []
+  }
+}
+
+<span class="c"># the role is configured to run on the ws runner, so --runner can be left out:</span>
+<span class="p">$</span> ws config get runner.roles.verifier.runner
+ws
+<span class="p">$</span> ws machine spawn --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make lint; make test" \
+    workspaces@feat/x | jq -c '{id, session, runner, model}'
+{"id":"x-verify-0d9e2f61","session":"rn-91b0c7aa","runner":"ws","model":"qwen/qwen3.5-9b"}
+
+<span class="c"># override only the model for one child, by alias:</span>
+<span class="p">$</span> ws machine spawn --runner ws --name x-t3-impl --role implementer --var TASK=T3 … workspaces@feat/x \
+    -- "" --model qwen9b-think | jq -c '{model, alias: .ws_runner.model_alias, context: .ws_runner.context_tokens}'
+{"model":"qwen/qwen3.5-9b","alias":"qwen9b-think","context":131072}
+
+<span class="c"># a raw model id works too; "/" and ":" are part of it, never split:</span>
+<span class="p">$</span> ws machine spawn --runner ws --endpoint ollama --name x-t4-impl --role implementer … workspaces@feat/x \
+    -- "" --model qwen3.5:9b | jq -c '{model, alias: .ws_runner.model_alias, warnings}'
+{"model":"qwen3.5:9b","alias":"","warnings":["qwen3.5:9b isn't a model alias; using it as a model id on endpoint ollama with qwen9b's context size (65536)"]}</pre></div>
+</section>
+
+<!-- 2. children + wait, mixed runners -->
+<section class="screen" id="cli-children-wait">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>orchestrator · mixed runners</span></div>
+<pre class="out"><span class="p">$</span> ws machine children | jq -r '.workspaces[] | [.id, .session.runner, .session.model, .session.state, (.result.verdict // "-")] | @tsv'
+x-base-2c9d11f0       ws       qwen/qwen3.5-9b     idle      PASS
+x-design-8a1f3e22     claude   claude-opus-5-5     idle      PASS
+x-t1-impl-41aa0b7c    ws       qwen/qwen3.5-9b     working   -
+x-t1-review-c3d5e7f9  claude   claude-sonnet-5-5   starting  -
+
+<span class="p">$</span> ws machine wait x-t1-impl-41aa0b7c x-t2-impl-7c41e0b2    <span class="c"># run in the background</span>
+{"children": [
+  {"id": "x-t1-impl-41aa0b7c", "session": "rn-5d2e8b10", "role": "implementer",
+   "status": "idle", "finished": true, "outcome": "pass",
+   "result": {"verdict": "PASS", "outcome": "pass",
+              "report": "/…/state/orch-x-1a2b3c4d/machine/x-t1-impl-41aa0b7c/report.md",
+              "recorded_at": "2026-11-13T18:04:05Z"},
+   "error": null,
+   "runner": "ws", "model": "qwen/qwen3.5-9b",
+   "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "exit": <span class="s">"done"</span>, "steps": 31, "restarts": 0,
+                 "usage": {"requests": 33, "prompt_tokens": 512004, "completion_tokens": 18230},
+                 "wall_seconds": 1104, "usage_file": "/…/machine/x-t1-impl-41aa0b7c/usage.json"}},
+  {"id": "x-t2-impl-7c41e0b2", "session": "rn-3f2a9c1e", "role": "implementer",
+   "status": "idle", "finished": true, "outcome": "fail",
+   "result": {"verdict": "FAIL", "outcome": "fail",
+              "report": "/…/state/orch-x-1a2b3c4d/machine/x-t2-impl-7c41e0b2/report.md",
+              "recorded_at": "2026-11-13T18:21:40Z"},
+   "error": {"code": <span class="e">"child_failed"</span>, "message": "x-t2-impl-7c41e0b2 finished with FAIL"},
+   "runner": "ws", "model": "qwen/qwen3.5-9b",
+   "ws_runner": {"model_alias": "qwen9b", "endpoint": "gpu", "exit": <span class="w">"looping"</span>, "steps": 47, "restarts": 0,
+                 "usage": {"requests": 47, "prompt_tokens": 1630221, "completion_tokens": 22015},
+                 "wall_seconds": 2079, "usage_file": "/…/machine/x-t2-impl-7c41e0b2/usage.json"}}
+ ],
+ "warnings": []}
+<span class="c">exit status 1</span>
+
+<span class="p">$</span> head -3 /…/machine/x-t2-impl-7c41e0b2/report.md
+ws runner: looping
+
+The model called run {"command":"go test ./internal/config/"} 5 times in a row with the same arguments.
+
+<span class="c"># procedure: an exit other than "done" means respawn the task once on Claude</span>
+<span class="p">$</span> ws machine spawn --runner claude --name x-t2-impl-c --role implementer --var TASK=T2 … workspaces@feat/x</pre></div>
+</section>
+
+<!-- 3. CLI errors -->
+<section class="screen" id="cli-errors">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>error states</span></div>
+<pre class="out"><span class="c"># endpoint down: preflight fails before anything is created</span>
+<span class="p">$</span> ws machine spawn --runner ws --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x
+{"error": {"code": <span class="e">"endpoint_unreachable"</span>, "message": "endpoint gpu (http://gpu-a.inference.svc:1234) didn't answer GET /v1/models: dial tcp 10.43.7.21:1234: connect: connection refused", "details": {"url": "http://gpu-a.inference.svc:1234", "cause": "connection refused"}}}
+<span class="c">exit status 1</span>
+
+<span class="c"># the model can't call tools (the ollama endpoint's probe says so)</span>
+<span class="p">$</span> ws machine spawn --runner ws --role verifier … workspaces@feat/x -- "" --model gemma
+{"error": {"code": <span class="e">"model_without_tools"</span>, "message": "model gemma3:12b on endpoint ollama doesn't support tools; pick a model whose capabilities include tools", "details": {"model": "gemma3:12b", "capabilities": ["completion", "vision"]}}}
+<span class="c">exit status 1</span>
+
+<span class="c"># the model isn't served there</span>
+<span class="p">$</span> ws machine spawn --runner ws --role verifier … workspaces@feat/x -- "" --model qwen/qwen3.5-27b
+{"error": {"code": <span class="e">"model_not_served"</span>, "message": "model qwen/qwen3.5-27b isn't served by endpoint gpu", "details": {"model": "qwen/qwen3.5-27b", "models": ["google/gemma-3-12b", "qwen/qwen3.5-9b"]}}}
+<span class="c">exit status 3</span>
+
+<span class="c"># no automatic fallback: the orchestrator decides, and respawns on Claude Code itself</span>
+<span class="p">$</span> ws machine spawn --runner claude --role verifier --var BRANCH=feat/x --var CHECKS="make test" workspaces@feat/x | jq -c '{id, runner, warnings}'
+{"id":"verifier-5e6f7a8b","runner":"claude","warnings":[]}
+
+<span class="c"># the endpoint goes down mid-run: the runner retries 3 times, then records FAIL with the reason</span>
+<span class="p">$</span> ws machine logs --tail 4 x-verify-0d9e2f61 | jq -c '.events[] | {step, kind, error, reason}'
+{"step":9,"kind":"retry","error":"503 Service Unavailable","reason":null}
+{"step":9,"kind":"retry","error":"dial tcp: connection refused","reason":null}
+{"step":9,"kind":"retry","error":"dial tcp: connection refused","reason":null}
+{"step":9,"kind":"exit","error":null,"reason":<span class="w">"endpoint_down"</span>}</pre></div>
+</section>
+
+<!-- 4. ws list -->
+<section class="screen" id="cli-list">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>ws list</span></div>
+<pre class="out"><span class="p">$</span> ws list
+ID                           SESSION              MODEL                AGE   REPOS
+orch-x-1a2b3c4d              e8cdf5d8 working     claude-sonnet-5-5    42m   workspaces@main
+└ x-base-2c9d11f0            rn-91b0c7aa idle     qwen/qwen3.5-9b      38m   workspaces@main
+└ x-t1-impl-41aa0b7c         rn-5d2e8b10 working  qwen/qwen3.5-9b       6m   workspaces@feat/x
+└ x-t1-review-c3d5e7f9       c3d5e7f9 starting    claude-sonnet-5-5     0m   workspaces@feat/x-t1
+fix-login-d8efb24f           7a40c2d9 idle        claude-opus-5-5       2h   buff-bear@main
+notes-3b2a1c0d               shell running        -                    10m   (empty)
+
+<span class="p">$</span> ws list --json | jq '.workspaces[2].session'
+{
+  <span class="k">"kind"</span>: <span class="s">"agent"</span>,
+  <span class="k">"id"</span>: <span class="s">"rn-5d2e8b10"</span>,
+  <span class="k">"state"</span>: <span class="s">"working"</span>,
+  <span class="k">"pid"</span>: <span class="n">51234</span>,
+  <span class="k">"stale"</span>: null,
+  <span class="k">"runner"</span>: <span class="s">"ws"</span>,
+  <span class="k">"model"</span>: <span class="s">"qwen/qwen3.5-9b"</span>,
+  <span class="k">"ws_runner"</span>: {
+    <span class="k">"model_alias"</span>: <span class="s">"qwen9b"</span>, <span class="k">"endpoint"</span>: <span class="s">"gpu"</span>, <span class="k">"step"</span>: <span class="n">12</span>, <span class="k">"max_steps"</span>: <span class="n">80</span>, <span class="k">"restarts"</span>: <span class="n">0</span>,
+    <span class="k">"usage"</span>: {<span class="k">"requests"</span>: <span class="n">12</span>, <span class="k">"prompt_tokens"</span>: <span class="n">210344</span>, <span class="k">"completion_tokens"</span>: <span class="n">9120</span>},
+    <span class="k">"mcp"</span>: [],
+    <span class="k">"exit"</span>: null
+  }
+}
+
+<span class="p">$</span> ws list --json | jq -c '.workspaces[0].session | {runner, model, ws_runner}'
+{"runner":"claude","model":"claude-sonnet-5-5","ws_runner":null}</pre></div>
+</section>
+
+<!-- 5. ws daemon -->
+<section class="screen" id="cli-daemon">
+<div class="term"><div class="termBar"><i></i><i></i><i></i><span>ws daemon</span></div>
+<pre class="out"><span class="c"># with the desktop app open, the app hosts the daemon (in the ws-online pod, origin is "managed")</span>
+<span class="p">$</span> ws daemon status --json
+{"running": true, "pid": 40211, "origin": "app", "started_at": "2026-11-14T08:00:03Z",
+ "ws_version": "v0.31.0", "socket": "/tmp/ws-1000/3be1f0a94c21.sock", "config_dir": "/data/ws",
+ "runners": [{"workspace": "x-t1-impl-41aa0b7c", "session": "rn-5d2e8b10", "pid": 51234,
+              "state": "working", "restarts": 0, "adopted": false}],
+ "warnings": []}
+
+<span class="c"># after the app quits, its daemon keeps the runner going, then exits 15 min after the last one ends</span>
+<span class="p">$</span> ws daemon status --json | jq -c '{running, origin, runners: (.runners | length)}'
+{"running":true,"origin":"app","runners":1}
+
+<span class="c"># with no app and no daemon running, the first spawn starts one</span>
+<span class="p">$</span> ws daemon status | jq -c '{running}'
+{"running":false}
+<span class="p">$</span> ws machine spawn --runner ws --name x-verify --role verifier --var BRANCH=feat/x --var CHECKS="make test" \
+    workspaces@feat/x | jq -c '{session, model, ws_runner}'
+{"session":"rn-91b0c7aa","model":"qwen/qwen3.5-9b","ws_runner":{"model_alias":"qwen9b","endpoint":"gpu","url":"http://localhost:1234","api":"openai","context_tokens":65536,"mcp_servers":[]}}
+<span class="p">$</span> ws daemon status --json | jq -c '{running, origin}'
+{"running":true,"origin":"transient"}
+
+<span class="c"># refresh the daemon's environment without interrupting runners</span>
+<span class="p">$</span> ws daemon stop --keep-runners --json
+{"stopped": true, "pid": 40388, "runners_stopped": [], "runners_kept": ["rn-91b0c7aa"], "warnings": []}
+
+<span class="c"># the next daemon adopts the runner that kept going</span>
+<span class="p">$</span> ws daemon status --json | jq -c '.runners[] | {session, state, adopted}'
+{"session":"rn-91b0c7aa","state":"working","adopted":true}
+
+<span class="c"># without auto-start, a missing daemon is an error</span>
+<span class="p">$</span> WS_DAEMON_AUTOSTART=0 ws machine spawn --runner ws --role verifier … workspaces@feat/x
+{"error": {"code": <span class="e">"daemon_unavailable"</span>, "message": "no ws daemon answered on /tmp/ws-1000/3be1f0a94c21.sock and WS_DAEMON_AUTOSTART=0", "details": {"socket": "/tmp/ws-1000/3be1f0a94c21.sock", "log": "/data/ws/daemon/daemon.log"}}}
+<span class="c">exit status 1</span></pre></div>
+</section>
+
+<script>
+const rail = (active) => `
+<nav class="rail">
+  ${[["Agents","M4 6h16M4 12h16M4 18h10"],["Repos","M4 5h16v14H4zM8 9h8"],["Reviews","M5 12l4 4 10-10"],["Loops","M4 12a8 8 0 1 0 3-6M4 4v4h4"],["Stats","M5 19V9M12 19V5M19 19v-7"]]
+    .map(([n,d]) => `<div class="railItem ${n===active?"active":""}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="${d}"/></svg>${n}</div>`).join("")}
+  <div class="railSpacer"></div>
+  <div class="railItem ${active==="Settings"?"active":""}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Settings</div>
+</nav>`;
+const topBar = `<header class="topBar"><span class="brand">Workspaces</span><span class="spacer"></span><button class="btn outlined small">New agent</button></header>`;
+
+// Every agent shows its model the same way: quiet text on the summary line.
+// Provider and endpoint are only in the tooltip and the detail pane.
+const agent = ({name, dot, age, summary, model, tip, child, current}) => `
+      <li class="item${child ? " child" : ""}${current ? " current" : ""}"><div class="row"><span class="dot ${dot}"></span><span class="name">${name}</span><span class="age">${age}</span></div>
+        <div class="summaryRow"><span class="summary">${summary}</span><span class="modelLabel" title="${tip}">${model}</span></div></li>`;
+const claudeTip = (id) => `${id} · Claude Code`;
+const wsTip = `qwen/qwen3.5-9b · alias qwen9b · endpoint gpu (http://gpu-a.inference.svc:1234) · OpenAI-compatible`;
+const wsThinkTip = `qwen/qwen3.5-9b · alias qwen9b-think · endpoint gpu (http://gpu-a.inference.svc:1234) · OpenAI-compatible`;
+
+const tree = `
+<aside class="sidebar">
+  <div class="search">Search agents</div>
+  <div class="list">
+    <h2 class="heading">Agents <span>6</span></h2>
+    <ul class="items">
+      ${agent({name: "orch-x", dot: "working", age: "42m", summary: "Orchestrating feature x: T1 of 4", model: "sonnet-5-5", tip: claudeTip("claude-sonnet-5-5")})}
+      ${agent({name: "x-base", dot: "done", age: "38m", summary: "PASS · 14 steps", model: "qwen/qwen3.5-9b", tip: wsTip, child: true})}
+      ${agent({name: "x-design", dot: "done", age: "35m", summary: "PASS · design docs pushed", model: "opus-5-5", tip: claudeTip("claude-opus-5-5"), child: true})}
+      ${agent({name: "x-t1-impl", dot: "working", age: "6m", summary: "step 12/40", model: "qwen/qwen3.5-9b", tip: wsThinkTip, child: true, current: true})}
+      ${agent({name: "x-t2-impl", dot: "needs", age: "3m", summary: "FAIL · looping", model: "qwen/qwen3.5-9b", tip: wsThinkTip, child: true})}
+      ${agent({name: "x-t1-review", dot: "working", age: "1m", summary: "Reviewing T1", model: "haiku-5-5", tip: claudeTip("claude-haiku-5-5"), child: true})}
+      ${agent({name: "fix-login", dot: "idle", age: "2h", summary: "Waiting for review", model: "opus-5-5", tip: claudeTip("claude-opus-5-5")})}
+    </ul>
+  </div>
+</aside>`;
+
+const header = `
+<section class="header">
+  <div class="titleRow"><h1 class="title">x-t1-impl</h1><span class="titleModel" title="${wsThinkTip}">qwen/qwen3.5-9b</span><span class="spacer"></span>
+    <button class="btn outlined small">Open</button><button class="btn outlined small">Stop</button><button class="btn danger small">Remove</button></div>
+  <div class="meta"><span class="chip">step 12 / 40</span><span class="chip">tokens 210k in · 9.1k out</span><span class="chip">implementer · T1 (docs)</span>
+    <span class="muted">endpoint gpu · rn-5d2e8b10 · working 6m</span></div>
+</section>`;
+
+const transcript = `
+<div class="convo">
+  <div class="msg user">You implement exactly one task, T1, in this repo. You are on branch feat/x. … <span class="muted">(role prompt, 1.4k tokens)</span></div>
+  <div class="think">I'll read the task section first.</div>
+  <div class="tool"><b>read_file</b> docs/design/x/tasks.md <span class="ck"></span> 212 lines</div>
+  <div class="tool"><b>read_file</b> docs/tools/ws-loop.md offset 150 limit 80 <span class="ck"></span> 80 lines</div>
+  <div class="msg">The task adds two options to the <code>ws loop add</code> table. I'll edit that table.</div>
+  <div class="tool"><b>edit_file</b> docs/tools/ws-loop.md old "| <code>--paused</code> |" → 1 replacement <span class="ck"></span></div>
+  <div class="tool"><b>run</b> make docs-check <span class="bad">exit 1</span> · ws-loop.md:163 MD013 line length 132 &gt; 120</div>
+  <div class="sys">invalid tool call: edit_file missing "new" · answered with the schema</div>
+  <div class="tool"><b>edit_file</b> docs/tools/ws-loop.md old "endpoint from config.toml. Only" → 1 replacement <span class="ck"></span></div>
+  <div class="sys warn">retry 1/3 after 503 Service Unavailable · waited 2s</div>
+  <div class="tool"><b>run</b> make docs-check <span class="ok">exit 0</span></div>
+  <div class="sys">context compacted: 98k → 41k tokens · 6 tool results elided</div>
+  <div class="tool"><b>run</b> git commit -qam "docs: document loop runner options" <span class="ok">exit 0</span></div>
+  <div class="msg"><span class="muted">working… step 12 of 40</span></div>
+</div>
+<div class="noreply">Children on the ws runner run unattended: there's no reply box, Attach or Continue. Stop ends the run and keeps the workspace; Remove stops it and removes it.</div>`;
+
+const settingsList = (active) => `
+<aside class="sidebar settingsList" style="width:240px">
+  <div class="list"><ul class="items">
+    ${["General","Agents","Reviews","Forges","Models","Roles","About"].map(n => `<li class="item ${n===active?"current":""}"><span class="name">${n}</span></li>`).join("")}
+  </ul></div>
+</aside>`;
+
+const dot = (color, text) => `<span class="statusDot" style="background:${color}"></span>${text}`;
+const ok = "var(--status-done)", bad = "var(--danger)", warn = "var(--status-needs-input)";
+
+const serviceCard = (errors) => `
+<div class="card"><div class="cardHead">Runner service <span class="spacer"></span><button class="btn small">Restart</button></div>
+<div class="cardBody" style="padding:10px 14px">${dot(ok, "running")} <span class="muted">· started by this app · pid 40211 · ${errors ? "0 runners" : "2 runners"} · since 08:00</span></div></div>`;
+
+const endpointsCard = (errors) => `
+<div class="card">
+  <div class="cardHead">Endpoints <span class="spacer"></span><button class="btn small">Add endpoint</button></div>
+  <div class="cardBody" style="padding:4px 4px">
+  <table>
+    <colgroup><col style="width:100px"><col style="width:310px"><col style="width:170px"><col style="width:100px"><col></colgroup>
+    <tr><th>Name</th><th>URL</th><th>API</th><th>Probe</th><th>Status</th></tr>
+    <tr><td><b>gpu</b></td><td class="mono">http://gpu-a.inference.svc:1234</td><td>OpenAI-compatible</td><td class="muted">none</td>
+      <td>${errors ? dot(bad, "unreachable") : dot(ok, "2 models")}</td></tr>
+    <tr><td><b>ollama</b></td><td class="mono">http://ollama-a.inference.svc:11434</td><td>OpenAI-compatible</td><td>Ollama</td>
+      <td>${dot(ok, "3 models")}</td></tr>
+  </table></div>
+</div>`;
+
+const modelsCard = (errors) => `
+<div class="card">
+  <div class="cardHead">Models <span class="spacer"></span><button class="btn small">Add model</button></div>
+  <div class="cardBody" style="padding:4px 4px">
+  <table>
+    <colgroup><col style="width:150px"><col style="width:90px"><col style="width:170px"><col style="width:90px"><col style="width:120px"><col></colgroup>
+    <tr><th>Alias</th><th>Endpoint</th><th>Model id</th><th>Context</th><th>Reasoning</th><th>Status</th></tr>
+    <tr><td><b>qwen9b</b> <span class="muted">default</span></td><td>gpu</td><td class="mono">qwen/qwen3.5-9b</td><td>65 536</td><td>none</td>
+      <td>${errors ? dot(bad, "endpoint unreachable") : `<span class="muted">served · no probe</span>`}</td></tr>
+    <tr><td><b>qwen9b-think</b></td><td>gpu</td><td class="mono">qwen/qwen3.5-9b</td><td>131 072</td><td class="muted">server default</td>
+      <td>${errors ? dot(bad, "endpoint unreachable") : `<span class="muted">served · no probe</span>`}</td></tr>
+    <tr><td><b>qwen9b-ollama</b></td><td>ollama</td><td class="mono">qwen3.5:9b</td><td>65 536</td><td>none</td>
+      <td>${dot(ok, "tools <span class=\"ck\"></span>")}</td></tr>
+    <tr><td><b>gemma</b></td><td>ollama</td><td class="mono">gemma3:12b</td><td>32 768</td><td class="muted">server default</td>
+      <td>${errors ? dot(bad, "no tools") : dot(warn, "no tools")}</td></tr>
+  </table></div>
+</div>`;
+
+const settingsModels = (errors) => `
+<div class="root tall">${topBar}<div class="body">${rail("Settings")}${settingsList("Models")}
+<main class="main"><section class="header"><div class="titleRow"><h1 class="title">Models</h1></div>
+<div class="meta">Models for agents on the ws runner (any OpenAI-compatible server now; Ollama native next). Saved to <span class="mono">config.toml</span> with <span class="mono">ws config</span>; tokens to <span class="mono">secrets.env</span>.</div></section>
+<div class="content" style="max-width:980px">
+${errors ? `
+<div class="alert err"><span class="ico err">!</span><div><b>gpu is unreachable.</b> GET http://gpu-a.inference.svc:1234/v1/models: dial tcp 10.43.7.21:1234: connect: connection refused. New agents that use it fail with <span class="mono">endpoint_unreachable</span> until it answers.</div><span class="spacer"></span><button class="btn small">Test again</button></div>
+<div class="alert warn"><span class="ico warn">!</span><div><b>gemma3:12b on ollama doesn't support tools.</b> Its probe says <span class="mono">completion, vision</span>. Agents that use the alias <span class="mono">gemma</span> fail with <span class="mono">model_without_tools</span>; point it at a model that can call tools.</div></div>` : ""}
+${serviceCard(errors)}
+${endpointsCard(errors)}
+${modelsCard(errors)}
+${errors ? "" : `
+<div class="card"><div class="cardHead">Edit endpoint · gpu<span class="spacer"></span><button class="btn small">Test connection</button><button class="btn contained small">Save</button></div>
+<div class="cardBody"><div class="form">
+  <label>Name</label><div class="field mono">gpu</div><label>API</label><div class="field select">OpenAI-compatible</div>
+  <label>URL</label><div class="field mono">http://gpu-a.inference.svc:1234</div><label></label><div class="muted">Ollama native: next. OpenAI Responses, Anthropic: later</div>
+  <label>Probe</label><div class="field select">Auto (none found)</div><label>Token</label><div class="field muted">•••••••• from secrets.env</div>
+  <label>Request timeout</label><div class="field">10m</div><label>Idle timeout</label><div class="field">90s</div>
+</div>
+<div class="alert info" style="margin-top:12px"><span class="ico info">i</span><div>2 models · <span class="mono">qwen/qwen3.5-9b</span> is served · no probe, so tool support and the context length aren't checked: <span class="mono">context_tokens</span> must match the server's load setting</div></div>
+</div></div>`}
+<div class="card"><div class="cardHead">Roles</div><div class="cardBody" style="padding:4px 4px"><table>
+  <colgroup><col style="width:140px"><col style="width:120px"><col style="width:200px"><col style="width:170px"><col></colgroup>
+  <tr><th>Role</th><th>Runner</th><th>Model on the ws runner</th><th>MCP servers</th><th>Budget</th></tr>
+  <tr><td>implementer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="mono">qwen9b-think</td><td class="muted">none</td><td class="muted">40 steps · 45m</td></tr>
+  <tr><td>reviewer</td><td><span class="field select" style="min-height:28px;padding:3px 8px">Claude</span></td><td class="muted">-</td><td class="muted">none</td><td class="muted">-</td></tr>
+  <tr><td>verifier</td><td><span class="field select" style="min-height:28px;padding:3px 8px">ws</span></td><td class="mono">qwen9b</td><td class="muted">none</td><td class="muted">30 steps · 30m</td></tr>
+  <tr><td>triage</td><td><span class="field select" style="min-height:28px;padding:3px 8px">ws</span></td><td class="mono">qwen9b-think</td><td>metrics <span class="muted">(9 tools)</span></td><td class="muted">60 steps · 60m</td></tr>
+</table></div></div>
+</div></main></div></div>`;
+
+const loopsList = `
+<aside class="sidebar">
+  <div class="search">Search loops</div>
+  <div class="list">
+    <h2 class="heading">Loops <span>3</span></h2>
+    <ul class="items">
+      <li class="item current"><div class="row"><span class="dot working"></span><span class="name">Docs sweep</span><span class="age">every 24h</span></div><div class="summary">next in 9h · last run PASS</div></li>
+      <li class="item"><div class="row"><span class="dot idle"></span><span class="name">Dependency bump</span><span class="age">every 24h</span></div><div class="summary">next in 3h</div></li>
+      <li class="item"><div class="row"><span class="dot"></span><span class="name">Flaky test hunt</span><span class="age">paused</span></div><div class="summary">paused</div></li>
+    </ul>
+  </div>
+</aside>`;
+
+const loopForm = `
+<div class="root">${topBar}<div class="body">${rail("Loops")}${loopsList}
+<main class="main"><section class="header"><div class="titleRow"><h1 class="title">Edit loop · docs-sweep</h1><span class="spacer"></span><button class="btn small">Cancel</button><button class="btn contained small">Save</button></div></section>
+<div class="content" style="max-width:900px">
+  <div class="card"><div class="cardHead">Schedule</div><div class="cardBody"><div class="form">
+    <label>Name</label><div class="field mono muted">docs-sweep</div><label>Every</label><div class="field">24 <span class="muted">hours</span></div>
+    <label>Title</label><div class="field">Docs sweep</div><label>Keep</label><div class="field">5</div>
+  </div></div></div>
+  <div class="card"><div class="cardHead">Prompt</div><div class="cardBody"><div class="field mono" style="min-height:64px;white-space:pre-wrap">Check docs/tools/*.md against each command's --help. Fix wording drift in at most two files, run make docs-check, commit, push a branch, and record PASS or FAIL.</div></div></div>
+  <div class="card"><div class="cardHead">Agent</div><div class="cardBody"><div class="form">
+    <label>Model</label><div class="field select"><span><span class="mono">qwen9b-think</span> <span class="muted">· qwen/qwen3.5-9b</span></span></div><label>Runner</label><div class="field select">ws runner</div>
+    <label>Endpoint</label><div class="field select">The model's endpoint (gpu)</div><label></label><div class="muted">Permission mode applies to Claude Code only.</div>
+  </div></div></div>
+  <div class="card"><div class="cardHead">Repos</div><div class="cardBody"><span class="chip">workspaces</span></div></div>
+</div></main></div></div>`;
+
+const screens = {
+  "agents-tree": `<div class="root">${topBar}<div class="body">${rail("Agents")}${tree}<main class="main">${header}<div class="content">
+    <div class="card"><div class="cardHead">Run</div><div class="cardBody"><table>
+      <colgroup><col style="width:180px"><col></colgroup>
+      <tr><td class="muted">Runner</td><td>ws</td></tr>
+      <tr><td class="muted">Model</td><td class="mono">qwen/qwen3.5-9b · alias qwen9b-think · context 131 072 · thinking on</td></tr>
+      <tr><td class="muted">Endpoint</td><td class="mono">gpu · http://gpu-a.inference.svc:1234 · OpenAI-compatible</td></tr>
+      <tr><td class="muted">Progress</td><td>step 12 of 40 · 6m of 45m · 210k of 3M tokens · 0 restarts</td></tr>
+      <tr><td class="muted">MCP servers</td><td class="muted">none for this role</td></tr>
+      <tr><td class="muted">Last event</td><td class="mono">run make docs-check → exit 0</td></tr>
+      <tr><td class="muted">Session</td><td class="mono">rn-5d2e8b10 · pid 51234</td></tr>
+      <tr><td class="muted">Trace</td><td class="mono">4bf92f3577b34da6a3ce929d0e0e4736</td></tr>
+    </table></div></div>
+    <div class="alert info"><span class="ico info">i</span><div>This child runs on ws's own runner (model qwen/qwen3.5-9b on endpoint gpu). Open the transcript to follow it; it records its own verdict, or ws records FAIL with the reason when it stops early. Stop ends the run and keeps the workspace.</div></div>
+  </div></main></div></div>`,
+  "transcript": `<div class="root">${topBar}<div class="body">${rail("Agents")}${tree}<main class="main">${header}${transcript}</main></div></div>`,
+  "settings-models": settingsModels(false),
+  "settings-models-errors": settingsModels(true),
+  "loop-form": loopForm,
+};
+for (const [id, html] of Object.entries(screens)) {
+  const s = document.createElement("section");
+  s.className = "screen"; s.id = id; s.innerHTML = html;
+  document.body.appendChild(s);
+}
+const show = () => {
+  const id = (location.hash || "#cli-spawn").slice(1);
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
+};
+window.addEventListener("hashchange", show);
+show();
+</script>
+</body>
+</html>
