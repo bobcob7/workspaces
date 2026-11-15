@@ -300,6 +300,13 @@ func TestScenarios(t *testing.T) {
 		{"mcp-filter", testMCPFilter},
 		{"mcp-tool-search", testMCPToolSearch},
 		{"mcp-server-fails", testMCPServerFails},
+		{"mixed-wait", testMixedWait},
+		{"daemon-resume", testDaemonResume},
+		{"daemon-crash-limit", testDaemonCrashLimit},
+		{"daemon-restart", testDaemonRestart},
+		{"daemon-start-resumes", testDaemonStartResumes},
+		{"runner-stop", testRunnerStop},
+		{"loop-runner", testLoopRunner},
 		{"claude-default-untouched", testClaudeDefaultUntouched},
 	}
 	for _, s := range scenarios {
