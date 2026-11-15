@@ -1,7 +1,7 @@
 # ws loop add
 
 ```
-ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--paused] [--hidden[=BOOL] | --show] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... <NAME> [<SPEC>...]
+ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--runner claude|ws] [--endpoint <name>] [--model <M>] [--permission-mode <P>] [--paused] [--hidden[=BOOL] | --show] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... <NAME> [<SPEC>...]
 ```
 
 Adds a loop. Its first run starts one period after it's added; `ws loop run`
@@ -20,7 +20,12 @@ workspace.
   duration: `15m`, `1h30m`, `24h`.
 - `--prompt <TEXT>`: required. The prompt each run starts with.
 - `--keep <N>`: how many runs' workspaces to keep, 1 to 50. Default 5.
-- `--model <M>`: passed to `claude --model`.
+- `--runner claude|ws`: what runs each run: Claude Code (the default) or
+  `ws`'s own runner. With `ws`, `--model` is a model alias or id from
+  config.toml, and `--permission-mode` isn't allowed.
+- `--endpoint <name>`: with `--runner ws`, another endpoint from config.toml.
+- `--model <M>`: passed to `claude --model`, or for `--runner ws` the model
+  alias or id.
 - `--permission-mode <P>`: passed to `claude --permission-mode`.
 - `--paused`: add the loop paused. Its `next_run_at` is then `null`.
 - `--hidden[=BOOL]`: start each run's workspace hidden; blocked runs are shown
@@ -84,11 +89,12 @@ Runs start hidden unless the loop was added with `--show`; see `--hidden`.
 ## JSON output
 
 ```json
-{"name": "deps-bump", "title": "Dependency bump", "every": "24h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "hidden": true, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T18:00:00Z", "last_run": null, "script": "gh issue list --label needs-triage --json number | grep .", "script_timeout": "2m", "vars": {"REPO": "buff-bear"}, "last_gate": null, "warnings": []}
+{"name": "deps-bump", "title": "Dependency bump", "every": "24h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "hidden": true, "runner": "claude", "endpoint": null, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T18:00:00Z", "last_run": null, "script": "gh issue list --label needs-triage --json number | grep .", "script_timeout": "2m", "vars": {"REPO": "buff-bear"}, "last_gate": null, "warnings": []}
 ```
 
 `model` and `permission_mode` are `null` when not set, and `last_run` is
-`null` before the first run. `hidden` is `true` when each run's workspace
+`null` before the first run. `runner` is `claude` or `ws`, and `endpoint` is
+`null` unless a `ws` loop names one. `hidden` is `true` when each run's workspace
 starts hidden, the default, and `false` for a loop added with `--show`.
 
 ## Exit codes
@@ -96,7 +102,7 @@ starts hidden, the default, and `false` for a loop added with `--show`.
 | Situation                                       | Error code       | Exit |
 | ----------------------------------------------- | ---------------- | ---- |
 | Missing `--every` or `--prompt`, or a flag error | `usage`         | 2    |
-| Bad name, title, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
+| Bad name, title, period, prompt, `--keep`, `--script-timeout`, `--var`, or `--runner`; a prompt template that doesn't parse or uses a missing value; `--permission-mode` with `--runner ws`, `--endpoint` with `claude`, or an endpoint or `--model` alias that isn't in config.toml | `loop_invalid` | 2 |
 | `--script-timeout` without `--script`           | `usage`          | 2    |
 | A spec that can't be parsed                     | `spec_invalid`   | 2    |
 | A loop with that name already exists            | `loop_exists`    | 4    |

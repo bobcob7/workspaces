@@ -121,6 +121,15 @@ resolved, and notifies once. A change to `--hidden` or `--show` applies to
 runs that start afterwards. A loop record without a `hidden` key, which every
 record made before ADR 0057 is, counts as hidden.
 
+**Runs on the ws runner.** With `--runner ws`, each run is an agent of
+`ws`'s own runner rather than Claude Code, started as `ws claude --runner ws`
+starts one ([0070](../adrs/0070-runner-agents-for-people-and-loops.md)). The
+loop's `--model` is then a model alias or id from `config.toml`, and
+`--endpoint` picks another endpoint from it. The runner's daemon checks the
+endpoint and model before each run; a failed check is the run's error, and
+the next tick tries again. `--runner claude`, the default, starts runs
+exactly as before, with no runner configuration or daemon.
+
 ### Ending a run, and asking for help
 
 A run's agent should end by recording a verdict with `ws machine result`,
@@ -159,7 +168,9 @@ empty workspace.
 | `--every <PERIOD>` | Required. Whole minutes from `5m` to `168h`, as a Go duration: `15m`, `1h30m`, `24h` |
 | `--prompt <TEXT>` | Required. The prompt each run starts with |
 | `--keep <N>` | How many runs' workspaces to keep, 1–50; default 5 |
-| `--model <M>` | Passed to `claude --model` |
+| `--runner claude\|ws` | What runs each run: Claude Code (the default) or `ws`'s own runner. `ws` takes `--model` as a model alias or id from `config.toml`, and no `--permission-mode` |
+| `--endpoint <name>` | With `--runner ws`, another endpoint from `config.toml` |
+| `--model <M>` | Passed to `claude --model`; for `--runner ws`, a model alias or id |
 | `--permission-mode <P>` | Passed to `claude --permission-mode` |
 | `--paused` | Add it paused |
 | `--hidden[=BOOL]` | Start each run's workspace hidden; a blocked run, or one that needs attention, is shown anyway. Default `true` |
@@ -192,7 +203,9 @@ option and no spec is a usage error.
 | `--every <PERIOD>` | A new period, as for `add` |
 | `--prompt <TEXT>` | A new prompt, as for `add` |
 | `--keep <N>` | How many runs' workspaces to keep, 1–50 |
-| `--model <M>` | Passed to `claude --model`; `--model ""` clears it |
+| `--runner claude\|ws` | What runs each run, as for `add`; `--runner claude` clears `--endpoint` |
+| `--endpoint <name>` | With `--runner ws`, another endpoint from `config.toml`; `--endpoint ""` clears it |
+| `--model <M>` | Passed to `claude --model`, or for `--runner ws` a model alias or id; `--model ""` clears it |
 | `--permission-mode <P>` | Passed to `claude --permission-mode`; `""` clears it |
 | `--hidden[=BOOL]` | Whether runs that start afterwards are hidden, as for `add` |
 | `--show` | Runs that start afterwards are visible; the same as `--hidden=false` |
@@ -223,6 +236,9 @@ option and no spec is a usage error.
   `--prompt`, `--script`, `--no-script`, `--var`, or `--no-vars`. Then it
   becomes version 2 and its prompt is checked as a template: write a
   literal `{{` as `{{"{{"}}`.
+- **Runner records.** `--runner ws` or `--endpoint` makes a record version 4,
+  which older `ws` binaries skip. A version 1 record with a literal `{{` in
+  its prompt can't take them unless the same edit gives `--prompt`.
 - `--no-script` with `--script` or `--script-timeout`, `--no-vars` with
   `--var`, and `--no-specs` with specs are usage errors.
 
@@ -367,6 +383,8 @@ A loop (`add`, `edit`, `pause`, `resume`, `rm`, and each item of `list`):
   "keep": 5,
   "paused": false,
   "hidden": true,
+  "runner": "claude",
+  "endpoint": null,
   "created_at": "2026-11-05T18:00:00Z",
   "next_run_at": "2026-11-06T18:00:00Z",
   "last_run": {
@@ -393,6 +411,7 @@ A loop (`add`, `edit`, `pause`, `resume`, `rm`, and each item of `list`):
 - `list` prints `{"loops": [<loop>...], "warnings": []}`.
 - `model` and `permission_mode` are `null` when not set.
 - `hidden` is `false` only when the loop shows its runs (`--show`).
+- `runner` is `claude` or `ws`. `endpoint` is `null` unless a `ws` loop names one.
 - `next_run_at` is `null` while the loop is paused.
 - `last_run` is `null` before the first run. Its `error` is `null` or
   `{"code", "message"}` when that run couldn't start; `workspace` and
@@ -620,7 +639,7 @@ can't start reports.
 
 | Situation | Error code | Exit |
 | --------- | ---------- | ---- |
-| Bad name, title, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value | `loop_invalid` | 2 |
+| Bad name, title, period, prompt, `--keep`, `--script-timeout`, `--var`, or `--runner`; a prompt template that doesn't parse or uses a missing value; `--endpoint` or a `ws` loop's `--model` alias that `config.toml` doesn't define; `--permission-mode` with `--runner ws`, or `--endpoint` with `claude` | `loop_invalid` | 2 |
 | `--script-timeout` without `--script` (`add`) | `usage` | 2 |
 | `edit` with nothing to change; `--no-script` with `--script` or `--script-timeout`; `--no-vars` with `--var`; `--no-specs` with specs | `usage` | 2 |
 | `edit`: `--script-timeout` on a loop left without a script | `loop_invalid` | 2 |

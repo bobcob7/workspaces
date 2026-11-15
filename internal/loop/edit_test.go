@@ -46,6 +46,56 @@ func TestEdit_Empty(t *testing.T) {
 	}
 }
 
+func TestLoop_ApplyRunner(t *testing.T) {
+	t.Parallel()
+	t.Run("a ws runner and endpoint make a version 3 record version 4", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Version = Version3
+		require.NoError(t, l.Apply(&Edit{Runner: new(RunnerWS), Endpoint: new("gpu")}, editNow))
+		assert.Equal(t, FormatVersion, l.Version)
+		assert.Equal(t, RunnerWS, l.Runner)
+		assert.Equal(t, "gpu", l.Endpoint)
+	})
+	t.Run("claude clears the runner and endpoint and keeps the version", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Version = FormatVersion
+		l.Runner, l.Endpoint = RunnerWS, "gpu"
+		require.NoError(t, l.Apply(&Edit{Runner: new(RunnerClaude)}, editNow))
+		assert.Empty(t, l.Runner)
+		assert.Empty(t, l.Endpoint)
+		assert.Equal(t, FormatVersion, l.Version)
+	})
+	t.Run("an edit with no runner or endpoint keeps a version 3 record at version 3", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Version = Version3
+		require.NoError(t, l.Apply(&Edit{Keep: new(3)}, editNow))
+		assert.Equal(t, Version3, l.Version)
+	})
+	t.Run("an endpoint without the ws runner is invalid and leaves the loop unchanged", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		before := l
+		err := l.Apply(&Edit{Endpoint: new("gpu")}, editNow)
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.Equal(t, before, l)
+	})
+	t.Run("a version 1 record with braces needs --prompt for the ws runner", func(t *testing.T) {
+		t.Parallel()
+		l := editLoop()
+		l.Version = Version1
+		l.Prompt = "use {{x}}"
+		before := l
+		err := l.Apply(&Edit{Runner: new(RunnerWS)}, editNow)
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.Equal(t, before, l)
+		require.NoError(t, l.Apply(&Edit{Runner: new(RunnerWS), Prompt: new("bump deps")}, editNow))
+		assert.Equal(t, FormatVersion, l.Version)
+	})
+}
+
 func TestLoop_Apply(t *testing.T) {
 	t.Parallel()
 

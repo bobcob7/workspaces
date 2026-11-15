@@ -5,6 +5,7 @@ package loop
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -12,7 +13,7 @@ import (
 )
 
 // FormatVersion is the newest loop record version this ws reads and writes.
-const FormatVersion = 3
+const FormatVersion = 4
 
 // Version1 is the record version of loops added before ADR 0049: no
 // script, no vars, and a literal prompt.
@@ -21,6 +22,19 @@ const Version1 = 1
 // Version2 is the record version of loops added before ADR 0057: no
 // hidden.
 const Version2 = 2
+
+// Version3 is the record version of loops added before ADR 0070: no runner
+// or endpoint.
+const Version3 = 3
+
+// The runners a loop's runs can use (ADR 0070). A record stores "" for
+// RunnerClaude, the default.
+const (
+	RunnerClaude = "claude"
+	RunnerWS     = "ws"
+)
+
+var endpointPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
 // Bounds of a loop's period and keep count, as ADR 0048 and ws loop add
 // document them.
@@ -106,12 +120,47 @@ type Loop struct {
 	// Hidden is whether runs start hidden (ADR 0057); nil (a version 1 or 2
 	// record) is the default, hidden.
 	Hidden *bool `toml:"hidden,omitempty"`
-	Runs   []Run `toml:"runs"`
+	// Runner is RunnerWS or "" (RunnerClaude); Endpoint names a config.toml
+	// endpoint for a ws loop (ADR 0070).
+	Runner   string `toml:"runner,omitempty"`
+	Endpoint string `toml:"endpoint,omitempty"`
+	Runs     []Run  `toml:"runs"`
 }
 
 // RunsHidden is *l.Hidden, or true when it is nil.
 func (l *Loop) RunsHidden() bool {
 	return l.Hidden == nil || *l.Hidden
+}
+
+// RunsOn is the runner each run of l uses: RunnerWS or RunnerClaude.
+func (l *Loop) RunsOn() string {
+	if l.Runner == RunnerWS {
+		return RunnerWS
+	}
+	return RunnerClaude
+}
+
+// validateRunner checks Runner, and that permission_mode and endpoint belong
+// to the runner that uses them (ADR 0070).
+func (l *Loop) validateRunner() error {
+	switch l.Runner {
+	case "", RunnerClaude, RunnerWS:
+	default:
+		return fmt.Errorf("%w: runner %q is not %s or %s", ErrInvalid, l.Runner, RunnerClaude, RunnerWS)
+	}
+	if l.RunsOn() == RunnerWS && l.PermissionMode != "" {
+		return fmt.Errorf("%w: permission_mode applies only to claude runs", ErrInvalid)
+	}
+	if l.Endpoint == "" {
+		return nil
+	}
+	if l.RunsOn() != RunnerWS {
+		return fmt.Errorf("%w: endpoint applies only to ws runs", ErrInvalid)
+	}
+	if !endpointPattern.MatchString(l.Endpoint) {
+		return fmt.Errorf("%w: endpoint %q must be 1-32 lowercase letters, digits, or -, starting with a letter", ErrInvalid, l.Endpoint)
+	}
+	return nil
 }
 
 // ValidateName checks a loop name: 1–40 chars of a-z, 0-9, '-', and the
@@ -315,15 +364,26 @@ func (l *Loop) Validate() error {
 			return fmt.Errorf("%w: var %q value is over %d bytes", ErrInvalid, key, MaxVarValueLen)
 		}
 	}
-	if l.Script == "" && l.ScriptTimeout != "" {
-		return fmt.Errorf("%w: script_timeout without a script", ErrInvalid)
+	if err := l.validateScript(); err != nil {
+		return err
 	}
-	if l.Script != "" {
-		if _, err := l.Timeout(); err != nil {
-			return err
-		}
+	if err := l.validateRunner(); err != nil {
+		return err
 	}
 	return l.CheckPrompt()
+}
+
+// validateScript checks that a script timeout comes with a script, and that
+// the timeout is in range.
+func (l *Loop) validateScript() error {
+	if l.Script == "" {
+		if l.ScriptTimeout != "" {
+			return fmt.Errorf("%w: script_timeout without a script", ErrInvalid)
+		}
+		return nil
+	}
+	_, err := l.Timeout()
+	return err
 }
 
 // LastRun is the newest run, or nil.

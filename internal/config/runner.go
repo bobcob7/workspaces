@@ -501,10 +501,17 @@ func (c *Config) checkEndpoints() error {
 }
 
 func checkEntryName(section, name string) error {
-	if !runnerNamePattern.MatchString(name) {
+	if !IsRunnerName(name) {
 		return fmt.Errorf("%s.%s: the name must be 1–32 lowercase letters, digits, or -, starting with a letter", section, name)
 	}
 	return nil
+}
+
+// IsRunnerName reports whether name has the shape of an endpoint or model
+// alias: 1–32 lowercase letters, digits, or -, starting with a letter. A
+// model id such as qwen/qwen3.5-9b doesn't.
+func IsRunnerName(name string) bool {
+	return runnerNamePattern.MatchString(name)
 }
 
 func checkEndpoint(name string, e Endpoint) error {

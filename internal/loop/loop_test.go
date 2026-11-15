@@ -313,6 +313,47 @@ func TestLoopValidate(t *testing.T) {
 	}
 }
 
+func TestLoopRunsOn(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{"": RunnerClaude, RunnerClaude: RunnerClaude, RunnerWS: RunnerWS}
+	for runner, want := range tests {
+		t.Run(fmt.Sprintf("runner %q", runner), func(t *testing.T) {
+			t.Parallel()
+			l := Loop{Runner: runner}
+			assert.Equal(t, want, l.RunsOn())
+		})
+	}
+}
+
+func TestLoopValidateRunner(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		edit    func(l *Loop)
+		wantErr bool
+	}{
+		{name: "a ws loop with an endpoint", edit: func(l *Loop) { l.Runner, l.Endpoint = RunnerWS, "gpu" }},
+		{name: "a claude loop", edit: func(l *Loop) { l.Runner = RunnerClaude }},
+		{name: "an unknown runner", edit: func(l *Loop) { l.Runner = "x" }, wantErr: true},
+		{name: "permission_mode with ws", edit: func(l *Loop) { l.Runner, l.PermissionMode = RunnerWS, "acceptEdits" }, wantErr: true},
+		{name: "endpoint with claude", edit: func(l *Loop) { l.Endpoint = "gpu" }, wantErr: true},
+		{name: "endpoint not a name", edit: func(l *Loop) { l.Runner, l.Endpoint = RunnerWS, "GPU_1" }, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			l := validLoop()
+			tt.edit(&l)
+			err := l.Validate()
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrInvalid)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestLoopLastRun(t *testing.T) {
 	t.Parallel()
 	t.Run("nil without runs", func(t *testing.T) {
