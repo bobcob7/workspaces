@@ -408,6 +408,9 @@ mod tests {
             hidden: false,
             parent_id: None,
             loop_run: None,
+            runner: String::new(),
+            model: None,
+            ws_runner: None,
         }
     }
 

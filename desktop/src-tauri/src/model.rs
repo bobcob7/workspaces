@@ -91,6 +91,64 @@ pub struct WsSession {
     pub id: Option<String>,
     pub state: String,
     pub stale: Option<bool>,
+    /// What runs the session: "claude", "ws", or null for a shell.
+    #[serde(default)]
+    pub runner: Option<String>,
+    /// The session's model id, as `ws list` reports it.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// A `ws` runner's progress and endpoint, null for a Claude agent.
+    #[serde(default)]
+    pub ws_runner: Option<WsRunner>,
+}
+
+/// A `ws` runner's `ws_runner` from `ws list` (reference.md).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct WsRunner {
+    #[serde(default)]
+    pub model_alias: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub api: Option<String>,
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
+    #[serde(default)]
+    pub step: Option<u64>,
+    #[serde(default)]
+    pub max_steps: Option<u64>,
+    #[serde(default)]
+    pub restarts: Option<u64>,
+    #[serde(default)]
+    pub usage: Option<WsRunnerUsage>,
+    #[serde(default)]
+    pub mcp: Vec<WsRunnerMcp>,
+    #[serde(default)]
+    pub exit: Option<String>,
+    #[serde(default)]
+    pub endpoint_changes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct WsRunnerUsage {
+    pub requests: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct WsRunnerMcp {
+    pub server: String,
+    pub state: String,
+    #[serde(default)]
+    pub tools: u64,
+    #[serde(default)]
+    pub loaded: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -175,6 +233,17 @@ pub struct Entry {
     pub parent_id: Option<String>,
     /// Set for a loop run's workspace (ADR 0057).
     pub loop_run: Option<WsLoopRun>,
+    /// "claude" or "ws" for an agent, "" for anything else.
+    pub runner: String,
+    /// The model for display: a `claude-` prefix dropped, any other id whole.
+    pub model: Option<String>,
+    /// A `ws` runner's progress and endpoint.
+    pub ws_runner: Option<WsRunner>,
+}
+
+/// The model id shown for an agent: `claude-sonnet-5-5` reads `sonnet-5-5`.
+fn display_model(id: &str) -> String {
+    id.strip_prefix("claude-").unwrap_or(id).to_string()
 }
 
 #[derive(Debug, Serialize)]
@@ -242,7 +311,11 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         Some(s) if s.kind == "shell" => (Kind::Shell, agent_status(&s.state, None), None, None),
         Some(s) => (Kind::Agent, Status::Unknown, s.id.clone(), s.stale),
     };
-    let job = session_id.as_deref().and_then(job_for);
+    let runner = agent_runner(kind, ws.session.as_ref());
+    let job = session_id
+        .as_deref()
+        .filter(|_| runner != "ws")
+        .and_then(job_for);
     let status = match (&ws.session, kind) {
         (Some(s), Kind::Agent) => agent_status(&s.state, job.as_ref()),
         _ => status,
@@ -252,6 +325,16 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         Status::Idle | Status::Done if raised => Status::NeedsInput,
         other => other,
     };
+    let model = ws
+        .session
+        .as_ref()
+        .and_then(|s| s.model.as_deref())
+        .map(display_model);
+    let ws_runner = ws
+        .session
+        .as_ref()
+        .and_then(|s| s.ws_runner.clone())
+        .filter(|_| runner == "ws");
     Entry {
         key,
         kind,
@@ -272,6 +355,19 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         hidden: ws.hidden && !raised,
         parent_id: ws.parent,
         loop_run: ws.loop_run,
+        runner,
+        model,
+        ws_runner,
+    }
+}
+
+/// What runs an agent. `ws` says so; a Claude agent that doesn't say is
+/// `claude`. Shells and workspaces without a session have none.
+fn agent_runner(kind: Kind, session: Option<&WsSession>) -> String {
+    match (kind, session.and_then(|s| s.runner.as_deref())) {
+        (Kind::Agent, Some(runner)) => runner.to_string(),
+        (Kind::Agent, None) => "claude".to_string(),
+        _ => String::new(),
     }
 }
 
@@ -296,6 +392,9 @@ fn session_entry(agent: &ClaudeAgent, id: &str, job: Option<JobState>, now_ms: i
         hidden: false,
         parent_id: None,
         loop_run: None,
+        runner: "claude".to_string(),
+        model: None,
+        ws_runner: None,
     }
 }
 
@@ -573,6 +672,48 @@ mod tests {
         assert!(merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW)[0]
             .review
             .is_none());
+    }
+
+    const WS_RUNNER: &str = r#"{"workspaces":[{"id":"t1-impl-d8efb24f","path":"/w/t1",
+        "session":{"kind":"agent","id":"rn-3f2a9c1e","state":"idle","runner":"ws",
+        "model":"qwen/qwen3.5-9b",
+        "ws_runner":{"model_alias":"qwen9b","endpoint":"gpu","step":12,"max_steps":80,
+        "restarts":0,"usage":{"requests":12,"prompt_tokens":210344,"completion_tokens":9120},
+        "mcp":[{"server":"metrics","state":"connected","tools":6,"loaded":3}],
+        "exit":null,"endpoint_changes":0}}}],"warnings":[]}"#;
+
+    #[test]
+    fn merge_reads_ws_runner_without_a_claude_job() {
+        let job_for = |id: &str| -> Option<JobState> { panic!("no Claude job lookup for {id}") };
+        let entries = merge(Some(ws_list(WS_RUNNER)), &[], &job_for, NOW);
+        let e = &entries[0];
+        assert_eq!(e.runner, "ws");
+        assert_eq!(e.status, Status::Idle);
+        assert_eq!(e.model.as_deref(), Some("qwen/qwen3.5-9b"));
+        let runner = e.ws_runner.as_ref().expect("a ws runner");
+        assert_eq!(runner.model_alias.as_deref(), Some("qwen9b"));
+        assert_eq!((runner.step, runner.max_steps), (Some(12), Some(80)));
+        assert_eq!(runner.mcp[0].loaded, 3);
+    }
+
+    #[test]
+    fn merge_drops_the_claude_prefix_from_a_claude_model() {
+        let claude = ONE_AGENT.replace(
+            r#""state":"idle","pid":1,"stale":false}"#,
+            r#""state":"idle","pid":1,"stale":false,"runner":"claude","model":"claude-sonnet-5-5"}"#,
+        );
+        let entries = merge(Some(ws_list(&claude)), &[], &|_| None, NOW);
+        let e = &entries[0];
+        assert_eq!(e.runner, "claude");
+        assert_eq!(e.model.as_deref(), Some("sonnet-5-5"));
+        assert_eq!(e.ws_runner, None);
+    }
+
+    #[test]
+    fn merge_treats_a_session_without_a_runner_as_claude() {
+        let entries = merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW);
+        assert_eq!(entries[0].runner, "claude");
+        assert_eq!(entries[0].model, None);
     }
 
     #[test]

@@ -62,6 +62,9 @@ pub fn entry(id: &str, record: ReviewRecord, created_at: Option<String>) -> Entr
         hidden: true,
         parent_id: None,
         loop_run: None,
+        runner: String::new(),
+        model: None,
+        ws_runner: None,
     }
 }
 
