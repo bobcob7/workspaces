@@ -103,7 +103,7 @@ func (r *run) answer(call llm.ToolCall, res tools.Result, err error) *exitInfo {
 	} else {
 		r.noteProgress(call, res.Text)
 	}
-	framed := frameResult(call.Name, text)
+	framed := frameResult(call.Name, res.Server, text)
 	r.record(kindToolResult, ToolResultEvent{ID: call.ID, Name: call.Name, OK: err == nil, Bytes: len(text), Truncated: res.Truncated, Text: framed})
 	r.history = append(r.history, toolMessage(call, framed))
 	if err == nil && res.Done {
@@ -194,8 +194,11 @@ func (r *run) schemaFor(name string) map[string]any {
 	return nil
 }
 
-func frameResult(name, text string) string {
-	return "<tool_result tool=\"" + name + "\">" + text + "</tool_result>"
+func frameResult(name, server, text string) string {
+	if server == "" {
+		return "<tool_result tool=\"" + name + "\">" + text + "</tool_result>"
+	}
+	return "<tool_result tool=\"" + name + "\" server=\"" + server + "\">" + text + "</tool_result>"
 }
 
 func toolMessage(call llm.ToolCall, content string) llm.Message {

@@ -32,6 +32,7 @@ type Result struct {
 	Truncated bool
 	Done      bool   // record_result succeeded
 	Verdict   string // with Done
+	Server    string // the MCP server a tool came from; framed as server="S"
 }
 
 // Config is what the tools act on.
@@ -139,14 +140,15 @@ func capped(call func(context.Context, string) (Result, error)) func(context.Con
 		if err != nil {
 			return res, err
 		}
-		text, cut := capText(res.Text)
+		text, cut := CapText(res.Text)
 		res.Text = text
 		res.Truncated = res.Truncated || cut
 		return res, nil
 	}
 }
 
-func capText(s string) (string, bool) {
+// CapText cuts s to MaxResult bytes and says how many were cut.
+func CapText(s string) (string, bool) {
 	if len(s) <= MaxResult {
 		return s, false
 	}

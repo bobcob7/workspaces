@@ -6,9 +6,10 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/agent/tools"
 	"github.com/bobcob7/workspaces/internal/llm"
+	"github.com/bobcob7/workspaces/internal/mcp"
 )
 
-//go:generate go tool moq -out moq_test.go . chatter clock Toolset reresolver
+//go:generate go tool moq -out moq_test.go . chatter clock Toolset reresolver mcpCaller
 
 // chatter is llm.Provider's Chat.
 type chatter interface {
@@ -27,6 +28,11 @@ type Toolset interface {
 	Definitions() []llm.Tool // for this request
 	Call(ctx context.Context, name, arguments string) (tools.Result, error)
 	Known(name string) bool
+}
+
+// mcpCaller is *mcp.Manager's Call.
+type mcpCaller interface {
+	Call(ctx context.Context, name, arguments string) (mcp.CallResult, error)
 }
 
 // reresolver re-reads the run's alias (T28 implements it in internal/runner).

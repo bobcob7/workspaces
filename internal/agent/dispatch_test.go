@@ -72,3 +72,12 @@ func TestRun_dispatch(t *testing.T) {
 		assert.Equal(t, nudgeRepeat, payloadOf[*NudgeEvent](t, nudges[0]).Reason)
 	})
 }
+
+func TestFrameResult(t *testing.T) {
+	t.Run("frames a built-in result by tool name", func(t *testing.T) {
+		assert.Equal(t, `<tool_result tool="run">exit 0</tool_result>`, frameResult("run", "", "exit 0"))
+	})
+	t.Run("frames an MCP result with its server", func(t *testing.T) {
+		assert.Equal(t, `<tool_result tool="mcp__logs__q" server="logs">rows</tool_result>`, frameResult("mcp__logs__q", "logs", "rows"))
+	})
+}

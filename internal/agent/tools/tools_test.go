@@ -91,12 +91,12 @@ func TestValidate(t *testing.T) {
 
 func TestCapText(t *testing.T) {
 	t.Run("keeps short text", func(t *testing.T) {
-		text, cut := capText("short")
+		text, cut := CapText("short")
 		assert.Equal(t, "short", text)
 		assert.False(t, cut)
 	})
 	t.Run("cuts long text with the byte count", func(t *testing.T) {
-		text, cut := capText(strings.Repeat("a", MaxResult+5))
+		text, cut := CapText(strings.Repeat("a", MaxResult+5))
 		assert.True(t, cut)
 		assert.True(t, strings.HasSuffix(text, "[truncated: 5 more bytes]"))
 	})

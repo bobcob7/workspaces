@@ -7,6 +7,7 @@ import (
 	"context"
 	"github.com/bobcob7/workspaces/internal/agent/tools"
 	"github.com/bobcob7/workspaces/internal/llm"
+	"github.com/bobcob7/workspaces/internal/mcp"
 	"sync"
 	"time"
 )
@@ -420,5 +421,83 @@ func (mock *reresolverMock) ReresolveCalls() []struct {
 	mock.lockReresolve.RLock()
 	calls = mock.calls.Reresolve
 	mock.lockReresolve.RUnlock()
+	return calls
+}
+
+// Ensure, that mcpCallerMock does implement mcpCaller.
+// If this is not the case, regenerate this file with moq.
+var _ mcpCaller = &mcpCallerMock{}
+
+// mcpCallerMock is a mock implementation of mcpCaller.
+//
+//	func TestSomethingThatUsesmcpCaller(t *testing.T) {
+//
+//		// make and configure a mocked mcpCaller
+//		mockedmcpCaller := &mcpCallerMock{
+//			CallFunc: func(ctx context.Context, name string, arguments string) (mcp.CallResult, error) {
+//				panic("mock out the Call method")
+//			},
+//		}
+//
+//		// use mockedmcpCaller in code that requires mcpCaller
+//		// and then make assertions.
+//
+//	}
+type mcpCallerMock struct {
+	// CallFunc mocks the Call method.
+	CallFunc func(ctx context.Context, name string, arguments string) (mcp.CallResult, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Call holds details about calls to the Call method.
+		Call []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Name is the name argument value.
+			Name string
+			// Arguments is the arguments argument value.
+			Arguments string
+		}
+	}
+	lockCall sync.RWMutex
+}
+
+// Call calls CallFunc.
+func (mock *mcpCallerMock) Call(ctx context.Context, name string, arguments string) (mcp.CallResult, error) {
+	if mock.CallFunc == nil {
+		panic("mcpCallerMock.CallFunc: method is nil but mcpCaller.Call was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Name      string
+		Arguments string
+	}{
+		Ctx:       ctx,
+		Name:      name,
+		Arguments: arguments,
+	}
+	mock.lockCall.Lock()
+	mock.calls.Call = append(mock.calls.Call, callInfo)
+	mock.lockCall.Unlock()
+	return mock.CallFunc(ctx, name, arguments)
+}
+
+// CallCalls gets all the calls that were made to Call.
+// Check the length with:
+//
+//	len(mockedmcpCaller.CallCalls())
+func (mock *mcpCallerMock) CallCalls() []struct {
+	Ctx       context.Context
+	Name      string
+	Arguments string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Name      string
+		Arguments string
+	}
+	mock.lockCall.RLock()
+	calls = mock.calls.Call
+	mock.lockCall.RUnlock()
 	return calls
 }
