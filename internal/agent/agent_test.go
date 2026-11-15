@@ -154,4 +154,53 @@ func TestAgent_Run(t *testing.T) {
 		start := payloadOf[*StartEvent](t, eventsOf(events, kindStart)[0])
 		assert.True(t, start.Resume)
 	})
+	t.Run("lowers the working limit on the second truncated prompt, not the first", func(t *testing.T) {
+		chat := scripted(t,
+			replyWithPrompt(180, call("1", "run", `{"command":"step 1"}`)),
+			replyWithPrompt(140, call("2", "run", `{"command":"step 2"}`)),
+			replyWithPrompt(300, call("3", "run", `{"command":"step 3"}`)),
+			reply(call("4", "record_result", `{"verdict":"PASS","report":"ok"}`)),
+		)
+		cfg := testConfig(chat)
+		cfg.Task = strings.Repeat("t", 600)
+		cfg.Tools = StaticToolset(withRun(runTool("exit 0", strings.Repeat("x", 3000), "exit 0")))
+		out, events := runWithTranscript(t, cfg, advancingClock(), nil)
+		assert.Equal(t, ExitDone, out.Exit)
+		truncated := eventsOf(events, kindTruncated)
+		require.Len(t, truncated, 2)
+		assert.Equal(t, 140, payloadOf[*TruncatedEvent](t, truncated[0]).PromptTokens)
+		assert.Equal(t, 300, payloadOf[*TruncatedEvent](t, truncated[1]).PromptTokens)
+		compactions := eventsOf(events, kindCompaction)
+		require.Len(t, compactions, 1)
+		assert.Positive(t, payloadOf[*CompactionEvent](t, compactions[0]).DroppedTurns)
+		assert.Equal(t, []string{
+			"start", "request", "response", "tool_result",
+			"request", "truncated", "response", "tool_result",
+			"request", "truncated", "response", "tool_result",
+			"compaction", "request", "response", "tool_result", "exit",
+		}, kindsOf(events))
+		requests := chat.ChatCalls()
+		require.Len(t, requests, 4)
+		assert.True(t, isProgressNote(&requests[3].Req.Messages[1]))
+	})
+	t.Run("adds no truncated event when the prompt is at 80 percent of the estimate or more", func(t *testing.T) {
+		chat := scripted(t,
+			replyWithPrompt(162, call("1", "run", `{"command":"step 1"}`)),
+			reply(call("2", "record_result", `{"verdict":"PASS","report":"ok"}`)),
+		)
+		cfg := testConfig(chat)
+		cfg.Task = strings.Repeat("t", 600)
+		out, events := runWithTranscript(t, cfg, advancingClock(), nil)
+		assert.Equal(t, ExitDone, out.Exit)
+		assert.Empty(t, eventsOf(events, kindTruncated))
+	})
+}
+
+// replyWithPrompt is a tool-call reply whose prompt the server counted as prompt tokens.
+func replyWithPrompt(prompt int, calls ...llm.ToolCall) step {
+	return step{resp: llm.Response{
+		Message:    llm.Message{Role: llm.RoleAssistant, ToolCalls: calls},
+		StopReason: llm.StopToolCalls,
+		Usage:      llm.Usage{InputTokens: prompt, OutputTokens: 10, Reported: true},
+	}}
 }
