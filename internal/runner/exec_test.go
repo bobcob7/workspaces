@@ -366,6 +366,33 @@ func TestExecute(t *testing.T) {
 		assert.NoFileExists(t, files.path(reportFile))
 		assert.NoFileExists(t, files.path(usageFile))
 	})
+	t.Run("with a parent, an endpoint that is always down records FAIL in the parent's machine directory", func(t *testing.T) {
+		t.Parallel()
+		model := newModelServer(t, func(_ int, w http.ResponseWriter) {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+		})
+		files, workspace := newRunFixture(t, model.URL, func(run *Run) { run.Parent = "boss-1" })
+		in := testInput(t, files, workspace, false)
+		state := stateDir(files)
+		in.Store = childOfBoss(state)
+		require.NoError(t, Execute(t.Context(), in))
+
+		rec, err := machine.NewStore(state).Read("boss-1", "ws-1")
+		require.NoError(t, err)
+		require.NotNil(t, rec.Result)
+		assert.Equal(t, "FAIL", rec.Result.Verdict)
+		machineDir := filepath.Join(state, "boss-1", "machine", "ws-1")
+		report, err := os.ReadFile(filepath.Join(machineDir, reportFile))
+		require.NoError(t, err)
+		assert.True(t, strings.HasPrefix(string(report), "ws runner: endpoint_down\n"))
+		data, err := os.ReadFile(filepath.Join(machineDir, usageFile))
+		require.NoError(t, err)
+		var usage Usage
+		require.NoError(t, json.Unmarshal(data, &usage))
+		assert.Equal(t, agent.ExitEndpointDown, usage.Exit)
+		assert.NoFileExists(t, files.path(reportFile))
+		assert.NoFileExists(t, files.path(usageFile))
+	})
 }
 
 // TestExecute_consoleSpans runs a run in a child process with the console span
