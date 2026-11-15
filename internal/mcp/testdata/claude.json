@@ -1,0 +1,23 @@
+{
+  "numStartups": 3,
+  "mcpServers": {
+    "metrics": {
+      "command": "user-metrics",
+      "args": ["--user"]
+    },
+    "search": {
+      "type": "sse",
+      "url": "https://search.example.test/sse",
+      "env": {"SEARCH_KEY": "${SEARCH_KEY:-fake-key}"}
+    },
+    "remote": {
+      "type": "http",
+      "url": "https://remote.example.test/mcp",
+      "oauth": {"clientId": "fake-client"}
+    },
+    "ws-only": {
+      "type": "ws",
+      "url": "wss://ws.example.test"
+    }
+  }
+}
