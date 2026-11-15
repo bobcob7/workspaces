@@ -34,12 +34,21 @@ const (
 type Input struct {
 	Files     Files
 	Resume    bool
-	Workspace string // the workspace directory: the agent's work and its project instructions
+	Workspace string // the workspace directory: the tools' root and the second place project instructions are read
+	Dir       string // where the agent works: the one repo's directory, else Workspace (ADR 0028); empty means Workspace
 	ConfigDir string // CONFIG_DIR: config.toml, read for keep_git_tokens
 	Environ   []string
 	Store     resultStore
 	// Sleep waits between retries; nil waits on the wall clock.
 	Sleep func(ctx context.Context, d time.Duration) error
+}
+
+// workDir is the directory the agent works in.
+func (in *Input) workDir() string {
+	if in.Dir != "" {
+		return in.Dir
+	}
+	return in.Workspace
 }
 
 // runClock is the loop's clock: the wall clock, with Sleep as in Input.
@@ -468,7 +477,7 @@ func (s *session) systemPrompt(toolset agent.Toolset) (string, error) {
 		}
 		userFile = filepath.Join(home, ".claude", "CLAUDE.md")
 	}
-	instructions, err := agent.LoadInstructions(s.in.Workspace, s.in.Workspace, userFile)
+	instructions, err := agent.LoadInstructions(s.in.workDir(), s.in.Workspace, userFile)
 	if err != nil {
 		return "", fmt.Errorf("loading project instructions: %w", err)
 	}
@@ -477,7 +486,7 @@ func (s *session) systemPrompt(toolset agent.Toolset) (string, error) {
 		deferred = ts.Deferred()
 	}
 	return agent.Preamble(agent.PreambleData{
-		Dir:          s.in.Workspace,
+		Dir:          s.in.workDir(),
 		StepsLeft:    s.run.MaxSteps,
 		MinutesLeft:  int(s.run.Timeout.Minutes()),
 		Verdicts:     verdictList(&s.run),

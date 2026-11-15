@@ -43,7 +43,7 @@ func (m *mcpSet) statuses() []mcp.Status {
 func (s *session) toolset(ctx context.Context) (agent.Toolset, error) {
 	toolEnv := tools.Environ(s.in.Environ, s.keepGit, secretNames(s.in.Environ))
 	builtin := tools.New(tools.Config{
-		Dir:      s.in.Workspace,
+		Dir:      s.in.workDir(),
 		Root:     s.in.Workspace,
 		Branch:   s.run.Branch,
 		Verdicts: append(append([]string{}, s.run.Pass...), s.run.Fail...),
@@ -98,7 +98,7 @@ func (s *session) mcpDefs() ([]mcp.ServerDef, error) {
 	if len(s.run.MCPServers) == 0 {
 		return nil, nil
 	}
-	defs, warnings, err := mcp.LoadDefs(s.in.Workspace, mcp.ClaudeConfigPath(s.in.Environ))
+	defs, warnings, err := mcp.LoadDefs(s.in.workDir(), mcp.ClaudeConfigPath(s.in.Environ))
 	if err != nil {
 		return nil, fmt.Errorf("loading MCP servers: %w", err)
 	}
