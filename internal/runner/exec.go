@@ -69,6 +69,7 @@ type session struct {
 	log       *slog.Logger
 	redactor  *tools.Redactor
 	keepGit   bool
+	cfgErr    error // config.toml couldn't be read; the run exits internal
 	restarts  int
 	prior     []agent.EndpointUsage
 	status    Status
@@ -103,18 +104,18 @@ func Execute(ctx context.Context, in *Input) error {
 }
 
 func openSession(in *Input, run *Run) (*session, error) {
-	keepGit, err := keepsGitTokens(in.ConfigDir)
-	if err != nil {
-		return nil, err
+	keepGit, cfgErr := keepsGitTokens(in.ConfigDir)
+	if cfgErr != nil {
+		keepGit = true
 	}
-	if err = os.MkdirAll(in.Files.Dir, dirMode); err != nil {
+	if err := os.MkdirAll(in.Files.Dir, dirMode); err != nil {
 		return nil, fmt.Errorf("creating runner directory: %w", err)
 	}
 	logFile, err := os.OpenFile(in.Files.Log(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, fileMode)
 	if err != nil {
 		return nil, fmt.Errorf("opening runner.log: %w", err)
 	}
-	s := &session{in: *in, run: *run, keepGit: keepGit, logFile: logFile, started: time.Now().UTC()}
+	s := &session{in: *in, run: *run, keepGit: keepGit, cfgErr: cfgErr, logFile: logFile, started: time.Now().UTC()}
 	s.redactor = tools.NewRedactor(s.secretValues()...)
 	s.logOut = redactWriter{w: logFile, r: s.redactor}
 	s.log = slog.New(slog.NewJSONHandler(s.logOut, nil))
@@ -169,8 +170,12 @@ func (s *session) initialStatus() Status {
 	}
 }
 
-// loop sets the run up and runs it. A setup failure is the run's exit.
+// loop sets the run up and runs it. A setup failure is the run's exit, and
+// so is a config.toml the runner can't read.
 func (s *session) loop(ctx context.Context) agent.Outcome {
+	if s.cfgErr != nil {
+		return agent.Outcome{Exit: agent.ExitInternal, Message: s.cfgErr.Error()}
+	}
 	ctx, p, err := s.setup(ctx)
 	if err != nil {
 		return agent.Outcome{Exit: agent.ExitInternal, Message: err.Error()}

@@ -219,6 +219,22 @@ func TestExecute(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, strings.HasPrefix(string(report), "ws runner: endpoint_down\n"))
 	})
+	t.Run("a config.toml that can't be read ends the run internal, before any request", func(t *testing.T) {
+		t.Parallel()
+		model := newModelServer(t, script(recordPass))
+		files, workspace := newRunFixture(t, model.URL, nil)
+		in := testInput(t, files, workspace, false)
+		require.NoError(t, os.WriteFile(filepath.Join(in.ConfigDir, "config.toml"), []byte("[runner"), fileMode))
+		require.NoError(t, Execute(t.Context(), in))
+
+		assert.Zero(t, model.requests())
+		st, err := files.ReadStatus()
+		require.NoError(t, err)
+		require.NotNil(t, st.Exit)
+		assert.Equal(t, agent.ExitInternal, *st.Exit)
+		require.NotNil(t, st.Verdict)
+		assert.Equal(t, "FAIL", *st.Verdict)
+	})
 	t.Run("a stopped run resumes from its transcript on the endpoint it ended on", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithCancel(t.Context())
