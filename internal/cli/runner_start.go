@@ -174,6 +174,8 @@ func (a *App) newRun(l *runnerLaunch) runner.Run {
 		IdleTimeout:      endpoint.IdleTimeout,
 		Role:             start.Role,
 		Parent:           start.Parent,
+		Pass:             []string{"PASS"},
+		Fail:             []string{"FAIL"},
 		MaxSteps:         r.MaxSteps,
 		Timeout:          r.Timeout,
 		MaxTokens:        r.MaxTokens,
