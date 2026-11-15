@@ -58,10 +58,11 @@ A `ws` child uses `--model <m>` after the prompt, a model name from
 no other `claude` arguments are accepted. `--endpoint` sends it to another
 configured endpoint. Before anything is created, spawn checks that the
 endpoint answers, serves the model, and, when the endpoint can say, that
-the model supports tools. A failure is an error, not a silent switch to
-Claude, unless the user set `runner.fallback = "claude"`; then a Claude
-child starts and a warning says why. That fallback happens only here: once
-a `ws` child runs, it's never switched to Claude. When its endpoint fails
+the model supports tools. A failure is an error and nothing is started
+in its place; `ws` never switches a child to another runner, before or
+during its run. Decide yourself, for example by spawning the task again
+with `--runner claude`. A `claude` child (the default) never needs the
+daemon or an endpoint. When a `ws` child's endpoint fails
 mid-run, it re-reads `config.toml` before each retry and moves to the
 endpoint its model now names there, after the same checks. `ws`'s background service, the `ws`
 daemon, starts and watches the child; spawn starts the daemon when it isn't
