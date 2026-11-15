@@ -17,6 +17,9 @@ const (
 // the backoff and the re-resolution; an exit means the run ends. Each retry
 // spends one of maxRetries, and a failed new endpoint spends one too.
 func (r *run) retry(ctx context.Context, err error) *exitInfo {
+	if errors.Is(err, llm.ErrContextExceeded) {
+		return r.overflow(err)
+	}
 	retryable, after := llm.Retryable(err)
 	if !retryable {
 		return r.fatal(ctx, err)
@@ -59,11 +62,19 @@ func (r *run) fatal(ctx context.Context, err error) *exitInfo {
 		return &exitInfo{reason: ExitModelNoTools, message: r.target.Endpoint + ": " + err.Error()}
 	case errors.Is(err, llm.ErrModelMissing):
 		return &exitInfo{reason: ExitModelMissing, message: r.target.Endpoint + ": " + err.Error()}
-	case errors.Is(err, llm.ErrContextExceeded):
-		r.compactNow(true)
-		return &exitInfo{reason: ExitContextOverflow, message: err.Error()}
 	}
 	return &exitInfo{reason: ExitEndpointDown, message: err.Error()}
+}
+
+// overflow handles a context error: the history is compacted and sent again.
+// Compacting happens once per run; a second overflow, or a history that
+// doesn't fit after compacting, ends the run.
+func (r *run) overflow(err error) *exitInfo {
+	if r.overflowed || !r.compactNow(true) {
+		return &exitInfo{reason: ExitContextOverflow, message: err.Error()}
+	}
+	r.overflowed = true
+	return nil
 }
 
 // exhausted ends the run after its last retry: rejected when the last

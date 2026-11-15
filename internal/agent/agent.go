@@ -164,6 +164,7 @@ type run struct {
 	measured    int // history[:measured] is in lastPrompt
 	truncations int
 	truncatedTo int
+	overflowed  bool // the once-per-run compaction for a context error has been spent
 	noCall      int
 	malformed   int
 	repeatSig   string

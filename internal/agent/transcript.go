@@ -128,8 +128,8 @@ func joinObjects(head, body []byte) []byte {
 }
 
 // ReadHistory rebuilds the conversation from a transcript, for --resume, and
-// returns the last step. Compaction is not replayed, and reasoning that a
-// provider must receive verbatim is not kept (the transcript never has it).
+// returns the last step. Compaction is not replayed. The transcript never
+// stores ReasoningOpaque, so a resumed run sends its history without it.
 func ReadHistory(path string) ([]llm.Message, int, error) {
 	events, err := readEvents(path)
 	if err != nil {

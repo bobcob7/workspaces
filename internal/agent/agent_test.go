@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,11 +88,45 @@ func TestAgent_Run(t *testing.T) {
 		out, _ := runWithTranscript(t, testConfig(chat), advancingClock(), nil)
 		assert.Equal(t, ExitModelMissing, out.Exit)
 	})
-	t.Run("forces a compaction and ends context_overflow on a context error", func(t *testing.T) {
-		chat := scripted(t, fail(llm.ErrContextExceeded))
-		out, _ := runWithTranscript(t, testConfig(chat), advancingClock(), nil)
+	t.Run("compacts once on a context error and sends again, then ends context_overflow on the second", func(t *testing.T) {
+		chat := scripted(t,
+			reply(call("1", "run", `{"command":"step 1"}`)),
+			reply(call("2", "run", `{"command":"step 2"}`)),
+			reply(call("3", "run", `{"command":"step 3"}`)),
+			reply(call("4", "run", `{"command":"step 4"}`)),
+			fail(llm.ErrContextExceeded),
+			fail(llm.ErrContextExceeded),
+		)
+		cfg := testConfig(chat)
+		cfg.Target.ContextTokens = 1000
+		cfg.Target.MaxOutput = 0
+		cfg.Tools = StaticToolset(withRun(runTool(strings.Repeat("x", 440))))
+		out, events := runWithTranscript(t, cfg, advancingClock(), nil)
 		assert.Equal(t, ExitContextOverflow, out.Exit)
-		assert.Len(t, chat.ChatCalls(), 1)
+		assert.Len(t, chat.ChatCalls(), 6)
+		compactions := eventsOf(events, kindCompaction)
+		require.Len(t, compactions, 1)
+		assert.Equal(t, 1, payloadOf[*CompactionEvent](t, compactions[0]).Elided)
+	})
+	t.Run("keeps the written files and the run exit codes in the progress note", func(t *testing.T) {
+		chat := scripted(t,
+			reply(call("1", "write_file", fmt.Sprintf(`{"path":"a.go","content":%q}`, strings.Repeat("x", 2400)))),
+			reply(call("2", "run", `{"command":"go test ./..."}`)),
+			reply(call("3", "run", `{"command":"go vet ./..."}`)),
+			reply(call("4", "record_result", `{"verdict":"PASS","report":"ok"}`)),
+		)
+		cfg := testConfig(chat)
+		cfg.Target.ContextTokens = 1000
+		cfg.Target.MaxOutput = 0
+		cfg.Tools = StaticToolset(withRun(runTool("exit 3\n--- stdout ---\nFAIL", "exit 0\n--- stdout ---\nok")))
+		out, events := runWithTranscript(t, cfg, advancingClock(), nil)
+		assert.Equal(t, ExitDone, out.Exit)
+		requests := chat.ChatCalls()
+		require.Len(t, requests, 4)
+		assert.Equal(t, progressNoteOpening+"\n- write_file a.go\n- run go test ./... (exit 3)\n- run go vet ./... (exit 0)", requests[3].Req.Messages[1].Content)
+		compactions := eventsOf(events, kindCompaction)
+		require.Len(t, compactions, 1)
+		assert.Equal(t, 1, payloadOf[*CompactionEvent](t, compactions[0]).DroppedTurns)
 	})
 	t.Run("ends malformed_tool_calls after three invalid calls in a row", func(t *testing.T) {
 		chat := scripted(t,

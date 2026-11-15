@@ -104,6 +104,32 @@ func fakeTools() []tools.Tool {
 	}
 }
 
+// runTool is a run tool that answers with results in order, and the last
+// one again once they run out.
+func runTool(results ...string) tools.Tool {
+	next := 0
+	return tools.Tool{
+		Name:       "run",
+		Parameters: objectSchema(map[string]any{"command": stringField()}, "command"),
+		Call: func(context.Context, string) (tools.Result, error) {
+			text := results[min(next, len(results)-1)]
+			next++
+			return tools.Result{Text: text}, nil
+		},
+	}
+}
+
+// withRun is fakeTools with its run tool replaced.
+func withRun(run tools.Tool) []tools.Tool {
+	set := fakeTools()
+	for i := range set {
+		if set[i].Name == "run" {
+			set[i] = run
+		}
+	}
+	return set
+}
+
 func testConfig(chat chatter) Config {
 	return Config{
 		Target: testTarget(chat),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/bobcob7/workspaces/internal/agent/tools"
@@ -99,15 +100,53 @@ func (r *run) answer(call llm.ToolCall, res tools.Result, err error) *exitInfo {
 	text := res.Text
 	if err != nil {
 		text = "error: " + err.Error()
+	} else {
+		r.noteProgress(call, res.Text)
 	}
 	framed := frameResult(call.Name, text)
 	r.record(kindToolResult, ToolResultEvent{ID: call.ID, Name: call.Name, OK: err == nil, Bytes: len(text), Truncated: res.Truncated, Text: framed})
 	r.history = append(r.history, toolMessage(call, framed))
-	r.done = append(r.done, ToolRecord{Name: call.Name, Summary: firstBytes(call.Arguments, elideArgsBytes)})
 	if err == nil && res.Done {
 		return &exitInfo{reason: ExitDone, verdict: res.Verdict}
 	}
 	return nil
+}
+
+// progressArgs is the part of a call's arguments the progress note keeps.
+type progressArgs struct {
+	Path    string `json:"path"`
+	Command string `json:"command"`
+}
+
+// noteProgress keeps what the progress note lists: the files a successful
+// write or edit changed, and the commands a run executed with their exit codes.
+// Reads and searches leave nothing in the note.
+func (r *run) noteProgress(call llm.ToolCall, text string) {
+	var args progressArgs
+	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+		return
+	}
+	switch call.Name {
+	case "write_file", "edit_file":
+		r.done = append(r.done, ToolRecord{Name: call.Name, Summary: args.Path})
+	case "run":
+		r.done = append(r.done, ToolRecord{Name: call.Name, Summary: firstBytes(args.Command, elideArgsBytes), ExitCode: exitCodeOf(text)})
+	}
+}
+
+// exitCodeOf reads the code from a run result's first line, "exit N"; nil when
+// the command timed out and printed none.
+func exitCodeOf(text string) *int {
+	line, _, _ := strings.Cut(text, "\n")
+	code, ok := strings.CutPrefix(line, "exit ")
+	if !ok {
+		return nil
+	}
+	n, err := strconv.Atoi(code)
+	if err != nil {
+		return nil
+	}
+	return &n
 }
 
 // noToolCall nudges a reply that called no tool; the third in a row ends the run.
