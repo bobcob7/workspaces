@@ -1,4 +1,5 @@
 import type { Loop, LoopVar, NewLoop } from "../../api";
+import type { Runner } from "../create/RunnerModelFields";
 import { everyOf, periodOf, scriptTimeoutOf, timeoutOf, type Amount, type PeriodUnit, type TimeoutUnit } from "./period";
 
 /** What LoopForm edits. Text fields hold what was typed. */
@@ -18,6 +19,10 @@ export interface LoopFormValues {
   readonly vars: readonly LoopVar[];
   /** Whether runs are hidden from the Agents list, unless blocked (ADR 0057). */
   readonly hidden: boolean;
+  /** What runs each run: Claude Code, or ws's runner (ADR 0070). */
+  readonly runner: Runner;
+  /** Only for ws: the endpoint's name, or "" for the model's own. */
+  readonly endpoint: string;
 }
 
 /** Errors to show under each field; a missing key is no error. */
@@ -52,6 +57,8 @@ export const emptyValues: LoopFormValues = {
   scriptTimeout: { amount: "1", unit: "m" },
   vars: [],
   hidden: true,
+  runner: "claude",
+  endpoint: "",
 };
 
 /** The name to show for a loop: its title, or its ID when it has none. */
@@ -85,6 +92,8 @@ export const valuesOf = (loop: Loop): LoopFormValues => ({
     .sort()
     .map((key) => ({ key, value: loop.vars[key] ?? "" })),
   hidden: loop.hidden,
+  runner: loop.runner === "ws" ? "ws" : "claude",
+  endpoint: loop.endpoint ?? "",
 });
 
 /** Whether the form adds a loop, whose ID comes from the title. */
@@ -162,6 +171,7 @@ export const requestOf = (values: LoopFormValues): NewLoop => {
   const vars = values.vars
     .filter((row) => row.key.trim() !== "")
     .map((row) => ({ key: row.key.trim(), value: row.value }));
+  const isWs = values.runner === "ws";
   return {
     name: isNew(values) ? slugOf(values.title) : values.name,
     title: values.title.trim(),
@@ -170,8 +180,10 @@ export const requestOf = (values: LoopFormValues): NewLoop => {
     specs: values.specs,
     keep: Number(values.keep.trim()),
     model: values.model,
-    permissionMode: values.permissionMode,
+    permissionMode: isWs ? "" : values.permissionMode,
     hidden: values.hidden,
+    runner: values.runner,
+    endpoint: isWs ? values.endpoint : "",
     ...(hasScript && scriptTimeout !== null ? { script: values.script, scriptTimeout } : {}),
     ...(vars.length > 0 ? { vars } : {}),
   };
