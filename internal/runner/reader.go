@@ -26,9 +26,8 @@ func (r Reader) Exists(id string) bool {
 }
 
 // State is workspace id's runner state (ADR 0063), its live pid, and the
-// status and run it read. recordedAt is when the session was recorded. A
-// run.toml or status.json that can't be read is nil, so the state is
-// unknown when status.json is the one that can't.
+// status and run it read: each is nil when its file can't be read, and
+// recordedAt is when the session was recorded.
 func (r Reader) State(id string, recordedAt time.Time) (string, int, *Status, *Run) {
 	f := FilesFor(r.stateDir, id)
 	state, pid, st := f.State(r.now(), recordedAt, r.procs)
