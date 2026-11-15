@@ -578,6 +578,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   renameWorkspace: vi.fn(async (id: string, name: string) => ({ id, name })),
   setWorkspaceHidden: vi.fn(async (id: string, hidden: boolean) => ({ id, hidden })),
   stopAgent: vi.fn(async () => undefined),
+  runnerStop: vi.fn(async (workspaceId: string) => ({ id: workspaceId, session: "", stopped: true, warnings: [] })),
   restoreAgents: vi.fn(async () => []),
   openExternal: vi.fn(async () => undefined),
   readTranscript: vi.fn(async () => ({ items: [], next: 0, reset: false, dropped: 0, found: true })),
