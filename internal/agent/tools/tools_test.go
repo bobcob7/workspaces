@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -35,7 +36,6 @@ func toolByName(t *testing.T, tools []Tool, name string) Tool {
 
 func TestNew(t *testing.T) {
 	t.Parallel()
-
 	t.Run("returns the seven tools in order", func(t *testing.T) {
 		t.Parallel()
 		var names []string
@@ -62,7 +62,6 @@ func TestValidate(t *testing.T) {
 		"limit": field("integer", ""),
 		"all":   field("boolean", ""),
 	}, "path")
-
 	tests := []struct {
 		name      string
 		arguments string
@@ -84,6 +83,13 @@ func TestValidate(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+	t.Run("checks a schema decoded from JSON", func(t *testing.T) {
+		var decoded map[string]any
+		require.NoError(t, json.Unmarshal([]byte(`{"type":"object","properties":{"path":{"type":"string"},"limit":{"type":"integer"}},"required":["path"]}`), &decoded))
+		require.ErrorContains(t, Validate(decoded, `{"limit":1}`), "missing path")
+		require.ErrorContains(t, Validate(decoded, `{"path":1}`), "path must be of type string")
+		assert.NoError(t, Validate(decoded, `{"path":"a","limit":1}`))
+	})
 }
 
 func TestCapText(t *testing.T) {

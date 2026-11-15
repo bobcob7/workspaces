@@ -68,25 +68,51 @@ func New(cfg Config) []Tool {
 // required field present, and the top-level types string, integer and
 // boolean right. Other schema keywords are not checked.
 func Validate(schema map[string]any, arguments string) error {
+	shape, err := readSchemaShape(schema)
+	if err != nil {
+		return err
+	}
 	var args map[string]jsontext.Value
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 		return fmt.Errorf("arguments are not a JSON object: %w", err)
 	}
-	required, _ := schema["required"].([]string)
-	for _, field := range required {
-		if _, ok := args[field]; !ok {
-			return fmt.Errorf("missing %s", field)
+	for _, name := range shape.Required {
+		if _, ok := args[name]; !ok {
+			return fmt.Errorf("missing %s", name)
 		}
 	}
-	properties, _ := schema["properties"].(map[string]map[string]any)
-	for _, name := range slices.Sorted(maps.Keys(properties)) {
+	for _, name := range slices.Sorted(maps.Keys(shape.Properties)) {
 		value, ok := args[name]
-		kind, _ := properties[name]["type"].(string)
+		kind, _ := shape.Properties[name].Type.(string)
 		if ok && !matchesType(value, kind) {
 			return fmt.Errorf("%s must be of type %s", name, kind)
 		}
 	}
 	return nil
+}
+
+// schemaShape is the part of a JSON schema that Validate checks.
+type schemaShape struct {
+	Required   []string                  `json:"required"`
+	Properties map[string]schemaProperty `json:"properties"`
+}
+
+type schemaProperty struct {
+	Type any `json:"type"`
+}
+
+// readSchemaShape reads schema through its JSON form, so a schema built in
+// Go and one decoded from JSON (an MCP tool's) are checked the same way.
+func readSchemaShape(schema map[string]any) (schemaShape, error) {
+	var shape schemaShape
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return shape, fmt.Errorf("schema: %w", err)
+	}
+	if err := json.Unmarshal(raw, &shape); err != nil {
+		return shape, fmt.Errorf("schema: %w", err)
+	}
+	return shape, nil
 }
 
 // matchesType reports whether a raw JSON value has the schema type kind.

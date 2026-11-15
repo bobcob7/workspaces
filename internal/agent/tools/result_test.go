@@ -11,22 +11,23 @@ import (
 
 func TestRecordResult(t *testing.T) {
 	t.Parallel()
-
 	t.Run("records a verdict and ends the run", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
 		var gotVerdict string
 		var gotReport []byte
-		cfg.Recorder = &recorderMock{RecordFunc: func(_ context.Context, verdict string, report []byte) error {
+		recorder := &recorderMock{RecordFunc: func(_ context.Context, verdict string, report []byte) error {
 			gotVerdict, gotReport = verdict, report
 			return nil
 		}}
+		cfg.Recorder = recorder
 		res, err := recordResult(t.Context(), &cfg, recordResultArgs{Verdict: "pass", Report: "# ok"})
 		require.NoError(t, err)
 		assert.True(t, res.Done)
 		assert.Equal(t, "PASS", res.Verdict)
 		assert.Equal(t, "PASS", gotVerdict)
 		assert.Equal(t, "# ok", string(gotReport))
+		assert.Len(t, recorder.RecordCalls(), 1)
 	})
 	t.Run("rejects a verdict that is not allowed", func(t *testing.T) {
 		t.Parallel()

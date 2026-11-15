@@ -15,7 +15,6 @@ import (
 
 func TestRunCommand(t *testing.T) {
 	t.Parallel()
-
 	t.Run("runs through the shell in the session directory with the default timeout", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)

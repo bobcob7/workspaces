@@ -11,13 +11,11 @@ import (
 
 func TestCheckPath(t *testing.T) {
 	t.Parallel()
-
 	root := t.TempDir()
 	outside := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "sub", ".git"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".git"), 0o755))
 	require.NoError(t, os.Symlink(outside, filepath.Join(root, "escape")))
-
 	tests := []struct {
 		name    string
 		path    string
@@ -65,9 +63,15 @@ func TestCheckCommand(t *testing.T) {
 		{name: "refuses a push to master via refspec", command: "git push origin HEAD:master", branch: "feat/x", wantErr: "git push to master"},
 		{name: "refuses a force push to another branch", command: "git push -f origin feat/y", branch: "feat/x", wantErr: "only \"feat/x\" is allowed"},
 		{name: "refuses a forced push with no branch", command: "git push -f", branch: "feat/x", wantErr: "explicit branch"},
+		{name: "refuses a push to main as a full ref", command: "git push origin refs/heads/main", branch: "feat/x", wantErr: "git push to main"},
+		{name: "refuses a push to main as a refspec full ref", command: "git push origin HEAD:refs/heads/main", branch: "feat/x", wantErr: "git push to main"},
+		{name: "refuses a bundled forced push to another branch", command: "git push -uf origin feat/y", branch: "feat/x", wantErr: "only \"feat/x\" is allowed"},
+		{name: "refuses a bundled forced push with the flags reordered", command: "git push -fu origin feat/y", branch: "feat/x", wantErr: "only \"feat/x\" is allowed"},
 		{name: "refuses ws rm chained after make", command: "make test && ws rm a", branch: "feat/x", wantErr: "command refused"},
 		{name: "allows ws machine result", command: "ws machine result PASS --file ../r.md", branch: "feat/x"},
 		{name: "allows a force push to the role branch", command: "git push -f -u origin feat/x", branch: "feat/x"},
+		{name: "allows a bundled forced push to the role branch", command: "git push -uf origin feat/x", branch: "feat/x"},
+		{name: "allows a forced push to the role branch as a full ref", command: "git push --force origin refs/heads/feat/x", branch: "feat/x"},
 		{name: "allows go test", command: "go test ./...", branch: "feat/x"},
 		{name: "allows a force push chained after a test", command: "go test ./... && git push -f origin feat/x", branch: "feat/x"},
 	}

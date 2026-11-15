@@ -129,7 +129,7 @@ func checkPushArgs(args []string, branch string) error {
 		}
 	}
 	for _, target := range targets {
-		destination := target[strings.LastIndex(target, ":")+1:]
+		destination := pushDestination(target)
 		if destination == "main" || destination == "master" {
 			return fmt.Errorf("command refused: git push to %s", destination)
 		}
@@ -147,7 +147,7 @@ func checkPushArgs(args []string, branch string) error {
 // checkForcePush allows a forced push only to branch.
 func checkForcePush(refs []string, branch string) error {
 	for _, ref := range refs {
-		destination := strings.TrimPrefix(ref[strings.LastIndex(ref, ":")+1:], "+")
+		destination := pushDestination(ref)
 		if branch == "" || destination != branch {
 			return fmt.Errorf("command refused: force push to %s; only %q is allowed", destination, branch)
 		}
@@ -155,6 +155,19 @@ func checkForcePush(refs []string, branch string) error {
 	return nil
 }
 
+// pushDestination returns the ref a push target names: the part after the
+// refspec's colon, without a leading + or refs/heads/.
+func pushDestination(target string) string {
+	destination := strings.TrimPrefix(target, "+")
+	destination = destination[strings.LastIndex(destination, ":")+1:]
+	return strings.TrimPrefix(destination, "refs/heads/")
+}
+
+// isForceFlag reports whether a push argument forces the update. Short
+// flags may be bundled, as in -uf.
 func isForceFlag(arg string) bool {
-	return arg == "-f" || arg == "--force" || arg == "--force-if-includes" || strings.HasPrefix(arg, "--force-with-lease")
+	if strings.HasPrefix(arg, "--") {
+		return arg == "--force" || arg == "--force-if-includes" || strings.HasPrefix(arg, "--force-with-lease")
+	}
+	return strings.HasPrefix(arg, "-") && strings.ContainsRune(arg, 'f')
 }

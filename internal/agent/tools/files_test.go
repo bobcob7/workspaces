@@ -24,7 +24,6 @@ func writeTestFile(t *testing.T, dir, name, content string) string {
 
 func TestReadFile(t *testing.T) {
 	t.Parallel()
-
 	t.Run("numbers the lines", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
@@ -68,7 +67,6 @@ func TestReadWindow(t *testing.T) {
 
 func TestListFiles(t *testing.T) {
 	t.Parallel()
-
 	t.Run("runs git ls-files in the session directory and filters by glob", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
@@ -110,7 +108,6 @@ func TestListText(t *testing.T) {
 
 func TestSearch(t *testing.T) {
 	t.Parallel()
-
 	t.Run("prints path, line and text for each match", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
@@ -145,7 +142,6 @@ func TestSearch(t *testing.T) {
 
 func TestWriteFile(t *testing.T) {
 	t.Parallel()
-
 	t.Run("creates parent directories and the file", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
@@ -170,7 +166,6 @@ func TestWriteFile(t *testing.T) {
 
 func TestEditFile(t *testing.T) {
 	t.Parallel()
-
 	t.Run("replaces a single occurrence", func(t *testing.T) {
 		t.Parallel()
 		cfg := testConfig(t)
@@ -229,7 +224,6 @@ func TestReplaceText(t *testing.T) {
 
 func TestFileToolsCallDecodesArguments(t *testing.T) {
 	t.Parallel()
-
 	cfg := testConfig(t)
 	writeTestFile(t, cfg.Dir, "a.txt", "hi\n")
 	read := toolByName(t, New(cfg), "read_file")
