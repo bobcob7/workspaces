@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -347,20 +348,20 @@ func TestExecute_consoleResume(t *testing.T) {
 		runConsoleHelper(t)
 		return
 	}
-	var files Files
-	var workspace string
+	var runFiles atomic.Pointer[Files]
 	first := newModelServer(t, func(n int, w http.ResponseWriter) {
 		if n != 1 {
 			http.Error(w, "unexpected request", http.StatusInternalServerError)
 			return
 		}
-		if err := files.RequestStop(); err != nil {
+		if err := runFiles.Load().RequestStop(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		_, _ = io.WriteString(w, toolSSE("c1", "read_file", `{"path":"hello.txt"}`))
 	})
-	files, workspace = newRunFixture(t, first.URL, nil)
+	files, workspace := newRunFixture(t, first.URL, nil)
+	runFiles.Store(&files)
 	state := filepath.Dir(filepath.Dir(files.Dir))
 	firstSpans := runConsoleChild(t, state, workspace, false)
 	assert.Equal(t, 1, strings.Count(firstSpans, `"Name":"invoke_agent implementer"`))
