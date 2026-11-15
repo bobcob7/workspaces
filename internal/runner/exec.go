@@ -250,11 +250,17 @@ func (s *session) mcpCalls() map[string]int {
 	return s.mcp.calls
 }
 
-// saveStatus writes status.json in state, with the run's current totals.
+// saveStatus writes status.json in state, with the run's current totals. A
+// verdict the run recorded through its tools is on disk only, so it's kept.
 func (s *session) saveStatus(state string) error {
 	s.status.State = state
 	s.status.UpdatedAt = time.Now().UTC()
 	s.syncMCP()
+	if s.status.Verdict == nil {
+		if onDisk, err := s.in.Files.ReadStatus(); err == nil {
+			s.status.Verdict = onDisk.Verdict
+		}
+	}
 	return s.in.Files.WriteStatus(&s.status)
 }
 
