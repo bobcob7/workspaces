@@ -142,6 +142,14 @@ func TestSearch(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, strings.HasSuffix(res.Text, "[stopped after 100 matches]"))
 	})
+	t.Run("does not say it stopped when there are exactly the limit", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig(t)
+		writeTestFile(t, cfg.Dir, "a.txt", strings.Repeat("hit\n", searchMaxHits))
+		res, err := search(&cfg, searchArgs{Pattern: "hit"})
+		require.NoError(t, err)
+		assert.NotContains(t, res.Text, "[stopped")
+	})
 }
 
 func TestWriteFile(t *testing.T) {

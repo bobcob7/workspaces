@@ -245,6 +245,7 @@ type searcher struct {
 	base    string
 	glob    string
 	matches []string
+	more    bool // a match past searchMaxHits was found
 }
 
 func (s *searcher) visit(p string, d fs.DirEntry, err error) error {
@@ -265,7 +266,7 @@ func (s *searcher) visit(p string, d fs.DirEntry, err error) error {
 		return nil
 	}
 	s.scanFile(p, rel)
-	if len(s.matches) >= searchMaxHits {
+	if s.more {
 		return fs.SkipAll
 	}
 	return nil
@@ -280,10 +281,11 @@ func (s *searcher) scanFile(p, rel string) {
 		if !s.re.MatchString(line) {
 			continue
 		}
-		s.matches = append(s.matches, fmt.Sprintf("%s:%d: %s", rel, i+1, cutWidth(line)))
-		if len(s.matches) >= searchMaxHits {
+		if len(s.matches) == searchMaxHits {
+			s.more = true
 			return
 		}
+		s.matches = append(s.matches, fmt.Sprintf("%s:%d: %s", rel, i+1, cutWidth(line)))
 	}
 }
 
@@ -298,7 +300,7 @@ func (s *searcher) text() string {
 	switch {
 	case len(s.matches) == 0:
 		return "no matches"
-	case len(s.matches) >= searchMaxHits:
+	case s.more:
 		return strings.Join(s.matches, "\n") + fmt.Sprintf("\n[stopped after %d matches]", searchMaxHits)
 	}
 	return strings.Join(s.matches, "\n")
