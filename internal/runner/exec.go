@@ -79,6 +79,7 @@ type session struct {
 	endRun    func(exit string)
 	tel       *telemetry.Telemetry
 	tr        *agent.Transcript
+	rr        *Reresolver
 	started   time.Time
 }
 
@@ -335,7 +336,7 @@ func (s *session) setup(ctx context.Context) (context.Context, prepared, error) 
 	if err != nil {
 		return ctx, prepared{}, err
 	}
-	cfg, err := s.agentConfig(provider, toolset)
+	cfg, err := s.agentConfig(ctx, provider, toolset)
 	if err != nil {
 		return ctx, prepared{}, err
 	}
@@ -359,12 +360,13 @@ func (s *session) resumeHistory() ([]llm.Message, int, error) {
 }
 
 // agentConfig is the loop's settings: the target, budgets, tools and prompts.
-func (s *session) agentConfig(provider llm.Provider, toolset agent.Toolset) (agent.Config, error) {
+func (s *session) agentConfig(ctx context.Context, provider llm.Provider, toolset agent.Toolset) (agent.Config, error) {
 	current := s.run.Current()
 	system, err := s.systemPrompt(toolset)
 	if err != nil {
 		return agent.Config{}, err
 	}
+	s.rr = s.reresolver()
 	return agent.Config{
 		Target: agent.Target{
 			Chat:          provider,
@@ -385,7 +387,64 @@ func (s *session) agentConfig(provider llm.Provider, toolset agent.Toolset) (age
 		Stop:          s.in.Files.StopRequested,
 		ResultWritten: s.resultWritten,
 		OnStatus:      s.onStatus,
+		Reresolver:    s.rr,
+		OnSwitch: func(from, to agent.Target, reason string, step int) {
+			s.switched(ctx, from, to, reason, step)
+		},
+		OnReject: func(rej agent.Rejection, reason string) {
+			s.rejected(ctx, rej, reason)
+		},
 	}, nil
+}
+
+// reresolver re-reads the run's endpoint between retries, from the endpoint
+// the run is on now.
+func (s *session) reresolver() *Reresolver {
+	current := s.run.Current()
+	return &Reresolver{
+		ConfigDir: s.in.ConfigDir,
+		Key:       s.run.Key(),
+		Current: config.Target{
+			ModelID:       current.Model,
+			EndpointName:  current.Endpoint,
+			Endpoint:      config.Endpoint{URL: current.URL, API: current.API, RequestTimeout: s.run.RequestTimeout, IdleTimeout: s.run.IdleTimeout},
+			ContextTokens: current.ContextTokens,
+			MaxOutput:     s.run.MaxOutput,
+			Temperature:   s.run.Temperature,
+			Reasoning:     s.run.Reasoning,
+		},
+		Getenv:    func(name string) string { return envValue(s.in.Environ, name) },
+		Build:     s.buildProvider,
+		Preflight: llm.Preflight,
+		Redact:    func(secret string) { s.redactor.Add(secret) },
+		Log:       s.log,
+	}
+}
+
+// switched records a switch the loop made: run.toml's endpoint history, the
+// telemetry event, and the new current target.
+func (s *session) switched(ctx context.Context, from, to agent.Target, reason string, step int) { //nolint:gocritic // hugeParam: a target copied once per switch.
+	next := s.rr.Adopt()
+	entry := EndpointEntry{
+		Since:         time.Now().UTC(),
+		Step:          step,
+		Reason:        reason,
+		Endpoint:      to.Endpoint,
+		URL:           next.Endpoint.URL,
+		API:           to.API,
+		Model:         to.Model,
+		ContextTokens: to.ContextTokens,
+	}
+	s.run.EndpointHistory = append(s.run.EndpointHistory, entry)
+	if err := s.in.Files.AppendEndpoint(entry); err != nil {
+		s.log.WarnContext(ctx, "recording the endpoint switch", "error", err)
+	}
+	s.tel.EndpointEvent(ctx, telemetry.EndpointChange{From: from.Endpoint, To: to.Endpoint, FromModel: from.Model, ToModel: to.Model, Reason: reason})
+}
+
+// rejected records a switch the check or the window refused.
+func (s *session) rejected(ctx context.Context, rej agent.Rejection, reason string) {
+	s.tel.EndpointEvent(ctx, telemetry.EndpointChange{From: s.rr.Current.EndpointName, To: rej.Endpoint, FromModel: s.rr.Current.ModelID, ToModel: rej.Model, Reason: reason, Code: rej.Code})
 }
 
 func (s *session) resultWritten() bool {
@@ -447,6 +506,11 @@ func (s *session) provider() (llm.Provider, error) {
 		RequestTimeout: s.run.RequestTimeout,
 		IdleTimeout:    s.run.IdleTimeout,
 	}
+	return s.buildProvider(ep)
+}
+
+// buildProvider is the provider for ep, wrapped in telemetry.
+func (s *session) buildProvider(ep llm.Endpoint) (llm.Provider, error) { //nolint:gocritic // hugeParam: an endpoint copied once per build.
 	p, err := newProvider(&ep, s.log)
 	if err != nil {
 		return nil, err

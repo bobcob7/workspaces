@@ -51,6 +51,9 @@ func newModelServer(t *testing.T, reply func(n int, w http.ResponseWriter)) *mod
 		w.Header().Set("Content-Type", "text/event-stream")
 		reply(n, w)
 	})
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"data":[{"id":"qwen/qwen3.5-9b"}]}`)
+	})
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	m.URL = ts.URL
