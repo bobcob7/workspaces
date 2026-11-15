@@ -265,4 +265,24 @@ mod tests {
         let own_sid = unsafe { libc::getsid(0) };
         assert_ne!(child_sid, own_sid);
     }
+
+    #[tokio::test]
+    async fn run_once_reports_exit_code_4_from_a_real_ws() {
+        let dir = fake_ws("exit 4");
+        let runner = Runner::new(path_with(&dir));
+
+        let exit = run_once(&runner, Host::App).await;
+
+        assert_eq!(exit.code, Some(EXIT_DAEMON_RUNNING));
+    }
+
+    #[tokio::test]
+    async fn run_once_reports_exit_code_1_from_a_real_ws() {
+        let dir = fake_ws("exit 1");
+        let runner = Runner::new(path_with(&dir));
+
+        let exit = run_once(&runner, Host::Online).await;
+
+        assert_eq!(exit.code, Some(1));
+    }
 }
