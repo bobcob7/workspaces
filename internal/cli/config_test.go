@@ -284,6 +284,30 @@ func TestApp_configUnset(t *testing.T) {
 		assert.Equal(t, exitUsage, runConfigCmd(t, app, "--json", "config", "unset", "nope"))
 		assert.Equal(t, "config_key_unknown", errorCodeOf(t, stderr))
 	})
+	t.Run("an endpoint table is removed whole, exit 0", func(t *testing.T) {
+		t.Parallel()
+		text := "[endpoints.gpu]\nurl = \"http://gpu:1234\"\nprobe = \"ollama\"\n\n[endpoints.other]\nurl = \"http://other:1\"\n"
+		app, path, stdout, stderr := newConfigApp(t, text)
+		require.Equal(t, exitOK, runConfigCmd(t, app, "config", "unset", "endpoints.gpu"), stderr.String())
+		assert.Equal(t, "[endpoints.other]\nurl = \"http://other:1\"\n", readFileText(t, path))
+		assert.Equal(t, "endpoints.gpu removed\n", stdout.String())
+	})
+	t.Run("--json of an endpoint table reports the change", func(t *testing.T) {
+		t.Parallel()
+		app, path, stdout, _ := newConfigApp(t, "[endpoints.gpu]\nurl = \"http://gpu:1234\"\n")
+		require.Equal(t, exitOK, runConfigCmd(t, app, "--json", "config", "unset", "endpoints.gpu"))
+		assert.Empty(t, readFileText(t, path))
+		var out configChangeJSON
+		require.NoError(t, json.Unmarshal(stdout.Bytes(), &out))
+		assert.True(t, out.Changed)
+		assert.Equal(t, "endpoints.gpu", out.Setting.Key)
+	})
+	t.Run("an endpoint table that isn't there is not a change, exit 0", func(t *testing.T) {
+		t.Parallel()
+		app, _, stdout, _ := newConfigApp(t, commentedConfig)
+		require.Equal(t, exitOK, runConfigCmd(t, app, "config", "unset", "endpoints.gpu"))
+		assert.Equal(t, "endpoints.gpu is not set\n", stdout.String())
+	})
 }
 
 func TestApp_printConfigValue(t *testing.T) {

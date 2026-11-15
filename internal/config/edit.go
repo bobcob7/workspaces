@@ -278,6 +278,13 @@ func unsetTable(data []byte, table string) ([]byte, bool, error) {
 	return out, !bytes.Equal(data, out), nil
 }
 
+// IsEntryTable reports whether key names a table that Unset removes whole:
+// endpoints.<name>, models.<alias>, or runner.roles.<role>.
+func IsEntryTable(key string) bool {
+	_, ok := entryTable(key)
+	return ok
+}
+
 // entryTable is the table of an entry key that unset removes whole:
 // endpoints.<name>, models.<alias>, or runner.roles.<role>.
 func entryTable(key string) (string, bool) {
@@ -1308,6 +1315,9 @@ func removeTable(lines []string, table string) []string {
 			continue
 		}
 		i = sp.last
+		for i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == "" {
+			i++
+		}
 	}
 	return kept
 }

@@ -169,6 +169,9 @@ func (a *App) configSet(ctx context.Context, key string, values []string) error 
 }
 
 func (a *App) configUnset(ctx context.Context, key string) error {
+	if config.IsEntryTable(key) {
+		return a.unsetTable(ctx, key)
+	}
 	setting, changed, err := a.editConfig(ctx, key, func(data []byte) ([]byte, bool, error) {
 		return config.Unset(data, key)
 	})
@@ -178,34 +181,65 @@ func (a *App) configUnset(ctx context.Context, key string) error {
 	return a.printConfigChange(setting, changed)
 }
 
+// unsetTable removes an endpoint, model or role table whole. The table is
+// not a setting, so there is no value to look up or print after the edit.
+func (a *App) unsetTable(ctx context.Context, key string) error {
+	_, changed, err := a.editFile(ctx, func(data []byte) ([]byte, bool, error) {
+		return config.Unset(data, key)
+	})
+	if err != nil {
+		return err
+	}
+	if a.global.json {
+		return a.writeJSON(configChangeJSON{Path: a.paths.ConfigFile, Setting: config.Setting{Key: key}, Changed: changed, Warnings: a.warnings()})
+	}
+	if changed {
+		fmt.Fprintln(a.stdout, key+" removed")
+	} else {
+		fmt.Fprintln(a.stdout, key+" is not set")
+	}
+	a.printWarnings()
+	return nil
+}
+
 // editConfig applies edit to config.toml under the config lock. It writes
 // the file only when edit changed it, and returns key's setting as the file
 // now says.
 func (a *App) editConfig(ctx context.Context, key string, edit func([]byte) ([]byte, bool, error)) (config.Setting, bool, error) {
-	unlock, err := lockfile.Exclusive(ctx, filepath.Join(a.paths.Root, "config.lock"))
-	if err != nil {
-		return config.Setting{}, false, fmt.Errorf("locking config: %w", err)
-	}
-	defer unlock()
-	data, err := a.readConfig()
+	out, changed, err := a.editFile(ctx, edit)
 	if err != nil {
 		return config.Setting{}, false, err
-	}
-	out, changed, err := edit(data)
-	if err != nil {
-		return config.Setting{}, false, configError(err)
-	}
-	if changed {
-		err = config.WriteFile(a.paths.ConfigFile, out)
-		if err != nil {
-			return config.Setting{}, false, fmt.Errorf("writing config: %w", err)
-		}
 	}
 	setting, err := config.Lookup(out, key)
 	if err != nil {
 		return config.Setting{}, false, configError(err)
 	}
 	return setting, changed, nil
+}
+
+// editFile applies edit to config.toml under the config lock. It writes the
+// file only when edit changed it, and returns the file's new text.
+func (a *App) editFile(ctx context.Context, edit func([]byte) ([]byte, bool, error)) ([]byte, bool, error) {
+	unlock, err := lockfile.Exclusive(ctx, filepath.Join(a.paths.Root, "config.lock"))
+	if err != nil {
+		return nil, false, fmt.Errorf("locking config: %w", err)
+	}
+	defer unlock()
+	data, err := a.readConfig()
+	if err != nil {
+		return nil, false, err
+	}
+	out, changed, err := edit(data)
+	if err != nil {
+		return nil, false, configError(err)
+	}
+	if changed {
+		err = config.WriteFile(a.paths.ConfigFile, out)
+		if err != nil {
+			return nil, false, fmt.Errorf("writing config: %w", err)
+		}
+	}
+	return out, changed, nil
 }
 
 // checkProfileKey refuses a review.profiles.<name>.* key for a profile that
