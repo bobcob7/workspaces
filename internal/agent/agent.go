@@ -203,10 +203,17 @@ func (u *Usage) plus(o Usage) {
 	u.CompletionTokens += o.CompletionTokens
 }
 
-func (u *Usage) add(in llm.Usage) {
-	u.Requests++
+// addTokens adds a reply's tokens. The request itself is counted when it is
+// sent, so a failed attempt still counts (reference.md, usage.json).
+func (u *Usage) addTokens(in llm.Usage) {
 	u.PromptTokens += in.InputTokens
 	u.CompletionTokens += in.OutputTokens
+}
+
+// countRequest counts one request on the endpoint it is sent to.
+func (r *run) countRequest() {
+	r.usage.Requests++
+	r.endpoints[len(r.endpoints)-1].Usage.Requests++
 }
 
 func (r *run) loop(ctx context.Context) Outcome {
@@ -259,6 +266,7 @@ func (r *run) send(ctx context.Context) (llm.Response, *exitInfo) {
 }
 
 func (r *run) attempt(ctx context.Context) (llm.Response, error) {
+	r.countRequest()
 	r.setState("waiting_model")
 	return r.target.Chat.Chat(ctx, r.request())
 }
@@ -285,8 +293,8 @@ func traceParent(traceID string) string {
 
 // accept records a reply and adds it to the history.
 func (r *run) accept(resp *llm.Response) {
-	r.usage.add(resp.Usage)
-	r.endpoints[len(r.endpoints)-1].Usage.add(resp.Usage)
+	r.usage.addTokens(resp.Usage)
+	r.endpoints[len(r.endpoints)-1].Usage.addTokens(resp.Usage)
 	r.checkTruncation(resp.Usage)
 	if resp.Usage.Reported {
 		r.lastPrompt = resp.Usage.InputTokens

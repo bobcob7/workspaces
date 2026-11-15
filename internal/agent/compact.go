@@ -50,14 +50,15 @@ func Compact(msgs []llm.Message, system string, estimate, limit int, done []Tool
 	return compact(msgs, system, estimate, limit, done, false)
 }
 
-// compact is Compact; force elides even under 70%, for a context_length
-// error the estimate missed.
+// compact is Compact. force is for a context_length error the estimate
+// missed: it elides every tool result outside the last 6 messages whatever
+// the estimate says, then drops turns if the estimate is still over 70%.
 func compact(msgs []llm.Message, system string, estimate, limit int, done []ToolRecord, force bool) ([]llm.Message, CompactionEvent, bool) {
 	ev := CompactionEvent{BeforeTokens: estimate, AfterTokens: estimate}
 	if !force && !overPercent(estimate, limit, compactAbovePercent) {
 		return msgs, ev, true
 	}
-	out, est, elided := elideOldest(slices.Clone(msgs), estimate, limit)
+	out, est, elided := elideOldest(slices.Clone(msgs), estimate, limit, force)
 	ev.Elided = elided
 	if overPercent(est, limit, compactAbovePercent) {
 		out, est, ev.DroppedTurns = dropTurns(out, est, limit, done)
@@ -70,10 +71,12 @@ func overPercent(est, limit, percent int) bool {
 	return est*100 > limit*percent
 }
 
-func elideOldest(msgs []llm.Message, est, limit int) ([]llm.Message, int, int) {
+// elideOldest elides tool results, oldest first, until the estimate is under
+// 50%. With all, it elides every result outside the last keepRecent messages.
+func elideOldest(msgs []llm.Message, est, limit int, all bool) ([]llm.Message, int, int) {
 	elided := 0
 	for i := range len(msgs) - keepRecent {
-		if !overPercent(est, limit, compactToPercent) {
+		if !all && !overPercent(est, limit, compactToPercent) {
 			break
 		}
 		if !elidable(&msgs[i]) {

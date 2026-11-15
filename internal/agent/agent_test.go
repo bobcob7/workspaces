@@ -78,6 +78,37 @@ func TestAgent_Run(t *testing.T) {
 		require.Len(t, compactions, 1)
 		assert.Equal(t, 1, payloadOf[*CompactionEvent](t, compactions[0]).Elided)
 	})
+	t.Run("compacts a context error the estimate missed, though the estimate is far under the window", func(t *testing.T) {
+		chat := scripted(t,
+			reply(call("1", "run", `{"command":"step 1"}`)),
+			reply(call("2", "run", `{"command":"step 2"}`)),
+			reply(call("3", "run", `{"command":"step 3"}`)),
+			reply(call("4", "run", `{"command":"step 4"}`)),
+			fail(llm.ErrContextExceeded),
+			reply(call("5", "record_result", `{"verdict":"PASS","report":"ok"}`)),
+		)
+		cfg := testConfig(chat)
+		cfg.Tools = StaticToolset(withRun(runTool(strings.Repeat("x", 440))))
+		out, events := runWithTranscript(t, cfg, advancingClock(), nil)
+		assert.Equal(t, ExitDone, out.Exit)
+		requests := chat.ChatCalls()
+		require.Len(t, requests, 6)
+		assert.True(t, strings.HasPrefix(requests[5].Req.Messages[2].Content, elidedPrefix))
+		compactions := eventsOf(events, kindCompaction)
+		require.Len(t, compactions, 1)
+		assert.Equal(t, 1, payloadOf[*CompactionEvent](t, compactions[0]).Elided)
+	})
+	t.Run("counts every attempt as a request, the failed ones too", func(t *testing.T) {
+		chat := scripted(t,
+			fail(retryable()), fail(retryable()), fail(retryable()),
+			reply(call("1", "record_result", `{"verdict":"PASS","report":"ok"}`)),
+		)
+		out, _ := runWithTranscript(t, testConfig(chat), advancingClock(), nil)
+		assert.Equal(t, ExitDone, out.Exit)
+		assert.Equal(t, 4, out.Usage.Requests)
+		require.Len(t, out.Endpoints, 1)
+		assert.Equal(t, 4, out.Endpoints[0].Usage.Requests)
+	})
 	t.Run("keeps the written files and the run exit codes in the progress note", func(t *testing.T) {
 		chat := scripted(t,
 			reply(call("1", "write_file", fmt.Sprintf(`{"path":"a.go","content":%q}`, strings.Repeat("x", 2400)))),

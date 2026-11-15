@@ -49,6 +49,23 @@ func TestAgent_Reresolve(t *testing.T) {
 		assert.Equal(t, []string{"endpoint", "url"}, payload.Changed)
 		assert.Nil(t, payload.Version)
 	})
+	t.Run("counts the failed attempt on the endpoint it was sent to, not the one switched to", func(t *testing.T) {
+		chatA := scripted(t, fail(retryable()))
+		chatB := scripted(t, recordDone)
+		targetB := testTarget(chatB)
+		targetB.Endpoint = "gpu-b"
+		resolver := &reresolverMock{ReresolveFunc: func(context.Context, Target) Resolution {
+			return Resolution{Target: targetB, Changed: true, Changes: []string{"endpoint"}}
+		}}
+		cfg := testConfig(chatA)
+		cfg.Reresolver = resolver
+		out, _ := runWithTranscript(t, cfg, advancingClock(), nil)
+		assert.Equal(t, ExitDone, out.Exit)
+		assert.Equal(t, 2, out.Usage.Requests)
+		require.Len(t, out.Endpoints, 2)
+		assert.Equal(t, EndpointUsage{Endpoint: "gpu", Model: "qwen/qwen3.5-9b", Usage: Usage{Requests: 1}}, out.Endpoints[0])
+		assert.Equal(t, EndpointUsage{Endpoint: "gpu-b", Model: "qwen/qwen3.5-9b", Usage: Usage{Requests: 1}}, out.Endpoints[1])
+	})
 	t.Run("calls the sleep before each re-resolution", func(t *testing.T) {
 		var order []string
 		clk := advancingClock()
