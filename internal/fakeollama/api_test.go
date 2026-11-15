@@ -181,6 +181,52 @@ func TestServer_handleChat(t *testing.T) {
 		assert.Regexp(t, `^chatcmpl-\d{1,3}$`, completion.ID)
 		assert.Regexp(t, `^call_[a-z0-9]{8}$`, completion.Choices[0].Message.ToolCalls[0].ID)
 	})
+	t.Run("rejects tools from a model without the tools capability when strict", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig()
+		cfg.StrictCapabilities = true
+		cfg.Models = append(cfg.Models, Model{Name: "fake-notools"})
+		s := startServer(t, cfg)
+		res, body := chat(t, s, `{"model":"fake-notools","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup_order_status","parameters":{"type":"object"}}}]}`)
+		require.Equal(t, http.StatusBadRequest, res.StatusCode)
+		assert.JSONEq(t, `{"error":"fake-notools does not support tools"}`, body)
+	})
+	t.Run("accepts tools from a model without the tools capability unless strict", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig()
+		cfg.Models = append(cfg.Models, Model{Name: "fake-notools"})
+		s := startServer(t, cfg)
+		res, _ := chat(t, s, `{"model":"fake-notools","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup_order_status","parameters":{"type":"object"}}}]}`)
+		assert.Equal(t, http.StatusOK, res.StatusCode)
+	})
+	t.Run("accepts requests without tools from a model without the tools capability when strict", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig()
+		cfg.StrictCapabilities = true
+		cfg.Models = append(cfg.Models, Model{Name: "fake-notools"})
+		s := startServer(t, cfg)
+		res, _ := chat(t, s, `{"model":"fake-notools","messages":[{"role":"user","content":"hi"}]}`)
+		assert.Equal(t, http.StatusOK, res.StatusCode)
+	})
+	t.Run("truncates the conversation to the model's context length", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig()
+		cfg.Models = append(cfg.Models, Model{Name: "fake-small", Capabilities: []Capability{CapabilityTools}, ContextLength: 50})
+		s := startServer(t, cfg)
+		msgs := []openaiwire.Message{msg("system", "be brief")}
+		for range 10 {
+			msgs = append(msgs, msg("user", wordsOf(18)), msg("assistant", wordsOf(18)))
+		}
+		msgs = append(msgs, msg("user", "final question"))
+		body, err := json.Marshal(openaiwire.ChatRequest{Model: "fake-small", Messages: msgs})
+		require.NoError(t, err)
+		res, out := chat(t, s, string(body))
+		require.Equal(t, http.StatusOK, res.StatusCode)
+		var completion openaiwire.ChatCompletion
+		require.NoError(t, json.Unmarshal([]byte(out), &completion))
+		assert.LessOrEqual(t, completion.Usage.PromptTokens, 50)
+		assert.Equal(t, "final question", completion.Choices[0].Message.Content)
+	})
 	t.Run("returns 400 for undecodable bodies", func(t *testing.T) {
 		t.Parallel()
 		s := startServer(t, testConfig())
@@ -244,8 +290,109 @@ func TestServer_handleChat(t *testing.T) {
 	})
 }
 
+func TestServer_handleVersion(t *testing.T) {
+	t.Parallel()
+	t.Run("reports the fake version", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		res, body := do(t, http.MethodGet, s.URL()+"/api/version", "")
+		require.Equal(t, http.StatusOK, res.StatusCode)
+		assert.JSONEq(t, `{"version":"0.0.0-fake"}`, body)
+	})
+	t.Run("fails while the server is down", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		require.NoError(t, s.SetFaults(t.Context(), Fault{Down: true}))
+		_, err := send(t.Context(), http.MethodGet, s.URL()+"/api/version", "")
+		assert.Error(t, err)
+	})
+	t.Run("applies unscoped faults", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		require.NoError(t, s.SetFaults(t.Context(), Fault{Status: 500}))
+		res, _ := do(t, http.MethodGet, s.URL()+"/api/version", "")
+		assert.Equal(t, http.StatusInternalServerError, res.StatusCode)
+	})
+}
+
+func TestServer_handleTags(t *testing.T) {
+	t.Parallel()
+	t.Run("lists every model with its family", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig()
+		cfg.Models[1].Family = "qwen3"
+		s := startServer(t, cfg)
+		res, body := do(t, http.MethodGet, s.URL()+"/api/tags", "")
+		require.Equal(t, http.StatusOK, res.StatusCode)
+		assert.JSONEq(t, `{"models":[`+
+			`{"name":"fake-chat","model":"fake-chat","size":0,"details":{"family":"fake"}},`+
+			`{"name":"fake-reasoning","model":"fake-reasoning","size":0,"details":{"family":"qwen3"}}]}`, body)
+	})
+	t.Run("ignores faults scoped to a model", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		require.NoError(t, s.SetFaults(t.Context(), Fault{Model: "fake-chat", Status: 503}))
+		res, _ := do(t, http.MethodGet, s.URL()+"/api/tags", "")
+		assert.Equal(t, http.StatusOK, res.StatusCode)
+	})
+}
+
+func TestServer_handleShow(t *testing.T) {
+	t.Parallel()
+	t.Run("describes the model's capabilities and default context", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		res, body := do(t, http.MethodPost, s.URL()+"/api/show", `{"model":"fake-reasoning"}`)
+		require.Equal(t, http.StatusOK, res.StatusCode)
+		assert.JSONEq(t, `{"capabilities":["completion","tools","thinking"],"model_info":{"fake.context_length":32768},"details":{"family":"fake"}}`, body)
+	})
+	t.Run("uses the model's context length and family", func(t *testing.T) {
+		t.Parallel()
+		cfg := testConfig()
+		cfg.Models = append(cfg.Models, Model{Name: "qwen/qwen3.5-9b", Capabilities: []Capability{CapabilityTools}, ContextLength: 4096, Family: "qwen3"})
+		s := startServer(t, cfg)
+		_, body := do(t, http.MethodPost, s.URL()+"/api/show", `{"model":"qwen/qwen3.5-9b"}`)
+		assert.JSONEq(t, `{"capabilities":["completion","tools"],"model_info":{"qwen3.context_length":4096},"details":{"family":"qwen3"}}`, body)
+	})
+	t.Run("returns 404 for an unknown model", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		res, body := do(t, http.MethodPost, s.URL()+"/api/show", `{"model":"missing"}`)
+		require.Equal(t, http.StatusNotFound, res.StatusCode)
+		assert.JSONEq(t, `{"error":"model 'missing' not found"}`, body)
+	})
+	t.Run("returns 400 for undecodable bodies", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		res, _ := do(t, http.MethodPost, s.URL()+"/api/show", "{")
+		assert.Equal(t, http.StatusBadRequest, res.StatusCode)
+	})
+	t.Run("applies faults scoped to the model it names and records the request", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		require.NoError(t, s.SetFaults(t.Context(), Fault{Model: "fake-chat", Status: 503}))
+		res, _ := do(t, http.MethodPost, s.URL()+"/api/show", `{"model":"fake-chat"}`)
+		assert.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
+		res, _ = do(t, http.MethodPost, s.URL()+"/api/show", `{"model":"fake-reasoning"}`)
+		assert.Equal(t, http.StatusOK, res.StatusCode)
+		recorded := s.Requests()
+		require.Len(t, recorded, 2)
+		assert.Equal(t, "/api/show", recorded[0].Path)
+		assert.Equal(t, "fake-chat", recorded[0].Model)
+		assert.Equal(t, "fake-reasoning", recorded[1].Model)
+	})
+}
+
 func TestServer_applyFault(t *testing.T) {
 	t.Parallel()
+	t.Run("status sends Retry-After when set", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		require.NoError(t, s.SetFaults(t.Context(), Fault{Status: 503, RetryAfter: 7}))
+		res, _ := chat(t, s, readFixture(t, "chat.request.json"))
+		assert.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
+		assert.Equal(t, "7", res.Header.Get("Retry-After"))
+	})
 	t.Run("status responds with an error envelope", func(t *testing.T) {
 		t.Parallel()
 		s := startServer(t, testConfig())

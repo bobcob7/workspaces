@@ -3,6 +3,7 @@ package fakeollama
 import (
 	"encoding/json/v2"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"syscall"
 	"testing"
@@ -118,6 +119,48 @@ func TestServer_handleGetRequests(t *testing.T) {
 	first, ok := messages[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "hi", first["content"])
+	t.Run("records an identifier for the bearer token, never the token", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, testConfig())
+		res, err := send(t.Context(), http.MethodGet, s.URL()+"/v1/models", "")
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL()+"/v1/chat/completions", strings.NewReader(`{"model":"fake-chat","messages":[{"role":"user","content":"hi"}]}`))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer secret")
+		res, err = http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+		recorded := s.Requests()
+		require.Len(t, recorded, 2)
+		assert.Empty(t, recorded[0].Auth)
+		assert.Equal(t, "bearer:2bb80d53", recorded[1].Auth)
+		body, err := json.Marshal(recorded)
+		require.NoError(t, err)
+		assert.NotContains(t, string(body), "secret")
+	})
+}
+
+func TestAuthOf(t *testing.T) {
+	t.Run("is empty without an Authorization header", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+		assert.Empty(t, authOf(req))
+	})
+	t.Run("hashes the bearer token", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		assert.Equal(t, "bearer:2bb80d53", authOf(req))
+	})
+	t.Run("accepts any case of the scheme", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "bearer secret")
+		assert.Equal(t, "bearer:2bb80d53", authOf(req))
+	})
+	t.Run("hashes a value without a scheme whole", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "secret")
+		assert.Equal(t, "bearer:2bb80d53", authOf(req))
+	})
 }
 
 func TestServer_handleReset(t *testing.T) {

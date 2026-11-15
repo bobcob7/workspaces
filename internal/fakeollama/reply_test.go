@@ -1,6 +1,7 @@
 package fakeollama
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,10 @@ func orderTool() openaiwire.Tool {
 
 func orderRule() Rule {
 	return Rule{Match: `(?i)status of order ([A-Z]-\d+)`, Tool: "lookup_order_status", Arguments: `{"order_id":"{{ index .Match 1 }}"}`}
+}
+
+func toolNamed(name string) openaiwire.Tool {
+	return openaiwire.Tool{Type: openaiwire.ToolTypeFunction, Function: openaiwire.FunctionDefinition{Name: name}}
 }
 
 func mustRules(t *testing.T, rules ...Rule) []rule {
@@ -104,6 +109,23 @@ func TestCompileRules(t *testing.T) {
 	t.Run("rejects arguments without a tool", func(t *testing.T) {
 		_, err := compileRules([]Rule{{Match: "a", Reply: "x", Arguments: "{}"}})
 		assert.ErrorIs(t, err, errArgumentsWithoutTool)
+	})
+	t.Run("rejects raw arguments without a tool", func(t *testing.T) {
+		_, err := compileRules([]Rule{{Match: "a", Reply: "x", RawArguments: "{"}})
+		assert.ErrorIs(t, err, errArgumentsWithoutTool)
+	})
+	t.Run("rejects any_tool without a tool", func(t *testing.T) {
+		_, err := compileRules([]Rule{{Match: "a", Reply: "x", AnyTool: true}})
+		assert.ErrorIs(t, err, errArgumentsWithoutTool)
+	})
+	t.Run("rejects arguments and raw arguments together", func(t *testing.T) {
+		_, err := compileRules([]Rule{{Match: "a", Tool: "t", Arguments: "{}", RawArguments: "{"}})
+		assert.ErrorIs(t, err, errRawAndArguments)
+	})
+	t.Run("rejects invalid match_tool_result patterns", func(t *testing.T) {
+		_, err := compileRules([]Rule{{Turn: new(0), Tool: "t", MatchToolResult: "("}})
+		require.ErrorIs(t, err, errInvalidConfig)
+		assert.ErrorContains(t, err, "rule 1")
 	})
 	t.Run("rejects invalid arguments templates", func(t *testing.T) {
 		_, err := compileRules([]Rule{{Match: "a", Tool: "t", Arguments: "{{ .Match"}})
@@ -218,6 +240,68 @@ func TestRespond(t *testing.T) {
 		rep, err := respond(nil, openaiwire.ChatRequest{ReasoningEffort: "none", Messages: []openaiwire.Message{msg("user", "hi")}}, reasoningModel())
 		require.NoError(t, err)
 		assert.Empty(t, rep.reasoning)
+	})
+	t.Run("applies turn rules to the turn they name", func(t *testing.T) {
+		rules := mustRules(t,
+			Rule{Turn: new(0), Tool: "write_file", Arguments: `{"path":"a"}`},
+			Rule{Turn: new(1), Tool: "run", Arguments: `{"command":"x"}`},
+			Rule{Turn: new(2), Reply: "done"},
+		)
+		tools := []openaiwire.Tool{toolNamed("write_file"), toolNamed("run")}
+		second := []openaiwire.Message{msg("user", "go"), msg("assistant", ""), msg("tool", "ok")}
+		third := append(slices.Clone(second), msg("assistant", ""), msg("tool", "ok"))
+		first, err := respond(rules, openaiwire.ChatRequest{Messages: []openaiwire.Message{msg("user", "go")}, Tools: tools}, chatModel())
+		require.NoError(t, err)
+		require.Len(t, first.toolCalls, 1)
+		assert.Equal(t, "write_file", first.toolCalls[0].Function.Name)
+		rep, err := respond(rules, openaiwire.ChatRequest{Messages: second, Tools: tools}, chatModel())
+		require.NoError(t, err)
+		require.Len(t, rep.toolCalls, 1)
+		assert.Equal(t, "run", rep.toolCalls[0].Function.Name)
+		rep, err = respond(rules, openaiwire.ChatRequest{Messages: third, Tools: tools}, chatModel())
+		require.NoError(t, err)
+		assert.Equal(t, "done", rep.content)
+	})
+	t.Run("applies match_tool_result rules only to trailing results that match", func(t *testing.T) {
+		rules := mustRules(t, Rule{MatchToolResult: "exit 1", Tool: "record", Arguments: `{"verdict":"FAIL"}`})
+		tools := []openaiwire.Tool{toolNamed("record")}
+		failed := openaiwire.ChatRequest{Messages: []openaiwire.Message{msg("user", "go"), msg("assistant", ""), msg("tool", "exit 1: boom")}, Tools: tools}
+		rep, err := respond(rules, failed, chatModel())
+		require.NoError(t, err)
+		require.Len(t, rep.toolCalls, 1)
+		assert.JSONEq(t, `{"verdict":"FAIL"}`, rep.toolCalls[0].Function.Arguments)
+		passed := openaiwire.ChatRequest{Messages: []openaiwire.Message{msg("user", "go"), msg("assistant", ""), msg("tool", "exit 0")}, Tools: tools}
+		rep, err = respond(rules, passed, chatModel())
+		require.NoError(t, err)
+		assert.Equal(t, "The tool returned: exit 0", rep.content)
+		assert.Empty(t, rep.toolCalls)
+		unanswered := openaiwire.ChatRequest{Messages: []openaiwire.Message{msg("user", "go")}, Tools: tools}
+		rep, err = respond(rules, unanswered, chatModel())
+		require.NoError(t, err)
+		assert.Equal(t, "go", rep.content)
+	})
+	t.Run("sends raw arguments verbatim", func(t *testing.T) {
+		rules := mustRules(t, Rule{Match: "^raw", Tool: "read_file", RawArguments: `{"path": `})
+		req := openaiwire.ChatRequest{Messages: []openaiwire.Message{msg("user", "raw please")}, Tools: []openaiwire.Tool{toolNamed("read_file")}}
+		rep, err := respond(rules, req, chatModel())
+		require.NoError(t, err)
+		require.Len(t, rep.toolCalls, 1)
+		assert.Equal(t, `{"path": `, rep.toolCalls[0].Function.Arguments)
+	})
+	t.Run("calls a tool the request doesn't offer when any_tool is set", func(t *testing.T) {
+		rules := mustRules(t, Rule{Match: "^destroy", Tool: "delete_repo", AnyTool: true, Arguments: `{"confirm":true}`})
+		req := openaiwire.ChatRequest{Messages: []openaiwire.Message{msg("user", "destroy it")}, Tools: []openaiwire.Tool{toolNamed("read_file")}}
+		rep, err := respond(rules, req, chatModel())
+		require.NoError(t, err)
+		require.Len(t, rep.toolCalls, 1)
+		assert.Equal(t, "delete_repo", rep.toolCalls[0].Function.Name)
+		assert.Equal(t, `{"confirm":true}`, rep.toolCalls[0].Function.Arguments)
+	})
+	t.Run("doesn't apply turn rules to other turns", func(t *testing.T) {
+		rules := mustRules(t, Rule{Turn: new(1), Reply: "second"})
+		rep, err := respond(rules, openaiwire.ChatRequest{Messages: []openaiwire.Message{msg("user", "hi")}}, chatModel())
+		require.NoError(t, err)
+		assert.Equal(t, "hi", rep.content)
 	})
 }
 

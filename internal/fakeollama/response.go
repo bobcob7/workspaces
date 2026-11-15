@@ -27,12 +27,19 @@ func (r reply) finishReason() *string {
 	return new(openaiwire.FinishReasonStop)
 }
 
+// promptTokens counts the words of the messages as tokens.
+func promptTokens(msgs []openaiwire.Message) int {
+	n := 0
+	for _, m := range msgs {
+		n += len(strings.Fields(m.Text()))
+	}
+	return n
+}
+
 // usageFor counts words as tokens.
 func usageFor(req openaiwire.ChatRequest, rep reply) openaiwire.Usage {
 	var u openaiwire.Usage
-	for _, m := range req.Messages {
-		u.PromptTokens += len(strings.Fields(m.Text()))
-	}
+	u.PromptTokens = promptTokens(req.Messages)
 	u.CompletionTokens = len(strings.Fields(rep.reasoning)) + len(strings.Fields(rep.content))
 	for _, tc := range rep.toolCalls {
 		u.CompletionTokens += 1 + len(strings.Fields(tc.Function.Arguments))

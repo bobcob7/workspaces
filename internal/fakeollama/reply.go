@@ -1,6 +1,7 @@
 package fakeollama
 
 import (
+	"cmp"
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ const toolCallIDLetters = "abcdefghijklmnopqrstuvwxyz0123456789"
 var (
 	errRuleAction           = errors.New("set exactly one of reply and tool")
 	errArgumentsWithoutTool = errors.New("arguments need a tool")
+	errRawAndArguments      = errors.New("set at most one of arguments and raw_arguments")
 	errInvalidArguments     = errors.New("tool arguments are not valid JSON")
 )
 
@@ -41,6 +43,18 @@ func trailingToolResults(req openaiwire.ChatRequest) []string {
 	return results
 }
 
+// assistantTurns counts the assistant messages, which is the turn the reply
+// to req is.
+func assistantTurns(req openaiwire.ChatRequest) int {
+	n := 0
+	for _, msg := range req.Messages {
+		if msg.Role == openaiwire.RoleAssistant {
+			n++
+		}
+	}
+	return n
+}
+
 // reply is the generated assistant turn.
 type reply struct {
 	reasoning string
@@ -50,10 +64,14 @@ type reply struct {
 
 // rule is a compiled Rule. Exactly one of reply and tool is set.
 type rule struct {
-	pattern   *regexp.Regexp
-	reply     *template.Template
-	tool      string
-	arguments *template.Template
+	pattern     *regexp.Regexp
+	reply       *template.Template
+	tool        string
+	arguments   *template.Template
+	raw         bool
+	anyTool     bool
+	turn        *int
+	matchResult *regexp.Regexp
 }
 
 // templateData is what rule reply and arguments templates can reference.
@@ -68,6 +86,10 @@ type templateData struct {
 	Match []string
 	// Transcript is every message's content, one per line.
 	Transcript string
+	// ToolResults are the trailing tool results.
+	ToolResults []string
+	// Turn is the number of assistant messages before the reply.
+	Turn int
 }
 
 type templateMessage struct {
@@ -111,24 +133,40 @@ func compileRules(rules []Rule) ([]rule, error) {
 }
 
 func compileRule(name string, r Rule) (rule, error) {
-	switch {
-	case (r.Reply == "") == (r.Tool == ""):
-		return rule{}, errRuleAction
-	case r.Arguments != "" && r.Tool == "":
-		return rule{}, errArgumentsWithoutTool
+	if err := validateRuleFields(r); err != nil {
+		return rule{}, err
 	}
 	pattern, err := regexp.Compile(r.Match)
 	if err != nil {
 		return rule{}, err
 	}
-	c := rule{pattern: pattern, tool: r.Tool}
+	c := rule{pattern: pattern, tool: r.Tool, raw: r.RawArguments != "", anyTool: r.AnyTool, turn: r.Turn}
+	if r.MatchToolResult != "" {
+		if c.matchResult, err = regexp.Compile(r.MatchToolResult); err != nil {
+			return rule{}, err
+		}
+	}
 	if c.reply, err = parseTemplate(name, r.Reply); err != nil {
 		return rule{}, err
 	}
-	if c.arguments, err = parseTemplate(name+" arguments", r.Arguments); err != nil {
+	if c.arguments, err = parseTemplate(name+" arguments", cmp.Or(r.Arguments, r.RawArguments)); err != nil {
 		return rule{}, err
 	}
 	return c, nil
+}
+
+func validateRuleFields(r Rule) error {
+	switch {
+	case (r.Reply == "") == (r.Tool == ""):
+		return errRuleAction
+	case r.Arguments != "" && r.RawArguments != "":
+		return errRawAndArguments
+	case r.Arguments != "" && r.Tool == "":
+		return errArgumentsWithoutTool
+	case (r.RawArguments != "" || r.AnyTool) && r.Tool == "":
+		return errArgumentsWithoutTool
+	}
+	return nil
 }
 
 // parseTemplate parses text, returning nil for empty text.
@@ -140,7 +178,7 @@ func parseTemplate(name, text string) (*template.Template, error) {
 }
 
 func newTemplateData(req openaiwire.ChatRequest, last string, match []string) templateData {
-	data := templateData{Model: req.Model, Last: last, Match: match}
+	data := templateData{Model: req.Model, Last: last, Match: match, ToolResults: trailingToolResults(req), Turn: assistantTurns(req)}
 	lines := make([]string, 0, len(req.Messages))
 	for _, m := range req.Messages {
 		data.Messages = append(data.Messages, templateMessage{Role: m.Role, Content: m.Text()})
@@ -170,33 +208,76 @@ func respond(rules []rule, req openaiwire.ChatRequest, m Model) (reply, error) {
 	return rep, nil
 }
 
-// answer states trailing tool results, or applies the first rule that
-// matches the last user message and can apply, or echoes the message. Tool
-// rules apply only when the request offers the tool and the model supports
-// tools, so a model only calls tools when a rule asks for it.
+// answer applies the first scripted rule (one with turn or match_tool_result)
+// that applies, then states trailing tool results, then applies the first
+// other rule that matches the last user message and can apply, and otherwise
+// echoes the message. Tool rules apply only when the request offers the tool
+// (or the rule sets any_tool) and the model supports tools, so a model only
+// calls tools when a rule asks for it.
 func answer(rules []rule, req openaiwire.ChatRequest, m Model) (reply, error) {
+	last := lastUserText(req)
+	if rep, ok, err := firstApplying(rules, req, m, last, true); ok || err != nil {
+		return rep, err
+	}
 	if results := trailingToolResults(req); len(results) > 0 {
 		return reply{content: "The tool returned: " + strings.Join(results, "\n")}, nil
 	}
-	last := lastUserText(req)
-	for _, r := range rules {
-		match := r.pattern.FindStringSubmatch(last)
-		if match == nil {
-			continue
-		}
-		data := newTemplateData(req, last, match)
-		if r.reply != nil {
-			content, err := render(r.reply, data)
-			return reply{content: content}, err
-		}
-		tool, ok := offeredTool(req, r.tool)
-		if !ok || !m.has(CapabilityTools) {
-			continue
-		}
-		call, err := r.toolCall(tool, data)
-		return reply{toolCalls: []openaiwire.ToolCall{call}}, err
+	if rep, ok, err := firstApplying(rules, req, m, last, false); ok || err != nil {
+		return rep, err
 	}
 	return reply{content: last}, nil
+}
+
+// firstApplying returns the reply of the first rule that applies to req,
+// considering only scripted rules (those with turn or match_tool_result) or
+// only the others.
+func firstApplying(rules []rule, req openaiwire.ChatRequest, m Model, last string, scripted bool) (reply, bool, error) {
+	for _, r := range rules {
+		if r.scripted() != scripted {
+			continue
+		}
+		if rep, ok, err := r.apply(req, m, last); ok || err != nil {
+			return rep, ok, err
+		}
+	}
+	return reply{}, false, nil
+}
+
+func (r rule) scripted() bool {
+	return r.turn != nil || r.matchResult != nil
+}
+
+// apply returns the reply the rule gives to req, or false if the rule doesn't
+// apply to it.
+func (r rule) apply(req openaiwire.ChatRequest, m Model, last string) (reply, bool, error) {
+	match := r.pattern.FindStringSubmatch(last)
+	if match == nil || !r.conditionsHold(req) {
+		return reply{}, false, nil
+	}
+	data := newTemplateData(req, last, match)
+	if r.reply != nil {
+		content, err := render(r.reply, data)
+		return reply{content: content}, true, err
+	}
+	tool, ok := r.toolFor(req)
+	if !ok || !m.has(CapabilityTools) {
+		return reply{}, false, nil
+	}
+	call, err := r.toolCall(tool, data)
+	return reply{toolCalls: []openaiwire.ToolCall{call}}, true, err
+}
+
+// conditionsHold reports whether the rule's turn and tool result conditions
+// hold for req.
+func (r rule) conditionsHold(req openaiwire.ChatRequest) bool {
+	if r.turn != nil && *r.turn != assistantTurns(req) {
+		return false
+	}
+	if r.matchResult == nil {
+		return true
+	}
+	results := trailingToolResults(req)
+	return len(results) > 0 && r.matchResult.MatchString(strings.Join(results, "\n"))
 }
 
 func offeredTool(req openaiwire.ChatRequest, name string) (openaiwire.Tool, bool) {
@@ -207,8 +288,18 @@ func offeredTool(req openaiwire.ChatRequest, name string) (openaiwire.Tool, bool
 	return req.Tools[i], true
 }
 
+// toolFor returns the tool the rule calls: the offered one, or a tool with no
+// parameters when the rule sets any_tool.
+func (r rule) toolFor(req openaiwire.ChatRequest) (openaiwire.Tool, bool) {
+	if r.anyTool {
+		return openaiwire.Tool{Type: openaiwire.ToolTypeFunction, Function: openaiwire.FunctionDefinition{Name: r.tool}}, true
+	}
+	return offeredTool(req, r.tool)
+}
+
 // toolCall calls tool with arguments rendered from the rule's template, or
-// built from the tool's schema when the rule has none.
+// built from the tool's schema when the rule has none. Raw arguments are sent
+// as rendered, valid JSON or not.
 func (r rule) toolCall(tool openaiwire.Tool, data templateData) (openaiwire.ToolCall, error) {
 	args, err := argumentsFor(tool.Function.Parameters)
 	if r.arguments != nil {
@@ -217,7 +308,7 @@ func (r rule) toolCall(tool openaiwire.Tool, data templateData) (openaiwire.Tool
 	if err != nil {
 		return openaiwire.ToolCall{}, err
 	}
-	if !jsontext.Value(args).IsValid() {
+	if !r.raw && !jsontext.Value(args).IsValid() {
 		return openaiwire.ToolCall{}, fmt.Errorf("%w: %s", errInvalidArguments, args)
 	}
 	call := openaiwire.ToolCall{ID: newToolCallID(), Type: openaiwire.ToolTypeFunction, Function: openaiwire.FunctionCall{Name: tool.Function.Name, Arguments: args}}

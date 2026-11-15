@@ -9,6 +9,16 @@ import (
 	"github.com/bobcob7/workspaces/internal/fakeollama/internal/openaiwire"
 )
 
+func TestPromptTokens(t *testing.T) {
+	t.Run("counts the words of every message", func(t *testing.T) {
+		msgs := []openaiwire.Message{msg("system", "be brief"), msg("user", "one two  three")}
+		assert.Equal(t, 5, promptTokens(msgs))
+	})
+	t.Run("counts nothing without messages", func(t *testing.T) {
+		assert.Zero(t, promptTokens(nil))
+	})
+}
+
 func TestOwnedBy(t *testing.T) {
 	tests := []struct {
 		name string

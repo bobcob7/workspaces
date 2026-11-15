@@ -1,6 +1,8 @@
 package fakeollama
 
 import (
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,6 +56,28 @@ faults:
 		_, err := ParseConfig([]byte("timing: {first_token: soon}"))
 		assert.Error(t, err)
 	})
+	t.Run("parses the conversation, capability and context fields", func(t *testing.T) {
+		cfg, err := ParseConfig([]byte(`
+strict_capabilities: true
+models:
+  - {name: m, capabilities: [tools], context_length: 50, family: qwen3}
+rules:
+  - {turn: 0, tool: t, any_tool: true, arguments: "{}"}
+  - {match_tool_result: "exit 1", tool: t, raw_arguments: '{"a": '}
+faults:
+  - {status: 503, retry_after: 7}
+`))
+		require.NoError(t, err)
+		assert.True(t, cfg.StrictCapabilities)
+		assert.Equal(t, 50, cfg.Models[0].ContextLength)
+		assert.Equal(t, "qwen3", cfg.Models[0].Family)
+		require.NotNil(t, cfg.Rules[0].Turn)
+		assert.Zero(t, *cfg.Rules[0].Turn)
+		assert.True(t, cfg.Rules[0].AnyTool)
+		assert.Equal(t, "exit 1", cfg.Rules[1].MatchToolResult)
+		assert.Equal(t, `{"a": `, cfg.Rules[1].RawArguments)
+		assert.Equal(t, 7, cfg.Faults[0].RetryAfter)
+	})
 }
 
 func TestLoadConfig(t *testing.T) {
@@ -71,6 +95,21 @@ func TestLoadConfig(t *testing.T) {
 		_, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
 		assert.ErrorContains(t, err, "reading config")
 	})
+	t.Run("loads and compiles every design config", func(t *testing.T) {
+		t.Parallel()
+		paths, err := filepath.Glob("../../docs/design/ollama-agent/fake-ollama/*.yaml")
+		require.NoError(t, err)
+		require.NotEmpty(t, paths)
+		for _, path := range paths {
+			t.Run(filepath.Base(path), func(t *testing.T) {
+				t.Parallel()
+				cfg, err := LoadConfig(path)
+				require.NoError(t, err)
+				_, err = New(cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+				assert.NoError(t, err)
+			})
+		}
+	})
 }
 
 func TestValidateModels(t *testing.T) {
@@ -83,6 +122,7 @@ func TestValidateModels(t *testing.T) {
 		{"unnamed", []Model{{}}, "invalid config: model name is required"},
 		{"duplicate", []Model{{Name: "a"}, {Name: "a"}}, `invalid config: duplicate model "a"`},
 		{"unknown capability", []Model{{Name: "a", Capabilities: []Capability{"vision"}}}, `invalid config: model "a": unknown capability "vision"`},
+		{"negative context length", []Model{{Name: "a", ContextLength: -1}}, `invalid config: model "a": context_length must not be negative`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

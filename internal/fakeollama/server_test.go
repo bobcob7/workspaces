@@ -180,6 +180,44 @@ func TestServer_Shutdown(t *testing.T) {
 	})
 }
 
+func TestServer_modelIDs(t *testing.T) {
+	t.Parallel()
+	cfg := Config{
+		Models: []Model{
+			{Name: "qwen/qwen3.5-9b", Capabilities: []Capability{CapabilityTools}, ContextLength: 32768},
+			{Name: "qwen3.5:9b", Capabilities: []Capability{CapabilityTools}, ContextLength: 32768},
+		},
+		Rules: []Rule{{Match: "", Reply: "{{ .Model }}"}},
+	}
+	t.Run("lists each id as written", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, cfg)
+		_, models := do(t, http.MethodGet, s.URL()+"/v1/models", "")
+		assert.Contains(t, models, `"id":"qwen/qwen3.5-9b"`)
+		assert.Contains(t, models, `"id":"qwen3.5:9b"`)
+		_, tags := do(t, http.MethodGet, s.URL()+"/api/tags", "")
+		assert.Contains(t, tags, `"name":"qwen/qwen3.5-9b"`)
+		assert.Contains(t, tags, `"name":"qwen3.5:9b"`)
+	})
+	t.Run("answers show and chat for each id", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, cfg)
+		_, show := do(t, http.MethodPost, s.URL()+"/api/show", `{"model":"qwen3.5:9b"}`)
+		assert.Contains(t, show, `"capabilities":["completion","tools"]`)
+		_, out := chat(t, s, `{"model":"qwen/qwen3.5-9b","messages":[{"role":"user","content":"hi"}]}`)
+		assert.Contains(t, out, `"content":"qwen/qwen3.5-9b"`)
+	})
+	t.Run("scopes faults to the id as written", func(t *testing.T) {
+		t.Parallel()
+		s := startServer(t, cfg)
+		require.NoError(t, s.SetFaults(t.Context(), Fault{Model: "qwen3.5:9b", Status: 503}))
+		res, _ := chat(t, s, `{"model":"qwen3.5:9b","messages":[{"role":"user","content":"hi"}]}`)
+		assert.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
+		res, _ = chat(t, s, `{"model":"qwen/qwen3.5-9b","messages":[{"role":"user","content":"hi"}]}`)
+		assert.Equal(t, http.StatusOK, res.StatusCode)
+	})
+}
+
 func TestServer_SetFaults(t *testing.T) {
 	t.Parallel()
 	t.Run("down refuses connections while the control API stays up", func(t *testing.T) {

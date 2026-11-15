@@ -27,6 +27,8 @@ type Fault struct {
 	Status int `json:"status,omitzero" yaml:"status"`
 	// Message overrides the error message sent with Status.
 	Message string `json:"message,omitzero" yaml:"message"`
+	// RetryAfter, with Status, sends a Retry-After header of this many seconds.
+	RetryAfter int `json:"retry_after,omitzero" yaml:"retry_after"`
 	// Hang accepts the request and never responds.
 	Hang bool `json:"hang,omitzero" yaml:"hang"`
 	// SlowFirstToken delays the first byte of the response.
@@ -59,7 +61,7 @@ func (f Fault) validate(models []Model) error {
 
 func (f Fault) validateValues() error {
 	switch {
-	case f.Count < 0 || f.SlowFirstToken < 0 || f.DropAfterChunks < 0 || f.StallAfterChunks < 0:
+	case f.Count < 0 || f.SlowFirstToken < 0 || f.DropAfterChunks < 0 || f.StallAfterChunks < 0 || f.RetryAfter < 0:
 		return fmt.Errorf("%w: values must not be negative", errInvalidFault)
 	case f.Status != 0 && (f.Status < 400 || f.Status > 599):
 		return fmt.Errorf("%w: status %d is not an error status", errInvalidFault, f.Status)
@@ -69,6 +71,8 @@ func (f Fault) validateValues() error {
 
 func (f Fault) validateEffect() error {
 	switch {
+	case f.RetryAfter != 0 && f.Status == 0:
+		return fmt.Errorf("%w: retry_after needs status", errInvalidFault)
 	case f.Down && (f.Model != "" || f.Count != 0):
 		return fmt.Errorf("%w: down can't be scoped to a model or count", errInvalidFault)
 	case !f.Down && !f.Hang && f.Status == 0 && f.SlowFirstToken == 0 && f.DropAfterChunks == 0 && f.StallAfterChunks == 0:

@@ -28,8 +28,11 @@ type Request struct {
 	Model  string    `json:"model,omitzero"`
 	Stream bool      `json:"stream,omitzero"`
 	// Traceparent is the W3C trace context the caller sent, if any.
-	Traceparent string         `json:"traceparent,omitzero"`
-	Body        jsontext.Value `json:"body,omitzero"`
+	Traceparent string `json:"traceparent,omitzero"`
+	// Auth identifies the bearer token the caller sent, never the token. See
+	// authOf.
+	Auth string         `json:"auth,omitzero"`
+	Body jsontext.Value `json:"body,omitzero"`
 }
 
 // Server is a fake Ollama server.

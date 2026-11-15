@@ -24,6 +24,8 @@ func TestFault_validate(t *testing.T) {
 		{"counted down", Fault{Down: true, Count: 1}, "invalid fault: down can't be scoped to a model or count"},
 		{"no effect", Fault{Model: "fake-chat"}, "invalid fault: no effect set"},
 		{"unknown model", Fault{Hang: true, Model: "missing"}, `invalid fault: unknown model "missing"`},
+		{"negative retry after", Fault{Status: 503, RetryAfter: -1}, "invalid fault: values must not be negative"},
+		{"retry after without status", Fault{Hang: true, RetryAfter: 7}, "invalid fault: retry_after needs status"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -31,7 +33,7 @@ func TestFault_validate(t *testing.T) {
 		})
 	}
 	t.Run("accepts valid faults", func(t *testing.T) {
-		for _, f := range []Fault{{Down: true}, {Status: 503, Model: "fake-chat", Count: 2}, {SlowFirstToken: 1}, {StallAfterChunks: 1}} {
+		for _, f := range []Fault{{Down: true}, {Status: 503, Model: "fake-chat", Count: 2}, {Status: 503, RetryAfter: 7}, {SlowFirstToken: 1}, {StallAfterChunks: 1}} {
 			assert.NoError(t, f.validate(models))
 		}
 	})

@@ -1,15 +1,34 @@
 package fakeollama
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/bobcob7/workspaces/internal/fakeollama/internal/openaiwire"
 )
 
 type controlError struct {
 	Error string `json:"error"`
+}
+
+// authOf identifies the request's bearer token by the first 8 hex digits of
+// its SHA-256, so recorded requests can be matched to a caller without
+// holding the token. It is "" without an Authorization header.
+func authOf(r *http.Request) string {
+	header := r.Header.Get("Authorization")
+	if header == "" {
+		return ""
+	}
+	token := header
+	if scheme, rest, ok := strings.Cut(header, " "); ok && strings.EqualFold(scheme, "Bearer") {
+		token = rest
+	}
+	sum := sha256.Sum256([]byte(token))
+	return "bearer:" + hex.EncodeToString(sum[:4])
 }
 
 func (s *Server) controlHandler() http.Handler {
