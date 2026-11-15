@@ -1,8 +1,9 @@
-import { Alert, Button, FormControlLabel, FormHelperText, MenuItem, Switch, TextField } from "@mui/material";
+import { Alert, Button, FormControlLabel, FormHelperText, Switch, TextField } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
 import type { AppError, Loop, NewLoop } from "../../api";
-import { models, permissionModes } from "../create/NewAgentDialog";
 import { RepoSpecsField } from "../create/RepoSpecsField";
+import { RunnerModelFields, type RunnerModelValues } from "../create/RunnerModelFields";
+import { useRunnerSettings } from "../create/useRunnerSettings";
 import { AmountInput } from "./AmountInput";
 import {
   emptyValues,
@@ -29,12 +30,6 @@ const errorFields: Readonly<Record<keyof LoopFormErrors, keyof LoopFormValues>> 
   vars: "vars",
 };
 
-/** Adds the current value to the choices, so a loop's own setting is never lost. */
-const choicesWith = (choices: readonly string[], current: string): readonly string[] =>
-  choices.includes(current) ? choices : [...choices, current];
-
-const choiceLabel = (choice: string): string => (choice === "" ? "Default" : choice);
-
 export interface LoopFormProps {
   /** The loop to edit; absent for a new loop. */
   readonly loop?: Loop;
@@ -50,6 +45,7 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
   const [values, setValues] = useState<LoopFormValues>(() => (loop === undefined ? emptyValues : valuesOf(loop)));
   const [touched, setTouched] = useState<ReadonlySet<keyof LoopFormValues>>(new Set());
   const [submitted, setSubmitted] = useState(false);
+  const runnerSettings = useRunnerSettings(true);
   const errors = formErrors(values);
   const hasScript = values.script.trim() !== "";
   const slug = slugOf(values.title);
@@ -57,6 +53,9 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
   const patch = <K extends keyof LoopFormValues>(field: K, value: LoopFormValues[K]): void => {
     setValues((current) => ({ ...current, [field]: value }));
     setTouched((current) => new Set(current).add(field));
+  };
+  const patchAgent = (change: Partial<RunnerModelValues>): void => {
+    setValues((current) => ({ ...current, ...change }));
   };
   const messageFor = (field: keyof LoopFormErrors): string | undefined =>
     submitted || touched.has(errorFields[field]) ? errors[field] : undefined;
@@ -127,36 +126,14 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
       </fieldset>
       <fieldset className={styles.section}>
         <legend className={styles.legend}>Agent</legend>
-        <TextField
-          select
-          label="Model"
-          value={values.model}
-          onChange={(e) => patch("model", e.target.value)}
-          slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-          size="small"
-          fullWidth
-        >
-          {choicesWith(models, values.model).map((model) => (
-            <MenuItem key={model} value={model}>
-              {choiceLabel(model)}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          label="Permission mode"
-          value={values.permissionMode}
-          onChange={(e) => patch("permissionMode", e.target.value)}
-          slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-          size="small"
-          fullWidth
-        >
-          {choicesWith(permissionModes, values.permissionMode).map((mode) => (
-            <MenuItem key={mode} value={mode}>
-              {choiceLabel(mode)}
-            </MenuItem>
-          ))}
-        </TextField>
+        <RunnerModelFields
+          runner={values.runner}
+          model={values.model}
+          endpoint={values.endpoint}
+          permissionMode={values.permissionMode}
+          settings={runnerSettings}
+          onChange={patchAgent}
+        />
         <FormControlLabel
           className={styles.switchRow}
           control={<Switch checked={values.hidden} onChange={(e) => patch("hidden", e.target.checked)} />}
