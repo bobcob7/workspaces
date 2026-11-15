@@ -493,7 +493,6 @@ func TestWriteFile(t *testing.T) {
 }
 
 func TestIsEntryTable(t *testing.T) {
-	t.Parallel()
 	tests := map[string]bool{
 		"endpoints.gpu":        true,
 		"models.qwen9b":        true,
@@ -504,7 +503,6 @@ func TestIsEntryTable(t *testing.T) {
 	}
 	for key, want := range tests {
 		t.Run(key, func(t *testing.T) {
-			t.Parallel()
 			assert.Equal(t, want, IsEntryTable(key))
 		})
 	}
