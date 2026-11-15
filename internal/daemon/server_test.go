@@ -45,7 +45,7 @@ func discardLog() *slog.Logger {
 type daemonRun struct {
 	origin  string
 	version string
-	sup     Supervisor
+	sup     RunnerSupervisor
 	opts    options
 }
 
@@ -123,7 +123,8 @@ func TestServe_transientIdle(t *testing.T) {
 	})
 	t.Run("a transient daemon with a live runner stays", func(t *testing.T) {
 		p := testPaths(t)
-		sup := &SupervisorMock{
+		sup := &RunnerSupervisorMock{
+			ReconcileFunc: noopReconcile, WatchFunc: noopWatch, WarningsFunc: noWarnings,
 			IdleFunc:    func() bool { return false },
 			RunnersFunc: func() []RunnerStatus { return []RunnerStatus{{Session: "rn-1"}} },
 		}
@@ -184,7 +185,8 @@ func TestServe_shutdown(t *testing.T) {
 	})
 	t.Run("keep_runners reaches the supervisor and lists the kept runners", func(t *testing.T) {
 		p := testPaths(t)
-		sup := &SupervisorMock{
+		sup := &RunnerSupervisorMock{
+			ReconcileFunc: noopReconcile, WatchFunc: noopWatch, WarningsFunc: noWarnings,
 			IdleFunc:    func() bool { return true },
 			RunnersFunc: func() []RunnerStatus { return nil },
 			StopAllFunc: func(_ context.Context, keep bool) ([]string, []string) {
@@ -241,3 +243,9 @@ func TestPeerListener_Accept(t *testing.T) {
 		require.Error(t, <-accepted)
 	})
 }
+
+func noopReconcile(context.Context) error { return nil }
+
+func noopWatch(context.Context) {}
+
+func noWarnings() []string { return []string{} }

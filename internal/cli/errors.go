@@ -87,6 +87,12 @@ const (
 	// From ADR 0068.
 	codeDaemonUnavailable errorCode = "daemon_unavailable"
 	codeDaemonRunning     errorCode = "daemon_running"
+	// From ADR 0064: a runner's preflight and start.
+	codeEndpointUnknown     errorCode = "endpoint_unknown"
+	codeEndpointUnreachable errorCode = "endpoint_unreachable"
+	codeModelNotServed      errorCode = "model_not_served"
+	codeModelWithoutTools   errorCode = "model_without_tools"
+	codeRunnerFailed        errorCode = "runner_failed"
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -130,7 +136,8 @@ func (c errorCode) exitCode() int {
 	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing,
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
-		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable:
+		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable,
+		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
@@ -138,7 +145,7 @@ func (c errorCode) exitCode() int {
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown,
-		codeMemoryNotFound:
+		codeMemoryNotFound, codeEndpointUnknown, codeModelNotServed:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,

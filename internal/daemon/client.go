@@ -112,11 +112,12 @@ func (c *Client) StartRunner(ctx context.Context, id string, resume bool) (int, 
 	return res.PID, err
 }
 
-// StopRunner stops the runner session id. A runner that had already exited
-// is not an error.
-func (c *Client) StopRunner(ctx context.Context, id string) error {
+// StopRunner stops the runner session id. It reports false when the runner
+// had already exited, which is not an error.
+func (c *Client) StopRunner(ctx context.Context, id string) (bool, error) {
 	var res stopResponse
-	return c.do(ctx, http.MethodPost, runnerPath(id, "stop"), nil, &res)
+	err := c.do(ctx, http.MethodPost, runnerPath(id, "stop"), nil, &res)
+	return res.Stopped, err
 }
 
 // Shutdown asks the daemon to exit, interrupting its runners unless
