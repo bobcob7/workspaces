@@ -58,6 +58,9 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 	if err := validateTiming(cfg.Timing); err != nil {
 		return nil, err
 	}
+	if err := validateTokensPerWord(cfg.TokensPerWord); err != nil {
+		return nil, err
+	}
 	rules, err := compileRules(cfg.Rules)
 	if err != nil {
 		return nil, err
