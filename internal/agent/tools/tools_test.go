@@ -35,9 +35,7 @@ func toolByName(t *testing.T, tools []Tool, name string) Tool {
 }
 
 func TestNew(t *testing.T) {
-	t.Parallel()
 	t.Run("returns the seven tools in order", func(t *testing.T) {
-		t.Parallel()
 		var names []string
 		for _, tool := range New(testConfig(t)) {
 			names = append(names, tool.Name)
@@ -45,7 +43,6 @@ func TestNew(t *testing.T) {
 		assert.Equal(t, []string{"read_file", "list_files", "search", "write_file", "edit_file", "run", "record_result"}, names)
 	})
 	t.Run("cuts results to MaxResult", func(t *testing.T) {
-		t.Parallel()
 		long := func(context.Context, string) (Result, error) {
 			return Result{Text: strings.Repeat("a", MaxResult+100)}, nil
 		}

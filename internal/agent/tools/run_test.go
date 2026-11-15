@@ -16,7 +16,6 @@ import (
 func TestRunCommand(t *testing.T) {
 	t.Parallel()
 	t.Run("runs through the shell in the session directory with the default timeout", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		var got gate.Request
 		cfg.Shell = &shellRunnerMock{RunFunc: func(_ context.Context, req gate.Request) (gate.Result, error) {
@@ -31,7 +30,6 @@ func TestRunCommand(t *testing.T) {
 		assert.Equal(t, "exit 0\n--- stdout ---\nhi\n--- stderr ---\n", res.Text)
 	})
 	t.Run("caps the timeout at 900 seconds", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		var got time.Duration
 		cfg.Shell = &shellRunnerMock{RunFunc: func(_ context.Context, req gate.Request) (gate.Result, error) {
@@ -43,7 +41,6 @@ func TestRunCommand(t *testing.T) {
 		assert.Equal(t, runMaxTimeout, got)
 	})
 	t.Run("reports a timeout as a result", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		cfg.Shell = &shellRunnerMock{RunFunc: func(context.Context, gate.Request) (gate.Result, error) {
 			return gate.Result{}, gate.ErrTimedOut
@@ -53,7 +50,6 @@ func TestRunCommand(t *testing.T) {
 		assert.Equal(t, "timed out after 3s", res.Text)
 	})
 	t.Run("refuses a command the guard blocks without running it", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		shell := &shellRunnerMock{}
 		cfg.Shell = shell
@@ -62,7 +58,6 @@ func TestRunCommand(t *testing.T) {
 		assert.Empty(t, shell.RunCalls())
 	})
 	t.Run("returns a shell failure", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		cfg.Shell = &shellRunnerMock{RunFunc: func(context.Context, gate.Request) (gate.Result, error) {
 			return gate.Result{}, errors.New("boom")
@@ -71,7 +66,6 @@ func TestRunCommand(t *testing.T) {
 		require.EqualError(t, err, "boom")
 	})
 	t.Run("requires a command", func(t *testing.T) {
-		t.Parallel()
 		_, err := runCommand(t.Context(), new(testConfig(t)), runArgs{})
 		require.EqualError(t, err, "missing command")
 	})

@@ -66,9 +66,7 @@ func TestReadWindow(t *testing.T) {
 }
 
 func TestListFiles(t *testing.T) {
-	t.Parallel()
 	t.Run("runs git ls-files in the session directory and filters by glob", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		var got gate.Request
 		cfg.Shell = &shellRunnerMock{RunFunc: func(_ context.Context, req gate.Request) (gate.Result, error) {
@@ -82,7 +80,6 @@ func TestListFiles(t *testing.T) {
 		assert.Equal(t, "a.go\nb/x.go", res.Text)
 	})
 	t.Run("reports a directory outside a git repository", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		cfg.Shell = &shellRunnerMock{RunFunc: func(context.Context, gate.Request) (gate.Result, error) {
 			return gate.Result{ExitCode: 128, Stderr: "fatal: not a git repository"}, nil

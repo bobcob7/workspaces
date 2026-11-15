@@ -10,9 +10,7 @@ import (
 )
 
 func TestRecordResult(t *testing.T) {
-	t.Parallel()
 	t.Run("records a verdict and ends the run", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		var gotVerdict string
 		var gotReport []byte
@@ -30,7 +28,6 @@ func TestRecordResult(t *testing.T) {
 		assert.Len(t, recorder.RecordCalls(), 1)
 	})
 	t.Run("rejects a verdict that is not allowed", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		recorder := &recorderMock{RecordFunc: func(context.Context, string, []byte) error { return nil }}
 		cfg.Recorder = recorder
@@ -39,19 +36,16 @@ func TestRecordResult(t *testing.T) {
 		assert.Empty(t, recorder.RecordCalls())
 	})
 	t.Run("rejects a malformed verdict", func(t *testing.T) {
-		t.Parallel()
 		_, err := recordResult(t.Context(), new(testConfig(t)), recordResultArgs{Verdict: "1-2", Report: "?"})
 		require.ErrorContains(t, err, "invalid machine record")
 	})
 	t.Run("returns a recorder failure", func(t *testing.T) {
-		t.Parallel()
 		cfg := testConfig(t)
 		cfg.Recorder = &recorderMock{RecordFunc: func(context.Context, string, []byte) error { return errors.New("disk") }}
 		_, err := recordResult(t.Context(), &cfg, recordResultArgs{Verdict: "FAIL", Report: "r"})
 		require.ErrorContains(t, err, "recording FAIL: disk")
 	})
 	t.Run("requires a verdict and a report", func(t *testing.T) {
-		t.Parallel()
 		_, err := recordResult(t.Context(), new(testConfig(t)), recordResultArgs{Report: "r"})
 		require.EqualError(t, err, "missing verdict")
 		_, err = recordResult(t.Context(), new(testConfig(t)), recordResultArgs{Verdict: "PASS"})
