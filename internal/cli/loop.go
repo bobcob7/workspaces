@@ -308,7 +308,6 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 	}
 	now := a.now().UTC()
 	l := loop.Loop{
-		Version:        loop.FormatVersion,
 		Name:           args[0],
 		Title:          strings.TrimSpace(opts.title),
 		Every:          loop.FormatEvery(interval),

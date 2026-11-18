@@ -54,7 +54,7 @@ func TestStoreCreateGetRoundTrip(t *testing.T) {
 
 	got, err := s.Get("deps-bump")
 	require.NoError(t, err)
-	assert.Equal(t, FormatVersion, got.Version)
+	assert.Equal(t, Version3, got.Version)
 	assert.Equal(t, in.Name, got.Name)
 	assert.Equal(t, in.Every, got.Every)
 	assert.Equal(t, in.Prompt, got.Prompt)
@@ -135,7 +135,7 @@ func TestStoreSaveWritesTheRecordFile(t *testing.T) {
 	l := validLoop()
 	require.NoError(t, s.Save(&l))
 	assert.FileExists(t, filepath.Join(dir, "deps-bump.toml"))
-	assert.Equal(t, FormatVersion, l.Version)
+	assert.Equal(t, Version3, l.Version)
 }
 
 func TestStoreListMissingDirIsEmpty(t *testing.T) {
@@ -235,7 +235,7 @@ func TestStoreCreateHidden(t *testing.T) {
 		require.NoError(t, s.Create(&l))
 		data, err := os.ReadFile(filepath.Join(dir, l.Name+".toml"))
 		require.NoError(t, err)
-		assert.Contains(t, string(data), "version = 4\n")
+		assert.Contains(t, string(data), "version = 3\n")
 		assert.Contains(t, string(data), "hidden = true\n")
 		got, err := s.Get(l.Name)
 		require.NoError(t, err)
@@ -303,7 +303,7 @@ func TestStoreVersion2RoundTrip(t *testing.T) {
 
 	got, err := s.Get(in.Name)
 	require.NoError(t, err)
-	assert.Equal(t, FormatVersion, got.Version)
+	assert.Equal(t, Version3, got.Version)
 	assert.Equal(t, in.Script, got.Script)
 	assert.Equal(t, in.ScriptTimeout, got.ScriptTimeout)
 	assert.Equal(t, in.Vars, got.Vars)
