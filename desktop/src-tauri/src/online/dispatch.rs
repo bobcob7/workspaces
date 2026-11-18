@@ -720,6 +720,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn runner_check_with_no_model_answers_the_served_models() {
+        let (_dir, ctx) = ctx_with(
+            r#"echo '{"endpoint":"gpu","url":"http://gpu:1234","api":"openai","probe":"auto","model":null,"version":null,"capabilities":[],"context_tokens":null,"models":["a"],"token_source":null,"warnings":[]}'"#,
+            "exit 1",
+            Box::new(|_| {}),
+        );
+        let args = serde_json::json!({"endpoint": "gpu", "model": ""});
+        let value = dispatch(&ctx, "runner_check", args, None).await.unwrap();
+        assert_eq!(value["model"], Value::Null);
+        assert_eq!(value["context_tokens"], Value::Null);
+        assert_eq!(value["models"], serde_json::json!(["a"]));
+    }
+
+    #[tokio::test]
     async fn rename_workspace_rejects_snake_case_args() {
         let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
         let args = serde_json::json!({"workspace_id": "x-d8efb24f", "name": "draft"});
