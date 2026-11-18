@@ -240,7 +240,7 @@ func (s *Supervisor) check(ctx context.Context, id string, w *watchedRunner) boo
 		// A runner this supervisor resumed reads starting for the restart
 		// window after its last write, even when it has died again; the
 		// daemon is the one that resumes it, so it must see the death.
-		if s.diedWithoutExit(st) {
+		if s.diedWithoutExit(ctx, st) {
 			return s.handleDeath(ctx, id, w, now)
 		}
 	}
@@ -248,13 +248,22 @@ func (s *Supervisor) check(ctx context.Context, id string, w *watchedRunner) boo
 }
 
 // diedWithoutExit reports whether status st names a process that is gone and
-// recorded no exit.
-func (s *Supervisor) diedWithoutExit(st *runner.Status) bool {
+// recorded no exit. Only a process that doesn't exist counts as gone: any other
+// error (a permission or /proc read failure) leaves it unknown, and a live
+// runner must not be resumed a second time.
+func (s *Supervisor) diedWithoutExit(ctx context.Context, st *runner.Status) bool {
 	if st == nil || st.Exit != nil || st.PID == 0 {
 		return false
 	}
 	_, err := s.procs.StartTime(st.PID)
-	return err != nil
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+		return true
+	}
+	s.log.DebugContext(ctx, "couldn't tell whether a runner is alive", "pid", st.PID, "error", err)
+	return false
 }
 
 // handleDeath resumes a dead runner once its backoff has passed, and finalizes

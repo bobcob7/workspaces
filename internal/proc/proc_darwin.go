@@ -3,6 +3,7 @@ package proc
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -18,7 +19,7 @@ func startTime(pid int) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("reading process %d: %w", pid, err)
 	}
 	if int(kp.Proc.P_pid) != pid {
-		return time.Time{}, fmt.Errorf("%w: %d", errNoProcess, pid)
+		return time.Time{}, fmt.Errorf("%w: %d: %w", errNoProcess, pid, fs.ErrNotExist)
 	}
 	tv := kp.Proc.P_starttime
 	return time.Unix(tv.Sec, int64(tv.Usec)*int64(time.Microsecond)), nil

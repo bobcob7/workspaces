@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -42,7 +44,7 @@ func (p *procTable) reader() *processReaderMock {
 		if p.alive[pid] {
 			return testStartedAt, nil
 		}
-		return time.Time{}, errors.New("no such process")
+		return time.Time{}, fmt.Errorf("reading process %d: %w", pid, fs.ErrNotExist)
 	}}
 }
 
@@ -610,6 +612,34 @@ func TestSupervisor_readStatusOrNew(t *testing.T) {
 		_, err := readStatusOrNew(f.files, &run)
 		require.Error(t, err)
 	})
+}
+
+func TestSupervisor_diedWithoutExit(t *testing.T) {
+	t.Parallel()
+	exit := "ok"
+	gone := fmt.Errorf("reading process 7: %w", fs.ErrNotExist)
+	tests := []struct {
+		name string
+		st   *runner.Status
+		err  error
+		want bool
+	}{
+		{"a process that doesn't exist is gone", &runner.Status{PID: 7}, gone, true},
+		{"ESRCH is gone", &runner.Status{PID: 7}, syscall.ESRCH, true},
+		{"a live process is not gone", &runner.Status{PID: 7}, nil, false},
+		{"a permission error is unknown, not gone", &runner.Status{PID: 7}, fs.ErrPermission, false},
+		{"an unreadable /proc is unknown, not gone", &runner.Status{PID: 7}, errors.New("reading /proc/stat: input/output error"), false},
+		{"no status is not a death", nil, gone, false},
+		{"a recorded exit is not a death", &runner.Status{PID: 7, Exit: &exit}, gone, false},
+		{"no pid is not a death", &runner.Status{}, gone, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			procs := &processReaderMock{StartTimeFunc: func(int) (time.Time, error) { return testStartedAt, tc.err }}
+			sup := NewSupervisor(SupervisorConfig{}, procs, &processStarterMock{}, discardLog())
+			assert.Equal(t, tc.want, sup.diedWithoutExit(t.Context(), tc.st))
+		})
+	}
 }
 
 func TestRunnerArgs(t *testing.T) {
