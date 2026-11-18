@@ -87,7 +87,7 @@ func (a *App) newConfigSetCmd() *cobra.Command {
 		Long: "Set a setting, keeping the file's comments.\n\n" +
 			"An endpoint, model or role takes its keys together, so a new model can be\n" +
 			"created in one edit: ws config set models.<alias> endpoint=<name> id=<id> context_tokens=<n>",
-		Args:  configSetArgs,
+		Args: configSetArgs,
 		RunE: runE(a.withConfigUnswept(func(cmd *cobra.Command, args []string) error {
 			return a.configSet(cmd.Context(), args[0], args[1:])
 		})),
