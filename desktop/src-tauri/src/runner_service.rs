@@ -90,7 +90,7 @@ pub(crate) async fn restart(runner: &Runner) -> CmdResult<DaemonStopped> {
 }
 
 /// Runs the spawn preflight for an endpoint, and for a model on it
-/// (`ws runner check --json <endpoint> [--model <m>]`). Empty strings leave
+/// (`ws runner check --json [--model <m>] [-- <endpoint>]`). Empty strings leave
 /// the default to ws.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn runner_check(
@@ -103,11 +103,11 @@ pub async fn runner_check(
 
 pub(crate) async fn check(runner: &Runner, endpoint: &str, model: &str) -> CmdResult<RunnerCheck> {
     let mut args = args(&["runner", "check", "--json"]);
-    if !endpoint.is_empty() {
-        args.push(endpoint.to_string());
-    }
     if !model.is_empty() {
         args.extend(["--model".to_string(), model.to_string()]);
+    }
+    if !endpoint.is_empty() {
+        args.extend(["--".to_string(), endpoint.to_string()]);
     }
     runner.ws_json_as_given(&args).await
 }
@@ -155,7 +155,7 @@ mod tests {
             r#"echo '{"endpoint":"gpu","url":"http://gpu:1234","api":"openai","probe":"none","model":"qwen/qwen3.5-9b","version":null,"capabilities":null,"context_tokens":65536,"models":["qwen/qwen3.5-9b","x"],"token_source":"secrets.env","warnings":[]}'"#,
         );
         let result = check(&runner, "gpu", "qwen9b").await.unwrap();
-        assert_eq!(recorded(&dir), "runner check --json gpu --model qwen9b");
+        assert_eq!(recorded(&dir), "runner check --json --model qwen9b -- gpu");
         assert_eq!(result.models.len(), 2);
         assert_eq!(result.token_source.as_deref(), Some("secrets.env"));
         assert_eq!(result.capabilities, None);
@@ -169,6 +169,15 @@ mod tests {
         let result = check(&runner, "", "").await.unwrap();
         assert_eq!(recorded(&dir), "runner check --json");
         assert_eq!(result.capabilities.unwrap(), ["completion", "tools"]);
+    }
+
+    #[tokio::test]
+    async fn check_does_not_let_an_endpoint_be_read_as_a_flag() {
+        let (dir, runner) = fake_ws(
+            "echo '{\"error\":{\"code\":\"endpoint_unknown\",\"message\":\"no\"}}' >&2; exit 1",
+        );
+        check(&runner, "--model=x", "").await.unwrap_err();
+        assert_eq!(recorded(&dir), "runner check --json -- --model=x");
     }
 
     #[tokio::test]
