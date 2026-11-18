@@ -4,6 +4,7 @@ package runner_test
 
 import (
 	"encoding/json/v2"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,18 +33,6 @@ const (
 	// that sleeps 2 s, which leaves time to set the fault before turn 1.
 	hang = `[{"hang":true,"model":"qwen/qwen3.5-9b"}]`
 )
-
-// eventually polls cond until it holds, failing the test after d.
-func eventually(t *testing.T, d time.Duration, msg string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(d)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("%s within %s", msg, d)
-		}
-		time.Sleep(pollInterval)
-	}
-}
 
 // statusNum is a numeric field of a status.json; 0 when it is absent.
 func statusNum(status map[string]any, key string) int {
@@ -179,18 +168,10 @@ func awaitResume(t *testing.T, env *testEnv, id string, dead int, d time.Duratio
 			env.logFiles(t)
 		}
 	})
-	deadline := time.Now().Add(d)
-	for {
-		status := env.statusOrNil(id)
-		pid := statusNum(status, "pid")
-		if pid != 0 && pid != dead {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the daemon did not resume the runner within %s: dead pid %d, status pid %d (alive %t), restarts %d, exit %q", d, dead, pid, processAlive(pid), statusNum(status, "restarts"), statusExit(status))
-		}
-		time.Sleep(pollInterval)
-	}
+	eventually(t, d, env.runnerDir(id), fmt.Sprintf("the daemon did not resume the runner (dead pid %d)", dead), func() bool {
+		pid := statusNum(env.statusOrNil(id), "pid")
+		return pid != 0 && pid != dead
+	})
 }
 
 func testDaemonCrashLimit(t *testing.T) {
@@ -207,7 +188,7 @@ func testDaemonCrashLimit(t *testing.T) {
 		awaitResume(t, env, c.ID, env.killRunner(t, c.ID), backoffWait)
 	}
 	env.killRunner(t, c.ID)
-	eventually(t, eventWait, "the daemon did not finalize the runner", func() bool {
+	eventually(t, eventWait, env.runnerDir(c.ID), "the daemon did not finalize the runner", func() bool {
 		return statusExit(env.statusOrNil(c.ID)) != ""
 	})
 	w := waitRunner(t, env, c.ID)
@@ -242,7 +223,7 @@ func testDaemonStartResumes(t *testing.T) {
 
 	res := runWS(t, env, "daemon", "stop")
 	require.Zero(t, res.Code, res.Stderr)
-	eventually(t, eventWait, "the runner outlived the daemon's stop", func() bool {
+	eventually(t, eventWait, env.runnerDir(c.ID), "the runner outlived the daemon's stop", func() bool {
 		return !processAlive(pid)
 	})
 	setFaults(t, fake.Control, "[]")
@@ -298,7 +279,7 @@ func testLoopRunner(t *testing.T) {
 	require.NotEmpty(t, started.Workspace)
 	assert.True(t, strings.HasPrefix(started.Session, "rn-"), "the run's session is %q", started.Session)
 
-	eventually(t, wsTimeout, "the loop run did not exit", func() bool {
+	eventually(t, wsTimeout, env.runnerDir(started.Workspace), "the loop run did not exit", func() bool {
 		return statusExit(env.statusOrNil(started.Workspace)) != ""
 	})
 	assert.Equal(t, "done", statusExit(env.readStatus(t, started.Workspace)))

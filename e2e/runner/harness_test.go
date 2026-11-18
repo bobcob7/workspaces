@@ -498,14 +498,43 @@ func (e *testEnv) readStatus(t *testing.T, id string) map[string]any {
 // waitEvent polls transcript until an event of kind appears.
 func waitEvent(t *testing.T, transcript, kind string) {
 	t.Helper()
-	deadline := time.Now().Add(eventWait)
-	for time.Now().Before(deadline) {
-		if findEvent(transcript, kind) != nil {
-			return
+	eventually(t, eventWait, filepath.Dir(transcript), fmt.Sprintf("no %q event", kind), func() bool {
+		return findEvent(transcript, kind) != nil
+	})
+}
+
+// eventually polls cond until it holds, and fails the test after d with msg and
+// the tail of the files in runDir, a runner's directory: its runner.log,
+// transcript.jsonl and status.json, so a flake can be told from a slow run.
+func eventually(t *testing.T, d time.Duration, runDir, msg string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s within %s%s", msg, d, tails(runDir))
 		}
 		time.Sleep(pollInterval)
 	}
-	t.Fatalf("no %q event in %s within %s", kind, transcript, eventWait)
+}
+
+// tailLines is how many trailing lines of each runner file a failure shows.
+const tailLines = 20
+
+// tails is the last tailLines lines of the runner files in dir, for a failure
+// message; a file that can't be read is named as such.
+func tails(dir string) string {
+	var b strings.Builder
+	for _, name := range []string{"runner.log", "transcript.jsonl", "status.json"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			fmt.Fprintf(&b, "\n--- %s: %v", name, err)
+			continue
+		}
+		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+		lines = lines[max(0, len(lines)-tailLines):]
+		fmt.Fprintf(&b, "\n--- %s (last %d lines)\n%s", name, len(lines), strings.Join(lines, "\n"))
+	}
+	return b.String()
 }
 
 // findEvent returns the first event of kind in a transcript.jsonl, or nil.
@@ -543,6 +572,24 @@ func breakConfig(t *testing.T, env *testEnv) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, []byte("[runner"), 0o600))
 	t.Cleanup(func() { _ = os.WriteFile(path, saved, 0o600) })
+}
+
+func TestTails(t *testing.T) {
+	t.Run("shows the last lines of each runner file", func(t *testing.T) {
+		dir := t.TempDir()
+		var log strings.Builder
+		for i := 1; i <= 30; i++ {
+			fmt.Fprintf(&log, "log line %d\n", i)
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "runner.log"), []byte(log.String()), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "transcript.jsonl"), []byte("{\"kind\":\"request\"}\n"), 0o600))
+		got := tails(dir)
+		assert.Contains(t, got, "log line 30")
+		assert.Contains(t, got, "log line 11")
+		assert.NotContains(t, got, "log line 10\n")
+		assert.Contains(t, got, `{"kind":"request"}`)
+		assert.Contains(t, got, "status.json: ")
+	})
 }
 
 func TestProcess_forward(t *testing.T) {

@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -177,13 +176,9 @@ func countEvents(transcript, kind string) int {
 // waitEventCount polls until transcript has n events of kind.
 func waitEventCount(t *testing.T, transcript, kind string, n int) {
 	t.Helper()
-	deadline := time.Now().Add(eventWait)
-	for countEvents(transcript, kind) < n {
-		if time.Now().After(deadline) {
-			t.Fatalf("fewer than %d %q events in %s within %s", n, kind, transcript, eventWait)
-		}
-		time.Sleep(pollInterval)
-	}
+	eventually(t, eventWait, filepath.Dir(transcript), fmt.Sprintf("fewer than %d %q events", n, kind), func() bool {
+		return countEvents(transcript, kind) >= n
+	})
 }
 
 // assertNoSecret checks that neither the child's transcript nor its
