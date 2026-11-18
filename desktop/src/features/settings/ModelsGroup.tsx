@@ -185,10 +185,12 @@ interface CellProps {
   readonly onCommit: (value: string) => void;
   readonly type?: "text" | "number";
   readonly placeholder?: string;
+  /** Room for a model id such as qwen/qwen3.5-27b, which the default width clips. */
+  readonly wide?: boolean;
 }
 
 /** A text or number control that saves when it loses focus, if the text changed. */
-const TextCell = ({ label, value, onCommit, type = "text", placeholder }: CellProps): JSX.Element => {
+const TextCell = ({ label, value, onCommit, type = "text", placeholder, wide = false }: CellProps): JSX.Element => {
   const [draft, setDraft] = useState(value);
   useEffect(() => {
     setDraft(value);
@@ -199,7 +201,7 @@ const TextCell = ({ label, value, onCommit, type = "text", placeholder }: CellPr
       type={type}
       value={draft}
       placeholder={placeholder}
-      className={styles.target}
+      className={wide ? `${styles.target} ${styles.wide}` : styles.target}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
         if (draft !== value) {
@@ -537,6 +539,7 @@ const ModelsSection = ({ models, endpoints, onChanged }: ModelsSectionProps): JS
                 <td>
                   <TextCell
                     label={`ID for ${model.alias}`}
+                    wide
                     value={model.id}
                     onCommit={(value) => void write(model.alias, "id", value)}
                   />

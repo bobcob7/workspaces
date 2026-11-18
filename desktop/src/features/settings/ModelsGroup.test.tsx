@@ -189,4 +189,10 @@ describe("ModelsGroup", () => {
     expect(api.configSet).toHaveBeenCalledWith("endpoints.gpu-b.url", ["http://gpu-b:1234"]);
     expect(api.configSet).toHaveBeenCalledWith("endpoints.gpu-b.api", ["openai"]);
   });
+
+  it("gives the model ID input room for a whole model id", async () => {
+    renderGroup();
+    const id = await screen.findByLabelText("ID for qwen9b");
+    expect(id.closest(".wide")).not.toBeNull();
+  });
 });
