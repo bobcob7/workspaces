@@ -254,6 +254,25 @@ func (c *Config) Resolve(role, endpointFlag, modelFlag string) (Resolved, error)
 	return c.resolveRaw(role, endpointFlag, modelFlag)
 }
 
+// ResolveEndpoint is the resolution of a check that has no model to choose:
+// just the endpoint, the one named, else the only one configured. The
+// result's model fields are empty.
+func (c *Config) ResolveEndpoint(name string) (Resolved, error) {
+	if c.RunnerErr != nil {
+		return Resolved{}, c.RunnerErr
+	}
+	if name == "" && len(c.Endpoints) == 1 {
+		name = slices.Sorted(maps.Keys(c.Endpoints))[0]
+	}
+	endpoint, ok := c.Endpoints[name]
+	if !ok {
+		return Resolved{}, fmt.Errorf("%w: %q", ErrEndpointUnknown, name)
+	}
+	var resolved Resolved
+	resolved.EndpointName, resolved.Endpoint = name, endpointWithDefaults(endpoint)
+	return resolved, nil
+}
+
 func (c *Config) resolveAlias(role, endpointFlag, alias string) (Resolved, error) {
 	if alias == "" {
 		alias = c.chosenAlias(role)

@@ -55,6 +55,18 @@ func Preflight(ctx context.Context, p Provider, ep Endpoint, model string, conte
 	return result, nil
 }
 
+// PreflightEndpoint is Preflight's first step alone, for an endpoint with no
+// model to check yet: it reports the models p serves, and chooses none.
+//
+//nolint:gocritic // hugeParam: see Preflight.
+func PreflightEndpoint(ctx context.Context, p Provider, ep Endpoint) (PreflightResult, error) {
+	models, err := listModels(ctx, p, ep)
+	if err != nil {
+		return PreflightResult{}, err
+	}
+	return PreflightResult{Models: models}, nil
+}
+
 //nolint:gocritic // hugeParam: see Preflight.
 func listModels(ctx context.Context, p Provider, ep Endpoint) ([]string, error) {
 	callCtx, cancel := context.WithTimeout(ctx, preflightTimeout)

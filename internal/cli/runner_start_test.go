@@ -154,7 +154,7 @@ func TestApp_startRunnerAgent(t *testing.T) {
 	t.Run("a preflight window smaller than the configured one is the run's window, and the spawn's", func(t *testing.T) {
 		e := newRunnerEnv(t, runnerToml)
 		e.daemon.PreflightFunc = func(context.Context, daemon.PreflightRequest) (daemon.PreflightResponse, error) {
-			return daemon.PreflightResponse{ContextTokens: 32768, Warnings: []string{"the model's context is 32768"}}, nil
+			return daemon.PreflightResponse{ContextTokens: new(32768), Warnings: []string{"the model's context is 32768"}}, nil
 		}
 		got, err := e.app.startRunnerAgent(t.Context(), runnerStart{Name: "Fix Login", Prompt: "fix it"})
 		require.NoError(t, err)

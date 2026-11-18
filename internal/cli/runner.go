@@ -36,7 +36,7 @@ func (a *App) newRunnerCheckCmd() *cobra.Command {
 	var model string
 	cmd := &cobra.Command{
 		Use:    "check [--json] [--model <m>] [<endpoint>]",
-		Short:  "Check that an endpoint serves a model with tools",
+		Short:  "Check that an endpoint serves a model with tools, or list its models when there is none to check",
 		Hidden: true,
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) > 1 {
@@ -70,7 +70,11 @@ func (a *App) runRunnerCheck(ctx context.Context, args []string, model string) e
 	if a.global.json {
 		return a.writeJSON(res)
 	}
-	fmt.Fprintf(a.stdout, "%s (%s): %s, context %d tokens\n", res.Endpoint, res.URL, res.Model, res.ContextTokens)
+	if res.Model == nil || res.ContextTokens == nil {
+		fmt.Fprintf(a.stdout, "%s (%s): serves %d models\n", res.Endpoint, res.URL, len(res.Models))
+		return nil
+	}
+	fmt.Fprintf(a.stdout, "%s (%s): %s, context %d tokens\n", res.Endpoint, res.URL, *res.Model, *res.ContextTokens)
 	return nil
 }
 

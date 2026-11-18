@@ -87,10 +87,10 @@ type PreflightResponse struct {
 	URL           string   `json:"url"`
 	API           string   `json:"api"`
 	Probe         string   `json:"probe"`
-	Model         string   `json:"model"`
+	Model         *string  `json:"model"` // null for an endpoint-only check
 	Version       *string  `json:"version"`
 	Capabilities  []string `json:"capabilities"`
-	ContextTokens int      `json:"context_tokens"`
+	ContextTokens *int     `json:"context_tokens"` // null for an endpoint-only check
 	Models        []string `json:"models"`
 	TokenSource   *string  `json:"token_source"`
 	Warnings      []string `json:"warnings"`

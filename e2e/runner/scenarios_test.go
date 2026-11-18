@@ -303,6 +303,7 @@ func TestScenarios(t *testing.T) {
 		{"runner-stop", testRunnerStop},
 		{"loop-runner", testLoopRunner},
 		{"claude-default-untouched", testClaudeDefaultUntouched},
+		{"endpoint-only-check", testEndpointOnlyCheck},
 	}
 	for _, s := range scenarios {
 		t.Run(s.name, s.run)
@@ -657,4 +658,35 @@ func testClaudeDefaultUntouched(t *testing.T) {
 			assert.Empty(t, socketFiles(t, env), "the Claude path starts no daemon")
 		})
 	}
+}
+
+// testEndpointOnlyCheck tests an endpoint before any model exists, then adds a
+// model with ws config set and checks that model. A spawn with no model still
+// fails.
+func testEndpointOnlyCheck(t *testing.T) {
+	env := newBareEnv(t)
+	fake := startFakeOllama(t, "edit-file.yaml")
+	env.writeConfig(t, endpointBlock("fake", fake.URL))
+	only := runWSIn(t, env, env.home, "runner", "check", "--json", "--", "fake")
+	require.Zero(t, only.Code, only.Stderr)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(only.Stdout), &got))
+	assert.Equal(t, "fake", got["endpoint"])
+	assert.Nil(t, got["model"])
+	assert.Nil(t, got["context_tokens"])
+	assert.Empty(t, got["capabilities"])
+	assert.ElementsMatch(t, []any{"qwen/qwen3.5-9b", "fake-small", "fake-notools"}, got["models"])
+	set := runWSIn(t, env, env.home, "config", "set", "models.qwen", "endpoint=fake", "id=qwen/qwen3.5-9b", "context_tokens=32768")
+	require.Zero(t, set.Code, set.Stderr)
+	full := runWSIn(t, env, env.home, "runner", "check", "--json", "--", "fake")
+	require.Zero(t, full.Code, full.Stderr)
+	got = nil
+	require.NoError(t, json.Unmarshal([]byte(full.Stdout), &got))
+	assert.Equal(t, "qwen/qwen3.5-9b", got["model"])
+	assert.EqualValues(t, 32768, got["context_tokens"])
+	unset := runWSIn(t, env, env.home, "config", "unset", "models.qwen")
+	require.Zero(t, unset.Code, unset.Stderr)
+	spawn := runWSIn(t, env, env.home, "claude", "--runner", "ws", "--json", "--name", "x", "--", "hi")
+	assert.NotZero(t, spawn.Code)
+	assert.Contains(t, spawn.Stderr, "no runner model given or configured")
 }

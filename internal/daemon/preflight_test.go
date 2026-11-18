@@ -110,10 +110,10 @@ func TestSupervisor_Preflight(t *testing.T) {
 		assert.Equal(t, srv.URL, res.URL)
 		assert.Equal(t, "openai", res.API)
 		assert.Equal(t, "none", res.Probe)
-		assert.Equal(t, "gemma3:12b", res.Model)
+		assert.Equal(t, "gemma3:12b", *res.Model)
 		assert.Nil(t, res.Version)
 		assert.Nil(t, res.Capabilities)
-		assert.Equal(t, 32768, res.ContextTokens)
+		assert.Equal(t, 32768, *res.ContextTokens)
 		assert.Equal(t, []string{"gemma3:12b", "qwen3.5:9b"}, res.Models)
 		assert.Nil(t, res.TokenSource)
 		assert.Equal(t, []string{}, res.Warnings)
@@ -125,7 +125,7 @@ func TestSupervisor_Preflight(t *testing.T) {
 		res, err := sup.Preflight(t.Context(), PreflightRequest{Check: true})
 		require.NoError(t, err)
 		assert.Equal(t, "gpu", res.Endpoint)
-		assert.Equal(t, "gemma3:12b", res.Model)
+		assert.Equal(t, "gemma3:12b", *res.Model)
 	})
 	t.Run("a token in secrets.env is used and named", func(t *testing.T) {
 		srv, auth := modelsServer(t, "gemma3:12b")
@@ -179,7 +179,87 @@ func TestSupervisor_Preflight(t *testing.T) {
 		sup := preflightSupervisor(t, path, t.TempDir())
 		res, err := sup.Preflight(t.Context(), PreflightRequest{Model: "qwen"})
 		require.NoError(t, err)
-		assert.Equal(t, "qwen3.5:9b", res.Model)
+		assert.Equal(t, "qwen3.5:9b", *res.Model)
+	})
+}
+
+// endpointsOnlyConfig has endpoints and no model alias, as a fresh config does.
+func endpointsOnlyConfig(gpuURL, labURL string) string {
+	return fmt.Sprintf("[endpoints.gpu]\nurl = %q\nprobe = \"none\"\n\n[endpoints.lab]\nurl = %q\n", gpuURL, labURL)
+}
+
+func TestSupervisor_Preflight_endpointOnly(t *testing.T) {
+	t.Parallel()
+	t.Run("a check of an endpoint with no model lists the models it serves", func(t *testing.T) {
+		srv, _ := modelsServer(t, "gemma3:12b", "qwen3.5:9b")
+		path := writeConfigFile(t, endpointsOnlyConfig(srv.URL, closedURL(t)))
+		sup := preflightSupervisor(t, path, t.TempDir())
+		res, err := sup.Preflight(t.Context(), PreflightRequest{Check: true, Endpoint: "gpu"})
+		require.NoError(t, err)
+		assert.Equal(t, "gpu", res.Endpoint)
+		assert.Equal(t, srv.URL, res.URL)
+		assert.Equal(t, "openai", res.API)
+		assert.Equal(t, "none", res.Probe)
+		assert.Nil(t, res.Model)
+		assert.Nil(t, res.ContextTokens)
+		assert.Nil(t, res.Version)
+		assert.Nil(t, res.Capabilities)
+		assert.Equal(t, []string{"gemma3:12b", "qwen3.5:9b"}, res.Models)
+	})
+	t.Run("the token is still sent and named", func(t *testing.T) {
+		srv, auth := modelsServer(t, "m")
+		path := writeConfigFile(t, endpointsOnlyConfig(srv.URL, closedURL(t)))
+		configDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, config.SecretsFile), []byte("WS_ENDPOINT_TOKEN_GPU=abc\n"), 0o600))
+		res, err := preflightSupervisor(t, path, configDir).Preflight(t.Context(), PreflightRequest{Check: true, Endpoint: "gpu"})
+		require.NoError(t, err)
+		require.NotNil(t, res.TokenSource)
+		assert.Equal(t, "secrets.env", *res.TokenSource)
+		assert.Equal(t, []string{"Bearer abc"}, *auth)
+	})
+	t.Run("an unreachable endpoint is endpoint_unreachable", func(t *testing.T) {
+		path := writeConfigFile(t, endpointsOnlyConfig(closedURL(t), closedURL(t)))
+		_, err := preflightSupervisor(t, path, t.TempDir()).Preflight(t.Context(), PreflightRequest{Check: true, Endpoint: "lab"})
+		assertRemoteCode(t, err, "endpoint_unreachable")
+	})
+	t.Run("an unknown endpoint is endpoint_unknown", func(t *testing.T) {
+		path := writeConfigFile(t, endpointsOnlyConfig(closedURL(t), closedURL(t)))
+		_, err := preflightSupervisor(t, path, t.TempDir()).Preflight(t.Context(), PreflightRequest{Check: true, Endpoint: "nowhere"})
+		assertRemoteCode(t, err, "endpoint_unknown")
+	})
+	t.Run("with no endpoint named, the only endpoint is checked", func(t *testing.T) {
+		srv, _ := modelsServer(t, "m")
+		path := writeConfigFile(t, fmt.Sprintf("[endpoints.gpu]\nurl = %q\n", srv.URL))
+		res, err := preflightSupervisor(t, path, t.TempDir()).Preflight(t.Context(), PreflightRequest{Check: true})
+		require.NoError(t, err)
+		assert.Equal(t, "gpu", res.Endpoint)
+		assert.Equal(t, []string{"m"}, res.Models)
+	})
+	t.Run("with no endpoint named and several configured, endpoint_unknown lists them", func(t *testing.T) {
+		path := writeConfigFile(t, endpointsOnlyConfig(closedURL(t), closedURL(t)))
+		_, err := preflightSupervisor(t, path, t.TempDir()).Preflight(t.Context(), PreflightRequest{Check: true})
+		assertRemoteCode(t, err, "endpoint_unknown")
+		remote, _ := errors.AsType[*RemoteError](err)
+		assert.Equal(t, []string{"gpu", "lab"}, remote.Details["endpoints"])
+	})
+	t.Run("with no endpoint and none configured, endpoint_unknown", func(t *testing.T) {
+		path := writeConfigFile(t, "")
+		_, err := preflightSupervisor(t, path, t.TempDir()).Preflight(t.Context(), PreflightRequest{Check: true})
+		assertRemoteCode(t, err, "endpoint_unknown")
+	})
+	t.Run("a spawn's preflight with no model still fails with config_invalid", func(t *testing.T) {
+		srv, _ := modelsServer(t, "m")
+		path := writeConfigFile(t, endpointsOnlyConfig(srv.URL, closedURL(t)))
+		_, err := preflightSupervisor(t, path, t.TempDir()).Preflight(t.Context(), PreflightRequest{Endpoint: "gpu"})
+		assertRemoteCode(t, err, "config_invalid")
+		remote, _ := errors.AsType[*RemoteError](err)
+		assert.Contains(t, remote.Message, config.ErrNoModel.Error())
+	})
+	t.Run("a named model with no alias to run on is still config_invalid", func(t *testing.T) {
+		srv, _ := modelsServer(t, "m")
+		path := writeConfigFile(t, endpointsOnlyConfig(srv.URL, closedURL(t)))
+		_, err := preflightSupervisor(t, path, t.TempDir()).Preflight(t.Context(), PreflightRequest{Check: true, Endpoint: "gpu", Model: "m"})
+		assertRemoteCode(t, err, "config_invalid")
 	})
 }
 

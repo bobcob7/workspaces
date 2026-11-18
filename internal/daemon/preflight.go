@@ -28,6 +28,10 @@ func (s *Supervisor) Preflight(ctx context.Context, req PreflightRequest) (Prefl
 		return PreflightResponse{}, &RemoteError{Code: "config_invalid", Message: err.Error()}
 	}
 	resolved, err := resolveModel(&cfg, req)
+	endpointOnly := req.Check && req.Model == "" && errors.Is(err, config.ErrNoModel)
+	if endpointOnly {
+		resolved, err = cfg.ResolveEndpoint(req.Endpoint)
+	}
 	if err != nil {
 		return PreflightResponse{}, configFailure(&cfg, err)
 	}
@@ -41,11 +45,20 @@ func (s *Supervisor) Preflight(ctx context.Context, req PreflightRequest) (Prefl
 	if err != nil {
 		return PreflightResponse{}, &RemoteError{Code: "config_invalid", Message: err.Error()}
 	}
-	result, err := llm.Preflight(ctx, provider, ep, resolved.ModelID, resolved.ContextTokens)
+	var result llm.PreflightResult
+	if endpointOnly {
+		result, err = llm.PreflightEndpoint(ctx, provider, ep)
+	} else {
+		result, err = llm.Preflight(ctx, provider, ep, resolved.ModelID, resolved.ContextTokens)
+	}
 	if err != nil {
 		return PreflightResponse{}, preflightFailure(err, ep.URL)
 	}
-	return preflightResponse(&resolved, &result, source, warnings), nil
+	out := preflightResponse(&resolved, &result, source, warnings)
+	if endpointOnly {
+		out.Model, out.ContextTokens = nil, nil
+	}
+	return out, nil
 }
 
 // resolveModel applies the role's order to a request. With Check it applies
@@ -148,9 +161,9 @@ func preflightResponse(resolved *config.Resolved, result *llm.PreflightResult, s
 		URL:           resolved.Endpoint.URL,
 		API:           orDefault(resolved.Endpoint.API, defaultAPI),
 		Probe:         orDefault(resolved.Endpoint.Probe, defaultProbe),
-		Model:         resolved.ModelID,
+		Model:         new(resolved.ModelID),
 		Capabilities:  result.Capabilities,
-		ContextTokens: result.ContextTokens,
+		ContextTokens: new(result.ContextTokens),
 		Models:        result.Models,
 		TokenSource:   source,
 		Warnings:      append(append(append([]string{}, warnings...), resolved.Warnings...), result.Warnings...),

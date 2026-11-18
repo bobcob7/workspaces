@@ -239,8 +239,8 @@ func setKey(data []byte, key string, values []string) ([]byte, error) {
 		return nil, err
 	}
 	if rule.typ == TypeHosts {
-		out, _, err := replaceHosts(data, values)
-		return out, err
+		out, _, hostsErr := replaceHosts(data, values)
+		return out, hostsErr
 	}
 	want, err := normalize(rule, values)
 	if err != nil {
