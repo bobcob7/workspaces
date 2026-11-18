@@ -3,6 +3,7 @@ package mcp
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -16,6 +17,7 @@ import (
 
 	json "encoding/json/v2"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -144,8 +146,9 @@ func (s *Server) Tools() []ToolInfo {
 	return s.tools
 }
 
-// Call runs tool with JSON arguments under a 120 s limit. A failed call marks
-// the server failed; it is not restarted.
+// Call runs tool with JSON arguments under a 120 s limit. Only a broken
+// session or transport marks the server failed (it is not restarted); a call
+// that times out or gets a JSON-RPC error fails for that call alone.
 func (s *Server) Call(ctx context.Context, tool, arguments string) (CallResult, error) {
 	if err := s.checkRunning(); err != nil {
 		return CallResult{}, err
@@ -158,12 +161,29 @@ func (s *Server) Call(ctx context.Context, tool, arguments string) (CallResult, 
 	defer cancel()
 	res, err := s.sess.CallTool(callCtx, &mcp.CallToolParams{Name: tool, Arguments: values})
 	if err != nil {
-		if ctx.Err() == nil {
+		if ctx.Err() == nil && breaksServer(err) {
 			s.fail(err)
 		}
 		return CallResult{}, redactError(fmt.Errorf("calling %s on MCP server %q: %w", tool, s.name, err), s.secrets)
 	}
 	return resultOf(res), nil
+}
+
+// breaksServer reports whether a CallTool error means the session or transport
+// is gone. A call timeout or cancellation and a JSON-RPC error (invalid params,
+// a tool's own protocol error) are answers about one call and leave the server
+// usable; anything else, such as a closed connection or a failed transport,
+// does not.
+func breaksServer(err error) bool {
+	var rpcErr *jsonrpc.Error
+	switch {
+	case errors.Is(err, mcp.ErrConnectionClosed):
+		return true
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled), errors.As(err, &rpcErr):
+		return false
+	default:
+		return true
+	}
 }
 
 // Close stops the server's process group and closes the session.

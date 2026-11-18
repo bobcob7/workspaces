@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -94,7 +95,7 @@ func TestServer_Call(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, stateConnected, srv.status().State)
 	})
-	t.Run("a protocol error marks the server failed, and it is not restarted", func(t *testing.T) {
+	t.Run("a JSON-RPC error fails that call only", func(t *testing.T) {
 		srv := newInMemoryServer(t, inlineConfig(fakemcp.Tool{
 			Name:        "broken",
 			InputSchema: map[string]any{"type": "object"},
@@ -102,10 +103,35 @@ func TestServer_Call(t *testing.T) {
 		}))
 		_, err := srv.Call(t.Context(), "broken", "")
 		require.Error(t, err)
+		assert.Equal(t, stateConnected, srv.status().State)
+		_, err = srv.Call(t.Context(), "broken", "")
+		assert.NotContains(t, errorText(err), "is not running")
+	})
+	t.Run("a call that times out fails that call only", func(t *testing.T) {
+		sess := &sessionMock{
+			CallToolFunc: func(ctx context.Context, _ *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			},
+		}
+		srv := &Server{name: "fake", sess: sess, callTimeout: time.Millisecond, state: stateConnected}
+		_, err := srv.Call(t.Context(), "slow", "")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Equal(t, stateConnected, srv.status().State)
+	})
+	t.Run("a closed connection marks the server failed, and it is not restarted", func(t *testing.T) {
+		sess := &sessionMock{
+			CallToolFunc: func(context.Context, *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+				return nil, fmt.Errorf("%w: calling %q", mcp.ErrConnectionClosed, "tools/call")
+			},
+		}
+		srv := &Server{name: "fake", sess: sess, callTimeout: time.Second, state: stateConnected}
+		_, err := srv.Call(t.Context(), "any", "")
+		require.ErrorIs(t, err, mcp.ErrConnectionClosed)
 		status := srv.status()
 		assert.Equal(t, stateFailed, status.State)
 		require.NotNil(t, status.Error)
-		_, err = srv.Call(t.Context(), "broken", "")
+		_, err = srv.Call(t.Context(), "any", "")
 		require.ErrorContains(t, err, "is not running")
 	})
 	t.Run("a server that dies is failed after its next call", func(t *testing.T) {
@@ -252,6 +278,13 @@ func TestTailWriter_Write(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "defgh", tail.String())
 	})
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // stdioDef is a stdio definition that runs the built fake-mcp with a fixture.
