@@ -94,10 +94,27 @@ export const daemonSummary = (status: DaemonStatus): string => {
   return parts.join(" · ");
 };
 
-/** A passing check, in one line: the models served, the model, its context, and the probe. */
+/** A config name for a model id: lowercase letters, digits and dashes, starting with a letter, at most 32 characters. */
+export const modelAliasFor = (id: string): string => {
+  const dashed = id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const named = /^[a-z]/.test(dashed) ? dashed : `m-${dashed}`;
+  return named.slice(0, 32).replace(/-+$/, "");
+};
+
+/** The least context a model may be given (reference.md, `[models.<alias>]`). */
+const minContextTokens = 16384;
+
+/** What a new model starts with: a context most local servers can be set to. */
+const defaultContextTokens = 65536;
+
+/** A passing check, in one line: the models served, the model, its context, and the probe. An endpoint-only check has no model to name. */
 export const checkSummary = (check: RunnerCheck): string => {
   const count = check.models.length;
-  const parts = [`✓ ${count} ${count === 1 ? "model" : "models"}`, check.model, `context ${check.context_tokens}`];
+  const head = `✓ ${count} ${count === 1 ? "model" : "models"}`;
+  const parts =
+    check.model === null || check.context_tokens === null
+      ? [head, "no model checked"]
+      : [head, check.model, `context ${check.context_tokens}`];
   if (check.probe === "none") {
     parts.push("no probe");
   } else if (check.capabilities?.includes("tools") === true) {
@@ -375,23 +392,27 @@ const EndpointDialog = ({ endpoint, onClose, onSaved }: EndpointDialogProps): JS
   );
 };
 
+type CheckOutcomes = Readonly<Record<string, CheckOutcome>>;
+
+/** The models an endpoint's last passing check says it serves; none when it wasn't tested or failed. */
+const servedBy = (outcomes: CheckOutcomes, endpoint: string): readonly string[] => {
+  const outcome = outcomes[endpoint];
+  return outcome === undefined || "error" in outcome ? [] : outcome.result.models;
+};
+
 interface EndpointsSectionProps {
   readonly endpoints: readonly EndpointSettings[];
+  readonly models: readonly ModelSettings[];
+  readonly outcomes: CheckOutcomes;
+  readonly onTest: (endpoint: string) => Promise<void>;
+  readonly onAddModel: (endpoint: string, id: string) => void;
   readonly onChanged: () => Promise<void>;
 }
 
-const EndpointsSection = ({ endpoints, onChanged }: EndpointsSectionProps): JSX.Element => {
+const EndpointsSection = ({ endpoints, models, outcomes, onTest, onAddModel, onChanged }: EndpointsSectionProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const [editing, setEditing] = useState<{ readonly endpoint: EndpointSettings | null } | null>(null);
-  const [outcomes, setOutcomes] = useState<Readonly<Record<string, CheckOutcome>>>({});
   const [error, setError] = useState<string | null>(null);
-  const test = async (name: string): Promise<void> => {
-    const result = await dispatch(checkRunner({ endpoint: name, model: "" }));
-    const outcome: CheckOutcome = checkRunner.fulfilled.match(result)
-      ? { result: result.payload }
-      : { error: result.payload ?? { code: "internal", message: result.error.message ?? "the check failed" } };
-    setOutcomes((current) => ({ ...current, [name]: outcome }));
-  };
   const remove = async (endpoint: EndpointSettings): Promise<void> => {
     const failure =
       (await writeAll(dispatch, [{ key: `endpoints.${endpoint.name}`, values: [] }])) ?? (await saveToken(dispatch, endpoint.name, ""));
@@ -423,9 +444,11 @@ const EndpointsSection = ({ endpoints, onChanged }: EndpointsSectionProps): JSX.
                   key={endpoint.name}
                   endpoint={endpoint}
                   outcome={outcome}
+                  models={models}
                   onEdit={() => setEditing({ endpoint })}
                   onRemove={() => void remove(endpoint)}
-                  onTest={() => void test(endpoint.name)}
+                  onTest={() => void onTest(endpoint.name)}
+                  onAddModel={(id) => onAddModel(endpoint.name, id)}
                 />
               );
             })}
@@ -445,13 +468,43 @@ const EndpointsSection = ({ endpoints, onChanged }: EndpointsSectionProps): JSX.
 interface EndpointRowsProps {
   readonly endpoint: EndpointSettings;
   readonly outcome: CheckOutcome | undefined;
+  readonly models: readonly ModelSettings[];
   readonly onEdit: () => void;
   readonly onRemove: () => void;
   readonly onTest: () => void;
+  readonly onAddModel: (id: string) => void;
 }
 
+interface ServedModelsProps {
+  readonly endpoint: string;
+  readonly served: readonly string[];
+  readonly models: readonly ModelSettings[];
+  readonly onAddModel: (id: string) => void;
+}
+
+/** The models an endpoint serves, each with a shortcut that pre-fills Add model, or the alias that already uses it. */
+const ServedModels = ({ endpoint, served, models, onAddModel }: ServedModelsProps): JSX.Element => (
+  <ul className={styles.served} aria-label={`Models served by ${endpoint}`}>
+    {served.map((id) => {
+      const alias = models.find((model) => model.endpoint === endpoint && model.id === id)?.alias;
+      return (
+        <li key={id} className={styles.servedRow}>
+          <span className={styles.mono}>{id}</span>
+          {alias === undefined ? (
+            <Button className={styles.target} size="small" onClick={() => onAddModel(id)}>
+              Add as model
+            </Button>
+          ) : (
+            <span className={styles.muted}>{`added as ${alias}`}</span>
+          )}
+        </li>
+      );
+    })}
+  </ul>
+);
+
 /** One endpoint's row, and under it the result of its last test connection. */
-const EndpointRows = ({ endpoint, outcome, onEdit, onRemove, onTest }: EndpointRowsProps): JSX.Element => (
+const EndpointRows = ({ endpoint, outcome, models, onEdit, onRemove, onTest, onAddModel }: EndpointRowsProps): JSX.Element => (
   <>
     <tr>
       <td className={styles.mono}>{endpoint.name}</td>
@@ -480,7 +533,10 @@ const EndpointRows = ({ endpoint, outcome, onEdit, onRemove, onTest }: EndpointR
           {"error" in outcome ? (
             <Alert severity="error">{checkFailure(outcome.error)}</Alert>
           ) : (
-            <p className={styles.check}>{checkSummary(outcome.result)}</p>
+            <>
+              <p className={styles.check}>{checkSummary(outcome.result)}</p>
+              <ServedModels endpoint={endpoint.name} served={outcome.result.models} models={models} onAddModel={onAddModel} />
+            </>
           )}
         </td>
       </tr>
@@ -488,13 +544,169 @@ const EndpointRows = ({ endpoint, outcome, onEdit, onRemove, onTest }: EndpointR
   </>
 );
 
+/** Where an Add model form starts: the endpoint and model id to pre-fill, when a served model was picked. */
+interface ModelDraft {
+  readonly endpoint: string;
+  readonly id: string;
+}
+
+const otherModel = "\u0000other";
+
+interface AddModelDialogProps {
+  readonly endpoints: readonly EndpointSettings[];
+  readonly models: readonly ModelSettings[];
+  readonly start: ModelDraft;
+  readonly outcomes: CheckOutcomes;
+  readonly onTest: (endpoint: string) => Promise<void>;
+  readonly onClose: () => void;
+  readonly onSaved: () => Promise<void>;
+}
+
+/** Adds a model: one ws config set of models.<alias> with its endpoint, id and context, which ws checks together. */
+const AddModelDialog = ({ endpoints, models, start, outcomes, onTest, onClose, onSaved }: AddModelDialogProps): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const [alias, setAlias] = useState(start.id === "" ? "" : modelAliasFor(start.id));
+  const [endpoint, setEndpoint] = useState(start.endpoint);
+  const [id, setId] = useState(start.id);
+  const [typing, setTyping] = useState(false);
+  const [context, setContext] = useState(String(defaultContextTokens));
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const served = servedBy(outcomes, endpoint);
+  const choosing = served.length > 0 && !typing && (id === "" || served.includes(id));
+  const test = async (): Promise<void> => {
+    setTesting(true);
+    await onTest(endpoint);
+    setTesting(false);
+  };
+  const save = async (): Promise<void> => {
+    const contextTokens = Number(context);
+    const problem = ((): string | null => {
+      if (!endpointNamePattern.test(alias)) {
+        return "An alias is lowercase letters, digits and dashes, starting with a letter";
+      }
+      if (models.some((model) => model.alias === alias)) {
+        return `A model named ${alias} already exists`;
+      }
+      if (endpoint === "") {
+        return "Pick an endpoint";
+      }
+      if (id.trim() === "") {
+        return "A model id is needed";
+      }
+      if (!Number.isInteger(contextTokens) || contextTokens < minContextTokens) {
+        return `Context tokens must be at least ${minContextTokens}`;
+      }
+      return null;
+    })();
+    if (problem !== null) {
+      setError(problem);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const failure = await writeAll(dispatch, [
+      { key: `models.${alias}`, values: [`endpoint=${endpoint}`, `id=${id.trim()}`, `context_tokens=${contextTokens}`] },
+    ]);
+    setSaving(false);
+    if (failure !== null) {
+      setError(failure);
+      return;
+    }
+    await onSaved();
+    onClose();
+  };
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Add a model</DialogTitle>
+      <DialogContent className={dialogStyles.content}>
+        {error !== null && <Alert severity="error">{error}</Alert>}
+        <TextField fullWidth label="Alias" value={alias} onChange={(e) => setAlias(e.target.value)} />
+        <TextField
+          select
+          fullWidth
+          label="Endpoint"
+          value={endpoint}
+          onChange={(e) => {
+            setEndpoint(e.target.value);
+            setTyping(false);
+            setId("");
+          }}
+        >
+          {endpoints.map((choice) => (
+            <MenuItem key={choice.name} value={choice.name}>
+              {choice.name}
+            </MenuItem>
+          ))}
+        </TextField>
+        {choosing ? (
+          <TextField
+            select
+            fullWidth
+            label="Model ID"
+            value={id}
+            onChange={(e) => {
+              if (e.target.value === otherModel) {
+                setTyping(true);
+                setId("");
+                return;
+              }
+              setId(e.target.value);
+            }}
+          >
+            {served.map((name) => (
+              <MenuItem key={name} value={name}>
+                {name}
+              </MenuItem>
+            ))}
+            <MenuItem value={otherModel}>Other…</MenuItem>
+          </TextField>
+        ) : (
+          <TextField
+            fullWidth
+            label="Model ID"
+            value={id}
+            helperText="As the endpoint lists it; on Ollama: qwen3.5:9b"
+            onChange={(e) => setId(e.target.value)}
+          />
+        )}
+        {served.length === 0 && (
+          <Button className={styles.target} size="small" disabled={testing || endpoint === ""} onClick={() => void test()}>
+            List the models this endpoint serves
+          </Button>
+        )}
+        <TextField
+          fullWidth
+          type="number"
+          label="Context tokens"
+          value={context}
+          helperText="The server's context length for this model; at least 16384"
+          onChange={(e) => setContext(e.target.value)}
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" disabled={saving} onClick={() => void save()}>
+          Save
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
 interface ModelsSectionProps {
   readonly models: readonly ModelSettings[];
   readonly endpoints: readonly EndpointSettings[];
+  readonly defaultModel: string;
+  readonly outcomes: CheckOutcomes;
+  readonly adding: ModelDraft | null;
+  readonly onAdd: (start: ModelDraft | null) => void;
+  readonly onTest: (endpoint: string) => Promise<void>;
   readonly onChanged: () => Promise<void>;
 }
 
-const ModelsSection = ({ models, endpoints, onChanged }: ModelsSectionProps): JSX.Element => {
+const ModelsSection = ({ models, endpoints, defaultModel, outcomes, adding, onAdd, onTest, onChanged }: ModelsSectionProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const [error, setError] = useState<string | null>(null);
   const write = async (alias: string, key: string, value: string): Promise<void> => {
@@ -504,25 +716,57 @@ const ModelsSection = ({ models, endpoints, onChanged }: ModelsSectionProps): JS
       await onChanged();
     }
   };
+  const setDefault = async (alias: string): Promise<void> => {
+    const failure = await writeAll(dispatch, [{ key: "runner.model", values: alias === "" ? [] : [alias] }]);
+    setError(failure);
+    if (failure === null) {
+      await onChanged();
+    }
+  };
+  /** ws refuses to remove the default model, so it is cleared first and put back if the removal fails. */
+  const remove = async (model: ModelSettings): Promise<void> => {
+    const wasDefault = model.alias === defaultModel;
+    let failure = wasDefault ? await writeAll(dispatch, [{ key: "runner.model", values: [] }]) : null;
+    failure ??= await writeAll(dispatch, [{ key: `models.${model.alias}`, values: [] }]);
+    if (failure !== null && wasDefault) {
+      await writeAll(dispatch, [{ key: "runner.model", values: [model.alias] }]);
+    }
+    setError(failure);
+    await onChanged();
+  };
   const endpointChoices: readonly Choice[] = endpoints.map((endpoint) => ({ value: endpoint.name, label: endpoint.name }));
+  const defaultChoices: readonly Choice[] = [{ value: "", label: "None" }, ...models.map((model) => ({ value: model.alias, label: model.alias }))];
+  const firstEndpoint = endpoints[0]?.name ?? "";
   return (
     <section className={styles.section} aria-label="Models">
       <h2 className={styles.heading}>Models</h2>
       <SectionError message={error} />
-      <div className={styles.scroll}>
-        <table className={`${styles.table} ${styles.modelsTable}`} aria-label="Models table">
-          <thead>
-            <tr>
-              <th>Alias</th>
-              <th>Endpoint</th>
-              <th>ID</th>
-              <th>Context</th>
-              <th>Max output</th>
-              <th>Temperature</th>
-              <th>Reasoning</th>
-            </tr>
-          </thead>
-          <tbody>
+      {models.length === 0 ? (
+        <div className={styles.empty}>
+          <p className={styles.emptyTitle}>No models yet</p>
+          <p className={styles.caption}>
+            {endpoints.length === 0
+              ? "Add an endpoint first, test it, then add a model from the models it serves."
+              : "Test an endpoint above to see the models it serves, then add one. A model is what a ws runner agent runs on; set one as the default model so agents can start without naming one."}
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className={styles.scroll}>
+            <table className={`${styles.table} ${styles.modelsTable}`} aria-label="Models table">
+              <thead>
+                <tr>
+                  <th>Alias</th>
+                  <th>Endpoint</th>
+                  <th>ID</th>
+                  <th>Context</th>
+                  <th>Max output</th>
+                  <th>Temperature</th>
+                  <th>Reasoning</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
             {models.map((model) => (
               <tr key={model.alias}>
                 <td className={styles.mono}>{model.alias}</td>
@@ -574,11 +818,44 @@ const ModelsSection = ({ models, endpoints, onChanged }: ModelsSectionProps): JS
                     onCommit={(value) => void write(model.alias, "reasoning", value)}
                   />
                 </td>
+                <td>
+                  <Button
+                    className={styles.target}
+                    size="small"
+                    aria-label={`Remove ${model.alias}`}
+                    onClick={() => void remove(model)}
+                  >
+                    Remove
+                  </Button>
+                </td>
               </tr>
             ))}
-          </tbody>
-        </table>
-      </div>
+              </tbody>
+            </table>
+          </div>
+          <div className={styles.defaultModel}>
+            <span className={styles.defaultLabel}>Default model</span>
+            <SelectCell label="Default model" value={defaultModel} choices={defaultChoices} onCommit={(value) => void setDefault(value)} />
+          </div>
+          {defaultModel === "" && (
+            <p className={styles.caption}>No default model: ws runner agents need a model named until one is set here.</p>
+          )}
+        </>
+      )}
+      <Button className={styles.target} variant="outlined" disabled={endpoints.length === 0} onClick={() => onAdd({ endpoint: firstEndpoint, id: "" })}>
+        Add model
+      </Button>
+      {adding !== null && (
+        <AddModelDialog
+          endpoints={endpoints}
+          models={models}
+          start={adding}
+          outcomes={outcomes}
+          onTest={onTest}
+          onClose={() => onAdd(null)}
+          onSaved={onChanged}
+        />
+      )}
     </section>
   );
 };
@@ -606,7 +883,7 @@ const RolesSection = ({ settings, onChanged }: RolesSectionProps): JSX.Element =
     }
   };
   const modelChoices: readonly Choice[] = [
-    { value: "", label: `Default (runner.model: ${settings.runner.model})` },
+    { value: "", label: settings.runner.model === "" ? "Default (none set)" : `Default (runner.model: ${settings.runner.model})` },
     ...settings.models.map((model) => ({ value: model.alias, label: model.alias })),
   ];
   return (
@@ -680,6 +957,18 @@ export const ModelsGroup = (): JSX.Element => {
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  const [outcomes, setOutcomes] = useState<CheckOutcomes>({});
+  const [adding, setAdding] = useState<ModelDraft | null>(null);
+  const test = useCallback(
+    async (name: string): Promise<void> => {
+      const result = await dispatch(checkRunner({ endpoint: name, model: "" }));
+      const outcome: CheckOutcome = checkRunner.fulfilled.match(result)
+        ? { result: result.payload }
+        : { error: result.payload ?? { code: "internal", message: result.error.message ?? "the check failed" } };
+      setOutcomes((current) => ({ ...current, [name]: outcome }));
+    },
+    [dispatch],
+  );
   const refreshSettings = useCallback(async (): Promise<void> => {
     const result = await dispatch(fetchRunnerSettings());
     if (fetchRunnerSettings.fulfilled.match(result)) {
@@ -721,8 +1010,24 @@ export const ModelsGroup = (): JSX.Element => {
         loadError === null && <CircularProgress size={20} aria-label="Loading models" />
       ) : (
         <>
-          <EndpointsSection endpoints={settings.endpoints} onChanged={refreshSettings} />
-          <ModelsSection models={settings.models} endpoints={settings.endpoints} onChanged={refreshSettings} />
+          <EndpointsSection
+            endpoints={settings.endpoints}
+            models={settings.models}
+            outcomes={outcomes}
+            onTest={test}
+            onAddModel={(endpoint, id) => setAdding({ endpoint, id })}
+            onChanged={refreshSettings}
+          />
+          <ModelsSection
+            models={settings.models}
+            endpoints={settings.endpoints}
+            defaultModel={settings.runner.model}
+            outcomes={outcomes}
+            adding={adding}
+            onAdd={setAdding}
+            onTest={test}
+            onChanged={refreshSettings}
+          />
           <RolesSection settings={settings} onChanged={refreshSettings} />
         </>
       )}

@@ -866,10 +866,11 @@ export interface RunnerCheck {
   readonly url: string;
   readonly api: string;
   readonly probe: string;
-  readonly model: string;
+  /** Null for an endpoint-only check: an endpoint with no model to check lists what it serves. */
+  readonly model: string | null;
   readonly version: string | null;
   readonly capabilities: readonly string[] | null;
-  readonly context_tokens: number;
+  readonly context_tokens: number | null;
   readonly models: readonly string[];
   readonly token_source: string | null;
   readonly warnings: readonly string[];
