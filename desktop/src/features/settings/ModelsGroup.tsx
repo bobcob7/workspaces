@@ -512,7 +512,7 @@ const ModelsSection = ({ models, endpoints, onChanged }: ModelsSectionProps): JS
       <h2 className={styles.heading}>Models</h2>
       <SectionError message={error} />
       <div className={styles.scroll}>
-        <table className={styles.table} aria-label="Models table">
+        <table className={`${styles.table} ${styles.modelsTable}`} aria-label="Models table">
           <thead>
             <tr>
               <th>Alias</th>

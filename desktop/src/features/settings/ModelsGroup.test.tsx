@@ -190,6 +190,12 @@ describe("ModelsGroup", () => {
     expect(api.configSet).toHaveBeenCalledWith("endpoints.gpu-b.api", ["openai"]);
   });
 
+  it("keeps the models table wide enough that its inputs aren't squeezed", async () => {
+    renderGroup();
+    const table = await screen.findByRole("table", { name: "Models table" });
+    expect(table).toHaveClass("modelsTable");
+  });
+
   it("gives the model ID input room for a whole model id", async () => {
     renderGroup();
     const id = await screen.findByLabelText("ID for qwen9b");

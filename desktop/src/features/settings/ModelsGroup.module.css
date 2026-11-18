@@ -109,3 +109,8 @@
 .target.wide {
   min-width: 200px;
 }
+
+/* Wide enough for the number inputs and a whole model id; a phone scrolls the table sideways. */
+.table.modelsTable {
+  min-width: 900px;
+}
