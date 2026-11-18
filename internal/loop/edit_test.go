@@ -348,7 +348,7 @@ func TestLoop_Apply(t *testing.T) {
 				l := editLoop()
 				l.Version = Version1
 				require.NoError(t, l.Apply(&tt.edit, editNow))
-				assert.Equal(t, FormatVersion, l.Version)
+				assert.Equal(t, Version3, l.Version)
 			})
 		}
 	})
@@ -369,7 +369,7 @@ func TestLoop_Apply(t *testing.T) {
 		l := editLoop()
 		l.Version = Version2
 		require.NoError(t, l.Apply(&Edit{Hidden: new(false)}, editNow))
-		assert.Equal(t, FormatVersion, l.Version)
+		assert.Equal(t, Version3, l.Version)
 		assert.False(t, l.RunsHidden())
 	})
 
@@ -378,7 +378,7 @@ func TestLoop_Apply(t *testing.T) {
 		l := editLoop()
 		l.Version = Version1
 		require.NoError(t, l.Apply(&Edit{Hidden: new(true)}, editNow))
-		assert.Equal(t, FormatVersion, l.Version)
+		assert.Equal(t, Version3, l.Version)
 		assert.True(t, l.RunsHidden())
 	})
 
@@ -400,7 +400,7 @@ func TestLoop_Apply(t *testing.T) {
 		l.Prompt = "use {{x}}"
 		edit := Edit{Hidden: new(false), Prompt: new("bump {{.Vars.A}}"), Vars: &map[string]string{"A": "1"}}
 		require.NoError(t, l.Apply(&edit, editNow))
-		assert.Equal(t, FormatVersion, l.Version)
+		assert.Equal(t, Version3, l.Version)
 		assert.False(t, l.RunsHidden())
 	})
 

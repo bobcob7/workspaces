@@ -184,7 +184,7 @@ func TestApp_loopEditHidden(t *testing.T) {
 		assert.Equal(t, false, out["hidden"])
 		stored, err := store.Get("deps")
 		require.NoError(t, err)
-		assert.Equal(t, loop.FormatVersion, stored.Version)
+		assert.Equal(t, loop.Version3, stored.Version)
 		require.NotNil(t, stored.Hidden)
 		assert.False(t, *stored.Hidden)
 	})

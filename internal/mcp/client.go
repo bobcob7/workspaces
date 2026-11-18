@@ -1,12 +1,14 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	json "encoding/json/v2"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -144,8 +147,9 @@ func (s *Server) Tools() []ToolInfo {
 	return s.tools
 }
 
-// Call runs tool with JSON arguments under a 120 s limit. A failed call marks
-// the server failed; it is not restarted.
+// Call runs tool with JSON arguments under a 120 s limit. Only a broken
+// session or transport marks the server failed (it is not restarted); a call
+// that times out or gets a JSON-RPC error fails for that call alone.
 func (s *Server) Call(ctx context.Context, tool, arguments string) (CallResult, error) {
 	if err := s.checkRunning(); err != nil {
 		return CallResult{}, err
@@ -158,12 +162,29 @@ func (s *Server) Call(ctx context.Context, tool, arguments string) (CallResult, 
 	defer cancel()
 	res, err := s.sess.CallTool(callCtx, &mcp.CallToolParams{Name: tool, Arguments: values})
 	if err != nil {
-		if ctx.Err() == nil {
+		if ctx.Err() == nil && breaksServer(err) {
 			s.fail(err)
 		}
 		return CallResult{}, redactError(fmt.Errorf("calling %s on MCP server %q: %w", tool, s.name, err), s.secrets)
 	}
 	return resultOf(res), nil
+}
+
+// breaksServer reports whether a CallTool error means the session or transport
+// is gone. A call timeout or cancellation and a JSON-RPC error (invalid params,
+// a tool's own protocol error) are answers about one call and leave the server
+// usable; anything else, such as a closed connection or a failed transport,
+// does not.
+func breaksServer(err error) bool {
+	var rpcErr *jsonrpc.Error
+	switch {
+	case errors.Is(err, mcp.ErrConnectionClosed):
+		return true
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled), errors.As(err, &rpcErr):
+		return false
+	default:
+		return true
+	}
 }
 
 // Close stops the server's process group and closes the session.
@@ -214,9 +235,9 @@ func newTransport(ctx context.Context, def *ServerDef, opts StartOptions) (mcp.T
 	case typeStdio:
 		return newStdioTransport(ctx, def, opts)
 	case typeHTTP:
-		return &mcp.StreamableClientTransport{Endpoint: def.URL, HTTPClient: httpClient(opts.HTTP, def.Headers)}, nil, nil
+		return &mcp.StreamableClientTransport{Endpoint: def.URL, HTTPClient: httpClient(opts.HTTP, def.URL, def.Headers)}, nil, nil
 	case typeSSE:
-		return &mcp.SSEClientTransport{Endpoint: def.URL, HTTPClient: httpClient(opts.HTTP, def.Headers)}, nil, nil
+		return &mcp.SSEClientTransport{Endpoint: def.URL, HTTPClient: httpClient(opts.HTTP, def.URL, def.Headers)}, nil, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported transport %q", def.Type)
 	}
@@ -270,8 +291,9 @@ func stdioEnv(environ []string, extra map[string]string) []string {
 	return env
 }
 
-// httpClient is base (or the default client) with headers on every request.
-func httpClient(base *http.Client, headers map[string]string) *http.Client {
+// httpClient is base (or the default client) with headers on every request to
+// endpoint's host. A redirect to another host does not get them.
+func httpClient(base *http.Client, endpoint string, headers map[string]string) *http.Client {
 	if base == nil {
 		base = http.DefaultClient
 	}
@@ -283,16 +305,32 @@ func httpClient(base *http.Client, headers map[string]string) *http.Client {
 	if inner == nil {
 		inner = http.DefaultTransport
 	}
-	client.Transport = &headerTransport{base: inner, headers: headers}
+	client.Transport = &headerTransport{base: inner, host: endpointHost(endpoint), headers: headers}
 	return &client
+}
+
+// endpointHost is the host (with any port) of a server URL, or "" if it has none.
+func endpointHost(endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }
 
 type headerTransport struct {
 	base    http.RoundTripper
+	host    string
 	headers map[string]string
 }
 
+// RoundTrip adds the headers only for the configured host. http.Client follows
+// redirects above this transport, so a redirect to another host would
+// otherwise get the credentials re-attached.
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !strings.EqualFold(req.URL.Host, t.host) {
+		return t.base.RoundTrip(req)
+	}
 	clone := req.Clone(req.Context())
 	for name, value := range t.headers {
 		clone.Header.Set(name, value)
@@ -344,17 +382,35 @@ func lookupEnv(environ []string) func(string) (string, bool) {
 }
 
 // redactError is err with every secret replaced, for messages that can carry
-// expanded values.
+// expanded values. Secrets are replaced longest first, so one that is a prefix
+// of another leaves no tail of the longer one behind.
 func redactError(err error, secrets []string) error {
 	if err == nil {
 		return nil
 	}
-	pairs := make([]string, 0, 2*len(secrets))
-	for _, secret := range secrets {
+	ordered := slices.Clone(secrets)
+	slices.SortFunc(ordered, func(a, b string) int { return cmp.Or(len(b)-len(a), strings.Compare(a, b)) })
+	ordered = slices.Compact(ordered)
+	pairs := make([]string, 0, 2*len(ordered))
+	for _, secret := range ordered {
+		if secret == "" {
+			continue
+		}
 		pairs = append(pairs, secret, redactedText)
 	}
-	return errors.New(strings.NewReplacer(pairs...).Replace(err.Error()))
+	return &redactedError{message: strings.NewReplacer(pairs...).Replace(err.Error()), err: err}
 }
+
+// redactedError carries the redacted message and keeps the original error in
+// its chain, so errors.Is and errors.As still see the cause.
+type redactedError struct {
+	message string
+	err     error
+}
+
+func (e *redactedError) Error() string { return e.message }
+
+func (e *redactedError) Unwrap() error { return e.err }
 
 func errorField(message string) *string {
 	if message == "" {

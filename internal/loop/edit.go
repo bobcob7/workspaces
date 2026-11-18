@@ -67,7 +67,7 @@ func (e *Edit) applyTo(c, old *Loop, now time.Time) error {
 		}
 	}
 	if c.Version == Version1 && (e.Prompt != nil || e.Script != nil || e.Vars != nil) {
-		c.Version = FormatVersion
+		c.Version = Version3
 	}
 	if e.Runner != nil || e.Endpoint != nil {
 		if err := applyRunner(c, e.Runner, e.Endpoint); err != nil {
@@ -106,7 +106,7 @@ func applyRunner(c *Loop, runner, endpoint *string) error {
 	return nil
 }
 
-// applyHidden sets whether runs start hidden, and makes c version 4 (FormatVersion).
+// applyHidden sets whether runs start hidden, and makes c at least version 3.
 // A version 1 record with a templated prompt can't take the key unless the
 // same edit gives --prompt, because its prompt would be read as literal.
 func applyHidden(c *Loop, hidden bool) error {
@@ -114,7 +114,7 @@ func applyHidden(c *Loop, hidden bool) error {
 		return fmt.Errorf("%w: loop %s has a literal version 1 prompt containing {{; give --prompt too to change whether its runs are hidden", ErrInvalid, c.Name)
 	}
 	c.Hidden = &hidden
-	c.Version = FormatVersion
+	c.Version = max(c.Version, Version3)
 	return nil
 }
 

@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,9 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,7 +96,7 @@ func TestServer_Call(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, stateConnected, srv.status().State)
 	})
-	t.Run("a protocol error marks the server failed, and it is not restarted", func(t *testing.T) {
+	t.Run("a JSON-RPC error fails that call only", func(t *testing.T) {
 		srv := newInMemoryServer(t, inlineConfig(fakemcp.Tool{
 			Name:        "broken",
 			InputSchema: map[string]any{"type": "object"},
@@ -100,10 +104,35 @@ func TestServer_Call(t *testing.T) {
 		}))
 		_, err := srv.Call(t.Context(), "broken", "")
 		require.Error(t, err)
+		assert.Equal(t, stateConnected, srv.status().State)
+		_, err = srv.Call(t.Context(), "broken", "")
+		assert.NotContains(t, errorText(err), "is not running")
+	})
+	t.Run("a call that times out fails that call only", func(t *testing.T) {
+		sess := &sessionMock{
+			CallToolFunc: func(ctx context.Context, _ *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			},
+		}
+		srv := &Server{name: "fake", sess: sess, callTimeout: time.Millisecond, state: stateConnected}
+		_, err := srv.Call(t.Context(), "slow", "")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Equal(t, stateConnected, srv.status().State)
+	})
+	t.Run("a closed connection marks the server failed, and it is not restarted", func(t *testing.T) {
+		sess := &sessionMock{
+			CallToolFunc: func(context.Context, *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+				return nil, fmt.Errorf("%w: calling %q", mcp.ErrConnectionClosed, "tools/call")
+			},
+		}
+		srv := &Server{name: "fake", sess: sess, callTimeout: time.Second, state: stateConnected}
+		_, err := srv.Call(t.Context(), "any", "")
+		require.ErrorIs(t, err, mcp.ErrConnectionClosed)
 		status := srv.status()
 		assert.Equal(t, stateFailed, status.State)
 		require.NotNil(t, status.Error)
-		_, err = srv.Call(t.Context(), "broken", "")
+		_, err = srv.Call(t.Context(), "any", "")
 		require.ErrorContains(t, err, "is not running")
 	})
 	t.Run("a server that dies is failed after its next call", func(t *testing.T) {
@@ -224,6 +253,59 @@ func TestRedactError(t *testing.T) {
 		err := redactError(errors.New("bearer "+testToken+" rejected"), []string{testToken})
 		assert.Equal(t, "bearer [redacted] rejected", err.Error())
 	})
+	t.Run("a secret that prefixes a longer one leaves no tail, whatever the order", func(t *testing.T) {
+		for _, secrets := range [][]string{{"tok", "tok-long-9f", "tok"}, {"tok-long-9f", "tok"}} {
+			err := redactError(errors.New("a tok-long-9f b tok c"), secrets)
+			assert.Equal(t, "a [redacted] b [redacted] c", err.Error())
+		}
+	})
+	t.Run("the error chain survives redaction", func(t *testing.T) {
+		wrapped := fmt.Errorf("calling tool with "+testToken+": %w", context.DeadlineExceeded)
+		err := redactError(wrapped, []string{testToken})
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.NotContains(t, err.Error(), testToken)
+		var rpcErr *jsonrpc.Error
+		require.ErrorAs(t, redactError(fmt.Errorf("x: %w", &jsonrpc.Error{Code: 1, Message: "m"}), nil), &rpcErr)
+		assert.Equal(t, int64(1), rpcErr.Code)
+	})
+}
+
+func TestHeaderTransport_RoundTrip(t *testing.T) {
+	t.Parallel()
+	t.Run("a redirect to another host does not carry the headers", func(t *testing.T) {
+		t.Parallel()
+		var seen atomic.Value
+		other := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			seen.Store(r.Header.Get("Authorization"))
+		}))
+		t.Cleanup(other.Close)
+		origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, other.URL, http.StatusTemporaryRedirect)
+		}))
+		t.Cleanup(origin.Close)
+		client := httpClient(nil, origin.URL, map[string]string{"Authorization": "Bearer " + testToken})
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, origin.URL, http.NoBody)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Empty(t, seen.Load())
+	})
+	t.Run("the configured host gets the headers", func(t *testing.T) {
+		t.Parallel()
+		var seen atomic.Value
+		origin := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			seen.Store(r.Header.Get("Authorization"))
+		}))
+		t.Cleanup(origin.Close)
+		client := httpClient(nil, origin.URL, map[string]string{"Authorization": "Bearer " + testToken})
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, origin.URL, http.NoBody)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, "Bearer "+testToken, seen.Load())
+	})
 }
 
 func TestTailWriter_Write(t *testing.T) {
@@ -235,6 +317,13 @@ func TestTailWriter_Write(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "defgh", tail.String())
 	})
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // stdioDef is a stdio definition that runs the built fake-mcp with a fixture.
