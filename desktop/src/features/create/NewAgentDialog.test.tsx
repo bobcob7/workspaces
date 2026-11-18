@@ -59,6 +59,14 @@ describe("NewAgentDialog", () => {
     expect(start).toBeEnabled();
   });
 
+  it("offers to leave the task empty for Claude Code only", async () => {
+    openDialog();
+    expect(screen.getByPlaceholderText(/Leave empty to start it waiting for you/)).toBeInTheDocument();
+    await chooseWsRunner();
+    expect(screen.queryByPlaceholderText(/Leave empty/)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("What should the agent do?")).toBeInTheDocument();
+  });
+
   it("closes once the agent has started", async () => {
     const store = openDialog();
     await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
