@@ -226,6 +226,12 @@ func TestRedactError(t *testing.T) {
 		err := redactError(errors.New("bearer "+testToken+" rejected"), []string{testToken})
 		assert.Equal(t, "bearer [redacted] rejected", err.Error())
 	})
+	t.Run("a secret that prefixes a longer one leaves no tail, whatever the order", func(t *testing.T) {
+		for _, secrets := range [][]string{{"tok", "tok-long-9f", "tok"}, {"tok-long-9f", "tok"}} {
+			err := redactError(errors.New("a tok-long-9f b tok c"), secrets)
+			assert.Equal(t, "a [redacted] b [redacted] c", err.Error())
+		}
+	})
 	t.Run("the error chain survives redaction", func(t *testing.T) {
 		wrapped := fmt.Errorf("calling tool with "+testToken+": %w", context.DeadlineExceeded)
 		err := redactError(wrapped, []string{testToken})

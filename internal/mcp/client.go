@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -343,13 +344,20 @@ func lookupEnv(environ []string) func(string) (string, bool) {
 }
 
 // redactError is err with every secret replaced, for messages that can carry
-// expanded values.
+// expanded values. Secrets are replaced longest first, so one that is a prefix
+// of another leaves no tail of the longer one behind.
 func redactError(err error, secrets []string) error {
 	if err == nil {
 		return nil
 	}
-	pairs := make([]string, 0, 2*len(secrets))
-	for _, secret := range secrets {
+	ordered := slices.Clone(secrets)
+	slices.SortFunc(ordered, func(a, b string) int { return cmp.Or(len(b)-len(a), strings.Compare(a, b)) })
+	ordered = slices.Compact(ordered)
+	pairs := make([]string, 0, 2*len(ordered))
+	for _, secret := range ordered {
+		if secret == "" {
+			continue
+		}
 		pairs = append(pairs, secret, redactedText)
 	}
 	return &redactedError{message: strings.NewReplacer(pairs...).Replace(err.Error()), err: err}
