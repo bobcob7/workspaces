@@ -226,8 +226,25 @@ func (s *Supervisor) check(id string, w *watchedRunner) bool {
 		return true
 	case stateStopped:
 		return s.handleDeath(id, w, now)
+	case stateStart:
+		// A runner this supervisor resumed reads starting for the restart
+		// window after its last write, even when it has died again; the
+		// daemon is the one that resumes it, so it must see the death.
+		if s.diedWithoutExit(st) {
+			return s.handleDeath(id, w, now)
+		}
 	}
 	return false
+}
+
+// diedWithoutExit reports whether status st names a process that is gone and
+// recorded no exit.
+func (s *Supervisor) diedWithoutExit(st *runner.Status) bool {
+	if st == nil || st.Exit != nil || st.PID == 0 {
+		return false
+	}
+	_, err := s.procs.StartTime(st.PID)
+	return err != nil
 }
 
 // handleDeath resumes a dead runner once its backoff has passed, and finalizes

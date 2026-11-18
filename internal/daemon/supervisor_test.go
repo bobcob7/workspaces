@@ -398,6 +398,34 @@ func TestSupervisor_Watch(t *testing.T) {
 		assert.FileExists(t, filepath.Join(f.files.Dir, "usage.json"))
 		assert.FileExists(t, filepath.Join(f.files.Dir, "report.md"))
 	})
+	t.Run("a resumed runner that dies within the restart window is resumed again", func(t *testing.T) {
+		f := newSessionFixture(t)
+		f.procs.alive[7] = true
+		f.writeStatus(7, nil)
+		starter := f.starter()
+		sup := f.supervisor(starter, nil)
+		require.NoError(t, sup.Reconcile(t.Context()))
+		// The runner writes status.json as it works, so its UpdatedAt is
+		// recent when it dies, as the starter's fixed one is not.
+		touch := func() {
+			st := f.readStatus()
+			st.UpdatedAt = f.clock.now
+			require.NoError(t, f.files.WriteStatus(&st))
+		}
+		delete(f.procs.alive, 7)
+		sup.poll()
+		f.clock.now = f.clock.now.Add(5 * time.Second)
+		sup.poll()
+		require.Len(t, starter.StartCalls(), 1)
+		touch()
+		delete(f.procs.alive, sup.Runners()[0].PID)
+		f.clock.now = f.clock.now.Add(time.Second)
+		sup.poll()
+		f.clock.now = f.clock.now.Add(30 * time.Second)
+		sup.poll()
+		assert.Len(t, starter.StartCalls(), 2, "the second death was not noticed")
+		assert.Equal(t, 2, f.readStatus().Restarts)
+	})
 	t.Run("returns when its context ends", func(t *testing.T) {
 		sup := NewSupervisor(SupervisorConfig{Poll: time.Millisecond}, &processReaderMock{}, &processStarterMock{}, discardLog())
 		ctx, cancel := context.WithCancel(t.Context())
