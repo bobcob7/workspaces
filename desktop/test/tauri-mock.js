@@ -313,7 +313,7 @@
       runner: { model: "qwen9b" },
       endpoints: [
         { name: "gpu", url: "http://gpu-a.inference.svc:1234", api: "openai", probe: "none", request_timeout: "10m", idle_timeout: "90s" },
-        { name: "ollama", url: "http://localhost:11434", api: "ollama", probe: "tags", request_timeout: "10m", idle_timeout: "90s" },
+        { name: "ollama", url: "http://localhost:11434", api: "ollama", probe: "ollama", request_timeout: "10m", idle_timeout: "90s" },
       ],
       models: [
         { alias: "qwen9b", endpoint: "gpu", id: "qwen/qwen3.5-9b", context_tokens: 65536, max_output: 8192, temperature: 0.2, reasoning: "none" },
@@ -580,7 +580,7 @@
         hidden: false,
       },
       {
-        name: "triage",
+        name: "issue-triage",
         title: "Issue triage",
         every: "6h",
         prompt: "Label new issues and ask for missing details.",
