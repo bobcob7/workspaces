@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -266,6 +267,44 @@ func TestRedactError(t *testing.T) {
 		var rpcErr *jsonrpc.Error
 		require.ErrorAs(t, redactError(fmt.Errorf("x: %w", &jsonrpc.Error{Code: 1, Message: "m"}), nil), &rpcErr)
 		assert.Equal(t, int64(1), rpcErr.Code)
+	})
+}
+
+func TestHeaderTransport_RoundTrip(t *testing.T) {
+	t.Parallel()
+	t.Run("a redirect to another host does not carry the headers", func(t *testing.T) {
+		t.Parallel()
+		var seen atomic.Value
+		other := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			seen.Store(r.Header.Get("Authorization"))
+		}))
+		t.Cleanup(other.Close)
+		origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, other.URL, http.StatusTemporaryRedirect)
+		}))
+		t.Cleanup(origin.Close)
+		client := httpClient(nil, origin.URL, map[string]string{"Authorization": "Bearer " + testToken})
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, origin.URL, nil)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, "", seen.Load())
+	})
+	t.Run("the configured host gets the headers", func(t *testing.T) {
+		t.Parallel()
+		var seen atomic.Value
+		origin := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			seen.Store(r.Header.Get("Authorization"))
+		}))
+		t.Cleanup(origin.Close)
+		client := httpClient(nil, origin.URL, map[string]string{"Authorization": "Bearer " + testToken})
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, origin.URL, nil)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, "Bearer "+testToken, seen.Load())
 	})
 }
 

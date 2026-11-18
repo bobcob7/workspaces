@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strings"
@@ -234,9 +235,9 @@ func newTransport(ctx context.Context, def *ServerDef, opts StartOptions) (mcp.T
 	case typeStdio:
 		return newStdioTransport(ctx, def, opts)
 	case typeHTTP:
-		return &mcp.StreamableClientTransport{Endpoint: def.URL, HTTPClient: httpClient(opts.HTTP, def.Headers)}, nil, nil
+		return &mcp.StreamableClientTransport{Endpoint: def.URL, HTTPClient: httpClient(opts.HTTP, def.URL, def.Headers)}, nil, nil
 	case typeSSE:
-		return &mcp.SSEClientTransport{Endpoint: def.URL, HTTPClient: httpClient(opts.HTTP, def.Headers)}, nil, nil
+		return &mcp.SSEClientTransport{Endpoint: def.URL, HTTPClient: httpClient(opts.HTTP, def.URL, def.Headers)}, nil, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported transport %q", def.Type)
 	}
@@ -290,8 +291,9 @@ func stdioEnv(environ []string, extra map[string]string) []string {
 	return env
 }
 
-// httpClient is base (or the default client) with headers on every request.
-func httpClient(base *http.Client, headers map[string]string) *http.Client {
+// httpClient is base (or the default client) with headers on every request to
+// endpoint's host. A redirect to another host does not get them.
+func httpClient(base *http.Client, endpoint string, headers map[string]string) *http.Client {
 	if base == nil {
 		base = http.DefaultClient
 	}
@@ -303,16 +305,32 @@ func httpClient(base *http.Client, headers map[string]string) *http.Client {
 	if inner == nil {
 		inner = http.DefaultTransport
 	}
-	client.Transport = &headerTransport{base: inner, headers: headers}
+	client.Transport = &headerTransport{base: inner, host: endpointHost(endpoint), headers: headers}
 	return &client
+}
+
+// endpointHost is the host (with any port) of a server URL, or "" if it has none.
+func endpointHost(endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }
 
 type headerTransport struct {
 	base    http.RoundTripper
+	host    string
 	headers map[string]string
 }
 
+// RoundTrip adds the headers only for the configured host. http.Client follows
+// redirects above this transport, so a redirect to another host would
+// otherwise get the credentials re-attached.
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !strings.EqualFold(req.URL.Host, t.host) {
+		return t.base.RoundTrip(req)
+	}
 	clone := req.Clone(req.Context())
 	for name, value := range t.headers {
 		clone.Header.Set(name, value)
