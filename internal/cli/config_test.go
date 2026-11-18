@@ -310,6 +310,39 @@ func TestApp_configUnset(t *testing.T) {
 	})
 }
 
+func TestApp_configSetEntry(t *testing.T) {
+	t.Parallel()
+	endpoint := "[endpoints.local]\nurl = \"http://127.0.0.1:1\"\n"
+	t.Run("creates a model from its keys in one command", func(t *testing.T) {
+		t.Parallel()
+		app, path, stdout, stderr := newConfigApp(t, endpoint)
+		require.Equal(t, exitOK, runConfigCmd(t, app, "config", "set", "models.qwen", "endpoint=local", "id=qwen/qwen3.5-9b", "context_tokens=32768"), stderr.String())
+		assert.Equal(t, "models.qwen set\n", stdout.String())
+		assert.Contains(t, readFileText(t, path), "[models.qwen]\nendpoint = \"local\"\nid = \"qwen/qwen3.5-9b\"\ncontext_tokens = 32768\n")
+	})
+	t.Run("--json reports the table's change", func(t *testing.T) {
+		t.Parallel()
+		app, _, stdout, _ := newConfigApp(t, endpoint)
+		require.Equal(t, exitOK, runConfigCmd(t, app, "--json", "config", "set", "models.qwen", "endpoint=local", "id=m", "context_tokens=32768"))
+		var out configChangeJSON
+		require.NoError(t, json.Unmarshal(stdout.Bytes(), &out))
+		assert.True(t, out.Changed)
+		assert.Equal(t, "models.qwen", out.Setting.Key)
+	})
+	t.Run("an incomplete model is refused and the file is unchanged", func(t *testing.T) {
+		t.Parallel()
+		app, path, _, stderr := newConfigApp(t, endpoint)
+		assert.Equal(t, exitUsage, runConfigCmd(t, app, "--json", "config", "set", "models.qwen", "endpoint=local", "id=m"))
+		assert.Equal(t, "config_value_invalid", errorCodeOf(t, stderr))
+		assert.Equal(t, endpoint, readFileText(t, path))
+	})
+	t.Run("a table with no pairs is usage", func(t *testing.T) {
+		t.Parallel()
+		app, _, _, _ := newConfigApp(t, endpoint)
+		assert.Equal(t, exitUsage, runConfigCmd(t, app, "config", "set", "models.qwen"))
+	})
+}
+
 func TestApp_printConfigValue(t *testing.T) {
 	t.Run("prints each list item on its own line", func(t *testing.T) {
 		app, _, stdout, _ := newConfigApp(t, "")

@@ -196,32 +196,68 @@ func Lookup(data []byte, key string) (Setting, error) {
 // rewrites its whole list (rewriteHosts). The result is parsed again and
 // must decode to the normalized value, or Set returns ErrUneditable.
 func Set(data []byte, key string, values []string) ([]byte, bool, error) {
-	rule, err := parseKey(key)
+	out, err := setKey(data, key, values)
 	if err != nil {
-		return nil, false, err
-	}
-	if rule.typ == TypeHosts {
-		return replaceHosts(data, values)
-	}
-	want, err := normalize(rule, values)
-	if err != nil {
-		return nil, false, err
-	}
-	if rule.key == "defaults.host" && hostsListSet(data) {
-		return nil, false, fmt.Errorf("%w: defaults.host can't be set while [[hosts]] is; use ws config set hosts", ErrValueInvalid)
-	}
-	lines, err := setLines(splitLines(data), rule, rule.leaf+" = "+encode(want))
-	if err != nil {
-		return nil, false, err
-	}
-	out := []byte(strings.Join(lines, ""))
-	if err := verifySet(out, rule, want); err != nil {
 		return nil, false, err
 	}
 	if err := refuseNewRunnerError(data, out); err != nil {
 		return nil, false, err
 	}
 	return out, !bytes.Equal(data, out), nil
+}
+
+// SetEntry creates or updates the entry table (endpoints.<name>,
+// models.<alias> or runner.roles.<role>) from leaf=value pairs, in one edit.
+// A model needs its endpoint, id and context_tokens together, so setting
+// them one key at a time can't create it: each step alone leaves the runner's
+// tables unusable. The runner's tables are checked once, after every pair.
+func SetEntry(data []byte, table string, pairs []string) ([]byte, bool, error) {
+	if _, ok := entryTable(table); !ok {
+		return nil, false, fmt.Errorf("%w: %s", ErrKeyUnknown, table)
+	}
+	out := data
+	for _, pair := range pairs {
+		leaf, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			return nil, false, fmt.Errorf("%w: %q isn't leaf=value", ErrValueInvalid, pair)
+		}
+		var err error
+		if out, err = setKey(out, table+"."+leaf, []string{value}); err != nil {
+			return nil, false, err
+		}
+	}
+	if err := refuseNewRunnerError(data, out); err != nil {
+		return nil, false, err
+	}
+	return out, !bytes.Equal(data, out), nil
+}
+
+// setKey is Set without the check of the runner's tables.
+func setKey(data []byte, key string, values []string) ([]byte, error) {
+	rule, err := parseKey(key)
+	if err != nil {
+		return nil, err
+	}
+	if rule.typ == TypeHosts {
+		out, _, err := replaceHosts(data, values)
+		return out, err
+	}
+	want, err := normalize(rule, values)
+	if err != nil {
+		return nil, err
+	}
+	if rule.key == "defaults.host" && hostsListSet(data) {
+		return nil, fmt.Errorf("%w: defaults.host can't be set while [[hosts]] is; use ws config set hosts", ErrValueInvalid)
+	}
+	lines, err := setLines(splitLines(data), rule, rule.leaf+" = "+encode(want))
+	if err != nil {
+		return nil, err
+	}
+	out := []byte(strings.Join(lines, ""))
+	if err := verifySet(out, rule, want); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Unset returns data without key, plus whether the text changed. A key
