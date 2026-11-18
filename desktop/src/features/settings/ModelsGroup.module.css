@@ -106,6 +106,6 @@
   min-height: 40px;
 }
 
-.wide {
+.target.wide {
   min-width: 200px;
 }
