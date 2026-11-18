@@ -501,6 +501,30 @@ func TestSupervisor_Watch(t *testing.T) {
 		assert.FileExists(t, filepath.Join(f.files.Dir, "usage.json"))
 		assert.FileExists(t, filepath.Join(f.files.Dir, "report.md"))
 	})
+	t.Run("a resume that fails waits a full backoff before the next attempt", func(t *testing.T) {
+		f := newSessionFixture(t)
+		f.procs.alive[7] = true
+		f.writeStatus(7, nil)
+		starter := f.starter()
+		sup := f.supervisor(starter, nil)
+		require.NoError(t, sup.Reconcile(t.Context()))
+		delete(f.procs.alive, 7)
+		sup.poll(t.Context())
+		starter.StartFunc = func(string, []string, string, string, []string) (int, error) {
+			return 0, errors.New("exec failed")
+		}
+		f.clock.now = f.clock.now.Add(5 * time.Second)
+		sup.poll(t.Context())
+		require.Len(t, starter.StartCalls(), 1)
+		// The failed attempt counted a restart, so the next wait is 30 s,
+		// measured from the failure and not from the first death.
+		f.clock.now = f.clock.now.Add(29 * time.Second)
+		sup.poll(t.Context())
+		assert.Len(t, starter.StartCalls(), 1, "retried before a full backoff since the failure")
+		f.clock.now = f.clock.now.Add(time.Second)
+		sup.poll(t.Context())
+		assert.Len(t, starter.StartCalls(), 2)
+	})
 	t.Run("returns when its context ends", func(t *testing.T) {
 		sup := NewSupervisor(SupervisorConfig{Poll: time.Millisecond}, &processReaderMock{}, &processStarterMock{}, discardLog())
 		ctx, cancel := context.WithCancel(t.Context())
