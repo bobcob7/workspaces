@@ -507,3 +507,33 @@ func TestIsEntryTable(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveTable(t *testing.T) {
+	remove := func(input, table string) string {
+		return strings.Join(removeTable(splitLines([]byte(input)), table), "")
+	}
+	t.Run("drops the keys and the blank lines after them", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\ny = 2\n\n[c]\nz = 3\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n[c]\nz = 3\n", got)
+	})
+	t.Run("the last table after a preceding table leaves that table intact", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\ny = 2\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n", got)
+	})
+	t.Run("a comment after the table stays", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\ny = 2\n\n# about c\n[c]\nz = 3\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n# about c\n[c]\nz = 3\n", got)
+	})
+	t.Run("a header-only table goes and leaves no extra blank line", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\n\n[c]\nz = 3\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n[c]\nz = 3\n", got)
+	})
+	t.Run("a header-only table at the end of the file", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n", got)
+	})
+	t.Run("a table that isn't there changes nothing", func(t *testing.T) {
+		input := "[a]\nx = 1\n"
+		assert.Equal(t, input, remove(input, "b"))
+	})
+}
