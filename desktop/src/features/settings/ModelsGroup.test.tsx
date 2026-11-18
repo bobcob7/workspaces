@@ -167,6 +167,36 @@ describe("ModelsGroup", () => {
     expect(api.endpointTokenSet).toHaveBeenCalledWith("gpu", "");
   });
 
+  it("refreshes the table when the config writes land but the token write fails", async () => {
+    const api = fakeApi({
+      endpointTokenSet: vi.fn(async () => {
+        throw { code: "state_write_failed", message: "disk full" } satisfies AppError;
+      }),
+    });
+    renderGroup(api);
+    await userEvent.click(within(await endpointsTable()).getByRole("button", { name: "Edit" }));
+    const url = screen.getByLabelText("URL");
+    await userEvent.clear(url);
+    await userEvent.type(url, "http://gpu-b:1234");
+    await userEvent.type(screen.getByLabelText("Token"), "tok-123");
+    const loads = vi.mocked(api.runnerSettingsGet).mock.calls.length;
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("disk full")).toBeInTheDocument();
+    expect(vi.mocked(api.runnerSettingsGet).mock.calls.length).toBeGreaterThan(loads);
+  });
+
+  it("refreshes the table when removing an endpoint clears the config but not the token", async () => {
+    const api = fakeApi({
+      endpointTokenSet: vi.fn(async () => {
+        throw { code: "state_write_failed", message: "disk full" } satisfies AppError;
+      }),
+    });
+    renderGroup(api);
+    await userEvent.click(within(await endpointsTable()).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("disk full")).toBeInTheDocument();
+    expect(vi.mocked(api.runnerSettingsGet).mock.calls.length).toBeGreaterThan(1);
+  });
+
   it("refuses a new endpoint whose name is not a config name", async () => {
     const api = fakeApi();
     renderGroup(api);
