@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,6 +66,7 @@ func testdata(t *testing.T, name string) string {
 type process struct {
 	cmd   *exec.Cmd
 	lines chan string
+	read  chan struct{} // closed once forward has read all of stdout
 }
 
 func startProcess(t *testing.T, bin string, args ...string) *process {
@@ -76,10 +78,12 @@ func startProcess(t *testing.T, bin string, args ...string) *process {
 	out, err := cmd.StdoutPipe()
 	require.NoError(t, err)
 	require.NoError(t, cmd.Start())
-	p := &process{cmd: cmd, lines: make(chan string, 64)}
+	p := &process{cmd: cmd, lines: make(chan string, 64), read: make(chan struct{})}
 	go p.forward(out)
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
+		// Wait closes the pipe, so it must not run before the reads are done.
+		<-p.read
 		_ = cmd.Wait()
 		_ = log.Close()
 	})
@@ -87,6 +91,7 @@ func startProcess(t *testing.T, bin string, args ...string) *process {
 }
 
 func (p *process) forward(r io.Reader) {
+	defer close(p.read)
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		select {
@@ -538,4 +543,12 @@ func breakConfig(t *testing.T, env *testEnv) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, []byte("[runner"), 0o600))
 	t.Cleanup(func() { _ = os.WriteFile(path, saved, 0o600) })
+}
+
+func TestProcess_forward(t *testing.T) {
+	t.Run("delivers the lines printed just before exit", func(t *testing.T) {
+		p := startProcess(t, "/bin/sh", "-c", "echo first; echo second")
+		assert.Empty(t, p.expectLine(t, "first"))
+		assert.Empty(t, p.expectLine(t, "second"))
+	})
 }
