@@ -256,6 +256,85 @@ func TestSupervisor_Start(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, starter.StartCalls()[1].Args, "--resume")
 	})
+	t.Run("a cancelled context ends the wait for status promptly and stops the new process", func(t *testing.T) {
+		f := newSessionFixture(t)
+		starter := &processStarterMock{
+			StartFunc:  func(string, []string, string, string, []string) (int, error) { return 5, nil },
+			SignalFunc: func(int, syscall.Signal) error { return nil },
+		}
+		sup := f.supervisor(starter, func(c *SupervisorConfig) { c.StartWait = time.Minute })
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			_, err := sup.Start(ctx, "ws-1", false)
+			done <- err
+		}()
+		require.Eventually(t, func() bool { return len(starter.StartCalls()) == 1 }, 5*time.Second, time.Millisecond)
+		cancel()
+		select {
+		case err := <-done:
+			require.ErrorIs(t, err, context.Canceled)
+		case <-time.After(5 * time.Second):
+			t.Fatal("Start kept waiting after its context ended")
+		}
+		require.Len(t, starter.SignalCalls(), 1)
+		assert.Equal(t, syscall.SIGTERM, starter.SignalCalls()[0].Sig)
+		assert.Empty(t, sup.Runners())
+	})
+	t.Run("Runners, Idle and poll are not blocked during a slow start", func(t *testing.T) {
+		f := newSessionFixture(t)
+		starter := &processStarterMock{
+			StartFunc:  func(string, []string, string, string, []string) (int, error) { return 5, nil },
+			SignalFunc: func(int, syscall.Signal) error { return nil },
+		}
+		sup := f.supervisor(starter, func(c *SupervisorConfig) { c.StartWait = time.Minute })
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			_, err := sup.Start(ctx, "ws-1", false)
+			done <- err
+		}()
+		require.Eventually(t, func() bool { return len(starter.StartCalls()) == 1 }, 5*time.Second, time.Millisecond)
+		free := make(chan struct{})
+		go func() {
+			sup.Runners()
+			sup.Idle()
+			sup.poll(t.Context())
+			close(free)
+		}()
+		select {
+		case <-free:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the supervisor's lock was held while a start waited")
+		}
+		cancel()
+		require.ErrorIs(t, <-done, context.Canceled)
+	})
+	t.Run("a second start for a workspace already starting returns the first's runner", func(t *testing.T) {
+		f := newSessionFixture(t)
+		release := make(chan struct{})
+		starter := f.starter()
+		startProcess := starter.StartFunc
+		starter.StartFunc = func(exe string, args []string, dir, logPath string, env []string) (int, error) {
+			<-release
+			return startProcess(exe, args, dir, logPath, env)
+		}
+		sup := f.supervisor(starter, nil)
+		pids := make(chan int, 2)
+		start := func() {
+			pid, err := sup.Start(t.Context(), "ws-1", false)
+			assert.NoError(t, err)
+			pids <- pid
+		}
+		go start()
+		require.Eventually(t, func() bool { return len(starter.StartCalls()) == 1 }, 5*time.Second, time.Millisecond)
+		go start()
+		time.Sleep(20 * time.Millisecond)
+		close(release)
+		first, second := <-pids, <-pids
+		assert.Equal(t, first, second)
+		assert.Len(t, starter.StartCalls(), 1)
+	})
 }
 
 func TestSupervisor_Stop(t *testing.T) {
@@ -329,6 +408,30 @@ func TestSupervisor_Stop(t *testing.T) {
 		require.NotNil(t, st.Exit)
 		assert.Equal(t, "stopped", *st.Exit)
 	})
+	t.Run("a cancelled context ends the wait for the exit without killing the runner", func(t *testing.T) {
+		f := newSessionFixture(t)
+		f.procs.alive[7] = true
+		f.writeStatus(7, nil)
+		starter := &processStarterMock{SignalFunc: func(int, syscall.Signal) error { return nil }}
+		sup := f.supervisor(starter, func(c *SupervisorConfig) { c.StopWait = time.Minute })
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			_, err := sup.Stop(ctx, "ws-1")
+			done <- err
+		}()
+		require.Eventually(t, func() bool { return len(starter.SignalCalls()) == 1 }, 5*time.Second, time.Millisecond)
+		cancel()
+		select {
+		case err := <-done:
+			require.ErrorIs(t, err, context.Canceled)
+		case <-time.After(5 * time.Second):
+			t.Fatal("Stop kept waiting after its context ended")
+		}
+		require.Len(t, starter.SignalCalls(), 1)
+		assert.Equal(t, syscall.SIGTERM, starter.SignalCalls()[0].Sig)
+		assert.FileExists(t, filepath.Join(f.files.Dir, "stop"))
+	})
 }
 
 func TestSupervisor_StopAll(t *testing.T) {
@@ -377,18 +480,18 @@ func TestSupervisor_Watch(t *testing.T) {
 		waits := []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute}
 		for i, wait := range waits {
 			delete(f.procs.alive, sup.Runners()[0].PID)
-			sup.poll()
+			sup.poll(t.Context())
 			before := len(starter.StartCalls())
 			f.clock.now = f.clock.now.Add(wait - time.Second)
-			sup.poll()
+			sup.poll(t.Context())
 			assert.Len(t, starter.StartCalls(), before, "resumed before %s", wait)
 			f.clock.now = f.clock.now.Add(time.Second)
-			sup.poll()
+			sup.poll(t.Context())
 			assert.Len(t, starter.StartCalls(), before+1, "resumed after %s", wait)
 			assert.Equal(t, i+1, f.readStatus().Restarts)
 		}
 		delete(f.procs.alive, sup.Runners()[0].PID)
-		sup.poll()
+		sup.poll(t.Context())
 		assert.True(t, sup.Idle())
 		st := f.readStatus()
 		require.NotNil(t, st.Exit)
@@ -397,6 +500,30 @@ func TestSupervisor_Watch(t *testing.T) {
 		assert.Equal(t, "FAIL", *st.Verdict)
 		assert.FileExists(t, filepath.Join(f.files.Dir, "usage.json"))
 		assert.FileExists(t, filepath.Join(f.files.Dir, "report.md"))
+	})
+	t.Run("a resume that fails waits a full backoff before the next attempt", func(t *testing.T) {
+		f := newSessionFixture(t)
+		f.procs.alive[7] = true
+		f.writeStatus(7, nil)
+		starter := f.starter()
+		sup := f.supervisor(starter, nil)
+		require.NoError(t, sup.Reconcile(t.Context()))
+		delete(f.procs.alive, 7)
+		sup.poll(t.Context())
+		starter.StartFunc = func(string, []string, string, string, []string) (int, error) {
+			return 0, errors.New("exec failed")
+		}
+		f.clock.now = f.clock.now.Add(5 * time.Second)
+		sup.poll(t.Context())
+		require.Len(t, starter.StartCalls(), 1)
+		// The failed attempt counted a restart, so the next wait is 30 s,
+		// measured from the failure and not from the first death.
+		f.clock.now = f.clock.now.Add(29 * time.Second)
+		sup.poll(t.Context())
+		assert.Len(t, starter.StartCalls(), 1, "retried before a full backoff since the failure")
+		f.clock.now = f.clock.now.Add(time.Second)
+		sup.poll(t.Context())
+		assert.Len(t, starter.StartCalls(), 2)
 	})
 	t.Run("a resumed runner that dies within the restart window is resumed again", func(t *testing.T) {
 		f := newSessionFixture(t)
@@ -413,16 +540,16 @@ func TestSupervisor_Watch(t *testing.T) {
 			require.NoError(t, f.files.WriteStatus(&st))
 		}
 		delete(f.procs.alive, 7)
-		sup.poll()
+		sup.poll(t.Context())
 		f.clock.now = f.clock.now.Add(5 * time.Second)
-		sup.poll()
+		sup.poll(t.Context())
 		require.Len(t, starter.StartCalls(), 1)
 		touch()
 		delete(f.procs.alive, sup.Runners()[0].PID)
 		f.clock.now = f.clock.now.Add(time.Second)
-		sup.poll()
+		sup.poll(t.Context())
 		f.clock.now = f.clock.now.Add(30 * time.Second)
-		sup.poll()
+		sup.poll(t.Context())
 		assert.Len(t, starter.StartCalls(), 2, "the second death was not noticed")
 		assert.Equal(t, 2, f.readStatus().Restarts)
 	})

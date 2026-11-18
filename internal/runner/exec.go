@@ -182,16 +182,17 @@ func (s *session) initialStatus() Status {
 }
 
 // loop sets the run up and runs it. A setup failure is the run's exit, and
-// so is a config.toml the runner can't read.
+// so is a config.toml the runner can't read. Whatever setup opened before it
+// failed is closed on every path.
 func (s *session) loop(ctx context.Context) agent.Outcome {
 	if s.cfgErr != nil {
 		return agent.Outcome{Exit: agent.ExitInternal, Message: s.cfgErr.Error()}
 	}
 	ctx, p, err := s.setup(ctx)
+	defer s.teardown()
 	if err != nil {
 		return agent.Outcome{Exit: agent.ExitInternal, Message: err.Error()}
 	}
-	defer s.teardown()
 	return p.agent.Run(ctx, p.history, p.step, s.prior)
 }
 

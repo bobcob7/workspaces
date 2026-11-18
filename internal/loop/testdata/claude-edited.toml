@@ -1,0 +1,11 @@
+version = 3
+name = "deps-bump"
+every = "24h"
+prompt = "bump more"
+model = ""
+permission_mode = ""
+keep = 5
+paused = false
+created_at = 2026-11-05T18:00:00Z
+next_run_at = 2026-11-06T18:00:00Z
+hidden = false

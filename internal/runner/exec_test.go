@@ -786,3 +786,44 @@ func TestLastToolCallTurn(t *testing.T) {
 		assert.Equal(t, -1, lastToolCallTurn([]llm.Message{{Role: llm.RoleUser}}))
 	})
 }
+
+func TestSession_loop(t *testing.T) {
+	t.Run("a failure after the transcript is open closes it", func(t *testing.T) {
+		files, workspace := newRunFixture(t, "http://gpu.example", nil)
+		require.NoError(t, os.WriteFile(files.Transcript(), []byte("not json\n"), fileMode))
+		run, err := files.ReadRun()
+		require.NoError(t, err)
+		s, err := openSession(testInput(t, files, workspace, true), &run)
+		require.NoError(t, err)
+		t.Cleanup(s.close)
+		outcome := s.loop(t.Context())
+		require.Equal(t, agent.ExitInternal, outcome.Exit)
+		require.NotNil(t, s.tr, "setup failed before it opened the transcript")
+		assert.ErrorIs(t, s.tr.Close(), os.ErrClosed)
+	})
+	t.Run("a failure after the MCP servers start closes them and the transcript", func(t *testing.T) {
+		model := newModelServer(t, script(recordPass))
+		files, workspace := newRunFixture(t, model.URL, func(run *Run) {
+			run.MCPServers = []string{"metrics"}
+			run.UserInstructions = true
+		})
+		writeMCPJSON(t, workspace, serveMetricsServer(t))
+		t.Setenv("HOME", "")
+		run, err := files.ReadRun()
+		require.NoError(t, err)
+		s, err := openSession(testInput(t, files, workspace, false), &run)
+		require.NoError(t, err)
+		t.Cleanup(s.close)
+		outcome := s.loop(t.Context())
+		require.Equal(t, agent.ExitInternal, outcome.Exit)
+		require.Contains(t, outcome.Message, "home directory")
+		require.NotNil(t, s.mcp, "setup failed before it started the MCP servers")
+		offered := s.mcp.manager.Tools()
+		require.NotEmpty(t, offered)
+		callCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		_, err = s.mcp.manager.Call(callCtx, offered[0].Name, "{}")
+		require.Error(t, err, "the MCP session is still open")
+		assert.ErrorIs(t, s.tr.Close(), os.ErrClosed)
+	})
+}

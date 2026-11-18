@@ -234,10 +234,13 @@ option and no spec is a usage error.
 - **Old records.** A loop added before scripts existed (record version 1)
   stays version 1, with a literal prompt, unless the edit gives
   `--prompt`, `--script`, `--no-script`, `--var`, or `--no-vars`. Then it
-  becomes version 2 and its prompt is checked as a template: write a
+  becomes version 3 and its prompt is checked as a template: write a
   literal `{{` as `{{"{{"}}`.
 - **Runner records.** `--runner ws` or `--endpoint` makes a record version 4,
-  which older `ws` binaries skip. A version 1 record with a literal `{{` in
+  which older `ws` binaries skip. A record with neither (a Claude loop, or
+  one set back with `--runner claude`) writes no runner key and keeps its
+  version: a new loop is version 3, and `--hidden` or `--show` makes a
+  version 1 or 2 record version 3. A version 1 record with a literal `{{` in
   its prompt can't take them unless the same edit gives `--prompt`.
 - `--no-script` with `--script` or `--script-timeout`, `--no-vars` with
   `--var`, and `--no-specs` with specs are usage errors.
