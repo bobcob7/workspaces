@@ -87,7 +87,11 @@ export const NewAgentDialog = (): JSX.Element => {
             onChange={(e) => setPrompt(e.target.value)}
             multiline
             minRows={4}
-            placeholder="What should the agent do? Leave empty to start it waiting for you."
+            placeholder={
+              runnerFields.runner === "ws"
+                ? "What should the agent do?"
+                : "What should the agent do? Leave empty to start it waiting for you."
+            }
             helperText={promptMissing ? "Required for the ws runner" : undefined}
           />
           <RunnerModelFields {...runnerFields} settings={runnerSettings} onChange={changeRunner} />

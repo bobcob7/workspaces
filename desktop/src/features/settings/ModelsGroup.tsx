@@ -318,6 +318,8 @@ const EndpointDialog = ({ endpoint, onClose, onSaved }: EndpointDialogProps): JS
       (token === "" ? null : await saveToken(dispatch, target, token));
     setSaving(false);
     if (failure !== null) {
+      // Earlier writes may have landed, so refresh before showing the error.
+      await onSaved();
       setError(failure);
       return;
     }
@@ -393,12 +395,8 @@ const EndpointsSection = ({ endpoints, onChanged }: EndpointsSectionProps): JSX.
   const remove = async (endpoint: EndpointSettings): Promise<void> => {
     const failure =
       (await writeAll(dispatch, [{ key: `endpoints.${endpoint.name}`, values: [] }])) ?? (await saveToken(dispatch, endpoint.name, ""));
-    if (failure !== null) {
-      setError(failure);
-      return;
-    }
-    setError(null);
     await onChanged();
+    setError(failure);
   };
   return (
     <section className={styles.section} aria-label="Endpoints">
