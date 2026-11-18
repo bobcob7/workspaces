@@ -1,5 +1,12 @@
 .fields {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+}
+
+/* A model alias and id, such as qwen9b-think · qwen/qwen3.5-9b, must fit a phone dialog's 278px picker. */
+@media (max-width: 480px) {
+  .fields :global(.MuiSelect-select) {
+    font-size: 14px;
+  }
 }
