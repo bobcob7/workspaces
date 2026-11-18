@@ -131,6 +131,12 @@ func startHeldRun(t *testing.T, env *testEnv, fake fakeOllama) child {
 func testMixedWait(t *testing.T) {
 	env, _ := startRunnerEnv(t, "edit-file.yaml")
 	claudeID := spawnPlain(t, env, "x")
+	// The fake claude exits at once and records nothing, so the child
+	// records its own result, as a real claude child does.
+	report := filepath.Join(t.TempDir(), "report.md")
+	require.NoError(t, os.WriteFile(report, []byte("Done.\n"), 0o600))
+	res := runWSIn(t, env, filepath.Join(env.configDir, "workspaces", claudeID), "machine", "result", "PASS", "--file", report)
+	require.Zero(t, res.Code, "result: %s %s", res.Stdout, res.Stderr)
 	c := spawnRunner(t, env, editPrompt)
 	children := waitChildren(t, env, "2m", claudeID, c.ID)
 

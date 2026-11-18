@@ -294,11 +294,24 @@ func gitRun(t *testing.T, e *testEnv, args ...string) {
 
 // writeFakeClaude installs a claude that answers --version, records every
 // other call's arguments NUL-separated (a call ends with an empty field), and
-// prints the line `claude --bg` prints.
+// prints the line `claude --bg` prints. `claude agents --json` lists each
+// session it backgrounded as idle with a pid, as a finished turn looks, so
+// ws sees the session as quiet.
 func (e *testEnv) writeFakeClaude(t *testing.T) {
 	t.Helper()
 	script := fmt.Sprintf(`#!/bin/sh
 if [ "$1" = --version ]; then echo "2.1.303 (Claude Code)"; exit 0; fi
+if [ "$1" = agents ]; then
+  n=$(cat %[2]q 2>/dev/null || echo 0); sep=
+  printf '['
+  i=1
+  while [ $i -le $n ]; do
+    printf '%%s{"id":"0a1b2c3d%%s","sessionId":"s-%%s","name":"fake","cwd":"/","kind":"background","state":"idle","status":"idle","pid":1,"startedAt":1}' "$sep" $i $i
+    sep=,; i=$((i + 1))
+  done
+  printf ']\n'
+  exit 0
+fi
 for a in "$@"; do printf '%%s\0' "$a"; done >> %[1]q
 printf '\0' >> %[1]q
 if [ "$1" = --bg ]; then
