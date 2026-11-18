@@ -244,7 +244,7 @@ const SelectCell = ({ label, value, choices, onCommit }: SelectCellProps): JSX.E
     value={value}
     className={styles.target}
     onChange={(e) => onCommit(e.target.value)}
-    slotProps={{ htmlInput: { "aria-label": label } }}
+    slotProps={{ htmlInput: { "aria-label": label }, select: { displayEmpty: true } }}
   >
     {choices.map((choice) => (
       <MenuItem key={choice.value} value={choice.value} disabled={choice.disabled === true}>
@@ -842,7 +842,7 @@ const ModelsSection = ({ models, endpoints, defaultModel, outcomes, adding, onAd
           )}
         </>
       )}
-      <Button className={styles.target} variant="outlined" disabled={endpoints.length === 0} onClick={() => onAdd({ endpoint: firstEndpoint, id: "" })}>
+      <Button className={`${styles.target} ${styles.add}`} variant="outlined" disabled={endpoints.length === 0} onClick={() => onAdd({ endpoint: firstEndpoint, id: "" })}>
         Add model
       </Button>
       {adding !== null && (

@@ -154,3 +154,7 @@
 .defaultLabel {
   color: var(--text-muted);
 }
+
+.add {
+  margin-top: 8px;
+}
