@@ -257,9 +257,9 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
     }
     if non_blank(req.runner.as_deref()) == Some("ws") {
         args.push("--runner=ws".to_string());
-    }
-    if let Some(endpoint) = non_blank(req.endpoint.as_deref()) {
-        args.push(format!("--endpoint={endpoint}"));
+        if let Some(endpoint) = non_blank(req.endpoint.as_deref()) {
+            args.push(format!("--endpoint={endpoint}"));
+        }
     }
     if let Some(model) = non_blank(req.model.as_deref()) {
         args.push(format!("--model={model}"));
@@ -734,6 +734,27 @@ mod tests {
                 "deps"
             ]
         );
+    }
+
+    #[test]
+    fn add_args_for_claude_loop_drops_a_stale_endpoint() {
+        let req = NewLoop {
+            runner: Some("claude".into()),
+            endpoint: Some("gpu".into()),
+            ..request()
+        };
+        let args = add_args(&req);
+        assert!(!args
+            .iter()
+            .any(|a| a.starts_with("--runner") || a.starts_with("--endpoint")));
+        let blank_runner = NewLoop {
+            runner: None,
+            endpoint: Some("gpu".into()),
+            ..request()
+        };
+        assert!(!add_args(&blank_runner)
+            .iter()
+            .any(|a| a.starts_with("--endpoint")));
     }
 
     #[test]
