@@ -74,7 +74,16 @@ type Supervisor struct {
 
 	mu                sync.Mutex
 	runners           map[string]*watchedRunner
+	starting          map[string]*startCall
 	lastConfigWarning string
+}
+
+// startCall is a Start in flight for one workspace, which a second Start for
+// it waits on instead of starting another runner.
+type startCall struct {
+	done chan struct{}
+	pid  int
+	err  error
 }
 
 // watchedRunner is one runner session the supervisor holds: its pid, its
@@ -97,11 +106,12 @@ type watchedRunner struct {
 func NewSupervisor(cfg SupervisorConfig, procs processReader, starter processStarter, log *slog.Logger) *Supervisor {
 	withDefaults(&cfg)
 	return &Supervisor{
-		cfg:     cfg,
-		procs:   procs,
-		starter: starter,
-		log:     log,
-		runners: map[string]*watchedRunner{},
+		cfg:      cfg,
+		procs:    procs,
+		starter:  starter,
+		log:      log,
+		runners:  map[string]*watchedRunner{},
+		starting: map[string]*startCall{},
 	}
 }
 
@@ -133,7 +143,7 @@ func (s *Supervisor) files(id string) runner.Files {
 // Reconcile runs before the daemon listens. It adopts the live runners under
 // StateDir, resumes the stopped ones when ResumeOnStart is set, and leaves
 // the finished ones alone.
-func (s *Supervisor) Reconcile(context.Context) error {
+func (s *Supervisor) Reconcile(ctx context.Context) error {
 	entries, err := os.ReadDir(s.cfg.StateDir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -145,20 +155,20 @@ func (s *Supervisor) Reconcile(context.Context) error {
 	defer s.mu.Unlock()
 	for _, entry := range entries {
 		if entry.IsDir() {
-			s.reconcileOne(entry.Name())
+			s.reconcileOne(ctx, entry.Name())
 		}
 	}
 	return nil
 }
 
-func (s *Supervisor) reconcileOne(id string) {
+func (s *Supervisor) reconcileOne(ctx context.Context, id string) {
 	files := s.files(id)
 	run, err := files.ReadRun()
 	if errors.Is(err, fs.ErrNotExist) {
 		return
 	}
 	if err != nil {
-		s.log.Warn("reading a runner session", "workspace", id, "error", err)
+		s.log.WarnContext(ctx, "reading a runner session", "workspace", id, "error", err)
 		return
 	}
 	state, pid, _ := files.State(s.cfg.Now(), run.CreatedAt, s.procs)
@@ -168,19 +178,19 @@ func (s *Supervisor) reconcileOne(id string) {
 	case stateStart:
 		s.track(id, &run, 0, stateStart)
 	case stateStopped:
-		s.resumeAtStart(id, &run)
+		s.resumeAtStart(ctx, id, &run)
 	}
 }
 
 // resumeAtStart resumes a stopped runner found at start, when the config says
 // to. A resume that fails is retried by Watch after its backoff.
-func (s *Supervisor) resumeAtStart(id string, run *runner.Run) {
+func (s *Supervisor) resumeAtStart(ctx context.Context, id string, run *runner.Run) {
 	if !s.cfg.ResumeOnStart {
 		return
 	}
 	w := s.track(id, run, 0, stateStopped)
-	if err := s.resume(w); err != nil {
-		s.log.Warn("resuming a runner at start", "session", w.session, "error", err)
+	if err := s.resume(ctx, w); err != nil {
+		s.log.WarnContext(ctx, "resuming a runner at start", "session", w.session, "error", err)
 		w.deadSince = s.cfg.Now()
 	}
 }
@@ -194,23 +204,23 @@ func (s *Supervisor) Watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.poll()
+			s.poll(ctx)
 		}
 	}
 }
 
-func (s *Supervisor) poll() {
+func (s *Supervisor) poll(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, w := range s.runners {
-		if s.check(id, w) {
+		if s.check(ctx, id, w) {
 			delete(s.runners, id)
 		}
 	}
 }
 
 // check updates w from its files and reports whether it is no longer watched.
-func (s *Supervisor) check(id string, w *watchedRunner) bool {
+func (s *Supervisor) check(ctx context.Context, id string, w *watchedRunner) bool {
 	now := s.cfg.Now()
 	state, pid, st := s.files(id).State(now, w.run.CreatedAt, s.procs)
 	w.state = state
@@ -225,17 +235,17 @@ func (s *Supervisor) check(id string, w *watchedRunner) bool {
 	case stateIdle:
 		return true
 	case stateStopped:
-		return s.handleDeath(id, w, now)
+		return s.handleDeath(ctx, id, w, now)
 	}
 	return false
 }
 
 // handleDeath resumes a dead runner once its backoff has passed, and finalizes
 // it as crashed once the backoff is spent.
-func (s *Supervisor) handleDeath(id string, w *watchedRunner, now time.Time) bool {
+func (s *Supervisor) handleDeath(ctx context.Context, id string, w *watchedRunner, now time.Time) bool {
 	if w.deadSince.IsZero() {
 		w.deadSince = now
-		s.log.Warn("runner stopped without an exit", "session", w.session, "restarts", w.restarts)
+		s.log.WarnContext(ctx, "runner stopped without an exit", "session", w.session, "restarts", w.restarts)
 	}
 	if w.restarts >= len(s.cfg.Backoff) {
 		s.crash(id, w)
@@ -244,8 +254,8 @@ func (s *Supervisor) handleDeath(id string, w *watchedRunner, now time.Time) boo
 	if now.Sub(w.deadSince) < s.cfg.Backoff[w.restarts] {
 		return false
 	}
-	if err := s.resume(w); err != nil {
-		s.log.Warn("resuming a runner", "session", w.session, "error", err)
+	if err := s.resume(ctx, w); err != nil {
+		s.log.WarnContext(ctx, "resuming a runner", "session", w.session, "error", err)
 		w.deadSince = now
 	}
 	return false
@@ -261,7 +271,7 @@ func (s *Supervisor) crash(id string, w *watchedRunner) {
 
 // resume starts w's runner again with --resume, counting the restart in
 // status.json before the start.
-func (s *Supervisor) resume(w *watchedRunner) error {
+func (s *Supervisor) resume(ctx context.Context, w *watchedRunner) error {
 	files := s.files(w.workspace)
 	st, err := readStatusOrNew(files, &w.run)
 	if err != nil {
@@ -271,7 +281,7 @@ func (s *Supervisor) resume(w *watchedRunner) error {
 	if err = files.WriteStatus(&st); err != nil {
 		return fmt.Errorf("counting the restart: %w", err)
 	}
-	pid, err := s.spawn(w.workspace, true)
+	pid, err := s.spawn(ctx, w.workspace, true)
 	if err != nil {
 		return err
 	}
@@ -288,23 +298,45 @@ func readStatusOrNew(files runner.Files, run *runner.Run) (runner.Status, error)
 }
 
 // Start starts workspace id's runner, or returns the pid of one that is
-// already working.
-func (s *Supervisor) Start(_ context.Context, id string, resume bool) (int, error) {
+// already working. It doesn't hold the supervisor's lock while it waits for
+// the runner's status.json, and it gives up when ctx ends. A Start that finds
+// another for the same workspace in flight waits for that one's answer.
+func (s *Supervisor) Start(ctx context.Context, id string, resume bool) (int, error) {
 	run, err := s.readSession(id)
 	if err != nil {
 		return 0, err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if w, ok := s.runners[id]; ok && w.state == stateWorking {
+		s.mu.Unlock()
 		return w.pid, nil
 	}
-	pid, err := s.spawn(id, resume)
-	if err != nil {
-		return 0, err
+	if call, ok := s.starting[id]; ok {
+		s.mu.Unlock()
+		return awaitStart(ctx, call)
 	}
-	s.track(id, &run, pid, stateWorking)
-	return pid, nil
+	call := &startCall{done: make(chan struct{})}
+	s.starting[id] = call
+	s.mu.Unlock()
+	pid, err := s.spawn(ctx, id, resume)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.starting, id)
+	if err == nil {
+		s.track(id, &run, pid, stateWorking)
+	}
+	call.pid, call.err = pid, err
+	close(call.done)
+	return pid, err
+}
+
+func awaitStart(ctx context.Context, call *startCall) (int, error) {
+	select {
+	case <-call.done:
+		return call.pid, call.err
+	case <-ctx.Done():
+		return 0, fmt.Errorf("waiting for a runner start: %w", ctx.Err())
+	}
 }
 
 // track holds workspace id's runner, which is at pid in state.
@@ -322,7 +354,7 @@ func (s *Supervisor) untrack(id string) {
 
 // spawn starts workspace id's runner process and waits for it to write
 // status.json under its pid. A runner that doesn't is runner_failed.
-func (s *Supervisor) spawn(id string, resume bool) (int, error) {
+func (s *Supervisor) spawn(ctx context.Context, id string, resume bool) (int, error) {
 	files := s.files(id)
 	env, err := s.runnerEnv(id)
 	if err != nil {
@@ -335,8 +367,11 @@ func (s *Supervisor) spawn(id string, resume bool) (int, error) {
 	if err != nil {
 		return 0, runnerFailed(files, err)
 	}
-	if err := s.awaitStatus(files, pid); err != nil {
+	if err := s.awaitStatus(ctx, files, pid); err != nil {
 		_ = s.starter.Signal(pid, syscall.SIGTERM)
+		if ctx.Err() != nil {
+			return 0, fmt.Errorf("waiting for runner %s to start: %w", id, ctx.Err())
+		}
 		return 0, runnerFailed(files, err)
 	}
 	return pid, nil
@@ -376,8 +411,9 @@ func (s *Supervisor) runnerConfig() config.Runner {
 	return cfg.Runner
 }
 
-// awaitStatus waits up to StartWait for pid to write status.json.
-func (s *Supervisor) awaitStatus(files runner.Files, pid int) error {
+// awaitStatus waits up to StartWait, or until ctx ends, for pid to write
+// status.json.
+func (s *Supervisor) awaitStatus(ctx context.Context, files runner.Files, pid int) error {
 	deadline := time.NewTimer(s.cfg.StartWait)
 	defer deadline.Stop()
 	ticker := time.NewTicker(stepInterval)
@@ -387,6 +423,8 @@ func (s *Supervisor) awaitStatus(files runner.Files, pid int) error {
 			return nil
 		}
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-deadline.C:
 			return fmt.Errorf("no status.json from pid %d within %s", pid, s.cfg.StartWait)
 		case <-ticker.C:
@@ -444,7 +482,7 @@ func sessionError(id string, err error) error {
 // Stop ends workspace id's runner. It writes the stop file, interrupts the
 // process group, and kills it when it is still alive after StopWait. A runner
 // that had already exited is left alone and reports false.
-func (s *Supervisor) Stop(_ context.Context, id string) (bool, error) {
+func (s *Supervisor) Stop(ctx context.Context, id string) (bool, error) {
 	files := s.files(id)
 	run, err := s.readSession(id)
 	if err != nil {
@@ -465,39 +503,50 @@ func (s *Supervisor) Stop(_ context.Context, id string) (bool, error) {
 		return false, err
 	}
 	if state == stateWorking {
-		s.terminate(files, &run, pid)
+		if err := s.terminate(ctx, files, &run, pid); err != nil {
+			return false, err
+		}
 	}
 	return true, nil
 }
 
 // terminate interrupts the runner at pid and waits StopWait for it to exit. One
-// still alive then is killed and finalized as stopped.
-func (s *Supervisor) terminate(files runner.Files, run *runner.Run, pid int) {
+// still alive then is killed and finalized as stopped. When ctx ends first it
+// stops waiting and leaves the runner to the stop file and the interrupt.
+func (s *Supervisor) terminate(ctx context.Context, files runner.Files, run *runner.Run, pid int) error {
 	if err := s.starter.Signal(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
-		s.log.Warn("interrupting a runner", "session", run.Session, "error", err)
+		s.log.WarnContext(ctx, "interrupting a runner", "session", run.Session, "error", err)
 	}
-	if s.awaitExit(files, run.CreatedAt) {
-		return
+	exited, err := s.awaitExit(ctx, files, run.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("waiting for runner %s to stop: %w", files.ID, err)
+	}
+	if exited {
+		return nil
 	}
 	_ = s.starter.Signal(pid, syscall.SIGKILL)
 	if err := s.finish(files, run, exitStopped, "killed after the stop wait"); err != nil {
-		s.log.Error("finalizing a killed runner", "session", run.Session, "error", err)
+		s.log.ErrorContext(ctx, "finalizing a killed runner", "session", run.Session, "error", err)
 	}
+	return nil
 }
 
-// awaitExit reports whether the runner leaves the working state within StopWait.
-func (s *Supervisor) awaitExit(files runner.Files, recordedAt time.Time) bool {
+// awaitExit reports whether the runner leaves the working state within
+// StopWait. It returns ctx's error when ctx ends first.
+func (s *Supervisor) awaitExit(ctx context.Context, files runner.Files, recordedAt time.Time) (bool, error) {
 	deadline := time.NewTimer(s.cfg.StopWait)
 	defer deadline.Stop()
 	ticker := time.NewTicker(stepInterval)
 	defer ticker.Stop()
 	for {
 		if state, _, _ := files.State(s.cfg.Now(), recordedAt, s.procs); state != stateWorking {
-			return true
+			return true, nil
 		}
 		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
 		case <-deadline.C:
-			return false
+			return false, nil
 		case <-ticker.C:
 		}
 	}
