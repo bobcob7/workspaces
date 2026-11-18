@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -353,8 +352,19 @@ func redactError(err error, secrets []string) error {
 	for _, secret := range secrets {
 		pairs = append(pairs, secret, redactedText)
 	}
-	return errors.New(strings.NewReplacer(pairs...).Replace(err.Error()))
+	return &redactedError{message: strings.NewReplacer(pairs...).Replace(err.Error()), err: err}
 }
+
+// redactedError carries the redacted message and keeps the original error in
+// its chain, so errors.Is and errors.As still see the cause.
+type redactedError struct {
+	message string
+	err     error
+}
+
+func (e *redactedError) Error() string { return e.message }
+
+func (e *redactedError) Unwrap() error { return e.err }
 
 func errorField(message string) *string {
 	if message == "" {

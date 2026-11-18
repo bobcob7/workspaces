@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -223,6 +225,15 @@ func TestRedactError(t *testing.T) {
 	t.Run("every secret is replaced in the message", func(t *testing.T) {
 		err := redactError(errors.New("bearer "+testToken+" rejected"), []string{testToken})
 		assert.Equal(t, "bearer [redacted] rejected", err.Error())
+	})
+	t.Run("the error chain survives redaction", func(t *testing.T) {
+		wrapped := fmt.Errorf("calling tool with "+testToken+": %w", context.DeadlineExceeded)
+		err := redactError(wrapped, []string{testToken})
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.NotContains(t, err.Error(), testToken)
+		var rpcErr *jsonrpc.Error
+		require.ErrorAs(t, redactError(fmt.Errorf("x: %w", &jsonrpc.Error{Code: 1, Message: "m"}), nil), &rpcErr)
+		assert.Equal(t, int64(1), rpcErr.Code)
 	})
 }
 
