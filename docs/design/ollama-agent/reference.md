@@ -851,5 +851,5 @@ In `status.json` `exit`, `usage.json` `exit`, `session.ws_runner.exit`,
 | `looping` | first fail | The same call 5 times in a row |
 | `context_overflow` | first fail | The system prompt, task and last turn don't fit |
 | `crashed` | first fail, by the daemon | The process died 4 times; the daemon gave up |
-| `stopped` | none | `ws rm` or the desktop's Stop (`ws runner stop`) asked it to stop; it isn't resumed. (`ws daemon stop` interrupts without an exit reason, so the runner reads `stopped` and resumes later) |
+| `stopped` | none | `ws rm` or the desktop's Stop (`ws runner stop`) asked it to stop; it isn't resumed. (`ws daemon stop` interrupts without an exit reason: status.json has none and the runner reads `stopped` until a daemon resumes it) |
 | `internal` | first fail | A runner bug; `exit_message` says what |

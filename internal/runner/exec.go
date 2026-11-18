@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -205,9 +206,9 @@ type prepared struct {
 // first error writing them.
 func (s *session) finish(ctx context.Context, outcome *agent.Outcome) error {
 	verdict := s.recordedVerdict(outcome)
-	exit, message := exitOf(ctx, outcome, verdict)
+	exit, message := exitOf(ctx, outcome, verdict, s.in.Files.StopRequested())
 	if s.endRun != nil {
-		s.endRun(exit)
+		s.endRun(cmp.Or(exit, exitStopped))
 	}
 	if s.tel != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownLimit)
@@ -215,6 +216,9 @@ func (s *session) finish(ctx context.Context, outcome *agent.Outcome) error {
 		if err := s.tel.Shutdown(shutdownCtx); err != nil {
 			s.log.WarnContext(ctx, "telemetry shutdown", "error", err)
 		}
+	}
+	if exit == "" {
+		return s.interrupted(outcome)
 	}
 	err := Finalize(s.in.Files, &s.run, exit, message, s.finalizeInput(verdict, outcome), s.in.Store)
 	if err != nil {
@@ -236,11 +240,35 @@ func (s *session) recordedVerdict(outcome *agent.Outcome) string {
 	return verdict
 }
 
-// exitOf is the exit reason the run ends with. A run that was asked to stop
-// (SIGTERM from the daemon) without a verdict is stopped, so it resumes.
-func exitOf(ctx context.Context, outcome *agent.Outcome, verdict string) (exit, message string) {
+// interrupted leaves status.json without an exit reason, the totals so far
+// kept, so the run reads stopped and the next daemon resumes it.
+func (s *session) interrupted(outcome *agent.Outcome) error {
+	st, err := s.in.Files.ReadStatus()
+	if err != nil {
+		return err
+	}
+	st.State = "stopped"
+	st.Step = outcome.Steps
+	st.Restarts = s.restarts
+	st.Usage = outcome.Usage
+	st.Endpoints = outcome.Endpoints
+	st.UpdatedAt = time.Now().UTC()
+	if err := s.in.Files.WriteStatus(&st); err != nil {
+		return err
+	}
+	return s.statusErr
+}
+
+// exitOf is the exit reason the run ends with. A run interrupted (SIGTERM)
+// without a verdict is stopped when a stop was requested (ws rm, ws runner
+// stop); when the daemon was shutting down it has no exit reason, "", so it
+// resumes.
+func exitOf(ctx context.Context, outcome *agent.Outcome, verdict string, stopRequested bool) (exit, message string) {
 	if ctx.Err() != nil && verdict == "" && outcome.Exit != agent.ExitDone {
-		return agent.ExitStopped, ""
+		if stopRequested {
+			return agent.ExitStopped, ""
+		}
+		return "", ""
 	}
 	return outcome.Exit, outcome.Message
 }
