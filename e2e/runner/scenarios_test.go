@@ -102,7 +102,7 @@ func waitRunner(t *testing.T, env *testEnv, id string) waited {
 	return got.Children[0]
 }
 
-func (w waited) errorCode() string {
+func (w *waited) errorCode() string {
 	if w.Error == nil {
 		return ""
 	}
@@ -330,7 +330,7 @@ func testEditFile(t *testing.T) {
 	assert.Equal(t, "hello from the fake model\n", string(data))
 	assert.Contains(t, gitOut(t, env, repoOf(c), "log", "--oneline", "-1"), "feat: add hello")
 	_, err = os.Stat(w.WSRunner.UsageFile)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, requests(t, fake.Control))
 	assert.Zero(t, countEvents(env.transcriptOf(c.ID), "truncated"), "a three-turn run must not trip the truncated check")
 }
@@ -608,8 +608,8 @@ func claudeGolden(t *testing.T, env *testEnv) string {
 var (
 	stdoutIDRe = regexp.MustCompile(`"id":"([^"]*)"`)
 	loopIDRe   = regexp.MustCompile(`loop-[a-z0-9-]+-[0-9a-f]{8}`)
-	timeRe     = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z?`)
-	sessionRe  = regexp.MustCompile(`\b0a1b2c3d[0-9]+\b`)
+	timeRe     = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T[0-9:.]+Z?`)
+	sessionRe  = regexp.MustCompile(`\b0a1b2c3d\d+\b`)
 )
 
 // normalizeClaude replaces the scenario's temp dir, workspace ids, times and
@@ -632,7 +632,7 @@ func normalizeClaude(env *testEnv, args, stdout string) string {
 func socketFiles(t *testing.T, env *testEnv) []string {
 	t.Helper()
 	var socks []string
-	err := filepath.WalkDir(env.runtime, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(env.runtime, func(path string, _ fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

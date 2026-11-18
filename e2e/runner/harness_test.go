@@ -301,6 +301,8 @@ func (e *testEnv) writeFakeClaude(t *testing.T) {
 	t.Helper()
 	script := fmt.Sprintf(`#!/bin/sh
 if [ "$1" = --version ]; then echo "2.1.303 (Claude Code)"; exit 0; fi
+for a in "$@"; do printf '%%s\0' "$a"; done >> %[1]q
+printf '\0' >> %[1]q
 if [ "$1" = agents ]; then
   n=$(cat %[2]q 2>/dev/null || echo 0); sep=
   printf '['
@@ -312,8 +314,6 @@ if [ "$1" = agents ]; then
   printf ']\n'
   exit 0
 fi
-for a in "$@"; do printf '%%s\0' "$a"; done >> %[1]q
-printf '\0' >> %[1]q
 if [ "$1" = --bg ]; then
   name=
   [ "$2" = -n ] && name=$3
@@ -322,7 +322,7 @@ if [ "$1" = --bg ]; then
 fi
 exit 0
 `, e.claudeLog, e.claudeCnt)
-	require.NoError(t, os.WriteFile(filepath.Join(e.bin, "claude"), []byte(script), 0o700)) //nolint:gosec // G306: a fake executable.
+	require.NoError(t, os.WriteFile(filepath.Join(e.bin, "claude"), []byte(script), 0o700))
 }
 
 // claudeCalls returns the arguments of each call the fake claude recorded.
@@ -490,18 +490,17 @@ func (e *testEnv) readStatus(t *testing.T, id string) map[string]any {
 	return status
 }
 
-// waitEvent polls transcript until an event of kind appears and returns it.
-func waitEvent(t *testing.T, transcript, kind string) map[string]any {
+// waitEvent polls transcript until an event of kind appears.
+func waitEvent(t *testing.T, transcript, kind string) {
 	t.Helper()
 	deadline := time.Now().Add(eventWait)
 	for time.Now().Before(deadline) {
-		if ev := findEvent(transcript, kind); ev != nil {
-			return ev
+		if findEvent(transcript, kind) != nil {
+			return
 		}
 		time.Sleep(pollInterval)
 	}
 	t.Fatalf("no %q event in %s within %s", kind, transcript, eventWait)
-	return nil
 }
 
 // findEvent returns the first event of kind in a transcript.jsonl, or nil.
