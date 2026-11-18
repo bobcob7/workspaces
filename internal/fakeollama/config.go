@@ -36,10 +36,10 @@ type Config struct {
 	// StrictCapabilities rejects a chat request that offers tools to a model
 	// without the tools capability, as Ollama does.
 	StrictCapabilities bool `yaml:"strict_capabilities"`
-	// TokensPerWord multiplies the prompt and completion tokens the fake
-	// reports, so usage tracks a real tokenizer (about 3 bytes a token).
-	// Zero means 1: a word is a token. Context windows and truncation still
-	// count words.
+	// TokensPerWord is the multiplier from words to the tokens the fake
+	// reports: usage is the words counted times TokensPerWord, so a larger
+	// value makes usage grow faster than the text. Zero means 1: a word is a
+	// token. Context windows and truncation still count words.
 	TokensPerWord int     `yaml:"tokens_per_word"`
 	Models        []Model `yaml:"models"`
 	Timing        Timing  `yaml:"timing"`

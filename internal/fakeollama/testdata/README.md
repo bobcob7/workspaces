@@ -74,10 +74,11 @@ design's configs in `docs/design/ollama-agent/fake-ollama/` use them.
   the `tools` capability gets Ollama's native `400`.
 - `tokens_per_word` (top level, off by default, so a word is a token): the
   prompt, completion and total tokens in the reported `usage` are multiplied
-  by it. The e2e runner's scenarios set `4`, because its token estimate is
-  3 bytes a token and a word is several bytes; without it the runner's
-  `truncated` check fires on every multi-turn run. Context windows and
-  truncation still count words.
+  by it. Most of the e2e runner's scenarios set `4` (all but `many-tools`,
+  `http`, `stdio` and `context-overflow`), because a word is several bytes
+  and the runner estimates its own tokens from bytes; without it the
+  runner's `truncated` check fires on every multi-turn run. Context windows
+  and truncation still count words.
 - Endpoints: `GET /api/version`, `GET /api/tags` and `POST /api/show`, with
   Ollama's shapes. They are recorded and faulted like the other endpoints.
 - Faults: `retry_after` (seconds) on a `status` fault sends `Retry-After`.
