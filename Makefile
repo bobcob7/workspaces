@@ -23,6 +23,7 @@ e2e-runner: build fakes
 
 lint:
 	go tool golangci-lint run ./...
+	go tool golangci-lint run --build-tags e2e ./e2e/...
 	@# ADR 0003: git runs only through internal/git.
 	@! grep -rnE 'exec\.Command(Context)?\([^)]*"git"' --include='*.go' . | grep -v '^\./internal/git/'
 	@# ADR 0024: claude runs only through internal/claude.
