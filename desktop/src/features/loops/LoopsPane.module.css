@@ -225,6 +225,13 @@
   gap: 8px;
 }
 
+@media (max-width: 720px) {
+  .formButtons button,
+  .vars button {
+    min-height: 40px;
+  }
+}
+
 .empty {
   color: var(--text-muted);
   padding: 16px;
