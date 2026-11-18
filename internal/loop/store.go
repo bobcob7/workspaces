@@ -103,7 +103,7 @@ func (s *Store) Create(l *Loop) error {
 	if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("checking loop %s: %w", l.Name, err)
 	}
-	l.Version = FormatVersion
+	l.Version = Version3
 	if l.Hidden == nil {
 		hidden := true
 		l.Hidden = &hidden
@@ -112,19 +112,23 @@ func (s *Store) Create(l *Loop) error {
 }
 
 // Save overwrites a record, then writes <name>.toml.tmp and renames it into
-// place. A Version of 0 becomes FormatVersion; any other Version is kept, so
+// place. A record with a runner of ws or an endpoint is version 4 (ADR 0070).
+// Otherwise a Version of 0 becomes Version3 and any other Version is kept, so
 // a Version1 record stays version 1 when tick rewrites it. A Runner of
-// RunnerClaude is stored as "", the default (ADR 0070).
+// RunnerClaude is stored as "", the default.
 func (s *Store) Save(l *Loop) error {
 	path, err := s.path(l.Name)
 	if err != nil {
 		return err
 	}
-	if l.Version == 0 {
-		l.Version = FormatVersion
-	}
 	if l.Runner == RunnerClaude {
 		l.Runner = ""
+	}
+	switch {
+	case l.Runner != "" || l.Endpoint != "":
+		l.Version = FormatVersion
+	case l.Version == 0:
+		l.Version = Version3
 	}
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(l); err != nil {
