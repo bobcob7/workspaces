@@ -1,0 +1,1 @@
+{"model":"fake-reasoning","stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"What is 17 multiplied by 23? Answer with just the number."}]}

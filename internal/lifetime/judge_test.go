@@ -89,7 +89,7 @@ func TestReader_agent(t *testing.T) {
 		f := newFixture(t)
 		f.sessions = []claude.Session{{ID: "e8cdf5d8", State: claude.StateStopped}}
 		sess, v := newReader(f.m, false).agent(t.Context(), "e8cdf5d8")
-		assert.Equal(t, &Session{Kind: KindAgent, ID: "e8cdf5d8", State: StateStopped}, sess)
+		assert.Equal(t, &Session{Kind: KindAgent, ID: "e8cdf5d8", State: StateStopped, Runner: RunnerClaude}, sess)
 		assert.Equal(t, keep, v)
 		assert.Empty(t, f.claude.JobExistsCalls())
 	})
@@ -97,7 +97,7 @@ func TestReader_agent(t *testing.T) {
 		f := newFixture(t)
 		f.jobs["e8cdf5d8"] = true
 		sess, v := newReader(f.m, false).agent(t.Context(), "e8cdf5d8")
-		assert.Equal(t, &Session{Kind: KindAgent, ID: "e8cdf5d8", State: StateUnknown}, sess)
+		assert.Equal(t, &Session{Kind: KindAgent, ID: "e8cdf5d8", State: StateUnknown, Runner: RunnerClaude}, sess)
 		assert.Equal(t, keep, v)
 	})
 	t.Run("neither listed nor in the jobs directory is gone", func(t *testing.T) {
@@ -131,7 +131,7 @@ func TestReader_describe(t *testing.T) {
 	}
 	t.Run("working: a process, busy", func(t *testing.T) {
 		got := describe(t, claude.Session{ID: "x", PID: 7, Status: "busy", State: claude.StateBlocked})
-		assert.Equal(t, &Session{Kind: KindAgent, ID: "x", State: StateWorking, PID: 7}, got)
+		assert.Equal(t, &Session{Kind: KindAgent, ID: "x", State: StateWorking, PID: 7, Runner: RunnerClaude}, got)
 	})
 	t.Run("idle: a process, not busy, whatever its state", func(t *testing.T) {
 		got := describe(t, claude.Session{ID: "x", PID: 7, Status: "idle", State: claude.StateWorking})
@@ -145,6 +145,22 @@ func TestReader_describe(t *testing.T) {
 		got := describe(t, claude.Session{ID: "x", StartedAt: testNow().Add(-time.Minute)})
 		assert.Equal(t, StateStopped, got.State)
 		assert.Zero(t, got.PID)
+	})
+	t.Run("the model that answered last", func(t *testing.T) {
+		f := newFixture(t)
+		f.claude.ModelFunc = func(*claude.Session) (string, error) { return "claude-sonnet-5-5", nil }
+		s := claude.Session{ID: "x", PID: 7, Status: "idle"}
+		got := newReader(f.m, false).describe(t.Context(), &s)
+		assert.Equal(t, "claude-sonnet-5-5", got.Model)
+		assert.Equal(t, RunnerClaude, got.Runner)
+	})
+	t.Run("a failed model read leaves it empty", func(t *testing.T) {
+		f := newFixture(t)
+		f.claude.ModelFunc = func(*claude.Session) (string, error) { return "claude-sonnet-5-5", errTest }
+		s := claude.Session{ID: "x", PID: 7, Status: "idle"}
+		got := newReader(f.m, false).describe(t.Context(), &s)
+		assert.Empty(t, got.Model)
+		assert.Empty(t, f.m.Warnings())
 	})
 	t.Run("stale only when asked", func(t *testing.T) {
 		f := newFixture(t)

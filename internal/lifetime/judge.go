@@ -79,7 +79,7 @@ func (r *reader) shell(id string) (*Session, verdict) {
 // --json --all` doesn't list it and its jobs directory doesn't exist
 // (ADRs 0015, 0024). When either can't be read, it is kept.
 func (r *reader) agent(ctx context.Context, id string) (*Session, verdict) {
-	unknown := &Session{Kind: KindAgent, ID: id, State: StateUnknown}
+	unknown := &Session{Kind: KindAgent, ID: id, State: StateUnknown, Runner: RunnerClaude}
 	sessions, err := r.agents(ctx)
 	if err != nil {
 		return unknown, keep
@@ -103,11 +103,22 @@ func (r *reader) agent(ctx context.Context, id string) (*Session, verdict) {
 // describe reads a listed session by its pid, status, and start time,
 // never its state (ADR 0024).
 func (r *reader) describe(ctx context.Context, s *claude.Session) *Session {
-	out := &Session{Kind: KindAgent, ID: s.ID, State: stateOf(s, r.m.now()), PID: s.PID}
+	out := &Session{Kind: KindAgent, ID: s.ID, State: stateOf(s, r.m.now()), PID: s.PID, Runner: RunnerClaude, Model: r.model(ctx, s)}
 	if r.stale {
 		out.Stale = r.staleness(ctx, s)
 	}
 	return out
+}
+
+// model is the model that answered session s most recently. A failure is
+// logged and leaves it unknown, since the label isn't worth failing ws list.
+func (r *reader) model(ctx context.Context, s *claude.Session) string {
+	model, err := r.m.claude.Model(s)
+	if err != nil {
+		r.m.log.DebugContext(ctx, "couldn't read when a session's model answered", slog.String("session", s.ID), slog.Any("error", err))
+		return ""
+	}
+	return model
 }
 
 // stateOf reads a listed session at now by its pid, status, and start

@@ -1,0 +1,14 @@
+## ws claude -- x
+["--bg","-n","<WS_ID>","--settings","{\"worktree\":{\"bgIsolation\":\"none\"}}","x"]
+## ws machine spawn -- x
+["agents","--json","--all"]
+["--bg","-n","<WS_ID>","--settings","{\"worktree\":{\"bgIsolation\":\"none\"}}","x"]
+## ws machine spawn o/n --name fix -- x
+["--bg","-n","<WS_ID>","--settings","{\"worktree\":{\"bgIsolation\":\"none\"}}","x"]
+## ws machine spawn --role verifier
+["--bg","-n","<WS_ID>","--settings","{\"worktree\":{\"bgIsolation\":\"none\"}}","You run checks on branch feat/x. Do NOT modify, commit or push code.\n\n1. Run uptime and sysctl -n hw.ncpu. If the 1-minute load average is above twice the CPU count, run ps -Ao pcpu,comm -r | head -8 and note what is busy (for example Spotlight's mds/mdworker). Then check again every 60 seconds, up to 10 times, until it drops. Record what you saw either way.\n2. Run each of these commands in order, recording its exit code, duration and the names of any failing tests: make test\n3. If a failure is a timeout, rerun only the failing suites with a longer timeout (for vitest: --testTimeout=60000), to tell load timeouts from real failures.\n4. Write a report to ../verify.md, outside the repo: for each command, the command, exit code, duration and failing tests; then the load averages; and end with a two-line summary to paste into a pull request's test plan.\n5. As your last action, record your verdict: run `ws machine result PASS --file ../verify.md` if every command passed, `ws machine result FLAKY --file ../verify.md` if every failure was a timeout that passed on the rerun, otherwise `ws machine result FAIL --file ../verify.md`.","--model","haiku","--permission-mode","auto"]
+## ws claude o/n -- --model opus x
+["--bg","-n","<WS_ID>","--settings","{\"worktree\":{\"bgIsolation\":\"none\"}}","--model","opus","x"]
+## ws loop add claude-loop
+## ws loop run claude-loop
+["--bg","-n","<WS_ID>","--settings","{\"worktree\":{\"bgIsolation\":\"none\"}}","--model","sonnet","--permission-mode","plan","do the loop"]

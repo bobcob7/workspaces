@@ -1,11 +1,16 @@
 package role
 
 import (
+	"flag"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var update = flag.Bool("update", false, "rewrite the golden files")
 
 // validRole is a role that passes Validate, for tests to change one field of.
 func validRole() Role {
@@ -165,6 +170,52 @@ func TestRole_Render(t *testing.T) {
 	})
 }
 
+func TestRole_RenderFor(t *testing.T) {
+	implementerVars := map[string]string{"TASK": "T8", "TASKS": "tasks.md", "BASE": "feat/x", "BRANCH": "feat/x-t8"}
+	t.Run("Render of implementer matches the golden file", func(t *testing.T) {
+		ro, ok, err := Builtin().Load("implementer")
+		require.NoError(t, err)
+		require.True(t, ok)
+		got, err := ro.Render(implementerVars, "")
+		require.NoError(t, err)
+		golden(t, "implementer.golden", got)
+	})
+	t.Run("a Claude child keeps the Co-Authored-By trailer", func(t *testing.T) {
+		ro, ok, err := Builtin().Load("implementer")
+		require.NoError(t, err)
+		require.True(t, ok)
+		got, err := ro.RenderFor(implementerVars, "", "claude", "")
+		require.NoError(t, err)
+		assert.Contains(t, got, "ending with 'Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>'")
+		assert.NotContains(t, got, "Generated-By")
+	})
+	t.Run("a ws child's trailer names the runner and model", func(t *testing.T) {
+		ro, ok, err := Builtin().Load("implementer")
+		require.NoError(t, err)
+		require.True(t, ok)
+		got, err := ro.RenderFor(implementerVars, "", "ws", "qwen/qwen3.5-9b")
+		require.NoError(t, err)
+		assert.Contains(t, got, "ending with 'Generated-By: ws runner (qwen/qwen3.5-9b)'")
+		assert.NotContains(t, got, "Co-Authored-By")
+	})
+	t.Run("Render is the Claude child with no model", func(t *testing.T) {
+		ro, ok, err := Builtin().Load("implementer")
+		require.NoError(t, err)
+		require.True(t, ok)
+		want, err := ro.RenderFor(implementerVars, "", "claude", "")
+		require.NoError(t, err)
+		got, err := ro.Render(implementerVars, "")
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	})
+	t.Run("a prompt that reads the runner validates", func(t *testing.T) {
+		ro := validRole()
+		ro.Prompt = `{{if eq .Runner "ws"}}ws{{else}}claude{{end}} {{.Model}} {{.Vars.TASK}}`
+		ro.Vars = []string{"TASK"}
+		require.NoError(t, ro.Validate())
+	})
+}
+
 func TestRole_Args(t *testing.T) {
 	t.Run("orders the model, the role's arguments, then the caller's", func(t *testing.T) {
 		ro := validRole()
@@ -247,4 +298,17 @@ func repeat(c rune, n int) string {
 		out[i] = c
 	}
 	return string(out)
+}
+
+func golden(t *testing.T, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	if *update {
+		require.NoError(t, os.MkdirAll("testdata", 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(got), 0o644))
+		return
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err, "run go test ./internal/machine/role -update to create %s", path)
+	assert.Equal(t, string(want), got)
 }

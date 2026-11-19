@@ -40,7 +40,7 @@ reviews from `ws review start` and agents started with `ws claude
       "name": "Fix login",
       "path": "/…/workspaces/fix-login-d8efb24f",
       "created_at": "2026-10-18T08:12:00Z",
-      "session": {"kind": "agent", "id": "e8cdf5d8", "state": "idle", "pid": 4242, "stale": false},
+      "session": {"kind": "agent", "id": "e8cdf5d8", "state": "idle", "pid": 4242, "stale": false, "runner": "claude", "model": "claude-sonnet-5-5", "ws_runner": null},
       "hidden": false,
       "parent": null,
       "repos": [{"id": "github.com/bobcob7/buff-bear", "path": "buff-bear", "ref": "main", "ref_kind": "branch"}],
@@ -68,6 +68,11 @@ reviews from `ws review start` and agents started with `ws claude
 - `session.stale`: `true` when the agent's process is older than Claude
   Code's background service, so it runs with an old environment; `null`
   when that can't be told, and for shells.
+- `session.runner`: `claude` or `ws` for an agent, `null` for a shell.
+- `session.model`: the agent's model (`claude-sonnet-5-5`, `qwen/qwen3.5-9b`),
+  `null` for a shell or an agent that hasn't answered yet.
+- `session.ws_runner`: details for a `ws` child (see `ws llm machine
+  wait`), otherwise `null`.
 - `hidden`: whether the workspace is hidden; see `ws llm hide`. Only
   `true` with `-a`.
 - `parent`: the workspace this one was started from, and is removed

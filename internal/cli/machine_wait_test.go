@@ -290,6 +290,13 @@ func TestPollChild(t *testing.T) {
 		panic("no workspace " + id)
 	}
 	passed := machine.Record{Result: &machine.Result{Verdict: "PASS"}}
+	t.Run("a live agent's runner and model come from its session", func(t *testing.T) {
+		target := waitTarget{id: "a"}
+		entries := []lifetime.Entry{{Workspace: ws[2], Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "s-a", State: lifetime.StateIdle, Runner: lifetime.RunnerClaude, Model: "claude-sonnet-5-5"}}}
+		got := pollChild(&target, entries, passed)
+		assert.Equal(t, lifetime.RunnerClaude, got.runner)
+		assert.Equal(t, "claude-sonnet-5-5", got.model)
+	})
 	t.Run("a child with no session is starting", func(t *testing.T) {
 		target := waitTarget{id: "a"}
 		got := pollChild(&target, []lifetime.Entry{{Workspace: ws[2]}}, passed)

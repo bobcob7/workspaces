@@ -193,6 +193,45 @@ func TestClient_UsageLimit(t *testing.T) {
 	})
 }
 
+func TestClient_Model(t *testing.T) {
+	t.Parallel()
+	t.Run("the model of the last assistant entry", func(t *testing.T) {
+		t.Parallel()
+		c, s, path := transcriptClient(t)
+		writeTranscript(t, path, modelLine("claude-opus-5-5"), userLine("2026-10-28T23:31:00Z", testMessage), modelLine("claude-sonnet-5-5"))
+		got, err := c.Model(s)
+		require.NoError(t, err)
+		assert.Equal(t, "claude-sonnet-5-5", got)
+	})
+	t.Run("no assistant entry is no model", func(t *testing.T) {
+		t.Parallel()
+		c, s, path := transcriptClient(t)
+		writeTranscript(t, path, userLine("2026-10-28T23:31:00Z", testMessage))
+		got, err := c.Model(s)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+	t.Run("no transcript is no model", func(t *testing.T) {
+		t.Parallel()
+		c, s, _ := transcriptClient(t)
+		got, err := c.Model(s)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+	t.Run("an unreadable transcript is an error", func(t *testing.T) {
+		t.Parallel()
+		c, s, path := transcriptClient(t)
+		require.NoError(t, os.MkdirAll(path, 0o700))
+		_, err := c.Model(s)
+		require.Error(t, err)
+	})
+}
+
+// modelLine is an assistant entry that answered with model.
+func modelLine(model string) string {
+	return `{"type":"assistant","timestamp":"2026-10-28T23:32:00Z","message":{"model":"` + model + `","content":[{"type":"text","text":"done"}]}}`
+}
+
 func TestClient_Recorded(t *testing.T) {
 	t.Parallel()
 	since := time.Date(2026, 10, 28, 23, 31, 0, 0, time.UTC)

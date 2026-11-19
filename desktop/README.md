@@ -243,6 +243,9 @@ behind a username and password (`ws-online`, feature `online`). See
 
 ## Build and run
 
+The app hosts the `ws` daemon (`ws daemon run --origin app`) while it runs.
+Quitting leaves runners running under it until they finish.
+
 ```console
 $ make desktop        # from the repo root: bundle in desktop/src-tauri/target/release/bundle/
 $ make desktop-dev    # run with hot reload

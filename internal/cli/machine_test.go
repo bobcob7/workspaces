@@ -352,6 +352,20 @@ func TestApp_runMachineSpawn(t *testing.T) {
 		assert.Equal(t, map[string]string{"TASK": "T1", "TASKS": "t.md", "BASE": "feat/x", "BRANCH": "feat/x-t1"}, rec.Spawn.Vars)
 		assert.Equal(t, []string{"plan", "boss"}, rec.Spawn.Ancestors)
 	})
+	t.Run("with a role, the result names the Claude runner and the role's model", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), roleSpawnOptions()))
+		assert.Contains(t, e.stdout.String(), `"runner":"claude","model":"haiku","ws_runner":null`)
+	})
+	t.Run("a --model after -- is the model the child started with", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		opts := roleSpawnOptions()
+		opts.claudeArgs = []string{"Fix item 1.", "--model", "opus"}
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+		assert.Contains(t, e.stdout.String(), `"model":"opus"`)
+	})
 	t.Run("with a role, the prompt after -- follows the rendered prompt", func(t *testing.T) {
 		e := roleSpawnEnv(t)
 		opts := roleSpawnOptions()
@@ -388,6 +402,7 @@ func TestApp_runMachineSpawn(t *testing.T) {
 		e.app.global.json = true
 		require.NoError(t, e.app.runMachineSpawn(t.Context(), spawnOptions("fix it")))
 		assert.Contains(t, e.stdout.String(), `"role":null`)
+		assert.Contains(t, e.stdout.String(), `"runner":"claude","model":null,"ws_runner":null`)
 		_, err := os.Stat(filepath.Join(e.app.paths.State, "boss", "machine", "x", "spawn.toml"))
 		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
@@ -447,6 +462,24 @@ func roleSpawnEnv(t *testing.T) *claudeEnv {
 		return workspace.Workspace{ID: "plan"}, nil
 	}
 	return e
+}
+
+func TestClaudeModel(t *testing.T) {
+	t.Run("no --model is no model", func(t *testing.T) {
+		assert.Empty(t, claudeModel([]string{"fix it", "--permission-mode", "auto"}))
+	})
+	t.Run("the model after --model", func(t *testing.T) {
+		assert.Equal(t, "haiku", claudeModel([]string{"p", "--model", "haiku"}))
+	})
+	t.Run("--model= is the same", func(t *testing.T) {
+		assert.Equal(t, "sonnet", claudeModel([]string{"p", "--model=sonnet"}))
+	})
+	t.Run("the last one wins", func(t *testing.T) {
+		assert.Equal(t, "opus", claudeModel([]string{"p", "--model", "haiku", "--model", "opus"}))
+	})
+	t.Run("a trailing --model names nothing", func(t *testing.T) {
+		assert.Empty(t, claudeModel([]string{"p", "--model"}))
+	})
 }
 
 func TestMachineSpawnArgs(t *testing.T) {

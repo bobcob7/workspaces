@@ -67,7 +67,7 @@ func TestApp_newListCmd(t *testing.T) {
 func TestApp_runList(t *testing.T) {
 	named := listedWorkspace("fix-login")
 	named.Name = "Fix login"
-	agent := lifetime.Entry{Workspace: named, Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateStopped, Stale: new(false)}}
+	agent := lifetime.Entry{Workspace: named, Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateStopped, Stale: new(false), Runner: lifetime.RunnerClaude, Model: "claude-sonnet-5-5"}}
 	shell := lifetime.Entry{Workspace: listedWorkspace("api-bump"), Session: &lifetime.Session{Kind: lifetime.KindShell, State: lifetime.StateRunning}}
 	t.Run("a table, unknown directories last", func(t *testing.T) {
 		e := newListApp([]lifetime.Entry{agent, shell}, []string{"/cfg/workspaces/stray"})
@@ -89,10 +89,10 @@ func TestApp_runList(t *testing.T) {
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		assert.JSONEq(t, `{"workspaces":[
 			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
-			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false},
+			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false,"runner":"claude","model":"claude-sonnet-5-5","ws_runner":null},
 			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null},
 			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
-			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null},
+			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null,"runner":null,"model":null,"ws_runner":null},
 			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null},
 			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null}
 		],"hidden_count":0,"warnings":[]}`, e.stdout.String())
@@ -478,16 +478,22 @@ func TestListSession(t *testing.T) {
 		assert.Nil(t, listSession(nil))
 	})
 	t.Run("an agent with a process", func(t *testing.T) {
-		got := listSession(&lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateWorking, PID: 4242, Stale: new(true)})
+		got := listSession(&lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateWorking, PID: 4242, Stale: new(true), Runner: lifetime.RunnerClaude, Model: "claude-sonnet-5-5"})
 		data, err := json.Marshal(got)
 		require.NoError(t, err)
-		assert.JSONEq(t, `{"kind":"agent","id":"e8cdf5d8","state":"working","pid":4242,"stale":true}`, string(data))
+		assert.JSONEq(t, `{"kind":"agent","id":"e8cdf5d8","state":"working","pid":4242,"stale":true,"runner":"claude","model":"claude-sonnet-5-5","ws_runner":null}`, string(data))
+	})
+	t.Run("an agent that hasn't answered has no model", func(t *testing.T) {
+		got := listSession(&lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateStarting, Runner: lifetime.RunnerClaude})
+		data, err := json.Marshal(got)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"kind":"agent","id":"e8cdf5d8","state":"starting","pid":null,"stale":null,"runner":"claude","model":null,"ws_runner":null}`, string(data))
 	})
 	t.Run("a shell", func(t *testing.T) {
 		got := listSession(&lifetime.Session{Kind: lifetime.KindShell, State: lifetime.StateRunning})
 		data, err := json.Marshal(got)
 		require.NoError(t, err)
-		assert.JSONEq(t, `{"kind":"shell","id":null,"state":"running","pid":null,"stale":null}`, string(data))
+		assert.JSONEq(t, `{"kind":"shell","id":null,"state":"running","pid":null,"stale":null,"runner":null,"model":null,"ws_runner":null}`, string(data))
 	})
 }
 

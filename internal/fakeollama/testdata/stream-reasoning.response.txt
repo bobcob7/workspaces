@@ -1,0 +1,14 @@
+data: {"id":"chatcmpl-207","object":"chat.completion.chunk","created":1759580000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":"Okay"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-207","object":"chat.completion.chunk","created":1759580000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"content":"","reasoning":", 17"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-207","object":"chat.completion.chunk","created":1759580000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"content":"","reasoning":" times 23 is 391."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-207","object":"chat.completion.chunk","created":1759580000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"content":"391"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-207","object":"chat.completion.chunk","created":1759580000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-207","object":"chat.completion.chunk","created":1759580000,"model":"qwen3:8b","system_fingerprint":"fp_ollama","choices":[],"usage":{"prompt_tokens":24,"completion_tokens":61,"total_tokens":85}}
+
+data: [DONE]
+

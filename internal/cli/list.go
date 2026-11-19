@@ -81,7 +81,16 @@ type listSessionJSON struct {
 	State lifetime.State `json:"state"`
 	PID   *int           `json:"pid"`
 	Stale *bool          `json:"stale"`
+	// Runner is what runs an agent, or null for a shell (ADR 0063).
+	Runner *string `json:"runner"`
+	// Model is the agent's model, or null until it has answered.
+	Model    *string           `json:"model"`
+	WSRunner *listWSRunnerJSON `json:"ws_runner"`
 }
+
+// listWSRunnerJSON is a ws runner child's details; null for every session
+// until the runner sessions are listed.
+type listWSRunnerJSON struct{}
 
 type listRepoJSON struct {
 	ID      string `json:"id"`
@@ -317,7 +326,7 @@ func listSession(s *lifetime.Session) *listSessionJSON {
 	if s == nil {
 		return nil
 	}
-	out := &listSessionJSON{Kind: s.Kind, ID: optional(s.ID), State: s.State, Stale: s.Stale}
+	out := &listSessionJSON{Kind: s.Kind, ID: optional(s.ID), State: s.State, Stale: s.Stale, Runner: optional(s.Runner), Model: optional(s.Model)}
 	if s.PID != 0 {
 		out.PID = &s.PID
 	}

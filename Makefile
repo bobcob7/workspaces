@@ -3,13 +3,18 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
-.PHONY: build test lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
+.PHONY: build test fakes lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN)/ws ./cmd/ws
 
 test:
 	go test ./...
+
+# The fakes (ADR 0067) are test tools, built here and never shipped.
+fakes:
+	go build -o $(BIN)/fake-ollama ./cmd/fake-ollama
+	go build -o $(BIN)/fake-mcp ./cmd/fake-mcp
 
 lint:
 	go tool golangci-lint run ./...
@@ -23,6 +28,14 @@ lint:
 	@! grep -rnE 'exec\.Command(Context)?\([^)]*"/bin/sh"' --include='*.go' . | grep -v '_test\.go:' | grep -v '^\./internal/gate/'
 	@# ADR 0025: only the Claude Code client replaces ws, with claude attach.
 	@! grep -rnE '(syscall|unix)\.Exec\b' --include='*.go' . | grep -v '^\./internal/claude/'
+	@# ADR 0067: the fakes are imported only by themselves, cmd/fake-* and e2e/.
+	@! grep -rnE '"github.com/bobcob7/workspaces/internal/fake(ollama|mcp)' --include='*.go' . | grep -vE '^\./(internal/fake(ollama|mcp)|cmd/fake-[a-z]+|e2e)/' | grep -vE '^\./internal/mcp/[^:]*_test\.go:'
+	@# ADR 0062: only the openai provider and the fake requests chat/completions.
+	@! grep -rn 'chat/completions' --include='*.go' . | grep -vE '^\./internal/(llm/openai|fakeollama)/' | grep -v '_test\.go:'
+	@# ADR 0069: the SDK's stdio transport is built in internal/mcp only.
+	@! grep -rn 'mcp.CommandTransport' --include='*.go' . | grep -vE '^\./internal/mcp/'
+	@# ADR 0065: the OpenTelemetry SDK is imported by internal/telemetry only.
+	@! grep -rn '"go.opentelemetry.io/' --include='*.go' . | grep -vE '^\./internal/telemetry/'
 
 fmt:
 	go tool golangci-lint fmt ./...

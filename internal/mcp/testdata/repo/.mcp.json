@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "metrics": {
+      "command": "project-metrics",
+      "args": ["--project"]
+    },
+    "docs": {
+      "type": "http",
+      "url": "https://docs.example.test/mcp",
+      "headers": {"Authorization": "Bearer fake-project-token"}
+    },
+    "chat": {
+      "type": "ws",
+      "url": "wss://chat.example.test"
+    }
+  }
+}

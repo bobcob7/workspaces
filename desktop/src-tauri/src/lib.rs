@@ -9,6 +9,7 @@ compile_error!("the desktop and online features can't be enabled together");
 mod about;
 mod cache;
 mod commands;
+mod daemon_host;
 mod env;
 mod host;
 mod ipc;
@@ -67,6 +68,10 @@ pub fn run() {
             };
             tauri::async_runtime::spawn(state.reviews.clone().run(deps));
             tauri::async_runtime::spawn(loops::tick_forever(state.runner.clone()));
+            tauri::async_runtime::spawn(daemon_host::keep_running(
+                state.runner.clone(),
+                daemon_host::Host::App,
+            ));
             app.manage(state);
             tray::menu::create(app.handle())?;
             tauri::async_runtime::spawn(tray::watcher::watch_forever(app.handle().clone()));

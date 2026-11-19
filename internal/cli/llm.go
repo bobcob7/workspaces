@@ -70,6 +70,10 @@ func guideTopicsBeforeReview() []string {
 		"config get",
 		"config set",
 		"config unset",
+		"daemon",
+		"daemon run",
+		"daemon status",
+		"daemon stop",
 	}
 }
 

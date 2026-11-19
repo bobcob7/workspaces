@@ -119,6 +119,9 @@ const (
 	StateRunning State = "running"
 )
 
+// RunnerClaude is the runner of a Claude Code agent (ADR 0063).
+const RunnerClaude = "claude"
+
 // Session is a workspace's session as ws reads it.
 type Session struct {
 	Kind Kind
@@ -131,6 +134,11 @@ type Session struct {
 	// Claude Code's current background service (ADR 0018); nil when that
 	// isn't known, or for a shell.
 	Stale *bool
+	// Runner is what runs an agent, RunnerClaude; "" for a shell.
+	Runner string
+	// Model is the model that answered the agent most recently; "" until
+	// it has answered, and for a shell.
+	Model string
 }
 
 // Entry is a workspace and its session. Session is nil while the session

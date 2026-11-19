@@ -308,11 +308,17 @@ func (r *Role) checkPrompt() error {
 	for _, key := range r.Vars {
 		vars[key] = "x"
 	}
-	values := map[string]any{"Role": r.Name, "Vars": vars}
+	values := promptData(r.Name, vars, runnerClaude, "")
 	if err := tmpl.Execute(&bytes.Buffer{}, values); err != nil {
 		return fmt.Errorf("%w: prompt: %w", ErrInvalid, err)
 	}
 	return nil
+}
+
+// promptData is what a role's prompt template executes with: the role's
+// name, its vars, and the runner and model of the child it starts.
+func promptData(name string, vars map[string]string, runner, model string) map[string]any {
+	return map[string]any{"Role": name, "Vars": vars, "Runner": runner, "Model": model}
 }
 
 // checkVerdicts requires a non-empty list of well-formed verdicts.
@@ -360,13 +366,20 @@ func isSpaceOrControl(c rune) bool {
 	return unicode.IsSpace(c) || unicode.IsControl(c)
 }
 
-// Render is the prompt a child starts with. Every key in vars must be in
-// r.Vars ("var %q isn't one of role %s's: A, B"). The template executes
-// with {"Role": r.Name, "Vars": vars (an empty map when nil)} and
-// missingkey=error. A result blank after TrimSpace is an error. When
-// extra isn't blank, the result is rendered + "\n\n" + extra. Every
-// error wraps ErrRender.
+// runnerClaude is the runner of a Claude Code child, the default (ADR 0063).
+const runnerClaude = "claude"
+
+// Render is RenderFor for a Claude Code child with no model label.
 func (r *Role) Render(vars map[string]string, extra string) (string, error) {
+	return r.RenderFor(vars, extra, runnerClaude, "")
+}
+
+// RenderFor is the prompt a child of runner and model starts with. Every
+// key in vars must be in r.Vars ("var %q isn't one of role %s's: A, B").
+// The template executes with promptData and missingkey=error. A result
+// blank after TrimSpace is an error. When extra isn't blank, the result is
+// rendered + "\n\n" + extra. Every error wraps ErrRender.
+func (r *Role) RenderFor(vars map[string]string, extra, runner, model string) (string, error) {
 	for _, key := range slices.Sorted(maps.Keys(vars)) {
 		if !slices.Contains(r.Vars, key) {
 			return "", fmt.Errorf("%w: var %q isn't one of role %s's: %s", ErrRender, key, r.Name, strings.Join(r.Vars, ", "))
@@ -380,7 +393,7 @@ func (r *Role) Render(vars map[string]string, extra string) (string, error) {
 		vars = map[string]string{}
 	}
 	var out bytes.Buffer
-	if err := tmpl.Execute(&out, map[string]any{"Role": r.Name, "Vars": vars}); err != nil {
+	if err := tmpl.Execute(&out, promptData(r.Name, vars, runner, model)); err != nil {
 		return "", fmt.Errorf("%w: prompt: %w", ErrRender, err)
 	}
 	rendered := strings.TrimSpace(out.String())

@@ -48,6 +48,23 @@ owners = []
 # [review.profiles.security]
 # when = "always"
 # model = "opus"
+#
+# Run some agents on other models (ws llm machine spawn).
+# [runner]
+# model = "qwen9b"
+#
+# [endpoints.gpu]
+# url = "http://localhost:1234"
+# api = "openai"             # OpenAI-compatible chat completions (LM Studio, Ollama, llm-router, vLLM)
+#
+# [models.qwen9b]
+# endpoint = "gpu"
+# id = "qwen/qwen3.5-9b"     # as the endpoint lists it; on Ollama: qwen3.5:9b
+# context_tokens = 65536     # must match the server's context length for this model
+# reasoning = "none"         # thinking off; "" leaves the server's default
+#
+# [runner.roles.verifier]
+# runner = "ws"
 `
 
 // defaultReviewTimeout is how long ws review wait waits when [review]
@@ -69,9 +86,19 @@ type Host struct {
 
 // Config is the contents of config.toml.
 type Config struct {
-	Defaults Defaults `toml:"defaults"`
-	Hosts    []Host   `toml:"hosts"`
-	Review   Review   `toml:"review"`
+	Defaults  Defaults            `toml:"defaults"`
+	Hosts     []Host              `toml:"hosts"`
+	Review    Review              `toml:"review"`
+	Runner    Runner              `toml:"runner"`
+	Endpoints map[string]Endpoint `toml:"endpoints"`
+	Models    map[string]Model    `toml:"models"`
+	Daemon    Daemon              `toml:"daemon"`
+	// RunnerErr is why the runner's tables can't be used, or nil (ADR 0071).
+	RunnerErr error `toml:"-"`
+	// roleRunners is each runner.roles.<role>.runner as written; roleRunnersBad
+	// is set when the roles can't be read at all. See RunnerFor.
+	roleRunners    map[string]any
+	roleRunnersBad bool
 }
 
 // Defaults drive short-name resolution (ADR 0007).
@@ -146,20 +173,68 @@ func Default() Config {
 }
 
 // parse reads config.toml's contents over the defaults. Unknown keys are an
-// error, so a typo doesn't silently fall back to a default.
+// error, so a typo doesn't silently fall back to a default. The runner's
+// tables are read apart from the rest, and a problem in them goes to
+// RunnerErr.
 func parse(data []byte) (Config, error) {
-	cfg := Default()
-	meta, err := toml.Decode(string(data), &cfg)
+	cfg, err := parseCore(data)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.loadRunner(data)
+	return cfg, nil
+}
+
+// coreFile is config.toml's tables that predate the runner's.
+type coreFile struct {
+	Defaults Defaults `toml:"defaults"`
+	Hosts    []Host   `toml:"hosts"`
+	Review   Review   `toml:"review"`
+}
+
+// withoutRunnerTables is data with the runner's sections cut out, so a
+// syntax error in them doesn't stop the rest of the file from loading.
+func withoutRunnerTables(data []byte) []byte {
+	var kept []string
+	skip := false
+	for _, line := range strings.SplitAfter(string(data), "\n") {
+		text := lineText(line)
+		if name, ok := headerName(text); ok {
+			skip = isRunnerHeader(name, strings.Contains(text, "]"))
+		}
+		if !skip {
+			kept = append(kept, line)
+		}
+	}
+	return []byte(strings.Join(kept, ""))
+}
+
+// isRunnerHeader is whether the table header name belongs to the runner. An
+// unclosed header counts when its name starts with a runner table's name, so
+// a half-written "[runner" is cut out like a finished one.
+func isRunnerHeader(name string, closed bool) bool {
+	top, _, _ := strings.Cut(name, ".")
+	if slices.Contains(runnerTableNames(), top) {
+		return true
+	}
+	if closed {
+		return false
+	}
+	return slices.ContainsFunc(runnerTableNames(), func(table string) bool {
+		return strings.HasPrefix(name, table)
+	})
+}
+
+func parseCore(data []byte) (Config, error) {
+	core := coreFile{Defaults: Default().Defaults}
+	meta, err := toml.Decode(string(withoutRunnerTables(data)), &core)
 	if err != nil {
 		return Config{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
-	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
-		keys := make([]string, 0, len(undecoded))
-		for _, key := range undecoded {
-			keys = append(keys, key.String())
-		}
+	if keys := undecodedNames(meta.Undecoded(), false); len(keys) > 0 {
 		return Config{}, fmt.Errorf("%w: unknown keys %s%s", ErrInvalid, strings.Join(keys, ", "), tokenHint(keys))
 	}
+	cfg := Config{Defaults: core.Defaults, Hosts: core.Hosts, Review: core.Review}
 	return cfg.normalize(meta.IsDefined("defaults", "host"))
 }
 

@@ -38,6 +38,8 @@ const (
 	TypeDuration Type = "duration"
 	TypeBool     Type = "bool"
 	TypeHosts    Type = "hosts"
+	TypeInt      Type = "int"
+	TypeFloat    Type = "float"
 )
 
 // Setting is one key of config.toml, as ws config lists it. Value is the
@@ -61,23 +63,116 @@ type keyRule struct {
 
 // Settings parses data as config.toml, with the same checks as Load, and
 // returns every key in docs/tools/ws-config.md order: defaults.host,
-// defaults.owners, hosts, review.timeout, review.remove_finished, then .when
-// and .model for each [review.profiles.<name>] table, sorted by name.
+// defaults.owners, hosts, review.timeout, review.remove_finished, the
+// runner's fixed keys, then .when and .model for each [review.profiles.<name>]
+// table, then each endpoint, model and runner role's keys, sorted by name.
 func Settings(data []byte) ([]Setting, error) {
 	cfg, meta, err := load(data)
 	if err != nil {
 		return nil, err
 	}
-	var settings []Setting
-	for _, rule := range fixedRules() {
+	rules := fixedRules()
+	if meta.IsDefined("runner") || meta.IsDefined("daemon") {
+		rules = append(rules, runnerFixedRules()...)
+	}
+	rules = append(rules, profileRules(&cfg)...)
+	rules = append(rules, entryRules(&cfg)...)
+	settings := make([]Setting, 0, len(rules))
+	for _, rule := range rules {
 		settings = append(settings, settingFor(rule, &cfg, meta))
 	}
+	return settings, nil
+}
+
+// profileRules are the .when and .model keys of each review profile table.
+func profileRules(cfg *Config) []keyRule {
+	var rules []keyRule
 	for _, name := range slices.Sorted(maps.Keys(cfg.Review.Profiles)) {
 		for _, leaf := range []string{"when", "model"} {
-			settings = append(settings, settingFor(profileRule(name, leaf), &cfg, meta))
+			rules = append(rules, profileRule(name, leaf))
 		}
 	}
-	return settings, nil
+	return rules
+}
+
+// entryRules are the keys of each endpoint, model and runner role, sorted
+// by name within each kind.
+func entryRules(cfg *Config) []keyRule {
+	var rules []keyRule
+	for _, name := range slices.Sorted(maps.Keys(cfg.Endpoints)) {
+		rules = append(rules, leafRules("endpoints", name)...)
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Models)) {
+		rules = append(rules, leafRules("models", name)...)
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Runner.Roles)) {
+		rules = append(rules, leafRules("runner.roles", name)...)
+	}
+	return rules
+}
+
+// leafRules are the keys of the entry kind.name, in leafSpecs order.
+func leafRules(kind, name string) []keyRule {
+	specs := leafSpecs(kind)
+	rules := make([]keyRule, 0, len(specs))
+	for _, spec := range specs {
+		table := kind + "." + name
+		rules = append(rules, keyRule{key: table + "." + spec.leaf, typ: spec.typ, table: table, leaf: spec.leaf})
+	}
+	return rules
+}
+
+// leafSpec is one key of an entry table, such as models.<alias>.id.
+type leafSpec struct {
+	leaf string
+	typ  Type
+}
+
+// leafSpecs are the keys of an endpoints, models or runner.roles entry, in
+// the order ws config lists them. Nil for any other kind.
+func leafSpecs(kind string) []leafSpec {
+	switch kind {
+	case "endpoints":
+		return []leafSpec{
+			{"url", TypeString},
+			{"api", TypeString},
+			{"probe", TypeString},
+			{"request_timeout", TypeDuration},
+			{"idle_timeout", TypeDuration},
+		}
+	case "models":
+		return []leafSpec{
+			{"endpoint", TypeString},
+			{"id", TypeString},
+			{"context_tokens", TypeInt},
+			{"max_output", TypeInt},
+			{"temperature", TypeFloat},
+			{"reasoning", TypeString},
+		}
+	case "runner.roles":
+		return []leafSpec{
+			{"runner", TypeString},
+			{"model", TypeString},
+			{"max_steps", TypeInt},
+			{"timeout", TypeDuration},
+			{"max_tokens", TypeInt},
+			{"mcp_servers", TypeStrings},
+			{"mcp_tools", TypeStrings},
+			{"mcp_deny", TypeStrings},
+			{"mcp_upfront", TypeInt},
+		}
+	}
+	return nil
+}
+
+// leafType is the type of leaf under an entry kind, and whether it is one.
+func leafType(kind, leaf string) (Type, bool) {
+	for _, spec := range leafSpecs(kind) {
+		if spec.leaf == leaf {
+			return spec.typ, true
+		}
+	}
+	return "", false
 }
 
 // Lookup returns key's Setting in data. A well-formed profile key whose
@@ -123,6 +218,9 @@ func Set(data []byte, key string, values []string) ([]byte, bool, error) {
 	if err := verifySet(out, rule, want); err != nil {
 		return nil, false, err
 	}
+	if err := refuseNewRunnerError(data, out); err != nil {
+		return nil, false, err
+	}
 	return out, !bytes.Equal(data, out), nil
 }
 
@@ -131,6 +229,9 @@ func Set(data []byte, key string, values []string) ([]byte, bool, error) {
 // left with no keys loses its header line too. Unset of hosts removes
 // every [[hosts]] table.
 func Unset(data []byte, key string) ([]byte, bool, error) {
+	if table, ok := entryTable(key); ok {
+		return unsetTable(data, table)
+	}
 	rule, err := parseUnsetKey(key)
 	if err != nil {
 		return nil, false, err
@@ -146,13 +247,64 @@ func Unset(data []byte, key string) ([]byte, bool, error) {
 	if !found {
 		return data, false, nil
 	}
-	lines = dropEmptyProfile(slices.Delete(lines, sp.first, sp.last+1), rule.table)
+	lines = dropEmptyTable(slices.Delete(lines, sp.first, sp.last+1), rule.table)
 	out := []byte(strings.Join(lines, ""))
 	cfg, meta, err := load(out)
 	if err != nil || settingFor(rule, &cfg, meta).Set {
 		return nil, false, fmt.Errorf("%w: %s", ErrUneditable, rule.key)
 	}
+	if err := refuseNewRunnerError(data, out); err != nil {
+		return nil, false, err
+	}
 	return out, !bytes.Equal(data, out), nil
+}
+
+// unsetTable removes the whole table, such as [models.<alias>] with its
+// keys, from data. A table that isn't there leaves data as it is.
+func unsetTable(data []byte, table string) ([]byte, bool, error) {
+	lines := splitLines(data)
+	kept := removeTable(lines, table)
+	if len(kept) == len(lines) {
+		return data, false, nil
+	}
+	out := []byte(strings.Join(kept, ""))
+	_, meta, err := load(out)
+	if err != nil || meta.IsDefined(strings.Split(table, ".")...) {
+		return nil, false, fmt.Errorf("%w: %s", ErrUneditable, table)
+	}
+	if err := refuseNewRunnerError(data, out); err != nil {
+		return nil, false, err
+	}
+	return out, !bytes.Equal(data, out), nil
+}
+
+// entryTable is the table of an entry key that unset removes whole:
+// endpoints.<name>, models.<alias>, or runner.roles.<role>.
+func entryTable(key string) (string, bool) {
+	for _, kind := range []string{"endpoints", "models", "runner.roles"} {
+		rest, ok := strings.CutPrefix(key, kind+".")
+		if ok && runnerNamePattern.MatchString(rest) {
+			return kind + "." + rest, true
+		}
+	}
+	return "", false
+}
+
+// refuseNewRunnerError refuses a write that leaves the runner's tables
+// unusable when they were usable before (ADR 0071).
+func refuseNewRunnerError(before, after []byte) error {
+	prior, err := parse(before)
+	if err != nil {
+		return err
+	}
+	next, err := parse(after)
+	if err != nil {
+		return err
+	}
+	if prior.RunnerErr == nil && next.RunnerErr != nil {
+		return fmt.Errorf("%w: %w", ErrValueInvalid, next.RunnerErr)
+	}
+	return nil
 }
 
 // WriteFile replaces path with data atomically. It follows a symlink at
@@ -204,6 +356,17 @@ func fixedRules() []keyRule {
 	}
 }
 
+// runnerFixedRules are the runner's and daemon's fixed keys. Settings lists
+// them only when config.toml has their tables, as it does for profiles.
+func runnerFixedRules() []keyRule {
+	return []keyRule{
+		{key: "runner.model", typ: TypeString, table: "runner", leaf: "model"},
+		{key: "runner.keep_git_tokens", typ: TypeBool, table: "runner", leaf: "keep_git_tokens"},
+		{key: "runner.user_instructions", typ: TypeBool, table: "runner", leaf: "user_instructions"},
+		{key: "daemon.resume_on_start", typ: TypeBool, table: "daemon", leaf: "resume_on_start"},
+	}
+}
+
 // profileRule is review.profiles.<name>.<leaf>.
 func profileRule(name, leaf string) keyRule {
 	table := "review.profiles." + name
@@ -223,7 +386,7 @@ func parseUnsetKey(key string) (keyRule, error) {
 
 // parseKeyWith is parseKey with the rule for profile names passed in.
 func parseKeyWith(key string, nameOK func(string) bool) (keyRule, error) {
-	for _, rule := range fixedRules() {
+	for _, rule := range append(fixedRules(), runnerFixedRules()...) {
 		if rule.key == key {
 			return rule, nil
 		}
@@ -234,7 +397,35 @@ func parseKeyWith(key string, nameOK func(string) bool) (keyRule, error) {
 			return profileRule(name, leaf), nil
 		}
 	}
+	if rule, ok := parseEntryKey(key); ok {
+		return rule, nil
+	}
 	return keyRule{}, fmt.Errorf("%w: %s", ErrKeyUnknown, key)
+}
+
+// parseEntryKey is the rule for a runner key under an endpoint, model, role
+// or env entry: endpoints.<name>.<leaf>, models.<alias>.<leaf>,
+// runner.roles.<role>.<leaf> or runner.env.<NAME>.
+func parseEntryKey(key string) (keyRule, bool) {
+	if name, ok := strings.CutPrefix(key, "runner.env."); ok {
+		if !runnerEnvPattern.MatchString(name) {
+			return keyRule{}, false
+		}
+		return keyRule{key: key, typ: TypeString, table: "runner.env", leaf: name}, true
+	}
+	for _, kind := range []string{"endpoints", "models", "runner.roles"} {
+		rest, ok := strings.CutPrefix(key, kind+".")
+		if !ok {
+			continue
+		}
+		name, leaf, found := strings.Cut(rest, ".")
+		typ, known := leafType(kind, leaf)
+		if !found || !known || !runnerNamePattern.MatchString(name) {
+			return keyRule{}, false
+		}
+		return keyRule{key: key, typ: typ, table: kind + "." + name, leaf: leaf}, true
+	}
+	return keyRule{}, false
 }
 
 // profileNameValid reports whether name matches ^[a-z0-9-]+$.
@@ -251,7 +442,10 @@ func load(data []byte) (Config, *toml.MetaData, error) {
 	if err != nil {
 		return Config{}, nil, err
 	}
-	meta, err := toml.Decode(string(data), &Config{})
+	meta, err := toml.Decode(string(data), &map[string]any{})
+	if err != nil {
+		meta, err = toml.Decode(string(withoutRunnerTables(data)), &map[string]any{})
+	}
 	if err != nil {
 		return Config{}, nil, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
@@ -286,12 +480,128 @@ func valueOf(rule keyRule, cfg *Config) any {
 		return FormatDuration(cfg.Review.WaitTimeout())
 	case "review.remove_finished":
 		return cfg.Review.RemovesFinished()
+	case "runner.model":
+		return cfg.Runner.Model
+	case "runner.keep_git_tokens":
+		return cfg.Runner.KeepsGitTokens()
+	case "runner.user_instructions":
+		return cfg.Runner.UserInstructions
+	case "daemon.resume_on_start":
+		return cfg.Daemon.ResumesOnStart()
+	}
+	if value, ok := entryValue(rule, cfg); ok {
+		return value
 	}
 	profile := cfg.Review.Profiles[strings.TrimPrefix(rule.table, "review.profiles.")]
 	if rule.leaf == "when" {
 		return profile.When
 	}
 	return profile.Model
+}
+
+// entryValue is the effective value of a key under an endpoint, model,
+// role or env entry, and whether rule is one of those keys.
+func entryValue(rule keyRule, cfg *Config) (any, bool) {
+	if rule.table == "runner.env" {
+		return cfg.Runner.Env[rule.leaf], true
+	}
+	if name, ok := strings.CutPrefix(rule.table, "endpoints."); ok {
+		return endpointValue(endpointWithDefaults(cfg.Endpoints[name]), rule.leaf), true
+	}
+	if name, ok := strings.CutPrefix(rule.table, "models."); ok {
+		return modelValue(cfg.Models[name], rule.leaf), true
+	}
+	if name, ok := strings.CutPrefix(rule.table, "runner.roles."); ok {
+		return roleValue(name, cfg.Runner.Roles[name], rule.leaf), true
+	}
+	return nil, false
+}
+
+func endpointValue(e Endpoint, leaf string) any {
+	switch leaf {
+	case "url":
+		return e.URL
+	case "api":
+		return e.API
+	case "probe":
+		return e.Probe
+	case "request_timeout":
+		return FormatDuration(e.RequestTimeout)
+	}
+	return FormatDuration(e.IdleTimeout)
+}
+
+func modelValue(m Model, leaf string) any { //nolint:gocritic // hugeParam: a map value, read once per key.
+	switch leaf {
+	case "endpoint":
+		return m.Endpoint
+	case "id":
+		return m.ID
+	case "context_tokens":
+		return m.ContextTokens
+	case "max_output":
+		return maxOutputOf(m.MaxOutput)
+	case "temperature":
+		if m.Temperature == "" {
+			return defaultTemperature
+		}
+		return m.Temperature
+	}
+	return m.Reasoning
+}
+
+func roleValue(name string, r RunnerRole, leaf string) any { //nolint:gocritic // hugeParam: a map value, read once per key.
+	switch leaf {
+	case "runner":
+		return runnerOrClaude(r.Runner)
+	case "model":
+		return r.Model
+	case "max_steps":
+		steps, _, _ := DefaultBudget(name)
+		return withDefault(r.MaxSteps, steps)
+	case "timeout":
+		_, timeout, _ := DefaultBudget(name)
+		return FormatDuration(withDefault(r.Timeout, timeout))
+	case "max_tokens":
+		_, _, tokens := DefaultBudget(name)
+		return withDefault(r.MaxTokens, tokens)
+	case "mcp_servers":
+		return nonNilStrings(r.MCPServers)
+	case "mcp_tools":
+		if r.MCPTools == nil {
+			return []string{"*"}
+		}
+		return r.MCPTools
+	case "mcp_deny":
+		return nonNilStrings(r.MCPDeny)
+	}
+	if r.MCPUpfront == nil {
+		return defaultMCPUpfront
+	}
+	return *r.MCPUpfront
+}
+
+func runnerOrClaude(runner string) string {
+	if runner == "" {
+		return RunnerClaude
+	}
+	return runner
+}
+
+// withDefault is value, or fallback when value is zero.
+func withDefault[T comparable](value, fallback T) T {
+	var zero T
+	if value == zero {
+		return fallback
+	}
+	return value
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 // defaultOf is rule's value when the file doesn't set it.
@@ -305,10 +615,32 @@ func defaultOf(rule keyRule) any {
 		return []Host{{Name: defaultHost, Kind: KindAuto}}
 	case "review.timeout":
 		return FormatDuration(defaultReviewTimeout)
-	case "review.remove_finished":
+	case "review.remove_finished", "runner.keep_git_tokens", "daemon.resume_on_start":
 		return true
+	case "runner.user_instructions":
+		return false
+	}
+	if value, ok := entryDefault(rule); ok {
+		return value
 	}
 	return ""
+}
+
+// entryDefault is the value of an entry key the file doesn't set, and
+// whether rule is one of those keys.
+func entryDefault(rule keyRule) (any, bool) {
+	switch {
+	case rule.table == "runner.env":
+		return "", true
+	case strings.HasPrefix(rule.table, "endpoints."):
+		return endpointValue(endpointWithDefaults(Endpoint{}), rule.leaf), true
+	case strings.HasPrefix(rule.table, "models."):
+		return modelValue(Model{}, rule.leaf), true
+	case strings.HasPrefix(rule.table, "runner.roles."):
+		name := strings.TrimPrefix(rule.table, "runner.roles.")
+		return roleValue(name, RunnerRole{}, rule.leaf), true
+	}
+	return nil, false
 }
 
 // verifySet checks that out sets rule's key to want.
@@ -328,13 +660,22 @@ func normalize(rule keyRule, values []string) (any, error) {
 			return nil, err
 		}
 	}
-	if rule.key == "defaults.owners" {
-		return normalizeOwners(values)
+	if rule.typ == TypeStrings {
+		return normalizeList(rule, values)
 	}
 	if len(values) != 1 {
 		return nil, fmt.Errorf("%w: %s takes one value, not %d", ErrValueInvalid, rule.key, len(values))
 	}
 	return normalizeOne(rule, values[0])
+}
+
+// normalizeList checks a list key's values: owners are lower-cased, and
+// the runner's lists are kept as given.
+func normalizeList(rule keyRule, values []string) (any, error) {
+	if rule.key == "defaults.owners" {
+		return normalizeOwners(values)
+	}
+	return nonNilStrings(slices.Clone(values)), nil
 }
 
 // checkText rejects text that can't be written inside a TOML basic string.
@@ -360,20 +701,55 @@ func normalizeOwners(values []string) ([]string, error) {
 	return owners, nil
 }
 
-// normalizeOne checks the single value of a key other than owners.
+// normalizeOne checks the single value of a key other than a list.
 func normalizeOne(rule keyRule, value string) (any, error) {
-	switch rule.key {
-	case "defaults.host":
-		return normalizeHost(value)
-	case "review.timeout":
-		return normalizeTimeout(value)
-	case "review.remove_finished":
-		return normalizeBool(value)
+	switch rule.typ {
+	case TypeBool:
+		return normalizeBool(rule.key, value)
+	case TypeDuration:
+		return normalizeTimeout(rule.key, value)
+	case TypeInt:
+		return normalizeInt(rule, value)
+	case TypeFloat:
+		return normalizeTemperature(value)
+	case TypeString, TypeStrings, TypeHosts:
 	}
+	if rule.key == "defaults.host" {
+		return normalizeHost(value)
+	}
+	if strings.HasPrefix(rule.table, "review.profiles.") {
+		return normalizeProfileValue(rule, value)
+	}
+	return value, nil
+}
+
+func normalizeProfileValue(rule keyRule, value string) (any, error) {
 	if rule.leaf == "when" {
 		return normalizeWhen(value)
 	}
 	return normalizeModel(value)
+}
+
+// normalizeInt reads a whole number. A context size has a floor, and no
+// count is negative.
+func normalizeInt(rule keyRule, value string) (int, error) {
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s %q must be a whole number: %w", ErrValueInvalid, rule.key, value, err)
+	}
+	if n < 0 || (rule.leaf == "context_tokens" && n < MinContextTokens) {
+		return 0, fmt.Errorf("%w: %s %d is out of range", ErrValueInvalid, rule.key, n)
+	}
+	return n, nil
+}
+
+// normalizeTemperature keeps a temperature as the string the file stores,
+// after checking it's a number in [0, 2].
+func normalizeTemperature(value string) (string, error) {
+	if _, err := parseTemperature(value); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrValueInvalid, err)
+	}
+	return value, nil
 }
 
 func normalizeHost(value string) (string, error) {
@@ -384,25 +760,25 @@ func normalizeHost(value string) (string, error) {
 	return host, nil
 }
 
-func normalizeTimeout(value string) (string, error) {
+func normalizeTimeout(key, value string) (string, error) {
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		return "", fmt.Errorf("%w: review.timeout %q: %w", ErrValueInvalid, value, err)
+		return "", fmt.Errorf("%w: %s %q: %w", ErrValueInvalid, key, value, err)
 	}
 	if d <= 0 {
-		return "", fmt.Errorf("%w: review.timeout %q must be greater than zero", ErrValueInvalid, value)
+		return "", fmt.Errorf("%w: %s %q must be greater than zero", ErrValueInvalid, key, value)
 	}
 	return FormatDuration(d), nil
 }
 
-func normalizeBool(value string) (bool, error) {
+func normalizeBool(key, value string) (bool, error) {
 	switch value {
 	case "true":
 		return true, nil
 	case "false":
 		return false, nil
 	}
-	return false, fmt.Errorf("%w: review.remove_finished must be true or false, not %q", ErrValueInvalid, value)
+	return false, fmt.Errorf("%w: %s must be true or false, not %q", ErrValueInvalid, key, value)
 }
 
 func normalizeWhen(value string) (string, error) {
@@ -619,6 +995,8 @@ func encode(value any) string {
 	switch v := value.(type) {
 	case bool:
 		return strconv.FormatBool(v)
+	case int:
+		return strconv.Itoa(v)
 	case []string:
 		quoted := make([]string, 0, len(v))
 		for _, s := range v {
@@ -876,10 +1254,17 @@ func appendTable(lines []string, rule keyRule, assignment string) []string {
 	return append(lines, "["+rule.table+"]"+eol, assignment+eol)
 }
 
-// dropEmptyProfile removes the headers of a review profile table that has
-// no keys left, with one blank line before each. Comments are kept.
-func dropEmptyProfile(lines []string, table string) []string {
-	if !strings.HasPrefix(table, "review.profiles.") || tableHasKeys(lines, table) {
+// dynamicTableNames are the tables whose names carry a review profile,
+// endpoint, model, role or env name. Unset drops their headers once they're
+// empty.
+func dynamicTableNames() []string {
+	return []string{"review.profiles.", "endpoints.", "models.", "runner.roles.", "runner.env"}
+}
+
+// dropEmptyTable removes the headers of a dynamic table that has no keys
+// left, with one blank line before each. Comments are kept.
+func dropEmptyTable(lines []string, table string) []string {
+	if !isDynamicTable(table) || tableHasKeys(lines, table) {
 		return lines
 	}
 	kept := make([]string, 0, len(lines))
@@ -891,6 +1276,38 @@ func dropEmptyProfile(lines []string, table string) []string {
 			continue
 		}
 		kept = append(kept, line)
+	}
+	return kept
+}
+
+func isDynamicTable(table string) bool {
+	for _, prefix := range dynamicTableNames() {
+		if strings.HasPrefix(table, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// removeTable returns lines without table's header and keys. Comments and
+// blank lines stay.
+func removeTable(lines []string, table string) []string {
+	names := sectionNames(lines)
+	kept := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); i++ {
+		if names[i] != table {
+			kept = append(kept, lines[i])
+			continue
+		}
+		if header, ok := headerName(lineText(lines[i])); ok && header == table {
+			continue
+		}
+		sp, ok := spanAt(lines, i)
+		if keyName(lineText(lines[i])) == "" || !ok {
+			kept = append(kept, lines[i])
+			continue
+		}
+		i = sp.last
 	}
 	return kept
 }
