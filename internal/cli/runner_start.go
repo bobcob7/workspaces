@@ -12,6 +12,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/llm"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/machine/role"
 	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -177,8 +178,8 @@ func (a *App) newRun(l *runnerLaunch) runner.Run {
 		IdleTimeout:      endpoint.IdleTimeout,
 		Role:             start.Role,
 		Parent:           start.Parent,
-		Pass:             []string{"PASS"},
-		Fail:             []string{"FAIL"},
+		Pass:             slices.Clone(machine.DefaultPass),
+		Fail:             slices.Clone(machine.DefaultFail),
 		MaxSteps:         r.MaxSteps,
 		Timeout:          r.Timeout,
 		MaxTokens:        r.MaxTokens,

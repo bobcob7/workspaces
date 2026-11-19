@@ -35,10 +35,15 @@ type Config struct {
 	ControlListen string `yaml:"control_listen"`
 	// StrictCapabilities rejects a chat request that offers tools to a model
 	// without the tools capability, as Ollama does.
-	StrictCapabilities bool    `yaml:"strict_capabilities"`
-	Models             []Model `yaml:"models"`
-	Timing             Timing  `yaml:"timing"`
-	Rules              []Rule  `yaml:"rules"`
+	StrictCapabilities bool `yaml:"strict_capabilities"`
+	// TokensPerWord is the multiplier from words to the tokens the fake
+	// reports: usage is the words counted times TokensPerWord, so a larger
+	// value makes usage grow faster than the text. Zero means 1: a word is a
+	// token. Context windows and truncation still count words.
+	TokensPerWord int     `yaml:"tokens_per_word"`
+	Models        []Model `yaml:"models"`
+	Timing        Timing  `yaml:"timing"`
+	Rules         []Rule  `yaml:"rules"`
 	// Faults are active from startup.
 	Faults []Fault `yaml:"faults"`
 }
@@ -153,6 +158,13 @@ func validateModels(models []Model) error {
 				return fmt.Errorf("%w: model %q: unknown capability %q", errInvalidConfig, m.Name, c)
 			}
 		}
+	}
+	return nil
+}
+
+func validateTokensPerWord(k int) error {
+	if k < 0 {
+		return fmt.Errorf("%w: tokens_per_word must not be negative", errInvalidConfig)
 	}
 	return nil
 }

@@ -78,6 +78,21 @@ func TestAgent_Run(t *testing.T) {
 		require.Len(t, compactions, 1)
 		assert.Equal(t, 1, payloadOf[*CompactionEvent](t, compactions[0]).Elided)
 	})
+	t.Run("records the compaction that did not make the last turn fit before ending context_overflow", func(t *testing.T) {
+		chat := scripted(t,
+			reply(call("1", "run", `{"command":"step 1"}`)),
+			reply(call("2", "run", `{"command":"`+strings.Repeat("y", 5000)+`"}`)),
+		)
+		cfg := testConfig(chat)
+		cfg.Target.ContextTokens = 1500
+		cfg.Target.MaxOutput = 0
+		cfg.Tools = StaticToolset(withRun(runTool(strings.Repeat("x", 440))))
+		out, events := runWithTranscript(t, cfg, advancingClock(), nil)
+		assert.Equal(t, ExitContextOverflow, out.Exit)
+		compactions := eventsOf(events, kindCompaction)
+		require.Len(t, compactions, 1)
+		assert.Equal(t, 1, payloadOf[*CompactionEvent](t, compactions[0]).DroppedTurns)
+	})
 	t.Run("compacts a context error the estimate missed, though the estimate is far under the window", func(t *testing.T) {
 		chat := scripted(t,
 			reply(call("1", "run", `{"command":"step 1"}`)),

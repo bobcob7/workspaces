@@ -271,13 +271,28 @@ func (s *Server) complete(ctx context.Context, w http.ResponseWriter, req openai
 	if !sleep(ctx, time.Duration(s.cfg.Timing.FirstToken)+n*time.Duration(s.cfg.Timing.ChunkInterval)) {
 		return
 	}
-	openaiwire.WriteJSON(w, http.StatusOK, completionFor(req, rep))
+	resp := completionFor(req, rep)
+	resp.Usage = s.reportedUsage(resp.Usage)
+	openaiwire.WriteJSON(w, http.StatusOK, resp)
+}
+
+// reportedUsage scales u by TokensPerWord, which defaults to 1.
+func (s *Server) reportedUsage(u openaiwire.Usage) openaiwire.Usage {
+	k := cmp.Or(s.cfg.TokensPerWord, 1)
+	u.PromptTokens *= k
+	u.CompletionTokens *= k
+	u.TotalTokens *= k
+	return u
 }
 
 func (s *Server) stream(ctx context.Context, w http.ResponseWriter, req openaiwire.ChatRequest, rep reply, f Fault) {
 	events := sse.NewWriter(w)
 	sent := 0
 	for _, c := range streamChunks(req, rep, s.cfg.Timing.WordsPerChunk) {
+		if c.Usage != nil {
+			u := s.reportedUsage(*c.Usage)
+			c.Usage = &u
+		}
 		if !sleep(ctx, s.delayBefore(sent, c)) {
 			return
 		}

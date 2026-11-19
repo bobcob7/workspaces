@@ -193,3 +193,46 @@ func TestSession_startMCP(t *testing.T) {
 		assert.Contains(t, string(transcript), `"tool":null`)
 	})
 }
+
+func TestInput_workDir(t *testing.T) {
+	t.Parallel()
+	t.Run("is the workspace when no directory is set", func(t *testing.T) {
+		t.Parallel()
+		in := Input{Workspace: "/ws"}
+		assert.Equal(t, "/ws", in.workDir())
+	})
+	t.Run("is the session directory when set", func(t *testing.T) {
+		t.Parallel()
+		in := Input{Workspace: "/ws", Dir: "/ws/repo"}
+		assert.Equal(t, "/ws/repo", in.workDir())
+	})
+}
+
+func TestSession_mcpDefs_readsTheSessionDirectory(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	repo := filepath.Join(workspace, "repo")
+	require.NoError(t, os.Mkdir(repo, 0o755))
+	data := `{"mcpServers":{"tools":{"type":"stdio","command":"x"}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".mcp.json"), []byte(data), fileMode))
+	run := sampleRun()
+	run.MCPServers = []string{"tools"}
+	s := &session{run: run, in: Input{Workspace: workspace, Dir: repo, Environ: []string{"HOME=" + t.TempDir()}}, log: slog.New(slog.DiscardHandler)}
+	defs, err := s.mcpDefs()
+	require.NoError(t, err)
+	require.Len(t, defs, 1)
+	assert.Equal(t, "tools", defs[0].Name)
+}
+
+func TestSession_systemPrompt_namesTheSessionDirectory(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	repo := filepath.Join(workspace, "repo")
+	require.NoError(t, os.Mkdir(repo, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "CLAUDE.md"), []byte("repo rules"), fileMode))
+	s := &session{run: sampleRun(), in: Input{Workspace: workspace, Dir: repo}}
+	prompt, err := s.systemPrompt(nil)
+	require.NoError(t, err)
+	assert.Contains(t, prompt, "working in "+repo)
+	assert.Contains(t, prompt, "repo rules")
+}

@@ -12,6 +12,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -89,6 +91,19 @@ func TestApp_runRunner(t *testing.T) {
 		assert.Contains(t, string(data), `"verdict":"PASS"`)
 		assert.Contains(t, string(data), `"exit":"done"`)
 	})
+	t.Run("a workspace with one repo runs the agent in the repo's directory", func(t *testing.T) {
+		app, log := runnerAppForRepos(t, "api")
+		require.NoError(t, app.runRunner(t.Context(), "ws-1", false))
+		assert.Contains(t, log.all(), "instructions from api")
+		assert.Contains(t, log.all(), "instructions from the workspace root")
+	})
+	t.Run("a workspace with two repos runs the agent in the workspace root", func(t *testing.T) {
+		app, log := runnerAppForRepos(t, "api", "web")
+		require.NoError(t, app.runRunner(t.Context(), "ws-1", false))
+		assert.Contains(t, log.all(), "instructions from the workspace root")
+		assert.NotContains(t, log.all(), "instructions from api")
+		assert.NotContains(t, log.all(), "instructions from web")
+	})
 	t.Run("a run.toml that can't be read is an internal error", func(t *testing.T) {
 		app, _, _ := newRunnerTestApp(t, t.TempDir())
 		app.workspaces = &workspaceStoreMock{
@@ -100,6 +115,30 @@ func TestApp_runRunner(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "reading run.toml")
 	})
+}
+
+// runnerAppForRepos is an app whose workspace ws-1 has the repos, each with a
+// CLAUDE.md naming it beside the workspace root's. The agent reads the
+// instructions in the directory it works in, so the request shows which that was.
+func runnerAppForRepos(t *testing.T, repos ...string) (*App, *requestLog) {
+	t.Helper()
+	root := t.TempDir()
+	state := filepath.Join(root, "state")
+	model, log := recordingRunnerModel(t)
+	app, _, _ := newRunnerTestApp(t, root)
+	workspaceDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "CLAUDE.md"), []byte("instructions from the workspace root"), 0o600))
+	ws := workspace.Workspace{ID: "ws-1", Path: workspaceDir}
+	for _, name := range repos {
+		require.NoError(t, os.MkdirAll(filepath.Join(workspaceDir, name), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, name, "CLAUDE.md"), []byte("instructions from "+name), 0o600))
+		ws.Repos = append(ws.Repos, workspace.Repo{ID: "example.test/o/" + name, Path: name})
+	}
+	app.workspaces = &workspaceStoreMock{
+		FindFunc: func(string) (workspace.Workspace, error) { return ws, nil },
+	}
+	writeRunnerFiles(t, state, model)
+	return app, log
 }
 
 func TestRunnerRecords_Lineage(t *testing.T) {
@@ -149,8 +188,35 @@ func newRunnerTestApp(t *testing.T, root string) (*App, *bytes.Buffer, *bytes.Bu
 // runnerModel answers every chat request with one record_result PASS.
 func runnerModel(t *testing.T) *httptest.Server {
 	t.Helper()
+	ts, _ := recordingRunnerModel(t)
+	return ts
+}
+
+// requestLog is the chat request bodies a recordingRunnerModel received.
+type requestLog struct {
+	mu     sync.Mutex
+	bodies []string
+}
+
+func (l *requestLog) add(body string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.bodies = append(l.bodies, body)
+}
+
+func (l *requestLog) all() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.bodies, "\n")
+}
+
+// recordingRunnerModel is runnerModel that also keeps the request bodies.
+func recordingRunnerModel(t *testing.T) (*httptest.Server, *requestLog) {
+	t.Helper()
+	log := &requestLog{}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
+		body, _ := io.ReadAll(r.Body)
+		log.add(string(body))
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, `data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"qwen/qwen3.5-9b","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":[{"id":"call_pass","index":0,"type":"function","function":{"name":"record_result","arguments":"{\"verdict\":\"PASS\",\"report\":\"done\"}"}}]},"finish_reason":null}]}
 
@@ -163,7 +229,7 @@ data: [DONE]
 `)
 	}))
 	t.Cleanup(ts.Close)
-	return ts
+	return ts, log
 }
 
 // writeRunnerFiles writes a run that talks to model, in state's ws-1.

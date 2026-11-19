@@ -1,0 +1,19 @@
+# Scenario: context-overflow. The test's [models.small] alias sets
+# context_tokens = 16384 (the minimum) while fake-small truncates at 4096
+# words, so every request is truncated: the second one lowers the working
+# limit to the server's prompt count, compaction drops the first turn, and
+# the task alone no longer fits (context_overflow). The 30 KiB task leaves
+# room only for small tool results, so the reads are short.
+strict_capabilities: true
+models:
+  - {name: fake-small, capabilities: [tools], context_length: 4096}
+rules:
+  - turn: 0
+    tool: read_file
+    arguments: '{"path":"big.txt","offset":1,"limit":10}'
+  - turn: 1
+    tool: read_file
+    arguments: '{"path":"big.txt","offset":11,"limit":10}'
+  - turn: 2
+    tool: record_result
+    arguments: '{"verdict":"PASS","report":"Read big.txt."}'

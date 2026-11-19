@@ -292,8 +292,8 @@ func TestExecute(t *testing.T) {
 		require.NoError(t, Execute(ctx, testInput(t, files, workspace, false)))
 		st, err := files.ReadStatus()
 		require.NoError(t, err)
-		require.NotNil(t, st.Exit)
-		assert.Equal(t, agent.ExitStopped, *st.Exit)
+		assert.Nil(t, st.Exit, "a daemon shutdown leaves no exit reason, so the run resumes")
+		assert.Equal(t, "stopped", st.State)
 		assert.Nil(t, st.Verdict)
 		second := newModelServer(t, script(recordPass))
 		require.NoError(t, files.AppendEndpoint(EndpointEntry{Reason: "retry", Endpoint: "gpu", URL: second.URL, API: "openai", Model: "qwen/qwen3.5-9b", ContextTokens: 65536}))
@@ -736,22 +736,29 @@ func TestRedactWriter(t *testing.T) {
 
 func TestExitOf(t *testing.T) {
 	t.Parallel()
-	t.Run("an interrupted run without a verdict is stopped", func(t *testing.T) {
+	t.Run("an interrupted run without a verdict is stopped when a stop was requested", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		exit, message := exitOf(ctx, &agent.Outcome{Exit: agent.ExitEndpointDown, Message: "x"}, "")
+		exit, message := exitOf(ctx, &agent.Outcome{Exit: agent.ExitEndpointDown, Message: "x"}, "", true)
 		assert.Equal(t, agent.ExitStopped, exit)
+		assert.Empty(t, message)
+	})
+	t.Run("an interrupted run without a verdict or a stop request has no exit", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		exit, message := exitOf(ctx, &agent.Outcome{Exit: agent.ExitEndpointDown, Message: "x"}, "", false)
+		assert.Empty(t, exit)
 		assert.Empty(t, message)
 	})
 	t.Run("an interrupted run with a verdict keeps its exit", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		exit, message := exitOf(ctx, &agent.Outcome{Exit: agent.ExitDone, Message: "m"}, "PASS")
+		exit, message := exitOf(ctx, &agent.Outcome{Exit: agent.ExitDone, Message: "m"}, "PASS", false)
 		assert.Equal(t, agent.ExitDone, exit)
 		assert.Equal(t, "m", message)
 	})
 	t.Run("a live run keeps its exit", func(t *testing.T) {
-		exit, message := exitOf(t.Context(), &agent.Outcome{Exit: agent.ExitMaxSteps, Message: "m"}, "")
+		exit, message := exitOf(t.Context(), &agent.Outcome{Exit: agent.ExitMaxSteps, Message: "m"}, "", false)
 		assert.Equal(t, agent.ExitMaxSteps, exit)
 		assert.Equal(t, "m", message)
 	})

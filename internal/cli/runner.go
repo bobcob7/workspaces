@@ -183,6 +183,7 @@ func (a *App) runRunner(ctx context.Context, id string, resume bool) error {
 		Files:     runner.FilesFor(a.paths.State, ws.ID),
 		Resume:    resume,
 		Workspace: ws.Path,
+		Dir:       ws.SessionDir(),
 		ConfigDir: a.paths.Root,
 		Environ:   a.environ,
 		Store:     runnerRecords{Store: machine.NewStore(a.paths.State), workspaces: a.workspaces},

@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -42,7 +44,7 @@ func (p *procTable) reader() *processReaderMock {
 		if p.alive[pid] {
 			return testStartedAt, nil
 		}
-		return time.Time{}, errors.New("no such process")
+		return time.Time{}, fmt.Errorf("reading process %d: %w", pid, fs.ErrNotExist)
 	}}
 }
 
@@ -525,6 +527,34 @@ func TestSupervisor_Watch(t *testing.T) {
 		sup.poll(t.Context())
 		assert.Len(t, starter.StartCalls(), 2)
 	})
+	t.Run("a resumed runner that dies within the restart window is resumed again", func(t *testing.T) {
+		f := newSessionFixture(t)
+		f.procs.alive[7] = true
+		f.writeStatus(7, nil)
+		starter := f.starter()
+		sup := f.supervisor(starter, nil)
+		require.NoError(t, sup.Reconcile(t.Context()))
+		// The runner writes status.json as it works, so its UpdatedAt is
+		// recent when it dies, as the starter's fixed one is not.
+		touch := func() {
+			st := f.readStatus()
+			st.UpdatedAt = f.clock.now
+			require.NoError(t, f.files.WriteStatus(&st))
+		}
+		delete(f.procs.alive, 7)
+		sup.poll(t.Context())
+		f.clock.now = f.clock.now.Add(5 * time.Second)
+		sup.poll(t.Context())
+		require.Len(t, starter.StartCalls(), 1)
+		touch()
+		delete(f.procs.alive, sup.Runners()[0].PID)
+		f.clock.now = f.clock.now.Add(time.Second)
+		sup.poll(t.Context())
+		f.clock.now = f.clock.now.Add(30 * time.Second)
+		sup.poll(t.Context())
+		assert.Len(t, starter.StartCalls(), 2, "the second death was not noticed")
+		assert.Equal(t, 2, f.readStatus().Restarts)
+	})
 	t.Run("returns when its context ends", func(t *testing.T) {
 		sup := NewSupervisor(SupervisorConfig{Poll: time.Millisecond}, &processReaderMock{}, &processStarterMock{}, discardLog())
 		ctx, cancel := context.WithCancel(t.Context())
@@ -582,6 +612,34 @@ func TestSupervisor_readStatusOrNew(t *testing.T) {
 		_, err := readStatusOrNew(f.files, &run)
 		require.Error(t, err)
 	})
+}
+
+func TestSupervisor_diedWithoutExit(t *testing.T) {
+	t.Parallel()
+	exit := "ok"
+	gone := fmt.Errorf("reading process 7: %w", fs.ErrNotExist)
+	tests := []struct {
+		name string
+		st   *runner.Status
+		err  error
+		want bool
+	}{
+		{"a process that doesn't exist is gone", &runner.Status{PID: 7}, gone, true},
+		{"ESRCH is gone", &runner.Status{PID: 7}, syscall.ESRCH, true},
+		{"a live process is not gone", &runner.Status{PID: 7}, nil, false},
+		{"a permission error is unknown, not gone", &runner.Status{PID: 7}, fs.ErrPermission, false},
+		{"an unreadable /proc is unknown, not gone", &runner.Status{PID: 7}, errors.New("reading /proc/stat: input/output error"), false},
+		{"no status is not a death", nil, gone, false},
+		{"a recorded exit is not a death", &runner.Status{PID: 7, Exit: &exit}, gone, false},
+		{"no pid is not a death", &runner.Status{}, gone, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			procs := &processReaderMock{StartTimeFunc: func(int) (time.Time, error) { return testStartedAt, tc.err }}
+			sup := NewSupervisor(SupervisorConfig{}, procs, &processStarterMock{}, discardLog())
+			assert.Equal(t, tc.want, sup.diedWithoutExit(t.Context(), tc.st))
+		})
+	}
 }
 
 func TestRunnerArgs(t *testing.T) {

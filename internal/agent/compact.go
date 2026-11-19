@@ -238,12 +238,11 @@ func (r *run) compactTo(limit int, force bool) ([]llm.Message, CompactionEvent, 
 }
 
 // compactNow compacts the history for the working limit; false means it
-// doesn't fit.
+// doesn't fit. What the attempt elided or dropped is recorded either way, so
+// a context_overflow exit has its compaction event.
 func (r *run) compactNow(force bool) bool {
 	msgs, ev, ok := r.compactTo(r.limit(), force)
-	if ok {
-		r.applyCompaction(msgs, ev)
-	}
+	r.applyCompaction(msgs, ev)
 	return ok
 }
 

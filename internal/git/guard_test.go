@@ -39,7 +39,9 @@ func TestOnlyThisPackageRunsGit(t *testing.T) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if strings.HasPrefix(rel, "internal/git/") {
+		// The e2e harness builds its fixture repositories with the git
+		// binary; it is not product code (ADR 0067).
+		if strings.HasPrefix(rel, "internal/git/") || strings.HasPrefix(rel, "e2e/") {
 			return nil
 		}
 		file, err := parser.ParseFile(fset, path, nil, 0)
