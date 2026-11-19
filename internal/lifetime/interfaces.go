@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . workspaceStore claudeClient processReader powerReader reviewJudge
+//go:generate go tool moq -out moq_test.go . workspaceStore claudeClient processReader powerReader reviewJudge runnerReader runnerControl
 
 // workspaceStore is the set of workspaces and their state (ADRs 0012,
 // 0022, 0023).
@@ -55,4 +56,18 @@ type powerReader interface {
 // has reported (ADR 0045). A workspace that isn't a review isn't complete.
 type reviewJudge interface {
 	Complete(ctx context.Context, ws *workspace.Workspace) (bool, error)
+}
+
+// runnerReader reads runner sessions (ADR 0063); stopping and resuming go
+// through the daemon (T19). id is the workspace's id, state/<id>/runner.
+type runnerReader interface {
+	State(id string, recordedAt time.Time) (state string, pid int, st *runner.Status, run *runner.Run)
+	Exists(id string) bool
+}
+
+// runnerControl stops and resumes ws runners (ADRs 0063, 0068). Stop returns
+// once the runner is no longer running, or an error when it still may be.
+type runnerControl interface {
+	Stop(ctx context.Context, id string) error
+	Resume(ctx context.Context, id string) error
 }

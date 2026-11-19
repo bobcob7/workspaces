@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/loop"
 )
 
@@ -37,6 +38,7 @@ func (a *App) newLoopCmd() *cobra.Command {
 
 type loopAddOptions struct {
 	title, every, prompt, model, permissionMode string
+	runner, endpoint                            string
 	script, scriptTimeout                       string
 	vars                                        []string
 	keep                                        int
@@ -57,7 +59,9 @@ func (a *App) newLoopAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.every, "every", "", "how often a run starts: whole minutes from 5m to 168h, such as 15m or 24h (required)")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "the prompt each run starts with (required)")
 	cmd.Flags().IntVar(&opts.keep, "keep", loop.DefaultKeep, "how many runs' workspaces to keep, 1 to 50")
-	cmd.Flags().StringVar(&opts.model, "model", "", "passed to claude --model")
+	cmd.Flags().StringVar(&opts.runner, "runner", loop.RunnerClaude, "what runs each run: claude (Claude Code) or ws (ws's own runner)")
+	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "with --runner ws, another endpoint from config.toml")
+	cmd.Flags().StringVar(&opts.model, "model", "", "passed to claude --model; for --runner ws, a model alias or id from config.toml")
 	cmd.Flags().StringVar(&opts.permissionMode, "permission-mode", "", "passed to claude --permission-mode")
 	cmd.Flags().BoolVar(&opts.paused, "paused", false, "add the loop paused")
 	cmd.Flags().StringVar(&opts.script, "script", "", "a shell script, run with /bin/sh -c, that must exit 0 for a run to start; its output is {{.Stdout}} and {{.Stderr}} in the prompt")
@@ -138,6 +142,8 @@ type loopJSON struct {
 	Keep           int               `json:"keep"`
 	Paused         bool              `json:"paused"`
 	Hidden         bool              `json:"hidden"`
+	Runner         string            `json:"runner"`
+	Endpoint       *string           `json:"endpoint"`
 	CreatedAt      string            `json:"created_at"`
 	NextRunAt      *string           `json:"next_run_at"`
 	LastRun        *loopRunJSON      `json:"last_run"`
@@ -191,6 +197,8 @@ func loopJSONOf(l *loop.Loop) loopJSON {
 		Keep:           l.Keep,
 		Paused:         l.Paused,
 		Hidden:         l.RunsHidden(),
+		Runner:         l.RunsOn(),
+		Endpoint:       optional(l.Endpoint),
 		CreatedAt:      formatTime(l.CreatedAt),
 		LastRun:        loopRunJSONOf(l.LastRun()),
 		Script:         optional(l.Script),
@@ -300,7 +308,6 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 	}
 	now := a.now().UTC()
 	l := loop.Loop{
-		Version:        loop.FormatVersion,
 		Name:           args[0],
 		Title:          strings.TrimSpace(opts.title),
 		Every:          loop.FormatEvery(interval),
@@ -308,6 +315,8 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 		Specs:          args[1:],
 		Model:          opts.model,
 		PermissionMode: opts.permissionMode,
+		Runner:         opts.runner,
+		Endpoint:       opts.endpoint,
 		Keep:           opts.keep,
 		Paused:         opts.paused,
 		CreatedAt:      now,
@@ -317,10 +326,37 @@ func (a *App) runLoopAdd(cmd *cobra.Command, args []string, opts *loopAddOptions
 		Vars:           vars,
 		Hidden:         &hidden,
 	}
+	if err := a.validateLoop(&l); err != nil {
+		return err
+	}
+	return a.createLoop(cmd.Context(), &l)
+}
+
+// validateLoop checks l against its own rules, then against config.toml
+// (ADR 0070).
+func (a *App) validateLoop(l *loop.Loop) error {
 	if err := l.Validate(); err != nil {
 		return domainError(err)
 	}
-	return a.createLoop(cmd.Context(), &l)
+	return a.checkLoopRunner(l)
+}
+
+// checkLoopRunner is loop_invalid when a ws loop names an endpoint or a
+// model alias that config.toml doesn't define. A model that isn't shaped like
+// an alias is a raw id, and passes; the run resolves it (ADR 0070).
+func (a *App) checkLoopRunner(l *loop.Loop) error {
+	if l.Endpoint != "" {
+		if _, ok := a.config.Endpoints[l.Endpoint]; !ok {
+			return domainError(fmt.Errorf("%w: endpoint %q isn't in config.toml", loop.ErrInvalid, l.Endpoint))
+		}
+	}
+	if l.RunsOn() != loop.RunnerWS || !config.IsRunnerName(l.Model) {
+		return nil
+	}
+	if _, ok := a.config.Models[l.Model]; !ok {
+		return domainError(fmt.Errorf("%w: model %q isn't an alias in config.toml's [models] or a model id", loop.ErrInvalid, l.Model))
+	}
+	return nil
 }
 
 // scriptOptions checks --script, --script-timeout, and --var. A blank script

@@ -18,7 +18,8 @@ func TestClient_Status(t *testing.T) {
 	})
 	t.Run("a running daemon answers its runners", func(t *testing.T) {
 		p := testPaths(t)
-		sup := &SupervisorMock{
+		sup := &RunnerSupervisorMock{
+			ReconcileFunc: noopReconcile, WatchFunc: noopWatch, WarningsFunc: noWarnings,
 			IdleFunc: func() bool { return true },
 			RunnersFunc: func() []RunnerStatus {
 				return []RunnerStatus{{Workspace: "w", Session: "rn-1", PID: 5, State: "working"}}
@@ -36,7 +37,8 @@ func TestClient_StartRunner(t *testing.T) {
 	t.Parallel()
 	t.Run("returns the pid the supervisor started", func(t *testing.T) {
 		p := testPaths(t)
-		sup := &SupervisorMock{
+		sup := &RunnerSupervisorMock{
+			ReconcileFunc: noopReconcile, WatchFunc: noopWatch, WarningsFunc: noWarnings,
 			IdleFunc:    func() bool { return true },
 			RunnersFunc: func() []RunnerStatus { return nil },
 			StartFunc:   func(context.Context, string, bool) (int, error) { return 99, nil },
@@ -62,24 +64,41 @@ func TestClient_StopRunner(t *testing.T) {
 	t.Parallel()
 	t.Run("stops the runner through the supervisor", func(t *testing.T) {
 		p := testPaths(t)
-		sup := &SupervisorMock{
+		sup := &RunnerSupervisorMock{
+			ReconcileFunc: noopReconcile, WatchFunc: noopWatch, WarningsFunc: noWarnings,
 			IdleFunc:    func() bool { return true },
 			RunnersFunc: func() []RunnerStatus { return nil },
-			StopFunc:    func(context.Context, string) error { return nil },
+			StopFunc:    func(context.Context, string) (bool, error) { return true, nil },
 		}
 		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: sup, opts: fastOptions()})
-		require.NoError(t, Dial(p).StopRunner(t.Context(), "ws-1"))
+		stopped, err := Dial(p).StopRunner(t.Context(), "ws-1")
+		require.NoError(t, err)
+		assert.True(t, stopped)
 		require.Len(t, sup.StopCalls(), 1)
+	})
+	t.Run("a runner that had exited reports false", func(t *testing.T) {
+		p := testPaths(t)
+		sup := &RunnerSupervisorMock{
+			ReconcileFunc: noopReconcile, WatchFunc: noopWatch, WarningsFunc: noWarnings,
+			IdleFunc:    func() bool { return true },
+			RunnersFunc: func() []RunnerStatus { return nil },
+			StopFunc:    func(context.Context, string) (bool, error) { return false, nil },
+		}
+		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: sup, opts: fastOptions()})
+		stopped, err := Dial(p).StopRunner(t.Context(), "ws-1")
+		require.NoError(t, err)
+		assert.False(t, stopped)
 	})
 	t.Run("a supervisor error is an internal remote error", func(t *testing.T) {
 		p := testPaths(t)
-		sup := &SupervisorMock{
+		sup := &RunnerSupervisorMock{
+			ReconcileFunc: noopReconcile, WatchFunc: noopWatch, WarningsFunc: noWarnings,
 			IdleFunc:    func() bool { return true },
 			RunnersFunc: func() []RunnerStatus { return nil },
-			StopFunc:    func(context.Context, string) error { return errors.New("boom") },
+			StopFunc:    func(context.Context, string) (bool, error) { return false, errors.New("boom") },
 		}
 		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: sup, opts: fastOptions()})
-		err := Dial(p).StopRunner(t.Context(), "ws-1")
+		_, err := Dial(p).StopRunner(t.Context(), "ws-1")
 		assertRemoteCode(t, err, "internal")
 		assert.Contains(t, err.Error(), "boom")
 	})

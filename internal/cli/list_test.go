@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
@@ -67,10 +68,10 @@ func TestApp_newListCmd(t *testing.T) {
 func TestApp_runList(t *testing.T) {
 	named := listedWorkspace("fix-login")
 	named.Name = "Fix login"
-	agent := lifetime.Entry{Workspace: named, Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateStopped, Stale: new(false), Runner: lifetime.RunnerClaude, Model: "claude-sonnet-5-5"}}
+	agentEntry := lifetime.Entry{Workspace: named, Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "e8cdf5d8", State: lifetime.StateStopped, Stale: new(false), Runner: lifetime.RunnerClaude, Model: "claude-sonnet-5-5"}}
 	shell := lifetime.Entry{Workspace: listedWorkspace("api-bump"), Session: &lifetime.Session{Kind: lifetime.KindShell, State: lifetime.StateRunning}}
 	t.Run("a table, unknown directories last", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{agent, shell}, []string{"/cfg/workspaces/stray"})
+		e := newListApp([]lifetime.Entry{agentEntry, shell}, []string{"/cfg/workspaces/stray"})
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		assert.Equal(t, ""+
 			"ID          NAME        CREATED   SESSION                   REPOS\n"+
@@ -79,12 +80,12 @@ func TestApp_runList(t *testing.T) {
 			"unknown     -           -         -                         /cfg/workspaces/stray\n", e.stdout.String())
 	})
 	t.Run("-q prints only ids", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{agent, shell}, []string{"/cfg/workspaces/stray"})
+		e := newListApp([]lifetime.Entry{agentEntry, shell}, []string{"/cfg/workspaces/stray"})
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true}))
 		assert.Equal(t, "fix-login\napi-bump\n", e.stdout.String())
 	})
 	t.Run("--json", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{agent, shell}, []string{"/cfg/workspaces/stray"})
+		e := newListApp([]lifetime.Entry{agentEntry, shell}, []string{"/cfg/workspaces/stray"})
 		e.app.global.json = true
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		assert.JSONEq(t, `{"workspaces":[
@@ -105,7 +106,7 @@ func TestApp_runList(t *testing.T) {
 	})
 	t.Run("--repo keeps matching workspaces and drops unknown directories", func(t *testing.T) {
 		other := lifetime.Entry{Workspace: workspace.Workspace{ID: "other", Repos: []workspace.Repo{{ID: "github.com/bobcob7/api", Path: "api", Ref: "v2"}}}}
-		e := newListApp([]lifetime.Entry{agent, other}, []string{"/cfg/workspaces/stray"})
+		e := newListApp([]lifetime.Entry{agentEntry, other}, []string{"/cfg/workspaces/stray"})
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true, repo: "api"}))
 		assert.Equal(t, "other\n", e.stdout.String())
 	})
@@ -113,7 +114,7 @@ func TestApp_runList(t *testing.T) {
 	hiddenWS.Hidden = true
 	hidden := lifetime.Entry{Workspace: hiddenWS, Session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "7be1d0c2", State: lifetime.StateIdle, Stale: new(false)}}
 	t.Run("leaves hidden workspaces out and says so on stderr", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{agent, hidden}, nil)
+		e := newListApp([]lifetime.Entry{agentEntry, hidden}, nil)
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		assert.Equal(t, ""+
 			"ID          NAME        CREATED   SESSION                   REPOS\n"+
@@ -127,7 +128,7 @@ func TestApp_runList(t *testing.T) {
 		assert.Empty(t, e.stderr.String())
 	})
 	t.Run("-a includes hidden workspaces, marked", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{agent, hidden}, nil)
+		e := newListApp([]lifetime.Entry{agentEntry, hidden}, nil)
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{all: true}))
 		assert.Equal(t, ""+
 			"ID          NAME         CREATED   SESSION                   REPOS\n"+
@@ -136,7 +137,7 @@ func TestApp_runList(t *testing.T) {
 		assert.Empty(t, e.stderr.String())
 	})
 	t.Run("-q leaves hidden ids out without -a", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{agent, hidden}, nil)
+		e := newListApp([]lifetime.Entry{agentEntry, hidden}, nil)
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true}))
 		assert.Equal(t, "fix-login\n", e.stdout.String())
 		assert.Empty(t, e.stderr.String())
@@ -174,7 +175,7 @@ func TestApp_runList(t *testing.T) {
 		return lifetime.Entry{Workspace: ws, Session: &lifetime.Session{Kind: lifetime.KindShell, State: lifetime.StateRunning}}
 	}
 	t.Run("lists each workspace under the one that started it", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{agent, shell, child("a", "fix-login"), child("a1", "a"), child("orphan", "gone")}, nil)
+		e := newListApp([]lifetime.Entry{agentEntry, shell, child("a", "fix-login"), child("a1", "a"), child("orphan", "gone")}, nil)
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		assert.Equal(t, ""+
 			"ID          NAME        CREATED   SESSION                   REPOS\n"+
@@ -185,7 +186,7 @@ func TestApp_runList(t *testing.T) {
 			"orphan      -           2h ago    shell                     buff-bear@main\n", e.stdout.String())
 	})
 	t.Run("--json gives each workspace its parent, oldest first", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{child("a", "fix-login"), agent}, nil)
+		e := newListApp([]lifetime.Entry{child("a", "fix-login"), agentEntry}, nil)
 		e.app.global.json = true
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		var got listJSON
@@ -195,7 +196,7 @@ func TestApp_runList(t *testing.T) {
 		assert.Nil(t, got.Workspaces[1].Parent)
 	})
 	t.Run("--parent lists only its direct children", func(t *testing.T) {
-		e := newListApp([]lifetime.Entry{agent, child("a", "fix-login"), child("a1", "a"), shell}, []string{"/cfg/workspaces/stray"})
+		e := newListApp([]lifetime.Entry{agentEntry, child("a", "fix-login"), child("a1", "a"), shell}, []string{"/cfg/workspaces/stray"})
 		e.store.FindFunc = func(arg string) (workspace.Workspace, error) { return workspace.Workspace{ID: arg}, nil }
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true, parent: "fix-login"}))
 		assert.Equal(t, "a\n", e.stdout.String())
@@ -488,6 +489,18 @@ func TestListSession(t *testing.T) {
 		data, err := json.Marshal(got)
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"kind":"agent","id":"e8cdf5d8","state":"starting","pid":null,"stale":null,"runner":"claude","model":null,"ws_runner":null}`, string(data))
+	})
+	t.Run("a ws runner's details", func(t *testing.T) {
+		exit := "done"
+		got := listSession(&lifetime.Session{
+			Kind: lifetime.KindAgent, ID: "rn-3f2a9c1e", State: lifetime.StateIdle, Runner: lifetime.RunnerWS, Model: "qwen3.5:9b",
+			WSRunner: &lifetime.RunnerInfo{Alias: "qwen9b", Endpoint: "fake-b", Step: 12, MaxSteps: 80, Usage: agent.Usage{Requests: 12, PromptTokens: 210344, CompletionTokens: 9120}, Exit: &exit, EndpointChanges: 1},
+		})
+		data, err := json.Marshal(got)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"kind":"agent","id":"rn-3f2a9c1e","state":"idle","pid":null,"stale":null,"runner":"ws","model":"qwen3.5:9b",
+			"ws_runner":{"model_alias":"qwen9b","endpoint":"fake-b","step":12,"max_steps":80,"restarts":0,
+			"usage":{"requests":12,"prompt_tokens":210344,"completion_tokens":9120},"mcp":[],"exit":"done","endpoint_changes":1}}`, string(data))
 	})
 	t.Run("a shell", func(t *testing.T) {
 		got := listSession(&lifetime.Session{Kind: lifetime.KindShell, State: lifetime.StateRunning})

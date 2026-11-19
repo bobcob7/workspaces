@@ -1,6 +1,7 @@
 package lifetime
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -42,8 +44,65 @@ func (r *reader) judge(ctx context.Context, id string, rec *record) (*Session, v
 		return nil, keep
 	case rec.sess.Kind == workspace.SessionShell:
 		return r.shell(id)
+	case rec.sess.Kind == workspace.SessionRunner:
+		return r.runner(id, rec.sess.RunnerSessionID, rec.sess.StartedAt)
 	}
 	return r.agent(ctx, rec.sess.ClaudeSessionID)
+}
+
+// runner judges a ws runner session (ADR 0063): gone only when its runner
+// directory doesn't exist, and kept, unknown, without a runner reader.
+func (r *reader) runner(id, runnerID string, recordedAt time.Time) (*Session, verdict) {
+	unknown := &Session{Kind: KindAgent, ID: runnerID, State: StateUnknown, Runner: RunnerWS}
+	runners := r.m.runners
+	if runners == nil {
+		return unknown, keep
+	}
+	if !runners.Exists(id) {
+		return unknown, gone
+	}
+	state, pid, st, run := runners.State(id, recordedAt)
+	model, endpoint := currentRunner(st, run)
+	return &Session{
+		Kind:     KindAgent,
+		ID:       runnerID,
+		State:    State(state),
+		PID:      pid,
+		Runner:   RunnerWS,
+		Model:    model,
+		WSRunner: runnerInfo(st, run, endpoint),
+	}, keep
+}
+
+// currentRunner is the model and endpoint a run uses now: status.json's when
+// set, else run.toml's last endpoint history entry (ADR 0064).
+func currentRunner(st *runner.Status, run *runner.Run) (model, endpoint string) {
+	if st != nil {
+		model, endpoint = st.Model, st.Endpoint
+	}
+	if run == nil || (model != "" && endpoint != "") {
+		return model, endpoint
+	}
+	current := run.Current()
+	return cmp.Or(model, current.Model), cmp.Or(endpoint, current.Endpoint)
+}
+
+// runnerInfo is a runner's details from its status and run, nil without
+// either.
+func runnerInfo(st *runner.Status, run *runner.Run, endpoint string) *RunnerInfo {
+	if st == nil && run == nil {
+		return nil
+	}
+	info := &RunnerInfo{Endpoint: endpoint}
+	if run != nil {
+		info.Alias = run.ModelAlias
+	}
+	if st != nil {
+		info.Step, info.MaxSteps, info.Restarts = st.Step, st.MaxSteps, st.Restarts
+		info.Usage, info.MCP, info.Exit = st.Usage, st.MCP, st.Exit
+		info.EndpointChanges = st.EndpointChanges
+	}
+	return info
 }
 
 // unrecorded judges a workspace with no session record: abandoned once

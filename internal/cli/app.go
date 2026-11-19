@@ -25,6 +25,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/power"
 	"github.com/bobcob7/workspaces/internal/proc"
 	"github.com/bobcob7/workspaces/internal/review/store"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/shell"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -76,6 +77,15 @@ type App struct {
 	machinePoll time.Duration
 	// continuePoll is how often ws continue --watch runs a pass.
 	continuePoll time.Duration
+	// dialDaemon is the client to this config directory's daemon, started
+	// when none runs (ADR 0068): daemonClient, unless a test replaces it.
+	dialDaemon func(ctx context.Context) (runnerDaemon, error)
+	// runnerWait is how long a started runner has to write its status
+	// (reference.md's 10 s).
+	runnerWait time.Duration
+	// runnerStopWait is how long a runner has to exit after SIGTERM, before
+	// ws kills it (ADR 0063).
+	runnerStopWait time.Duration
 	// awake tells whether the Mac is fully awake, for ws loop tick (ADR 0047).
 	awake awakeReader
 	// loopPoll is how often ws loop tick --watch runs a pass.
@@ -114,37 +124,42 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	level.Set(logOff)
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
 	a := &App{
-		shell:        shell.New(log, environ, stdin, stdout, stderr),
-		claude:       claude.New(log, "claude", environ),
-		gh:           gh.New(log, "gh", environ),
-		version:      version,
-		stdin:        stdin,
-		stdout:       stdout,
-		stderr:       stderr,
-		configs:      configs,
-		log:          log,
-		level:        level,
-		now:          time.Now,
-		indentJSON:   isTerminal(stdout),
-		progress:     isTerminal(stderr),
-		interactive:  isTerminal(stdin) && isTerminal(stdout),
-		environ:      environ,
-		gate:         gate.New(environ),
-		homeDir:      os.UserHomeDir,
-		getwd:        os.Getwd,
-		reviewPoll:   defaultReviewPoll,
-		machinePoll:  defaultMachinePoll,
-		continuePoll: defaultContinuePoll,
-		awake:        power.Reader{},
-		loopPoll:     defaultLoopPoll,
-		notify:       signal.Notify,
-		stopNotify:   signal.Stop,
+		shell:          shell.New(log, environ, stdin, stdout, stderr),
+		claude:         claude.New(log, "claude", environ),
+		gh:             gh.New(log, "gh", environ),
+		version:        version,
+		stdin:          stdin,
+		stdout:         stdout,
+		stderr:         stderr,
+		configs:        configs,
+		log:            log,
+		level:          level,
+		now:            time.Now,
+		indentJSON:     isTerminal(stdout),
+		progress:       isTerminal(stderr),
+		interactive:    isTerminal(stdin) && isTerminal(stdout),
+		environ:        environ,
+		gate:           gate.New(environ),
+		homeDir:        os.UserHomeDir,
+		getwd:          os.Getwd,
+		reviewPoll:     defaultReviewPoll,
+		machinePoll:    defaultMachinePoll,
+		continuePoll:   defaultContinuePoll,
+		awake:          power.Reader{},
+		runnerWait:     defaultRunnerWait,
+		runnerStopWait: defaultRunnerStopWait,
+		loopPoll:       defaultLoopPoll,
+		notify:         signal.Notify,
+		stopNotify:     signal.Stop,
 	}
+	a.dialDaemon = a.dialDaemonClient
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
-		runner := git.NewRunner(log, "git", environ)
-		c := cache.New(log, runner, paths.Cache, cfg.SpecDefaults())
-		ws := workspace.New(log, runner, c, a.claude, paths.Workspaces, paths.State)
+		gitRunner := git.NewRunner(log, "git", environ)
+		c := cache.New(log, gitRunner, paths.Cache, cfg.SpecDefaults())
+		ws := workspace.New(log, gitRunner, c, a.claude, paths.Workspaces, paths.State)
 		lm := lifetime.New(log, ws, a.claude, proc.Reader{}, power.Reader{}, paths.State)
+		lm.UseRunners(runner.NewReader(paths.State, proc.Reader{}))
+		lm.UseRunnerControl(daemonRunnerControl{app: a})
 		if cfg.Review.RemovesFinished() {
 			lm.RemoveFinishedReviews(reviewJudge{state: paths.State, store: store.New(paths.Reviews)})
 		}
@@ -249,7 +264,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		cmd.GroupID = peopleGroup
 		root.AddCommand(cmd)
 	}
-	root.AddCommand(a.newMachineCmd(), a.newReviewCmd(), a.newLLMCmd())
+	root.AddCommand(a.newMachineCmd(), a.newReviewCmd(), a.newLLMCmd(), a.newRunnerCmd())
 	return root
 }
 

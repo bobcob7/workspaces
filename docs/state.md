@@ -15,16 +15,19 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `workspaces/CLAUDE.md` | tells agents to run `ws llm` ([0014](adrs/0014-command-set.md)) | when `workspaces/` is first created, if missing, through a temp file linked into place; never overwritten |
 | `state/<id>/workspace.toml` | the workspace record ([0012](adrs/0012-workspace-layout.md)) | by creation; its `name` rewritten by `ws rename` ([0036](adrs/0036-workspace-id-suffix-and-rename.md)), its `hidden` by `ws hide` and `ws unhide` ([0043](adrs/0043-hidden-workspaces.md)); its `parent` cleared by `ws rm --keep-children` on its parent ([0044](adrs/0044-workspace-trees.md)) |
 | `state/<id>/session` | the session record ([0023](adrs/0023-shell-session-keeps-creation-lock.md)) | once, when the session is known |
+| `state/<id>/runner/` | a runner session's files: `run.toml`, `status.json`, `transcript.jsonl`, `runner.log`, `stop`, and for a run without a parent `report.md` and `usage.json` ([0063](adrs/0063-runner-children-are-supervised-sessions.md), [0065](adrs/0065-runner-agent-loop-tools-and-budgets.md)) | `run.toml` by the spawn; `status.json` and `transcript.jsonl` by `ws runner run`; `run.toml`'s endpoint history appended by the runner only; `stop` when a run is asked to stop; `report.md` and `usage.json` at a run's end; kept until `ws rm` |
 | `state/<id>/lock` | the workspace lock | by creation |
+| `daemon/` under `CONFIG_DIR`: `lock`, `daemon.json` and `daemon.log`, the [ws daemon](tools/ws-daemon.md)'s files ([0068](adrs/0068-ws-daemon.md)) | `lock` while a daemon runs; `daemon.json` rewritten at its start; `daemon.log` by the daemon, and by an auto-started daemon's stderr; kept |
+| `secrets.env` under `CONFIG_DIR`: runner endpoint tokens, one `NAME=value` per line, mode 0600 ([0066](adrs/0066-runner-security-boundaries.md)) | by its owner, by hand; read by the daemon and by each runner, and never printed |
 | `state/<id>/review.toml` | a review workspace's record: repo, commit, profiles, requester, and pull request ([0039](adrs/0039-ws-review-command.md)) | by `ws review start`, before the workspace is moved into place; read by `ws review`, and shown as `review` by `ws list --json` |
 | `reviews/<host>/<owner>/<name>/<sha>/` | submitted reviews and the decisions on their findings; see [Reviews](#reviews) | by `ws review submit`, `decide`, and `acted`; outlives the workspace; removed by `ws cache prune` once the repo isn't cached |
-| `state/<root>/machine/<child>/` | records of `ws machine` children, kept under the **root** of their tree, so a child's outlive its own workspace and go with the root: `spawn.toml` (role, model, verdict lists, vars, ancestors), `result.toml` (verdict, ancestors, time) and `report.md` ([0050](adrs/0050-machine-wait-results-and-roles.md)) | `spawn.toml` by `ws machine spawn --role` once the child started; `result.toml` and `report.md` by the child's `ws machine result`, replaced when it runs again; read by `ws machine wait` and `children`; deleted with `state/<root>/` |
+| `state/<root>/machine/<child>/` | records of `ws machine` children, kept under the **root** of their tree, so a child's outlive its own workspace and go with the root: `spawn.toml` (role, model, verdict lists, vars, ancestors), `result.toml` (verdict, ancestors, time), `report.md` ([0050](adrs/0050-machine-wait-results-and-roles.md)) and, for a runner child, `usage.json` ([0065](adrs/0065-runner-agent-loop-tools-and-budgets.md)) | `spawn.toml` by `ws machine spawn --role` once the child started; `result.toml` and `report.md` by the child's `ws machine result` or its runner, replaced when it runs again; `usage.json` by a runner at its exit; read by `ws machine wait` and `children`; deleted with `state/<root>/` |
 | `state/<id>/trust` | the Claude Code trust `ws claude` added for a one-repo workspace's repo ([0028](adrs/0028-single-repo-session-directory.md)) | once, before the trust is written; read by every removal, which takes the trust back |
 | `state/<id>/building/` | the workspace while it's being built ([0022](adrs/0022-workspace-record-before-rename.md)) | by creation, then moved |
 | `state/.removal-pass` | its modification time is when the removal pass last started ([0026](adrs/0026-removal-pass-timing.md)) | by the removal pass |
 | `state/.respawn.lock` | the respawn lock ([0027](adrs/0027-respawn-lock-and-record-versions.md)) | by `ws restore` and `ws restart` |
 | `state/.continue.lock` | held by a `ws continue` pass while it sends messages ([0047](adrs/0047-ws-continue-after-usage-limit.md)) | by `ws continue` |
-| `loops/<name>.toml` | an agent loop: its prompt, period, schedule, whether its runs are hidden (`hidden`, record version 3; [0057](adrs/0057-loop-visibility-and-blocked-runs.md)), and runs ([0048](adrs/0048-agent-loop-scheduler.md)); in `CONFIG_DIR`, not `state/` | by `ws loop add`, `pause`, `resume`, `run`, and `tick`; removed by `ws loop rm` |
+| `loops/<name>.toml` | an agent loop: its prompt, period, schedule, whether its runs are hidden (`hidden`, record version 3; [0057](adrs/0057-loop-visibility-and-blocked-runs.md)), its runner and endpoint (`runner = "ws"` and `endpoint`, record version 4, written only when set, so a Claude loop stays version 3; [0070](adrs/0070-runner-agents-for-people-and-loops.md)), and runs ([0048](adrs/0048-agent-loop-scheduler.md)); in `CONFIG_DIR`, not `state/` | by `ws loop add`, `pause`, `resume`, `run`, and `tick`; removed by `ws loop rm` |
 | `loops/.lock` | held by every `ws loop` command that writes a loop, by `ws loop history --clear`, and for the whole of `ws loop tick` and `ws loop run` ([0048](adrs/0048-agent-loop-scheduler.md)); `ws loop memory` doesn't take it ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop` |
 | `state/.loops/<name>/history.json` | a loop's runs, oldest first, up to 200 ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop tick` and `ws loop run`, under `loops/.lock`; emptied by `ws loop history --clear`; deleted by `ws loop rm`, and by `ws loop add` when a leftover one is there |
 | `state/.loops/<name>/reports/<seq>.md` | the report of run `<seq>`, copied from the run's `machine/` record when the run settles; kept for the newest 50 runs with a verdict ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop tick`; emptied by `ws loop history --clear`; deleted by `ws loop rm` |
@@ -46,11 +49,14 @@ through a temporary file renamed into place, so a reader sees all of a
 record or none of it.
 
 The session record holds these fields:
-- `kind`: `"shell"` or `"claude"`;
-- `claude_session_id`: empty for a shell;
+- `kind`: `"shell"`, `"claude"` or `"runner"`;
+- `claude_session_id`: empty for a shell and a runner;
+- `runner_session_id`: a runner's `rn-` id, empty otherwise;
 - `started_at`: RFC 3339, UTC.
 
-A session record with no `version` is version 1.
+A session record with no `version` is version 1. A shell or claude record
+is version 1; a runner record is version 2, so a `ws` from before runners
+leaves it alone. A version above 2 is refused.
 
 `workspace.toml` is version 1; version 2 when it has `hidden = true`,
 so a `ws` from before hidden workspaces leaves a hidden one alone

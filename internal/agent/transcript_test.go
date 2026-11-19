@@ -1,6 +1,7 @@
 package agent
 
 import (
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,4 +116,16 @@ func TestTail(t *testing.T) {
 		assert.Equal(t, 1, events[0].Step)
 		assert.Equal(t, nudgeRepeat, payloadOf[*NudgeEvent](t, events[1]).Reason)
 	})
+}
+
+func TestEvent_MarshalJSON(t *testing.T) {
+	t.Parallel()
+	ev := Event{Step: 2, Kind: kindNudge, Payload: NudgeEvent{Reason: nudgeRepeat}}
+	raw, err := json.Marshal(ev)
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(raw, &got))
+	assert.Equal(t, kindNudge, got["kind"])
+	assert.InDelta(t, 2, got["step"], 0)
+	assert.Equal(t, nudgeRepeat, got["reason"])
 }

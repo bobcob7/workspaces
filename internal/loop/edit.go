@@ -22,13 +22,16 @@ type Edit struct {
 	ScriptTimeout  *string
 	Vars           *map[string]string // replaces the vars; an empty map clears them
 	Hidden         *bool              // whether runs start hidden (ADR 0057)
+	Runner         *string            // RunnerClaude or RunnerWS; "" is RunnerClaude
+	Endpoint       *string            // "" clears it
 }
 
 // Empty reports whether e changes nothing.
 func (e *Edit) Empty() bool {
 	return e.Title == nil && e.Every == nil && e.Prompt == nil && e.Specs == nil && e.Keep == nil &&
 		e.Model == nil && e.PermissionMode == nil && e.Script == nil &&
-		e.ScriptTimeout == nil && e.Vars == nil && e.Hidden == nil
+		e.ScriptTimeout == nil && e.Vars == nil && e.Hidden == nil &&
+		e.Runner == nil && e.Endpoint == nil
 }
 
 // Apply changes l by e at now, and validates the result with Validate.
@@ -64,7 +67,12 @@ func (e *Edit) applyTo(c, old *Loop, now time.Time) error {
 		}
 	}
 	if c.Version == Version1 && (e.Prompt != nil || e.Script != nil || e.Vars != nil) {
-		c.Version = FormatVersion
+		c.Version = Version3
+	}
+	if e.Runner != nil || e.Endpoint != nil {
+		if err := applyRunner(c, e.Runner, e.Endpoint); err != nil {
+			return err
+		}
 	}
 	if e.Hidden != nil {
 		return applyHidden(c, *e.Hidden)
@@ -72,15 +80,41 @@ func (e *Edit) applyTo(c, old *Loop, now time.Time) error {
 	return nil
 }
 
-// applyHidden sets whether runs start hidden, and makes c version 3. A
-// version 1 record with a templated prompt can't take the key unless the
+// applyRunner sets the runner and endpoint of c (ADR 0070). The claude
+// runner clears the endpoint. A ws runner or an endpoint makes c version 4,
+// under applyHidden's version 1 rule; a record with neither keeps its version.
+func applyRunner(c *Loop, runner, endpoint *string) error {
+	if runner != nil {
+		c.Runner = *runner
+		if c.Runner == RunnerClaude {
+			c.Runner = ""
+		}
+		if c.RunsOn() == RunnerClaude {
+			c.Endpoint = ""
+		}
+	}
+	if endpoint != nil {
+		c.Endpoint = *endpoint
+	}
+	if c.Runner != RunnerWS && c.Endpoint == "" {
+		return nil
+	}
+	if c.Version == Version1 && strings.Contains(c.Prompt, "{{") {
+		return fmt.Errorf("%w: loop %s has a literal version 1 prompt containing {{; give --prompt too to change its runner or endpoint", ErrInvalid, c.Name)
+	}
+	c.Version = FormatVersion
+	return nil
+}
+
+// applyHidden sets whether runs start hidden, and makes c at least version 3.
+// A version 1 record with a templated prompt can't take the key unless the
 // same edit gives --prompt, because its prompt would be read as literal.
 func applyHidden(c *Loop, hidden bool) error {
 	if c.Version == Version1 && strings.Contains(c.Prompt, "{{") {
 		return fmt.Errorf("%w: loop %s has a literal version 1 prompt containing {{; give --prompt too to change whether its runs are hidden", ErrInvalid, c.Name)
 	}
 	c.Hidden = &hidden
-	c.Version = FormatVersion
+	c.Version = max(c.Version, Version3)
 	return nil
 }
 

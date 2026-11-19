@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bobcob7/workspaces/internal/agent"
+	"github.com/bobcob7/workspaces/internal/mcp"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -26,6 +28,11 @@ type Manager struct {
 	claude claudeClient
 	procs  processReader
 	power  powerReader
+	// runners reads runner sessions; nil keeps them, unknown (ADR 0063).
+	runners runnerReader
+	// control stops and resumes runner sessions; ws rm and ws restore need it
+	// for them (ADR 0063).
+	control runnerControl
 	// stamp is the file whose modification time is when the removal pass
 	// last ran.
 	stamp string
@@ -42,6 +49,18 @@ type Manager struct {
 	// reviews judges finished reviews, which the removal pass removes;
 	// nil keeps them (ADR 0045).
 	reviews reviewJudge
+}
+
+// UseRunners makes the removal pass and ws list read runner sessions with
+// runners (ADR 0063).
+func (m *Manager) UseRunners(runners runnerReader) {
+	m.runners = runners
+}
+
+// UseRunnerControl makes ws rm stop a runner session, and ws restore resume
+// a stopped one, through control (ADR 0063).
+func (m *Manager) UseRunnerControl(control runnerControl) {
+	m.control = control
 }
 
 // RemoveFinishedReviews makes the removal pass remove reviews that
@@ -119,8 +138,13 @@ const (
 	StateRunning State = "running"
 )
 
-// RunnerClaude is the runner of a Claude Code agent (ADR 0063).
-const RunnerClaude = "claude"
+// Runners of agents (ADR 0063).
+const (
+	// RunnerClaude is the runner of a Claude Code agent.
+	RunnerClaude = "claude"
+	// RunnerWS is ws's own runner.
+	RunnerWS = "ws"
+)
 
 // Session is a workspace's session as ws reads it.
 type Session struct {
@@ -139,6 +163,24 @@ type Session struct {
 	// Model is the model that answered the agent most recently; "" until
 	// it has answered, and for a shell.
 	Model string
+	// WSRunner is a ws runner's details; nil for a Claude agent or a shell.
+	WSRunner *RunnerInfo
+}
+
+// RunnerInfo is what ws reads of a ws runner beyond its session (ADR 0063):
+// the endpoint and model it uses now, and its progress.
+type RunnerInfo struct {
+	// Alias is the model alias the run was spawned with; "" for a raw id.
+	Alias string
+	// Endpoint is the endpoint the run uses now.
+	Endpoint        string
+	Step            int
+	MaxSteps        int
+	Restarts        int
+	Usage           agent.Usage
+	MCP             []mcp.Status
+	Exit            *string
+	EndpointChanges int
 }
 
 // Entry is a workspace and its session. Session is nil while the session
@@ -158,7 +200,8 @@ type Listing struct {
 // Removed is a workspace that was removed, or would be with a dry run.
 type Removed struct {
 	Workspace workspace.Workspace
-	// SessionID is its agent's Claude Code session id; empty otherwise.
+	// SessionID is its agent's session id: Claude Code's, or a ws runner's rn- id;
+	// empty otherwise.
 	SessionID string
 }
 

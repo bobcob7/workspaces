@@ -8,6 +8,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
@@ -881,6 +882,9 @@ var _ workspaceStore = &workspaceStoreMock{}
 //			ListFunc: func() ([]workspace.Workspace, error) {
 //				panic("mock out the List method")
 //			},
+//			RecordRunnerSessionFunc: func(id string, runnerSessionID string) error {
+//				panic("mock out the RecordRunnerSession method")
+//			},
 //			RecordSessionFunc: func(id string, kind workspace.SessionKind, claudeSessionID string) error {
 //				panic("mock out the RecordSession method")
 //			},
@@ -920,6 +924,9 @@ type workspaceStoreMock struct {
 
 	// ListFunc mocks the List method.
 	ListFunc func() ([]workspace.Workspace, error)
+
+	// RecordRunnerSessionFunc mocks the RecordRunnerSession method.
+	RecordRunnerSessionFunc func(id string, runnerSessionID string) error
 
 	// RecordSessionFunc mocks the RecordSession method.
 	RecordSessionFunc func(id string, kind workspace.SessionKind, claudeSessionID string) error
@@ -963,6 +970,13 @@ type workspaceStoreMock struct {
 		}
 		// List holds details about calls to the List method.
 		List []struct {
+		}
+		// RecordRunnerSession holds details about calls to the RecordRunnerSession method.
+		RecordRunnerSession []struct {
+			// ID is the id argument value.
+			ID string
+			// RunnerSessionID is the runnerSessionID argument value.
+			RunnerSessionID string
 		}
 		// RecordSession holds details about calls to the RecordSession method.
 		RecordSession []struct {
@@ -1014,17 +1028,18 @@ type workspaceStoreMock struct {
 		Warnings []struct {
 		}
 	}
-	lockContaining    sync.RWMutex
-	lockCreate        sync.RWMutex
-	lockFind          sync.RWMutex
-	lockList          sync.RWMutex
-	lockRecordSession sync.RWMutex
-	lockRecordTrust   sync.RWMutex
-	lockRemove        sync.RWMutex
-	lockRename        sync.RWMutex
-	lockSetHidden     sync.RWMutex
-	lockUsesCommit    sync.RWMutex
-	lockWarnings      sync.RWMutex
+	lockContaining          sync.RWMutex
+	lockCreate              sync.RWMutex
+	lockFind                sync.RWMutex
+	lockList                sync.RWMutex
+	lockRecordRunnerSession sync.RWMutex
+	lockRecordSession       sync.RWMutex
+	lockRecordTrust         sync.RWMutex
+	lockRemove              sync.RWMutex
+	lockRename              sync.RWMutex
+	lockSetHidden           sync.RWMutex
+	lockUsesCommit          sync.RWMutex
+	lockWarnings            sync.RWMutex
 }
 
 // Containing calls ContainingFunc.
@@ -1151,6 +1166,42 @@ func (mock *workspaceStoreMock) ListCalls() []struct {
 	mock.lockList.RLock()
 	calls = mock.calls.List
 	mock.lockList.RUnlock()
+	return calls
+}
+
+// RecordRunnerSession calls RecordRunnerSessionFunc.
+func (mock *workspaceStoreMock) RecordRunnerSession(id string, runnerSessionID string) error {
+	if mock.RecordRunnerSessionFunc == nil {
+		panic("workspaceStoreMock.RecordRunnerSessionFunc: method is nil but workspaceStore.RecordRunnerSession was just called")
+	}
+	callInfo := struct {
+		ID              string
+		RunnerSessionID string
+	}{
+		ID:              id,
+		RunnerSessionID: runnerSessionID,
+	}
+	mock.lockRecordRunnerSession.Lock()
+	mock.calls.RecordRunnerSession = append(mock.calls.RecordRunnerSession, callInfo)
+	mock.lockRecordRunnerSession.Unlock()
+	return mock.RecordRunnerSessionFunc(id, runnerSessionID)
+}
+
+// RecordRunnerSessionCalls gets all the calls that were made to RecordRunnerSession.
+// Check the length with:
+//
+//	len(mockedworkspaceStore.RecordRunnerSessionCalls())
+func (mock *workspaceStoreMock) RecordRunnerSessionCalls() []struct {
+	ID              string
+	RunnerSessionID string
+} {
+	var calls []struct {
+		ID              string
+		RunnerSessionID string
+	}
+	mock.lockRecordRunnerSession.RLock()
+	calls = mock.calls.RecordRunnerSession
+	mock.lockRecordRunnerSession.RUnlock()
 	return calls
 }
 
@@ -1855,6 +1906,9 @@ var _ claudeClient = &claudeClientMock{}
 //			JobExistsFunc: func(id string) (bool, error) {
 //				panic("mock out the JobExists method")
 //			},
+//			LogsFunc: func(ctx context.Context, id string) (string, error) {
+//				panic("mock out the Logs method")
+//			},
 //			ModelFunc: func(s *claude.Session) (string, error) {
 //				panic("mock out the Model method")
 //			},
@@ -1909,6 +1963,9 @@ type claudeClientMock struct {
 
 	// JobExistsFunc mocks the JobExists method.
 	JobExistsFunc func(id string) (bool, error)
+
+	// LogsFunc mocks the Logs method.
+	LogsFunc func(ctx context.Context, id string) (string, error)
 
 	// ModelFunc mocks the Model method.
 	ModelFunc func(s *claude.Session) (string, error)
@@ -1971,6 +2028,13 @@ type claudeClientMock struct {
 		}
 		// JobExists holds details about calls to the JobExists method.
 		JobExists []struct {
+			// ID is the id argument value.
+			ID string
+		}
+		// Logs holds details about calls to the Logs method.
+		Logs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 			// ID is the id argument value.
 			ID string
 		}
@@ -2057,6 +2121,7 @@ type claudeClientMock struct {
 	lockCheck        sync.RWMutex
 	lockDaemonStatus sync.RWMutex
 	lockJobExists    sync.RWMutex
+	lockLogs         sync.RWMutex
 	lockModel        sync.RWMutex
 	lockRemove       sync.RWMutex
 	lockRespawn      sync.RWMutex
@@ -2235,6 +2300,42 @@ func (mock *claudeClientMock) JobExistsCalls() []struct {
 	mock.lockJobExists.RLock()
 	calls = mock.calls.JobExists
 	mock.lockJobExists.RUnlock()
+	return calls
+}
+
+// Logs calls LogsFunc.
+func (mock *claudeClientMock) Logs(ctx context.Context, id string) (string, error) {
+	if mock.LogsFunc == nil {
+		panic("claudeClientMock.LogsFunc: method is nil but claudeClient.Logs was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockLogs.Lock()
+	mock.calls.Logs = append(mock.calls.Logs, callInfo)
+	mock.lockLogs.Unlock()
+	return mock.LogsFunc(ctx, id)
+}
+
+// LogsCalls gets all the calls that were made to Logs.
+// Check the length with:
+//
+//	len(mockedclaudeClient.LogsCalls())
+func (mock *claudeClientMock) LogsCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockLogs.RLock()
+	calls = mock.calls.Logs
+	mock.lockLogs.RUnlock()
 	return calls
 }
 
@@ -2709,5 +2810,183 @@ func (mock *ghClientMock) PRViewCalls() []struct {
 	mock.lockPRView.RLock()
 	calls = mock.calls.PRView
 	mock.lockPRView.RUnlock()
+	return calls
+}
+
+// Ensure, that runnerDaemonMock does implement runnerDaemon.
+// If this is not the case, regenerate this file with moq.
+var _ runnerDaemon = &runnerDaemonMock{}
+
+// runnerDaemonMock is a mock implementation of runnerDaemon.
+//
+//	func TestSomethingThatUsesrunnerDaemon(t *testing.T) {
+//
+//		// make and configure a mocked runnerDaemon
+//		mockedrunnerDaemon := &runnerDaemonMock{
+//			PreflightFunc: func(ctx context.Context, req daemon.PreflightRequest) (daemon.PreflightResponse, error) {
+//				panic("mock out the Preflight method")
+//			},
+//			StartRunnerFunc: func(ctx context.Context, id string, resume bool) (int, error) {
+//				panic("mock out the StartRunner method")
+//			},
+//			StopRunnerFunc: func(ctx context.Context, id string) (bool, error) {
+//				panic("mock out the StopRunner method")
+//			},
+//		}
+//
+//		// use mockedrunnerDaemon in code that requires runnerDaemon
+//		// and then make assertions.
+//
+//	}
+type runnerDaemonMock struct {
+	// PreflightFunc mocks the Preflight method.
+	PreflightFunc func(ctx context.Context, req daemon.PreflightRequest) (daemon.PreflightResponse, error)
+
+	// StartRunnerFunc mocks the StartRunner method.
+	StartRunnerFunc func(ctx context.Context, id string, resume bool) (int, error)
+
+	// StopRunnerFunc mocks the StopRunner method.
+	StopRunnerFunc func(ctx context.Context, id string) (bool, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Preflight holds details about calls to the Preflight method.
+		Preflight []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Req is the req argument value.
+			Req daemon.PreflightRequest
+		}
+		// StartRunner holds details about calls to the StartRunner method.
+		StartRunner []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// Resume is the resume argument value.
+			Resume bool
+		}
+		// StopRunner holds details about calls to the StopRunner method.
+		StopRunner []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+		}
+	}
+	lockPreflight   sync.RWMutex
+	lockStartRunner sync.RWMutex
+	lockStopRunner  sync.RWMutex
+}
+
+// Preflight calls PreflightFunc.
+func (mock *runnerDaemonMock) Preflight(ctx context.Context, req daemon.PreflightRequest) (daemon.PreflightResponse, error) {
+	if mock.PreflightFunc == nil {
+		panic("runnerDaemonMock.PreflightFunc: method is nil but runnerDaemon.Preflight was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Req daemon.PreflightRequest
+	}{
+		Ctx: ctx,
+		Req: req,
+	}
+	mock.lockPreflight.Lock()
+	mock.calls.Preflight = append(mock.calls.Preflight, callInfo)
+	mock.lockPreflight.Unlock()
+	return mock.PreflightFunc(ctx, req)
+}
+
+// PreflightCalls gets all the calls that were made to Preflight.
+// Check the length with:
+//
+//	len(mockedrunnerDaemon.PreflightCalls())
+func (mock *runnerDaemonMock) PreflightCalls() []struct {
+	Ctx context.Context
+	Req daemon.PreflightRequest
+} {
+	var calls []struct {
+		Ctx context.Context
+		Req daemon.PreflightRequest
+	}
+	mock.lockPreflight.RLock()
+	calls = mock.calls.Preflight
+	mock.lockPreflight.RUnlock()
+	return calls
+}
+
+// StartRunner calls StartRunnerFunc.
+func (mock *runnerDaemonMock) StartRunner(ctx context.Context, id string, resume bool) (int, error) {
+	if mock.StartRunnerFunc == nil {
+		panic("runnerDaemonMock.StartRunnerFunc: method is nil but runnerDaemon.StartRunner was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		ID     string
+		Resume bool
+	}{
+		Ctx:    ctx,
+		ID:     id,
+		Resume: resume,
+	}
+	mock.lockStartRunner.Lock()
+	mock.calls.StartRunner = append(mock.calls.StartRunner, callInfo)
+	mock.lockStartRunner.Unlock()
+	return mock.StartRunnerFunc(ctx, id, resume)
+}
+
+// StartRunnerCalls gets all the calls that were made to StartRunner.
+// Check the length with:
+//
+//	len(mockedrunnerDaemon.StartRunnerCalls())
+func (mock *runnerDaemonMock) StartRunnerCalls() []struct {
+	Ctx    context.Context
+	ID     string
+	Resume bool
+} {
+	var calls []struct {
+		Ctx    context.Context
+		ID     string
+		Resume bool
+	}
+	mock.lockStartRunner.RLock()
+	calls = mock.calls.StartRunner
+	mock.lockStartRunner.RUnlock()
+	return calls
+}
+
+// StopRunner calls StopRunnerFunc.
+func (mock *runnerDaemonMock) StopRunner(ctx context.Context, id string) (bool, error) {
+	if mock.StopRunnerFunc == nil {
+		panic("runnerDaemonMock.StopRunnerFunc: method is nil but runnerDaemon.StopRunner was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		ID  string
+	}{
+		Ctx: ctx,
+		ID:  id,
+	}
+	mock.lockStopRunner.Lock()
+	mock.calls.StopRunner = append(mock.calls.StopRunner, callInfo)
+	mock.lockStopRunner.Unlock()
+	return mock.StopRunnerFunc(ctx, id)
+}
+
+// StopRunnerCalls gets all the calls that were made to StopRunner.
+// Check the length with:
+//
+//	len(mockedrunnerDaemon.StopRunnerCalls())
+func (mock *runnerDaemonMock) StopRunnerCalls() []struct {
+	Ctx context.Context
+	ID  string
+} {
+	var calls []struct {
+		Ctx context.Context
+		ID  string
+	}
+	mock.lockStopRunner.RLock()
+	calls = mock.calls.StopRunner
+	mock.lockStopRunner.RUnlock()
 	return calls
 }

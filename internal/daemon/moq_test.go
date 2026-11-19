@@ -5,24 +5,30 @@ package daemon
 
 import (
 	"context"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"sync"
+	"syscall"
+	"time"
 )
 
-// Ensure, that SupervisorMock does implement Supervisor.
+// Ensure, that RunnerSupervisorMock does implement RunnerSupervisor.
 // If this is not the case, regenerate this file with moq.
-var _ Supervisor = &SupervisorMock{}
+var _ RunnerSupervisor = &RunnerSupervisorMock{}
 
-// SupervisorMock is a mock implementation of Supervisor.
+// RunnerSupervisorMock is a mock implementation of RunnerSupervisor.
 //
-//	func TestSomethingThatUsesSupervisor(t *testing.T) {
+//	func TestSomethingThatUsesRunnerSupervisor(t *testing.T) {
 //
-//		// make and configure a mocked Supervisor
-//		mockedSupervisor := &SupervisorMock{
+//		// make and configure a mocked RunnerSupervisor
+//		mockedRunnerSupervisor := &RunnerSupervisorMock{
 //			IdleFunc: func() bool {
 //				panic("mock out the Idle method")
 //			},
 //			PreflightFunc: func(ctx context.Context, req PreflightRequest) (PreflightResponse, error) {
 //				panic("mock out the Preflight method")
+//			},
+//			ReconcileFunc: func(ctx context.Context) error {
+//				panic("mock out the Reconcile method")
 //			},
 //			RunnersFunc: func() []RunnerStatus {
 //				panic("mock out the Runners method")
@@ -30,24 +36,33 @@ var _ Supervisor = &SupervisorMock{}
 //			StartFunc: func(ctx context.Context, id string, resume bool) (int, error) {
 //				panic("mock out the Start method")
 //			},
-//			StopFunc: func(ctx context.Context, id string) error {
+//			StopFunc: func(ctx context.Context, id string) (bool, error) {
 //				panic("mock out the Stop method")
 //			},
 //			StopAllFunc: func(ctx context.Context, keep bool) ([]string, []string) {
 //				panic("mock out the StopAll method")
 //			},
+//			WarningsFunc: func() []string {
+//				panic("mock out the Warnings method")
+//			},
+//			WatchFunc: func(ctx context.Context)  {
+//				panic("mock out the Watch method")
+//			},
 //		}
 //
-//		// use mockedSupervisor in code that requires Supervisor
+//		// use mockedRunnerSupervisor in code that requires RunnerSupervisor
 //		// and then make assertions.
 //
 //	}
-type SupervisorMock struct {
+type RunnerSupervisorMock struct {
 	// IdleFunc mocks the Idle method.
 	IdleFunc func() bool
 
 	// PreflightFunc mocks the Preflight method.
 	PreflightFunc func(ctx context.Context, req PreflightRequest) (PreflightResponse, error)
+
+	// ReconcileFunc mocks the Reconcile method.
+	ReconcileFunc func(ctx context.Context) error
 
 	// RunnersFunc mocks the Runners method.
 	RunnersFunc func() []RunnerStatus
@@ -56,10 +71,16 @@ type SupervisorMock struct {
 	StartFunc func(ctx context.Context, id string, resume bool) (int, error)
 
 	// StopFunc mocks the Stop method.
-	StopFunc func(ctx context.Context, id string) error
+	StopFunc func(ctx context.Context, id string) (bool, error)
 
 	// StopAllFunc mocks the StopAll method.
 	StopAllFunc func(ctx context.Context, keep bool) ([]string, []string)
+
+	// WarningsFunc mocks the Warnings method.
+	WarningsFunc func() []string
+
+	// WatchFunc mocks the Watch method.
+	WatchFunc func(ctx context.Context)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -72,6 +93,11 @@ type SupervisorMock struct {
 			Ctx context.Context
 			// Req is the req argument value.
 			Req PreflightRequest
+		}
+		// Reconcile holds details about calls to the Reconcile method.
+		Reconcile []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 		}
 		// Runners holds details about calls to the Runners method.
 		Runners []struct {
@@ -99,19 +125,30 @@ type SupervisorMock struct {
 			// Keep is the keep argument value.
 			Keep bool
 		}
+		// Warnings holds details about calls to the Warnings method.
+		Warnings []struct {
+		}
+		// Watch holds details about calls to the Watch method.
+		Watch []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 	}
 	lockIdle      sync.RWMutex
 	lockPreflight sync.RWMutex
+	lockReconcile sync.RWMutex
 	lockRunners   sync.RWMutex
 	lockStart     sync.RWMutex
 	lockStop      sync.RWMutex
 	lockStopAll   sync.RWMutex
+	lockWarnings  sync.RWMutex
+	lockWatch     sync.RWMutex
 }
 
 // Idle calls IdleFunc.
-func (mock *SupervisorMock) Idle() bool {
+func (mock *RunnerSupervisorMock) Idle() bool {
 	if mock.IdleFunc == nil {
-		panic("SupervisorMock.IdleFunc: method is nil but Supervisor.Idle was just called")
+		panic("RunnerSupervisorMock.IdleFunc: method is nil but RunnerSupervisor.Idle was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -124,8 +161,8 @@ func (mock *SupervisorMock) Idle() bool {
 // IdleCalls gets all the calls that were made to Idle.
 // Check the length with:
 //
-//	len(mockedSupervisor.IdleCalls())
-func (mock *SupervisorMock) IdleCalls() []struct {
+//	len(mockedRunnerSupervisor.IdleCalls())
+func (mock *RunnerSupervisorMock) IdleCalls() []struct {
 } {
 	var calls []struct {
 	}
@@ -136,9 +173,9 @@ func (mock *SupervisorMock) IdleCalls() []struct {
 }
 
 // Preflight calls PreflightFunc.
-func (mock *SupervisorMock) Preflight(ctx context.Context, req PreflightRequest) (PreflightResponse, error) {
+func (mock *RunnerSupervisorMock) Preflight(ctx context.Context, req PreflightRequest) (PreflightResponse, error) {
 	if mock.PreflightFunc == nil {
-		panic("SupervisorMock.PreflightFunc: method is nil but Supervisor.Preflight was just called")
+		panic("RunnerSupervisorMock.PreflightFunc: method is nil but RunnerSupervisor.Preflight was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
@@ -156,8 +193,8 @@ func (mock *SupervisorMock) Preflight(ctx context.Context, req PreflightRequest)
 // PreflightCalls gets all the calls that were made to Preflight.
 // Check the length with:
 //
-//	len(mockedSupervisor.PreflightCalls())
-func (mock *SupervisorMock) PreflightCalls() []struct {
+//	len(mockedRunnerSupervisor.PreflightCalls())
+func (mock *RunnerSupervisorMock) PreflightCalls() []struct {
 	Ctx context.Context
 	Req PreflightRequest
 } {
@@ -171,10 +208,42 @@ func (mock *SupervisorMock) PreflightCalls() []struct {
 	return calls
 }
 
+// Reconcile calls ReconcileFunc.
+func (mock *RunnerSupervisorMock) Reconcile(ctx context.Context) error {
+	if mock.ReconcileFunc == nil {
+		panic("RunnerSupervisorMock.ReconcileFunc: method is nil but RunnerSupervisor.Reconcile was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockReconcile.Lock()
+	mock.calls.Reconcile = append(mock.calls.Reconcile, callInfo)
+	mock.lockReconcile.Unlock()
+	return mock.ReconcileFunc(ctx)
+}
+
+// ReconcileCalls gets all the calls that were made to Reconcile.
+// Check the length with:
+//
+//	len(mockedRunnerSupervisor.ReconcileCalls())
+func (mock *RunnerSupervisorMock) ReconcileCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockReconcile.RLock()
+	calls = mock.calls.Reconcile
+	mock.lockReconcile.RUnlock()
+	return calls
+}
+
 // Runners calls RunnersFunc.
-func (mock *SupervisorMock) Runners() []RunnerStatus {
+func (mock *RunnerSupervisorMock) Runners() []RunnerStatus {
 	if mock.RunnersFunc == nil {
-		panic("SupervisorMock.RunnersFunc: method is nil but Supervisor.Runners was just called")
+		panic("RunnerSupervisorMock.RunnersFunc: method is nil but RunnerSupervisor.Runners was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -187,8 +256,8 @@ func (mock *SupervisorMock) Runners() []RunnerStatus {
 // RunnersCalls gets all the calls that were made to Runners.
 // Check the length with:
 //
-//	len(mockedSupervisor.RunnersCalls())
-func (mock *SupervisorMock) RunnersCalls() []struct {
+//	len(mockedRunnerSupervisor.RunnersCalls())
+func (mock *RunnerSupervisorMock) RunnersCalls() []struct {
 } {
 	var calls []struct {
 	}
@@ -199,9 +268,9 @@ func (mock *SupervisorMock) RunnersCalls() []struct {
 }
 
 // Start calls StartFunc.
-func (mock *SupervisorMock) Start(ctx context.Context, id string, resume bool) (int, error) {
+func (mock *RunnerSupervisorMock) Start(ctx context.Context, id string, resume bool) (int, error) {
 	if mock.StartFunc == nil {
-		panic("SupervisorMock.StartFunc: method is nil but Supervisor.Start was just called")
+		panic("RunnerSupervisorMock.StartFunc: method is nil but RunnerSupervisor.Start was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
@@ -221,8 +290,8 @@ func (mock *SupervisorMock) Start(ctx context.Context, id string, resume bool) (
 // StartCalls gets all the calls that were made to Start.
 // Check the length with:
 //
-//	len(mockedSupervisor.StartCalls())
-func (mock *SupervisorMock) StartCalls() []struct {
+//	len(mockedRunnerSupervisor.StartCalls())
+func (mock *RunnerSupervisorMock) StartCalls() []struct {
 	Ctx    context.Context
 	ID     string
 	Resume bool
@@ -239,9 +308,9 @@ func (mock *SupervisorMock) StartCalls() []struct {
 }
 
 // Stop calls StopFunc.
-func (mock *SupervisorMock) Stop(ctx context.Context, id string) error {
+func (mock *RunnerSupervisorMock) Stop(ctx context.Context, id string) (bool, error) {
 	if mock.StopFunc == nil {
-		panic("SupervisorMock.StopFunc: method is nil but Supervisor.Stop was just called")
+		panic("RunnerSupervisorMock.StopFunc: method is nil but RunnerSupervisor.Stop was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
@@ -259,8 +328,8 @@ func (mock *SupervisorMock) Stop(ctx context.Context, id string) error {
 // StopCalls gets all the calls that were made to Stop.
 // Check the length with:
 //
-//	len(mockedSupervisor.StopCalls())
-func (mock *SupervisorMock) StopCalls() []struct {
+//	len(mockedRunnerSupervisor.StopCalls())
+func (mock *RunnerSupervisorMock) StopCalls() []struct {
 	Ctx context.Context
 	ID  string
 } {
@@ -275,9 +344,9 @@ func (mock *SupervisorMock) StopCalls() []struct {
 }
 
 // StopAll calls StopAllFunc.
-func (mock *SupervisorMock) StopAll(ctx context.Context, keep bool) ([]string, []string) {
+func (mock *RunnerSupervisorMock) StopAll(ctx context.Context, keep bool) ([]string, []string) {
 	if mock.StopAllFunc == nil {
-		panic("SupervisorMock.StopAllFunc: method is nil but Supervisor.StopAll was just called")
+		panic("RunnerSupervisorMock.StopAllFunc: method is nil but RunnerSupervisor.StopAll was just called")
 	}
 	callInfo := struct {
 		Ctx  context.Context
@@ -295,8 +364,8 @@ func (mock *SupervisorMock) StopAll(ctx context.Context, keep bool) ([]string, [
 // StopAllCalls gets all the calls that were made to StopAll.
 // Check the length with:
 //
-//	len(mockedSupervisor.StopAllCalls())
-func (mock *SupervisorMock) StopAllCalls() []struct {
+//	len(mockedRunnerSupervisor.StopAllCalls())
+func (mock *RunnerSupervisorMock) StopAllCalls() []struct {
 	Ctx  context.Context
 	Keep bool
 } {
@@ -307,5 +376,498 @@ func (mock *SupervisorMock) StopAllCalls() []struct {
 	mock.lockStopAll.RLock()
 	calls = mock.calls.StopAll
 	mock.lockStopAll.RUnlock()
+	return calls
+}
+
+// Warnings calls WarningsFunc.
+func (mock *RunnerSupervisorMock) Warnings() []string {
+	if mock.WarningsFunc == nil {
+		panic("RunnerSupervisorMock.WarningsFunc: method is nil but RunnerSupervisor.Warnings was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockWarnings.Lock()
+	mock.calls.Warnings = append(mock.calls.Warnings, callInfo)
+	mock.lockWarnings.Unlock()
+	return mock.WarningsFunc()
+}
+
+// WarningsCalls gets all the calls that were made to Warnings.
+// Check the length with:
+//
+//	len(mockedRunnerSupervisor.WarningsCalls())
+func (mock *RunnerSupervisorMock) WarningsCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockWarnings.RLock()
+	calls = mock.calls.Warnings
+	mock.lockWarnings.RUnlock()
+	return calls
+}
+
+// Watch calls WatchFunc.
+func (mock *RunnerSupervisorMock) Watch(ctx context.Context) {
+	if mock.WatchFunc == nil {
+		panic("RunnerSupervisorMock.WatchFunc: method is nil but RunnerSupervisor.Watch was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockWatch.Lock()
+	mock.calls.Watch = append(mock.calls.Watch, callInfo)
+	mock.lockWatch.Unlock()
+	mock.WatchFunc(ctx)
+}
+
+// WatchCalls gets all the calls that were made to Watch.
+// Check the length with:
+//
+//	len(mockedRunnerSupervisor.WatchCalls())
+func (mock *RunnerSupervisorMock) WatchCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockWatch.RLock()
+	calls = mock.calls.Watch
+	mock.lockWatch.RUnlock()
+	return calls
+}
+
+// Ensure, that processReaderMock does implement processReader.
+// If this is not the case, regenerate this file with moq.
+var _ processReader = &processReaderMock{}
+
+// processReaderMock is a mock implementation of processReader.
+//
+//	func TestSomethingThatUsesprocessReader(t *testing.T) {
+//
+//		// make and configure a mocked processReader
+//		mockedprocessReader := &processReaderMock{
+//			StartTimeFunc: func(pid int) (time.Time, error) {
+//				panic("mock out the StartTime method")
+//			},
+//		}
+//
+//		// use mockedprocessReader in code that requires processReader
+//		// and then make assertions.
+//
+//	}
+type processReaderMock struct {
+	// StartTimeFunc mocks the StartTime method.
+	StartTimeFunc func(pid int) (time.Time, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// StartTime holds details about calls to the StartTime method.
+		StartTime []struct {
+			// Pid is the pid argument value.
+			Pid int
+		}
+	}
+	lockStartTime sync.RWMutex
+}
+
+// StartTime calls StartTimeFunc.
+func (mock *processReaderMock) StartTime(pid int) (time.Time, error) {
+	if mock.StartTimeFunc == nil {
+		panic("processReaderMock.StartTimeFunc: method is nil but processReader.StartTime was just called")
+	}
+	callInfo := struct {
+		Pid int
+	}{
+		Pid: pid,
+	}
+	mock.lockStartTime.Lock()
+	mock.calls.StartTime = append(mock.calls.StartTime, callInfo)
+	mock.lockStartTime.Unlock()
+	return mock.StartTimeFunc(pid)
+}
+
+// StartTimeCalls gets all the calls that were made to StartTime.
+// Check the length with:
+//
+//	len(mockedprocessReader.StartTimeCalls())
+func (mock *processReaderMock) StartTimeCalls() []struct {
+	Pid int
+} {
+	var calls []struct {
+		Pid int
+	}
+	mock.lockStartTime.RLock()
+	calls = mock.calls.StartTime
+	mock.lockStartTime.RUnlock()
+	return calls
+}
+
+// Ensure, that processStarterMock does implement processStarter.
+// If this is not the case, regenerate this file with moq.
+var _ processStarter = &processStarterMock{}
+
+// processStarterMock is a mock implementation of processStarter.
+//
+//	func TestSomethingThatUsesprocessStarter(t *testing.T) {
+//
+//		// make and configure a mocked processStarter
+//		mockedprocessStarter := &processStarterMock{
+//			SignalFunc: func(pgid int, sig syscall.Signal) error {
+//				panic("mock out the Signal method")
+//			},
+//			StartFunc: func(exe string, args []string, dir string, logPath string, env []string) (int, error) {
+//				panic("mock out the Start method")
+//			},
+//		}
+//
+//		// use mockedprocessStarter in code that requires processStarter
+//		// and then make assertions.
+//
+//	}
+type processStarterMock struct {
+	// SignalFunc mocks the Signal method.
+	SignalFunc func(pgid int, sig syscall.Signal) error
+
+	// StartFunc mocks the Start method.
+	StartFunc func(exe string, args []string, dir string, logPath string, env []string) (int, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Signal holds details about calls to the Signal method.
+		Signal []struct {
+			// Pgid is the pgid argument value.
+			Pgid int
+			// Sig is the sig argument value.
+			Sig syscall.Signal
+		}
+		// Start holds details about calls to the Start method.
+		Start []struct {
+			// Exe is the exe argument value.
+			Exe string
+			// Args is the args argument value.
+			Args []string
+			// Dir is the dir argument value.
+			Dir string
+			// LogPath is the logPath argument value.
+			LogPath string
+			// Env is the env argument value.
+			Env []string
+		}
+	}
+	lockSignal sync.RWMutex
+	lockStart  sync.RWMutex
+}
+
+// Signal calls SignalFunc.
+func (mock *processStarterMock) Signal(pgid int, sig syscall.Signal) error {
+	if mock.SignalFunc == nil {
+		panic("processStarterMock.SignalFunc: method is nil but processStarter.Signal was just called")
+	}
+	callInfo := struct {
+		Pgid int
+		Sig  syscall.Signal
+	}{
+		Pgid: pgid,
+		Sig:  sig,
+	}
+	mock.lockSignal.Lock()
+	mock.calls.Signal = append(mock.calls.Signal, callInfo)
+	mock.lockSignal.Unlock()
+	return mock.SignalFunc(pgid, sig)
+}
+
+// SignalCalls gets all the calls that were made to Signal.
+// Check the length with:
+//
+//	len(mockedprocessStarter.SignalCalls())
+func (mock *processStarterMock) SignalCalls() []struct {
+	Pgid int
+	Sig  syscall.Signal
+} {
+	var calls []struct {
+		Pgid int
+		Sig  syscall.Signal
+	}
+	mock.lockSignal.RLock()
+	calls = mock.calls.Signal
+	mock.lockSignal.RUnlock()
+	return calls
+}
+
+// Start calls StartFunc.
+func (mock *processStarterMock) Start(exe string, args []string, dir string, logPath string, env []string) (int, error) {
+	if mock.StartFunc == nil {
+		panic("processStarterMock.StartFunc: method is nil but processStarter.Start was just called")
+	}
+	callInfo := struct {
+		Exe     string
+		Args    []string
+		Dir     string
+		LogPath string
+		Env     []string
+	}{
+		Exe:     exe,
+		Args:    args,
+		Dir:     dir,
+		LogPath: logPath,
+		Env:     env,
+	}
+	mock.lockStart.Lock()
+	mock.calls.Start = append(mock.calls.Start, callInfo)
+	mock.lockStart.Unlock()
+	return mock.StartFunc(exe, args, dir, logPath, env)
+}
+
+// StartCalls gets all the calls that were made to Start.
+// Check the length with:
+//
+//	len(mockedprocessStarter.StartCalls())
+func (mock *processStarterMock) StartCalls() []struct {
+	Exe     string
+	Args    []string
+	Dir     string
+	LogPath string
+	Env     []string
+} {
+	var calls []struct {
+		Exe     string
+		Args    []string
+		Dir     string
+		LogPath string
+		Env     []string
+	}
+	mock.lockStart.RLock()
+	calls = mock.calls.Start
+	mock.lockStart.RUnlock()
+	return calls
+}
+
+// Ensure, that RunnerRecordsMock does implement RunnerRecords.
+// If this is not the case, regenerate this file with moq.
+var _ RunnerRecords = &RunnerRecordsMock{}
+
+// RunnerRecordsMock is a mock implementation of RunnerRecords.
+//
+//	func TestSomethingThatUsesRunnerRecords(t *testing.T) {
+//
+//		// make and configure a mocked RunnerRecords
+//		mockedRunnerRecords := &RunnerRecordsMock{
+//			DirFunc: func(root string, child string) string {
+//				panic("mock out the Dir method")
+//			},
+//			LineageFunc: func(child string) (string, []string, error) {
+//				panic("mock out the Lineage method")
+//			},
+//			ReadFunc: func(root string, child string) (machine.Record, error) {
+//				panic("mock out the Read method")
+//			},
+//			WriteResultFunc: func(root string, child string, r *machine.Result, report []byte) error {
+//				panic("mock out the WriteResult method")
+//			},
+//		}
+//
+//		// use mockedRunnerRecords in code that requires RunnerRecords
+//		// and then make assertions.
+//
+//	}
+type RunnerRecordsMock struct {
+	// DirFunc mocks the Dir method.
+	DirFunc func(root string, child string) string
+
+	// LineageFunc mocks the Lineage method.
+	LineageFunc func(child string) (string, []string, error)
+
+	// ReadFunc mocks the Read method.
+	ReadFunc func(root string, child string) (machine.Record, error)
+
+	// WriteResultFunc mocks the WriteResult method.
+	WriteResultFunc func(root string, child string, r *machine.Result, report []byte) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Dir holds details about calls to the Dir method.
+		Dir []struct {
+			// Root is the root argument value.
+			Root string
+			// Child is the child argument value.
+			Child string
+		}
+		// Lineage holds details about calls to the Lineage method.
+		Lineage []struct {
+			// Child is the child argument value.
+			Child string
+		}
+		// Read holds details about calls to the Read method.
+		Read []struct {
+			// Root is the root argument value.
+			Root string
+			// Child is the child argument value.
+			Child string
+		}
+		// WriteResult holds details about calls to the WriteResult method.
+		WriteResult []struct {
+			// Root is the root argument value.
+			Root string
+			// Child is the child argument value.
+			Child string
+			// R is the r argument value.
+			R *machine.Result
+			// Report is the report argument value.
+			Report []byte
+		}
+	}
+	lockDir         sync.RWMutex
+	lockLineage     sync.RWMutex
+	lockRead        sync.RWMutex
+	lockWriteResult sync.RWMutex
+}
+
+// Dir calls DirFunc.
+func (mock *RunnerRecordsMock) Dir(root string, child string) string {
+	if mock.DirFunc == nil {
+		panic("RunnerRecordsMock.DirFunc: method is nil but RunnerRecords.Dir was just called")
+	}
+	callInfo := struct {
+		Root  string
+		Child string
+	}{
+		Root:  root,
+		Child: child,
+	}
+	mock.lockDir.Lock()
+	mock.calls.Dir = append(mock.calls.Dir, callInfo)
+	mock.lockDir.Unlock()
+	return mock.DirFunc(root, child)
+}
+
+// DirCalls gets all the calls that were made to Dir.
+// Check the length with:
+//
+//	len(mockedRunnerRecords.DirCalls())
+func (mock *RunnerRecordsMock) DirCalls() []struct {
+	Root  string
+	Child string
+} {
+	var calls []struct {
+		Root  string
+		Child string
+	}
+	mock.lockDir.RLock()
+	calls = mock.calls.Dir
+	mock.lockDir.RUnlock()
+	return calls
+}
+
+// Lineage calls LineageFunc.
+func (mock *RunnerRecordsMock) Lineage(child string) (string, []string, error) {
+	if mock.LineageFunc == nil {
+		panic("RunnerRecordsMock.LineageFunc: method is nil but RunnerRecords.Lineage was just called")
+	}
+	callInfo := struct {
+		Child string
+	}{
+		Child: child,
+	}
+	mock.lockLineage.Lock()
+	mock.calls.Lineage = append(mock.calls.Lineage, callInfo)
+	mock.lockLineage.Unlock()
+	return mock.LineageFunc(child)
+}
+
+// LineageCalls gets all the calls that were made to Lineage.
+// Check the length with:
+//
+//	len(mockedRunnerRecords.LineageCalls())
+func (mock *RunnerRecordsMock) LineageCalls() []struct {
+	Child string
+} {
+	var calls []struct {
+		Child string
+	}
+	mock.lockLineage.RLock()
+	calls = mock.calls.Lineage
+	mock.lockLineage.RUnlock()
+	return calls
+}
+
+// Read calls ReadFunc.
+func (mock *RunnerRecordsMock) Read(root string, child string) (machine.Record, error) {
+	if mock.ReadFunc == nil {
+		panic("RunnerRecordsMock.ReadFunc: method is nil but RunnerRecords.Read was just called")
+	}
+	callInfo := struct {
+		Root  string
+		Child string
+	}{
+		Root:  root,
+		Child: child,
+	}
+	mock.lockRead.Lock()
+	mock.calls.Read = append(mock.calls.Read, callInfo)
+	mock.lockRead.Unlock()
+	return mock.ReadFunc(root, child)
+}
+
+// ReadCalls gets all the calls that were made to Read.
+// Check the length with:
+//
+//	len(mockedRunnerRecords.ReadCalls())
+func (mock *RunnerRecordsMock) ReadCalls() []struct {
+	Root  string
+	Child string
+} {
+	var calls []struct {
+		Root  string
+		Child string
+	}
+	mock.lockRead.RLock()
+	calls = mock.calls.Read
+	mock.lockRead.RUnlock()
+	return calls
+}
+
+// WriteResult calls WriteResultFunc.
+func (mock *RunnerRecordsMock) WriteResult(root string, child string, r *machine.Result, report []byte) error {
+	if mock.WriteResultFunc == nil {
+		panic("RunnerRecordsMock.WriteResultFunc: method is nil but RunnerRecords.WriteResult was just called")
+	}
+	callInfo := struct {
+		Root   string
+		Child  string
+		R      *machine.Result
+		Report []byte
+	}{
+		Root:   root,
+		Child:  child,
+		R:      r,
+		Report: report,
+	}
+	mock.lockWriteResult.Lock()
+	mock.calls.WriteResult = append(mock.calls.WriteResult, callInfo)
+	mock.lockWriteResult.Unlock()
+	return mock.WriteResultFunc(root, child, r, report)
+}
+
+// WriteResultCalls gets all the calls that were made to WriteResult.
+// Check the length with:
+//
+//	len(mockedRunnerRecords.WriteResultCalls())
+func (mock *RunnerRecordsMock) WriteResultCalls() []struct {
+	Root   string
+	Child  string
+	R      *machine.Result
+	Report []byte
+} {
+	var calls []struct {
+		Root   string
+		Child  string
+		R      *machine.Result
+		Report []byte
+	}
+	mock.lockWriteResult.RLock()
+	calls = mock.calls.WriteResult
+	mock.lockWriteResult.RUnlock()
 	return calls
 }

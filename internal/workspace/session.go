@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -22,7 +23,17 @@ const (
 	// SessionClaude is a Claude Code background session started by ws
 	// claude.
 	SessionClaude SessionKind = "claude"
+	// SessionRunner is a runner session started by ws machine spawn or ws
+	// loop with the ws runner (ADR 0063).
+	SessionRunner SessionKind = "runner"
 )
+
+// sessionVersion is the newest session record format this ws reads and
+// writes for runner sessions; shell and claude records keep formatVersion.
+const sessionVersion = 2
+
+// runnerSessionPrefix starts every runner session id (internal/runner).
+const runnerSessionPrefix = "rn-"
 
 // Session is a workspace's state/<id>/session record (ADR 0027).
 type Session struct {
@@ -31,7 +42,10 @@ type Session struct {
 	Version int         `toml:"version"`
 	Kind    SessionKind `toml:"kind"`
 	// ClaudeSessionID is the Claude Code session's id; empty for a shell.
-	ClaudeSessionID string    `toml:"claude_session_id"`
+	ClaudeSessionID string `toml:"claude_session_id"`
+	// RunnerSessionID is the runner session's id ("rn-" and hex); set for a
+	// runner session only.
+	RunnerSessionID string    `toml:"runner_session_id,omitempty"`
 	StartedAt       time.Time `toml:"started_at"`
 }
 
@@ -42,6 +56,19 @@ func (s *Store) RecordSession(id string, kind SessionKind, claudeSessionID strin
 		return fmt.Errorf("%w: %q", ErrNotFound, id)
 	}
 	sess := Session{Version: formatVersion, Kind: kind, ClaudeSessionID: claudeSessionID, StartedAt: s.now().UTC().Truncate(time.Second)}
+	if err := writeTOML(s.sessionPath(id), &sess); err != nil {
+		return fmt.Errorf("writing session record for %s: %w", id, err)
+	}
+	return nil
+}
+
+// RecordRunnerSession writes workspace id's runner session record, started
+// now, through a temp file and a rename.
+func (s *Store) RecordRunnerSession(id, runnerSessionID string) error {
+	if !validID(id) {
+		return fmt.Errorf("%w: %q", ErrNotFound, id)
+	}
+	sess := Session{Version: sessionVersion, Kind: SessionRunner, RunnerSessionID: runnerSessionID, StartedAt: s.now().UTC().Truncate(time.Second)}
 	if err := writeTOML(s.sessionPath(id), &sess); err != nil {
 		return fmt.Errorf("writing session record for %s: %w", id, err)
 	}
@@ -70,7 +97,7 @@ func (s *Store) Session(id string) (Session, error) {
 	if sess.Version == 0 {
 		sess.Version = formatVersion
 	}
-	if err := checkVersion(sess.Version, formatVersion); err != nil {
+	if err := checkVersion(sess.Version, sessionVersion); err != nil {
 		return Session{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
@@ -91,6 +118,11 @@ func (sess *Session) check() error {
 	case SessionClaude:
 		if sess.ClaudeSessionID == "" {
 			return errors.New("claude session without a claude_session_id")
+		}
+		return nil
+	case SessionRunner:
+		if !strings.HasPrefix(sess.RunnerSessionID, runnerSessionPrefix) {
+			return errors.New("runner session without a runner_session_id")
 		}
 		return nil
 	}

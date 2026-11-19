@@ -14,7 +14,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
+	"github.com/bobcob7/workspaces/internal/machine"
+	"github.com/bobcob7/workspaces/internal/proc"
 )
 
 // daemonStopWait is how long ws daemon stop waits for the daemon to exit
@@ -64,8 +67,27 @@ func (a *App) runDaemonRun(ctx context.Context, origin string) error {
 	log := slog.New(slog.NewJSONHandler(io.MultiWriter(a.stderr, logFile), nil))
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, os.Interrupt)
 	defer stop()
-	err = daemon.Serve(daemon.WithVersion(ctx, a.version), paths, origin, daemon.NopSupervisor{}, log)
+	exe, err := os.Executable()
+	if err != nil {
+		return newError(codeInternal, err)
+	}
+	sup := daemon.NewSupervisor(a.supervisorConfig(exe), proc.Reader{}, daemon.OSStarter{}, log)
+	err = daemon.Serve(daemon.WithVersion(ctx, a.version), paths, origin, sup, log)
 	return daemonRunError(err)
+}
+
+// supervisorConfig is the daemon's supervisor settings for this config
+// directory: its runners are resumed at start when config.toml says so.
+func (a *App) supervisorConfig(exe string) daemon.SupervisorConfig {
+	return daemon.SupervisorConfig{
+		StateDir:      a.paths.State,
+		ConfigDir:     a.paths.Root,
+		Exe:           exe,
+		BaseEnv:       os.Environ(),
+		LoadConfig:    func() (config.Config, error) { return config.ReadFile(a.paths.ConfigFile) },
+		ResumeOnStart: a.config.Daemon.ResumesOnStart(),
+		Store:         runnerRecords{Store: machine.NewStore(a.paths.State), workspaces: a.workspaces},
+	}
 }
 
 func validDaemonOrigin(origin string) bool {

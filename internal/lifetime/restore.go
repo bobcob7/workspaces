@@ -36,9 +36,14 @@ type RestoreOptions struct {
 // Restored is an agent workspace Restore looked at.
 type Restored struct {
 	Workspace workspace.Workspace
-	// SessionID is its agent's Claude Code session id; empty when it has
-	// no agent.
+	// SessionID is its agent's session id: Claude Code's, or a ws runner's
+	// rn- id; empty when it has no agent.
 	SessionID string
+	// Runner is RunnerWS or RunnerClaude, what runs the agent; "" without one.
+	Runner string
+	// recorded is when the session was recorded, which a runner's state
+	// reads (ADR 0063).
+	recorded time.Time
 	// State is the session as ws read it before restoring (ADR 0024):
 	// StateStopped for one that was respawned, or would be with a dry
 	// run; StateUnknown for one Claude Code doesn't list. Empty when the
@@ -128,8 +133,10 @@ func (m *Manager) restoreTarget(ws *workspace.Workspace) Restored {
 		r.Err = err
 	case sess.Kind == workspace.SessionShell:
 		r.Err = fmt.Errorf("%w: %s is a shell workspace; only agent workspaces are restored", ErrNotAgent, ws.ID)
+	case sess.Kind == workspace.SessionRunner:
+		r.SessionID, r.Runner, r.recorded = sess.RunnerSessionID, RunnerWS, sess.StartedAt
 	default:
-		r.SessionID = sess.ClaudeSessionID
+		r.SessionID, r.Runner = sess.ClaudeSessionID, RunnerClaude
 	}
 	return r
 }
@@ -172,6 +179,10 @@ func anyAgent(targets []Restored) bool {
 // longer has by the time it is respawned, as after a `claude rm` or `ws
 // rm` since the listing, is unknown, as if it hadn't been listed.
 func (m *Manager) restoreOne(ctx context.Context, r *Restored, sessions []claude.Session, dryRun bool) {
+	if r.Runner == RunnerWS {
+		m.restoreRunner(ctx, r, dryRun)
+		return
+	}
 	s := findSession(sessions, r.SessionID)
 	if s == nil {
 		r.State = StateUnknown
@@ -194,6 +205,30 @@ func (m *Manager) restoreOne(ctx context.Context, r *Restored, sessions []claude
 		r.Respawned = true
 		m.awaitProcess(ctx, s.ID, 0)
 	}
+}
+
+// restoreRunner resumes ws runner r when it is stopped, through the control
+// (ADR 0063). A runner that has exited, or is still starting or working, is
+// left alone.
+func (m *Manager) restoreRunner(ctx context.Context, r *Restored, dryRun bool) {
+	if m.runners == nil {
+		r.State = StateUnknown
+		return
+	}
+	state, _, _, _ := m.runners.State(r.Workspace.ID, r.recorded)
+	r.State = State(state)
+	if r.State != StateStopped || dryRun {
+		return
+	}
+	if m.control == nil {
+		r.Err = fmt.Errorf("resuming runner %s: %w", r.SessionID, errNoRunnerControl)
+		return
+	}
+	if err := m.control.Resume(ctx, r.Workspace.ID); err != nil {
+		r.Err = fmt.Errorf("resuming runner %s: %w", r.SessionID, err)
+		return
+	}
+	r.Respawned = true
 }
 
 // awaitProcess waits, for up to respawnWait, until Claude Code lists the

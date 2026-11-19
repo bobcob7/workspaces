@@ -11,6 +11,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/lockfile"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -26,8 +27,8 @@ func TestManager_Restore(t *testing.T) {
 		got, err := f.m.Restore(t.Context(), RestoreOptions{All: true})
 		require.NoError(t, err)
 		assert.Equal(t, []Restored{
-			{Workspace: stopped, SessionID: "s1", State: StateStopped, Respawned: true},
-			{Workspace: running, SessionID: "s2", State: StateIdle},
+			{Workspace: stopped, SessionID: "s1", Runner: RunnerClaude, State: StateStopped, Respawned: true},
+			{Workspace: running, SessionID: "s2", Runner: RunnerClaude, State: StateIdle},
 		}, got)
 		assert.Equal(t, []string{"s1"}, f.respawned())
 	})
@@ -102,7 +103,7 @@ func TestManager_Restore(t *testing.T) {
 		cancel()
 		got, err := f.m.Restore(ctx, RestoreOptions{All: true, DryRun: true})
 		require.NoError(t, err)
-		assert.Equal(t, []Restored{{Workspace: ws, SessionID: "s1", State: StateStopped}}, got)
+		assert.Equal(t, []Restored{{Workspace: ws, SessionID: "s1", Runner: RunnerClaude, State: StateStopped}}, got)
 	})
 	t.Run("nothing to restore doesn't take the lock", func(t *testing.T) {
 		t.Parallel()
@@ -131,7 +132,7 @@ func TestManager_Restore(t *testing.T) {
 		f.stopped("s1", "/cfg/workspaces/a")
 		got, err := f.m.Restore(t.Context(), RestoreOptions{All: true, DryRun: true})
 		require.NoError(t, err)
-		assert.Equal(t, []Restored{{Workspace: ws, SessionID: "s1", State: StateStopped}}, got)
+		assert.Equal(t, []Restored{{Workspace: ws, SessionID: "s1", Runner: RunnerClaude, State: StateStopped}}, got)
 		assert.Empty(t, f.respawned())
 	})
 	t.Run("reads every record before listing sessions, once", func(t *testing.T) {
@@ -216,7 +217,7 @@ func TestManager_restoreTargets(t *testing.T) {
 		a := f.agent("a", "s1")
 		got, err := f.m.restoreTargets(RestoreOptions{All: true})
 		require.NoError(t, err)
-		assert.Equal(t, []Restored{{Workspace: a, SessionID: "s1"}}, got)
+		assert.Equal(t, []Restored{{Workspace: a, SessionID: "s1", Runner: RunnerClaude}}, got)
 		assert.Empty(t, f.m.Warnings())
 	})
 	t.Run("all warns about a record it can't read", func(t *testing.T) {
@@ -236,7 +237,7 @@ func TestManager_restoreTargets(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got, 2)
 		require.ErrorIs(t, got[0].Err, ErrNotAgent)
-		assert.Equal(t, Restored{Workspace: a, SessionID: "s1"}, got[1])
+		assert.Equal(t, Restored{Workspace: a, SessionID: "s1", Runner: RunnerClaude}, got[1])
 	})
 }
 
@@ -244,7 +245,15 @@ func TestManager_restoreTarget(t *testing.T) {
 	t.Run("an agent", func(t *testing.T) {
 		f := newFixture(t)
 		ws := f.agent("a", "s1")
-		assert.Equal(t, Restored{Workspace: ws, SessionID: "s1"}, f.m.restoreTarget(&ws))
+		assert.Equal(t, Restored{Workspace: ws, SessionID: "s1", Runner: RunnerClaude}, f.m.restoreTarget(&ws))
+	})
+	t.Run("a runner", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("r")
+		got := f.m.restoreTarget(&ws)
+		assert.Equal(t, "rn-3f2a9c1e", got.SessionID)
+		assert.Equal(t, RunnerWS, got.Runner)
+		assert.Equal(t, testNow().Add(-time.Hour), got.recorded)
 	})
 	t.Run("a shell", func(t *testing.T) {
 		f := newFixture(t)
@@ -436,6 +445,78 @@ func TestManager_restoreOne(t *testing.T) {
 		f.m.restoreOne(t.Context(), &r, f.sessions, false)
 		require.ErrorIs(t, r.Err, workspace.ErrNotFound)
 		assert.Empty(t, f.respawned())
+	})
+}
+
+func TestManager_restoreRunner(t *testing.T) {
+	stateIs := func(state string) *runnerReaderMock {
+		return &runnerReaderMock{StateFunc: func(string, time.Time) (string, int, *runner.Status, *runner.Run) {
+			return state, 0, nil, nil
+		}}
+	}
+	t.Run("resumes a stopped runner", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		control := &runnerControlMock{ResumeFunc: func(context.Context, string) error { return nil }}
+		f.m.UseRunners(stateIs("stopped"))
+		f.m.UseRunnerControl(control)
+		r := Restored{Workspace: ws, SessionID: "rn-3f2a9c1e", Runner: RunnerWS}
+		f.m.restoreOne(t.Context(), &r, nil, false)
+		assert.Equal(t, Restored{Workspace: ws, SessionID: "rn-3f2a9c1e", Runner: RunnerWS, State: StateStopped, Respawned: true}, r)
+		require.Len(t, control.ResumeCalls(), 1)
+		assert.Equal(t, "x", control.ResumeCalls()[0].ID)
+	})
+	t.Run("leaves a runner that is not stopped alone", func(t *testing.T) {
+		for _, state := range []string{"working", "starting", "idle"} {
+			f := newFixture(t)
+			ws := f.runner("x")
+			control := &runnerControlMock{ResumeFunc: func(context.Context, string) error { return nil }}
+			f.m.UseRunners(stateIs(state))
+			f.m.UseRunnerControl(control)
+			r := Restored{Workspace: ws, SessionID: "rn-3f2a9c1e", Runner: RunnerWS}
+			f.m.restoreOne(t.Context(), &r, nil, false)
+			assert.Equal(t, State(state), r.State, state)
+			assert.False(t, r.Respawned, state)
+			assert.Empty(t, control.ResumeCalls(), state)
+		}
+	})
+	t.Run("a dry run resumes nothing", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		control := &runnerControlMock{ResumeFunc: func(context.Context, string) error { return nil }}
+		f.m.UseRunners(stateIs("stopped"))
+		f.m.UseRunnerControl(control)
+		r := Restored{Workspace: ws, SessionID: "rn-3f2a9c1e", Runner: RunnerWS}
+		f.m.restoreOne(t.Context(), &r, nil, true)
+		assert.Equal(t, StateStopped, r.State)
+		assert.False(t, r.Respawned)
+		assert.Empty(t, control.ResumeCalls())
+	})
+	t.Run("a failed resume is the workspace's error", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		control := &runnerControlMock{ResumeFunc: func(context.Context, string) error { return errTest }}
+		f.m.UseRunners(stateIs("stopped"))
+		f.m.UseRunnerControl(control)
+		r := Restored{Workspace: ws, SessionID: "rn-3f2a9c1e", Runner: RunnerWS}
+		f.m.restoreOne(t.Context(), &r, nil, false)
+		require.ErrorIs(t, r.Err, errTest)
+		assert.False(t, r.Respawned)
+	})
+	t.Run("without a runner reader the state is unknown", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		r := Restored{Workspace: ws, SessionID: "rn-3f2a9c1e", Runner: RunnerWS}
+		f.m.restoreOne(t.Context(), &r, nil, false)
+		assert.Equal(t, StateUnknown, r.State)
+	})
+	t.Run("without a control a stopped runner is an error", func(t *testing.T) {
+		f := newFixture(t)
+		ws := f.runner("x")
+		f.m.UseRunners(stateIs("stopped"))
+		r := Restored{Workspace: ws, SessionID: "rn-3f2a9c1e", Runner: RunnerWS}
+		f.m.restoreOne(t.Context(), &r, nil, false)
+		require.ErrorIs(t, r.Err, errNoRunnerControl)
 	})
 }
 

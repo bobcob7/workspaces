@@ -1,7 +1,7 @@
 # ws loop edit
 
 ```
-ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [--hidden[=BOOL] | --show] [<SPEC>...]
+ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--runner claude|ws] [--endpoint <name>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [--hidden[=BOOL] | --show] [<SPEC>...]
 ```
 
 Changes a loop in place. Only what's given changes: the loop's runs,
@@ -22,7 +22,13 @@ Giving no option and no spec is a usage error.
 - `--prompt <TEXT>`: a new prompt, checked as for `add`. A loop added before
   scripts existed becomes version 2 when this is given; see Old records below.
 - `--keep <N>`: how many runs' workspaces to keep, 1 to 50.
-- `--model <M>`: passed to `claude --model`. `--model ""` clears it.
+- `--runner claude|ws`: what runs each run: Claude Code or `ws`'s own runner.
+  `--runner claude` clears the endpoint. With `ws`, `--model` is a model alias
+  or id from config.toml, and `--permission-mode` isn't allowed.
+- `--endpoint <name>`: with `--runner ws`, another endpoint from config.toml.
+  `--endpoint ""` clears it.
+- `--model <M>`: passed to `claude --model`, or for `--runner ws` the model
+  alias or id. `--model ""` clears it.
 - `--permission-mode <P>`: passed to `claude --permission-mode`. `""` clears
   it.
 - `--script <TEXT>`: a new gate script, a shell script that must exit 0 for a
@@ -67,24 +73,29 @@ a literal prompt, unless the edit gives `--prompt`, `--script`, `--no-script`,
 `--var`, or `--no-vars`. Then it becomes version 2 and its prompt is checked
 as a template: write a literal `{{` as `{{"{{"}}`.
 
+Setting `--runner ws` or `--endpoint` makes a record version 4, which older
+`ws` binaries skip. A version 1 record with a literal `{{` in its prompt can't
+take them unless the same edit gives `--prompt`.
+
 ## JSON output
 
 The loop, as `ws loop add --json` prints it, with `warnings`:
 
 ```json
-{"name": "deps", "title": "", "every": "6h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "hidden": true, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T00:00:00Z", "last_run": null, "script": null, "script_timeout": null, "vars": {}, "last_gate": null, "warnings": []}
+{"name": "deps", "title": "", "every": "6h", "prompt": "Update the Go and npm dependencies, run the tests, and open a PR", "specs": ["buff-bear"], "model": null, "permission_mode": "acceptEdits", "keep": 5, "paused": false, "hidden": true, "runner": "claude", "endpoint": null, "created_at": "2026-11-05T18:00:00Z", "next_run_at": "2026-11-06T00:00:00Z", "last_run": null, "script": null, "script_timeout": null, "vars": {}, "last_gate": null, "warnings": []}
 ```
 
 `model` and `permission_mode` are `null` when not set, and `last_run` is
 `null` before the first run. `hidden` is `true` when each run's workspace
-starts hidden, the default, and `false` for a loop with `--show`.
+starts hidden, the default, and `false` for a loop with `--show`. `runner` is
+`claude` or `ws`, and `endpoint` is `null` unless a `ws` loop names one.
 
 ## Exit codes
 
 | Situation                                       | Error code       | Exit |
 | ----------------------------------------------- | ---------------- | ---- |
 | No option and no spec given, a flag error, or conflicting flags (`--no-script` with `--script`, `--no-vars` with `--var`, `--no-specs` with specs) | `usage` | 2 |
-| A bad title, period, prompt, `--keep`, `--script-timeout`, or `--var`; a prompt template that doesn't parse or uses a missing value; `--script-timeout` on a loop with no script | `loop_invalid` | 2 |
+| A bad title, period, prompt, `--keep`, `--script-timeout`, `--var`, or `--runner`; an `--endpoint` or `--model` alias that isn't in config.toml; a prompt template that doesn't parse or uses a missing value; `--script-timeout` on a loop with no script | `loop_invalid` | 2 |
 | A spec that can't be parsed                     | `spec_invalid`   | 2    |
 | No loop has that name                           | `loop_not_found` | 3    |
 

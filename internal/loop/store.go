@@ -103,7 +103,7 @@ func (s *Store) Create(l *Loop) error {
 	if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("checking loop %s: %w", l.Name, err)
 	}
-	l.Version = FormatVersion
+	l.Version = Version3
 	if l.Hidden == nil {
 		hidden := true
 		l.Hidden = &hidden
@@ -112,15 +112,23 @@ func (s *Store) Create(l *Loop) error {
 }
 
 // Save overwrites a record, then writes <name>.toml.tmp and renames it into
-// place. A Version of 0 becomes FormatVersion; any other Version is kept, so
-// a Version1 record stays version 1 when tick rewrites it.
+// place. A record with a runner of ws or an endpoint is version 4 (ADR 0070).
+// Otherwise a Version of 0 becomes Version3 and any other Version is kept, so
+// a Version1 record stays version 1 when tick rewrites it. A Runner of
+// RunnerClaude is stored as "", the default.
 func (s *Store) Save(l *Loop) error {
 	path, err := s.path(l.Name)
 	if err != nil {
 		return err
 	}
-	if l.Version == 0 {
+	if l.Runner == RunnerClaude {
+		l.Runner = ""
+	}
+	switch {
+	case l.Runner != "" || l.Endpoint != "":
 		l.Version = FormatVersion
+	case l.Version == 0:
+		l.Version = Version3
 	}
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(l); err != nil {
@@ -186,8 +194,11 @@ func readLoop(path string) (Loop, error) {
 	if l.Version == Version1 && hasVersion2Keys(&l) {
 		return Loop{}, fmt.Errorf("parsing %s: version 1 record has version 2 keys", path)
 	}
-	if l.Version < 3 && l.Hidden != nil {
+	if l.Version < Version3 && l.Hidden != nil {
 		return Loop{}, fmt.Errorf("parsing %s: version %d record has version 3 keys", path, l.Version)
+	}
+	if l.Version <= Version3 && (l.Runner != "" || l.Endpoint != "") {
+		return Loop{}, fmt.Errorf("parsing %s: version %d record has version 4 keys", path, l.Version)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		return Loop{}, fmt.Errorf("parsing %s: unknown key %s", path, undecoded[0])

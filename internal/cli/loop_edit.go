@@ -9,6 +9,7 @@ import (
 // loopEditOptions holds the flag values of ws loop edit.
 type loopEditOptions struct {
 	title, every, prompt, model, permissionMode string
+	runner, endpoint                            string
 	script, scriptTimeout                       string
 	vars                                        []string
 	keep                                        int
@@ -31,7 +32,9 @@ func (a *App) newLoopEditCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.every, "every", "", "how often a run starts: whole minutes from 5m to 168h, such as 15m or 24h")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "the prompt each run starts with")
 	cmd.Flags().IntVar(&opts.keep, "keep", 0, "how many runs' workspaces to keep, 1 to 50")
-	cmd.Flags().StringVar(&opts.model, "model", "", "passed to claude --model; \"\" clears it")
+	cmd.Flags().StringVar(&opts.runner, "runner", "", "what runs each run: claude (Claude Code) or ws (ws's own runner); claude clears the endpoint")
+	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "with --runner ws, another endpoint from config.toml; \"\" clears it")
+	cmd.Flags().StringVar(&opts.model, "model", "", "passed to claude --model; for --runner ws, a model alias or id from config.toml; \"\" clears it")
 	cmd.Flags().StringVar(&opts.permissionMode, "permission-mode", "", "passed to claude --permission-mode; \"\" clears it")
 	cmd.Flags().StringVar(&opts.script, "script", "", "a shell script that must exit 0 for a run to start; blank is the same as --no-script")
 	cmd.Flags().StringVar(&opts.scriptTimeout, "script-timeout", "", "how long the script may run, 1s to 10m (default 1m for a script the loop didn't have)")
@@ -54,6 +57,7 @@ func loopEditOf(cmd *cobra.Command, specs []string, opts *loopEditOptions) (loop
 		return loop.Edit{}, err
 	}
 	e := loopEditFields(cmd.Flags().Changed, opts)
+	setLoopEditRunner(cmd.Flags().Changed, opts, &e)
 	if err := setLoopEditVars(cmd.Flags().Changed, opts, &e); err != nil {
 		return loop.Edit{}, err
 	}
@@ -109,6 +113,17 @@ func loopEditFields(set func(string) bool, opts *loopEditOptions) loop.Edit {
 	return e
 }
 
+// setLoopEditRunner sets the runner and endpoint of e from --runner and
+// --endpoint, which may be given as "" to clear them.
+func setLoopEditRunner(set func(string) bool, opts *loopEditOptions, e *loop.Edit) {
+	if set("runner") {
+		e.Runner = &opts.runner
+	}
+	if set("endpoint") {
+		e.Endpoint = &opts.endpoint
+	}
+}
+
 // setLoopEditVars sets the vars of e from --no-vars or --var.
 func setLoopEditVars(set func(string) bool, opts *loopEditOptions, e *loop.Edit) error {
 	if set("no-vars") {
@@ -148,7 +163,10 @@ func (a *App) runLoopEdit(cmd *cobra.Command, args []string, opts *loopEditOptio
 		return err
 	}
 	l, err := a.changeLoop(cmd.Context(), args[0], func(l *loop.Loop) (bool, error) {
-		return true, l.Apply(&edit, a.now().UTC())
+		if applyErr := l.Apply(&edit, a.now().UTC()); applyErr != nil {
+			return false, applyErr
+		}
+		return true, a.checkLoopRunner(l)
 	})
 	if err != nil {
 		return err

@@ -3,9 +3,13 @@ package daemon
 import (
 	"context"
 	"errors"
+	"syscall"
+	"time"
+
+	"github.com/bobcob7/workspaces/internal/machine"
 )
 
-//go:generate go tool moq -out moq_test.go . Supervisor
+//go:generate go tool moq -out moq_test.go . RunnerSupervisor processReader processStarter RunnerRecords
 
 // Errors the daemon's callers test with errors.Is.
 var (
@@ -15,16 +19,47 @@ var (
 	ErrNotSupervising = errors.New("this daemon doesn't supervise runners")
 )
 
-// Supervisor is what the server serves; T18 implements it. Until then
-// NopSupervisor answers status with no runners and runner requests with
-// ErrNotSupervising.
-type Supervisor interface {
+// RunnerSupervisor is what the server serves: Supervisor, or NopSupervisor
+// for a daemon that starts no runners.
+type RunnerSupervisor interface {
+	// Reconcile adopts and resumes the runners found before the daemon
+	// listens.
+	Reconcile(ctx context.Context) error
+	// Watch resumes or finalizes dead runners until ctx ends.
+	Watch(ctx context.Context)
 	Runners() []RunnerStatus
 	Preflight(ctx context.Context, req PreflightRequest) (PreflightResponse, error)
 	Start(ctx context.Context, id string, resume bool) (int, error)
-	Stop(ctx context.Context, id string) error
+	// Stop reports false when the runner had already exited.
+	Stop(ctx context.Context, id string) (bool, error)
 	StopAll(ctx context.Context, keep bool) (stopped, kept []string)
 	Idle() bool // no live runner
+	// Warnings are the configuration problems the daemon reports in its status.
+	Warnings() []string
+}
+
+// processReader reads a process's start time, to tell a live runner from a
+// reused pid.
+type processReader interface {
+	StartTime(pid int) (time.Time, error)
+}
+
+// processStarter starts and signals runner processes.
+type processStarter interface {
+	// Start runs exe with args in its own session, stdin and stdout on
+	// /dev/null, stderr appended to logPath, working directory dir and
+	// environment env. It returns the process id, which is also its group id.
+	Start(exe string, args []string, dir, logPath string, env []string) (pid int, err error)
+	Signal(pgid int, sig syscall.Signal) error
+}
+
+// RunnerRecords is what a runner's finalizer records through: machine.Store
+// plus the lineage ws machine result computes.
+type RunnerRecords interface {
+	Dir(root, child string) string
+	Read(root, child string) (machine.Record, error)
+	WriteResult(root, child string, r *machine.Result, report []byte) error
+	Lineage(child string) (root string, ancestors []string, err error)
 }
 
 // RunnerStatus is one runner the daemon watches.
@@ -38,10 +73,12 @@ type RunnerStatus struct {
 }
 
 // PreflightRequest names a model to check; each empty field is the default.
+// Check selects `ws runner check`'s defaults over the role's.
 type PreflightRequest struct {
 	Role     string `json:"role"`
 	Endpoint string `json:"endpoint"`
 	Model    string `json:"model"`
+	Check    bool   `json:"check"`
 }
 
 // PreflightResponse is `ws runner check`'s object (reference.md).
@@ -59,9 +96,15 @@ type PreflightResponse struct {
 	Warnings      []string `json:"warnings"`
 }
 
-// NopSupervisor is the Supervisor until T18's supervisor replaces it: no
-// runners, and every runner request is ErrNotSupervising.
+// NopSupervisor is the RunnerSupervisor of a daemon with no runners: every
+// runner request is ErrNotSupervising.
 type NopSupervisor struct{}
+
+// Reconcile has no runners to adopt.
+func (NopSupervisor) Reconcile(context.Context) error { return nil }
+
+// Watch returns at once: there is nothing to watch.
+func (NopSupervisor) Watch(context.Context) {}
 
 // Runners returns no runners.
 func (NopSupervisor) Runners() []RunnerStatus { return []RunnerStatus{} }
@@ -77,10 +120,13 @@ func (NopSupervisor) Start(context.Context, string, bool) (int, error) {
 }
 
 // Stop is ErrNotSupervising.
-func (NopSupervisor) Stop(context.Context, string) error { return ErrNotSupervising }
+func (NopSupervisor) Stop(context.Context, string) (bool, error) { return false, ErrNotSupervising }
 
 // StopAll has no runner to stop or keep.
 func (NopSupervisor) StopAll(context.Context, bool) (stopped, kept []string) { return nil, nil }
 
 // Idle is always true: there is no runner.
 func (NopSupervisor) Idle() bool { return true }
+
+// Warnings has none.
+func (NopSupervisor) Warnings() []string { return []string{} }

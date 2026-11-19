@@ -296,8 +296,10 @@ func listedEntry(listing lifetime.Listing, id string) *lifetime.Entry {
 // be recorded. A script that exits non-zero starts nothing, so its error
 // has no run to record.
 func (a *App) attemptRun(ctx context.Context, l *loop.Loop, check *claudeCheck, force bool) (loop.Run, workspace.Workspace, error) {
-	if err := check.ready(ctx, a.claude); err != nil {
-		return failedRun(a.now(), err), workspace.Workspace{}, err
+	if l.RunsOn() == loop.RunnerClaude {
+		if err := check.ready(ctx, a.claude); err != nil {
+			return failedRun(a.now(), err), workspace.Workspace{}, err
+		}
 	}
 	data := loop.PromptData{}
 	if !force {
@@ -333,6 +335,9 @@ func (a *App) memoryValues(l *loop.Loop) map[string]string {
 // claude does, and returns the run to record. A failure is in the Run's
 // ErrorCode/ErrorMessage and also returned.
 func (a *App) startLoopRun(ctx context.Context, l *loop.Loop, prompt string) (loop.Run, workspace.Workspace, error) {
+	if l.RunsOn() == loop.RunnerWS {
+		return a.startLoopRunnerRun(ctx, l, prompt)
+	}
 	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: "loop-" + l.Name, Specs: parseSpecs(l.Specs), Hidden: l.RunsHidden()})
 	if err != nil {
 		return failedRun(a.now(), err), workspace.Workspace{}, domainError(err)
@@ -344,6 +349,21 @@ func (a *App) startLoopRun(ctx context.Context, l *loop.Loop, prompt string) (lo
 		return failedRun(a.now(), err), ws, err
 	}
 	return loop.Run{StartedAt: a.now().UTC(), Workspace: ws.ID, Session: started.ID}, ws, nil
+}
+
+// startLoopRunnerRun starts a run of a ws loop on the runner, through the
+// start ws runner agents share (ADR 0070). It is a parentless agent, so its
+// results stay in its own runner directory. A failed start is in the Run's
+// error, and nothing else is started in its place.
+func (a *App) startLoopRunnerRun(ctx context.Context, l *loop.Loop, prompt string) (loop.Run, workspace.Workspace, error) {
+	started, err := a.startRunnerAgent(ctx, runnerStart{
+		Name: "loop-" + l.Name, Endpoint: l.Endpoint, Model: l.Model, Specs: l.Specs, Hidden: l.RunsHidden(), Prompt: prompt,
+	})
+	if err != nil {
+		return failedRun(a.now(), err), workspace.Workspace{}, err
+	}
+	a.writeRunMark(started.Workspace.ID, l.Name)
+	return loop.Run{StartedAt: a.now().UTC(), Workspace: started.Workspace.ID, Session: started.Session}, started.Workspace, nil
 }
 
 // failedRun is the run of a start that failed, with its error.

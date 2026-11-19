@@ -54,13 +54,13 @@ func WithVersion(ctx context.Context, version string) context.Context {
 // "parent gone; acting as transient" and applies the transient rule.
 //
 //nolint:gocritic // hugeParam: the contract takes Paths by value.
-func Serve(ctx context.Context, p Paths, origin string, sup Supervisor, log *slog.Logger) error {
+func Serve(ctx context.Context, p Paths, origin string, sup RunnerSupervisor, log *slog.Logger) error {
 	opts := options{idle: idleLimit, parentPoll: parentInterval, getppid: os.Getppid}
 	return serve(ctx, p, origin, sup, log, opts)
 }
 
 //nolint:gocritic // hugeParam: the contract takes Paths by value.
-func serve(ctx context.Context, p Paths, origin string, sup Supervisor, log *slog.Logger, opts options) error {
+func serve(ctx context.Context, p Paths, origin string, sup RunnerSupervisor, log *slog.Logger, opts options) error {
 	if !validOrigin(origin) {
 		return fmt.Errorf("unknown origin %q", origin)
 	}
@@ -69,6 +69,9 @@ func serve(ctx context.Context, p Paths, origin string, sup Supervisor, log *slo
 		return err
 	}
 	defer release()
+	if err = sup.Reconcile(ctx); err != nil {
+		return fmt.Errorf("reconciling runners: %w", err)
+	}
 	ln, err := listen(ctx, p.Socket)
 	if err != nil {
 		return err
@@ -78,6 +81,9 @@ func serve(ctx context.Context, p Paths, origin string, sup Supervisor, log *slo
 		_ = ln.Close()
 		return err
 	}
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	go sup.Watch(watchCtx)
 	s := &server{paths: p, info: info, sup: sup, log: log, opts: opts, stop: make(chan struct{}, 1)}
 	s.touch()
 	return s.run(ctx, ln)
@@ -86,7 +92,7 @@ func serve(ctx context.Context, p Paths, origin string, sup Supervisor, log *slo
 type server struct {
 	paths       Paths
 	info        Info
-	sup         Supervisor
+	sup         RunnerSupervisor
 	log         *slog.Logger
 	opts        options
 	lastRequest atomic.Int64 // UnixNano of the last request
@@ -213,7 +219,7 @@ func (s *server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		Socket:    s.info.Socket,
 		ConfigDir: filepath.Dir(s.paths.Dir),
 		Runners:   s.sup.Runners(),
-		Warnings:  []string{},
+		Warnings:  s.sup.Warnings(),
 	})
 }
 
@@ -244,11 +250,12 @@ func (s *server) handleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleStop(w http.ResponseWriter, r *http.Request) {
-	if err := s.sup.Stop(r.Context(), r.PathValue("id")); err != nil {
+	stopped, err := s.sup.Stop(r.Context(), r.PathValue("id"))
+	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, stopResponse{Stopped: true})
+	writeJSON(w, http.StatusOK, stopResponse{Stopped: stopped})
 }
 
 func (s *server) handleShutdown(w http.ResponseWriter, r *http.Request) {
@@ -299,6 +306,10 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 func writeFailure(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrNotSupervising) {
 		writeError(w, http.StatusNotImplemented, "not_supervising", err.Error(), nil)
+		return
+	}
+	if remote, ok := errors.AsType[*RemoteError](err); ok {
+		writeError(w, http.StatusUnprocessableEntity, remote.Code, remote.Message, remote.Details)
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "internal", err.Error(), nil)
