@@ -10,6 +10,8 @@ import styles from "./ConversationView.module.css";
 
 export interface ConversationViewProps {
   readonly sessionId: string;
+  /** The workspace of a `ws` runner's agent, whose transcript is read instead; null for Claude. */
+  readonly workspaceId: string | null;
   readonly status: Status;
   readonly detail: string | null;
   readonly onShowTerminal: () => void;
@@ -90,6 +92,8 @@ const RowView = ({ row }: { readonly row: Row }): JSX.Element | null => {
       );
     case "notice":
       return <div className={styles.notice}>{item.text}</div>;
+    case "warning":
+      return <div className={styles.warning}>{item.text}</div>;
   }
 };
 
@@ -98,7 +102,13 @@ const RowView = ({ row }: { readonly row: Row }): JSX.Element | null => {
  * grows. It stays at the bottom while the reader is there, and stays put
  * when they've scrolled up.
  */
-export const ConversationView = ({ sessionId, status, detail, onShowTerminal }: ConversationViewProps): JSX.Element => {
+export const ConversationView = ({
+  sessionId,
+  workspaceId,
+  status,
+  detail,
+  onShowTerminal,
+}: ConversationViewProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const conversation = useAppSelector((s) => s.conversations.bySession[sessionId]);
   const rows = useMemo(() => toRows(conversation?.items ?? []), [conversation?.items]);
@@ -106,13 +116,14 @@ export const ConversationView = ({ sessionId, status, detail, onShowTerminal }: 
   const following = useRef(true);
   const [behind, setBehind] = useState(false);
   useEffect(() => {
-    void dispatch(fetchConversation(sessionId));
-    const timer = window.setInterval(() => void dispatch(fetchConversation(sessionId)), followInterval);
+    const source = { sessionId, workspaceId };
+    void dispatch(fetchConversation(source));
+    const timer = window.setInterval(() => void dispatch(fetchConversation(source)), followInterval);
     return () => {
       window.clearInterval(timer);
       dispatch(conversationClosed(sessionId));
     };
-  }, [dispatch, sessionId]);
+  }, [dispatch, sessionId, workspaceId]);
   useLayoutEffect(() => {
     const element = scroller.current;
     if (element === null) {

@@ -23,6 +23,8 @@ mod pty;
 mod reviews;
 mod roles;
 mod runner;
+mod runner_service;
+mod secrets;
 mod stats;
 mod transcript;
 mod tray;
@@ -105,6 +107,7 @@ pub fn run() {
             commands::restore_agents,
             commands::open_external,
             commands::read_transcript,
+            commands::runner_stop,
             commands::terminal_open,
             commands::terminal_write,
             commands::terminal_resize,
@@ -142,6 +145,11 @@ pub fn run() {
             ws_config::config_list,
             ws_config::config_set,
             ws_config::config_unset,
+            ws_config::runner_settings_get,
+            runner_service::daemon_status,
+            runner_service::daemon_restart,
+            runner_service::runner_check,
+            secrets::endpoint_token_set,
             cache::cache_search,
             about::settings_environment,
             roles::roles_list,

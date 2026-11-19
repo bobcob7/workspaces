@@ -6,7 +6,7 @@ export type ToolResult = Of<"toolResult">;
 
 /** What the conversation shows: messages, and each tool call with its result. */
 export type Row =
-  | { readonly kind: "message"; readonly item: Of<"user" | "assistant" | "thinking" | "notice"> }
+  | { readonly kind: "message"; readonly item: Of<"user" | "assistant" | "thinking" | "notice" | "warning"> }
   | { readonly kind: "tool"; readonly use: Of<"toolUse">; readonly result: ToolResult | null };
 
 /**

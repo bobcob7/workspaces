@@ -45,6 +45,25 @@
     hidden: false,
     parentId: null,
     loopRun: null,
+    runner: overrides.kind === "shell" ? "" : "claude",
+    model: overrides.kind === "shell" ? null : "sonnet-5-5",
+    wsRunner: null,
+    ...overrides,
+  });
+
+  const wsRun = (overrides) => ({
+    modelAlias: "qwen9b-think",
+    endpoint: "gpu",
+    url: "http://gpu-a.inference.svc:1234",
+    api: "openai",
+    contextTokens: 131072,
+    step: 12,
+    maxSteps: 40,
+    restarts: 0,
+    usage: { requests: 12, promptTokens: 210000, completionTokens: 9100 },
+    mcp: [],
+    exit: null,
+    endpointChanges: 0,
     ...overrides,
   });
 
@@ -290,6 +309,19 @@
 
   const data = {
     roles: initialRoles(),
+    runnerSettings: {
+      runner: { model: "qwen9b" },
+      endpoints: [
+        { name: "gpu", url: "http://gpu-a.inference.svc:1234", api: "openai", probe: "none", request_timeout: "10m", idle_timeout: "90s" },
+        { name: "ollama", url: "http://localhost:11434", api: "ollama", probe: "ollama", request_timeout: "10m", idle_timeout: "90s" },
+      ],
+      models: [
+        { alias: "qwen9b", endpoint: "gpu", id: "qwen/qwen3.5-9b", context_tokens: 65536, max_output: 8192, temperature: 0.2, reasoning: "none" },
+        { alias: "qwen9b-think", endpoint: "gpu", id: "qwen/qwen3.5-9b", context_tokens: 131072, max_output: 8192, temperature: 0.2, reasoning: "" },
+        { alias: "qwen27b", endpoint: "gpu", id: "qwen/qwen3.5-27b", context_tokens: 32768, max_output: 4096, temperature: 0, reasoning: "" },
+      ],
+      roles: [{ role: "implementer", runner: "ws", model: "qwen9b", max_steps: 80, timeout: "60m", max_tokens: 8192, mcp_servers: [] }],
+    },
     // Run history per loop: runs newest first, reports by seq (reportText).
     loopHistory: {
       "deps-bump": {
@@ -547,10 +579,32 @@
         lastGate: null,
         hidden: false,
       },
+      {
+        name: "issue-triage",
+        title: "Issue triage",
+        every: "6h",
+        prompt: "Label new issues and ask for missing details.",
+        specs: ["buff-bear"],
+        model: "qwen9b",
+        permissionMode: null,
+        keep: 5,
+        paused: false,
+        createdAt: "2026-10-20T09:00:00Z",
+        nextRunAt: "2026-10-25T12:00:00Z",
+        lastRun: null,
+        script: null,
+        scriptTimeout: null,
+        vars: {},
+        lastGate: null,
+        hidden: true,
+        runner: "ws",
+        endpoint: "gpu",
+      },
     ],
     entries: [
       entry({
         workspaceId: "fix-login-d8efb24f",
+        model: "opus-5-5",
         sessionId: "e8cdf5d8",
         path: "/w/fix-login-d8efb24f",
         status: "needsInput",
@@ -603,6 +657,7 @@
       }),
       entry({
         workspaceId: "fix-login-t1-review-6d0a4f21",
+        model: "haiku-5-5",
         sessionId: "6d0a4f21",
         parentId: "fix-login-d8efb24f",
         path: "/w/fix-login-t1-review-6d0a4f21",
@@ -610,6 +665,33 @@
         intent: "Review T1",
         updatedAt: "2026-10-24T09:20:00Z",
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
+      }),
+      entry({
+        workspaceId: "fix-login-t2-impl-41aa0b7c",
+        sessionId: "rn-5d2e8b10",
+        parentId: "fix-login-d8efb24f",
+        path: "/w/fix-login-t2-impl-41aa0b7c",
+        status: "working",
+        intent: "Implement T2: login throttle",
+        updatedAt: "2026-10-24T09:38:00Z",
+        repos: [repo(buffBear, "buff-bear", "main", "branch")],
+        runner: "ws",
+        model: "qwen/qwen3.5-9b",
+        wsRunner: wsRun({}),
+      }),
+      entry({
+        workspaceId: "fix-login-t3-verify-0d9e2f61",
+        sessionId: "rn-91b0c7aa",
+        parentId: "fix-login-d8efb24f",
+        path: "/w/fix-login-t3-verify-0d9e2f61",
+        status: "done",
+        intent: "Verify T2",
+        result: "PASS",
+        updatedAt: "2026-10-24T09:10:00Z",
+        repos: [repo(buffBear, "buff-bear", "main", "branch")],
+        runner: "ws",
+        model: "qwen/qwen3.5-9b",
+        wsRunner: wsRun({ modelAlias: "qwen9b", contextTokens: 65536, step: 14, maxSteps: 30, exit: "done" }),
       }),
       entry({
         workspaceId: "review-buff-bear-42-3f2a9c1-1f0c33d8",
@@ -1000,6 +1082,36 @@
 
   Object.assign(mock.handlers, {
     list_entries: () => ({ entries: data.entries, warnings: [] }),
+    runner_settings_get: () => data.runnerSettings,
+    daemon_status: () => ({
+      running: true,
+      pid: 40211,
+      origin: "app",
+      started_at: "2026-11-14T08:00:03Z",
+      ws_version: "v0.31.0",
+      socket: "/run/ws.sock",
+      config_dir: "/c",
+      runners: [{ workspace: "fix-login-t2-impl-41aa0b7c", session: "rn-5d2e8b10", pid: 51234, state: "working", restarts: 0, adopted: false }],
+      warnings: [],
+    }),
+    daemon_restart: () => ({ stopped: true, pid: 40211, runners_stopped: [], runners_kept: ["rn-5d2e8b10"], warnings: [] }),
+    runner_check: ({ endpoint }) => ({
+      endpoint,
+      url: "http://gpu-a.inference.svc:1234",
+      api: "openai",
+      probe: "none",
+      model: "qwen/qwen3.5-9b",
+      version: null,
+      capabilities: null,
+      context_tokens: 65536,
+      models: ["qwen/qwen3.5-9b", "qwen/qwen3.5-27b"],
+      token_source: null,
+      warnings: [],
+    }),
+    endpoint_token_set: () => null,
+    runner_stop: ({ id }) => ({ id, session: "rn-5d2e8b10", stopped: true, warnings: [] }),
+    create_agent: () => ({ id: "new-agent-1a2b3c4d", session: "1a2b3c4d", path: "/w/new-agent-1a2b3c4d" }),
+
     stats_get: ({ sinceMs }) => statsFor(sinceMs),
     cache_repos: () => [buffBear, api, workspaces],
     cache_list: () => ({
@@ -1141,7 +1253,7 @@
       data.roles = restored ? data.roles.map((role) => (role.name === name ? builtin : role)) : data.roles.filter((role) => role.name !== name);
       return { name, path: `${roleDir}/${name}.md`, restored };
     },
-    loops_list: () => ({ loops: data.loops, warnings: [] }),
+    loops_list: () => ({ loops: data.loops.map((loop) => ({ runner: "claude", endpoint: null, ...loop })), warnings: [] }),
     loops_add: ({ request }) => {
       const added = { ...loopFields(request), name: request.name, paused: false, createdAt: "2026-10-24T12:00:00Z", nextRunAt: "2026-10-24T13:00:00Z", lastRun: null, lastGate: null };
       data.loops = [...data.loops, added];
@@ -1213,8 +1325,15 @@
       data.loopMemory[name] = { entries: [] };
       return { loop: name, removed, warnings: [] };
     },
-    read_transcript: ({ offset }) => ({
-      items: offset > 0 ? [] : [
+    read_transcript: ({ offset, sessionId }) => ({
+      items: offset > 0 ? [] : sessionId?.startsWith("rn-") ? [
+        { id: "r1", at: "2026-10-24T09:30:00Z", kind: "user", text: "Implement T2: throttle repeated failed logins per account." },
+        { id: "r2", at: "2026-10-24T09:30:20Z", kind: "assistant", text: "I'll start by reading the limiter in internal/auth." },
+        { id: "r3", at: "2026-10-24T09:30:30Z", kind: "toolUse", toolUseId: "t1", name: "read_file", summary: "internal/auth/limiter.go", input: "{\"path\":\"internal/auth/limiter.go\"}" },
+        { id: "r4", at: "2026-10-24T09:30:31Z", kind: "toolResult", toolUseId: "t1", text: "package auth\n\n// Limiter is a token bucket per IP.", isError: false },
+        { id: "r5", at: "2026-10-24T09:31:10Z", kind: "toolUse", toolUseId: "t2", name: "run", summary: "make test", input: "{\"cmd\":\"make test\"}" },
+        { id: "r6", at: "2026-10-24T09:31:40Z", kind: "toolResult", toolUseId: "t2", text: "FAIL internal/auth TestThrottle", isError: true },
+      ] : [
         { id: "u1", at: "2026-10-24T09:01:00Z", kind: "user", text: "Check the login rate limit." },
         { id: "a1", at: "2026-10-24T09:01:20Z", kind: "assistant", text: "The limiter is per-IP; I'll look at the middleware." },
       ],

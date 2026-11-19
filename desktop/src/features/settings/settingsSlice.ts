@@ -5,6 +5,8 @@ import {
   type ConfigChange,
   type ConfigListing,
   type ConfigSetting,
+  type DaemonStatus,
+  type DaemonStopped,
   type Environment,
   type ListedProfile,
   type NotificationSettings,
@@ -18,6 +20,8 @@ import {
   type RoleDraft,
   type RoleRemoved,
   type ListedRole,
+  type RunnerCheck,
+  type RunnerSettings,
   type SearchMatch,
   type Settings,
   type Versions,
@@ -25,7 +29,7 @@ import {
 import { createAppThunk } from "../../thunk";
 
 /** Settings groups, in list order. */
-export type SettingsGroup = "repos" | "reviews" | "forges" | "roles" | "notifications" | "workspaces" | "about";
+export type SettingsGroup = "repos" | "reviews" | "forges" | "models" | "roles" | "notifications" | "workspaces" | "about";
 
 export type ReviewSettingKey = keyof ReviewSettings;
 
@@ -299,6 +303,60 @@ export const unsetConfig = createAppThunk<ConfigChange, string>("settings/unsetC
     return rejectWithValue(toAppError(err));
   }
 });
+
+/** The runner's keys for Settings › Models. */
+export const fetchRunnerSettings = createAppThunk<RunnerSettings, void>(
+  "settings/fetchRunnerSettings",
+  async (_arg, { extra, rejectWithValue }) => {
+    try {
+      return await extra.api.runnerSettingsGet();
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+/** The runner service's status, from `ws daemon status`. */
+export const fetchDaemonStatus = createAppThunk<DaemonStatus, void>("settings/fetchDaemonStatus", async (_arg, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.daemonStatus();
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** Stops the runner service and keeps its runners; the app starts it again. */
+export const restartDaemon = createAppThunk<DaemonStopped, void>("settings/restartDaemon", async (_arg, { extra, rejectWithValue }) => {
+  try {
+    return await extra.api.daemonRestart();
+  } catch (err: unknown) {
+    return rejectWithValue(toAppError(err));
+  }
+});
+
+/** Runs the spawn preflight for an endpoint, and for a model on it. Empty strings leave the defaults to ws. */
+export const checkRunner = createAppThunk<RunnerCheck, { endpoint: string; model: string }>(
+  "settings/checkRunner",
+  async ({ endpoint, model }, { extra, rejectWithValue }) => {
+    try {
+      return await extra.api.runnerCheck(endpoint, model);
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+/** Saves an endpoint's token to secrets.env; an empty token removes it. */
+export const setEndpointToken = createAppThunk<void, { name: string; token: string }>(
+  "settings/setEndpointToken",
+  async ({ name, token }, { extra, rejectWithValue }) => {
+    try {
+      return await extra.api.endpointTokenSet(name, token);
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
 
 /**
  * Writes each desktop.json profile override with ws config, then clears them

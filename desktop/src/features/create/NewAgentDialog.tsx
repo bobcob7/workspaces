@@ -7,7 +7,6 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
-  MenuItem,
   TextField,
 } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
@@ -16,11 +15,14 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { createAgent, createErrorCleared } from "../agents/agentsSlice";
 import { dialogClosed } from "../ui/uiSlice";
 import { RepoSpecsField } from "./RepoSpecsField";
+import { RunnerModelFields, type RunnerModelValues } from "./RunnerModelFields";
+import { useRunnerSettings } from "./useRunnerSettings";
 import { usePrefilledSpecs } from "./usePrefilledSpecs";
 import styles from "./NewDialog.module.css";
 
-export const models = ["", "opus", "sonnet", "haiku", "fable"] as const;
-export const permissionModes = ["", "manual", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"] as const;
+export { models, permissionModes } from "./RunnerModelFields";
+
+const emptyRunner: RunnerModelValues = { runner: "claude", model: "", endpoint: "", permissionMode: "" };
 
 const errorHint = (error: AppError): string | null => {
   if (error.code !== "claude_untrusted") {
@@ -40,17 +42,24 @@ export const NewAgentDialog = (): JSX.Element => {
   const [name, setName] = useState("");
   const [specs, setSpecs] = useState<readonly string[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("");
-  const [permissionMode, setPermissionMode] = useState("");
+  const [runnerFields, setRunnerFields] = useState<RunnerModelValues>(emptyRunner);
   const [offline, setOffline] = useState(false);
+  const runnerSettings = useRunnerSettings(open);
+  const promptMissing = runnerFields.runner === "ws" && prompt.trim() === "";
   usePrefilledSpecs(open, setSpecs);
   const close = (): void => {
     dispatch(dialogClosed());
     dispatch(createErrorCleared());
   };
+  const changeRunner = (change: Partial<RunnerModelValues>): void => {
+    setRunnerFields((current) => ({ ...current, ...change }));
+  };
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
-    const result = await dispatch(createAgent({ name, specs, prompt, model, permissionMode, offline }));
+    const { runner, model, endpoint, permissionMode } = runnerFields;
+    const result = await dispatch(
+      createAgent({ name, specs, prompt, model, permissionMode, offline, runner, endpoint }),
+    );
     if (createAgent.fulfilled.match(result)) {
       setName("");
       setSpecs([]);
@@ -78,32 +87,14 @@ export const NewAgentDialog = (): JSX.Element => {
             onChange={(e) => setPrompt(e.target.value)}
             multiline
             minRows={4}
-            placeholder="What should the agent do? Leave empty to start it waiting for you."
+            placeholder={
+              runnerFields.runner === "ws"
+                ? "What should the agent do?"
+                : "What should the agent do? Leave empty to start it waiting for you."
+            }
+            helperText={promptMissing ? "Required for the ws runner" : undefined}
           />
-          <div className={styles.row}>
-            <TextField select label="Model"
-              slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }} value={model} onChange={(e) => setModel(e.target.value)} fullWidth>
-              {models.map((m) => (
-                <MenuItem key={m} value={m}>
-                  {m === "" ? "Default" : m}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="Permission mode"
-              slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-              value={permissionMode}
-              onChange={(e) => setPermissionMode(e.target.value)}
-              fullWidth
-            >
-              {permissionModes.map((m) => (
-                <MenuItem key={m} value={m}>
-                  {m === "" ? "Default" : m}
-                </MenuItem>
-              ))}
-            </TextField>
-          </div>
+          <RunnerModelFields {...runnerFields} settings={runnerSettings} onChange={changeRunner} />
           <FormControlLabel
             control={<Checkbox checked={offline} onChange={(e) => setOffline(e.target.checked)} />}
             label="Offline: use the cache as it is, without fetching"
@@ -119,7 +110,7 @@ export const NewAgentDialog = (): JSX.Element => {
           <Button onClick={close} disabled={creating}>
             Cancel
           </Button>
-          <Button type="submit" variant="contained" disabled={creating}>
+          <Button type="submit" variant="contained" disabled={creating || promptMissing}>
             {creating ? "Starting…" : "Start agent"}
           </Button>
         </DialogActions>

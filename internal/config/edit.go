@@ -278,6 +278,13 @@ func unsetTable(data []byte, table string) ([]byte, bool, error) {
 	return out, !bytes.Equal(data, out), nil
 }
 
+// IsEntryTable reports whether key names a table that Unset removes whole:
+// endpoints.<name>, models.<alias>, or runner.roles.<role>.
+func IsEntryTable(key string) bool {
+	_, ok := entryTable(key)
+	return ok
+}
+
 // entryTable is the table of an entry key that unset removes whole:
 // endpoints.<name>, models.<alias>, or runner.roles.<role>.
 func entryTable(key string) (string, bool) {
@@ -1289,8 +1296,8 @@ func isDynamicTable(table string) bool {
 	return false
 }
 
-// removeTable returns lines without table's header and keys. Comments and
-// blank lines stay.
+// removeTable returns lines without table's header and keys, and the blank
+// lines that follow the header or a removed key. Comment lines stay.
 func removeTable(lines []string, table string) []string {
 	names := sectionNames(lines)
 	kept := make([]string, 0, len(lines))
@@ -1300,6 +1307,7 @@ func removeTable(lines []string, table string) []string {
 			continue
 		}
 		if header, ok := headerName(lineText(lines[i])); ok && header == table {
+			i = skipBlank(lines, i)
 			continue
 		}
 		sp, ok := spanAt(lines, i)
@@ -1307,9 +1315,17 @@ func removeTable(lines []string, table string) []string {
 			kept = append(kept, lines[i])
 			continue
 		}
-		i = sp.last
+		i = skipBlank(lines, sp.last)
 	}
 	return kept
+}
+
+// skipBlank is the index of the last blank line right after lines[i], or i.
+func skipBlank(lines []string, i int) int {
+	for i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == "" {
+		i++
+	}
+	return i
 }
 
 // tableHasKeys reports whether any key line belongs to table.

@@ -45,9 +45,16 @@ describe("fetchConversation", () => {
   it("reads from where the last read ended", async () => {
     const readTranscript = vi.fn(async () => chunk({ items: [user("a")], next: 42 }));
     const store = testStore({ api: fakeApi({ readTranscript }) });
-    await store.dispatch(fetchConversation("s1"));
-    await store.dispatch(fetchConversation("s1"));
-    expect(readTranscript).toHaveBeenLastCalledWith("s1", 42);
+    await store.dispatch(fetchConversation({ sessionId: "s1", workspaceId: null }));
+    await store.dispatch(fetchConversation({ sessionId: "s1", workspaceId: null }));
+    expect(readTranscript).toHaveBeenLastCalledWith("s1", 42, null);
+  });
+
+  it("reads a ws runner's transcript by its workspace", async () => {
+    const readTranscript = vi.fn(async () => chunk({ items: [], next: 0 }));
+    const store = testStore({ api: fakeApi({ readTranscript }) });
+    await store.dispatch(fetchConversation({ sessionId: "rn-1", workspaceId: "t1" }));
+    expect(readTranscript).toHaveBeenCalledWith("rn-1", 0, "t1");
   });
 
   it("ignores a read that started before the conversation was reopened", async () => {
@@ -57,9 +64,9 @@ describe("fetchConversation", () => {
       .mockImplementationOnce(async () => new Promise<TranscriptChunk>((resolve) => (finish = resolve)))
       .mockImplementation(async () => chunk({ items: [user("a")], next: 42 }));
     const store = testStore({ api: fakeApi({ readTranscript }) });
-    const first = store.dispatch(fetchConversation("s1"));
+    const first = store.dispatch(fetchConversation({ sessionId: "s1", workspaceId: null }));
     store.dispatch(conversationClosed("s1"));
-    await store.dispatch(fetchConversation("s1"));
+    await store.dispatch(fetchConversation({ sessionId: "s1", workspaceId: null }));
     finish(chunk({ items: [user("a")], next: 42 }));
     await first;
     expect(store.getState().conversations.bySession["s1"]?.items).toHaveLength(1);
@@ -70,13 +77,13 @@ describe("fetchConversation", () => {
       throw { code: "transcript_missing", message: "no transcript" };
     });
     const store = testStore({ api: fakeApi({ readTranscript }) });
-    await store.dispatch(fetchConversation("s1"));
+    await store.dispatch(fetchConversation({ sessionId: "s1", workspaceId: null }));
     expect(store.getState().conversations.bySession["s1"]?.error?.code).toBe("transcript_missing");
   });
 
   it("forgets a conversation once it's closed", async () => {
     const store = testStore();
-    await store.dispatch(fetchConversation("s1"));
+    await store.dispatch(fetchConversation({ sessionId: "s1", workspaceId: null }));
     store.dispatch(conversationClosed("s1"));
     expect(store.getState().conversations.bySession["s1"]).toBeUndefined();
   });

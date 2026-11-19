@@ -36,6 +36,8 @@ import { editorDir, openWorkspace, renameEntry, setEntryHidden, stopAgent } from
 import { ChildrenCard } from "./ChildrenCard";
 import { RemoveDialog } from "./RemoveDialog";
 import { isLive } from "./status";
+import { RunCard } from "./RunCard";
+import { isRunnerRunning, modelTooltip, stepLabel, tokensLine } from "./runner";
 import { StatusDot } from "./StatusDot";
 import styles from "./EntryPane.module.css";
 
@@ -146,6 +148,10 @@ const RenameDialog = ({ entry, open, onClose }: RenameDialogProps): JSX.Element 
 
 export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const dispatch = useAppDispatch();
+  const isRunner = entry.runner === "ws";
+  const run = entry.wsRunner;
+  const stepText = stepLabel(run);
+  const usageText = run?.usage ? tokensLine(run.usage) : null;
   const terminal = useAppSelector((s) => terminalFor(s.terminals.items, entry));
   const termKey = terminal?.key ?? (entry.kind === "agent" && entry.sessionId !== null ? attachKey(entry.sessionId) : null);
   const busy = useAppSelector((s) => s.agents.busy.includes(entry.key));
@@ -184,7 +190,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   // Attach when an agent that's running is selected, as agent view does.
   // A stopped one waits for Resume, since attaching restarts it.
   useEffect(() => {
-    if (entry.kind === "agent" && isLive(entry.status) && entry.status !== "starting") {
+    if (!isRunner && entry.kind === "agent" && isLive(entry.status) && entry.status !== "starting") {
       attach();
     }
   }, [entry.key]);
@@ -203,7 +209,8 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const attached = terminal !== undefined && terminal.state !== "exited";
   const isAgent = entry.kind === "agent" && entry.sessionId !== null;
   // Without a shell terminal for this entry, the shell view falls back to the conversation.
-  const shownView: AgentView = view === "shell" && dirTerminal === undefined ? "conversation" : view;
+  const requestedView: AgentView = isRunner && view === "terminal" ? "conversation" : view;
+  const shownView: AgentView = requestedView === "shell" && dirTerminal === undefined ? "conversation" : requestedView;
   const shellShown = shownView === "shell" && dirTerminal !== undefined;
   const showConversation = isAgent && shownView === "conversation";
   // The conversation types into the hidden terminal, so it counts as shown
@@ -221,7 +228,8 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
     closeMenu();
     action();
   };
-  const canStop = isAgent && isLive(entry.status);
+  const canStopAgent = !isRunner && isAgent && isLive(entry.status);
+  const canStopRunner = isRunnerRunning(entry);
   const canDetach = isAgent && attached && termKey !== null;
   const openItems = (close: () => void): JSX.Element[] => [
     ...(isWeb()
@@ -262,7 +270,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
       Open terminal
     </MenuItem>,
   ];
-  const viewToggle = isAgent && (
+  const viewToggle = isAgent && !isRunner && (
     <ToggleButtonGroup
       size="small"
       exclusive
@@ -279,7 +287,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
       {dirTerminal !== undefined && <ToggleButton value="shell">Shell</ToggleButton>}
     </ToggleButtonGroup>
   );
-  const attachButton = isAgent && !attached && (
+  const attachButton = isAgent && !isRunner && !attached && (
     <Button size="small" variant="contained" onClick={attach}>
       {isLive(entry.status) ? "Attach" : "Resume"}
     </Button>
@@ -289,6 +297,11 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
       <header className={`${styles.header} ${phone ? styles.compact : ""}`}>
         <div className={styles.titleRow}>
           <h1 className={styles.title}>{entry.name}</h1>
+          {entry.model !== null && (
+            <span className={styles.titleModel} title={modelTooltip(entry)}>
+              {entry.model}
+            </span>
+          )}
           <StatusDot status={entry.status} withLabel={!phone} />
           {!phone && entry.stale === true && (
             <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
@@ -312,7 +325,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
               <Menu anchorEl={menuAnchor} open={menuAnchor !== null} onClose={closeMenu}>
                 {openItems(closeMenu)}
                 {canDetach && <MenuItem onClick={fromMenu(() => void dispatch(closeTerminal(termKey)))}>Detach</MenuItem>}
-                {canStop && (
+                {(canStopAgent || canStopRunner) && (
                   <MenuItem disabled={busy} onClick={fromMenu(() => void dispatch(stopAgent(entry)))}>
                     Stop
                   </MenuItem>
@@ -358,7 +371,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
               Detach
             </Button>
           )}
-          {isAgent && isLive(entry.status) && (
+          {canStopAgent && (
             <Button size="small" disabled={busy} onClick={() => void dispatch(stopAgent(entry))}>
               Stop
             </Button>
@@ -375,6 +388,11 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
               onClick={() => void dispatch(setEntryHidden({ entry, hidden: !entry.hidden }))}
             >
               {entry.hidden ? "Unhide" : "Hide"}
+            </Button>
+          )}
+          {canStopRunner && (
+            <Button size="small" variant="outlined" disabled={busy} onClick={() => void dispatch(stopAgent(entry))}>
+              Stop
             </Button>
           )}
           {entry.kind !== "shell" && entry.kind !== "unknown" && (
@@ -399,6 +417,9 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             {entry.path}
           </button>
           {entry.sessionId !== null && <span className={styles.mono}>session {entry.sessionId}</span>}
+          {run?.endpoint && <span className={styles.mono}>endpoint {run.endpoint}</span>}
+          {stepText !== null && <Chip size="small" variant="outlined" label={stepText} />}
+          {usageText !== null && <Chip size="small" variant="outlined" label={usageText} />}
           {entry.repos.map((r) => (
             <Chip key={r.path} size="small" label={repoLabel(r.id, r.ref)} title={r.id} />
           ))}
@@ -469,12 +490,14 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
         </div>
       </header>
       <ChildrenCard entry={entry} />
+      {run !== null && <RunCard entry={entry} run={run} />}
       {shellShown && dirTerminal !== undefined ? (
         <TerminalView terminalKey={dirTerminal.key} generation={dirTerminal.generation} />
       ) : showConversation && entry.sessionId !== null ? (
         <>
           <ConversationView
             sessionId={entry.sessionId}
+            workspaceId={isRunner ? entry.workspaceId : null}
             status={entry.status}
             detail={entry.detail}
             onShowTerminal={() => dispatch(agentViewChosen("terminal"))}

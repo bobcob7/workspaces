@@ -297,3 +297,66 @@ describe("EntryPane's Open menu", () => {
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Open terminal"]);
   });
 });
+
+describe("EntryPane for a ws runner child", () => {
+  const wsRun = {
+    modelAlias: "qwen9b",
+    endpoint: "gpu",
+    url: "http://gpu-a.inference.svc:1234",
+    api: "openai",
+    contextTokens: 65536,
+    step: 12,
+    maxSteps: 80,
+    restarts: 0,
+    usage: { requests: 12, promptTokens: 210344, completionTokens: 9120 },
+    mcp: [],
+    exit: null,
+    endpointChanges: 0,
+  };
+  const wsChild = entry({
+    key: "t1-impl-d8efb24f",
+    name: "t1-impl",
+    workspaceId: "t1-impl-d8efb24f",
+    sessionId: "rn-3f2a9c1e",
+    path: "/w/t1-impl-d8efb24f",
+    status: "working",
+    runner: "ws",
+    model: "qwen/qwen3.5-9b",
+    wsRunner: wsRun,
+  });
+
+  it("shows its model beside the title, with its endpoint in the tooltip", () => {
+    renderWithStore(<EntryPane entry={wsChild} />, testStore());
+    expect(screen.getByText("qwen/qwen3.5-9b").getAttribute("title")).toBe(
+      "qwen/qwen3.5-9b · alias qwen9b · endpoint gpu (http://gpu-a.inference.svc:1234, OpenAI-compatible)",
+    );
+  });
+
+  it("offers no Attach, Resume or view toggle", () => {
+    renderWithStore(<EntryPane entry={wsChild} />, testStore());
+    expect(screen.queryByRole("button", { name: "Attach" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "View" })).not.toBeInTheDocument();
+  });
+
+  it("stops a working runner once, through its workspace, and leaves Claude's stop alone", async () => {
+    const api = fakeApi();
+    renderWithStore(<EntryPane entry={wsChild} />, testStore({ api }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(api.runnerStop).toHaveBeenCalledTimes(1);
+    expect(api.runnerStop).toHaveBeenCalledWith("t1-impl-d8efb24f");
+    expect(api.stopAgent).not.toHaveBeenCalled();
+  });
+
+  it("offers no Stop once the runner is idle", () => {
+    renderWithStore(<EntryPane entry={{ ...wsChild, status: "idle" }} />, testStore());
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("shows the run's endpoint and progress in its Run card", () => {
+    renderWithStore(<EntryPane entry={wsChild} />, testStore());
+    const run = screen.getByRole("region", { name: "Run" });
+    expect(within(run).getByText("gpu (http://gpu-a.inference.svc:1234, OpenAI-compatible)")).toBeInTheDocument();
+    expect(within(run).getByText("step 12 of 80")).toBeInTheDocument();
+  });
+});

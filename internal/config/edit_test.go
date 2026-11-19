@@ -341,6 +341,12 @@ func TestUnset(t *testing.T) {
 			want:  "[review.profiles.security]\nwhen = \"auto\"\n# keep me\n",
 		},
 		{
+			name:  "removes an endpoint table whole, keeping the next one",
+			input: "[endpoints.gpu]\nurl = \"http://gpu:1234\"\nprobe = \"ollama\"\n\n[endpoints.other]\nurl = \"http://other:1\"\n",
+			key:   "endpoints.gpu",
+			want:  "[endpoints.other]\nurl = \"http://other:1\"\n",
+		},
+		{
 			name:  "removes a key from a profile name Set refuses",
 			input: "[defaults]\nhost = \"a\"\n\n[review.profiles.Security]\nwhen = \"auto\"\n",
 			key:   "review.profiles.Security.when",
@@ -483,5 +489,51 @@ func TestWriteFile(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 1)
 		assert.Equal(t, "config.toml", entries[0].Name())
+	})
+}
+
+func TestIsEntryTable(t *testing.T) {
+	tests := map[string]bool{
+		"endpoints.gpu":        true,
+		"models.qwen9b":        true,
+		"runner.roles.checker": true,
+		"endpoints.gpu.url":    false,
+		"runner.model":         false,
+		"nope":                 false,
+	}
+	for key, want := range tests {
+		t.Run(key, func(t *testing.T) {
+			assert.Equal(t, want, IsEntryTable(key))
+		})
+	}
+}
+
+func TestRemoveTable(t *testing.T) {
+	remove := func(input, table string) string {
+		return strings.Join(removeTable(splitLines([]byte(input)), table), "")
+	}
+	t.Run("drops the keys and the blank lines after them", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\ny = 2\n\n[c]\nz = 3\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n[c]\nz = 3\n", got)
+	})
+	t.Run("the last table after a preceding table leaves that table intact", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\ny = 2\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n", got)
+	})
+	t.Run("a comment after the table stays", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\ny = 2\n\n# about c\n[c]\nz = 3\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n# about c\n[c]\nz = 3\n", got)
+	})
+	t.Run("a header-only table goes and leaves no extra blank line", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\n\n[c]\nz = 3\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n[c]\nz = 3\n", got)
+	})
+	t.Run("a header-only table at the end of the file", func(t *testing.T) {
+		got := remove("[a]\nx = 1\n\n[b]\n", "b")
+		assert.Equal(t, "[a]\nx = 1\n\n", got)
+	})
+	t.Run("a table that isn't there changes nothing", func(t *testing.T) {
+		input := "[a]\nx = 1\n"
+		assert.Equal(t, input, remove(input, "b"))
 	})
 }

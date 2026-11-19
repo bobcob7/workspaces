@@ -1,0 +1,116 @@
+.group {
+  max-width: 920px;
+}
+
+.title {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.section {
+  margin-top: 20px;
+}
+
+.heading {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.service {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.serviceText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dotOn,
+.dotOff {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.dotOn {
+  background: #3fb950;
+}
+
+.dotOff {
+  background: var(--text-muted);
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.mono {
+  font: 12px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.check {
+  margin: 0;
+  padding: 4px 0;
+  font-size: 13px;
+  color: #3fb950;
+}
+
+.caption {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Tap targets are at least 40px tall on phone widths. */
+.target {
+  min-height: 40px;
+}
+
+.target.wide {
+  min-width: 200px;
+}
+
+/* Wide enough for the number inputs and a whole model id; a phone scrolls the table sideways. */
+.table.modelsTable {
+  min-width: 900px;
+}

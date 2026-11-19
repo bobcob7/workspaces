@@ -204,6 +204,8 @@ fn new_agent(agent: &AgentPlan, message: Option<&str>, settings: &AgentSettings<
         model: Some(settings.model.to_string()),
         permission_mode: Some(settings.permission_mode.to_string()),
         offline: false,
+        runner: None,
+        endpoint: None,
     }
 }
 
@@ -408,6 +410,9 @@ mod tests {
             hidden: false,
             parent_id: None,
             loop_run: None,
+            runner: String::new(),
+            model: None,
+            ws_runner: None,
         }
     }
 

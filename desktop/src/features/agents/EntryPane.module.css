@@ -154,3 +154,10 @@
     display: none;
   }
 }
+
+.titleModel {
+  flex: none;
+  color: var(--text-muted);
+  font: 13px var(--font-mono);
+  white-space: nowrap;
+}

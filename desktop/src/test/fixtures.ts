@@ -6,6 +6,8 @@ import type {
   ConfigChange,
   ConfigListing,
   ConfigSetting,
+  DaemonStatus,
+  DaemonStopped,
   Entry,
   FixPlan,
   HostView,
@@ -26,6 +28,8 @@ import type {
   ReviewSettings,
   ReviewsView,
   RoleDetail,
+  RunnerCheck,
+  RunnerSettings,
   Stats,
 } from "../api";
 import type { TerminalHost } from "../features/terminals/host";
@@ -52,6 +56,9 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   hidden: false,
   parentId: null,
   loopRun: null,
+  runner: "claude",
+  model: null,
+  wsRunner: null,
   ...overrides,
 });
 
@@ -325,8 +332,14 @@ export const loop = (overrides: Partial<Loop> = {}): Loop => ({
   vars: {},
   lastGate: null,
   hidden: true,
+  runner: "claude",
+  endpoint: null,
   ...overrides,
 });
+
+/** A loop on ws's own runner: the qwen9b model, through the gpu endpoint. */
+export const wsLoop = (overrides: Partial<Loop> = {}): Loop =>
+  loop({ runner: "ws", model: "qwen9b", permissionMode: null, endpoint: "gpu", ...overrides });
 
 export const loopHistoryRun = (overrides: Partial<LoopHistoryRun> = {}): LoopHistoryRun => ({
   seq: 1,
@@ -397,6 +410,71 @@ export const configUnsetChange = (key: string): ConfigChange => {
   const base = configSettingFor(key);
   return { path: configPath, setting: { ...base, value: base.default, set: false }, changed: true };
 };
+
+/** The runner's keys: one endpoint, two models, and the implementer role routed to ws. */
+export const runnerSettings = (overrides: Partial<RunnerSettings> = {}): RunnerSettings => ({
+  runner: { model: "qwen9b" },
+  endpoints: [
+    { name: "gpu", url: "http://gpu-a.inference.svc:1234", api: "openai", probe: "none", request_timeout: "10m", idle_timeout: "90s" },
+  ],
+  models: [
+    {
+      alias: "qwen9b",
+      endpoint: "gpu",
+      id: "qwen/qwen3.5-9b",
+      context_tokens: 65536,
+      max_output: 8192,
+      temperature: 0.2,
+      reasoning: "none",
+    },
+    { alias: "qwen27b", endpoint: "gpu", id: "qwen/qwen3.5-27b", context_tokens: 32768, max_output: 4096, temperature: 0, reasoning: "" },
+  ],
+  roles: [{ role: "implementer", runner: "ws", model: "qwen9b", max_steps: 80, timeout: "60m", max_tokens: 8192, mcp_servers: [] }],
+  ...overrides,
+});
+
+/** What `daemon_status` answers for a service the app started. */
+export const daemonStatus = (overrides: Partial<DaemonStatus> = {}): DaemonStatus => ({
+  running: true,
+  pid: 40211,
+  origin: "app",
+  started_at: "2026-11-14T08:00:03Z",
+  ws_version: "v0.31.0",
+  socket: "/run/ws.sock",
+  config_dir: "/c",
+  runners: [
+    { workspace: "x-t1", session: "rn-5d2e8b10", pid: 51234, state: "working", restarts: 0, adopted: false },
+    { workspace: "x-t2", session: "rn-7f1a9c02", pid: 51240, state: "idle", restarts: 1, adopted: true },
+  ],
+  warnings: [],
+  ...overrides,
+});
+
+/** What `daemon_restart` answers: the service stopped, and its runners kept. */
+export const daemonStopped = (overrides: Partial<DaemonStopped> = {}): DaemonStopped => ({
+  stopped: true,
+  pid: 40211,
+  runners_stopped: [],
+  runners_kept: ["rn-5d2e8b10", "rn-7f1a9c02"],
+  warnings: [],
+  ...overrides,
+});
+
+/** What `runner_check` answers for an endpoint that serves two models and has no probe. */
+export const runnerCheck = (overrides: Partial<RunnerCheck> = {}): RunnerCheck => ({
+  endpoint: "gpu",
+  url: "http://gpu-a.inference.svc:1234",
+  api: "openai",
+  probe: "none",
+  model: "qwen/qwen3.5-9b",
+  version: null,
+  capabilities: null,
+  context_tokens: 65536,
+  models: ["qwen/qwen3.5-9b", "qwen/qwen3.5-27b"],
+  token_source: null,
+  warnings: [],
+  ...overrides,
+});
 
 /** A stats_get answer for the all-time window: two models, three languages, a productivity row per model and language. */
 export const statsSnapshot = (overrides: Partial<Stats> = {}): Stats => ({
@@ -569,12 +647,18 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   configList: vi.fn(async () => configListing()),
   configSet: vi.fn(async (key: string, values: readonly string[]) => configSetChange(key, values)),
   configUnset: vi.fn(async (key: string) => configUnsetChange(key)),
+  runnerSettingsGet: vi.fn(async () => runnerSettings()),
+  daemonStatus: vi.fn(async () => daemonStatus()),
+  daemonRestart: vi.fn(async () => daemonStopped()),
+  runnerCheck: vi.fn(async (endpoint: string) => runnerCheck({ endpoint })),
+  endpointTokenSet: vi.fn(async () => undefined),
   settingsEnvironment: vi.fn(async () => ({ stateFile: null, wsConfigDir: null, claudeConfigDir: null, path: "/usr/bin:/bin", online: null })),
   createAgent: vi.fn(async () => ({ id: "new", session: "abcd1234", path: "/w/new" })),
   removeEntry: vi.fn(async () => undefined),
   renameWorkspace: vi.fn(async (id: string, name: string) => ({ id, name })),
   setWorkspaceHidden: vi.fn(async (id: string, hidden: boolean) => ({ id, hidden })),
   stopAgent: vi.fn(async () => undefined),
+  runnerStop: vi.fn(async (workspaceId: string) => ({ id: workspaceId, session: "", stopped: true, warnings: [] })),
   restoreAgents: vi.fn(async () => []),
   openExternal: vi.fn(async () => undefined),
   readTranscript: vi.fn(async () => ({ items: [], next: 0, reset: false, dropped: 0, found: true })),

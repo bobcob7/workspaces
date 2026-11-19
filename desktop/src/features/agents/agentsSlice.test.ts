@@ -140,6 +140,16 @@ describe("thunks", () => {
     expect(store.getState().ui.selectedKey).toBeNull();
   });
 
+  it("stops a ws runner through the runner's workspace, and leaves Claude's stop alone", async () => {
+    const runnerStop = vi.fn(async () => ({ id: "t1", session: "rn-1", stopped: true, warnings: [] }));
+    const stopAgentApi = vi.fn(async () => undefined);
+    const store = testStore({ api: fakeApi({ runnerStop, stopAgent: stopAgentApi }) });
+    await store.dispatch(stopAgent(entry({ key: "t1", runner: "ws", workspaceId: "t1", sessionId: "rn-1", status: "working" })));
+    expect(runnerStop).toHaveBeenCalledTimes(1);
+    expect(runnerStop).toHaveBeenCalledWith("t1");
+    expect(stopAgentApi).not.toHaveBeenCalled();
+  });
+
   it("shows a failed stop as an error notice", async () => {
     const api = fakeApi({ stopAgent: vi.fn(async () => Promise.reject({ code: "claude_failed", message: "boom" })) });
     const store = testStore({ api });

@@ -9,7 +9,7 @@ use crate::open;
 use crate::pty::TermSpec;
 use crate::reviews;
 use crate::runner::AppError;
-use crate::{cache, loops, roles, stats, ws_config};
+use crate::{cache, loops, roles, runner_service, secrets, stats, ws_config};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -102,6 +102,7 @@ pub const COMMANDS: &[&str] = &[
     "restore_agents",
     "open_external",
     "read_transcript",
+    "runner_stop",
     "terminal_open",
     "terminal_write",
     "terminal_resize",
@@ -139,6 +140,11 @@ pub const COMMANDS: &[&str] = &[
     "config_list",
     "config_set",
     "config_unset",
+    "runner_settings_get",
+    "daemon_status",
+    "daemon_restart",
+    "runner_check",
+    "endpoint_token_set",
     "cache_search",
     "settings_environment",
     "roles_list",
@@ -236,8 +242,19 @@ pub async fn dispatch(
         "restore_agents" => result(commands::restore_agents(State::new(&ctx.state)).await),
         "open_external" => unsupported("open_external"),
         "read_transcript" => {
-            let (session_id, offset) = args!(args, { session_id: String, offset: u64 });
-            result(commands::read_transcript(State::new(&ctx.state), session_id, offset).await)
+            let (session_id, offset, workspace_id) = args!(args, {
+                session_id: String,
+                offset: u64,
+                workspace_id: Option<String>,
+            });
+            result(
+                commands::read_transcript(State::new(&ctx.state), session_id, offset, workspace_id)
+                    .await,
+            )
+        }
+        "runner_stop" => {
+            let id = args!(args, { id: String });
+            result(commands::runner_stop(State::new(&ctx.state), id).await)
         }
         "terminal_open" => {
             let (spec, cols, rows, on_event) = args!(args, {
@@ -423,6 +440,19 @@ pub async fn dispatch(
         "config_unset" => {
             let key = args!(args, { key: String });
             result(ws_config::config_unset(State::new(&ctx.state), key).await)
+        }
+        "runner_settings_get" => {
+            result(ws_config::runner_settings_get(State::new(&ctx.state)).await)
+        }
+        "daemon_status" => result(runner_service::daemon_status(State::new(&ctx.state)).await),
+        "daemon_restart" => result(runner_service::daemon_restart(State::new(&ctx.state)).await),
+        "runner_check" => {
+            let (endpoint, model) = args!(args, { endpoint: String, model: String });
+            result(runner_service::runner_check(State::new(&ctx.state), endpoint, model).await)
+        }
+        "endpoint_token_set" => {
+            let (name, token) = args!(args, { name: String, token: String });
+            result(secrets::endpoint_token_set(name, token).await)
         }
         "cache_search" => {
             let (query, refs, limit) = args!(args, { query: String, refs: bool, limit: u32 });

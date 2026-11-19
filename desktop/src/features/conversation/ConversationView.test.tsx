@@ -20,7 +20,7 @@ const show = (status: Status = "idle", onShowTerminal = vi.fn()): ReturnType<typ
     .mockResolvedValue({ items: [], next: 100, reset: false, dropped: 0, found: true });
   const store = testStore({ api: fakeApi({ readTranscript }) });
   renderWithStore(
-    <ConversationView sessionId="s1" status={status} detail="Running tests" onShowTerminal={onShowTerminal} />,
+    <ConversationView sessionId="s1" workspaceId={null} status={status} detail="Running tests" onShowTerminal={onShowTerminal} />,
     store,
   );
   return store;

@@ -96,7 +96,11 @@ export const stopAgent = createAppThunk<void, Entry>(
   "agents/stop",
   async (entry, { extra, dispatch, rejectWithValue }) => {
     try {
-      if (entry.sessionId !== null) {
+      if (entry.runner === "ws") {
+        if (entry.workspaceId !== null) {
+          await extra.api.runnerStop(entry.workspaceId);
+        }
+      } else if (entry.sessionId !== null) {
         await extra.api.stopAgent(entry.sessionId);
         await dispatch(closeTerminal(`attach:${entry.sessionId}`));
       }

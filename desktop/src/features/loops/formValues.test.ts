@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loop } from "../../test/fixtures";
+import { loop, wsLoop } from "../../test/fixtures";
 import { emptyValues, formErrors, isValid, loopLabel, requestOf, slugOf, valuesOf, type LoopFormValues } from "./formValues";
 
 const valid: LoopFormValues = { ...emptyValues, title: "Deps", prompt: "Update the dependencies." };
@@ -37,6 +37,32 @@ describe("hidden", () => {
 
   it.each([true, false])("is sent as %s in the request", (hidden) => {
     expect(requestOf({ ...valid, hidden })).toMatchObject({ hidden });
+  });
+});
+
+describe("runner and endpoint", () => {
+  it("are Claude Code and no endpoint for a new loop", () => {
+    expect(emptyValues).toMatchObject({ runner: "claude", endpoint: "" });
+  });
+
+  it("are read from a ws loop, and Claude Code from a loop without a runner", () => {
+    expect(valuesOf(wsLoop({ endpoint: "gpu" }))).toMatchObject({ runner: "ws", model: "qwen9b", endpoint: "gpu" });
+    expect(valuesOf(loop({ runner: null }))).toMatchObject({ runner: "claude", endpoint: "" });
+  });
+
+  it("round-trip a ws loop's runner, model and endpoint into the request", () => {
+    const values = valuesOf(wsLoop({ endpoint: "gpu", permissionMode: null }));
+    expect(requestOf(values)).toMatchObject({ runner: "ws", model: "qwen9b", endpoint: "gpu", permissionMode: "" });
+  });
+
+  it("drop the endpoint and keep the permission mode for Claude Code", () => {
+    const values: LoopFormValues = { ...valid, runner: "claude", endpoint: "gpu", permissionMode: "acceptEdits" };
+    expect(requestOf(values)).toMatchObject({ runner: "claude", endpoint: "", permissionMode: "acceptEdits" });
+  });
+
+  it("drop the permission mode for the ws runner", () => {
+    const values: LoopFormValues = { ...valid, runner: "ws", permissionMode: "acceptEdits" };
+    expect(requestOf(values)).toMatchObject({ runner: "ws", permissionMode: "" });
   });
 });
 
@@ -116,6 +142,8 @@ describe("requestOf", () => {
       model: "haiku",
       permissionMode: "acceptEdits",
       hidden: true,
+      runner: "claude",
+      endpoint: "",
     });
   });
 

@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import type { Entry, LoopAttention } from "../../api";
 import { age, repoLabel } from "../../format";
+import { modelTooltip, stepLabel } from "./runner";
 import { StatusDot } from "./StatusDot";
 import styles from "./Sidebar.module.css";
 
@@ -22,9 +23,12 @@ const plainSummary = (entry: Entry): string => {
   return entry.kind === "agent" && entry.workspaceId === null ? "Not in a workspace" : "Empty workspace";
 };
 
+const agentSummary = (entry: Entry): string =>
+  (entry.runner === "ws" ? stepLabel(entry.wsRunner) : null) ?? plainSummary(entry);
+
 const summary = (entry: Entry): string => {
   const attention = entry.loopRun?.attention;
-  return attention ? attentionPrefix[attention] + plainSummary(entry) : plainSummary(entry);
+  return attention ? attentionPrefix[attention] + agentSummary(entry) : agentSummary(entry);
 };
 
 export interface EntryRowProps {
@@ -37,15 +41,24 @@ export interface EntryRowProps {
 
 /** An agent or workspace as a two-line list row, as the Agents list shows it. */
 export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRowProps): JSX.Element => (
-  <button type="button" className={styles.item} aria-current={current ? "true" : undefined} onClick={onClick}>
+  <button
+    type="button"
+    className={styles.item}
+    aria-current={current ? "true" : undefined}
+    title={modelTooltip(entry)}
+    onClick={onClick}
+  >
     <span className={styles.row}>
       <StatusDot status={entry.status} />
       <span className={styles.name}>{entry.name}</span>
       <span className={styles.age}>{age(entry.updatedAt ?? entry.createdAt)}</span>
     </span>
-    <span className={styles.summary}>
-      {parentName !== null && <span className={styles.parent}>↳ {parentName} · </span>}
-      {summary(entry)}
+    <span className={styles.summaryLine}>
+      <span className={styles.summary}>
+        {parentName !== null && <span className={styles.parent}>↳ {parentName} · </span>}
+        {summary(entry)}
+      </span>
+      {entry.model !== null && <span className={styles.modelLabel}>{entry.model}</span>}
     </span>
   </button>
 );

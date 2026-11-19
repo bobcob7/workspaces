@@ -14,6 +14,9 @@ export type Status =
 
 export type EntryKind = "agent" | "shell" | "pending" | "unknown";
 
+/** What runs an agent: `claude`, `ws`, or "" for a shell or a workspace with no agent (ADR 0063). */
+export type EntryRunner = "claude" | "ws" | "";
+
 export interface Repo {
   readonly id: string;
   readonly path: string;
@@ -52,6 +55,42 @@ export interface Entry {
   readonly parentId: string | null;
   /** Set for a loop run's workspace (ADR 0057). */
   readonly loopRun: EntryLoopRun | null;
+  /** What runs the agent, quietly labelled in the list (ADR 0063). */
+  readonly runner: EntryRunner;
+  /** The agent's model for display: a `claude-` prefix dropped, any other id whole. */
+  readonly model: string | null;
+  /** A `ws` runner's progress and endpoint; null for anything else. */
+  readonly wsRunner: WsRunner | null;
+}
+
+/** A `ws` runner's progress and endpoint, from ws list (reference.md). */
+export interface WsRunner {
+  readonly modelAlias: string | null;
+  readonly endpoint: string | null;
+  readonly url: string | null;
+  readonly api: string | null;
+  readonly contextTokens: number | null;
+  readonly step: number | null;
+  readonly maxSteps: number | null;
+  readonly restarts: number | null;
+  readonly usage: WsRunnerUsage | null;
+  readonly mcp: readonly WsRunnerMcp[];
+  /** The exit reason once the runner has finished, else null. */
+  readonly exit: string | null;
+  readonly endpointChanges: number | null;
+}
+
+export interface WsRunnerUsage {
+  readonly requests: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+}
+
+export interface WsRunnerMcp {
+  readonly server: string;
+  readonly state: string;
+  readonly tools: number;
+  readonly loaded: number;
 }
 
 /** What a loop run asks of a person (ADR 0057). */
@@ -90,6 +129,9 @@ export interface NewAgent {
   readonly model: string;
   readonly permissionMode: string;
   readonly offline: boolean;
+  /** "claude" or "ws" (ADR 0070); left out for claude. */
+  readonly runner?: string;
+  readonly endpoint?: string;
 }
 
 export interface Created {
@@ -146,7 +188,7 @@ interface ItemBase {
 
 /** One thing shown in an agent's conversation, read from its transcript. */
 export type ConversationItem =
-  | (ItemBase & { readonly kind: "user" | "assistant" | "thinking" | "notice"; readonly text: string })
+  | (ItemBase & { readonly kind: "user" | "assistant" | "thinking" | "notice" | "warning"; readonly text: string })
   | (ItemBase & {
       readonly kind: "toolUse";
       readonly toolUseId: string;
@@ -155,6 +197,15 @@ export type ConversationItem =
       readonly input: string;
     })
   | (ItemBase & { readonly kind: "toolResult"; readonly toolUseId: string; readonly text: string; readonly isError: boolean });
+
+/** What `ws runner stop` printed for a runner (reference.md). */
+export interface RunnerStopped {
+  readonly id: string;
+  readonly session: string;
+  /** False when the runner had already exited. */
+  readonly stopped: boolean;
+  readonly warnings: readonly unknown[];
+}
 
 /** The transcript lines written since an offset. */
 export interface TranscriptChunk {
@@ -741,6 +792,89 @@ export interface ConfigChange {
   readonly changed: boolean;
 }
 
+/** `runner_settings_get`: the runner's keys, as config.toml holds them. */
+export interface RunnerSettings {
+  readonly runner: { readonly model: string };
+  readonly endpoints: readonly EndpointSettings[];
+  readonly models: readonly ModelSettings[];
+  readonly roles: readonly RoleSettings[];
+}
+
+export interface EndpointSettings {
+  readonly name: string;
+  readonly url: string;
+  readonly api: string;
+  readonly probe: string;
+  readonly request_timeout: string;
+  readonly idle_timeout: string;
+}
+
+export interface ModelSettings {
+  readonly alias: string;
+  readonly endpoint: string;
+  readonly id: string;
+  readonly context_tokens: number;
+  readonly max_output: number;
+  readonly temperature: number;
+  readonly reasoning: string;
+}
+
+export interface RoleSettings {
+  readonly role: string;
+  readonly runner: string;
+  readonly model: string;
+  readonly max_steps: number;
+  readonly timeout: string;
+  readonly max_tokens: number;
+  readonly mcp_servers: readonly string[];
+}
+
+/** `daemon_status`: whether the runner service runs, and who started it. */
+export interface DaemonStatus {
+  readonly running: boolean;
+  readonly pid: number | null;
+  readonly origin: string | null;
+  readonly started_at: string | null;
+  readonly ws_version: string | null;
+  readonly socket: string | null;
+  readonly config_dir: string | null;
+  readonly runners: readonly DaemonRunner[];
+  readonly warnings: readonly string[];
+}
+
+export interface DaemonRunner {
+  readonly workspace: string;
+  readonly session: string;
+  readonly pid: number | null;
+  readonly state: string;
+  readonly restarts: number;
+  readonly adopted: boolean;
+}
+
+/** `daemon_restart`: what the service stopped, and what it kept running. */
+export interface DaemonStopped {
+  readonly stopped: boolean;
+  readonly pid: number | null;
+  readonly runners_stopped: readonly string[];
+  readonly runners_kept: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+/** `runner_check`: what an endpoint serves, and whether a model is ready. */
+export interface RunnerCheck {
+  readonly endpoint: string;
+  readonly url: string;
+  readonly api: string;
+  readonly probe: string;
+  readonly model: string;
+  readonly version: string | null;
+  readonly capabilities: readonly string[] | null;
+  readonly context_tokens: number;
+  readonly models: readonly string[];
+  readonly token_source: string | null;
+  readonly warnings: readonly string[];
+}
+
 /** Workspace Online's WS_ONLINE_* settings; never the password itself. */
 export interface OnlineSettings {
   readonly username: string;
@@ -802,6 +936,10 @@ export interface Loop {
   readonly lastGate: LoopGate | null;
   /** Whether runs start hidden (ADR 0057). */
   readonly hidden: boolean;
+  /** What runs each run: "claude" or "ws" (ADR 0070). */
+  readonly runner: string | null;
+  /** The endpoint a ws loop's runs use instead of the model's. */
+  readonly endpoint: string | null;
 }
 
 /** A loop's last gate check, from `ws loop list --json` (ADR 0049). */
@@ -836,6 +974,9 @@ export interface NewLoop {
   readonly vars?: readonly LoopVar[];
   /** Left out to keep ws's default or the loop's setting (ADR 0057). */
   readonly hidden?: boolean;
+  /** "claude" or "ws"; the form sends it on every edit (ADR 0070). */
+  readonly runner?: string;
+  readonly endpoint?: string;
 }
 
 /** The workspace a loop run started. */
@@ -1100,6 +1241,11 @@ export const api = {
   configList: async (): Promise<ConfigListing> => call<ConfigListing>("config_list"),
   configSet: async (key: string, values: readonly string[]): Promise<ConfigChange> => call<ConfigChange>("config_set", { key, values }),
   configUnset: async (key: string): Promise<ConfigChange> => call<ConfigChange>("config_unset", { key }),
+  runnerSettingsGet: async (): Promise<RunnerSettings> => call<RunnerSettings>("runner_settings_get"),
+  daemonStatus: async (): Promise<DaemonStatus> => call<DaemonStatus>("daemon_status"),
+  daemonRestart: async (): Promise<DaemonStopped> => call<DaemonStopped>("daemon_restart"),
+  runnerCheck: async (endpoint: string, model: string): Promise<RunnerCheck> => call<RunnerCheck>("runner_check", { endpoint, model }),
+  endpointTokenSet: async (name: string, token: string): Promise<void> => call<void>("endpoint_token_set", { name, token }),
   settingsEnvironment: async (): Promise<Environment> => call<Environment>("settings_environment"),
   createAgent: async (request: NewAgent): Promise<Created> => call<Created>("create_agent", { request }),
   removeEntry: async (workspaceId: string | null, sessionId: string | null, keepChildren = false): Promise<void> =>
@@ -1109,6 +1255,8 @@ export const api = {
   setWorkspaceHidden: async (workspaceId: string, hidden: boolean): Promise<HiddenSet> =>
     call<HiddenSet>("set_workspace_hidden", { workspaceId, hidden }),
   stopAgent: async (sessionId: string): Promise<void> => call<void>("stop_agent", { sessionId }),
+  runnerStop: async (workspaceId: string): Promise<RunnerStopped> =>
+    call<RunnerStopped>("runner_stop", { id: workspaceId }),
   restoreAgents: async (): Promise<readonly string[]> => call<string[]>("restore_agents"),
   openExternal: async (target: string): Promise<void> => {
     if (!isWeb()) {
@@ -1118,8 +1266,8 @@ export const api = {
       window.open(target, "_blank", "noopener");
     }
   },
-  readTranscript: async (sessionId: string, offset: number): Promise<TranscriptChunk> =>
-    call<TranscriptChunk>("read_transcript", { sessionId, offset }),
+  readTranscript: async (sessionId: string, offset: number, workspaceId: string | null): Promise<TranscriptChunk> =>
+    call<TranscriptChunk>("read_transcript", { sessionId, offset, workspaceId }),
   terminalOpen: async (
     spec: TermSpec,
     cols: number,
