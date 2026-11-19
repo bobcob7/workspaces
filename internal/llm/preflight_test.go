@@ -133,3 +133,30 @@ func TestPreflight(t *testing.T) {
 		}
 	})
 }
+
+func TestPreflightEndpoint(t *testing.T) {
+	t.Parallel()
+	ep := Endpoint{Name: "gpu", URL: "http://gpu.example:11434"}
+	t.Run("lists the models without choosing one", func(t *testing.T) {
+		t.Parallel()
+		p := &ProviderMock{
+			ModelsFunc: func(context.Context) ([]string, error) { return []string{"a", "b"}, nil },
+		}
+		result, err := PreflightEndpoint(t.Context(), p, ep)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a", "b"}, result.Models)
+		assert.Zero(t, result.ContextTokens)
+		assert.Nil(t, result.Capabilities)
+		assert.Empty(t, p.ProbeCalls())
+	})
+	t.Run("an endpoint that doesn't answer is unreachable", func(t *testing.T) {
+		t.Parallel()
+		cause := errors.New("connection refused")
+		p := &ProviderMock{
+			ModelsFunc: func(context.Context) ([]string, error) { return nil, cause },
+		}
+		_, err := PreflightEndpoint(t.Context(), p, ep)
+		require.ErrorIs(t, err, ErrUnreachable)
+		require.ErrorIs(t, err, cause)
+	})
+}

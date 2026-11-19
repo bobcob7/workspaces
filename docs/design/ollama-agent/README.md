@@ -898,13 +898,13 @@ scenario table. In short:
 - `make fakes`: builds `bin/fake-ollama` and `bin/fake-mcp` from this repo.
   No network, no llm-router.
 - `make e2e-runner`: the real `ws` binary (and its daemon) with fake-ollama
-  and fake-mcp processes, 27 scenarios: the default Claude path with no
+  and fake-mcp processes, 28 scenarios: the default Claude path with no
   runner config and no daemon, runner exits, preflight errors,
   re-resolving the endpoint mid-run (a failover to a second fake, a
   rejected repoint to a model without tools, an invalid config),
   token redaction, MCP over stdio and HTTP, filtering, `tool_search`, a
   failing server, daemon resume, crash limit, adoption and resume on
-  start, Stop, and a loop run on the runner. The fake serves
+  start, Stop, a loop run on the runner, and a check of an endpoint before it has a model. The fake serves
   `qwen/qwen3.5-9b`, so ids with `/` go through every layer.
 - Telemetry: unit tests with the SDK's in-memory exporters check span
   names, attributes and that no content attribute is ever set.
@@ -920,7 +920,7 @@ Fake data only. Rendered from [mockups.html](mockups.html) with headless
 Chromium (Playwright `playwright-core` 1.56.1, the `chromium_headless_shell`
 build 1255) at device scale 1, one screenshot per `#<screen>` hash of the
 screen's element: app screens 1280 wide and 800 high, except the two
-Settings › Models screens, which grow to fit their tables (1217 and 1041
+Settings › Models screens, which grow to fit their tables (1400 and 1118
 high); terminal screens 1100 wide, as high as their content.
 
 | Screen | File |
@@ -932,7 +932,7 @@ high); terminal screens 1100 wide, as high as their content.
 | `ws daemon status`, the app-hosted daemon, auto-start on spawn, `stop --keep-runners` | [img/cli-daemon.png](img/cli-daemon.png) |
 | Desktop Agents tree: every agent labelled with its model; Stop on a running `ws` agent | [img/agents-tree.png](img/agents-tree.png) |
 | Desktop transcript of a `ws` child | [img/transcript.png](img/transcript.png) |
-| Settings › Models (Runner service, endpoints, models, role routing and MCP servers) | [img/settings-models.png](img/settings-models.png) |
+| Settings › Models (Runner service, endpoints and the models one serves, models with Remove and the default model, role routing and MCP servers) | [img/settings-models.png](img/settings-models.png) |
 | Settings › Models, endpoint unreachable / model lacks tools | [img/settings-models-errors.png](img/settings-models-errors.png) |
 | Loops › Edit loop: the Agent section with runner, model and endpoint pickers | [img/loop-form.png](img/loop-form.png) |
 

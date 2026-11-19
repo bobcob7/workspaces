@@ -84,7 +84,10 @@ func (a *App) newConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <KEY> <VALUE>...",
 		Short: "Set a setting, keeping the file's comments",
-		Args:  configSetArgs,
+		Long: "Set a setting, keeping the file's comments.\n\n" +
+			"An endpoint, model or role takes its keys together, so a new model can be\n" +
+			"created in one edit: ws config set models.<alias> endpoint=<name> id=<id> context_tokens=<n>",
+		Args: configSetArgs,
 		RunE: runE(a.withConfigUnswept(func(cmd *cobra.Command, args []string) error {
 			return a.configSet(cmd.Context(), args[0], args[1:])
 		})),
@@ -106,6 +109,12 @@ func (a *App) newConfigUnsetCmd() *cobra.Command {
 func configSetArgs(cmd *cobra.Command, args []string) error {
 	if err := atLeastOneArg("a setting key")(cmd, args); err != nil {
 		return err
+	}
+	if config.IsEntryTable(args[0]) {
+		if len(args) < 2 {
+			return usageErrorf("%s needs leaf=value pairs for %s", commandName(cmd), args[0])
+		}
+		return nil
 	}
 	setting, err := config.Lookup(nil, args[0])
 	if err != nil {
@@ -159,6 +168,9 @@ func (a *App) configSet(ctx context.Context, key string, values []string) error 
 	if err := a.checkProfileKey(key); err != nil {
 		return err
 	}
+	if config.IsEntryTable(key) {
+		return a.setTable(ctx, key, values)
+	}
 	setting, changed, err := a.editConfig(ctx, key, func(data []byte) ([]byte, bool, error) {
 		return config.Set(data, key, values)
 	})
@@ -179,6 +191,27 @@ func (a *App) configUnset(ctx context.Context, key string) error {
 		return err
 	}
 	return a.printConfigChange(setting, changed)
+}
+
+// setTable creates or updates an endpoint, model or role table from
+// leaf=value pairs in one edit.
+func (a *App) setTable(ctx context.Context, key string, pairs []string) error {
+	_, changed, err := a.editFile(ctx, func(data []byte) ([]byte, bool, error) {
+		return config.SetEntry(data, key, pairs)
+	})
+	if err != nil {
+		return err
+	}
+	if a.global.json {
+		return a.writeJSON(configChangeJSON{Path: a.paths.ConfigFile, Setting: config.Setting{Key: key}, Changed: changed, Warnings: a.warnings()})
+	}
+	if changed {
+		fmt.Fprintln(a.stdout, key+" set")
+	} else {
+		fmt.Fprintln(a.stdout, key+" is already set")
+	}
+	a.printWarnings()
+	return nil
 }
 
 // unsetTable removes an endpoint, model or role table whole. The table is

@@ -114,3 +114,47 @@
 .table.modelsTable {
   min-width: 900px;
 }
+
+.served {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.servedRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+  border-top: 1px solid var(--border);
+}
+
+.empty {
+  padding: 12px 0;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.defaultModel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+
+.defaultLabel {
+  color: var(--text-muted);
+}
+
+.add {
+  margin-top: 8px;
+}

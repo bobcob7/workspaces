@@ -419,6 +419,55 @@ func TestRunnerEdit_Set(t *testing.T) {
 	})
 }
 
+func TestSetEntry(t *testing.T) {
+	t.Run("creates a model with its required keys in one edit", func(t *testing.T) {
+		out, changed, err := SetEntry([]byte(runnerBase), "models.fresh", []string{"endpoint=cpu", "id=llama3:8b", "context_tokens=32768"})
+		require.NoError(t, err)
+		assert.True(t, changed)
+		cfg := mustParse(t, string(out))
+		require.NoError(t, cfg.RunnerErr)
+		assert.Equal(t, Model{Endpoint: "cpu", ID: "llama3:8b", ContextTokens: 32768}, cfg.Models["fresh"])
+	})
+	t.Run("creates the first model of an empty file", func(t *testing.T) {
+		data := []byte("[endpoints.local]\nurl = \"http://127.0.0.1:1\"\n")
+		out, _, err := SetEntry(data, "models.first", []string{"endpoint=local", "id=m", "context_tokens=65536"})
+		require.NoError(t, err)
+		assert.Equal(t, "m", mustParse(t, string(out)).Models["first"].ID)
+	})
+	t.Run("an incomplete model is refused and nothing is written", func(t *testing.T) {
+		_, _, err := SetEntry([]byte(runnerBase), "models.fresh", []string{"endpoint=cpu", "id=llama3:8b"})
+		require.ErrorIs(t, err, ErrValueInvalid)
+		assert.ErrorContains(t, err, "context_tokens")
+	})
+	t.Run("an endpoint that isn't defined is refused", func(t *testing.T) {
+		_, _, err := SetEntry([]byte(runnerBase), "models.fresh", []string{"endpoint=nope", "id=m", "context_tokens=65536"})
+		require.ErrorIs(t, err, ErrValueInvalid)
+	})
+	t.Run("a context below the floor is refused", func(t *testing.T) {
+		_, _, err := SetEntry([]byte(runnerBase), "models.fresh", []string{"endpoint=cpu", "id=m", "context_tokens=100"})
+		require.ErrorIs(t, err, ErrValueInvalid)
+	})
+	t.Run("a pair without an equals sign is refused", func(t *testing.T) {
+		_, _, err := SetEntry([]byte(runnerBase), "models.fresh", []string{"endpoint"})
+		require.ErrorIs(t, err, ErrValueInvalid)
+	})
+	t.Run("an unknown leaf is refused", func(t *testing.T) {
+		_, _, err := SetEntry([]byte(runnerBase), "models.fresh", []string{"colour=red"})
+		require.ErrorIs(t, err, ErrKeyUnknown)
+	})
+	t.Run("a key that isn't an entry table is refused", func(t *testing.T) {
+		_, _, err := SetEntry([]byte(runnerBase), "runner.model", []string{"endpoint=cpu"})
+		require.ErrorIs(t, err, ErrKeyUnknown)
+	})
+	t.Run("updates an existing model, leaving the other keys", func(t *testing.T) {
+		out, _, err := SetEntry([]byte(runnerBase), "models.qwen9b", []string{"context_tokens=32768"})
+		require.NoError(t, err)
+		model := mustParse(t, string(out)).Models["qwen9b"]
+		assert.Equal(t, 32768, model.ContextTokens)
+		assert.Equal(t, "none", model.Reasoning)
+	})
+}
+
 func TestRunnerEdit_Unset(t *testing.T) {
 	t.Run("a model table that nothing uses is removed whole", func(t *testing.T) {
 		data := []byte(runnerBase + "\n[models.spare]\nendpoint = \"gpu\"\nid = \"x\"\ncontext_tokens = 65536\n")

@@ -2,9 +2,9 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Api, AppError } from "../../api";
-import { daemonStatus, daemonStopped, fakeApi, runnerCheck, runnerSettings, testStore } from "../../test/fixtures";
+import { configUnsetChange, daemonStatus, daemonStopped, fakeApi, runnerCheck, runnerSettings, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
-import { ModelsGroup, checkSummary, daemonSummary, endpointWrites, roleOf, splitNames } from "./ModelsGroup";
+import { ModelsGroup, checkSummary, daemonSummary, endpointWrites, modelAliasFor, roleOf, splitNames } from "./ModelsGroup";
 
 const renderGroup = (api: Api = fakeApi()) => {
   const store = testStore({ api });
@@ -43,6 +43,25 @@ describe("checkSummary", () => {
   it("says supports tools when the probe reports the tools capability", () => {
     const check = runnerCheck({ probe: "ollama", models: ["qwen3.5:9b"], capabilities: ["completion", "tools"] });
     expect(checkSummary(check)).toBe("✓ 1 model · qwen/qwen3.5-9b · context 65536 · supports tools");
+  });
+});
+
+describe("checkSummary without a model", () => {
+  it("counts the models and says no model was checked", () => {
+    const check = runnerCheck({ model: null, context_tokens: null, models: ["a", "b", "c"] });
+    expect(checkSummary(check)).toBe("✓ 3 models · no model checked · no probe");
+  });
+});
+
+describe("modelAliasFor", () => {
+  it("makes a config name from a model id", () => {
+    expect(modelAliasFor("qwen/qwen3.5-9b")).toBe("qwen-qwen3-5-9b");
+    expect(modelAliasFor("Gemma3:12b")).toBe("gemma3-12b");
+  });
+
+  it("starts with a letter and stays within 32 characters", () => {
+    expect(modelAliasFor("9b-model")).toBe("m-9b-model");
+    expect(modelAliasFor("a".repeat(60))).toHaveLength(32);
   });
 });
 
@@ -230,5 +249,157 @@ describe("ModelsGroup", () => {
     renderGroup();
     const id = await screen.findByLabelText("ID for qwen9b");
     expect(id.closest(".wide")).not.toBeNull();
+  });
+
+  describe("with no models", () => {
+    const noModels = () => fakeApi({ runnerSettingsGet: vi.fn(async () => runnerSettings({ models: [], roles: [], runner: { model: "" } })) });
+
+    it("says there are no models yet, with a hint to test an endpoint", async () => {
+      renderGroup(noModels());
+      expect(await screen.findByText("No models yet")).toBeInTheDocument();
+      expect(screen.getByText(/Test an endpoint above/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add model" })).toBeInTheDocument();
+    });
+
+    it("lists the served models of a tested endpoint, each with Add as model", async () => {
+      renderGroup(noModels());
+      await userEvent.click(within(await endpointsTable()).getByRole("button", { name: "Test connection" }));
+      const served = await screen.findByRole("list", { name: "Models served by gpu" });
+      expect(within(served).getAllByRole("listitem")).toHaveLength(2);
+      expect(within(served).getByText("qwen/qwen3.5-27b")).toBeInTheDocument();
+    });
+
+    it("pre-fills the add form from a served model and creates the model in one write", async () => {
+      const api = noModels();
+      renderGroup(api);
+      await userEvent.click(within(await endpointsTable()).getByRole("button", { name: "Test connection" }));
+      const served = await screen.findByRole("list", { name: "Models served by gpu" });
+      await userEvent.click(within(served).getAllByRole("button", { name: "Add as model" })[1] as HTMLElement);
+      expect(screen.getByLabelText("Alias")).toHaveValue("qwen-qwen3-5-27b");
+      expect(screen.getByLabelText("Model ID")).toHaveTextContent("qwen/qwen3.5-27b");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(api.configSet).toHaveBeenCalledTimes(1);
+      expect(api.configSet).toHaveBeenCalledWith("models.qwen-qwen3-5-27b", ["endpoint=gpu", "id=qwen/qwen3.5-27b", "context_tokens=65536"]);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("takes a typed model id when nothing has been checked", async () => {
+      const api = noModels();
+      renderGroup(api);
+      await userEvent.click(await screen.findByRole("button", { name: "Add model" }));
+      await userEvent.type(screen.getByLabelText("Alias"), "mine");
+      await userEvent.type(screen.getByLabelText("Model ID"), "llama3:8b");
+      const context = screen.getByLabelText("Context tokens");
+      await userEvent.clear(context);
+      await userEvent.type(context, "32768");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(api.configSet).toHaveBeenCalledWith("models.mine", ["endpoint=gpu", "id=llama3:8b", "context_tokens=32768"]);
+    });
+
+    it("offers the served models in a select once the endpoint was tested, and still allows another id", async () => {
+      const api = noModels();
+      renderGroup(api);
+      await userEvent.click(within(await endpointsTable()).getByRole("button", { name: "Test connection" }));
+      await screen.findByRole("list", { name: "Models served by gpu" });
+      await userEvent.click(screen.getByRole("button", { name: "Add model" }));
+      await userEvent.click(screen.getByLabelText("Model ID"));
+      expect(screen.getByRole("option", { name: "qwen/qwen3.5-9b" })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("option", { name: "Other…" }));
+      await userEvent.type(screen.getByLabelText("Model ID"), "custom");
+      expect(screen.getByLabelText("Model ID")).toHaveValue("custom");
+    });
+
+    it("refuses an alias that is not a config name and a context below the floor", async () => {
+      const api = noModels();
+      renderGroup(api);
+      await userEvent.click(await screen.findByRole("button", { name: "Add model" }));
+      await userEvent.type(screen.getByLabelText("Alias"), "Bad Alias");
+      await userEvent.type(screen.getByLabelText("Model ID"), "m");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(await screen.findByText("An alias is lowercase letters, digits and dashes, starting with a letter")).toBeInTheDocument();
+      await userEvent.clear(screen.getByLabelText("Alias"));
+      await userEvent.type(screen.getByLabelText("Alias"), "ok");
+      await userEvent.clear(screen.getByLabelText("Context tokens"));
+      await userEvent.type(screen.getByLabelText("Context tokens"), "100");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(await screen.findByText("Context tokens must be at least 16384")).toBeInTheDocument();
+      expect(api.configSet).not.toHaveBeenCalled();
+    });
+
+    it("shows the error ws gives and keeps the form open", async () => {
+      const api = fakeApi({
+        runnerSettingsGet: vi.fn(async () => runnerSettings({ models: [], roles: [], runner: { model: "" } })),
+        configSet: vi.fn(async () => {
+          throw { code: "config_value_invalid", message: "models.x.endpoint isn't a defined endpoint" } satisfies AppError;
+        }),
+      });
+      renderGroup(api);
+      await userEvent.click(await screen.findByRole("button", { name: "Add model" }));
+      await userEvent.type(screen.getByLabelText("Alias"), "x");
+      await userEvent.type(screen.getByLabelText("Model ID"), "m");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(await screen.findByText("models.x.endpoint isn't a defined endpoint")).toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+  });
+
+  it("refuses an alias that already exists", async () => {
+    const api = fakeApi();
+    renderGroup(api);
+    await userEvent.click(await screen.findByRole("button", { name: "Add model" }));
+    await userEvent.type(screen.getByLabelText("Alias"), "qwen9b");
+    await userEvent.type(screen.getByLabelText("Model ID"), "m");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("A model named qwen9b already exists")).toBeInTheDocument();
+    expect(api.configSet).not.toHaveBeenCalled();
+  });
+
+  it("removes a model's whole table", async () => {
+    const api = fakeApi();
+    renderGroup(api);
+    await userEvent.click(await screen.findByRole("button", { name: "Remove qwen27b" }));
+    expect(api.configUnset).toHaveBeenCalledTimes(1);
+    expect(api.configUnset).toHaveBeenCalledWith("models.qwen27b");
+  });
+
+  it("clears the default model before removing it", async () => {
+    const api = fakeApi();
+    renderGroup(api);
+    await userEvent.click(await screen.findByRole("button", { name: "Remove qwen9b" }));
+    expect(vi.mocked(api.configUnset).mock.calls.map((call) => call[0])).toEqual(["runner.model", "models.qwen9b"]);
+  });
+
+  it("puts the default back when removing it fails", async () => {
+    const api = fakeApi({
+      configUnset: vi.fn(async (key: string) => {
+        if (key === "models.qwen9b") {
+          throw { code: "config_value_invalid", message: "runner.roles.implementer.model uses it" } satisfies AppError;
+        }
+        return configUnsetChange(key);
+      }),
+    });
+    renderGroup(api);
+    await userEvent.click(await screen.findByRole("button", { name: "Remove qwen9b" }));
+    expect(await screen.findByText("runner.roles.implementer.model uses it")).toBeInTheDocument();
+    expect(api.configSet).toHaveBeenCalledWith("runner.model", ["qwen9b"]);
+  });
+
+  it("sets the default model from a select", async () => {
+    const api = fakeApi();
+    renderGroup(api);
+    await userEvent.click(await screen.findByLabelText("Default model"));
+    await userEvent.click(screen.getByRole("option", { name: "qwen27b" }));
+    expect(api.configSet).toHaveBeenCalledWith("runner.model", ["qwen27b"]);
+  });
+
+  it("says a default is needed when there are models and none is the default", async () => {
+    renderGroup(fakeApi({ runnerSettingsGet: vi.fn(async () => runnerSettings({ runner: { model: "" } })) }));
+    expect(await screen.findByText(/No default model/)).toBeInTheDocument();
+  });
+
+  it("shows an endpoint-only check without a model line", async () => {
+    renderGroup(fakeApi({ runnerCheck: vi.fn(async () => runnerCheck({ model: null, context_tokens: null })) }));
+    await userEvent.click(within(await endpointsTable()).getByRole("button", { name: "Test connection" }));
+    expect(await screen.findByText("✓ 2 models · no model checked · no probe")).toBeInTheDocument();
   });
 });

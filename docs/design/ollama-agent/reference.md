@@ -42,7 +42,7 @@ ws daemon run [--origin transient|managed|app]
 ws daemon status [--json]
 ws daemon stop [--keep-runners] [--json]
 ws runner run [--resume] <workspace-id>          (hidden; started by the daemon)
-ws runner check [--json] [--model <m>] [<endpoint>]   (hidden; the desktop app's Test connection)
+ws runner check [--json] [--model <m>] [<endpoint>]   (hidden; the desktop app's Test connection; with no model to check, lists the endpoint's models)
 ws runner stop [--json] <workspace-id>           (hidden; the desktop app's Stop)
 ```
 
@@ -173,6 +173,28 @@ Models:
 Studio endpoint, which serves no `/api/version`). `token_source` is
 `env`, `secrets.env` or `null`; the token itself is never printed. Errors
 are the preflight codes.
+
+**Endpoint-only check.** When no model is given and none can be
+resolved (the endpoint has no alias and `runner.model` is unset), the
+check contacts the endpoint, lists `/v1/models` and chooses or validates
+no model, so an endpoint can be tested before any model exists. With no
+`<endpoint>`, the only configured endpoint is checked; with several, or
+none, the error is `endpoint_unknown` (its `details.endpoints` lists
+them). The object keeps every field and adds no key; `model`,
+`context_tokens` and `version` are `null`, and `capabilities` is empty
+(no probe runs; the Go encoder writes a nil list as `[]`):
+
+```json
+{"endpoint": "ollama", "url": "http://ollama-a.inference.svc:11434", "api": "openai", "probe": "ollama",
+ "model": null, "version": null, "capabilities": [],
+ "context_tokens": null, "models": ["qwen3.5:9b", "gemma3:12b"], "token_source": null,
+ "warnings": []}
+```
+
+`model: null` is how a client tells the two apart. An alias on the
+endpoint (or `runner.model`) keeps the full check above. `ws machine
+spawn`, `ws claude` and `ws loop` are unchanged: with no model they still
+fail with `no runner model given or configured`.
 
 ### `ws runner stop` (hidden)
 
@@ -585,7 +607,11 @@ model alias that isn't defined is `config_invalid` when the file is read.
 `endpoints.<name>.<key>`, `models.<alias>.<key>`,
 `runner.roles.<role>.<key>`, `daemon.resume_on_start`. `ws config unset
 endpoints.<name>` (or `models.<alias>`, `runner.roles.<role>`) removes the
-whole table. New `ws config` types: `int` and `float`.
+whole table. `ws config set models.<alias> endpoint=<name> id=<id>
+context_tokens=<n> ...` (also `endpoints.<name>` and `runner.roles.<role>`)
+creates or updates a table from `leaf=value` pairs in one edit; a model
+needs its `endpoint`, `id` and `context_tokens` together, so one key at a
+time can't create it. New `ws config` types: `int` and `float`.
 
 Example, with the commented block for the generated file in the
 [README](README.md#configuration):

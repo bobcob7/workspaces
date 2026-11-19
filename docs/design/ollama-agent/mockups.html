@@ -419,17 +419,19 @@ const modelsCard = (errors) => `
   <div class="cardHead">Models <span class="spacer"></span><button class="btn small">Add model</button></div>
   <div class="cardBody" style="padding:4px 4px">
   <table>
-    <colgroup><col style="width:150px"><col style="width:90px"><col style="width:170px"><col style="width:90px"><col style="width:120px"><col></colgroup>
-    <tr><th>Alias</th><th>Endpoint</th><th>Model id</th><th>Context</th><th>Reasoning</th><th>Status</th></tr>
+    <colgroup><col style="width:150px"><col style="width:90px"><col style="width:170px"><col style="width:90px"><col style="width:120px"><col><col style="width:110px"></colgroup>
+    <tr><th>Alias</th><th>Endpoint</th><th>Model id</th><th>Context</th><th>Reasoning</th><th>Status</th><th>Actions</th></tr>
     <tr><td><b>qwen9b</b> <span class="muted">default</span></td><td>gpu</td><td class="mono">qwen/qwen3.5-9b</td><td>65 536</td><td>none</td>
-      <td>${errors ? dot(bad, "endpoint unreachable") : `<span class="muted">served · no probe</span>`}</td></tr>
+      <td>${errors ? dot(bad, "endpoint unreachable") : `<span class="muted">served · no probe</span>`}</td><td><button class="btn small">Remove</button></td></tr>
     <tr><td><b>qwen9b-think</b></td><td>gpu</td><td class="mono">qwen/qwen3.5-9b</td><td>131 072</td><td class="muted">server default</td>
-      <td>${errors ? dot(bad, "endpoint unreachable") : `<span class="muted">served · no probe</span>`}</td></tr>
+      <td>${errors ? dot(bad, "endpoint unreachable") : `<span class="muted">served · no probe</span>`}</td><td><button class="btn small">Remove</button></td></tr>
     <tr><td><b>qwen9b-ollama</b></td><td>ollama</td><td class="mono">qwen3.5:9b</td><td>65 536</td><td>none</td>
-      <td>${dot(ok, "tools <span class=\"ck\"></span>")}</td></tr>
+      <td>${dot(ok, "tools <span class=\"ck\"></span>")}</td><td><button class="btn small">Remove</button></td></tr>
     <tr><td><b>gemma</b></td><td>ollama</td><td class="mono">gemma3:12b</td><td>32 768</td><td class="muted">server default</td>
-      <td>${errors ? dot(bad, "no tools") : dot(warn, "no tools")}</td></tr>
-  </table></div>
+      <td>${errors ? dot(bad, "no tools") : dot(warn, "no tools")}</td><td><button class="btn small">Remove</button></td></tr>
+  </table>
+  <div style="padding:8px 8px 4px;display:flex;align-items:center;gap:10px"><span class="muted">Default model</span><span class="field select" style="min-height:28px;padding:3px 8px"><span class="mono">qwen9b</span></span></div>
+  </div>
 </div>`;
 
 const settingsModels = (errors) => `
@@ -452,6 +454,11 @@ ${errors ? "" : `
   <label>Request timeout</label><div class="field">10m</div><label>Idle timeout</label><div class="field">90s</div>
 </div>
 <div class="alert info" style="margin-top:12px"><span class="ico info">i</span><div>2 models · <span class="mono">qwen/qwen3.5-9b</span> is served · no probe, so tool support and the context length aren't checked: <span class="mono">context_tokens</span> must match the server's load setting</div></div>
+<table style="margin-top:8px"><colgroup><col><col style="width:120px"></colgroup>
+  <tr><td class="mono">qwen/qwen3.5-9b</td><td class="muted">added as qwen9b</td></tr>
+  <tr><td class="mono">qwen/qwen3.5-27b</td><td><button class="btn small">Add as model</button></td></tr>
+</table>
+<div class="muted" style="margin-top:8px">With no model yet, Test connection lists what the endpoint serves and checks no model; Add as model pre-fills Add model.</div>
 </div></div>`}
 <div class="card"><div class="cardHead">Roles</div><div class="cardBody" style="padding:4px 4px"><table>
   <colgroup><col style="width:140px"><col style="width:120px"><col style="width:200px"><col style="width:170px"><col></colgroup>

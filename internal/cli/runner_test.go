@@ -366,6 +366,27 @@ func TestApp_runRunnerCheck(t *testing.T) {
 		require.NoError(t, app.runRunnerCheck(t.Context(), nil, ""))
 		assert.Contains(t, stdout.String(), "gpu ("+url+"): gemma3:12b, context 32768 tokens")
 	})
+	t.Run("an endpoint with no model reports null model and lists the models it serves", func(t *testing.T) {
+		app, stdout, _ := newDaemonTestApp(t)
+		app.global.json = true
+		url := modelsEndpoint(t)
+		require.NoError(t, os.WriteFile(app.paths.ConfigFile, fmt.Appendf(nil, "[endpoints.gpu]\nurl = %q\nprobe = \"none\"\n", url), 0o600))
+		serveRunnerDaemon(t, app)
+		require.NoError(t, app.runRunnerCheck(t.Context(), []string{"gpu"}, ""))
+		obj := decodeJSONObject(t, stdout)
+		assert.Equal(t, "gpu", obj["endpoint"])
+		assert.Nil(t, obj["model"])
+		assert.Nil(t, obj["context_tokens"])
+		assert.Equal(t, []any{"gemma3:12b"}, obj["models"])
+	})
+	t.Run("an endpoint with no model prints how many models it serves", func(t *testing.T) {
+		app, stdout, _ := newDaemonTestApp(t)
+		url := modelsEndpoint(t)
+		require.NoError(t, os.WriteFile(app.paths.ConfigFile, fmt.Appendf(nil, "[endpoints.gpu]\nurl = %q\nprobe = \"none\"\n", url), 0o600))
+		serveRunnerDaemon(t, app)
+		require.NoError(t, app.runRunnerCheck(t.Context(), nil, ""))
+		assert.Contains(t, stdout.String(), "gpu ("+url+"): serves 1 models")
+	})
 	t.Run("an endpoint that doesn't answer keeps its code and url", func(t *testing.T) {
 		app, _, _ := newDaemonTestApp(t)
 		url := closedEndpoint(t)

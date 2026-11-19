@@ -51,10 +51,11 @@ pub struct RunnerCheck {
     pub url: String,
     pub api: String,
     pub probe: String,
-    pub model: String,
+    /// `None` for an endpoint-only check, which chooses no model.
+    pub model: Option<String>,
     pub version: Option<String>,
     pub capabilities: Option<Vec<String>>,
-    pub context_tokens: i64,
+    pub context_tokens: Option<i64>,
     pub models: Vec<String>,
     pub token_source: Option<String>,
     pub warnings: Vec<String>,
@@ -91,7 +92,8 @@ pub(crate) async fn restart(runner: &Runner) -> CmdResult<DaemonStopped> {
 
 /// Runs the spawn preflight for an endpoint, and for a model on it
 /// (`ws runner check --json [--model <m>] [-- <endpoint>]`). Empty strings leave
-/// the default to ws.
+/// the default to ws. With no model to check, ws lists the endpoint's models
+/// and reports `model` and `context_tokens` as null.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn runner_check(
     state: State<'_, AppState>,
@@ -169,6 +171,18 @@ mod tests {
         let result = check(&runner, "", "").await.unwrap();
         assert_eq!(recorded(&dir), "runner check --json");
         assert_eq!(result.capabilities.unwrap(), ["completion", "tools"]);
+    }
+
+    #[tokio::test]
+    async fn check_reads_an_endpoint_only_answer_with_no_model() {
+        let (dir, runner) = fake_ws(
+            r#"echo '{"endpoint":"gpu","url":"http://gpu:1234","api":"openai","probe":"auto","model":null,"version":null,"capabilities":[],"context_tokens":null,"models":["a","b"],"token_source":null,"warnings":[]}'"#,
+        );
+        let result = check(&runner, "gpu", "").await.unwrap();
+        assert_eq!(recorded(&dir), "runner check --json -- gpu");
+        assert_eq!(result.model, None);
+        assert_eq!(result.context_tokens, None);
+        assert_eq!(result.models, ["a", "b"]);
     }
 
     #[tokio::test]
