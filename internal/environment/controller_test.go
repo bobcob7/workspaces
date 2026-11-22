@@ -653,7 +653,7 @@ func TestController_onUp(t *testing.T) {
 		renewed := renew()
 		assert.Equal(t, rec.ID, renewed.Subject.CommonName)
 		assert.Equal(t, newCA.SubjectKeyId, renewed.AuthorityKeyId)
-		assert.NoError(t, signedBy(renewed, newCA))
+		require.NoError(t, signedBy(renewed, newCA))
 		assert.Error(t, signedBy(renewed, oldCA))
 	})
 	t.Run("an agent's cert.renew over the broker gets its reply on env/<id>/req", func(t *testing.T) {
