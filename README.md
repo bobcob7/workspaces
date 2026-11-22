@@ -283,7 +283,7 @@ internal/
   cache/                      # bare clones, locking, spec and ref resolution (0007, 0008)
   workspace/                  # creating, finding, and removing workspaces (0009, 0012, 0017)
   lifetime/                   # removing workspaces whose session is gone; ws list, ws rm, ws restore, ws continue (0015, 0025, 0027, 0047)
-  machine/                    # ws machine: children, results, and roles (0046, 0050)
+  machine/                    # ws machine: children, results, roles, and progress (0046, 0050, 0077)
   review/                     # the review engine: documents, checks, store, start (0037-0045)
   loop/                       # agent loops: records, schedule, store (0048)
   gate/                       # runs a loop's gate script (0049)
