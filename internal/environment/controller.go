@@ -168,7 +168,7 @@ func (c *Controller) listenAll(ctx context.Context) error {
 		return errors.Join(err, c.broker.Close(), enrollLn.Close())
 	}
 	srv := &http.Server{Handler: newEnrollHandler(c.log, c.enroll), ReadHeaderTimeout: enrollReadTimeout}
-	c.publishListeners(listeners{
+	c.publishListeners(&listeners{
 		srv:         srv,
 		enrollAddr:  enrollLn.Addr().String(),
 		brokerAddr:  brokerAddr,
@@ -190,7 +190,7 @@ type listeners struct {
 
 // publishListeners records that the listeners are up. Enrollment answers
 // read the broker endpoint, so it is set before any request is served.
-func (c *Controller) publishListeners(l listeners) {
+func (c *Controller) publishListeners(l *listeners) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.listening = true
@@ -232,10 +232,10 @@ func (c *Controller) subscribe(ctx context.Context) ([]func(), error) {
 		filter string
 		fn     func(envproto.Message)
 	}{
-		{envproto.Topic("+", envproto.LeafStatus), func(m envproto.Message) { c.onStatus(ctx, m) }},
-		{envproto.Topic("+", envproto.LeafSnapshot), func(m envproto.Message) { c.onSnapshot(ctx, m) }},
-		{envproto.Topic("+", envproto.LeafUp), func(m envproto.Message) { c.onUp(ctx, m) }},
-		{envproto.Topic("+", envproto.LeafRes, "+"), func(m envproto.Message) { c.onRes(ctx, m) }},
+		{envproto.Topic("+", envproto.LeafStatus), func(m envproto.Message) { c.onStatus(ctx, &m) }},
+		{envproto.Topic("+", envproto.LeafSnapshot), func(m envproto.Message) { c.onSnapshot(ctx, &m) }},
+		{envproto.Topic("+", envproto.LeafUp), func(m envproto.Message) { c.onUp(ctx, &m) }},
+		{envproto.Topic("+", envproto.LeafRes, "+"), func(m envproto.Message) { c.onRes(ctx, &m) }},
 	}
 	unsubscribe := make([]func(), 0, len(routes))
 	for _, r := range routes {
@@ -353,14 +353,14 @@ func (c *Controller) presences() []Presence {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	out := make([]Presence, 0, len(recs))
-	for _, rec := range recs {
-		out = append(out, c.presenceOf(rec))
+	for i := range recs {
+		out = append(out, c.presenceOf(&recs[i]))
 	}
 	return out
 }
 
 // presenceOf describes rec with what the controller has heard. c.mu must be held.
-func (c *Controller) presenceOf(rec Record) Presence {
+func (c *Controller) presenceOf(rec *Record) Presence {
 	p := Presence{ID: rec.ID, Name: rec.Name, State: rec.State, Status: statusPending}
 	if rec.State != StateEnrolled {
 		return p
@@ -447,7 +447,7 @@ func (c *Controller) known(id string) bool {
 
 // onStatus records an environment's hello or last will, and asks it for the
 // CA roots it lacks.
-func (c *Controller) onStatus(ctx context.Context, msg envproto.Message) {
+func (c *Controller) onStatus(ctx context.Context, msg *envproto.Message) {
 	id, _, ok := envproto.ParseTopic(msg.Topic)
 	if !ok || !c.known(id) {
 		return
@@ -457,27 +457,27 @@ func (c *Controller) onStatus(ctx context.Context, msg envproto.Message) {
 		c.log.WarnContext(ctx, "status refused", "id", id)
 		return
 	}
-	c.recordStatus(id, hello)
+	c.recordStatus(id, &hello)
 	if hello.Status == envproto.StatusOnline && c.missingRoot(hello.CAFingerprints) {
 		c.requestCAUpdate(ctx, id)
 	}
 }
 
 // recordStatus stores what a status message says about the environment id.
-func (c *Controller) recordStatus(id string, hello envproto.Hello) {
+func (c *Controller) recordStatus(id string, hello *envproto.Hello) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	h := c.presence[id]
 	h.lastSeen = c.now().UTC()
 	h.online = hello.Status == envproto.StatusOnline
 	if h.online {
-		h.hello = &hello
+		h.hello = hello
 	}
 	c.presence[id] = h
 }
 
 // onSnapshot writes the environment's snapshot to state/.environments/<name>/snapshot.json.
-func (c *Controller) onSnapshot(ctx context.Context, msg envproto.Message) {
+func (c *Controller) onSnapshot(ctx context.Context, msg *envproto.Message) {
 	id, _, ok := envproto.ParseTopic(msg.Topic)
 	if !ok {
 		return
@@ -487,7 +487,7 @@ func (c *Controller) onSnapshot(ctx context.Context, msg envproto.Message) {
 		return
 	}
 	var snap envproto.Snapshot
-	if err := json.Unmarshal(msg.Payload, &snap); err != nil {
+	if err = json.Unmarshal(msg.Payload, &snap); err != nil {
 		c.log.WarnContext(ctx, "snapshot refused", "id", id)
 		return
 	}
@@ -509,7 +509,7 @@ func (c *Controller) onSnapshot(ctx context.Context, msg envproto.Message) {
 
 // onUp answers an agent's request on env/<id>/up. It acts and replies only
 // when the request's response topic is env/<id>/req.
-func (c *Controller) onUp(ctx context.Context, msg envproto.Message) {
+func (c *Controller) onUp(ctx context.Context, msg *envproto.Message) {
 	id, _, ok := envproto.ParseTopic(msg.Topic)
 	if !ok || msg.ResponseTopic != envproto.Topic(id, envproto.LeafReq) {
 		return
@@ -567,7 +567,7 @@ func (c *Controller) publishReply(ctx context.Context, topic string, correlation
 }
 
 // onRes logs whether an environment acknowledged a ca.update.
-func (c *Controller) onRes(ctx context.Context, msg envproto.Message) {
+func (c *Controller) onRes(ctx context.Context, msg *envproto.Message) {
 	id, _, ok := envproto.ParseTopic(msg.Topic)
 	if !ok {
 		return
