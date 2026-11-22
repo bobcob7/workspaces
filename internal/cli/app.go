@@ -264,6 +264,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newCacheCmd(),
 		a.newConfigCmd(),
 		a.newDaemonCmd(),
+		a.newEnvCmd(),
 	} {
 		cmd.GroupID = peopleGroup
 		root.AddCommand(cmd)

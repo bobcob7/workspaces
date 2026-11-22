@@ -99,15 +99,18 @@ func environmentHello(h *envproto.Hello) *daemon.EnvironmentHello {
 	}
 }
 
+// noDaemonWarning is the warning when no ws daemon runs for this config
+// directory, so remote environments can't connect.
+const noDaemonWarning = "no ws daemon runs for this config directory; remote environments connect once one does (ws daemon run, or the desktop app)"
+
 // reloadEnvironments asks a running daemon to reload. With no daemon it
-// returns the warning "no ws daemon runs for this config directory; remote
-// environments connect once one does (ws daemon run, or the desktop app)";
-// on another error, "the ws daemon didn't reload the environments: <err>".
+// returns noDaemonWarning; on another error,
+// "the ws daemon didn't reload the environments: <err>".
 func (a *App) reloadEnvironments(ctx context.Context) []string {
 	err := daemon.Dial(a.daemonPaths()).ReloadEnvironments(ctx)
 	switch {
 	case errors.Is(err, daemon.ErrNotRunning):
-		return []string{"no ws daemon runs for this config directory; remote environments connect once one does (ws daemon run, or the desktop app)"}
+		return []string{noDaemonWarning}
 	case err != nil:
 		return []string{fmt.Sprintf("the ws daemon didn't reload the environments: %v", err)}
 	}
