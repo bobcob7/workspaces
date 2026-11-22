@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -12,6 +13,9 @@ import (
 
 // maxEnrollBody caps an enrollment request's body.
 const maxEnrollBody = 64 << 10
+
+// errTrailingData refuses an enrollment body with anything after its JSON object.
+var errTrailingData = errors.New("trailing data after the enrollment request")
 
 // newEnrollHandler serves POST /v1/enroll and nothing else (404 for other
 // paths, 405 for other methods). Body at most 64 KiB, JSON
@@ -46,13 +50,20 @@ func newEnrollHandler(log *slog.Logger, enroll func(ctx context.Context, secret 
 	})
 }
 
-// decodeEnrollRequest reads the body of an enrollment request.
+// decodeEnrollRequest reads the body of an enrollment request, which must be
+// exactly one JSON object.
 func decodeEnrollRequest(w http.ResponseWriter, r *http.Request) (envproto.EnrollRequest, error) {
 	var req envproto.EnrollRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEnrollBody))
 	dec.DisallowUnknownFields()
-	err := dec.Decode(&req)
-	return req, err
+	if err := dec.Decode(&req); err != nil {
+		return req, err
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return req, errTrailingData
+	}
+	return req, nil
 }
 
 // refuseEnrollment logs a refused enrollment and answers with its code.

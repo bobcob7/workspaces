@@ -99,6 +99,12 @@ func TestEnrollHandler_ServeHTTP(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 		assert.Empty(t, *secrets)
 	})
+	t.Run("answers 400 usage for data after the request object", func(t *testing.T) {
+		enroll, secrets := enrollStub(&envproto.EnrollResponse{}, nil)
+		rec := postEnroll(t, newEnrollHandler(discardLog(), enroll), http.MethodPost, envproto.EnrollPath, goodBody+goodBody)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Empty(t, *secrets)
+	})
 	t.Run("answers 404 for any other path", func(t *testing.T) {
 		enroll, _ := enrollStub(&envproto.EnrollResponse{}, nil)
 		rec := postEnroll(t, newEnrollHandler(discardLog(), enroll), http.MethodPost, "/v1/other", goodBody)
