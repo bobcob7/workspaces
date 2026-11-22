@@ -1,6 +1,6 @@
 # 0075. An environment is enrolled with a one-time code that pins `ws`'s CA and buys a short-lived client certificate; certificates renew over the live connection and are revoked by `ws env rm`
 
-- Status: Proposed
+- Status: Accepted (2026-11-22), amended the same day (see Amendments)
 - Date: 2026-11-22
 
 ## Context
@@ -75,7 +75,7 @@ never logged.
 The enrollment listener answers nothing else.
 
 **Renewal.** The agent sends `cert.renew` with a new CSR over the live
-mTLS connection once its certificate is within
+mTLS connection, on `env/<id>/up` (see Amendments), once its certificate is within
 `[environments] renew_before_days` of expiring (default 30, an integer from
 1 to 60); the controller signs it for the same CN. The agent re-checks every
 hour, so a machine that was asleep renews as soon as it's back, if its
@@ -104,7 +104,7 @@ itself.
 
 **Revocation.** `ws env rm <name>` marks the environment revoked: the
 broker refuses its certificate serial from then on, and disconnects it
-now. A revoked or removed environment's workspaces on the remote are left
+now (see Amendments). A revoked or removed environment's workspaces on the remote are left
 alone, and its controller snapshot is deleted. The revocation list is
 a file the broker reads; it needs no CRL distribution.
 
@@ -154,7 +154,8 @@ revoked, and revocation lists grow.
   documented in `docs/state.md`.
 - New commands for people: `ws env add|list|rm|rotate`, `ws env ca rotate|status`,
   `ws env agent enroll|run|status|unenroll`; error codes
-  `enrollment_failed` (exit 1), `enrollment_used` (exit 4).
+  `enrollment_failed` (exit 1), `enrollment_used` (exit 4), and the three
+  more in Amendments.
 - Conformance: Go tests that a code works once and not twice and that a
   wrong secret is refused; that a wrong fingerprint aborts before the
   secret is sent; that the private key never appears in any message; that a
@@ -174,8 +175,44 @@ revoked, and revocation lists grow.
   of expiry produces the warning; (h) rotating twice in a row keeps at most
   two roots.
 - **Unverified:** certificate renewal time under clock skew on a machine
-  that was suspended; and Windows key-file ACLs (see
+  that was suspended; CA rotation with two roots on the broker (the broker
+  spike didn't run it); and Windows key-file ACLs (see
   [0076](0076-environment-platforms-and-phasing.md)).
+
+## Amendments (2026-11-22)
+
+**`ca.update`.** The controller sends a request on `env/<id>/req`,
+`{"op": "ca.update", "args": {"ca_bundle": "<PEM>"}}`, and the agent answers
+on `env/<id>/res/<req>`. "Retained until acknowledged" is done without
+state: whenever an agent's hello lists `ca_fingerprints` that don't include
+every root the controller trusts, the controller sends `ca.update`.
+
+**`renew_before_days` is the agent's own.** The agent reads
+`[environments] renew_before_days` from its own `config.toml`, with the same
+key and default (30). The controller's value drives only the CA-expiry
+warning.
+
+**Record states.** `environments/<id>.toml` has `state = "pending"` or
+`"enrolled"`. `ws env rm` revokes and deletes the record. `ws env rotate`
+revokes the current certificate, if there is one, and makes the record
+`pending` with a new code.
+
+**Error codes.** Besides `enrollment_failed` and `enrollment_used`, the
+code set gains `environment_unknown` (exit 3, from
+[0072](0072-remote-environments.md)), `environment_exists` (exit 4: the name
+is taken, or `enroll` runs on an enrolled machine) and `ca_in_use` (exit 4:
+`ws env ca rotate --finish` while environments hold old-CA certificates).
+`environment_offline`, `environment_outdated` and `environment_mismatch`
+come with the presence work.
+
+**`cert.renew` goes to `env/<id>/up`**, as [0074](0074-mqtt-transport-embedded-broker.md)
+(amended) says.
+
+**Revocation in the broker.** The refused agent sees only a broken pipe or
+EOF at its first read, because TLS 1.3 reports the refusal late, not a TLS
+error from the dial. The broker refuses the serial in the handshake, and
+`Revoke` disconnects a live client with that serial. The spike recommends
+that `ws env rm` also delete the persisted session.
 
 ## References
 
