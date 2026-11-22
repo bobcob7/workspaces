@@ -3300,3 +3300,255 @@ func (mock *envBrokerMock) SubscribeCalls() []struct {
 	mock.lockSubscribe.RUnlock()
 	return calls
 }
+
+// Ensure, that envClientMock does implement envClient.
+// If this is not the case, regenerate this file with moq.
+var _ envClient = &envClientMock{}
+
+// envClientMock is a mock implementation of envClient.
+//
+//	func TestSomethingThatUsesenvClient(t *testing.T) {
+//
+//		// make and configure a mocked envClient
+//		mockedenvClient := &envClientMock{
+//			CloseFunc: func() error {
+//				panic("mock out the Close method")
+//			},
+//			ConnectFunc: func(ctx context.Context, opts envproto.ConnectOptions) error {
+//				panic("mock out the Connect method")
+//			},
+//			DoneFunc: func() <-chan struct{} {
+//				panic("mock out the Done method")
+//			},
+//			PublishFunc: func(ctx context.Context, msg envproto.Message) error {
+//				panic("mock out the Publish method")
+//			},
+//			SubscribeFunc: func(ctx context.Context, filter string, fn func(envproto.Message)) error {
+//				panic("mock out the Subscribe method")
+//			},
+//		}
+//
+//		// use mockedenvClient in code that requires envClient
+//		// and then make assertions.
+//
+//	}
+type envClientMock struct {
+	// CloseFunc mocks the Close method.
+	CloseFunc func() error
+
+	// ConnectFunc mocks the Connect method.
+	ConnectFunc func(ctx context.Context, opts envproto.ConnectOptions) error
+
+	// DoneFunc mocks the Done method.
+	DoneFunc func() <-chan struct{}
+
+	// PublishFunc mocks the Publish method.
+	PublishFunc func(ctx context.Context, msg envproto.Message) error
+
+	// SubscribeFunc mocks the Subscribe method.
+	SubscribeFunc func(ctx context.Context, filter string, fn func(envproto.Message)) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Close holds details about calls to the Close method.
+		Close []struct {
+		}
+		// Connect holds details about calls to the Connect method.
+		Connect []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Opts is the opts argument value.
+			Opts envproto.ConnectOptions
+		}
+		// Done holds details about calls to the Done method.
+		Done []struct {
+		}
+		// Publish holds details about calls to the Publish method.
+		Publish []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Msg is the msg argument value.
+			Msg envproto.Message
+		}
+		// Subscribe holds details about calls to the Subscribe method.
+		Subscribe []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Filter is the filter argument value.
+			Filter string
+			// Fn is the fn argument value.
+			Fn func(envproto.Message)
+		}
+	}
+	lockClose     sync.RWMutex
+	lockConnect   sync.RWMutex
+	lockDone      sync.RWMutex
+	lockPublish   sync.RWMutex
+	lockSubscribe sync.RWMutex
+}
+
+// Close calls CloseFunc.
+func (mock *envClientMock) Close() error {
+	if mock.CloseFunc == nil {
+		panic("envClientMock.CloseFunc: method is nil but envClient.Close was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockClose.Lock()
+	mock.calls.Close = append(mock.calls.Close, callInfo)
+	mock.lockClose.Unlock()
+	return mock.CloseFunc()
+}
+
+// CloseCalls gets all the calls that were made to Close.
+// Check the length with:
+//
+//	len(mockedenvClient.CloseCalls())
+func (mock *envClientMock) CloseCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockClose.RLock()
+	calls = mock.calls.Close
+	mock.lockClose.RUnlock()
+	return calls
+}
+
+// Connect calls ConnectFunc.
+func (mock *envClientMock) Connect(ctx context.Context, opts envproto.ConnectOptions) error {
+	if mock.ConnectFunc == nil {
+		panic("envClientMock.ConnectFunc: method is nil but envClient.Connect was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Opts envproto.ConnectOptions
+	}{
+		Ctx:  ctx,
+		Opts: opts,
+	}
+	mock.lockConnect.Lock()
+	mock.calls.Connect = append(mock.calls.Connect, callInfo)
+	mock.lockConnect.Unlock()
+	return mock.ConnectFunc(ctx, opts)
+}
+
+// ConnectCalls gets all the calls that were made to Connect.
+// Check the length with:
+//
+//	len(mockedenvClient.ConnectCalls())
+func (mock *envClientMock) ConnectCalls() []struct {
+	Ctx  context.Context
+	Opts envproto.ConnectOptions
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Opts envproto.ConnectOptions
+	}
+	mock.lockConnect.RLock()
+	calls = mock.calls.Connect
+	mock.lockConnect.RUnlock()
+	return calls
+}
+
+// Done calls DoneFunc.
+func (mock *envClientMock) Done() <-chan struct{} {
+	if mock.DoneFunc == nil {
+		panic("envClientMock.DoneFunc: method is nil but envClient.Done was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockDone.Lock()
+	mock.calls.Done = append(mock.calls.Done, callInfo)
+	mock.lockDone.Unlock()
+	return mock.DoneFunc()
+}
+
+// DoneCalls gets all the calls that were made to Done.
+// Check the length with:
+//
+//	len(mockedenvClient.DoneCalls())
+func (mock *envClientMock) DoneCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockDone.RLock()
+	calls = mock.calls.Done
+	mock.lockDone.RUnlock()
+	return calls
+}
+
+// Publish calls PublishFunc.
+func (mock *envClientMock) Publish(ctx context.Context, msg envproto.Message) error {
+	if mock.PublishFunc == nil {
+		panic("envClientMock.PublishFunc: method is nil but envClient.Publish was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Msg envproto.Message
+	}{
+		Ctx: ctx,
+		Msg: msg,
+	}
+	mock.lockPublish.Lock()
+	mock.calls.Publish = append(mock.calls.Publish, callInfo)
+	mock.lockPublish.Unlock()
+	return mock.PublishFunc(ctx, msg)
+}
+
+// PublishCalls gets all the calls that were made to Publish.
+// Check the length with:
+//
+//	len(mockedenvClient.PublishCalls())
+func (mock *envClientMock) PublishCalls() []struct {
+	Ctx context.Context
+	Msg envproto.Message
+} {
+	var calls []struct {
+		Ctx context.Context
+		Msg envproto.Message
+	}
+	mock.lockPublish.RLock()
+	calls = mock.calls.Publish
+	mock.lockPublish.RUnlock()
+	return calls
+}
+
+// Subscribe calls SubscribeFunc.
+func (mock *envClientMock) Subscribe(ctx context.Context, filter string, fn func(envproto.Message)) error {
+	if mock.SubscribeFunc == nil {
+		panic("envClientMock.SubscribeFunc: method is nil but envClient.Subscribe was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Filter string
+		Fn     func(envproto.Message)
+	}{
+		Ctx:    ctx,
+		Filter: filter,
+		Fn:     fn,
+	}
+	mock.lockSubscribe.Lock()
+	mock.calls.Subscribe = append(mock.calls.Subscribe, callInfo)
+	mock.lockSubscribe.Unlock()
+	return mock.SubscribeFunc(ctx, filter, fn)
+}
+
+// SubscribeCalls gets all the calls that were made to Subscribe.
+// Check the length with:
+//
+//	len(mockedenvClient.SubscribeCalls())
+func (mock *envClientMock) SubscribeCalls() []struct {
+	Ctx    context.Context
+	Filter string
+	Fn     func(envproto.Message)
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Filter string
+		Fn     func(envproto.Message)
+	}
+	mock.lockSubscribe.RLock()
+	calls = mock.calls.Subscribe
+	mock.lockSubscribe.RUnlock()
+	return calls
+}

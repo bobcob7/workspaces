@@ -80,6 +80,9 @@ type App struct {
 	// newEnvBroker builds the daemon's MQTT broker (ADR 0074). Until T10 it
 	// returns errNoBroker.
 	newEnvBroker func(log *slog.Logger) (envBroker, error)
+	// newEnvClient builds the agent's MQTT client (ADR 0074). Until T10 it
+	// returns errNoMQTTClient.
+	newEnvClient func(log *slog.Logger) (envClient, error)
 	// dialDaemon is the client to this config directory's daemon, started
 	// when none runs (ADR 0068): daemonClient, unless a test replaces it.
 	dialDaemon func(ctx context.Context) (runnerDaemon, error)
@@ -157,6 +160,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	}
 	a.dialDaemon = a.dialDaemonClient
 	a.newEnvBroker = noEnvBroker
+	a.newEnvClient = noEnvClient
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
 		gitRunner := git.NewRunner(log, "git", environ)
 		c := cache.New(log, gitRunner, paths.Cache, cfg.SpecDefaults())

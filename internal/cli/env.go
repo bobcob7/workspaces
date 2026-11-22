@@ -29,7 +29,7 @@ func (a *App) newEnvCmd() *cobra.Command {
 			return cmd.Help()
 		}),
 	}
-	cmd.AddCommand(a.newEnvAddCmd(), a.newEnvListCmd(), a.newEnvRmCmd(), a.newEnvRotateCmd(), a.newEnvCACmd())
+	cmd.AddCommand(a.newEnvAddCmd(), a.newEnvListCmd(), a.newEnvRmCmd(), a.newEnvRotateCmd(), a.newEnvCACmd(), a.newEnvAgentCmd())
 	return cmd
 }
 

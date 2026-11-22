@@ -19,7 +19,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker envClient
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -77,6 +77,16 @@ type envBroker interface {
 	Subscribe(ctx context.Context, filter string, fn func(envproto.Message)) (func(), error)
 	Clients() []envproto.Peer
 	Disconnect(serial string) int
+	Close() error
+}
+
+// envClient is the agent's MQTT connection (ADR 0074). It has the same
+// method set as envagent's mqttClient, so the cli can hand it to the agent.
+type envClient interface {
+	Connect(ctx context.Context, opts envproto.ConnectOptions) error
+	Publish(ctx context.Context, msg envproto.Message) error
+	Subscribe(ctx context.Context, filter string, fn func(envproto.Message)) error
+	Done() <-chan struct{}
 	Close() error
 }
 
