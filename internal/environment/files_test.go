@@ -145,7 +145,6 @@ func encodeRSAKey(key *rsa.PrivateKey) ([]byte, error) {
 
 func TestRandomSerial(t *testing.T) {
 	t.Run("skips an all-zero read and returns a positive 128-bit value", func(t *testing.T) {
-		t.Parallel()
 		ones := bytes.Repeat([]byte{0x01}, 16)
 		serial, err := randomSerial(bytes.NewReader(append(make([]byte, 16), ones...)))
 		require.NoError(t, err)
@@ -154,7 +153,6 @@ func TestRandomSerial(t *testing.T) {
 		assert.LessOrEqual(t, serial.BitLen(), 128)
 	})
 	t.Run("returns the read error", func(t *testing.T) {
-		t.Parallel()
 		_, err := randomSerial(iotest.ErrReader(errors.New("boom")))
 		assert.Error(t, err)
 	})
