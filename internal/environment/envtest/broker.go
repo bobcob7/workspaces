@@ -1,8 +1,11 @@
 // Package envtest is an in-memory MQTT broker for tests of the controller
 // and the agent. Never imported outside _test.go files.
 //
-// A client connects over a real TLS handshake on net.Pipe, so certificate
-// checks are exercised; after that, messages are routed in memory. Will
+// A client connects over a real TLS handshake, so certificate checks are
+// exercised; after that, messages are routed in memory. The handshake runs
+// over memConn, a buffered in-memory connection rather than net.Pipe, because
+// a pipe deadlocks when the server sends a TLS alert. memConn ignores
+// deadlines, so nothing here may depend on a read or write timing out. Will
 // Delay is ignored: a will is published at once.
 package envtest
 
@@ -185,7 +188,7 @@ type Client struct {
 }
 
 // Connect connects c. ErrNotServing before Start. Runs tls.Server (b's config) and
-// tls.Client (opts.TLS) handshakes over net.Pipe concurrently; any failure
+// tls.Client (opts.TLS) handshakes over memConn concurrently; any failure
 // is ErrRefused wrapping it. Then PeerFromState(server side), ClientID =
 // opts.ClientID, rules.Connect(peer) (error → ErrRefused). Keeps opts.Will.
 // A client may Connect again after Done closed; Done is then a new channel.
@@ -429,8 +432,6 @@ func handshakeSide(ctx context.Context, conn *tls.Conn, raw net.Conn) error {
 	return nil
 }
 
-// closeAll closes every conn. A pipe end can only fail to close once it is
-// already closed, so the errors are dropped.
 // memConn is one end of a buffered in-memory connection. Unlike net.Pipe,
 // a write doesn't wait for the peer to read: with net.Pipe a server sending
 // a TLS alert and a client still writing its handshake block each other.
@@ -511,6 +512,8 @@ func (b *memBuffer) close() {
 	b.cond.Broadcast()
 }
 
+// closeAll closes every conn. A pipe end can only fail to close once it is
+// already closed, so the errors are dropped.
 func closeAll(conns ...net.Conn) {
 	for _, conn := range conns {
 		_ = conn.Close()

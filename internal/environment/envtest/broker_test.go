@@ -215,7 +215,6 @@ func TestBroker_Disconnect(t *testing.T) {
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { wills = append(wills, m) })
 		require.NoError(t, err)
 		serial := f.broker.Clients()[0].Serial
-
 		assert.Equal(t, 1, f.broker.Disconnect(serial))
 		assert.True(t, isClosed(c.Done()))
 		assert.Empty(t, f.broker.Clients())
@@ -248,7 +247,6 @@ func TestBroker_Close(t *testing.T) {
 		var wills []envproto.Message
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { wills = append(wills, m) })
 		require.NoError(t, err)
-
 		require.NoError(t, f.broker.Close())
 		assert.True(t, isClosed(c.Done()))
 		assert.Empty(t, wills)
@@ -336,7 +334,6 @@ func TestClient_Publish(t *testing.T) {
 		var wills []envproto.Message
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { wills = append(wills, m) })
 		require.NoError(t, err)
-
 		err = c.Publish(t.Context(), envproto.Message{Topic: "forbidden"})
 		require.ErrorIs(t, err, ErrDisconnected)
 		assert.True(t, isClosed(c.Done()))
@@ -410,7 +407,6 @@ func TestClient_Close(t *testing.T) {
 		var wills []envproto.Message
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { wills = append(wills, m) })
 		require.NoError(t, err)
-
 		require.NoError(t, c.Close())
 		assert.True(t, isClosed(c.Done()))
 		assert.Empty(t, wills)

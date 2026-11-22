@@ -40,7 +40,6 @@ func TestCode_String(t *testing.T) {
 
 func TestParseCode(t *testing.T) {
 	valid := Code{Host: "ws.example:4443", Fingerprint: testFingerprint, Secret: testSecret(t)}
-
 	t.Run("trims surrounding spaces", func(t *testing.T) {
 		got, err := ParseCode("  " + valid.String() + "\n")
 		require.NoError(t, err)
@@ -56,17 +55,18 @@ func TestParseCode(t *testing.T) {
 		badSecretJSON, err := json.Marshal(badSecret)
 		require.NoError(t, err)
 		for name, input := range map[string]string{
-			"no prefix":           strings.TrimPrefix(valid.String(), CodePrefix),
-			"bad base64":          CodePrefix + "!!!",
-			"bad json":            encodeCode(`{"h":`),
-			"unknown key":         encodeCode(`{"h":"ws.example:4443","f":"` + testFingerprint + `","s":"` + valid.Secret + `","x":1}`),
-			"trailing data":       encodeCode(string(body) + " {}"),
-			"no port":             encodeCode(`{"h":"ws.example","f":"` + testFingerprint + `","s":"` + valid.Secret + `"}`),
-			"port zero":           encodeCode(`{"h":"ws.example:0","f":"` + testFingerprint + `","s":"` + valid.Secret + `"}`),
-			"port too high":       encodeCode(`{"h":"ws.example:65536","f":"` + testFingerprint + `","s":"` + valid.Secret + `"}`),
-			"no host":             encodeCode(`{"h":":4443","f":"` + testFingerprint + `","s":"` + valid.Secret + `"}`),
-			"short fingerprint":   string(shortJSON),
-			"secret not 16 bytes": string(badSecretJSON),
+			"no prefix":             strings.TrimPrefix(valid.String(), CodePrefix),
+			"bad base64":            CodePrefix + "!!!",
+			"bad json":              encodeCode(`{"h":`),
+			"unknown key":           encodeCode(`{"h":"ws.example:4443","f":"` + testFingerprint + `","s":"` + valid.Secret + `","x":1}`),
+			"trailing data":         encodeCode(string(body) + " {}"),
+			"no port":               encodeCode(`{"h":"ws.example","f":"` + testFingerprint + `","s":"` + valid.Secret + `"}`),
+			"port zero":             encodeCode(`{"h":"ws.example:0","f":"` + testFingerprint + `","s":"` + valid.Secret + `"}`),
+			"port too high":         encodeCode(`{"h":"ws.example:65536","f":"` + testFingerprint + `","s":"` + valid.Secret + `"}`),
+			"no host":               encodeCode(`{"h":":4443","f":"` + testFingerprint + `","s":"` + valid.Secret + `"}`),
+			"short fingerprint":     string(shortJSON),
+			"uppercase fingerprint": encodeCode(`{"h":"ws.example:4443","f":"` + strings.ToUpper(testFingerprint) + `","s":"` + valid.Secret + `"}`),
+			"secret not 16 bytes":   string(badSecretJSON),
 		} {
 			t.Run(name, func(t *testing.T) {
 				_, err := ParseCode(input)

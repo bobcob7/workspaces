@@ -76,8 +76,8 @@ func checkCodeFields(c Code) error {
 	if err := checkHost(c.Host); err != nil {
 		return err
 	}
-	if _, err := hex.DecodeString(c.Fingerprint); err != nil || len(c.Fingerprint) != sha256.Size*2 {
-		return fmt.Errorf("%w: fingerprint is not 64 hex characters", ErrCodeInvalid)
+	if !isFingerprint(c.Fingerprint) {
+		return fmt.Errorf("%w: fingerprint is not 64 lowercase hex characters", ErrCodeInvalid)
 	}
 	secret, err := base64.RawURLEncoding.DecodeString(c.Secret)
 	if err != nil || len(secret) != secretBytes {
@@ -96,6 +96,13 @@ func checkHost(hostport string) error {
 		return fmt.Errorf("%w: host %q needs a host and a port 1-65535", ErrCodeInvalid, hostport)
 	}
 	return nil
+}
+
+// isFingerprint reports whether s is 64 lowercase hex characters, the form
+// Fingerprint returns, so a pin compares equal to it.
+func isFingerprint(s string) bool {
+	raw, err := hex.DecodeString(s)
+	return err == nil && len(raw) == sha256.Size && hex.EncodeToString(raw) == s
 }
 
 const secretBytes = 16

@@ -96,7 +96,6 @@ func TestPeerFromState(t *testing.T) {
 	ca := newTestCA(t)
 	clientCert := ca.issue(t, "env-1a2b3c4d", x509.ExtKeyUsageClientAuth)
 	serverCert := ca.issue(t, "server", x509.ExtKeyUsageServerAuth)
-
 	t.Run("reads the verified leaf and its issuer", func(t *testing.T) {
 		state := handshake(t,
 			&tls.Config{
@@ -140,7 +139,6 @@ func TestPeerFromState(t *testing.T) {
 
 func TestFingerprint(t *testing.T) {
 	ca := newTestCA(t)
-
 	t.Run("is 64 lowercase hex characters of the DER", func(t *testing.T) {
 		sum := sha256.Sum256(ca.cert.Raw)
 		assert.Equal(t, hex.EncodeToString(sum[:]), Fingerprint(ca.cert))
