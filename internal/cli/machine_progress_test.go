@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -84,5 +85,42 @@ func TestApp_machineProgress(t *testing.T) {
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "show"), e.stderr.String())
 		root := jsonObject(t, jsonObjectOf(t, e.stdout.String())["tree"])
 		assert.Nil(t, jsonObject(t, root["rollup"])["fraction"])
+	})
+}
+
+func TestApp_machineProgressWithResults(t *testing.T) {
+	t.Run("a passing result finishes the declared steps", func(t *testing.T) {
+		e := newProgressApp(t)
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--total", "4", "--done", "1"))
+		require.NoError(t, e.app.runMachineResult("pass", ""))
+		p, err := machine.NewStore(e.app.paths.State).ReadProgress("boss", "plan")
+		require.NoError(t, err)
+		require.NotNil(t, p)
+		assert.Equal(t, 4, p.Done)
+	})
+	t.Run("a failing result leaves the steps where they were", func(t *testing.T) {
+		e := newProgressApp(t)
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--total", "4", "--done", "1"))
+		require.NoError(t, e.app.runMachineResult("fail", ""))
+		p, err := machine.NewStore(e.app.paths.State).ReadProgress("boss", "plan")
+		require.NoError(t, err)
+		require.NotNil(t, p)
+		assert.Equal(t, 1, p.Done)
+	})
+	t.Run("a passing result with no progress records none", func(t *testing.T) {
+		e := newProgressApp(t)
+		require.NoError(t, e.app.runMachineResult("pass", ""))
+		p, err := machine.NewStore(e.app.paths.State).ReadProgress("boss", "plan")
+		require.NoError(t, err)
+		assert.Nil(t, p)
+	})
+	t.Run("show counts a finished child that never reported as one step", func(t *testing.T) {
+		e := newProgressApp(t)
+		store := machine.NewStore(e.app.paths.State)
+		require.NoError(t, store.WriteResult("boss", "a", &machine.Result{Verdict: "PASS", RecordedAt: testNow()}, nil))
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "show"), e.stderr.String())
+		rollup := jsonObject(t, jsonObject(t, jsonObjectOf(t, e.stdout.String())["tree"])["rollup"])
+		assert.InDelta(t, 1, rollup["total"], 0)
+		assert.InDelta(t, 1, rollup["done"], 0)
 	})
 }

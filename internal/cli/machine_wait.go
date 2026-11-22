@@ -50,6 +50,8 @@ type machineWaitItemJSON struct {
 	Finished bool                   `json:"finished"`
 	Outcome  string                 `json:"outcome"`
 	Result   *machineResultInfoJSON `json:"result"`
+	Progress *progressJSON          `json:"progress"`
+	Rollup   *rollupJSON            `json:"rollup"`
 	Error    *itemErrorJSON         `json:"error"`
 	Runner   *string                `json:"runner"`
 	Model    *string                `json:"model"`
@@ -70,6 +72,14 @@ type machineWaitRunnerJSON struct {
 	WallSeconds     *int    `json:"wall_seconds"`
 	UsageFile       *string `json:"usage_file"`
 	EndpointChanges int     `json:"endpoint_changes"`
+}
+
+// progressSource is what a child's progress is read from: the records under
+// root, and the workspaces that give the tree its shape.
+type progressSource struct {
+	store *machine.Store
+	root  string
+	list  []workspace.Workspace
 }
 
 // childState is one poll's view of a target.
@@ -183,14 +193,15 @@ func (a *App) waitForChildren(ctx context.Context, targets []waitTarget, root st
 			return err
 		}
 		states := a.pollChildren(targets, listing.Workspaces, root, store, warnedRead)
+		src := progressSource{store: store, root: root, list: entryWorkspaces(listing.Workspaces)}
 		if waitDone(states, opts) {
-			return a.printWait(targets, states, opts)
+			return a.printWait(targets, states, opts, src)
 		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("waiting for children: %w", ctx.Err())
 		case <-timer.C:
-			return a.printWait(targets, states, opts)
+			return a.printWait(targets, states, opts, src)
 		case <-time.After(a.machinePoll):
 		}
 	}
@@ -339,7 +350,7 @@ func waitDone(states []childState, opts *machineWaitOptions) bool {
 
 // printWait prints each target's item, and its error. A child not finished
 // at the timeout is wait_timeout, except with --any when another finished.
-func (a *App) printWait(targets []waitTarget, states []childState, opts *machineWaitOptions) error {
+func (a *App) printWait(targets []waitTarget, states []childState, opts *machineWaitOptions, src progressSource) error {
 	anyFinished := slices.ContainsFunc(states, func(s childState) bool { return s.finished })
 	var items itemResults
 	results := make([]machineWaitItemJSON, 0, len(targets))
@@ -358,6 +369,7 @@ func (a *App) printWait(targets []waitTarget, states []childState, opts *machine
 			Model:    optional(s.model),
 			WSRunner: s.wsRunner,
 		}
+		item.Progress, item.Rollup = a.childProgress(src.store, src.root, src.list, id)
 		item.Error = items.add(id, waitItemError(id, s, opts, anyFinished))
 		results = append(results, item)
 	}

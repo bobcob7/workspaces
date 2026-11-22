@@ -57,6 +57,14 @@ root's `rollup`.
 (`progress_invalid`, exit 2) rather than clamped, so a miscounting agent is
 told.
 
+**Joined to results.** `ws machine wait` and `children` add each child's
+`progress` and `rollup` to its item. `ws machine result` with a passing
+outcome sets `done = total` when a total was declared, so a finished task
+isn't left at 3 of 4; any other outcome leaves the record alone. A workspace
+with a result but no progress record counts as one step, done only when it
+passed, so a run's bar still moves when agents never call `progress`. A
+declared record always wins over that implicit step.
+
 ### Why this option
 
 Nesting costs nothing because it reuses `parent`; agents learn two verbs.
@@ -112,4 +120,6 @@ The parent says what share of its bar each child fills.
   this change.
 - A workspace's record is deleted with the root, as results are.
 - Unverified: whether small models update progress reliably without a prompt
-  nudge.
+  nudge. The implicit step is the fallback if they don't.
+- A failed child counts as planned but not done, so a failed run's bar stays
+  short of full.

@@ -133,10 +133,11 @@ type ProgressNode struct {
 
 // ProgressTree is id and everything below it in list, in list order, with each
 // node's Rollup the sum of its own steps and its children's rollups. A
-// workspace with no record has no steps of its own but still passes its
-// children's up. Ids already placed are skipped, so a cycle in hand-edited
-// parents ends the tree rather than looping.
-func ProgressTree(list []workspace.Workspace, id string, progress map[string]*Progress) *ProgressNode {
+// workspace with no record has no steps of its own, except that one with a
+// result in outcomes counts as a single step, done when it passed (ADR 0077).
+// Either way it passes its children's steps up. Ids already placed are
+// skipped, so a cycle in hand-edited parents ends the tree rather than looping.
+func ProgressTree(list []workspace.Workspace, id string, progress map[string]*Progress, outcomes map[string]Outcome) *ProgressNode {
 	kids := map[string][]string{}
 	for i := range list {
 		kids[list[i].Parent] = append(kids[list[i].Parent], list[i].ID)
@@ -146,8 +147,14 @@ func ProgressTree(list []workspace.Workspace, id string, progress map[string]*Pr
 	build = func(cur string) *ProgressNode {
 		seen[cur] = true
 		n := &ProgressNode{ID: cur, Progress: progress[cur]}
-		if n.Progress != nil {
+		switch outcome, finished := outcomes[cur]; {
+		case n.Progress != nil:
 			n.Rollup = Rollup{Total: n.Progress.Total, Done: n.Progress.Done}
+		case finished:
+			n.Rollup = Rollup{Total: 1}
+			if outcome == OutcomePass {
+				n.Rollup.Done = 1
+			}
 		}
 		for _, k := range kids[cur] {
 			if seen[k] {
@@ -170,4 +177,14 @@ func (n *ProgressNode) IDs() []string {
 		ids = append(ids, c.IDs()...)
 	}
 	return ids
+}
+
+// Complete is p with every step done, after a pass. It reports whether p
+// changed: a record with no steps planned, or all done, is left alone.
+func (p *Progress) Complete() bool {
+	if p.Total == 0 || p.Done == p.Total {
+		return false
+	}
+	p.Done = p.Total
+	return true
 }

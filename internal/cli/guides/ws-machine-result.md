@@ -19,6 +19,9 @@ pass it on stdin with `--file -`.
 
 Running `result` again replaces your verdict and report.
 
+A passing verdict also finishes your `ws machine progress` steps (`done` becomes
+`total`) when you declared a total; any other verdict leaves them as they were.
+
 A loop run (a workspace `ws loop` started, not one of its children) can
 record `BLOCKED` to ask a person for help: `--file` is required and holds
 the question. Its outcome is `blocked`. Only a later `ws machine result`

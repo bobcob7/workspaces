@@ -46,6 +46,8 @@ Output is always JSON; `--json` changes nothing.
      "result": {"verdict": "PASS", "outcome": "pass",
                 "report": "/…/state/orch-1a2b3c4d/machine/t1-impl-d8efb24f/report.md",
                 "recorded_at": "2026-11-06T18:04:05Z"},
+     "progress": {"name": "login form", "total": 3, "done": 3, "note": null, "updated_at": "2026-11-06T18:03:50Z"},
+     "rollup": {"total": 3, "done": 3, "fraction": 1.0},
      "error": null,
      "runner": "claude",
      "model": "claude-haiku-5-5",
@@ -61,6 +63,11 @@ One item per workspace named, in order. `status` is `working`, `idle`,
 without recording one, or `pending` when it hasn't finished. `role` is
 the role it was spawned with, or `null`; `result` is `null` until it
 records one.
+
+`progress` is the child's own `ws machine progress` record (all fields `null`
+if it never reported), and `rollup` sums its steps and its descendants':
+`{"total", "done", "fraction"}`. A finished child with no record counts as one
+step, done if it passed. See `ws llm machine progress`.
 
 `runner` is `claude` or `ws`, and `model` the model the child runs (for
 a Claude child, the one its last answer came from), or `null` when not

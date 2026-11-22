@@ -57,6 +57,11 @@ role the workspace was spawned with, or `null`. `result` is its verdict
 from `ws machine result`, or `null` until it records one: `outcome` is
 `pass` or `fail`, and `report` the kept report's path, or `null`.
 
+`progress` is the child's own `ws machine progress` record (all fields `null`
+if it never reported), and `rollup` sums its steps and its descendants':
+`{"total", "done", "fraction"}`. A finished child with no record counts as one
+step, done if it passed. See `ws llm machine progress`.
+
 ## Exit codes
 
 | Situation                 | Error code          | Exit |

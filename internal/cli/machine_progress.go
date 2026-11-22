@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/machine"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // progressJSON is one workspace's own progress, or null fields when it has
@@ -180,18 +181,48 @@ func (a *App) printProgress(caller, root string) error {
 	if err != nil {
 		return fmt.Errorf("listing workspaces: %w", err)
 	}
-	store := machine.NewStore(a.paths.State)
-	ids := []string{caller}
-	for id := range descendants(list, caller) {
-		ids = append(ids, id)
+	tree, err := progressTreeOf(machine.NewStore(a.paths.State), root, list, caller)
+	if err != nil {
+		return err
+	}
+	node := progressNode(tree)
+	return a.writeJSON(machineProgressJSON{ID: caller, Progress: *node.Progress, Tree: node, Warnings: a.warnings()})
+}
+
+// progressTreeOf is id and its descendants in list, with the progress and
+// the outcome each workspace recorded under root.
+func progressTreeOf(store *machine.Store, root string, list []workspace.Workspace, id string) (*machine.ProgressNode, error) {
+	ids := []string{id}
+	for below := range descendants(list, id) {
+		ids = append(ids, below)
 	}
 	records, err := store.ReadProgressOf(root, ids)
 	if err != nil {
-		return fmt.Errorf("reading progress: %w", err)
+		return nil, fmt.Errorf("reading progress: %w", err)
 	}
-	tree := machine.ProgressTree(list, caller, records)
-	node := progressNode(tree)
-	return a.writeJSON(machineProgressJSON{ID: caller, Progress: *node.Progress, Tree: node, Warnings: a.warnings()})
+	outcomes := map[string]machine.Outcome{}
+	for _, one := range ids {
+		rec, err := store.Read(root, one)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s's machine record: %w", one, err)
+		}
+		if outcome, ok := rec.Outcome(); ok {
+			outcomes[one] = outcome
+		}
+	}
+	return machine.ProgressTree(list, id, records, outcomes), nil
+}
+
+// childProgress is a child's own progress and rollup for ws machine wait and
+// children; both are nil when the tree can't be read, with a warning.
+func (a *App) childProgress(store *machine.Store, root string, list []workspace.Workspace, id string) (*progressJSON, *rollupJSON) {
+	tree, err := progressTreeOf(store, root, list, id)
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't read %s's progress: %v", id, err))
+		return nil, nil
+	}
+	rollup := rollupInfo(tree.Rollup)
+	return progressInfo(tree.Progress), &rollup
 }
 
 func progressNode(n *machine.ProgressNode) progressNodeJSON {

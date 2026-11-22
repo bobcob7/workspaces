@@ -81,20 +81,28 @@ func TestProgressTree(t *testing.T) {
 			"a":     {Total: 3, Done: 3},
 			"a1":    {Total: 2, Done: 1},
 			"other": {Total: 9, Done: 9},
-		})
+		}, nil)
 		assert.Equal(t, Rollup{Total: 9, Done: 5}, tree.Rollup)
 		require.Len(t, tree.Children, 2)
 		assert.Equal(t, "a", tree.Children[0].ID)
 		assert.Equal(t, Rollup{Total: 5, Done: 4}, tree.Children[0].Rollup)
 	})
 	t.Run("a workspace with no record passes its children's steps up", func(t *testing.T) {
-		tree := ProgressTree(progressList(), "plan", map[string]*Progress{"a1": {Total: 2, Done: 2}})
+		tree := ProgressTree(progressList(), "plan", map[string]*Progress{"a1": {Total: 2, Done: 2}}, nil)
 		assert.Nil(t, tree.Progress)
 		assert.Equal(t, Rollup{Total: 2, Done: 2}, tree.Rollup)
 	})
+	t.Run("a finished child with no record counts as one step, done only if it passed", func(t *testing.T) {
+		tree := ProgressTree(progressList(), "plan", nil, map[string]Outcome{"a": OutcomePass, "b": OutcomeFail})
+		assert.Equal(t, Rollup{Total: 2, Done: 1}, tree.Rollup)
+	})
+	t.Run("a declared record wins over the implicit step", func(t *testing.T) {
+		tree := ProgressTree(progressList(), "plan", map[string]*Progress{"a": {Total: 3, Done: 1}}, map[string]Outcome{"a": OutcomePass})
+		assert.Equal(t, Rollup{Total: 3, Done: 1}, tree.Rollup)
+	})
 	t.Run("ends at a cycle in parents", func(t *testing.T) {
 		list := []workspace.Workspace{{ID: "x", Parent: "y"}, {ID: "y", Parent: "x"}}
-		tree := ProgressTree(list, "x", nil)
+		tree := ProgressTree(list, "x", nil, nil)
 		assert.Equal(t, []string{"x", "y"}, tree.IDs())
 	})
 }
@@ -108,5 +116,17 @@ func TestRollup_Fraction(t *testing.T) {
 		f, ok := Rollup{Total: 4, Done: 1}.Fraction()
 		assert.True(t, ok)
 		assert.InDelta(t, 0.25, f, 0.0001)
+	})
+}
+
+func TestProgress_Complete(t *testing.T) {
+	t.Run("finishes the declared steps", func(t *testing.T) {
+		p := Progress{Total: 4, Done: 3}
+		assert.True(t, p.Complete())
+		assert.Equal(t, 4, p.Done)
+	})
+	t.Run("leaves a record with no steps or all done alone", func(t *testing.T) {
+		assert.False(t, (&Progress{}).Complete())
+		assert.False(t, (&Progress{Total: 2, Done: 2}).Complete())
 	})
 }

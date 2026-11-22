@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/machine"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // machineResultInfoJSON is a child's recorded result (ADR 0050).
@@ -48,8 +49,10 @@ type machineResultJSON struct {
 // machineChildJSON is ws list's workspace plus its role and result.
 type machineChildJSON struct {
 	listWorkspaceJSON
-	Role   *string                `json:"role"`
-	Result *machineResultInfoJSON `json:"result"`
+	Role     *string                `json:"role"`
+	Result   *machineResultInfoJSON `json:"result"`
+	Progress *progressJSON          `json:"progress"`
+	Rollup   *rollupJSON            `json:"rollup"`
 }
 
 // machineChildrenJSON is ws machine children's output.
@@ -115,6 +118,9 @@ func (a *App) runMachineResult(verdict, file string) error {
 	if err = store.WriteResult(root, caller, result, report); err != nil {
 		return fmt.Errorf("recording %s's result: %w", caller, err)
 	}
+	if err = a.completeProgress(store, root, caller, machine.OutcomeOf(rec.Spawn, v)); err != nil {
+		return err
+	}
 	rec, err = store.Read(root, caller)
 	if err != nil {
 		return fmt.Errorf("reading %s's machine record: %w", caller, err)
@@ -179,7 +185,7 @@ func (a *App) readReport(file string) ([]byte, error) {
 
 // machineChild is ws list's workspace with its role and result from store.
 // A record that can't be read is a warning, and leaves both null.
-func (a *App) machineChild(store *machine.Store, root string, ws *listWorkspaceJSON) machineChildJSON {
+func (a *App) machineChild(store *machine.Store, root string, list []workspace.Workspace, ws *listWorkspaceJSON) machineChildJSON {
 	out := machineChildJSON{listWorkspaceJSON: *ws}
 	rec, err := store.Read(root, *ws.ID)
 	if err != nil {
@@ -188,5 +194,27 @@ func (a *App) machineChild(store *machine.Store, root string, ws *listWorkspaceJ
 	}
 	out.Role = optional(rec.Role())
 	out.Result = resultInfo(&rec)
+	out.Progress, out.Rollup = a.childProgress(store, root, list, *ws.ID)
 	return out
+}
+
+// completeProgress finishes the caller's declared steps once it has passed,
+// so a finished task doesn't sit at 3 of 4 (ADR 0077). Any other outcome
+// leaves the record as it was.
+func (a *App) completeProgress(store *machine.Store, root, caller string, outcome machine.Outcome) error {
+	if outcome != machine.OutcomePass {
+		return nil
+	}
+	p, err := store.ReadProgress(root, caller)
+	if err != nil {
+		return fmt.Errorf("reading %s's progress: %w", caller, err)
+	}
+	if p == nil || !p.Complete() {
+		return nil
+	}
+	p.UpdatedAt = a.now().UTC().Truncate(time.Second)
+	if err = store.WriteProgress(root, caller, p); err != nil {
+		return fmt.Errorf("recording %s's progress: %w", caller, err)
+	}
+	return nil
 }
