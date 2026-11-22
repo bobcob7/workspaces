@@ -148,7 +148,7 @@ func TestApp_runEnvAgentRun(t *testing.T) {
 		cancel()
 		select {
 		case err := <-done:
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		case <-time.After(10 * time.Second):
 			require.FailNow(t, "the agent didn't stop after its context was cancelled")
 		}
