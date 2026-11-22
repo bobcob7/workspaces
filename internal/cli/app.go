@@ -22,6 +22,8 @@ import (
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
+	"github.com/bobcob7/workspaces/internal/mqttbroker"
+	"github.com/bobcob7/workspaces/internal/mqttclient"
 	"github.com/bobcob7/workspaces/internal/power"
 	"github.com/bobcob7/workspaces/internal/proc"
 	"github.com/bobcob7/workspaces/internal/review/store"
@@ -77,11 +79,11 @@ type App struct {
 	machinePoll time.Duration
 	// continuePoll is how often ws continue --watch runs a pass.
 	continuePoll time.Duration
-	// newEnvBroker builds the daemon's MQTT broker (ADR 0074). Until T10 it
-	// returns errNoBroker.
+	// newEnvBroker builds the daemon's MQTT broker (ADR 0074): the mochi
+	// broker, unless a test replaces it.
 	newEnvBroker func(log *slog.Logger) (envBroker, error)
-	// newEnvClient builds the agent's MQTT client (ADR 0074). Until T10 it
-	// returns errNoMQTTClient.
+	// newEnvClient builds the agent's MQTT client (ADR 0074): the paho
+	// client, unless a test replaces it.
 	newEnvClient func(log *slog.Logger) (envClient, error)
 	// dialDaemon is the client to this config directory's daemon, started
 	// when none runs (ADR 0068): daemonClient, unless a test replaces it.
@@ -159,8 +161,8 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		stopNotify:     signal.Stop,
 	}
 	a.dialDaemon = a.dialDaemonClient
-	a.newEnvBroker = noEnvBroker
-	a.newEnvClient = noEnvClient
+	a.newEnvBroker = func(log *slog.Logger) (envBroker, error) { return mqttbroker.New(log), nil }
+	a.newEnvClient = func(log *slog.Logger) (envClient, error) { return mqttclient.New(log), nil }
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
 		gitRunner := git.NewRunner(log, "git", environ)
 		c := cache.New(log, gitRunner, paths.Cache, cfg.SpecDefaults())

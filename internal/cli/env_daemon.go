@@ -13,15 +13,6 @@ import (
 	"github.com/bobcob7/workspaces/internal/envproto"
 )
 
-// errNoBroker is why a ws without an MQTT broker serves no remote
-// environments.
-var errNoBroker = errors.New("this ws was built without an MQTT broker, so remote environments are off")
-
-// noEnvBroker is newEnvBroker until T10 adds the MQTT broker.
-func noEnvBroker(*slog.Logger) (envBroker, error) {
-	return nil, errNoBroker
-}
-
 // envStore is the controller's store for this config directory.
 func (a *App) envStore() *environment.Store {
 	return environment.NewStore(a.paths.Environments, a.paths.State, a.now, rand.Reader)

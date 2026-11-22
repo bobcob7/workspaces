@@ -22,14 +22,6 @@ import (
 	"github.com/bobcob7/workspaces/internal/loop"
 )
 
-// errNoMQTTClient is why a ws without an MQTT client can't run an agent. T10 adds one.
-var errNoMQTTClient = errors.New("this ws was built without an MQTT client")
-
-// noEnvClient is newEnvClient until T10 adds the paho client.
-func noEnvClient(*slog.Logger) (envClient, error) {
-	return nil, errNoMQTTClient
-}
-
 // newEnvAgentCmd is ws env agent, the environment agent's side of ADR 0075.
 // It is hidden, as ADR 0073 says.
 func (a *App) newEnvAgentCmd() *cobra.Command {

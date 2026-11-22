@@ -17,6 +17,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/mqttbroker"
 )
 
 func discardDaemonLog() *slog.Logger {
@@ -24,9 +25,12 @@ func discardDaemonLog() *slog.Logger {
 }
 
 func TestApp_daemonEnvironments(t *testing.T) {
-	t.Run("is NopEnvironments with errNoBroker's text by default", func(t *testing.T) {
+	t.Run("the default broker is the mochi adapter, so the host isn't NopEnvironments", func(t *testing.T) {
 		app, _, _ := newDaemonTestApp(t)
-		assert.Equal(t, daemon.NopEnvironments{Reason: errNoBroker.Error()}, app.daemonEnvironments(discardDaemonLog()))
+		broker, err := app.newEnvBroker(discardDaemonLog())
+		require.NoError(t, err)
+		assert.IsType(t, &mqttbroker.Broker{}, broker)
+		assert.NotEqual(t, daemon.NopEnvironments{}, app.daemonEnvironments(discardDaemonLog()))
 	})
 	t.Run("with a broker and a CA the daemon's status shows the listeners", func(t *testing.T) {
 		app, stdout, _ := newDaemonTestApp(t)

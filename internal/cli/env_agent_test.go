@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/url"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/exectest"
+	"github.com/bobcob7/workspaces/internal/mqttclient"
 )
 
 // startEnvController starts an in-process controller on broker, with its
@@ -130,11 +132,11 @@ func TestApp_runEnvAgentEnroll(t *testing.T) {
 }
 
 func TestApp_runEnvAgentRun(t *testing.T) {
-	t.Run("the default client is internal with the missing client's text", func(t *testing.T) {
+	t.Run("the default client is the paho adapter", func(t *testing.T) {
 		app, _, _ := newEnvTestApp(t)
-		err := app.runEnvAgentRun(t.Context())
-		assert.Equal(t, codeInternal, agentErrorCode(err))
-		assert.ErrorContains(t, err, errNoMQTTClient.Error())
+		client, err := app.newEnvClient(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+		require.NoError(t, err)
+		assert.IsType(t, &mqttclient.Client{}, client)
 	})
 	t.Run("connects, the controller sees it online, and cancelling exits 0", func(t *testing.T) {
 		app, _, _ := newEnvTestApp(t)
