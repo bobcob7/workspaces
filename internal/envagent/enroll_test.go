@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,6 +135,32 @@ func TestEnroller_Enroll(t *testing.T) {
 		_, err = second.Enroll(t.Context(), code)
 		assert.ErrorIs(t, err, ErrEnrollmentUsed)
 	})
+	t.Run("sends neither the key's PEM nor its DER", func(t *testing.T) {
+		t.Parallel()
+		_, _, code := startEnrollFixture(t, discardLog())
+		files, enroller := newFilesAndEnroller(t)
+		capture := &bodyCapture{}
+		enroller.wrapTransport = func(next http.RoundTripper) http.RoundTripper {
+			capture.next = next
+			return capture
+		}
+		_, err := enroller.Enroll(t.Context(), code)
+		require.NoError(t, err)
+		require.Contains(t, string(capture.body), `"csr"`)
+		saved, err := files.Load()
+		require.NoError(t, err)
+		keyPEM, err := os.ReadFile(files.path(keyFileName))
+		require.NoError(t, err)
+		der, err := x509.MarshalPKCS8PrivateKey(saved.Key)
+		require.NoError(t, err)
+		quotedPEM, err := json.Marshal(string(keyPEM))
+		require.NoError(t, err)
+		body := string(capture.body)
+		assert.NotContains(t, body, string(keyPEM))
+		assert.NotContains(t, body, string(quotedPEM[1:len(quotedPEM)-1]))
+		assert.NotContains(t, body, string(der))
+		assert.NotContains(t, body, base64.StdEncoding.EncodeToString(der))
+	})
 	t.Run("refuses a wrong fingerprint before any request is sent", func(t *testing.T) {
 		t.Parallel()
 		log := &syncBuffer{}
@@ -180,6 +207,23 @@ func TestEnroller_checkNotEnrolled(t *testing.T) {
 	})
 }
 
+// bodyCapture passes requests to next and keeps the body of the last one.
+type bodyCapture struct {
+	next http.RoundTripper
+	body []byte
+}
+
+func (c *bodyCapture) RoundTrip(req *http.Request) (*http.Response, error) {
+	data, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	_ = req.Body.Close() // the body is read in full; nothing more to release
+	c.body = data
+	req.Body = io.NopCloser(bytes.NewReader(data))
+	return c.next.RoundTrip(req)
+}
+
 func TestEnrollBody(t *testing.T) {
 	t.Run("sends the secret and the CSR, never the key", func(t *testing.T) {
 		key := newTestKey(t)
@@ -213,6 +257,32 @@ func TestNewKeyAndCSR(t *testing.T) {
 		assert.Equal(t, certCommonName, csr.Subject.CommonName)
 		assert.True(t, key.PublicKey.Equal(csr.PublicKey))
 	})
+}
+
+func TestDecodeEnrollment(t *testing.T) {
+	t.Run("refuses a 409 as a used code", func(t *testing.T) {
+		_, err := decodeEnrollment(testResponse(http.StatusConflict, ""))
+		assert.ErrorIs(t, err, ErrEnrollmentUsed)
+	})
+	t.Run("gives ErrEnrollmentFailed with the server's message for other statuses", func(t *testing.T) {
+		_, err := decodeEnrollment(testResponse(http.StatusForbidden, `{"error":{"code":"expired","message":"the code expired"}}`))
+		require.ErrorIs(t, err, ErrEnrollmentFailed)
+		assert.ErrorContains(t, err, "the code expired")
+	})
+	t.Run("says the server gave no reason when the body has no message", func(t *testing.T) {
+		_, err := decodeEnrollment(testResponse(http.StatusInternalServerError, "oops"))
+		require.ErrorIs(t, err, ErrEnrollmentFailed)
+		assert.ErrorContains(t, err, "the server gave no reason")
+	})
+	t.Run("gives ErrEnrollmentFailed for a 200 that isn't JSON", func(t *testing.T) {
+		_, err := decodeEnrollment(testResponse(http.StatusOK, "{"))
+		require.ErrorIs(t, err, ErrEnrollmentFailed)
+	})
+}
+
+// testResponse is a response with status and body.
+func testResponse(status int, body string) *http.Response {
+	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}
 }
 
 func TestVerifyEnrollment(t *testing.T) {

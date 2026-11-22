@@ -32,6 +32,8 @@ type Enroller struct {
 	log    *slog.Logger
 	files  *Files
 	random io.Reader
+	// wrapTransport, when set, wraps the pinned transport; tests use it to read the request body.
+	wrapTransport func(http.RoundTripper) http.RoundTripper
 }
 
 // NewEnroller returns an Enroller that saves into files and reads key
@@ -57,7 +59,7 @@ func (e *Enroller) Enroll(ctx context.Context, code string) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	answer, err := exchangeEnrollment(ctx, parsed, csrPEM)
+	answer, err := e.exchangeEnrollment(ctx, parsed, csrPEM)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -85,7 +87,7 @@ func (e *Enroller) checkNotEnrolled() error {
 }
 
 // exchangeEnrollment POSTs the secret and CSR to the code's host, pinned.
-func exchangeEnrollment(ctx context.Context, code envproto.Code, csrPEM []byte) (envproto.EnrollResponse, error) {
+func (e *Enroller) exchangeEnrollment(ctx context.Context, code envproto.Code, csrPEM []byte) (envproto.EnrollResponse, error) {
 	host, _, err := net.SplitHostPort(code.Host)
 	if err != nil {
 		return envproto.EnrollResponse{}, err
@@ -94,8 +96,12 @@ func exchangeEnrollment(ctx context.Context, code envproto.Code, csrPEM []byte) 
 	if err != nil {
 		return envproto.EnrollResponse{}, err
 	}
-	transport := &http.Transport{TLSClientConfig: pinTLS(code.Fingerprint, host)}
-	defer transport.CloseIdleConnections()
+	tlsTransport := &http.Transport{TLSClientConfig: pinTLS(code.Fingerprint, host)}
+	defer tlsTransport.CloseIdleConnections()
+	var transport http.RoundTripper = tlsTransport
+	if e.wrapTransport != nil {
+		transport = e.wrapTransport(transport)
+	}
 	client := &http.Client{Transport: transport, Timeout: enrollTimeout}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+code.Host+envproto.EnrollPath, bytes.NewReader(body))
 	if err != nil {
