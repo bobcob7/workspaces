@@ -85,6 +85,21 @@ func (c *Client) Check(ctx context.Context) error {
 	return c.ensureVersion(ctx)
 }
 
+// Version runs claude --version and returns the release number it reports,
+// such as "2.1.303". It doesn't apply minVersion, so an older claude is
+// reported as it is. ErrNotInstalled when claude isn't on PATH.
+func (c *Client) Version(ctx context.Context) (string, error) {
+	out, err := c.exec(ctx, "", []string{"--version"})
+	if err != nil {
+		return "", err
+	}
+	v, err := parseVersion(string(out))
+	if err != nil {
+		return "", err
+	}
+	return v.String(), nil
+}
+
 // ensureVersion checks the claude version once per Client. A check cut
 // short by ctx is retried on the next call.
 func (c *Client) ensureVersion(ctx context.Context) error {
