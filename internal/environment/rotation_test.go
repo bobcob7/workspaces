@@ -1,6 +1,7 @@
 package environment
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -140,5 +141,45 @@ func TestStore_FinishCA(t *testing.T) {
 		current, err := store.currentCert()
 		require.NoError(t, err)
 		assert.Equal(t, envproto.Fingerprint(current), parsed.Fingerprint)
+	})
+}
+
+func TestStore_EnsureCA(t *testing.T) {
+	t.Run("installs the pending CA when a rotation stopped after ca.crt moved aside", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		addEnvironment(t, store, "linux-server")
+		pending, err := store.ca.writeCA(pendingKeyFile, pendingCertFile)
+		require.NoError(t, err)
+		require.NoError(t, os.Rename(store.ca.path(caCertFile), store.ca.path(oldCertFile)))
+		exists, err := store.caExists()
+		require.NoError(t, err)
+		require.False(t, exists)
+		recovered, err := store.EnsureCA(t.Context())
+		require.NoError(t, err)
+		assert.True(t, recovered)
+		current, err := store.currentCert()
+		require.NoError(t, err)
+		assert.Equal(t, envproto.Fingerprint(pending), envproto.Fingerprint(current))
+		_, err = store.RotateCA(t.Context())
+		require.NoError(t, err)
+	})
+	t.Run("does nothing when the CA is intact", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		addEnvironment(t, store, "linux-server")
+		recovered, err := store.EnsureCA(t.Context())
+		require.NoError(t, err)
+		assert.False(t, recovered)
+	})
+	t.Run("creates no CA when there is none", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		recovered, err := store.EnsureCA(t.Context())
+		require.NoError(t, err)
+		assert.False(t, recovered)
+		status, err := store.CAStatus(30)
+		require.NoError(t, err)
+		assert.Nil(t, status.Current)
 	})
 }

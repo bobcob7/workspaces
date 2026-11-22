@@ -32,6 +32,30 @@ type CARotation struct {
 	Stranded []string // names of enrolled environments whose cert_ca is Dropped
 }
 
+// EnsureCA finishes a CA rotation that an interruption left half done, and
+// reports whether it did. Such a rotation leaves ca.crt absent until the
+// pending CA is installed, so CA reads and rotations call this first. It
+// never creates a CA: without a CA or a pending one it does nothing.
+func (s *Store) EnsureCA(ctx context.Context) (bool, error) {
+	unlock, err := s.lock(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	exists, err := s.caExists()
+	if err != nil || exists {
+		return false, err
+	}
+	pending, err := s.ca.hasPendingCert()
+	if err != nil || !pending {
+		return false, err
+	}
+	if _, err := s.ca.ensure(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // CAStatus reports the current and old CA and how many environments hold
 // certificates from each.
 func (s *Store) CAStatus(renewBeforeDays int) (CAStatus, error) {
