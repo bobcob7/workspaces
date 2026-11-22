@@ -87,6 +87,25 @@ func testIdentity(t *testing.T) Identity {
 	}
 }
 
+// assertRemoved checks none of the enrolled files is left in files' directory.
+func assertRemoved(t *testing.T, files *Files) {
+	t.Helper()
+	for _, name := range []string{agentFileName, keyFileName, certFileName, rootsFileName} {
+		_, err := os.Stat(files.path(name))
+		assert.ErrorIs(t, err, os.ErrNotExist, name)
+	}
+}
+
+// assertNoTempFiles checks dir holds no temp file from an atomic write.
+func assertNoTempFiles(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		assert.NotContains(t, entry.Name(), ".tmp-", "temp file left behind")
+	}
+}
+
 // savedFiles returns the files of a directory holding testIdentity.
 func savedFiles(t *testing.T) (*Files, Identity) {
 	t.Helper()
@@ -162,6 +181,15 @@ func TestFiles_SaveCertificate(t *testing.T) {
 		assert.True(t, key.Equal(got.Key))
 		assert.Equal(t, cert.Raw, got.Cert.Raw)
 	})
+	t.Run("leaves no temp files behind", func(t *testing.T) {
+		t.Parallel()
+		files, _ := savedFiles(t)
+		ca, caKey := newTestCA(t, 3)
+		key := newTestKey(t)
+		cert := newTestLeaf(t, ca, caKey, &key.PublicKey, 4, "env-0a1b2c3d", x509.ExtKeyUsageClientAuth)
+		require.NoError(t, files.SaveCertificate(key, cert))
+		assertNoTempFiles(t, files.dir)
+	})
 }
 
 func TestFiles_Remove(t *testing.T) {
@@ -179,6 +207,39 @@ func TestFiles_Remove(t *testing.T) {
 		t.Parallel()
 		_, err := NewFiles(t.TempDir()).Remove()
 		assert.ErrorIs(t, err, ErrNotEnrolled)
+	})
+	t.Run("deletes every file when key.pem is corrupt", func(t *testing.T) {
+		t.Parallel()
+		files, _ := savedFiles(t)
+		require.NoError(t, os.WriteFile(files.path(keyFileName), []byte("not a key"), fileMode))
+		_, err := files.Remove()
+		require.ErrorContains(t, err, "unreadable")
+		assertRemoved(t, files)
+	})
+	t.Run("deletes every file when agent.toml is corrupt", func(t *testing.T) {
+		t.Parallel()
+		files, _ := savedFiles(t)
+		require.NoError(t, os.WriteFile(files.path(agentFileName), []byte("version = [\n"), fileMode))
+		_, err := files.Remove()
+		require.ErrorContains(t, err, "unreadable")
+		assertRemoved(t, files)
+	})
+	t.Run("deletes the other files when ca.pem is missing", func(t *testing.T) {
+		t.Parallel()
+		files, _ := savedFiles(t)
+		require.NoError(t, os.Remove(files.path(rootsFileName)))
+		_, err := files.Remove()
+		require.ErrorContains(t, err, "unreadable")
+		assertRemoved(t, files)
+	})
+	t.Run("deletes stray files without agent.toml and returns no identity", func(t *testing.T) {
+		t.Parallel()
+		files, _ := savedFiles(t)
+		require.NoError(t, os.Remove(files.path(agentFileName)))
+		got, err := files.Remove()
+		require.NoError(t, err)
+		assert.Empty(t, got.ID)
+		assertRemoved(t, files)
 	})
 }
 

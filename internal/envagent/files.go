@@ -217,20 +217,21 @@ func (f *Files) SaveRoots(roots []*x509.Certificate) error {
 	return writeFileAtomic(f.path(rootsFileName), data)
 }
 
-// Remove deletes the enrolled files and returns the identity they held.
-// ErrNotEnrolled when none of them exist. Files that don't parse are an
-// error and nothing is deleted.
+// Remove deletes every enrolled file that exists, even when some don't
+// parse, and returns the identity they held. ErrNotEnrolled when none of
+// them exist. Stray files without agent.toml are deleted and yield an
+// empty Identity with no error.
 func (f *Files) Remove() (Identity, error) {
-	id, err := f.Load()
-	if err != nil && !errors.Is(err, ErrNotEnrolled) {
-		return Identity{}, err
-	}
+	id, loadErr := f.Load()
 	removed, err := f.removeFiles()
 	if err != nil {
 		return Identity{}, err
 	}
 	if !removed {
 		return Identity{}, ErrNotEnrolled
+	}
+	if loadErr != nil && !errors.Is(loadErr, ErrNotEnrolled) {
+		return Identity{}, fmt.Errorf("removed the enrolled files, but the identity they held was unreadable: %w", loadErr)
 	}
 	return id, nil
 }
