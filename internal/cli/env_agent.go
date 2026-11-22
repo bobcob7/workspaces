@@ -161,7 +161,7 @@ func (a *App) runEnvAgentStatus() error {
 		return agentError(err)
 	}
 	if a.global.json {
-		return a.writeJSON(agentStatusOutput(st, a.warnings()))
+		return a.writeJSON(agentStatusOutput(&st, a.warnings()))
 	}
 	if !st.Enrolled {
 		fmt.Fprintln(a.stdout, "This machine isn't enrolled; run ws env agent enroll <code>.")
@@ -173,7 +173,7 @@ func (a *App) runEnvAgentStatus() error {
 }
 
 // agentStatusOutput is st as ws env agent status prints it in JSON.
-func agentStatusOutput(st envagent.AgentStatus, warnings []string) envAgentStatusJSON {
+func agentStatusOutput(st *envagent.AgentStatus, warnings []string) envAgentStatusJSON {
 	if !st.Enrolled {
 		return envAgentStatusJSON{CAFingerprints: []string{}, Warnings: warnings}
 	}
