@@ -103,6 +103,16 @@ func TestAuthority_ensure(t *testing.T) {
 		assertMode(t, a.path(serverKeyFile), 0o600)
 		assertMode(t, a.path(serverCertFile), 0o644)
 	})
+	t.Run("tightens an existing CA directory to 0700", func(t *testing.T) {
+		t.Parallel()
+		a := newTestAuthority(t, fixedClock())
+		_, err := a.ensure()
+		require.NoError(t, err)
+		require.NoError(t, os.Chmod(a.dir, 0o755))
+		_, err = a.ensure()
+		require.NoError(t, err)
+		assertMode(t, a.dir, 0o700)
+	})
 	t.Run("is a no-op the second time", func(t *testing.T) {
 		t.Parallel()
 		a := newTestAuthority(t, fixedClock())
@@ -280,6 +290,14 @@ func TestAuthority_signClient(t *testing.T) {
 		assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, cert.ExtKeyUsage)
 		assert.Equal(t, x509.KeyUsageDigitalSignature, cert.KeyUsage)
 		assert.NoError(t, cert.CheckSignatureFrom(ca))
+	})
+	t.Run("refuses an empty common name", func(t *testing.T) {
+		t.Parallel()
+		a := newTestAuthority(t, fixedClock())
+		_, err := a.ensure()
+		require.NoError(t, err)
+		_, err = a.signClient(newTestCSR(t, newTestKey(t)), "")
+		assert.ErrorIs(t, err, errEmptyCN)
 	})
 	t.Run("refuses an RSA request", func(t *testing.T) {
 		t.Parallel()

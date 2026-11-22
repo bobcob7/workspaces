@@ -42,6 +42,7 @@ const (
 var (
 	errNoCA       = errors.New("no environments CA")
 	errCSRInvalid = errors.New("invalid certificate request")
+	errEmptyCN    = errors.New("empty common name")
 )
 
 // authority keeps the environments CA in dir and issues certificates from it.
@@ -126,12 +127,15 @@ func (a *authority) exists() (bool, error) {
 // ensure creates the CA when ca.crt is missing and reports whether it did.
 // A rotation that stopped after ca.crt moved to old.crt is finished instead.
 func (a *authority) ensure() (bool, error) {
+	if err := os.MkdirAll(a.dir, 0o700); err != nil {
+		return false, fmt.Errorf("creating %s: %w", a.dir, err)
+	}
+	if err := os.Chmod(a.dir, 0o700); err != nil { //nolint:gosec // the CA directory is 0700 by design (G302 expects file modes).
+		return false, fmt.Errorf("securing %s: %w", a.dir, err)
+	}
 	exists, err := a.exists()
 	if err != nil || exists {
 		return false, err
-	}
-	if err := os.MkdirAll(a.dir, 0o700); err != nil {
-		return false, fmt.Errorf("creating %s: %w", a.dir, err)
 	}
 	pending, err := a.hasPendingCert()
 	if err != nil {
@@ -234,6 +238,9 @@ func (a *authority) dropOld() (*x509.Certificate, error) {
 // signClient issues a client certificate for cn from the CSR's public key.
 // The CSR's subject is ignored.
 func (a *authority) signClient(csrPEM []byte, cn string) (*x509.Certificate, error) {
+	if cn == "" {
+		return nil, errEmptyCN
+	}
 	csr, err := parseCSR(csrPEM)
 	if err != nil {
 		return nil, err
