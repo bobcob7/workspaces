@@ -247,6 +247,11 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   `BLOCKED` verdict for a question, or idle without a verdict, is shown and
   notified once ([0057](docs/adrs/0057-loop-visibility-and-blocked-runs.md),
   proposed).
+- [ ] **Remote environments, core**: `ws env`, enrollment, the CA, the broker
+  in the daemon ([0073](docs/adrs/0073-environment-agent-is-ws.md),
+  [0074](docs/adrs/0074-mqtt-transport-embedded-broker.md),
+  [0075](docs/adrs/0075-environment-enrollment-and-certificates.md)); checked
+  when the broker lands in the daemon
 
 Longer term, `ws` aims to depend on no particular model, provider or
 agent harness, with Claude Code staying the default until measured runs
