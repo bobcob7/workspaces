@@ -86,11 +86,13 @@ func OKReply(result any) ([]byte, error) {
 
 // ErrorReply marshals {ok: false, result: null, error: {code, message, details: null}}.
 func ErrorReply(code, message string) []byte {
-	// The value holds only strings and nil pointers, so Marshal cannot fail.
-	body, _ := json.Marshal(errorReplyBody{
+	body, err := json.Marshal(errorReplyBody{
 		OK:    false,
 		Error: errorReplyError{Code: code, Message: message},
 	})
+	if err != nil {
+		return []byte(`{"ok":false,"result":null,"error":null}`)
+	}
 	return body
 }
 
