@@ -29,8 +29,10 @@ type Code struct {
 
 // String is CodePrefix + base64.RawURLEncoding of the JSON {"h","f","s"}.
 func (c Code) String() string {
-	// The struct holds only strings, so Marshal cannot fail.
-	body, _ := json.Marshal(c) //nolint:gosec // G117: the secret is part of the code by design (ADR 0075).
+	body, err := json.Marshal(c) //nolint:gosec // G117: the secret is part of the code by design (ADR 0075).
+	if err != nil {
+		return ""
+	}
 	return CodePrefix + base64.RawURLEncoding.EncodeToString(body)
 }
 
