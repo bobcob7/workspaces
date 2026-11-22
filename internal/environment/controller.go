@@ -457,6 +457,10 @@ func (c *Controller) onStatus(ctx context.Context, msg *envproto.Message) {
 		c.log.WarnContext(ctx, "status refused", "id", id)
 		return
 	}
+	if hello.Status != envproto.StatusOnline && hello.Status != envproto.StatusOffline {
+		c.log.DebugContext(ctx, "status ignored", "id", id)
+		return
+	}
 	c.recordStatus(id, &hello)
 	if hello.Status == envproto.StatusOnline && c.missingRoot(hello.CAFingerprints) {
 		c.requestCAUpdate(ctx, id)
@@ -486,8 +490,8 @@ func (c *Controller) onSnapshot(ctx context.Context, msg *envproto.Message) {
 	if err != nil {
 		return
 	}
-	var snap envproto.Snapshot
-	if err = json.Unmarshal(msg.Payload, &snap); err != nil {
+	var snap *envproto.Snapshot
+	if err = json.Unmarshal(msg.Payload, &snap); err != nil || snap == nil {
 		c.log.WarnContext(ctx, "snapshot refused", "id", id)
 		return
 	}
