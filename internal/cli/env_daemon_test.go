@@ -47,6 +47,18 @@ func TestApp_daemonEnvironments(t *testing.T) {
 		assert.Equal(t, true, envs["listening"])
 		assert.Len(t, envs["environments"], 1)
 	})
+	t.Run("with the default broker and a CA the daemon reports listening", func(t *testing.T) {
+		app, stdout, _ := newDaemonTestApp(t)
+		app.config.Environments = config.Environments{Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", PublicName: "127.0.0.1"}
+		_, _, _, err := app.envStore().Add(t.Context(), "linux", "127.0.0.1:8884")
+		require.NoError(t, err)
+		serveEnvDaemon(t, app)
+		app.global.json = true
+		require.NoError(t, app.runDaemonStatus(t.Context()))
+		envs, ok := decodeJSONObject(t, stdout)["environments"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, true, envs["listening"])
+	})
 	t.Run("the environments' listen addresses are reported", func(t *testing.T) {
 		app, stdout, _ := newDaemonTestApp(t)
 		app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
