@@ -50,11 +50,11 @@ func newTestCSR(t *testing.T, key any) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: csrPEMType, Bytes: der})
 }
 
-// newTestClient issues a client certificate for cn from a's current CA.
-func newTestClient(t *testing.T, a *authority, cn string) tls.Certificate {
+// newTestClient issues a client certificate for env-1 from a's current CA.
+func newTestClient(t *testing.T, a *authority) tls.Certificate {
 	t.Helper()
 	key := newTestKey(t)
-	cert, err := a.signClient(newTestCSR(t, key), cn)
+	cert, err := a.signClient(newTestCSR(t, key), "env-1")
 	require.NoError(t, err)
 	return tls.Certificate{Certificate: [][]byte{cert.Raw}, PrivateKey: key}
 }
