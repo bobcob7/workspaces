@@ -1,6 +1,7 @@
 package envagent
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,6 +132,58 @@ func newFixtureAgent(fx *agentFixture, opts Options, snapshots string) *Agent { 
 	return NewAgent(discardLog(), fx.files, fx.broker.NewClient(), testSnapshots(snapshots), testProbe(), rand.Reader, opts)
 }
 
+// manualRenewCheck is a RenewCheck no other timer uses, so manualRenewal can tell its timer.
+const manualRenewCheck = 3 * time.Hour
+
+// manualRenewal makes the renewal timer fire only when the returned channel is
+// sent to, once per send; other timers are real.
+func manualRenewal(opts *Options) chan<- time.Time {
+	ticks := make(chan time.Time, 1)
+	opts.RenewCheck = manualRenewCheck
+	opts.After = func(d time.Duration) <-chan time.Time {
+		if d == manualRenewCheck {
+			return ticks
+		}
+		return time.After(d)
+	}
+	return ticks
+}
+
+// publishRecorder is the publishes of a client mock, safe to read while the agent runs.
+type publishRecorder struct {
+	mu   sync.Mutex
+	msgs []envproto.Message
+}
+
+func (r *publishRecorder) add(msg envproto.Message) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.msgs = append(r.msgs, msg)
+}
+
+func (r *publishRecorder) on(topic string) []envproto.Message {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []envproto.Message
+	for _, msg := range r.msgs {
+		if msg.Topic == topic {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+// connectedMock is a client mock whose connect, subscribe and close succeed and whose publish is publish.
+func connectedMock(publish func(context.Context, envproto.Message) error) *mqttClientMock {
+	return &mqttClientMock{
+		ConnectFunc:   func(context.Context, envproto.ConnectOptions) error { return nil },
+		SubscribeFunc: func(context.Context, string, func(envproto.Message)) error { return nil },
+		PublishFunc:   publish,
+		DoneFunc:      func() <-chan struct{} { return make(chan struct{}) },
+		CloseFunc:     func() error { return nil },
+	}
+}
+
 func TestBackoff(t *testing.T) {
 	t.Parallel()
 	t.Run("doubles from the minimum and caps at the maximum", func(t *testing.T) {
@@ -239,5 +293,49 @@ func TestAgent_Run(t *testing.T) {
 			}
 		}, 200*time.Millisecond, 10*time.Millisecond)
 		assert.Empty(t, fx.broker.Clients())
+	})
+	t.Run("returns after ctx ends even when the offline status can't be published", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		status := envproto.Topic(fx.id.ID, envproto.LeafStatus)
+		client := connectedMock(func(ctx context.Context, msg envproto.Message) error {
+			if msg.Topic == status && bytes.Equal(msg.Payload, envproto.OfflinePayload()) {
+				select {
+				case <-ctx.Done():
+				case <-t.Context().Done():
+				}
+				return ctx.Err()
+			}
+			return nil
+		})
+		opts := testOptions()
+		opts.RequestTimeout = 50 * time.Millisecond
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), rand.Reader, opts)
+		run := runAgent(t, agent)
+		require.Eventually(t, func() bool { return len(client.ConnectCalls()) == 1 }, 5*time.Second, 10*time.Millisecond)
+		run.cancel()
+		select {
+		case <-run.finished:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Run didn't return while the offline status was blocked")
+		}
+		require.NoError(t, run.err)
+		assert.Len(t, client.CloseCalls(), 1)
+	})
+	t.Run("publishes a null snapshot as an empty list", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		recorder := &publishRecorder{}
+		client := connectedMock(func(_ context.Context, msg envproto.Message) error {
+			recorder.add(msg)
+			return nil
+		})
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("null"), testProbe(), rand.Reader, testOptions())
+		runAgent(t, agent)
+		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
+		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) > 0 }, 5*time.Second, 10*time.Millisecond)
+		var got envproto.Snapshot
+		require.NoError(t, json.Unmarshal(recorder.on(snapshot)[0].Payload, &got))
+		assert.JSONEq(t, "[]", string(got.Workspaces))
 	})
 }

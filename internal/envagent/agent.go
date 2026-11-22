@@ -186,9 +186,11 @@ func (a *Agent) serve(ctx context.Context, id *Identity) {
 }
 
 // goOffline publishes the retained offline status and closes the connection.
-// It runs after ctx ends, so it uses a context that ctx's end doesn't cancel.
+// It runs after ctx ends, so it uses a context that ctx's end doesn't cancel,
+// bounded by RequestTimeout so an unreachable broker can't hold up shutdown.
 func (a *Agent) goOffline(ctx context.Context, id *Identity) {
-	offline := context.WithoutCancel(ctx)
+	offline, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.opts.RequestTimeout)
+	defer cancel()
 	err := a.client.Publish(offline, envproto.Message{
 		Topic:   envproto.Topic(id.ID, envproto.LeafStatus),
 		Payload: envproto.OfflinePayload(),
@@ -217,7 +219,7 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 		a.log.WarnContext(ctx, "snapshot not read", "error", err)
 		return
 	}
-	if len(raw) == 0 {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		raw = json.RawMessage("[]")
 	}
 	now := a.opts.Now().UTC()
