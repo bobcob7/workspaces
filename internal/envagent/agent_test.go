@@ -155,10 +155,10 @@ type publishRecorder struct {
 	msgs []envproto.Message
 }
 
-func (r *publishRecorder) add(msg envproto.Message) {
+func (r *publishRecorder) add(msg *envproto.Message) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.msgs = append(r.msgs, msg)
+	r.msgs = append(r.msgs, *msg)
 }
 
 func (r *publishRecorder) on(topic string) []envproto.Message {
@@ -327,7 +327,7 @@ func TestAgent_Run(t *testing.T) {
 		fx := startAgentFixture(t)
 		recorder := &publishRecorder{}
 		client := connectedMock(func(_ context.Context, msg envproto.Message) error {
-			recorder.add(msg)
+			recorder.add(&msg)
 			return nil
 		})
 		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("null"), testProbe(), rand.Reader, testOptions())

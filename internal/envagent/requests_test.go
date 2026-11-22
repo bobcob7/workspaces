@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -69,6 +70,17 @@ func awaitOnline(t *testing.T, fx *agentFixture) {
 	require.Eventually(t, func() bool { return fx.hello() != nil }, 5*time.Second, 10*time.Millisecond)
 }
 
+// countingClient counts the connects its envtest client makes.
+type countingClient struct {
+	*envtest.Client
+	connects atomic.Int32
+}
+
+func (c *countingClient) Connect(ctx context.Context, opts envproto.ConnectOptions) error {
+	c.connects.Add(1)
+	return c.Client.Connect(ctx, opts)
+}
+
 func TestAgent_handle(t *testing.T) {
 	t.Parallel()
 	t.Run("answers an unknown operation with a usage error", func(t *testing.T) {
@@ -119,24 +131,30 @@ func TestAgent_handle(t *testing.T) {
 	t.Run("applies a CA rotation without reconnecting", func(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)
-		client := fx.broker.NewClient()
+		client := &countingClient{Client: fx.broker.NewClient()}
 		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), rand.Reader, testOptions())
 		runAgent(t, agent)
 		awaitOnline(t, fx)
-		_, err := fx.store.RotateCA(t.Context())
+		rotation, err := fx.store.RotateCA(t.Context())
 		require.NoError(t, err)
 		require.NoError(t, fx.ctrl.Reload(t.Context()))
 		require.Eventually(t, func() bool {
-			roots, err := fx.files.loadRoots()
-			return err == nil && len(roots) == 2
+			current, loadErr := fx.files.loadRoots()
+			return loadErr == nil && len(current) == 2
 		}, 5*time.Second, 10*time.Millisecond)
+		roots, err := fx.files.loadRoots()
+		require.NoError(t, err)
+		fingerprints := []string{envproto.Fingerprint(roots[0]), envproto.Fingerprint(roots[1])}
+		assert.ElementsMatch(t, []string{fx.id.Fingerprints()[0], rotation.Current.Fingerprint}, fingerprints)
 		require.Eventually(t, func() bool { return len(fx.hello().CAFingerprints) == 2 }, 5*time.Second, 10*time.Millisecond)
 		select {
 		case <-client.Done():
 			t.Fatal("the agent disconnected during the rotation")
 		default:
 		}
+		assert.EqualValues(t, 1, client.connects.Load())
 		assert.Equal(t, 1, fx.broker.Disconnect(fx.id.Cert.SerialNumber.Text(16)))
+		require.Eventually(t, func() bool { return client.connects.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
 		require.Eventually(t, func() bool {
 			peers := fx.broker.Clients()
 			return len(peers) == 1 && peers[0].CN == fx.id.ID

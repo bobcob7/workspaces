@@ -60,7 +60,6 @@ func TestAgent_renew(t *testing.T) {
 	t.Run("never sends a private key on the broker", func(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)
-		before := fx.id
 		seen := &payloadCapture{}
 		unsubscribe, err := fx.broker.Subscribe(t.Context(), "ws/v1/#", func(msg envproto.Message) {
 			seen.record(msg.Payload)
@@ -68,44 +67,68 @@ func TestAgent_renew(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(unsubscribe)
 		opts := testOptions()
-		opts.Now = func() time.Time { return before.Cert.NotAfter.AddDate(0, 0, -10) }
+		opts.Now = func() time.Time { return fx.id.Cert.NotAfter.AddDate(0, 0, -10) }
+		ticks := manualRenewal(&opts)
 		runAgent(t, newFixtureAgent(fx, opts, "[]"))
-		require.Eventually(t, func() bool {
+		awaitOnline(t, fx)
+		keys := []*ecdsa.PrivateKey{fx.id.Key}
+		serial := fx.id.Cert.SerialNumber
+		for range 3 {
+			ticks <- time.Now()
+			require.Eventually(t, func() bool {
+				id, loadErr := fx.files.Load()
+				return loadErr == nil && id.Cert.SerialNumber.Cmp(serial) != 0
+			}, 5*time.Second, 10*time.Millisecond)
 			id, loadErr := fx.files.Load()
-			return loadErr == nil && id.Cert.SerialNumber.Cmp(before.Cert.SerialNumber) != 0
-		}, 5*time.Second, 10*time.Millisecond)
-		after, err := fx.files.Load()
-		require.NoError(t, err)
+			require.NoError(t, loadErr)
+			keys = append(keys, id.Key)
+			serial = id.Cert.SerialNumber
+			require.Eventually(t, func() bool {
+				hello := fx.hello()
+				return hello != nil && hello.CertSerial == serial.Text(16)
+			}, 5*time.Second, 10*time.Millisecond)
+		}
 		payloads := seen.all()
 		require.NotEmpty(t, payloads)
 		for _, payload := range payloads {
 			assert.NotContains(t, string(payload), "PRIVATE KEY")
-			assert.False(t, bytes.Contains(payload, privateKeyDER(t, before.Key)), "the old key")
-			assert.False(t, bytes.Contains(payload, privateKeyDER(t, after.Key)), "the new key")
+			for _, key := range keys {
+				for name, secret := range privateKeyForms(t, key) {
+					assert.False(t, bytes.Contains(payload, secret), "key as %s", name)
+				}
+			}
 		}
 	})
 	t.Run("renews under the new CA after a rotation", func(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)
-		before := fx.id
 		opts := testOptions()
-		opts.Now = func() time.Time { return before.Cert.NotAfter.AddDate(0, 0, -10) }
+		opts.Now = func() time.Time { return fx.id.Cert.NotAfter.AddDate(0, 0, -10) }
+		ticks := manualRenewal(&opts)
 		runAgent(t, newFixtureAgent(fx, opts, "[]"))
-		require.Eventually(t, func() bool { return fx.hello() != nil }, 5*time.Second, 10*time.Millisecond)
-		_, err := fx.store.RotateCA(t.Context())
+		awaitOnline(t, fx)
+		rotation, err := fx.store.RotateCA(t.Context())
 		require.NoError(t, err)
 		require.NoError(t, fx.ctrl.Reload(t.Context()))
 		require.Eventually(t, func() bool {
-			roots, err := fx.files.loadRoots()
-			if err != nil || len(roots) != 2 {
-				return false
-			}
-			id, err := fx.files.Load()
-			if err != nil {
-				return false
-			}
-			return verifiesUnder(id.Cert, roots[0]) == nil
+			roots, loadErr := fx.files.loadRoots()
+			return loadErr == nil && len(roots) == 2
 		}, 5*time.Second, 10*time.Millisecond)
+		beforeRenewal, err := fx.files.Load()
+		require.NoError(t, err)
+		ticks <- time.Now()
+		require.Eventually(t, func() bool {
+			id, loadErr := fx.files.Load()
+			return loadErr == nil && id.Cert.SerialNumber.Cmp(beforeRenewal.Cert.SerialNumber) != 0
+		}, 5*time.Second, 10*time.Millisecond)
+		id, err := fx.files.Load()
+		require.NoError(t, err)
+		roots, err := fx.files.loadRoots()
+		require.NoError(t, err)
+		require.Equal(t, rotation.Current.Fingerprint, envproto.Fingerprint(roots[0]))
+		require.NoError(t, verifiesUnder(id.Cert, roots[0]))
+		assert.Equal(t, fx.id.ID, id.Cert.Subject.CommonName)
+		assert.Error(t, verifiesUnder(id.Cert, roots[1]), "signed by the old CA")
 	})
 }
 
@@ -122,12 +145,26 @@ func (c *payloadCapture) record(payload []byte) {
 	c.payloads = append(c.payloads, payload)
 }
 
-// privateKeyDER is key as PKCS#8 DER, the form a leaked key would take on the wire.
+// privateKeyDER is key as PKCS#8 DER.
 func privateKeyDER(t *testing.T, key *ecdsa.PrivateKey) []byte {
 	t.Helper()
 	der, err := x509.MarshalPKCS8PrivateKey(key)
 	require.NoError(t, err)
 	return der
+}
+
+// privateKeyForms are the encodings a leaked key could take on the wire: PKCS#8 DER, SEC1 DER and the raw scalar.
+func privateKeyForms(t *testing.T, key *ecdsa.PrivateKey) map[string][]byte {
+	t.Helper()
+	sec1, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+	scalar, err := key.Bytes()
+	require.NoError(t, err)
+	return map[string][]byte{
+		"PKCS#8": privateKeyDER(t, key),
+		"SEC1":   sec1,
+		"scalar": scalar,
+	}
 }
 
 // all returns the payloads recorded so far.
