@@ -60,7 +60,7 @@ func resolveExisting(p string) (string, error) {
 	}
 }
 
-// CheckCommand refuses: a word "ws" not followed by "machine result";
+// CheckCommand refuses: a word "ws" not followed by an allowed ws command;
 // "claude"; "sudo"; "git push" with -f/--force/--force-with-lease to a ref
 // other than branch; "git push" to main or master. Words: strings.Fields
 // after replacing ;&|() with spaces.
@@ -96,12 +96,30 @@ func checkWS(words []string) error {
 		if word != "ws" {
 			continue
 		}
-		if i+2 < len(words) && words[i+1] == "machine" && words[i+2] == "result" {
-			continue
+		if !isAllowedWS(words[i+1:]) {
+			return errors.New(`command refused: ws may only run "ws machine result" or "ws machine progress set|step|show"`)
 		}
-		return errors.New(`command refused: ws may only run "ws machine result"`)
 	}
 	return nil
+}
+
+// isAllowedWS reports whether args, the words after "ws", start with a ws
+// command a run may use.
+func isAllowedWS(args []string) bool {
+	if len(args) < 2 || args[0] != "machine" {
+		return false
+	}
+	if args[1] == "result" {
+		return true
+	}
+	if args[1] != "progress" || len(args) < 3 {
+		return false
+	}
+	switch args[2] {
+	case "set", "step", "show":
+		return true
+	}
+	return false
 }
 
 // checkPush applies the push rules to the words of one command segment,
