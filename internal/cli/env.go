@@ -313,6 +313,7 @@ func (a *App) snapshotCount(name string) *int {
 }
 
 // snapshotWorkspaces is the length of the workspaces array in a snapshot.
+// A snapshot without a workspaces key is an error, not zero workspaces.
 func snapshotWorkspaces(data []byte) (int, error) {
 	var snap envproto.Snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {

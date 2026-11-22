@@ -38,7 +38,17 @@ first, so `ws env ca rotate` never fails because of it.
 ```
 
 With `--finish`, `old` is `null`, `dropped` is the CA that was removed, and
-`stranded` names the environments left on it.
+`stranded` names the environments left on it:
+
+```json
+{
+  "current": {"fingerprint": "3b1f…", "not_after": "2027-11-22T00:00:00Z"},
+  "old": null,
+  "dropped": {"fingerprint": "9a0c…", "not_after": "2027-03-01T00:00:00Z"},
+  "stranded": ["win-rig"],
+  "warnings": []
+}
+```
 
 ## Exit codes
 

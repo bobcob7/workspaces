@@ -97,6 +97,17 @@ func TestApp_runEnvCARotate(t *testing.T) {
 		assert.Equal(t, interrupted, old["fingerprint"])
 		assert.Contains(t, obj["warnings"], "finished a CA rotation that an interruption had left unfinished")
 	})
+	t.Run("a running daemon is asked to reload and no warning is given", func(t *testing.T) {
+		app, stdout, _ := newEnvTestApp(t)
+		withPublicName(app)
+		enrollTestEnvironment(t, app)
+		host := serveRecordingEnvDaemon(t, app)
+		app.global.json = true
+		require.NoError(t, app.runEnvCARotate(t.Context(), envCARotateOptions{}))
+		assert.Equal(t, int32(1), host.reloads.Load())
+		obj := decodeJSONObject(t, stdout)
+		assert.Empty(t, obj["warnings"])
+	})
 }
 
 func TestApp_runEnvCAStatus(t *testing.T) {

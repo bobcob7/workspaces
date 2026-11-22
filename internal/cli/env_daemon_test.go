@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"io"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,11 +60,38 @@ func TestApp_daemonEnvironments(t *testing.T) {
 // until the test ends, as ws daemon run does.
 func serveEnvDaemon(t *testing.T, app *App) {
 	t.Helper()
+	serveDaemonWith(t, app, app.daemonEnvironments(discardDaemonLog()))
+}
+
+// reloadRecorder is an environment host that counts reload requests.
+type reloadRecorder struct {
+	daemon.NopEnvironments
+	reloads atomic.Int32
+}
+
+func (r *reloadRecorder) Reload(context.Context) error {
+	r.reloads.Add(1)
+	return nil
+}
+
+// serveRecordingEnvDaemon runs an in-process managed daemon whose host
+// records the reload requests, and returns the host.
+func serveRecordingEnvDaemon(t *testing.T, app *App) *reloadRecorder {
+	t.Helper()
+	host := &reloadRecorder{}
+	serveDaemonWith(t, app, host)
+	return host
+}
+
+// serveDaemonWith runs an in-process managed daemon serving host until the
+// test ends.
+func serveDaemonWith(t *testing.T, app *App, host daemon.EnvironmentHost) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(daemon.WithVersion(t.Context(), app.version))
 	t.Cleanup(cancel)
 	log := discardDaemonLog()
 	go func() {
-		_ = daemon.Serve(ctx, app.daemonPaths(), daemon.OriginManaged, daemon.NopSupervisor{}, app.daemonEnvironments(log), log)
+		_ = daemon.Serve(ctx, app.daemonPaths(), daemon.OriginManaged, daemon.NopSupervisor{}, host, log)
 	}()
 	require.Eventually(t, func() bool {
 		_, err := daemon.Dial(app.daemonPaths()).Status(ctx)

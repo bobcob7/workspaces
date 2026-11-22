@@ -154,6 +154,28 @@ func TestApp_runEnvAdd(t *testing.T) {
 		obj := decodeJSONObject(t, stdout)
 		assert.Contains(t, obj["warnings"], noDaemonWarning)
 	})
+	t.Run("a running daemon is asked to reload", func(t *testing.T) {
+		app, stdout, _ := newEnvTestApp(t)
+		withPublicName(app)
+		host := serveRecordingEnvDaemon(t, app)
+		app.global.json = true
+		require.NoError(t, app.runEnvAdd(t.Context(), "linux-server"))
+		assert.Equal(t, int32(1), host.reloads.Load())
+		obj := decodeJSONObject(t, stdout)
+		assert.Empty(t, obj["warnings"])
+	})
+	t.Run("the code is printed on stdout and never logged, even with --verbose", func(t *testing.T) {
+		app, stdout, stderr := newEnvTestApp(t)
+		withPublicName(app)
+		app.level.Set(slog.LevelDebug)
+		app.global.json = true
+		require.NoError(t, app.runEnvAdd(t.Context(), "linux-server"))
+		code, ok := decodeJSONObject(t, stdout)["code"].(string)
+		require.True(t, ok)
+		assert.NotEmpty(t, code)
+		assert.NotContains(t, stderr.String(), code)
+		assert.NotContains(t, stderr.String(), "ws-enroll-v1")
+	})
 }
 
 func TestApp_runEnvRemove(t *testing.T) {
@@ -175,6 +197,17 @@ func TestApp_runEnvRemove(t *testing.T) {
 		assert.Equal(t, []any{rec.CertSerial}, obj["revoked_serials"])
 		_, err := app.envStore().Get("linux-server")
 		assert.ErrorIs(t, err, environment.ErrUnknown)
+	})
+	t.Run("a running daemon is asked to reload and no warning is given", func(t *testing.T) {
+		app, stdout, _ := newEnvTestApp(t)
+		withPublicName(app)
+		enrollTestEnvironment(t, app)
+		host := serveRecordingEnvDaemon(t, app)
+		app.global.json = true
+		require.NoError(t, app.runEnvRemove(t.Context(), "linux-server"))
+		assert.Equal(t, int32(1), host.reloads.Load())
+		obj := decodeJSONObject(t, stdout)
+		assert.Empty(t, obj["warnings"])
 	})
 }
 
@@ -203,6 +236,17 @@ func TestApp_runEnvRotate(t *testing.T) {
 		ce, ok := errors.AsType[*cliError](err)
 		require.True(t, ok)
 		assert.Equal(t, codeEnvironmentUnknown, ce.code)
+	})
+	t.Run("a running daemon is asked to reload and no warning is given", func(t *testing.T) {
+		app, stdout, _ := newEnvTestApp(t)
+		withPublicName(app)
+		enrollTestEnvironment(t, app)
+		host := serveRecordingEnvDaemon(t, app)
+		app.global.json = true
+		require.NoError(t, app.runEnvRotate(t.Context(), "linux-server"))
+		assert.Equal(t, int32(1), host.reloads.Load())
+		obj := decodeJSONObject(t, stdout)
+		assert.Empty(t, obj["warnings"])
 	})
 }
 
