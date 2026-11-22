@@ -8,7 +8,6 @@ import (
 )
 
 func TestNopEnvironments_Status(t *testing.T) {
-	t.Parallel()
 	t.Run("reports no listeners and an empty list, not null", func(t *testing.T) {
 		st := NopEnvironments{}.Status()
 		assert.False(t, st.Listening)
@@ -19,7 +18,6 @@ func TestNopEnvironments_Status(t *testing.T) {
 }
 
 func TestNopEnvironments_Warnings(t *testing.T) {
-	t.Parallel()
 	t.Run("has no warnings without a reason", func(t *testing.T) {
 		assert.Equal(t, []string{}, NopEnvironments{}.Warnings())
 	})
@@ -29,7 +27,6 @@ func TestNopEnvironments_Warnings(t *testing.T) {
 }
 
 func TestNopEnvironments_lifecycle(t *testing.T) {
-	t.Parallel()
 	t.Run("start, reload and close do nothing", func(t *testing.T) {
 		var envs NopEnvironments
 		require.NoError(t, envs.Start(t.Context()))
