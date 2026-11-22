@@ -124,6 +124,7 @@ func (a *authority) exists() (bool, error) {
 }
 
 // ensure creates the CA when ca.crt is missing and reports whether it did.
+// A rotation that stopped after ca.crt moved to old.crt is finished instead.
 func (a *authority) ensure() (bool, error) {
 	exists, err := a.exists()
 	if err != nil || exists {
@@ -131,6 +132,13 @@ func (a *authority) ensure() (bool, error) {
 	}
 	if err := os.MkdirAll(a.dir, 0o700); err != nil {
 		return false, fmt.Errorf("creating %s: %w", a.dir, err)
+	}
+	pending, err := a.hasPendingCert()
+	if err != nil {
+		return false, err
+	}
+	if pending {
+		return false, a.installPending()
 	}
 	if _, err := a.writeCA(caKeyFile, caCertFile); err != nil {
 		return false, err
@@ -159,19 +167,46 @@ func (a *authority) rotate() (*x509.Certificate, *x509.Certificate, *x509.Certif
 	return current, previous, dropped, nil
 }
 
-// promote moves the pending CA into place and removes the listeners'
-// certificate, so the next serverCertificate is signed by the new CA.
+func (a *authority) hasPendingCert() (bool, error) {
+	_, err := os.Stat(a.path(pendingCertFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("checking for a pending CA: %w", err)
+	}
+	return true, nil
+}
+
+// promote keeps ca.crt as old.crt and then moves the pending CA into place.
 func (a *authority) promote() error {
 	if err := os.Rename(a.path(caCertFile), a.path(oldCertFile)); err != nil {
 		return fmt.Errorf("keeping the previous CA certificate: %w", err)
 	}
-	if err := os.Rename(a.path(pendingKeyFile), a.path(caKeyFile)); err != nil {
+	return a.installPending()
+}
+
+// installPending moves the pending CA into place and removes the listeners'
+// certificate, so the next serverCertificate is signed by the new CA. The key
+// goes first, so ca.crt is never new while ca.key is still old. A key that an
+// interrupted rotation already moved is skipped.
+func (a *authority) installPending() error {
+	if err := renameIfExists(a.path(pendingKeyFile), a.path(caKeyFile)); err != nil {
 		return fmt.Errorf("replacing the CA key: %w", err)
 	}
 	if err := os.Rename(a.path(pendingCertFile), a.path(caCertFile)); err != nil {
 		return fmt.Errorf("replacing the CA certificate: %w", err)
 	}
 	return a.removeServer()
+}
+
+// renameIfExists renames from to, or does nothing when from is missing.
+func renameIfExists(from, to string) error {
+	err := os.Rename(from, to)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func (a *authority) removeServer() error {
