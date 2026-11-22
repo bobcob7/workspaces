@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -51,16 +52,17 @@ func WithVersion(ctx context.Context, version string) context.Context {
 // until ctx ends, a shutdown request, or, for transient, 15 min of Idle()
 // and no request. For app, it polls os.Getppid() every 2 s; once the
 // parent pid differs from the one at start (the app quit), it logs
-// "parent gone; acting as transient" and applies the transient rule.
+// "parent gone; acting as transient" and applies the transient rule. envs
+// starts after the socket is listening, and is closed when serving ends.
 //
 //nolint:gocritic // hugeParam: the contract takes Paths by value.
-func Serve(ctx context.Context, p Paths, origin string, sup RunnerSupervisor, log *slog.Logger) error {
+func Serve(ctx context.Context, p Paths, origin string, sup RunnerSupervisor, envs EnvironmentHost, log *slog.Logger) error {
 	opts := options{idle: idleLimit, parentPoll: parentInterval, getppid: os.Getppid}
-	return serve(ctx, p, origin, sup, log, opts)
+	return serve(ctx, p, origin, sup, envs, log, opts)
 }
 
 //nolint:gocritic // hugeParam: the contract takes Paths by value.
-func serve(ctx context.Context, p Paths, origin string, sup RunnerSupervisor, log *slog.Logger, opts options) error {
+func serve(ctx context.Context, p Paths, origin string, sup RunnerSupervisor, envs EnvironmentHost, log *slog.Logger, opts options) error {
 	if !validOrigin(origin) {
 		return fmt.Errorf("unknown origin %q", origin)
 	}
@@ -84,7 +86,9 @@ func serve(ctx context.Context, p Paths, origin string, sup RunnerSupervisor, lo
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
 	go sup.Watch(watchCtx)
-	s := &server{paths: p, info: info, sup: sup, log: log, opts: opts, stop: make(chan struct{}, 1)}
+	s := &server{paths: p, info: info, sup: sup, envs: envs, log: log, opts: opts, stop: make(chan struct{}, 1)}
+	s.startEnvironments(ctx)
+	defer s.closeEnvironments()
 	s.touch()
 	return s.run(ctx, ln)
 }
@@ -93,11 +97,46 @@ type server struct {
 	paths       Paths
 	info        Info
 	sup         RunnerSupervisor
+	envs        EnvironmentHost
 	log         *slog.Logger
 	opts        options
 	lastRequest atomic.Int64 // UnixNano of the last request
 	parentGone  atomic.Bool
 	stop        chan struct{}
+	// envStartErr is why the environments didn't start, or nil; the daemon
+	// keeps running and reports it as a warning.
+	envStartErr error
+}
+
+// startEnvironments starts the environments. A failure is logged and kept
+// as a warning, not an error that stops the daemon.
+func (s *server) startEnvironments(ctx context.Context) {
+	err := s.envs.Start(ctx)
+	if err == nil {
+		return
+	}
+	s.envStartErr = err
+	s.log.ErrorContext(ctx, "environments didn't start", "error", err)
+}
+
+// closeEnvironments stops the environments, logging a failure.
+func (s *server) closeEnvironments() {
+	if err := s.envs.Close(); err != nil {
+		s.log.Error("closing the environments", "error", err)
+	}
+}
+
+// warnings are the supervisor's warnings, then the environments': why they
+// didn't start, and the configuration problems they report.
+func (s *server) warnings() []string {
+	warnings := slices.Concat(s.sup.Warnings(), s.envs.Warnings())
+	if s.envStartErr != nil {
+		warnings = append(warnings, "environments didn't start: "+s.envStartErr.Error())
+	}
+	if warnings == nil {
+		return []string{}
+	}
+	return warnings
 }
 
 func (s *server) run(ctx context.Context, ln net.Listener) error {
@@ -146,7 +185,7 @@ func (s *server) tick() time.Duration {
 }
 
 func (s *server) idleExit(ctx context.Context) bool {
-	if !s.actsTransient() || !s.sup.Idle() {
+	if !s.actsTransient() || !s.sup.Idle() || s.envs.Status().Listening {
 		return false
 	}
 	if time.Since(time.Unix(0, s.lastRequest.Load())) < s.opts.idle {
@@ -206,21 +245,32 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/runners/{id}/start", s.handleStart)
 	mux.HandleFunc("POST /v1/runners/{id}/stop", s.handleStop)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
+	mux.HandleFunc("POST /v1/environments/reload", s.handleReloadEnvironments)
 	return mux
 }
 
 func (s *server) handleStatus(w http.ResponseWriter, _ *http.Request) {
+	environments := s.envs.Status()
 	writeJSON(w, http.StatusOK, Status{
-		Running:   true,
-		PID:       &s.info.PID,
-		Origin:    &s.info.Origin,
-		StartedAt: &s.info.StartedAt,
-		WSVersion: &s.info.WSVersion,
-		Socket:    s.info.Socket,
-		ConfigDir: filepath.Dir(s.paths.Dir),
-		Runners:   s.sup.Runners(),
-		Warnings:  s.sup.Warnings(),
+		Running:      true,
+		PID:          &s.info.PID,
+		Origin:       &s.info.Origin,
+		StartedAt:    &s.info.StartedAt,
+		WSVersion:    &s.info.WSVersion,
+		Socket:       s.info.Socket,
+		ConfigDir:    filepath.Dir(s.paths.Dir),
+		Runners:      s.sup.Runners(),
+		Environments: &environments,
+		Warnings:     s.warnings(),
 	})
+}
+
+func (s *server) handleReloadEnvironments(w http.ResponseWriter, r *http.Request) {
+	if err := s.envs.Reload(r.Context()); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, reloadResponse{Reloaded: true})
 }
 
 func (s *server) handlePreflight(w http.ResponseWriter, r *http.Request) {
