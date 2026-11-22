@@ -19,7 +19,7 @@ of their own?
    remote.
 2. **The agent authenticates the controller** from the first message
    (no trust-on-first-use of an unverified server).
-3. **A code is useless after one use or a short time**, and useless to
+3. **A code is useless after one use**, and useless to
    someone who only saw a log line of it.
 4. **Private keys never leave the machine that made them.**
 5. **Rotation and revocation** without re-enrolling everything.
@@ -37,9 +37,10 @@ of their own?
 ## Decision
 
 **The CA.** The first `ws env add` creates an ECDSA P-256 CA in
-`CONFIG_DIR/environments/ca/` (key mode 0600, certificate 10 years) and a
-server certificate for `public_name` (1 year, regenerated on renewal).
-The CA key is never read by anything but the daemon.
+`CONFIG_DIR/environments/ca/` (key mode 0600, certificate **1 year**) and a
+server certificate for `public_name` (1 year, regenerated when the CA
+rotates). The CA key is never read by anything but the daemon. A short
+life is deliberate: rotation is a routine, tested flow, not a rare one.
 
 **The code.** `ws env add <name>` creates an environment record
 (`environments/<id>.toml`: id, name, created time, state `pending`) and
@@ -49,9 +50,10 @@ prints one line:
 ws-enroll-v1.<base64url: {"h":"ws.example.com:8884","f":"<sha256 of CA cert>","s":"<128-bit secret>"}>
 ```
 
-Only the SHA-256 of the secret is stored (`secret_hash`), with an expiry
-of 15 minutes (`--ttl` up to 24 h). The code is printed once and never
-logged.
+Only the SHA-256 of the secret is stored (`secret_hash`). The code has no
+expiry: it works until it's used once, or the pending environment is
+removed (`ws env rm`) or re-coded (`ws env rotate`). It is printed once and
+never logged.
 
 **Enrolling.** On the remote: `ws env agent enroll <code>`.
 
@@ -62,7 +64,7 @@ logged.
    leaf chains to it). A mismatch aborts before anything secret is sent.
 3. It sends the CSR and the secret `s` once, over that connection, to the
    enrollment listener (HTTPS `POST /v1/enroll`).
-4. The daemon checks the hash and expiry in constant time, marks the
+4. The daemon checks the hash in constant time, marks the
    record `enrolled` atomically (single use), signs the CSR (CN = the
    environment id, 90 days, client-auth only), and returns the
    certificate and the CA.
@@ -70,15 +72,35 @@ logged.
    `CONFIG_DIR/environment/` (key 0600; on Windows, an ACL for the
    user) and starts `ws env agent run`.
 
-The enrollment listener answers nothing else, rate-limits (5 attempts per
-minute per source, 20 per hour total; a wrong secret counts), and closes
-the pending record after 5 wrong attempts.
+The enrollment listener answers nothing else.
 
-**Renewal.** At 2/3 of a certificate's life the agent sends `cert.renew`
-with a new CSR over the live mTLS connection; the controller signs it for
-the same CN. A certificate that expires while the agent was offline needs
+**Renewal.** The agent sends `cert.renew` with a new CSR over the live
+mTLS connection once its certificate is within
+`[environments] renew_before_days` of expiring (default 30, an integer from
+1 to 60); the controller signs it for the same CN. The agent re-checks every
+hour, so a machine that was asleep renews as soon as it's back, if its
+certificate hasn't expired. A certificate that expires while the agent was offline needs
 a new code (`ws env rotate <name>` prints one for an existing
 environment).
+
+**Rotating the CA.** `ws env ca rotate` creates a new CA and keeps the old
+one as a second trust root, so nothing disconnects:
+
+1. The broker trusts both CAs for client certificates, and serves a server
+   certificate signed by the new one.
+2. The controller publishes the new CA bundle (both roots) to every
+   connected agent (`ca.update`, retained until acknowledged); an agent
+   stores it, and from then on verifies the broker against either root.
+3. Each agent's next `cert.renew` is signed by the new CA. `ws env ca
+   status` shows how many environments still hold a certificate from the
+   old one.
+4. `ws env ca rotate --finish` drops the old CA once none do (or `--force`,
+   which disconnects the rest: they need `ws env rotate`).
+
+New enrollment codes carry the new CA's fingerprint as soon as step 1 is
+done. `ws daemon status` and Settings › Environments warn when the CA is
+within `renew_before_days` of expiring, and the daemon rotates nothing by
+itself.
 
 **Revocation.** `ws env rm <name>` marks the environment revoked: the
 broker refuses its certificate serial from then on, and disconnects it
@@ -95,15 +117,15 @@ offline until `ws env rm`.
 1. Criterion 1: one command each side, one pasted string.
 2. Criterion 2: the code carries the CA fingerprint, so the first thing the
    agent does is verify the server, as kubeadm does.
-3. Criterion 3: a 128-bit secret, stored hashed, valid once, for minutes.
+3. Criterion 3: a 128-bit secret, stored hashed, valid once; `ws env rotate` cancels an unused one.
 4. Criterion 4: the key is generated on the remote and only a CSR leaves.
-5. Criterion 5: renew in-band, revoke by serial.
+5. Criterion 5: renew in-band on a configurable lead time, rotate the CA with an overlap, revoke by serial.
 
-Where it's weak: the code is still a bearer secret for 15 minutes, so
-someone who reads it from your clipboard in that window can enroll a
-machine; we show the expiry and the enrolled machine's name, and an
-enrollment shows up in Settings › Environments immediately for the user to
-confirm or remove. And 90-day certificates mean a machine switched off for
+Where it's weak: the code is a bearer secret that stays valid until used,
+so someone who reads it from your clipboard or shell history can enroll a
+machine first; an enrollment shows up in Settings › Environments
+immediately for the user to confirm or remove, and `ws env rotate` cancels
+an unused code. And 90-day certificates mean a machine switched off for
 longer needs a new code.
 
 ## Alternatives
@@ -127,17 +149,30 @@ revoked, and revocation lists grow.
 
 ## Consequences
 
-- New config and files: `environments/ca/`, `environments/<id>.toml`,
+- New config: `[environments] renew_before_days` (default 30). New files: `environments/ca/`, `environments/<id>.toml`,
   `environments/revoked`, and the agent's `environment/` directory;
   documented in `docs/state.md`.
-- New commands for people: `ws env add|list|rm|rotate`,
+- New commands for people: `ws env add|list|rm|rotate`, `ws env ca rotate|status`,
   `ws env agent enroll|run|status|unenroll`; error codes
-  `enrollment_failed` (exit 1), `enrollment_expired` (exit 4).
-- Conformance: Go tests that a code works once and not twice; that an
-  expired code and a wrong secret are refused and counted; that a wrong
-  fingerprint aborts before the secret is sent; that the private key never
-  appears in any message; that a renewed certificate keeps its CN; that a
-  revoked serial is refused and disconnected.
+  `enrollment_failed` (exit 1), `enrollment_used` (exit 4).
+- Conformance: Go tests that a code works once and not twice and that a
+  wrong secret is refused; that a wrong fingerprint aborts before the
+  secret is sent; that the private key never appears in any message; that a
+  renewed certificate keeps its CN; that an agent renews exactly when it's
+  within `renew_before_days` (with a fake clock, at the boundary and a day
+  either side, and for a changed setting); that a revoked serial is refused
+  and disconnected.
+- CA rotation tests, with a fake clock and the embedded broker: (a) after
+  `ws env ca rotate`, connected agents stay connected, receive the bundle
+  and verify the broker against the new root; (b) an agent that only knows
+  the old root still connects until `--finish`; (c) a renewal after rotation
+  is signed by the new CA and keeps its CN; (d) `ws env ca status` counts
+  environments on the old CA, and `--finish` refuses while any remain
+  unless `--force`; (e) after `--finish` an old-CA certificate is refused;
+  (f) a new enrollment code carries the new fingerprint, and one made before
+  rotation fails the pin check cleanly; (g) a CA within `renew_before_days`
+  of expiry produces the warning; (h) rotating twice in a row keeps at most
+  two roots.
 - **Unverified:** certificate renewal time under clock skew on a machine
   that was suspended; and Windows key-file ACLs (see
   [0076](0076-environment-platforms-and-phasing.md)).

@@ -8,19 +8,20 @@ Decisions: [0072](../../adrs/0072-remote-environments.md),
 
 ## Picture
 
-```
- browser / desktop app
-        |
-   ws-online  ──  ws daemon ── embedded MQTT 5 broker  (:8883 mTLS, :8884 enroll)
-                                   ^            ^
-                    dials out,     |            |   dials out,
-                    mTLS           |            |   mTLS
-                         linux-server           win-rig
-                         ws env agent run       ws env agent run
-                         └ own CONFIG_DIR       └ own CONFIG_DIR
-                         └ git cache, state     └ ...
-                         └ claude (installed    └ claude (installed
-                           by the user)           by the user)
+```mermaid
+flowchart TB
+    browser["Browser or desktop app"] --> online["ws-online"]
+    online --> daemon["ws daemon<br/>embedded MQTT 5 broker<br/>:8883 mTLS, :8884 enroll"]
+    subgraph linux["linux-server"]
+        la["ws env agent run"] --- lc["own CONFIG_DIR: cache, state, workspaces"]
+        la --- lcl["claude, installed by the user"]
+    end
+    subgraph win["win-rig"]
+        wa["ws env agent run"] --- wc["own CONFIG_DIR: cache, state, workspaces"]
+        wa --- wcl["claude, installed by the user"]
+    end
+    la -->|"dials out, mTLS"| daemon
+    wa -->|"dials out, mTLS"| daemon
 ```
 
 Every workspace has one environment. `ws machine spawn` inside a remote
@@ -30,7 +31,7 @@ workspace runs the remote's own `ws`, so the child is on the same machine.
 
 ```
 $ ws env add linux-server
-Code (valid 15 minutes, shown once):
+Code (works once, shown once):
   ws-enroll-v1.eyJoIjoid3MuZXhhbXBsZS5jb206ODg4NCIs...
 
 On linux-server:
@@ -47,13 +48,13 @@ Environments                                              [ Add environment ]
 │ ● linux-server   online   ws 0.31  linux/amd64   claude 2.4 signed in     │
 │                  4 workspaces                          [ Rotate ] [ Remove ]│
 │ ○ win-rig        offline since 14:02  (last seen)      [ Rotate ] [ Remove ]│
-│ ◌ nas            waiting for enrollment  code expires in 11:42  [ Cancel ]  │
+│ ◌ nas            waiting for enrollment                       [ Cancel ]  │
 └───────────────────────────────────────────────────────────────────────────┘
 claude: missing  -> "Install Claude Code on this machine, then try again."
 ```
 
 Add environment: a name field, then the code and the two commands to copy,
-with the expiry counting down. When the agent connects, the row turns
+showing it once. When the agent connects, the row turns
 green on its own.
 
 ## New agent dialog
@@ -85,4 +86,4 @@ actions (attach, stop, remove) are disabled with the reason.
 | Child with a different environment than its parent | `environment_mismatch: this workspace is a child of one on linux-server` |
 | Agent older than the controller | `linux-server runs ws 0.28; this controller needs 0.31 or newer. Update it there.` |
 | Claude Code missing on the remote | `claude isn't installed on linux-server.` |
-| Code expired or used | `That code was used or has expired. Run ws env rotate linux-server.` |
+| Code already used | `That code was already used. Run ws env rotate linux-server for a new one.` |
