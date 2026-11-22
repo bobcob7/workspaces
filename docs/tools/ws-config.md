@@ -44,6 +44,10 @@ pass.
 | `runner.roles.<role>.timeout` | duration | per role | one Go duration greater than zero |
 | `runner.roles.<role>.{mcp_servers,mcp_tools,mcp_deny}` | list of strings | see the schema | zero or more values, in order |
 | `daemon.resume_on_start` | bool | `true` | `true` or `false` |
+| `environments.listen` | string | `"0.0.0.0:8883"` | `host:port`, with a port from 1 to 65535 |
+| `environments.enroll_listen` | string | `"0.0.0.0:8884"` | `host:port`, with a port from 1 to 65535 |
+| `environments.public_name` | string | `""` | an IP address or a DNS name, without a port; `""` leaves the daemon off |
+| `environments.renew_before_days` | int | `30` | a whole number from 1 to 60 |
 
 `unset endpoints.<name>`, `unset models.<alias>` and `unset runner.roles.<role>`
 remove the whole table. `set` refuses a write that leaves `config.toml`'s

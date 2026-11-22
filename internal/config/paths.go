@@ -19,6 +19,11 @@ type Paths struct {
 	Loops string
 	// MachineRoles holds the user's ws machine roles (ADR 0050).
 	MachineRoles string
+	// Environments is the controller's state: the CA, the environments'
+	// records and the revocations (ADR 0074).
+	Environments string
+	// Environment is the agent's own files, in an agent's CONFIG_DIR (ADR 0075).
+	Environment string
 }
 
 // NewPaths lays out the files and directories under root.
@@ -34,5 +39,7 @@ func NewPaths(root string) Paths {
 		ReviewProfiles: filepath.Join(root, "review", "profiles"),
 		Loops:          filepath.Join(root, "loops"),
 		MachineRoles:   filepath.Join(root, "machine", "roles"),
+		Environments:   filepath.Join(root, "environments"),
+		Environment:    filepath.Join(root, "environment"),
 	}
 }
