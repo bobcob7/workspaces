@@ -5,10 +5,12 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
@@ -2988,5 +2990,313 @@ func (mock *runnerDaemonMock) StopRunnerCalls() []struct {
 	mock.lockStopRunner.RLock()
 	calls = mock.calls.StopRunner
 	mock.lockStopRunner.RUnlock()
+	return calls
+}
+
+// Ensure, that envBrokerMock does implement envBroker.
+// If this is not the case, regenerate this file with moq.
+var _ envBroker = &envBrokerMock{}
+
+// envBrokerMock is a mock implementation of envBroker.
+//
+//	func TestSomethingThatUsesenvBroker(t *testing.T) {
+//
+//		// make and configure a mocked envBroker
+//		mockedenvBroker := &envBrokerMock{
+//			ClientsFunc: func() []envproto.Peer {
+//				panic("mock out the Clients method")
+//			},
+//			CloseFunc: func() error {
+//				panic("mock out the Close method")
+//			},
+//			DisconnectFunc: func(serial string) int {
+//				panic("mock out the Disconnect method")
+//			},
+//			PublishFunc: func(ctx context.Context, msg envproto.Message) error {
+//				panic("mock out the Publish method")
+//			},
+//			StartFunc: func(ctx context.Context, addr string, tlsConfig *tls.Config, rules envproto.Rules) (string, error) {
+//				panic("mock out the Start method")
+//			},
+//			SubscribeFunc: func(ctx context.Context, filter string, fn func(envproto.Message)) (func(), error) {
+//				panic("mock out the Subscribe method")
+//			},
+//		}
+//
+//		// use mockedenvBroker in code that requires envBroker
+//		// and then make assertions.
+//
+//	}
+type envBrokerMock struct {
+	// ClientsFunc mocks the Clients method.
+	ClientsFunc func() []envproto.Peer
+
+	// CloseFunc mocks the Close method.
+	CloseFunc func() error
+
+	// DisconnectFunc mocks the Disconnect method.
+	DisconnectFunc func(serial string) int
+
+	// PublishFunc mocks the Publish method.
+	PublishFunc func(ctx context.Context, msg envproto.Message) error
+
+	// StartFunc mocks the Start method.
+	StartFunc func(ctx context.Context, addr string, tlsConfig *tls.Config, rules envproto.Rules) (string, error)
+
+	// SubscribeFunc mocks the Subscribe method.
+	SubscribeFunc func(ctx context.Context, filter string, fn func(envproto.Message)) (func(), error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Clients holds details about calls to the Clients method.
+		Clients []struct {
+		}
+		// Close holds details about calls to the Close method.
+		Close []struct {
+		}
+		// Disconnect holds details about calls to the Disconnect method.
+		Disconnect []struct {
+			// Serial is the serial argument value.
+			Serial string
+		}
+		// Publish holds details about calls to the Publish method.
+		Publish []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Msg is the msg argument value.
+			Msg envproto.Message
+		}
+		// Start holds details about calls to the Start method.
+		Start []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Addr is the addr argument value.
+			Addr string
+			// TlsConfig is the tlsConfig argument value.
+			TlsConfig *tls.Config
+			// Rules is the rules argument value.
+			Rules envproto.Rules
+		}
+		// Subscribe holds details about calls to the Subscribe method.
+		Subscribe []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Filter is the filter argument value.
+			Filter string
+			// Fn is the fn argument value.
+			Fn func(envproto.Message)
+		}
+	}
+	lockClients    sync.RWMutex
+	lockClose      sync.RWMutex
+	lockDisconnect sync.RWMutex
+	lockPublish    sync.RWMutex
+	lockStart      sync.RWMutex
+	lockSubscribe  sync.RWMutex
+}
+
+// Clients calls ClientsFunc.
+func (mock *envBrokerMock) Clients() []envproto.Peer {
+	if mock.ClientsFunc == nil {
+		panic("envBrokerMock.ClientsFunc: method is nil but envBroker.Clients was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockClients.Lock()
+	mock.calls.Clients = append(mock.calls.Clients, callInfo)
+	mock.lockClients.Unlock()
+	return mock.ClientsFunc()
+}
+
+// ClientsCalls gets all the calls that were made to Clients.
+// Check the length with:
+//
+//	len(mockedenvBroker.ClientsCalls())
+func (mock *envBrokerMock) ClientsCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockClients.RLock()
+	calls = mock.calls.Clients
+	mock.lockClients.RUnlock()
+	return calls
+}
+
+// Close calls CloseFunc.
+func (mock *envBrokerMock) Close() error {
+	if mock.CloseFunc == nil {
+		panic("envBrokerMock.CloseFunc: method is nil but envBroker.Close was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockClose.Lock()
+	mock.calls.Close = append(mock.calls.Close, callInfo)
+	mock.lockClose.Unlock()
+	return mock.CloseFunc()
+}
+
+// CloseCalls gets all the calls that were made to Close.
+// Check the length with:
+//
+//	len(mockedenvBroker.CloseCalls())
+func (mock *envBrokerMock) CloseCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockClose.RLock()
+	calls = mock.calls.Close
+	mock.lockClose.RUnlock()
+	return calls
+}
+
+// Disconnect calls DisconnectFunc.
+func (mock *envBrokerMock) Disconnect(serial string) int {
+	if mock.DisconnectFunc == nil {
+		panic("envBrokerMock.DisconnectFunc: method is nil but envBroker.Disconnect was just called")
+	}
+	callInfo := struct {
+		Serial string
+	}{
+		Serial: serial,
+	}
+	mock.lockDisconnect.Lock()
+	mock.calls.Disconnect = append(mock.calls.Disconnect, callInfo)
+	mock.lockDisconnect.Unlock()
+	return mock.DisconnectFunc(serial)
+}
+
+// DisconnectCalls gets all the calls that were made to Disconnect.
+// Check the length with:
+//
+//	len(mockedenvBroker.DisconnectCalls())
+func (mock *envBrokerMock) DisconnectCalls() []struct {
+	Serial string
+} {
+	var calls []struct {
+		Serial string
+	}
+	mock.lockDisconnect.RLock()
+	calls = mock.calls.Disconnect
+	mock.lockDisconnect.RUnlock()
+	return calls
+}
+
+// Publish calls PublishFunc.
+func (mock *envBrokerMock) Publish(ctx context.Context, msg envproto.Message) error {
+	if mock.PublishFunc == nil {
+		panic("envBrokerMock.PublishFunc: method is nil but envBroker.Publish was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Msg envproto.Message
+	}{
+		Ctx: ctx,
+		Msg: msg,
+	}
+	mock.lockPublish.Lock()
+	mock.calls.Publish = append(mock.calls.Publish, callInfo)
+	mock.lockPublish.Unlock()
+	return mock.PublishFunc(ctx, msg)
+}
+
+// PublishCalls gets all the calls that were made to Publish.
+// Check the length with:
+//
+//	len(mockedenvBroker.PublishCalls())
+func (mock *envBrokerMock) PublishCalls() []struct {
+	Ctx context.Context
+	Msg envproto.Message
+} {
+	var calls []struct {
+		Ctx context.Context
+		Msg envproto.Message
+	}
+	mock.lockPublish.RLock()
+	calls = mock.calls.Publish
+	mock.lockPublish.RUnlock()
+	return calls
+}
+
+// Start calls StartFunc.
+func (mock *envBrokerMock) Start(ctx context.Context, addr string, tlsConfig *tls.Config, rules envproto.Rules) (string, error) {
+	if mock.StartFunc == nil {
+		panic("envBrokerMock.StartFunc: method is nil but envBroker.Start was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Addr      string
+		TlsConfig *tls.Config
+		Rules     envproto.Rules
+	}{
+		Ctx:       ctx,
+		Addr:      addr,
+		TlsConfig: tlsConfig,
+		Rules:     rules,
+	}
+	mock.lockStart.Lock()
+	mock.calls.Start = append(mock.calls.Start, callInfo)
+	mock.lockStart.Unlock()
+	return mock.StartFunc(ctx, addr, tlsConfig, rules)
+}
+
+// StartCalls gets all the calls that were made to Start.
+// Check the length with:
+//
+//	len(mockedenvBroker.StartCalls())
+func (mock *envBrokerMock) StartCalls() []struct {
+	Ctx       context.Context
+	Addr      string
+	TlsConfig *tls.Config
+	Rules     envproto.Rules
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Addr      string
+		TlsConfig *tls.Config
+		Rules     envproto.Rules
+	}
+	mock.lockStart.RLock()
+	calls = mock.calls.Start
+	mock.lockStart.RUnlock()
+	return calls
+}
+
+// Subscribe calls SubscribeFunc.
+func (mock *envBrokerMock) Subscribe(ctx context.Context, filter string, fn func(envproto.Message)) (func(), error) {
+	if mock.SubscribeFunc == nil {
+		panic("envBrokerMock.SubscribeFunc: method is nil but envBroker.Subscribe was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Filter string
+		Fn     func(envproto.Message)
+	}{
+		Ctx:    ctx,
+		Filter: filter,
+		Fn:     fn,
+	}
+	mock.lockSubscribe.Lock()
+	mock.calls.Subscribe = append(mock.calls.Subscribe, callInfo)
+	mock.lockSubscribe.Unlock()
+	return mock.SubscribeFunc(ctx, filter, fn)
+}
+
+// SubscribeCalls gets all the calls that were made to Subscribe.
+// Check the length with:
+//
+//	len(mockedenvBroker.SubscribeCalls())
+func (mock *envBrokerMock) SubscribeCalls() []struct {
+	Ctx    context.Context
+	Filter string
+	Fn     func(envproto.Message)
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Filter string
+		Fn     func(envproto.Message)
+	}
+	mock.lockSubscribe.RLock()
+	calls = mock.calls.Subscribe
+	mock.lockSubscribe.RUnlock()
 	return calls
 }

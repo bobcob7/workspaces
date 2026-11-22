@@ -16,6 +16,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/proc"
 )
@@ -72,7 +73,7 @@ func (a *App) runDaemonRun(ctx context.Context, origin string) error {
 		return newError(codeInternal, err)
 	}
 	sup := daemon.NewSupervisor(a.supervisorConfig(exe), proc.Reader{}, daemon.OSStarter{}, log)
-	err = daemon.Serve(daemon.WithVersion(ctx, a.version), paths, origin, sup, log)
+	err = daemon.Serve(daemon.WithVersion(ctx, a.version), paths, origin, sup, a.daemonEnvironments(log), log)
 	return daemonRunError(err)
 }
 
@@ -175,9 +176,31 @@ func (a *App) printDaemonStatus(st daemon.Status) {
 	}
 	fmt.Fprintf(a.stdout, "running: pid %d, %s origin, since %s, ws %s\n", *st.PID, *st.Origin, formatTime(*st.StartedAt), *st.WSVersion)
 	fmt.Fprintf(a.stdout, "socket: %s\n", st.Socket)
+	if st.Environments != nil {
+		fmt.Fprintln(a.stdout, environmentsSummary(*st.Environments))
+	}
 	for _, r := range st.Runners {
 		fmt.Fprintf(a.stdout, "runner %s: %s (pid %d)\n", r.Session, r.State, r.PID)
 	}
+}
+
+// environmentsSummary is the environments line of ws daemon status.
+func environmentsSummary(env daemon.EnvironmentsStatus) string {
+	if !env.Listening {
+		return "environments: off"
+	}
+	var online, offline, pending int
+	for _, e := range env.Environments {
+		switch e.Status {
+		case envproto.StatusOnline:
+			online++
+		case envproto.StatusOffline:
+			offline++
+		case "pending":
+			pending++
+		}
+	}
+	return fmt.Sprintf("environments: listening on %s, enroll on %s; %d online, %d offline, %d pending", env.Listen, env.EnrollListen, online, offline, pending)
 }
 
 func (a *App) newDaemonStopCmd() *cobra.Command {

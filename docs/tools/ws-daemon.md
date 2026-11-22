@@ -40,7 +40,8 @@ which `ws restart` restarts.
 ## Subcommands
 
 - `ws daemon run`: run it in the foreground
-- `ws daemon status`: whether it runs, and its runners
+- `ws daemon status`: whether it runs, and its runners, and whether remote
+  environments listen (`environments` in `--json`)
 - `ws daemon stop`: stop it, and interrupt or keep its runners
 
 ## Exit codes

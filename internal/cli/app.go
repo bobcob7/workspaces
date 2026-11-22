@@ -77,6 +77,9 @@ type App struct {
 	machinePoll time.Duration
 	// continuePoll is how often ws continue --watch runs a pass.
 	continuePoll time.Duration
+	// newEnvBroker builds the daemon's MQTT broker (ADR 0074). Until T10 it
+	// returns errNoBroker.
+	newEnvBroker func(log *slog.Logger) (envBroker, error)
 	// dialDaemon is the client to this config directory's daemon, started
 	// when none runs (ADR 0068): daemonClient, unless a test replaces it.
 	dialDaemon func(ctx context.Context) (runnerDaemon, error)
@@ -153,6 +156,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		stopNotify:     signal.Stop,
 	}
 	a.dialDaemon = a.dialDaemonClient
+	a.newEnvBroker = noEnvBroker
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
 		gitRunner := git.NewRunner(log, "git", environ)
 		c := cache.New(log, gitRunner, paths.Cache, cfg.SpecDefaults())
