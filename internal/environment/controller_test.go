@@ -78,15 +78,15 @@ func enrollAgent(t *testing.T, store *Store, name string) (Record, tls.Certifica
 }
 
 // agentTLS is an agent's TLS config: the store's roots and its certificate.
-func agentTLS(t *testing.T, store *Store, cert tls.Certificate) *tls.Config {
+func agentTLS(t *testing.T, store *Store, cert *tls.Certificate) *tls.Config {
 	t.Helper()
 	tr, err := store.trust()
 	require.NoError(t, err)
-	return clientTLS(tr.pool(), &cert)
+	return clientTLS(tr.pool(), cert)
 }
 
 // dialAgent connects an agent as id with cert to b, with its offline will.
-func dialAgent(t *testing.T, store *Store, b *envtest.Broker, id string, cert tls.Certificate) (*envtest.Client, error) {
+func dialAgent(t *testing.T, store *Store, b *envtest.Broker, id string, cert *tls.Certificate) (*envtest.Client, error) {
 	t.Helper()
 	client := b.NewClient()
 	err := client.Connect(t.Context(), envproto.ConnectOptions{
@@ -103,7 +103,7 @@ func dialAgent(t *testing.T, store *Store, b *envtest.Broker, id string, cert tl
 }
 
 // connectAgent connects an agent as id and fails the test if it is refused.
-func connectAgent(t *testing.T, store *Store, b *envtest.Broker, id string, cert tls.Certificate) *envtest.Client {
+func connectAgent(t *testing.T, store *Store, b *envtest.Broker, id string, cert *tls.Certificate) *envtest.Client {
 	t.Helper()
 	client, err := dialAgent(t, store, b, id, cert)
 	require.NoError(t, err)
@@ -111,11 +111,11 @@ func connectAgent(t *testing.T, store *Store, b *envtest.Broker, id string, cert
 }
 
 // helloPayload is the hello an agent publishes that trusts the store's roots.
-func helloPayload(t *testing.T, store *Store, status string) []byte {
+func helloPayload(t *testing.T, store *Store) []byte {
 	t.Helper()
 	tr, err := store.trust()
 	require.NoError(t, err)
-	payload, err := json.Marshal(envproto.Hello{Status: status, At: store.now().UTC(), CAFingerprints: tr.fingerprints()})
+	payload, err := json.Marshal(envproto.Hello{Status: envproto.StatusOnline, At: store.now().UTC(), CAFingerprints: tr.fingerprints()})
 	require.NoError(t, err)
 	return payload
 }
@@ -168,7 +168,7 @@ func sortedFingerprints(t *testing.T, store *Store) []string {
 }
 
 // requestOf decodes the request in msg.
-func requestOf(t *testing.T, msg envproto.Message) envproto.Request {
+func requestOf(t *testing.T, msg *envproto.Message) envproto.Request {
 	t.Helper()
 	var req envproto.Request
 	require.NoError(t, json.Unmarshal(msg.Payload, &req))
@@ -176,7 +176,7 @@ func requestOf(t *testing.T, msg envproto.Message) envproto.Request {
 }
 
 // replyOf decodes the reply in msg.
-func replyOf(t *testing.T, msg envproto.Message) envproto.Reply {
+func replyOf(t *testing.T, msg *envproto.Message) envproto.Reply {
 	t.Helper()
 	var reply envproto.Reply
 	require.NoError(t, json.Unmarshal(msg.Payload, &reply))
@@ -218,7 +218,7 @@ func TestController_Start(t *testing.T) {
 			},
 		}
 		c := newController(t, store, b, discardLog(), testSettings())
-		assert.ErrorContains(t, c.Start(t.Context()), "boom")
+		require.ErrorContains(t, c.Start(t.Context()), "boom")
 		assert.False(t, c.Status().Listening)
 		assert.Contains(t, strings.Join(c.Warnings(), "\n"), "boom")
 	})
@@ -235,7 +235,7 @@ func TestController_Start(t *testing.T) {
 			CloseFunc: func() error { return nil },
 		}
 		c := newController(t, store, b, discardLog(), testSettings())
-		assert.ErrorContains(t, c.Start(t.Context()), "no subscriptions")
+		require.ErrorContains(t, c.Start(t.Context()), "no subscriptions")
 		assert.Len(t, b.CloseCalls(), 1)
 		assert.False(t, c.Status().Listening)
 	})
@@ -254,12 +254,12 @@ func TestController_Reload(t *testing.T) {
 		b := envtest.NewBroker()
 		rec, cert := enrollAgent(t, store, "linux-server")
 		c := startController(t, store, b)
-		agent := connectAgent(t, store, b, rec.ID, cert)
+		agent := connectAgent(t, store, b, rec.ID, &cert)
 		_, _, err := store.Remove(t.Context(), "linux-server")
 		require.NoError(t, err)
 		require.NoError(t, c.Reload(t.Context()))
 		assert.True(t, isClosed(agent.Done()))
-		_, err = dialAgent(t, store, b, rec.ID, cert)
+		_, err = dialAgent(t, store, b, rec.ID, &cert)
 		assert.ErrorIs(t, err, envtest.ErrRefused)
 	})
 	t.Run("keeps a connected agent after rotation and sends it both roots", func(t *testing.T) {
@@ -267,14 +267,14 @@ func TestController_Reload(t *testing.T) {
 		b := envtest.NewBroker()
 		rec, cert := enrollAgent(t, store, "linux-server")
 		c := startController(t, store, b)
-		agent := connectAgent(t, store, b, rec.ID, cert)
+		agent := connectAgent(t, store, b, rec.ID, &cert)
 		var caUpdates []envproto.Message
 		require.NoError(t, agent.Subscribe(t.Context(), envproto.Topic(rec.ID, envproto.LeafReq), func(msg envproto.Message) {
 			caUpdates = append(caUpdates, msg)
 		}))
 		require.NoError(t, agent.Publish(t.Context(), envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
-			Payload: helloPayload(t, store, envproto.StatusOnline),
+			Payload: helloPayload(t, store),
 		}))
 		require.Empty(t, caUpdates)
 		_, err := store.RotateCA(t.Context())
@@ -282,7 +282,7 @@ func TestController_Reload(t *testing.T) {
 		require.NoError(t, c.Reload(t.Context()))
 		assert.False(t, isClosed(agent.Done()))
 		require.Len(t, caUpdates, 1)
-		req := requestOf(t, caUpdates[0])
+		req := requestOf(t, &caUpdates[0])
 		assert.Equal(t, envproto.OpCAUpdate, req.Op)
 		var args envproto.CAUpdateArgs
 		require.NoError(t, json.Unmarshal(req.Args, &args))
@@ -294,14 +294,14 @@ func TestController_Reload(t *testing.T) {
 		b := envtest.NewBroker()
 		rec, cert := enrollAgent(t, store, "linux-server")
 		c := startController(t, store, b)
-		agent := connectAgent(t, store, b, rec.ID, cert)
+		agent := connectAgent(t, store, b, rec.ID, &cert)
 		_, err := store.RotateCA(t.Context())
 		require.NoError(t, err)
 		_, err = store.FinishCA(t.Context(), true)
 		require.NoError(t, err)
 		require.NoError(t, c.Reload(t.Context()))
 		assert.True(t, isClosed(agent.Done()))
-		_, err = dialAgent(t, store, b, rec.ID, cert)
+		_, err = dialAgent(t, store, b, rec.ID, &cert)
 		assert.ErrorIs(t, err, envtest.ErrRefused)
 	})
 }
@@ -313,10 +313,10 @@ func TestController_Status(t *testing.T) {
 		rec, cert := enrollAgent(t, store, "linux-server")
 		addEnvironment(t, store, "mac-laptop")
 		c := startController(t, store, b)
-		agent := connectAgent(t, store, b, rec.ID, cert)
+		agent := connectAgent(t, store, b, rec.ID, &cert)
 		require.NoError(t, agent.Publish(t.Context(), envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
-			Payload: helloPayload(t, store, envproto.StatusOnline),
+			Payload: helloPayload(t, store),
 		}))
 		envs := c.Status().Environments
 		require.Len(t, envs, 2)
@@ -334,10 +334,10 @@ func TestController_Status(t *testing.T) {
 		b := envtest.NewBroker()
 		rec, cert := enrollAgent(t, store, "linux-server")
 		c := startController(t, store, b)
-		agent := connectAgent(t, store, b, rec.ID, cert)
+		agent := connectAgent(t, store, b, rec.ID, &cert)
 		require.NoError(t, agent.Publish(t.Context(), envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
-			Payload: helloPayload(t, store, envproto.StatusOnline),
+			Payload: helloPayload(t, store),
 		}))
 		b.Disconnect(rec.CertSerial)
 		envs := c.Status().Environments
@@ -384,7 +384,7 @@ func TestController_Close(t *testing.T) {
 		b := envtest.NewBroker()
 		rec, cert := enrollAgent(t, store, "linux-server")
 		c := startController(t, store, b)
-		agent := connectAgent(t, store, b, rec.ID, cert)
+		agent := connectAgent(t, store, b, rec.ID, &cert)
 		require.NoError(t, c.Close())
 		status := c.Status()
 		assert.False(t, status.Listening)
@@ -403,37 +403,36 @@ func TestController_enroll(t *testing.T) {
 	logs := &syncBuffer{}
 	c := newController(t, store, envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, nil)), testSettings())
 	require.NoError(t, c.Start(t.Context()))
+
 	tr, err := store.trust()
 	require.NoError(t, err)
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: clientTLS(tr.pool(), nil)}}
 	t.Cleanup(client.CloseIdleConnections)
 	base := "https://" + c.Status().EnrollListen
 	csr := string(newTestCSR(t, newTestKey(t)))
+	enrollBody := func(secret string) []byte {
+		body, err := json.Marshal(envproto.EnrollRequest{Secret: secret, CSR: csr})
+		require.NoError(t, err)
+		return body
+	}
+
 	t.Run("refuses a wrong secret with 403", func(t *testing.T) {
-		body, err := json.Marshal(envproto.EnrollRequest{Secret: "wrong", CSR: csr})
-		require.NoError(t, err)
-		resp, err := client.Post(base+envproto.EnrollPath, "application/json", bytes.NewReader(body))
-		require.NoError(t, err)
+		resp := doRequest(t, client, http.MethodPost, base+envproto.EnrollPath, enrollBody("wrong"))
 		defer func() { assert.NoError(t, resp.Body.Close()) }()
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	})
 	t.Run("refuses GET with 405", func(t *testing.T) {
-		resp, err := client.Get(base + envproto.EnrollPath)
-		require.NoError(t, err)
+		resp := doRequest(t, client, http.MethodGet, base+envproto.EnrollPath, nil)
 		defer func() { assert.NoError(t, resp.Body.Close()) }()
 		assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
 	})
 	t.Run("answers other paths with 404", func(t *testing.T) {
-		resp, err := client.Post(base+"/v1/other", "application/json", strings.NewReader("{}"))
-		require.NoError(t, err)
+		resp := doRequest(t, client, http.MethodPost, base+"/v1/other", []byte("{}"))
 		defer func() { assert.NoError(t, resp.Body.Close()) }()
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 	t.Run("enrolls with the right secret and refuses it again with 409", func(t *testing.T) {
-		body, err := json.Marshal(envproto.EnrollRequest{Secret: parsed.Secret, CSR: csr})
-		require.NoError(t, err)
-		resp, err := client.Post(base+envproto.EnrollPath, "application/json", bytes.NewReader(body))
-		require.NoError(t, err)
+		resp := doRequest(t, client, http.MethodPost, base+envproto.EnrollPath, enrollBody(parsed.Secret))
 		defer func() { assert.NoError(t, resp.Body.Close()) }()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		var got envproto.EnrollResponse
@@ -442,8 +441,8 @@ func TestController_enroll(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, rec.ID, got.ID)
 		assert.Equal(t, "127.0.0.1", got.ServerName)
-		again, err := client.Post(base+envproto.EnrollPath, "application/json", bytes.NewReader(body))
-		require.NoError(t, err)
+
+		again := doRequest(t, client, http.MethodPost, base+envproto.EnrollPath, enrollBody(parsed.Secret))
 		defer func() { assert.NoError(t, again.Body.Close()) }()
 		assert.Equal(t, http.StatusConflict, again.StatusCode)
 	})
@@ -453,14 +452,25 @@ func TestController_enroll(t *testing.T) {
 	})
 }
 
+// doRequest sends body to url with method on client and fails the test on a transport error.
+func doRequest(t *testing.T, client *http.Client, method, url string, body []byte) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), method, url, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
 func TestController_onStatus(t *testing.T) {
 	t.Run("ignores an environment it doesn't know", func(t *testing.T) {
 		store := newTestStore(t)
 		enrollAgent(t, store, "linux-server")
 		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
-		c.onStatus(t.Context(), envproto.Message{
+		c.onStatus(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic("env-ffffffff", envproto.LeafStatus),
-			Payload: helloPayload(t, store, envproto.StatusOnline),
+			Payload: helloPayload(t, store),
 		})
 		assert.Empty(t, c.presence)
 	})
@@ -468,7 +478,7 @@ func TestController_onStatus(t *testing.T) {
 		store := newTestStore(t)
 		rec, _ := enrollAgent(t, store, "linux-server")
 		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
-		c.onStatus(t.Context(), envproto.Message{
+		c.onStatus(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
 			Payload: []byte(`[`),
 		})
@@ -480,16 +490,16 @@ func TestController_onStatus(t *testing.T) {
 		rec, _ := enrollAgent(t, store, "linux-server")
 		c := startController(t, store, b)
 		updates := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
-		c.onStatus(t.Context(), envproto.Message{
+		c.onStatus(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
 			Payload: []byte(`{"status":"online","ca_fingerprints":[]}`),
 		})
 		require.Len(t, *updates, 1)
 		update := (*updates)[0]
-		assert.Equal(t, envproto.OpCAUpdate, requestOf(t, update).Op)
+		assert.Equal(t, envproto.OpCAUpdate, requestOf(t, &update).Op)
 		assert.Regexp(t, `^ws/v1/env/env-[0-9a-f]{8}/res/[0-9a-f]{16}$`, update.ResponseTopic)
 		assert.Equal(t, update.ResponseTopic[len(update.ResponseTopic)-16:], string(update.CorrelationData))
-		assert.Equal(t, 30.0, update.Expiry.Seconds())
+		assert.Equal(t, caUpdateExpiry, update.Expiry)
 	})
 	t.Run("doesn't ask an environment that trusts every root", func(t *testing.T) {
 		store := newTestStore(t)
@@ -497,9 +507,9 @@ func TestController_onStatus(t *testing.T) {
 		rec, _ := enrollAgent(t, store, "linux-server")
 		c := startController(t, store, b)
 		updates := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
-		c.onStatus(t.Context(), envproto.Message{
+		c.onStatus(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
-			Payload: helloPayload(t, store, envproto.StatusOnline),
+			Payload: helloPayload(t, store),
 		})
 		assert.Empty(t, *updates)
 	})
@@ -510,7 +520,7 @@ func TestController_onSnapshot(t *testing.T) {
 		store := newTestStore(t)
 		rec, _ := enrollAgent(t, store, "linux-server")
 		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
-		c.onSnapshot(t.Context(), envproto.Message{
+		c.onSnapshot(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafSnapshot),
 			Payload: []byte(`{"at":"2026-11-22T10:00:00Z","workspaces":[{"name":"api"}]}`),
 		})
@@ -534,7 +544,7 @@ func TestController_onSnapshot(t *testing.T) {
 		store := newTestStore(t)
 		enrollAgent(t, store, "linux-server")
 		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
-		c.onSnapshot(t.Context(), envproto.Message{
+		c.onSnapshot(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic("env-ffffffff", envproto.LeafSnapshot),
 			Payload: []byte(`{"workspaces":[]}`),
 		})
@@ -545,7 +555,7 @@ func TestController_onSnapshot(t *testing.T) {
 		store := newTestStore(t)
 		rec, _ := enrollAgent(t, store, "linux-server")
 		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
-		c.onSnapshot(t.Context(), envproto.Message{
+		c.onSnapshot(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafSnapshot),
 			Payload: []byte(`[`),
 		})
@@ -556,12 +566,12 @@ func TestController_onSnapshot(t *testing.T) {
 
 func TestController_onUp(t *testing.T) {
 	// renewMessage is a cert.renew from rec's agent, answered on env/<id>/req.
-	renewMessage := func(t *testing.T, id, op string) envproto.Message {
+	renewMessage := func(t *testing.T, id, op string) *envproto.Message {
 		t.Helper()
 		csr := string(newTestCSR(t, newTestKey(t)))
 		payload, err := marshalRequest(op, envproto.RenewArgs{CSR: csr})
 		require.NoError(t, err)
-		return envproto.Message{
+		return &envproto.Message{
 			Topic:           envproto.Topic(id, envproto.LeafUp),
 			Payload:         payload,
 			ResponseTopic:   envproto.Topic(id, envproto.LeafReq),
@@ -578,7 +588,7 @@ func TestController_onUp(t *testing.T) {
 		require.Len(t, *replies, 1)
 		reply := (*replies)[0]
 		assert.Equal(t, []byte("abc"), reply.CorrelationData)
-		got := replyOf(t, reply)
+		got := replyOf(t, &reply)
 		require.True(t, got.OK)
 		var result envproto.RenewResult
 		require.NoError(t, json.Unmarshal(got.Result, &result))
@@ -608,7 +618,7 @@ func TestController_onUp(t *testing.T) {
 		c := startController(t, store, b)
 		replies := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
 		c.onUp(t.Context(), renewMessage(t, rec.ID, "cert.delete"))
-		assert.Equal(t, "usage", replyOf(t, (*replies)[0]).Error.Code)
+		assert.Equal(t, "usage", replyOf(t, &(*replies)[0]).Error.Code)
 	})
 	t.Run("answers usage for a malformed request", func(t *testing.T) {
 		store := newTestStore(t)
@@ -619,7 +629,7 @@ func TestController_onUp(t *testing.T) {
 		msg := renewMessage(t, rec.ID, envproto.OpCertRenew)
 		msg.Payload = []byte(`{`)
 		c.onUp(t.Context(), msg)
-		assert.Equal(t, "usage", replyOf(t, (*replies)[0]).Error.Code)
+		assert.Equal(t, "usage", replyOf(t, &(*replies)[0]).Error.Code)
 	})
 	t.Run("answers usage for a request over the size limit", func(t *testing.T) {
 		store := newTestStore(t)
@@ -630,7 +640,7 @@ func TestController_onUp(t *testing.T) {
 		msg := renewMessage(t, rec.ID, envproto.OpCertRenew)
 		msg.Payload = []byte(strings.Repeat(" ", envproto.MaxRequestBytes+1))
 		c.onUp(t.Context(), msg)
-		assert.Equal(t, "usage", replyOf(t, (*replies)[0]).Error.Code)
+		assert.Equal(t, "usage", replyOf(t, &(*replies)[0]).Error.Code)
 	})
 	t.Run("answers usage for malformed cert.renew arguments", func(t *testing.T) {
 		store := newTestStore(t)
@@ -641,7 +651,7 @@ func TestController_onUp(t *testing.T) {
 		msg := renewMessage(t, rec.ID, envproto.OpCertRenew)
 		msg.Payload = []byte(`{"op":"cert.renew","args":"x"}`)
 		c.onUp(t.Context(), msg)
-		assert.Equal(t, "usage", replyOf(t, (*replies)[0]).Error.Code)
+		assert.Equal(t, "usage", replyOf(t, &(*replies)[0]).Error.Code)
 	})
 	t.Run("answers enrollment_failed for an environment it doesn't know", func(t *testing.T) {
 		store := newTestStore(t)
@@ -651,7 +661,7 @@ func TestController_onUp(t *testing.T) {
 		const unknown = "env-ffffffff"
 		replies := captureMessages(t, b, envproto.Topic(unknown, envproto.LeafReq))
 		c.onUp(t.Context(), renewMessage(t, unknown, envproto.OpCertRenew))
-		assert.Equal(t, "enrollment_failed", replyOf(t, (*replies)[0]).Error.Code)
+		assert.Equal(t, "enrollment_failed", replyOf(t, &(*replies)[0]).Error.Code)
 	})
 }
 
@@ -659,7 +669,7 @@ func TestController_onRes(t *testing.T) {
 	t.Run("logs an acknowledged ca.update", func(t *testing.T) {
 		logs := &syncBuffer{}
 		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, nil)), testSettings())
-		c.onRes(t.Context(), envproto.Message{
+		c.onRes(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
 			Payload: []byte(`{"ok":true,"result":{"fingerprints":[]},"error":null}`),
 		})
@@ -668,7 +678,7 @@ func TestController_onRes(t *testing.T) {
 	t.Run("logs a refused ca.update with its code", func(t *testing.T) {
 		logs := &syncBuffer{}
 		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, nil)), testSettings())
-		c.onRes(t.Context(), envproto.Message{
+		c.onRes(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
 			Payload: []byte(`{"ok":false,"result":null,"error":{"code":"usage","message":"bad","details":null}}`),
 		})
@@ -678,7 +688,7 @@ func TestController_onRes(t *testing.T) {
 	t.Run("logs a reply it can't read", func(t *testing.T) {
 		logs := &syncBuffer{}
 		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, nil)), testSettings())
-		c.onRes(t.Context(), envproto.Message{
+		c.onRes(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
 			Payload: []byte(`[`),
 		})
