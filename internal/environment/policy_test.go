@@ -70,12 +70,12 @@ func TestPolicy_connect(t *testing.T) {
 		store := newTestStore(t)
 		rec := enrolledEnvironment(t, store)
 		p := testPolicy(t, store)
-		assert.NoError(t, p.connect(peerOf(rec)))
+		assert.NoError(t, p.connect(peerOf(&rec)))
 	})
 	t.Run("refuses a client id that isn't the common name", func(t *testing.T) {
 		store := newTestStore(t)
 		rec := enrolledEnvironment(t, store)
-		peer := peerOf(rec)
+		peer := peerOf(&rec)
 		peer.ClientID = "env-ffffffff"
 		assert.ErrorIs(t, testPolicy(t, store).connect(peer), errClientIDMismatch)
 	})
@@ -102,7 +102,7 @@ func TestPolicy_connect(t *testing.T) {
 		rec := enrolledEnvironment(t, store)
 		_, _, err := store.Remove(t.Context(), "linux-server")
 		require.NoError(t, err)
-		assert.ErrorIs(t, testPolicy(t, store).connect(peerOf(rec)), ErrUnknown)
+		assert.ErrorIs(t, testPolicy(t, store).connect(peerOf(&rec)), ErrUnknown)
 	})
 	t.Run("refuses a revoked serial", func(t *testing.T) {
 		store := newTestStore(t)
@@ -115,13 +115,13 @@ func TestPolicy_connect(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEqual(t, old.CertSerial, current.CertSerial)
 		p := testPolicy(t, store)
-		assert.ErrorIs(t, p.connect(peerOf(old)), errRevoked)
-		assert.NoError(t, p.connect(peerOf(current)))
+		require.ErrorIs(t, p.connect(peerOf(&old)), errRevoked)
+		assert.NoError(t, p.connect(peerOf(&current)))
 	})
 	t.Run("refuses a certificate from an untrusted CA", func(t *testing.T) {
 		store := newTestStore(t)
 		rec := enrolledEnvironment(t, store)
-		peer := peerOf(rec)
+		peer := peerOf(&rec)
 		peer.Issuer = "not-a-trusted-root"
 		assert.ErrorIs(t, testPolicy(t, store).connect(peer), errUntrustedCA)
 	})
@@ -134,12 +134,12 @@ func TestPolicy_rules(t *testing.T) {
 		other, _ := enrollAgent(t, store, "mac-laptop")
 		b := envtest.NewBroker()
 		startController(t, store, b)
-		agent := connectAgent(t, store, b, own.ID, cert)
+		agent := connectAgent(t, store, b, own.ID, &cert)
 		err := agent.Publish(t.Context(), envproto.Message{
 			Topic:   envproto.Topic(other.ID, envproto.LeafStatus),
 			Payload: []byte(`{"status":"online"}`),
 		})
-		assert.ErrorIs(t, err, envtest.ErrDisconnected)
+		require.ErrorIs(t, err, envtest.ErrDisconnected)
 		assert.True(t, isClosed(agent.Done()))
 	})
 	t.Run("a connected agent that publishes a wildcard topic is disconnected", func(t *testing.T) {
@@ -147,12 +147,12 @@ func TestPolicy_rules(t *testing.T) {
 		own, cert := enrollAgent(t, store, "linux-server")
 		b := envtest.NewBroker()
 		startController(t, store, b)
-		agent := connectAgent(t, store, b, own.ID, cert)
+		agent := connectAgent(t, store, b, own.ID, &cert)
 		err := agent.Publish(t.Context(), envproto.Message{
 			Topic:   envproto.Topic(own.ID, envproto.LeafRes, "+"),
 			Payload: []byte(`{}`),
 		})
-		assert.ErrorIs(t, err, envtest.ErrDisconnected)
+		require.ErrorIs(t, err, envtest.ErrDisconnected)
 		assert.True(t, isClosed(agent.Done()))
 	})
 }
@@ -166,7 +166,7 @@ func testPolicy(t *testing.T, store *Store) *policy {
 }
 
 // peerOf is the peer an agent with rec's certificate connects as.
-func peerOf(rec Record) envproto.Peer {
+func peerOf(rec *Record) envproto.Peer {
 	return envproto.Peer{ClientID: rec.ID, CN: rec.ID, Serial: rec.CertSerial, Issuer: rec.CertCA}
 }
 
