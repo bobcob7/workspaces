@@ -202,16 +202,24 @@ func pinnedRoot(roots []*x509.Certificate, fingerprint string) (*x509.Certificat
 
 // checkCertificate requires cert to be for id and key, and to chain to root as a client certificate.
 func checkCertificate(cert *x509.Certificate, id string, key *ecdsa.PrivateKey, root *x509.Certificate) error {
-	if cert.Subject.CommonName != id {
-		return fmt.Errorf("the certificate is for %q, not %s", cert.Subject.CommonName, id)
-	}
-	if !key.PublicKey.Equal(cert.PublicKey) {
-		return errors.New("the certificate isn't for the agent's key")
+	if err := checkIdentity(cert, id, key); err != nil {
+		return err
 	}
 	pool := x509.NewCertPool()
 	pool.AddCert(root)
 	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return fmt.Errorf("the certificate doesn't chain to the pinned root: %w", err)
+	}
+	return nil
+}
+
+// checkIdentity requires cert to be for id and key.
+func checkIdentity(cert *x509.Certificate, id string, key *ecdsa.PrivateKey) error {
+	if cert.Subject.CommonName != id {
+		return fmt.Errorf("the certificate is for %q, not %s", cert.Subject.CommonName, id)
+	}
+	if !key.PublicKey.Equal(cert.PublicKey) {
+		return errors.New("the certificate isn't for the agent's key")
 	}
 	return nil
 }
