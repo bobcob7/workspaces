@@ -2,6 +2,7 @@ package envproto
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -36,10 +37,8 @@ func ParseTopic(topic string) (id string, rest []string, ok bool) {
 	if len(parts) < 2 || !ValidID(parts[0]) {
 		return "", nil, false
 	}
-	for _, level := range parts[1:] {
-		if level == "" {
-			return "", nil, false
-		}
+	if slices.Contains(parts[1:], "") {
+		return "", nil, false
 	}
 	return parts[0], parts[1:], true
 }

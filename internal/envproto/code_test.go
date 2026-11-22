@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
@@ -71,7 +70,7 @@ func TestParseCode(t *testing.T) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				_, err := ParseCode(input)
-				assert.True(t, errors.Is(err, ErrCodeInvalid), "%v", err)
+				assert.ErrorIs(t, err, ErrCodeInvalid)
 			})
 		}
 	})
@@ -99,7 +98,7 @@ func TestHashSecret(t *testing.T) {
 		assert.Equal(t, strings.ToLower(got), got)
 	})
 	t.Run("is stable for the same secret and differs otherwise", func(t *testing.T) {
-		assert.Equal(t, HashSecret("a"), HashSecret("a"))
+		assert.Equal(t, "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb", HashSecret("a"))
 		assert.NotEqual(t, HashSecret("a"), HashSecret("b"))
 	})
 }

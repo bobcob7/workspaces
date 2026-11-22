@@ -20,6 +20,7 @@ import (
 
 const (
 	testServerName = "envtest.example"
+	testEnvID      = "env-1a2b3c4d"
 	testStatus     = "ws/v1/env/env-1a2b3c4d/status"
 )
 
@@ -110,12 +111,12 @@ func newFixture(t *testing.T, rules envproto.Rules) fixture {
 	return fixture{broker: broker, ca: ca}
 }
 
-// connect connects c as the environment cn with a certificate from f.ca.
-func (f fixture) connect(t *testing.T, c *Client, cn, clientID string, will *envproto.Message) error {
+// connect connects c as the test environment with a certificate from f.ca.
+func (f fixture) connect(t *testing.T, c *Client, clientID string, will *envproto.Message) error {
 	t.Helper()
 	return c.Connect(t.Context(), envproto.ConnectOptions{
 		ClientID: clientID,
-		TLS:      f.ca.clientConfig(t, cn),
+		TLS:      f.ca.clientConfig(t, testEnvID),
 		Will:     will,
 	})
 }
@@ -146,11 +147,11 @@ func TestBroker_Start(t *testing.T) {
 		_, err := b.Start(t.Context(), "a", ca.serverConfig(t), envproto.Rules{})
 		require.NoError(t, err)
 		_, err = b.Start(t.Context(), "b", ca.serverConfig(t), envproto.Rules{})
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 	t.Run("needs a TLS config", func(t *testing.T) {
 		_, err := NewBroker().Start(t.Context(), "a", nil, envproto.Rules{})
-		assert.ErrorIs(t, err, errNoTLSConfig)
+		require.ErrorIs(t, err, errNoTLSConfig)
 	})
 }
 
@@ -159,7 +160,7 @@ func TestBroker_Publish(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		require.NoError(t, f.broker.Publish(t.Context(), envproto.Message{Topic: testStatus, Payload: []byte("online"), Retain: true}))
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
 		var got []envproto.Message
 		require.NoError(t, c.Subscribe(t.Context(), "ws/v1/env/+/status", func(m envproto.Message) { got = append(got, m) }))
 		require.Len(t, got, 1)
@@ -197,7 +198,7 @@ func TestBroker_Subscribe(t *testing.T) {
 func TestBroker_Clients(t *testing.T) {
 	t.Run("lists connected peers with their client id", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
-		require.NoError(t, f.connect(t, f.broker.NewClient(), "env-1a2b3c4d", "agent-1", nil))
+		require.NoError(t, f.connect(t, f.broker.NewClient(), "agent-1", nil))
 		peers := f.broker.Clients()
 		require.Len(t, peers, 1)
 		assert.Equal(t, "env-1a2b3c4d", peers[0].CN)
@@ -209,7 +210,7 @@ func TestBroker_Disconnect(t *testing.T) {
 	t.Run("drops the matching client and publishes its will", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", willMessage()))
+		require.NoError(t, f.connect(t, c, "agent", willMessage()))
 		var wills []envproto.Message
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { wills = append(wills, m) })
 		require.NoError(t, err)
@@ -243,7 +244,7 @@ func TestBroker_Close(t *testing.T) {
 	t.Run("drops clients without publishing wills and refuses new connections", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", willMessage()))
+		require.NoError(t, f.connect(t, c, "agent", willMessage()))
 		var wills []envproto.Message
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { wills = append(wills, m) })
 		require.NoError(t, err)
@@ -251,28 +252,28 @@ func TestBroker_Close(t *testing.T) {
 		require.NoError(t, f.broker.Close())
 		assert.True(t, isClosed(c.Done()))
 		assert.Empty(t, wills)
-		err = f.connect(t, f.broker.NewClient(), "env-1a2b3c4d", "again", nil)
-		assert.ErrorIs(t, err, ErrNotServing)
+		err = f.connect(t, f.broker.NewClient(), "again", nil)
+		require.ErrorIs(t, err, ErrNotServing)
 	})
 }
 
 func TestClient_Connect(t *testing.T) {
 	t.Run("connects with a certificate the broker trusts", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
-		require.NoError(t, f.connect(t, f.broker.NewClient(), "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, f.broker.NewClient(), "agent", nil))
 		assert.Len(t, f.broker.Clients(), 1)
 	})
 	t.Run("refuses before the broker starts", func(t *testing.T) {
 		c := NewBroker().NewClient()
 		err := c.Connect(t.Context(), envproto.ConnectOptions{TLS: newPKI(t).clientConfig(t, "env-1a2b3c4d")})
-		assert.ErrorIs(t, err, ErrNotServing)
+		require.ErrorIs(t, err, ErrNotServing)
 	})
 	t.Run("refuses a client without a certificate", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		err := f.broker.NewClient().Connect(t.Context(), envproto.ConnectOptions{
 			TLS: &tls.Config{RootCAs: f.ca.pool(), ServerName: testServerName},
 		})
-		assert.ErrorIs(t, err, ErrRefused)
+		require.ErrorIs(t, err, ErrRefused)
 	})
 	t.Run("refuses a certificate from another CA", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
@@ -280,35 +281,35 @@ func TestClient_Connect(t *testing.T) {
 		err := f.broker.NewClient().Connect(t.Context(), envproto.ConnectOptions{
 			TLS: other.clientConfig(t, "env-1a2b3c4d"),
 		})
-		assert.ErrorIs(t, err, ErrRefused)
+		require.ErrorIs(t, err, ErrRefused)
 	})
 	t.Run("refuses a missing TLS config", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		err := f.broker.NewClient().Connect(t.Context(), envproto.ConnectOptions{})
-		assert.ErrorIs(t, err, ErrRefused)
+		require.ErrorIs(t, err, ErrRefused)
 	})
 	t.Run("refuses when rules.Connect errors", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{
 			Connect: func(envproto.Peer) error { return assert.AnError },
 		})
-		err := f.connect(t, f.broker.NewClient(), "env-1a2b3c4d", "agent", nil)
-		assert.ErrorIs(t, err, ErrRefused)
+		err := f.connect(t, f.broker.NewClient(), "agent", nil)
+		require.ErrorIs(t, err, ErrRefused)
 		assert.Empty(t, f.broker.Clients())
 	})
 	t.Run("refuses a client that is already connected", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
-		assert.Error(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
+		assert.Error(t, f.connect(t, c, "agent", nil))
 	})
 	t.Run("reconnects after a drop with a new Done channel", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
 		old := c.Done()
 		require.NoError(t, c.Close())
 		require.True(t, isClosed(old))
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
 		assert.False(t, isClosed(c.Done()))
 	})
 }
@@ -317,7 +318,7 @@ func TestClient_Publish(t *testing.T) {
 	t.Run("delivers to subscribers", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
 		var got []envproto.Message
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { got = append(got, m) })
 		require.NoError(t, err)
@@ -331,13 +332,13 @@ func TestClient_Publish(t *testing.T) {
 			},
 		})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", willMessage()))
+		require.NoError(t, f.connect(t, c, "agent", willMessage()))
 		var wills []envproto.Message
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { wills = append(wills, m) })
 		require.NoError(t, err)
 
 		err = c.Publish(t.Context(), envproto.Message{Topic: "forbidden"})
-		assert.ErrorIs(t, err, ErrDisconnected)
+		require.ErrorIs(t, err, ErrDisconnected)
 		assert.True(t, isClosed(c.Done()))
 		assert.Len(t, wills, 1)
 	})
@@ -348,7 +349,7 @@ func TestClient_Publish(t *testing.T) {
 	t.Run("a handler may publish from inside a delivery", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
 		var echoed int
 		_, err := f.broker.Subscribe(t.Context(), "echo/ping", func(envproto.Message) {
 			_ = c.Publish(t.Context(), envproto.Message{Topic: "echo/reply"})
@@ -369,15 +370,15 @@ func TestClient_Subscribe(t *testing.T) {
 			},
 		})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
 		err := c.Subscribe(t.Context(), "ws/v1/env/+/req", func(envproto.Message) {})
-		assert.ErrorIs(t, err, ErrDisconnected)
+		require.ErrorIs(t, err, ErrDisconnected)
 		assert.True(t, isClosed(c.Done()))
 	})
 	t.Run("a dropped client's subscriptions stop receiving", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
 		var got int
 		require.NoError(t, c.Subscribe(t.Context(), testStatus, func(envproto.Message) { got++ }))
 		require.NoError(t, c.Close())
@@ -394,7 +395,7 @@ func TestClient_Done(t *testing.T) {
 	t.Run("closes when the broker drops the client", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", nil))
+		require.NoError(t, f.connect(t, c, "agent", nil))
 		done := c.Done()
 		f.broker.Disconnect(f.broker.Clients()[0].Serial)
 		assert.True(t, isClosed(done))
@@ -405,7 +406,7 @@ func TestClient_Close(t *testing.T) {
 	t.Run("disconnects without publishing the will", func(t *testing.T) {
 		f := newFixture(t, envproto.Rules{})
 		c := f.broker.NewClient()
-		require.NoError(t, f.connect(t, c, "env-1a2b3c4d", "agent", willMessage()))
+		require.NoError(t, f.connect(t, c, "agent", willMessage()))
 		var wills []envproto.Message
 		_, err := f.broker.Subscribe(t.Context(), testStatus, func(m envproto.Message) { wills = append(wills, m) })
 		require.NoError(t, err)

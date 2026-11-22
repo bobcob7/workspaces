@@ -10,7 +10,7 @@ import (
 
 func TestOfflinePayload(t *testing.T) {
 	t.Run("is exactly the offline status", func(t *testing.T) {
-		assert.Equal(t, `{"status":"offline"}`, string(OfflinePayload()))
+		assert.Equal(t, []byte(`{"status":"offline"}`), OfflinePayload())
 	})
 }
 

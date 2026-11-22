@@ -92,11 +92,11 @@ func (b *Broker) Start(ctx context.Context, addr string, tlsConfig *tls.Config, 
 }
 
 // Publish publishes as the controller: no ACL check.
-func (b *Broker) Publish(ctx context.Context, msg envproto.Message) error {
+func (b *Broker) Publish(ctx context.Context, msg envproto.Message) error { //nolint:gocritic // hugeParam: the envproto.Message value is the fixed API.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	b.route(msg)
+	b.route(&msg)
 	return nil
 }
 
@@ -184,7 +184,7 @@ type Client struct {
 	conns     []net.Conn
 }
 
-// Connect: ErrNotServing before Start. Runs tls.Server (b's config) and
+// Connect connects c. ErrNotServing before Start. Runs tls.Server (b's config) and
 // tls.Client (opts.TLS) handshakes over net.Pipe concurrently; any failure
 // is ErrRefused wrapping it. Then PeerFromState(server side), ClientID =
 // opts.ClientID, rules.Connect(peer) (error → ErrRefused). Keeps opts.Will.
@@ -214,20 +214,20 @@ func (c *Client) Connect(ctx context.Context, opts envproto.ConnectOptions) erro
 	return c.broker.register(c, peer, opts.Will, []net.Conn{srv, cli})
 }
 
-// Publish: rules.Allow(peer, AccessPublish, topic) false → the client is
+// Publish publishes msg from c. rules.Allow(peer, AccessPublish, topic) false → the client is
 // disconnected (will published) and ErrDisconnected is returned.
-func (c *Client) Publish(ctx context.Context, msg envproto.Message) error {
+func (c *Client) Publish(ctx context.Context, msg envproto.Message) error { //nolint:gocritic // hugeParam: the envproto.Message value is the fixed API.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := c.admit(envproto.AccessPublish, msg.Topic); err != nil {
 		return err
 	}
-	c.broker.route(msg)
+	c.broker.route(&msg)
 	return nil
 }
 
-// Subscribe: rules.Allow(peer, AccessSubscribe, filter) false → as Publish.
+// Subscribe subscribes c to filter. rules.Allow(peer, AccessSubscribe, filter) false → as Publish.
 // Retained messages matching filter are delivered to fn before it returns.
 func (c *Client) Subscribe(ctx context.Context, filter string, fn func(envproto.Message)) error {
 	if err := ctx.Err(); err != nil {
@@ -329,7 +329,7 @@ func (b *Broker) drop(c *Client, withWill bool) bool {
 	b.mu.Unlock()
 	closeAll(conns...)
 	if hasWill {
-		b.route(will)
+		b.route(&will)
 	}
 	return true
 }
@@ -370,23 +370,23 @@ func (b *Broker) retainedMatching(filter string) []envproto.Message {
 
 // route stores or clears a retained message and delivers msg to every
 // matching subscriber in subscription order.
-func (b *Broker) route(msg envproto.Message) {
+func (b *Broker) route(msg *envproto.Message) {
 	for _, fn := range b.matching(msg) {
-		fn(msg)
+		fn(*msg)
 	}
 }
 
 // matching applies msg's retain flag and returns the handlers that
 // subscribe to its topic. The handlers run after the lock is released, so
 // a handler may publish.
-func (b *Broker) matching(msg envproto.Message) []func(envproto.Message) {
+func (b *Broker) matching(msg *envproto.Message) []func(envproto.Message) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if msg.Retain {
 		if len(msg.Payload) == 0 {
 			delete(b.retained, msg.Topic)
 		} else {
-			b.retained[msg.Topic] = msg
+			b.retained[msg.Topic] = *msg
 		}
 	}
 	var handlers []func(envproto.Message)
@@ -470,11 +470,11 @@ func (c *memConn) Close() error {
 }
 
 // Deadlines are not needed: a handshake ends when one side closes.
-func (c *memConn) SetDeadline(time.Time) error      { return nil }
-func (c *memConn) SetReadDeadline(time.Time) error  { return nil }
-func (c *memConn) SetWriteDeadline(time.Time) error { return nil }
-func (c *memConn) LocalAddr() net.Addr              { return memAddr{} }
-func (c *memConn) RemoteAddr() net.Addr             { return memAddr{} }
+func (*memConn) SetDeadline(time.Time) error      { return nil }
+func (*memConn) SetReadDeadline(time.Time) error  { return nil }
+func (*memConn) SetWriteDeadline(time.Time) error { return nil }
+func (*memConn) LocalAddr() net.Addr              { return memAddr{} }
+func (*memConn) RemoteAddr() net.Addr             { return memAddr{} }
 
 type memAddr struct{}
 

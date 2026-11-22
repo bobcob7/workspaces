@@ -86,13 +86,26 @@ func OKReply(result any) ([]byte, error) {
 
 // ErrorReply marshals {ok: false, result: null, error: {code, message, details: null}}.
 func ErrorReply(code, message string) []byte {
-	// The value holds only strings and nil pointers and maps, so Marshal
-	// cannot fail.
-	body, _ := json.Marshal(Reply{
+	// The value holds only strings and nil pointers, so Marshal cannot fail.
+	body, _ := json.Marshal(errorReplyBody{
 		OK:    false,
-		Error: &ReplyError{Code: code, Message: message},
+		Error: errorReplyError{Code: code, Message: message},
 	})
 	return body
+}
+
+// errorReplyBody is ErrorReply's JSON: the same shape as Reply, with a
+// null result and details.
+type errorReplyBody struct {
+	OK     bool            `json:"ok"`
+	Result *string         `json:"result"`
+	Error  errorReplyError `json:"error"`
+}
+
+type errorReplyError struct {
+	Code    string  `json:"code"`
+	Message string  `json:"message"`
+	Details *string `json:"details"`
 }
 
 // RenewArgs are the arguments of cert.renew.
