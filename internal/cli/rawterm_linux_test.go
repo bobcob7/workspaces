@@ -13,8 +13,8 @@ import (
 )
 
 // openPty opens a pty pair without a dependency, and skips the test when the
-// system has none. It returns the slave's fd, and the master's.
-func openPty(t *testing.T) (slave, master *os.File) {
+// system has none. It returns the slave, and closes both ends at the end.
+func openPty(t *testing.T) *os.File {
 	t.Helper()
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
@@ -24,17 +24,17 @@ func openPty(t *testing.T) (slave, master *os.File) {
 	require.NoError(t, unix.IoctlSetPointerInt(int(master.Fd()), unix.TIOCSPTLCK, 0))
 	n, err := unix.IoctlGetInt(int(master.Fd()), unix.TIOCGPTN)
 	require.NoError(t, err)
-	slave, err = os.OpenFile("/dev/pts/"+strconv.Itoa(n), os.O_RDWR|unix.O_NOCTTY, 0)
+	slave, err := os.OpenFile("/dev/pts/"+strconv.Itoa(n), os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Skipf("can't open the pty's slave: %v", err)
 	}
 	t.Cleanup(func() { _ = slave.Close() })
-	return slave, master
+	return slave
 }
 
 func TestMakeRaw(t *testing.T) {
 	t.Run("clears the cooked flags and restores them", func(t *testing.T) {
-		slave, _ := openPty(t)
+		slave := openPty(t)
 		fd := int(slave.Fd())
 		before, err := unix.IoctlGetTermios(fd, unix.TCGETS)
 		require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestMakeRaw(t *testing.T) {
 
 func TestTerminalSize(t *testing.T) {
 	t.Run("is the size the terminal was given", func(t *testing.T) {
-		slave, _ := openPty(t)
+		slave := openPty(t)
 		fd := int(slave.Fd())
 		require.NoError(t, unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Col: 132, Row: 43}))
 		cols, rows, err := terminalSize(fd)
