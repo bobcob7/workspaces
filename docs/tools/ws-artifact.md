@@ -78,7 +78,7 @@ whose kind differs from the artifact's.
 
 ## On disk
 
-Under `CONFIG_DIR` (`artifacts/`, see [config](config.md#layout)); private to
+Under `CONFIG_DIR` (`artifacts/`, see [config](../config.md#layout)); private to
 `ws`. The JSON below is the contract, not the files.
 
 ```
