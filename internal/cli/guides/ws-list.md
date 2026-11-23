@@ -88,6 +88,10 @@ reviews from `ws review start` and agents started with `ws claude
   A hidden loop run with attention is listed without `-a` and is not
   counted in `hidden_count`; the table shows it as `(blocked)` or
   `(needs attention)` in place of `(hidden)`.
+- `progress`: the workspace's own progress (`name`, `total`, `done`, `note`,
+  `updated_at`), or `null` when it reported none. `rollup`: `total`, `done`,
+  and `fraction` for its steps and those of everything it started, or `null`
+  when no step is planned.
 - `session` is `null` while `ws claude` or `ws shell` is still handing the
   workspace to its session.
 - A directory under the workspace root that isn't a workspace is listed

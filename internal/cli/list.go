@@ -68,6 +68,10 @@ type listWorkspaceJSON struct {
 	Review *record.Record `json:"review"`
 	// LoopRun is the loop run this workspace is, or null (ADR 0057).
 	LoopRun *listLoopRunJSON `json:"loop_run"`
+	// Progress is the workspace's own progress record, or null (ADR 0077).
+	Progress *progressJSON `json:"progress"`
+	// Rollup is its steps and its descendants', or null when none is planned.
+	Rollup *rollupJSON `json:"rollup"`
 }
 
 // listLoopRunJSON is the loop a workspace runs, and what that run asks of a
@@ -147,7 +151,11 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	}
 	switch {
 	case a.global.json:
-		return a.writeJSON(listJSON{Workspaces: a.listWorkspaces(entries, unknown, loopRuns), HiddenCount: hidden, Warnings: a.warnings()})
+		workspaces, err := a.listedWorkspaces(entries, unknown, loopRuns)
+		if err != nil {
+			return err
+		}
+		return a.writeJSON(listJSON{Workspaces: workspaces, HiddenCount: hidden, Warnings: a.warnings()})
 	case opts.idsOnly:
 		for i := range entries {
 			fmt.Fprintln(a.stdout, entries[i].Workspace.ID)
@@ -324,6 +332,43 @@ func (a *App) listWorkspaces(entries []lifetime.Entry, unknown []string, loopRun
 		out = append(out, listWorkspaceJSON{Path: dir, Repos: []listRepoJSON{}})
 	}
 	return out
+}
+
+// listedWorkspaces is listWorkspaces with each workspace's progress and
+// rollup, counted over every workspace, hidden ones included (ADR 0077).
+func (a *App) listedWorkspaces(entries []lifetime.Entry, unknown []string, loopRuns map[string]*listLoopRunJSON) ([]listWorkspaceJSON, error) {
+	list, err := a.workspaces.List()
+	if err != nil {
+		return nil, fmt.Errorf("listing workspaces: %w", err)
+	}
+	out := a.listWorkspaces(entries, unknown, loopRuns)
+	store := machine.NewStore(a.paths.State)
+	for i := range out {
+		if out[i].ID != nil {
+			out[i].Progress, out[i].Rollup = a.workspaceProgress(store, list, *out[i].ID)
+		}
+	}
+	return out, nil
+}
+
+// workspaceProgress is id's own progress and its rollup in the tree under its
+// root. The rollup is null when no step is planned. Both are null when the
+// tree can't be read, which is a warning.
+func (a *App) workspaceProgress(store *machine.Store, list []workspace.Workspace, id string) (*progressJSON, *rollupJSON) {
+	tree, err := progressTreeOf(store, machine.Root(list, id), list, id)
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't read %s's progress: %v", id, err))
+		return nil, nil
+	}
+	var own *progressJSON
+	if tree.Progress != nil {
+		own = progressInfo(tree.Progress)
+	}
+	if tree.Rollup.Total == 0 {
+		return own, nil
+	}
+	rollup := rollupInfo(tree.Rollup)
+	return own, &rollup
 }
 
 func listWorkspace(e *lifetime.Entry) listWorkspaceJSON {

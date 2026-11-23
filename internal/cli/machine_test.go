@@ -605,6 +605,24 @@ func TestApp_runMachineChildren(t *testing.T) {
 		assert.Contains(t, e.stdout.String(), `"role":null,"result":null`)
 		assert.Contains(t, e.stdout.String(), "couldn't read a's machine record")
 	})
+	t.Run("each child's progress and rollup, once per child", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		require.NoError(t, machine.NewStore(e.app.paths.State).WriteProgress("boss", "a", &machine.Progress{Name: "impl", Total: 3, Done: 1}))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		assert.Equal(t, 2, strings.Count(e.stdout.String(), `"progress":`))
+		assert.Equal(t, 2, strings.Count(e.stdout.String(), `"rollup":`))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 2)
+		a := got.Workspaces[0]
+		require.NotNil(t, a.Progress)
+		require.NotNil(t, a.Progress.Name)
+		assert.Equal(t, "impl", *a.Progress.Name)
+		require.NotNil(t, a.Rollup)
+		assert.Equal(t, 3, a.Rollup.Total)
+		assert.Equal(t, 1, a.Rollup.Done)
+	})
 	t.Run("none is an empty list", func(t *testing.T) {
 		e := newMachineApp(t)
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return machineTree()[5], nil }

@@ -85,7 +85,9 @@ $ ws list --json
       "hidden": false,
       "parent": null,
       "review": null,
-      "loop_run": null
+      "loop_run": null,
+      "progress": null,
+      "rollup": null
     }
   ],
   "hidden_count": 2,
@@ -119,6 +121,12 @@ waiting for a person, else `null`. It is computed on each call, from the
 session's state and the run's recorded verdict, so it changes as soon as the
 agent records a verdict or carries on. An unreadable machine record counts
 as no verdict.
+
+`progress` is the workspace's own progress record, as [`ws machine progress`](ws-machine.md)
+reports it (`name`, `total`, `done`, `note`, `updated_at`), or `null` when it has
+none. `rollup` is `{"total", "done", "fraction"}` for its steps and those of
+everything it started, hidden ones included, or `null` when no step is planned
+([0077](../adrs/0077-agent-progress-reporting.md)).
 
 `session.state` is `working`, `idle`, `starting`, `stopped`, `unknown`, or
 `running` for a shell. It is `ws`'s reading, not Claude Code's own `state`
