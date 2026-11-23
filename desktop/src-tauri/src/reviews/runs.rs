@@ -80,14 +80,22 @@ pub fn removed_from(e: &Entry) -> Option<Entry> {
     Some(entry(id, record, e.created_at.clone()))
 }
 
-/// Entries and the removed reviews whose id no entry has, for the
+/// Whether a local entry has this workspace id. `review.*` is local only, so
+/// a remote entry with the same id is not the review's workspace.
+pub fn has_local_workspace(entries: &[Entry], workspace_id: &Option<String>) -> bool {
+    entries
+        .iter()
+        .any(|e| e.environment == "local" && &e.workspace_id == workspace_id)
+}
+
+/// Entries and the removed reviews whose id no local entry has, for the
 /// Reviews view.
 pub fn merge(entries: &[Entry], removed: &[Entry]) -> Vec<Entry> {
     let mut out = entries.to_vec();
     out.extend(
         removed
             .iter()
-            .filter(|r| !entries.iter().any(|e| e.workspace_id == r.workspace_id))
+            .filter(|r| !has_local_workspace(entries, &r.workspace_id))
             .cloned(),
     );
     out
@@ -113,6 +121,26 @@ mod tests {
         assert_eq!(e.workspace_id.as_deref(), Some("review-41"));
         assert_eq!(e.created_at.as_deref(), Some("2026-10-28T09:00:00Z"));
         assert_eq!(e.review.as_ref().unwrap().pr.as_ref().unwrap().number, 41);
+    }
+
+    #[test]
+    fn remote_review_workspace_is_not_joined() {
+        let record = ReviewRecord {
+            repo: "github.com/o/r".into(),
+            git_ref: "abc".into(),
+            requester: String::new(),
+            profiles: vec![],
+            pr: None,
+        };
+        let removed = vec![entry("a", record.clone(), None)];
+        let remote = Entry {
+            kind: Kind::Agent,
+            environment: "linux-server".into(),
+            ..entry("a", record, None)
+        };
+        let merged = merge(&[remote], &removed);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[1].kind, Kind::Removed);
     }
 
     #[test]

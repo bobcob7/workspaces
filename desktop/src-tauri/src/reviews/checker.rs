@@ -96,12 +96,16 @@ impl Checker {
     /// the next check reads `ws review list`, so its pull request stays
     /// Reviewed meanwhile (ADR 0045).
     pub fn set_entries(&self, entries: Vec<Entry>) {
+        let entries: Vec<Entry> = entries
+            .into_iter()
+            .filter(|e| e.environment == "local")
+            .collect();
         let Ok(mut current) = self.entries.lock() else {
             return;
         };
         let gone: Vec<Entry> = current
             .iter()
-            .filter(|old| !entries.iter().any(|e| e.workspace_id == old.workspace_id))
+            .filter(|old| !runs::has_local_workspace(&entries, &old.workspace_id))
             .filter_map(runs::removed_from)
             .collect();
         *current = entries;

@@ -46,7 +46,12 @@ impl Watcher {
     pub fn observe(&self, entries: &[Entry], now_ms: i64) -> Observed {
         let candidates = attention::candidates(entries);
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let (snapshot, mut events) = attention::step(&inner.snapshot, &candidates, now_ms);
+        let (mut snapshot, mut events) = attention::step(&inner.snapshot, &candidates, now_ms);
+        for key in attention::held_keys(entries) {
+            if let Some(held) = inner.snapshot.tracked.get(&key) {
+                snapshot.tracked.insert(key, *held);
+            }
+        }
         let (loop_snapshot, loop_events) =
             attention::loop_step(&inner.loop_snapshot, entries, now_ms);
         inner.snapshot = snapshot;
@@ -192,6 +197,63 @@ mod tests {
         assert_eq!(third.candidates.len(), 1);
         assert_eq!(third.candidates[0].key, "a");
         assert!(watcher.observe(&done, 12_000).events.is_empty());
+    }
+
+    fn remote(status: Status, online: bool, stale: bool) -> Entry {
+        Entry {
+            environment: "linux-server".to_string(),
+            environment_online: online,
+            snapshot_stale: stale,
+            ..entry("env:linux-server:a", status)
+        }
+    }
+
+    #[test]
+    fn remote_needs_input_notifies() {
+        let watcher = Watcher::default();
+        let working = [remote(Status::Working, true, false)];
+        let blocked = [remote(Status::NeedsInput, true, false)];
+        assert!(watcher.observe(&working, 0).events.is_empty());
+        assert!(watcher.observe(&blocked, 4_000).events.is_empty());
+        let third = watcher.observe(&blocked, 8_000);
+        assert_eq!(
+            third.events,
+            vec![event("env:linux-server:a", Attention::NeedsInput)]
+        );
+    }
+
+    #[test]
+    fn stale_remote_entry_does_not_notify() {
+        let watcher = Watcher::default();
+        let working = [remote(Status::Working, true, false)];
+        let stale = [remote(Status::NeedsInput, true, true)];
+        assert!(watcher.observe(&working, 0).events.is_empty());
+        for now in [4_000, 8_000, 12_000] {
+            let observed = watcher.observe(&stale, now);
+            assert!(observed.events.is_empty());
+            assert!(observed.candidates.is_empty());
+        }
+        let back = watcher.observe(&working, 16_000);
+        assert!(back.events.is_empty());
+        assert_eq!(back.candidates.len(), 1);
+        assert!(watcher.observe(&working, 20_000).events.is_empty());
+    }
+
+    #[test]
+    fn recovery_in_the_same_state_does_not_fire() {
+        let watcher = Watcher::default();
+        let blocked = remote(Status::NeedsInput, true, false);
+        let offline = remote(Status::NeedsInput, false, false);
+        assert!(watcher
+            .observe(std::slice::from_ref(&blocked), 0)
+            .events
+            .is_empty());
+        assert!(watcher.observe(&[offline], 4_000).events.is_empty());
+        assert!(watcher
+            .observe(std::slice::from_ref(&blocked), 8_000)
+            .events
+            .is_empty());
+        assert!(watcher.observe(&[blocked], 12_000).events.is_empty());
     }
 
     #[test]

@@ -50,8 +50,20 @@
     wsRunner: null,
     progress: null,
     rollup: leafRollup(false),
+    environment: "local",
+    environmentOnline: true,
+    snapshotStale: false,
     ...overrides,
   });
+
+  /** An entry on a remote environment: keyed env:<name>:<id>, as the backend keys it. */
+  const remoteEntry = (environment, overrides) =>
+    entry({
+      key: `env:${environment}:${overrides.workspaceId}`,
+      environment,
+      path: `/home/me/.ws/${overrides.workspaceId}`,
+      ...overrides,
+    });
 
   /** A workspace with no step record counts as one step, done if it passed (ws progress). */
   function leafRollup(done) {
@@ -790,6 +802,27 @@
         intent: "Dependency bumps",
         hidden: true,
         loopRun: { loop: "deps-bump", attention: null },
+      }),
+      remoteEntry("linux-server", {
+        workspaceId: "api-fix-1a2b3c4d",
+        sessionId: "1a2b3c4d",
+        status: "needsInput",
+        intent: "Fix the API timeout",
+      }),
+      remoteEntry("linux-server", {
+        workspaceId: "api-fix-t1-impl-5e6f7a8b",
+        sessionId: "5e6f7a8b",
+        status: "working",
+        parentId: "api-fix-1a2b3c4d",
+        intent: "Implement the timeout",
+      }),
+      remoteEntry("win-rig", {
+        workspaceId: "build-rig-9c0d1e2f",
+        sessionId: "9c0d1e2f",
+        status: "idle",
+        environmentOnline: false,
+        snapshotStale: true,
+        intent: "Build the Windows installer",
       }),
     ],
     settings: defaultSettings(),
