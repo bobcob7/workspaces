@@ -62,12 +62,36 @@ type machineChildrenJSON struct {
 	Warnings    []string           `json:"warnings"`
 }
 
+// resultLong is ws machine result --help: what the guide says an agent most
+// needs, and a pointer to the rest.
+const resultLong = "Record your verdict, and a report, for the agent that started you. It waits on you with `ws machine wait`.\n\n" +
+	"Run this as your last step, once your work is pushed. The verdict is one word such as PASS or FAIL (your role may name others).\n\n" +
+	"Give the report with --file <path>, or --file - to read it from stdin; it is not an argument. It is free-form markdown, one line is fine, " +
+	"and it must be 1 byte to 1 MiB. Without --file no report is recorded and the agent waiting on you sees report: null, so always give one.\n\n" +
+	"A passing verdict also sets your `ws machine progress` done to total, if you declared a total.\n\n" +
+	"Run `ws llm machine result` for the verdicts, exit codes and BLOCKED."
+
+// resultArgs wants exactly one argument, the verdict, and says where the
+// report goes, since agents try it as a second argument.
+func resultArgs(cmd *cobra.Command, args []string) error {
+	switch len(args) {
+	case 1:
+		return nil
+	case 0:
+		return usageErrorf("%s needs a verdict such as PASS or FAIL; pass the report with --file PATH or --file - (stdin)", commandName(cmd))
+	}
+	return usageErrorf("%s takes exactly one verdict, got %d arguments; pass the report with --file PATH or --file - (stdin)", commandName(cmd), len(args))
+}
+
 func (a *App) newMachineResultCmd() *cobra.Command {
 	var file string
 	cmd := &cobra.Command{
 		Use:   "result <VERDICT> [--file <PATH> | --file -]",
 		Short: "Record your verdict and report for the agent that started you",
-		Args:  exactlyOneArg("a verdict"),
+		Long:  resultLong,
+		Example: "  printf 'Counted to 10\\n' | ws machine result PASS --file -\n" +
+			"  ws machine result FAIL --file ../report.md",
+		Args: resultArgs,
 		RunE: runE(a.withConfig(func(_ *cobra.Command, args []string) error {
 			return a.runMachineResult(args[0], file)
 		})),

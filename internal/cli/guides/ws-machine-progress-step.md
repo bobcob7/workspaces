@@ -18,12 +18,13 @@ below you.
 
 ## JSON output
 
-Output is always JSON; `--json` changes nothing. The same object as `ws machine progress show`:
+Output is always JSON; `--json` changes nothing. Only your own record and
+rollup are printed; `ws machine progress show` adds the descendants' `tree`:
 
 ```json
-{"id": "plan-1a2b3c4d", "progress": {"name": "fix login", "total": 3, "done": 1, "note": null, "updated_at": "2026-11-22T20:00:00Z"},
- "tree": {"id": "plan-1a2b3c4d", "progress": {"name": "fix login", "total": 3, "done": 1, "note": null, "updated_at": "2026-11-22T20:00:00Z"},
-          "rollup": {"total": 3, "done": 1, "fraction": 0.3333}, "children": []}, "warnings": []}
+{"id": "plan-1a2b3c4d",
+ "progress": {"name": "fix login", "total": 3, "done": 1, "note": null, "updated_at": "2026-11-22T20:00:00Z"},
+ "rollup": {"total": 3, "done": 1, "fraction": 0.3333}, "warnings": []}
 ```
 
 ## Exit codes

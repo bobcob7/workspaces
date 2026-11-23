@@ -36,12 +36,20 @@ type progressNodeJSON struct {
 	Children []progressNodeJSON `json:"children"`
 }
 
-// machineProgressJSON is the output of ws machine progress.
+// progressUpdateJSON is the output of ws machine progress set and step: the
+// caller's own record and its rollup, small enough to print on every step.
+type progressUpdateJSON struct {
+	ID       string       `json:"id"`
+	Progress progressJSON `json:"progress"`
+	Rollup   rollupJSON   `json:"rollup"`
+	Warnings []string     `json:"warnings"`
+}
+
+// machineProgressJSON is the output of ws machine progress show: the update
+// object plus the tree of the caller's descendants.
 type machineProgressJSON struct {
-	ID       string           `json:"id"`
-	Progress progressJSON     `json:"progress"`
-	Tree     progressNodeJSON `json:"tree"`
-	Warnings []string         `json:"warnings"`
+	progressUpdateJSON
+	Tree progressNodeJSON `json:"tree"`
 }
 
 func (a *App) newMachineProgressCmd() *cobra.Command {
@@ -128,11 +136,11 @@ func (a *App) newMachineProgressShowCmd() *cobra.Command {
 		Short: "Show your progress and your descendants' progress",
 		Args:  noArgs,
 		RunE: runE(a.withConfig(func(_ *cobra.Command, _ []string) error {
-			caller, root, err := a.progressCaller()
+			node, err := a.callerProgress()
 			if err != nil {
 				return err
 			}
-			return a.printProgress(caller, root)
+			return a.writeJSON(machineProgressJSON{progressUpdateJSON: a.progressUpdate(&node), Tree: node})
 		})),
 	}
 }
@@ -174,21 +182,34 @@ func (a *App) updateProgress(change func(*machine.Progress)) error {
 	if err = store.WriteProgress(root, caller, p); err != nil {
 		return fmt.Errorf("recording %s's progress: %w", caller, err)
 	}
-	return a.printProgress(caller, root)
-}
-
-// printProgress prints the caller's own progress and the tree below it.
-func (a *App) printProgress(caller, root string) error {
-	list, err := a.workspaces.List()
-	if err != nil {
-		return fmt.Errorf("listing workspaces: %w", err)
-	}
-	tree, err := progressTreeOf(machine.NewStore(a.paths.State), root, list, caller)
+	node, err := a.callerProgress()
 	if err != nil {
 		return err
 	}
-	node := progressNode(tree)
-	return a.writeJSON(machineProgressJSON{ID: caller, Progress: *node.Progress, Tree: node, Warnings: a.warnings()})
+	return a.writeJSON(a.progressUpdate(&node))
+}
+
+// callerProgress is the caller's own progress node, with the tree of its
+// descendants below it.
+func (a *App) callerProgress() (progressNodeJSON, error) {
+	caller, root, err := a.progressCaller()
+	if err != nil {
+		return progressNodeJSON{}, err
+	}
+	list, err := a.workspaces.List()
+	if err != nil {
+		return progressNodeJSON{}, fmt.Errorf("listing workspaces: %w", err)
+	}
+	tree, err := progressTreeOf(machine.NewStore(a.paths.State), root, list, caller)
+	if err != nil {
+		return progressNodeJSON{}, err
+	}
+	return progressNode(tree), nil
+}
+
+// progressUpdate is the caller's own record and rollup from its node.
+func (a *App) progressUpdate(node *progressNodeJSON) progressUpdateJSON {
+	return progressUpdateJSON{ID: node.ID, Progress: *node.Progress, Rollup: node.Rollup, Warnings: a.warnings()}
 }
 
 // progressTreeOf is id and its descendants in list, with the progress and

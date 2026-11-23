@@ -134,6 +134,9 @@ func (a *App) newLLMCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "llm [<COMMAND>...]",
 		Short: "Print guidance for AI agents",
+		Long: "Print guidance for AI agents: the overview, or one command's guide.\n\n" +
+			"Run `ws llm <command>`, such as `ws llm machine progress`, for that command's guide; " +
+			"`--help` after the command prints the same guide.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			return checkGuideArgs(cmd, all, args)
 		},
@@ -143,7 +146,30 @@ func (a *App) newLLMCmd() *cobra.Command {
 		}),
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "print the overview and every command's guide")
+	defaultHelp := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if a.printGuideForHelp(args) {
+			return
+		}
+		defaultHelp(c, args)
+	})
 	return cmd
+}
+
+// printGuideForHelp prints the guide that ws llm <command> --help names, and
+// reports whether there was one; otherwise the caller prints llm's own usage.
+// Cobra hands the help function every argument, flags and the leading "llm"
+// included.
+func (a *App) printGuideForHelp(args []string) bool {
+	words := slices.DeleteFunc(slices.Clone(args), func(arg string) bool { return strings.HasPrefix(arg, "-") })
+	if len(words) > 0 && words[0] == "llm" {
+		words = words[1:]
+	}
+	topic := guideTopic(words)
+	if topic == "" || !slices.Contains(guideTopics(), topic) {
+		return false
+	}
+	return a.printGuides([]string{topic}) == nil
 }
 
 // checkGuideArgs refuses a command with --all, and a command without a

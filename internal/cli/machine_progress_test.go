@@ -47,6 +47,31 @@ func TestApp_machineProgress(t *testing.T) {
 		assert.InDelta(t, 4, own["total"], 0)
 		assert.InDelta(t, 0, own["done"], 0)
 	})
+	t.Run("set and step print the caller's progress and rollup, not the tree", func(t *testing.T) {
+		e := newProgressApp(t)
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--name", "build", "--total", "4"), e.stderr.String())
+		for _, args := range [][]string{{"step"}, {"set", "--note", "n"}} {
+			e.stdout.Reset()
+			require.Equal(t, exitOK, runMachine(t, e, append([]string{"machine", "progress"}, args...)...), e.stderr.String())
+			out := jsonObjectOf(t, e.stdout.String())
+			assert.NotContains(t, out, "tree")
+			assert.ElementsMatch(t, []string{"id", "progress", "rollup", "warnings"}, mapKeys(out))
+			assert.InDelta(t, 4, jsonObject(t, out["rollup"])["total"], 0)
+		}
+	})
+	t.Run("set --total leaves done alone, and --done leaves total alone", func(t *testing.T) {
+		e := newProgressApp(t)
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--total", "5", "--done", "2"))
+		e.stdout.Reset()
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--total", "8"), e.stderr.String())
+		own := jsonObject(t, jsonObjectOf(t, e.stdout.String())["progress"])
+		assert.InDelta(t, 2, own["done"], 0)
+		assert.InDelta(t, 8, own["total"], 0)
+		e.stdout.Reset()
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--done", "3"), e.stderr.String())
+		own = jsonObject(t, jsonObjectOf(t, e.stdout.String())["progress"])
+		assert.InDelta(t, 8, own["total"], 0)
+	})
 	t.Run("step adds to done and keeps the name", func(t *testing.T) {
 		e := newProgressApp(t)
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--name", "build", "--total", "4"))
@@ -120,7 +145,9 @@ func TestApp_machineProgress(t *testing.T) {
 		e.app.getwd = func() (string, error) { return "/cfg/workspaces/plan/x", nil }
 		e.stdout.Reset()
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "show"), e.stderr.String())
-		root := jsonObject(t, jsonObjectOf(t, e.stdout.String())["tree"])
+		shown := jsonObjectOf(t, e.stdout.String())
+		assert.Contains(t, shown, "rollup")
+		root := jsonObject(t, shown["tree"])
 		rollup := jsonObject(t, root["rollup"])
 		assert.InDelta(t, 5, rollup["total"], 0)
 		assert.InDelta(t, 4, rollup["done"], 0)
@@ -191,4 +218,12 @@ func TestApp_machineProgressWithResults(t *testing.T) {
 		assert.InDelta(t, 1, rollup["total"], 0)
 		assert.InDelta(t, 1, rollup["done"], 0)
 	})
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

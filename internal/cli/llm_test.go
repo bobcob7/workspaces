@@ -198,6 +198,19 @@ func TestGuideTopics(t *testing.T) {
 			}
 		}
 	})
+	t.Run("the facts agents get wrong are where they look", func(t *testing.T) {
+		result := mustGuide(t, "machine result")
+		assert.Contains(t, result, "--file -")
+		assert.Contains(t, result, "free-form")
+		progress := mustGuide(t, "machine progress")
+		assert.Contains(t, progress, "ws machine result PASS")
+		assert.Contains(t, progress, "`show` is optional")
+		assert.Contains(t, progress, "leaves `done` alone")
+		assert.Contains(t, progress, "one unit of your own")
+		spawn := mustGuide(t, "machine spawn")
+		assert.Contains(t, spawn, "ws machine result PASS --file -")
+		assert.Contains(t, spawn, "ws machine progress")
+	})
 	t.Run("the overview points to every guide", func(t *testing.T) {
 		overview := mustGuide(t, "")
 		for _, topic := range guideTopics()[1:] {
@@ -339,6 +352,31 @@ func TestApp_runLLM(t *testing.T) {
 			guides = append(guides, mustGuide(t, topic))
 		}
 		assert.Equal(t, strings.Join(guides, "\n"), stdout.String())
+	})
+}
+
+func TestApp_printGuideForHelp(t *testing.T) {
+	t.Run("ws llm <command> --help prints that command's guide", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		require.Equal(t, exitOK, app.execute(t.Context(), app.newRootCmd(), []string{"llm", "machine", "progress", "--help"}))
+		assert.Equal(t, mustGuide(t, "machine progress"), stdout.String())
+	})
+	t.Run("-h and the command as one argument work too", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		require.Equal(t, exitOK, app.execute(t.Context(), app.newRootCmd(), []string{"llm", "machine result", "-h"}))
+		assert.Equal(t, mustGuide(t, "machine result"), stdout.String())
+	})
+	t.Run("ws llm --help is the usage, and points to the guides", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		require.Equal(t, exitOK, app.execute(t.Context(), app.newRootCmd(), []string{"llm", "--help"}))
+		assert.Contains(t, stdout.String(), "Usage:")
+		assert.Contains(t, stdout.String(), "ws llm machine progress")
+		assert.Contains(t, stdout.String(), "`--help` after the command prints the same guide")
+	})
+	t.Run("a command with no guide falls back to the usage", func(t *testing.T) {
+		app, stdout, _ := newTestApp()
+		require.Equal(t, exitOK, app.execute(t.Context(), app.newRootCmd(), []string{"llm", "nope", "--help"}))
+		assert.Contains(t, stdout.String(), "Usage:")
 	})
 }
 
