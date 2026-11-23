@@ -482,3 +482,139 @@ func TestApp_reviewCommands_env(t *testing.T) {
 }
 
 func decisionOf(decision string) *store.Decision { return &store.Decision{Decision: decision} }
+
+// pageRedacted is page with its redacted count set.
+func pageRedacted(redacted int, section string, offset int, next *int, ids ...string) string {
+	return strings.Replace(page(section, offset, next, ids...), `"redacted":1`, `"redacted":`+strconv.Itoa(redacted), 1)
+}
+
+func TestApp_runRemoteReviewStart_emptyValues(t *testing.T) {
+	for _, args := range [][]string{{"--model="}, {"--model", ""}, {"--permission-mode="}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			e, caller, _ := newEnvOpApp(t, okReply(startResult))
+			err := e.app.runRemoteReviewStart(t.Context(), "linux-server", &reviewStartOptions{spec: "github.com/o/r", pr: 1, claudeArgs: args})
+			requireCode(t, codeUsage, err)
+			assert.Empty(t, caller.CallEnvironmentCalls())
+		})
+	}
+}
+
+func TestApp_runRemoteReviewStart_negativePR(t *testing.T) {
+	e, caller, _ := newEnvOpApp(t, okReply(startResult))
+	err := e.app.runRemoteReviewStart(t.Context(), "linux-server", &reviewStartOptions{spec: "github.com/o/r", pr: -1})
+	requireCode(t, codeUsage, err)
+	assert.Contains(t, err.Error(), "--pr needs a pull request number")
+	assert.Empty(t, caller.CallEnvironmentCalls())
+}
+
+func TestApp_remoteSection_limits(t *testing.T) {
+	t.Run("a next_offset equal to the offset is an internal error", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		caller := pagedCaller(map[string]string{
+			"comments:0": page("comments", 0, new(3), "go:a"),
+			"comments:3": page("comments", 3, new(3), "go:b"),
+		})
+		useCaller(e.app, caller)
+		_, err := e.app.remoteReport(t.Context(), "linux-server", "review-r-42")
+		requireCode(t, codeInternal, err)
+		assert.Len(t, caller.CallEnvironmentCalls(), 2)
+	})
+	t.Run("an agent that advances by one page forever is stopped", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		caller := &environmentCallerMock{CallEnvironmentFunc: func(_ context.Context, _ string, req daemon.CallRequest) (daemon.CallReply, error) {
+			var args envproto.ReviewReportArgs
+			if err := json.Unmarshal(req.Args, &args); err != nil {
+				return daemon.CallReply{}, err
+			}
+			return daemon.CallReply{Reply: json.RawMessage(okReply(page(args.Section, args.Offset, new(args.Offset+1))))}, nil
+		}}
+		useCaller(e.app, caller)
+		_, err := e.app.remoteReport(t.Context(), "linux-server", "review-r-42")
+		requireCode(t, codeInternal, err)
+		assert.Contains(t, err.Error(), "pages")
+		assert.Len(t, caller.CallEnvironmentCalls(), maxRemoteReportPages)
+	})
+	t.Run("exactly the ceiling's pages is allowed", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		caller := &environmentCallerMock{CallEnvironmentFunc: func(_ context.Context, _ string, req daemon.CallRequest) (daemon.CallReply, error) {
+			var args envproto.ReviewReportArgs
+			if err := json.Unmarshal(req.Args, &args); err != nil {
+				return daemon.CallReply{}, err
+			}
+			var next *int
+			if args.Offset < maxRemoteReportPages-1 {
+				next = new(args.Offset + 1)
+			}
+			return daemon.CallReply{Reply: json.RawMessage(okReply(page(args.Section, args.Offset, next)))}, nil
+		}}
+		useCaller(e.app, caller)
+		_, err := e.app.remoteReport(t.Context(), "linux-server", "review-r-42")
+		require.NoError(t, err)
+	})
+}
+
+func TestApp_remoteReport_redactedTotals(t *testing.T) {
+	e, _, _ := newEnvOpApp(t, `{}`)
+	useCaller(e.app, pagedCaller(map[string]string{
+		"comments:0":   pageRedacted(1, "comments", 0, new(1), "go:a"),
+		"comments:1":   pageRedacted(2, "comments", 1, nil, "go:b"),
+		"superseded:0": pageRedacted(4, "superseded", 0, new(1), "#1:x"),
+		"superseded:1": pageRedacted(8, "superseded", 1, nil, "#1:y"),
+	}))
+	report, err := e.app.remoteReport(t.Context(), "linux-server", "review-r-42")
+	require.NoError(t, err)
+	assert.Equal(t, 15, report.Redacted)
+}
+
+func TestApp_printRemoteReport_details(t *testing.T) {
+	t.Run("decided drops the superseded findings", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		e.app.global.json = true
+		report := &remoteReportJSON{}
+		report.Comments = []reviewCommentJSON{{ID: "go:b", Decision: decisionOf("fix")}}
+		report.Superseded = []reviewCommentJSON{{ID: "#1:old", Decision: decisionOf("fix")}}
+		require.NoError(t, e.app.printRemoteReport(report, "linux-server", formatJSON, "fix"))
+		var got struct {
+			Comments   []reviewCommentJSON `json:"comments"`
+			Superseded []reviewCommentJSON `json:"superseded"`
+		}
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Len(t, got.Comments, 1)
+		assert.Empty(t, got.Superseded)
+	})
+	t.Run("a profile that never submitted has no submission", func(t *testing.T) {
+		report := &reviewReportJSON{Profiles: []reviewProfileJSON{
+			{Name: "go", Verdict: new("approve"), Severity: &severityJSON{}},
+			{Name: "sec", Missing: true},
+		}}
+		result := collectResultOf(report)
+		require.Len(t, result.Submissions, 1)
+		assert.Equal(t, "go", result.Submissions[0].Profile)
+		assert.Equal(t, 1, result.Submissions[0].Ordinal)
+	})
+	t.Run("a missing profile is not rendered as submitted", func(t *testing.T) {
+		for _, format := range []string{formatMarkdown, formatHTML} {
+			e, _, _ := newEnvOpApp(t, `{}`)
+			report := &remoteReportJSON{}
+			report.Repo, report.Ref = "github.com/o/r", remoteCommit
+			report.Comments, report.Superseded = []reviewCommentJSON{}, []reviewCommentJSON{}
+			report.Profiles = []reviewProfileJSON{{Name: "go", Verdict: new("approve"), Severity: &severityJSON{}}, {Name: "sec", Missing: true}}
+			require.NoError(t, e.app.printRemoteReport(report, "linux-server", format, ""))
+			assert.Contains(t, e.stdout.String(), "sec", format)
+			assert.NotContains(t, e.stdout.String(), "sec: ", format)
+		}
+	})
+}
+
+func TestApp_runRemoteReviewProfiles_agentWarnings(t *testing.T) {
+	e, _, _ := newEnvOpApp(t, okReply(`{"profiles":[],"warnings":["the agent warns"],"redacted":0}`))
+	require.NoError(t, e.app.runRemoteReviewProfiles(t.Context(), "linux-server"))
+	assert.Contains(t, e.stderr.String(), "ws: warning: the agent warns")
+}
+
+func TestApp_runRemoteReviewDecide_suggestionZero(t *testing.T) {
+	e, caller, _ := newEnvOpApp(t, okReply(`{"repo":"r","ref":"x","decisions":{"go:a":{"decision":"fix","note":"","at":"2026-06-01T00:00:00Z","suggestion":0}},"warnings":[]}`))
+	opts := &decideOptions{fix: true, suggestion: 0, hasSuggestion: true}
+	require.NoError(t, e.app.runRemoteReviewDecide(t.Context(), "linux-server", []string{"review-r-42", "go:a"}, &reviewSubjectOptions{}, opts))
+	assert.JSONEq(t, `{"review":"review-r-42","findings":["go:a"],"decision":"fix","suggestion":0,"note":null}`, string(caller.CallEnvironmentCalls()[0].Req.Args))
+}

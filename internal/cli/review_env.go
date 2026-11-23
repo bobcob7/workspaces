@@ -242,13 +242,17 @@ func (a *App) remoteReport(ctx context.Context, env, id string) (remoteReportJSO
 	return out, nil
 }
 
+// maxRemoteReportPages is the most pages of one section ws reads, so a
+// misbehaving agent can't keep the loop going until the timeout.
+const maxRemoteReportPages = 1000
+
 // remoteSection fetches the pages of one section, from offset 0 until
 // next_offset is null. An offset that doesn't advance is an error, so a
 // misbehaving agent can't make the loop run forever.
 func (a *App) remoteSection(ctx context.Context, env, id, section string) ([]remoteReportPage, error) {
 	var pages []remoteReportPage
 	offset := 0
-	for {
+	for len(pages) < maxRemoteReportPages {
 		object, err := a.callRemoteObject(ctx, env, envproto.OpReviewReport, envproto.ReviewReportArgs{Review: id, Section: section, Offset: offset})
 		if err != nil {
 			return nil, err
@@ -266,6 +270,7 @@ func (a *App) remoteSection(ctx context.Context, env, id, section string) ([]rem
 		}
 		offset = *page.NextOffset
 	}
+	return nil, newError(codeInternal, fmt.Errorf("environment %s's report has more than %d pages of %s", env, maxRemoteReportPages, section))
 }
 
 // printRemoteReport prints report in format as a local report is printed;
