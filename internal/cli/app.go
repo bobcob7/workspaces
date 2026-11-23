@@ -271,6 +271,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newLoopCmd(),
 		a.newListCmd(),
 		a.newRmCmd(),
+		a.newStopCmd(),
 		a.newRenameCmd(),
 		a.newHideCmd(),
 		a.newUnhideCmd(),

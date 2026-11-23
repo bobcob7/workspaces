@@ -230,6 +230,7 @@ For people and the desktop app, not agents:
 - `ws llm shell`: new workspace with an interactive shell
 - `ws llm list`: list workspaces and their sessions
 - `ws llm rm`: remove workspaces and their sessions now
+- `ws llm stop`: stop the Claude Code agents of workspaces, here or on an environment
 - `ws llm rename`: change a workspace's display name
 - `ws llm hide`: hide a workspace from `ws list` and the desktop app's default views
 - `ws llm unhide`: show a hidden workspace again

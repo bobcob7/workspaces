@@ -1,7 +1,7 @@
 # ws rename
 
 ```
-ws rename [--json] <workspace> <name>
+ws rename [--json] [--env <name>] <workspace> <name>
 ```
 
 Changes a workspace's display name: the name `ws list` and the desktop
@@ -22,6 +22,12 @@ spaces are trimmed; any characters are kept, unlike `--name`, which also
 makes the id. Put `--` before the arguments when the name starts with `-`:
 `ws rename -- fix-login-d8efb24f "-draft"`.
 
+## Flags
+
+| Flag          | Meaning |
+| ------------- | ------- |
+| `--env <name>` | Rename the workspace on that environment (`ws env list`), not here |
+
 ## JSON output
 
 ```json
@@ -41,4 +47,5 @@ makes the id. Put `--` before the arguments when the name starts with `-`:
 ```console
 $ ws rename --json fix-login-d8efb24f "Fix the login page"
 $ ws rename --json e8cdf5d8 "Login fix"   # by session id
+$ ws rename --env linux-server fix-login-d8efb24f "Fix the login page"
 ```

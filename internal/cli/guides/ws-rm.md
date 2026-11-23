@@ -1,7 +1,7 @@
 # ws rm
 
 ```
-ws rm [--dry-run] [--keep-children] [--json] <workspace>...
+ws rm [--dry-run] [--keep-children] [--env <name>] [--json] <workspace>...
 ```
 
 Removes workspaces now, with their sessions, and every workspace they
@@ -31,6 +31,7 @@ shell's workspace is refused: the shell has to exit, which removes it.
 | ----------- | ------------------------------------------------------------ |
 | `--dry-run` | Check and report what would be removed, descendants included; remove nothing |
 | `--keep-children` | Make the workspace's children top-level instead of removing them |
+| `--env <name>` | Remove the workspaces on that environment (`ws env list`), not here; `--dry-run` is refused with it |
 | `--json`    | Print the result as JSON                                     |
 
 ## JSON output
@@ -78,4 +79,5 @@ another way: tell a person what `ws` said.
 $ ws rm --json fix-login-d8efb24f
 $ ws rm --json e8cdf5d8            # by session id
 $ ws rm --dry-run --json api-bump-5c01e7a2
+$ ws rm --env linux-server --json api-bump-5c01e7a2   # on an environment
 ```

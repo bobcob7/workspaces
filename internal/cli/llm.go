@@ -33,6 +33,7 @@ func guideTopicsBeforeReview() []string {
 		"shell",
 		"list",
 		"rm",
+		"stop",
 		"rename",
 		"hide",
 		"unhide",

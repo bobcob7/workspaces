@@ -104,6 +104,7 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws loop`](docs/tools/ws-loop.md)       | Start an agent in a new workspace every period       |
 | [`ws list`](docs/tools/ws-list.md)       | List workspaces and their sessions                   |
 | [`ws rm`](docs/tools/ws-rm.md)           | Remove workspaces and their sessions now             |
+| [`ws stop`](docs/tools/ws-stop.md)       | Stop the Claude Code agents of workspaces            |
 | [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
 | [`ws hide`](docs/tools/ws-hide.md)       | Hide a workspace from default views, or `unhide` it  |
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |

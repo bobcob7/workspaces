@@ -1,7 +1,7 @@
 # ws hide
 
 ```
-ws hide [--json] <workspace>
+ws hide [--json] [--env <name>] <workspace>
 ```
 
 Hides a workspace: `ws list` leaves it out unless given `-a`, and the
@@ -21,6 +21,12 @@ nothing.
 - Review workspaces from `ws review start` are not hidden; they show as children of the requester.
 
 A workspace is named by its id, path, or agent session id.
+
+## Flags
+
+| Flag          | Meaning |
+| ------------- | ------- |
+| `--env <name>` | Hide the workspace on that environment (`ws env list`), not here |
 
 ## JSON output
 
@@ -42,4 +48,5 @@ A workspace is named by its id, path, or agent session id.
 ```console
 $ ws hide --json lint-sweep-5b1e93aa
 $ ws hide --json 0c9e1a7b   # by session id
+$ ws hide --env linux-server --json lint-sweep-5b1e93aa
 ```

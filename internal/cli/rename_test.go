@@ -101,3 +101,18 @@ func TestApp_rename_endToEnd(t *testing.T) {
 	assert.Equal(t, path, got.Workspaces[0].Path)
 	assert.DirExists(t, path)
 }
+
+func TestApp_newRenameCmdRemote(t *testing.T) {
+	t.Run("--env renames through workspace.rename", func(t *testing.T) {
+		e, caller, _ := newEnvOpApp(t, `{"ok":true,"result":{"id":"a","name":"New","path":"/p","warnings":[]},"error":null}`)
+		cmd := e.app.newRenameCmd()
+		cmd.SetContext(t.Context())
+		require.NoError(t, cmd.Flags().Set("env", "linux-server"))
+		require.NoError(t, cmd.RunE(cmd, []string{"a", "New"}))
+		assert.Equal(t, "a  New\n", e.stdout.String())
+		calls := caller.CallEnvironmentCalls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, "workspace.rename", calls[0].Req.Op)
+		assert.JSONEq(t, `{"workspace":"a","name":"New"}`, string(calls[0].Req.Args))
+	})
+}

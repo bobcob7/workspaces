@@ -16,6 +16,7 @@ for people and the desktop app ([0046](../adrs/0046-ws-machine.md)).
 | [`ws restart`](ws-restart.md) | Restart Claude Code's background service and every running agent, to pick up new environment variables, MCP servers, or a Claude Code update |
 | [`ws list`](ws-list.md)       | List workspaces and their sessions                       |
 | [`ws rm`](ws-rm.md)           | Remove workspaces and their sessions now                 |
+| [`ws stop`](ws-stop.md)       | Stop the Claude Code agents of workspaces, here or on an environment |
 | [`ws rename`](ws-rename.md)   | Change a workspace's display name                        |
 | [`ws hide`, `ws unhide`](ws-hide.md) | Hide a workspace from `ws list` and the desktop app's default views, or show it again |
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |
