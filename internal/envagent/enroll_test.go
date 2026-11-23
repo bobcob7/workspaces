@@ -11,10 +11,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,24 +28,6 @@ import (
 )
 
 const fixtureName = "linux-server"
-
-// syncBuffer is a log sink the controller's goroutines and the test may share.
-type syncBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *syncBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *syncBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
 
 func discardLog() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -163,16 +146,20 @@ func TestEnroller_Enroll(t *testing.T) {
 	})
 	t.Run("refuses a wrong fingerprint before any request is sent", func(t *testing.T) {
 		t.Parallel()
-		log := &syncBuffer{}
-		_, _, code := startEnrollFixture(t, slog.New(slog.NewJSONHandler(log, nil)))
+		var requests atomic.Int32
+		server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			requests.Add(1)
+		}))
+		t.Cleanup(server.Close)
+		_, _, code := startEnrollFixture(t, discardLog())
 		parsed, err := envproto.ParseCode(code)
 		require.NoError(t, err)
+		parsed.Host = server.Listener.Addr().String()
 		parsed.Fingerprint = strings.Repeat("0", 64)
 		files, enroller := newFilesAndEnroller(t)
 		_, err = enroller.Enroll(t.Context(), parsed.String())
 		require.ErrorIs(t, err, ErrPinMismatch)
-		assert.NotContains(t, log.String(), "enrollment refused")
-		assert.NotContains(t, log.String(), "environment enrolled")
+		assert.Zero(t, requests.Load())
 		_, err = files.Load()
 		require.ErrorIs(t, err, ErrNotEnrolled)
 	})
@@ -218,7 +205,7 @@ func (c *bodyCapture) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = req.Body.Close() // the body is read in full; nothing more to release
+	_ = req.Body.Close() // the body is read in full; nothing more to release.
 	c.body = data
 	req.Body = io.NopCloser(bytes.NewReader(data))
 	return c.next.RoundTrip(req)
