@@ -55,6 +55,15 @@
   width: 220px;
 }
 
+@media (min-width: 721px) {
+  .sidebar[data-collapsed="true"] {
+    width: 0;
+    border-right: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
+}
+
 .main {
   flex: 1;
   min-width: 0;
