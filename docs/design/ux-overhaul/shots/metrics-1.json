@@ -1,0 +1,2307 @@
+{
+ "1-1400-expanded": {
+  "vw": 1400,
+  "vh": 900,
+  "docScrollW": 1400,
+  "bodyScrollW": 1400,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 1400,
+     "height": 49,
+     "top": 0,
+     "right": 1400,
+     "bottom": 49,
+     "left": 0
+    }
+   },
+   {
+    "cls": "_header_shj7k_8 ",
+    "rect": {
+     "x": 372,
+     "y": 49,
+     "width": 1028,
+     "height": 108.5,
+     "top": 49,
+     "right": 1400,
+     "bottom": 157.5,
+     "left": 372
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Collapse sidebar",
+    "w": 32,
+    "h": 32,
+    "cls": "_toggle_u6t2t_1"
+   },
+   {
+    "label": "Restore stopped",
+    "w": 113,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "New shell",
+    "w": 80,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-outlin"
+   },
+   {
+    "label": "New agent",
+    "w": 85,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-contai"
+   },
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoFix t",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-1-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-2-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-4-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-5-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-7-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand fix-login-d8efb24f",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoFix t",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "docs-sweep-1a2b3c4d30d agoSwee",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "scratch-91b3f0c430d agoEmpty w",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand lint-sweep-5b1e93aa",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "lint-sweep-5b1e93aa30d agoFix ",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Collapse details",
+    "w": 24,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "Open...",
+    "w": 70,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Conversation",
+    "w": 99,
+    "h": 39,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Terminal",
+    "w": 69,
+    "h": 39,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Detach",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Stop",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Rename",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Hide",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Remove",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "/w/fix-login-d8efb24f",
+    "w": 151,
+    "h": 14,
+    "cls": "_path_shj7k_41"
+   },
+   {
+    "label": "▸Started from this workspace 8",
+    "w": 990,
+    "h": 41,
+    "cls": "_toggle_1vizw_14"
+   },
+   {
+    "label": "Terminal",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Send",
+    "w": 64,
+    "h": 37,
+    "cls": "MuiButtonBase-root Mui-disabled MuiButton-root Mui"
+   },
+   {
+    "label": "Open Stats",
+    "w": 79,
+    "h": 13,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Collapse sidebar",
+    "expanded": "true",
+    "rect": {
+     "x": 14,
+     "y": 8,
+     "width": 32,
+     "height": 32,
+     "top": 8,
+     "right": 46,
+     "bottom": 40,
+     "left": 14
+    },
+    "display": "flex"
+   },
+   {
+    "label": "Collapse details",
+    "expanded": "true",
+    "rect": {
+     "x": 390,
+     "y": 66.875,
+     "width": 23.5,
+     "height": 31,
+     "top": 66.875,
+     "right": 413.5,
+     "bottom": 97.875,
+     "left": 390
+    },
+    "display": "flex"
+   }
+  ]
+ },
+ "1-1400-collapseBtnCount": 1,
+ "1-1400-collapsed": {
+  "vw": 1400,
+  "vh": 900,
+  "docScrollW": 1400,
+  "bodyScrollW": 1400,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 1400,
+     "height": 49,
+     "top": 0,
+     "right": 1400,
+     "bottom": 49,
+     "left": 0
+    }
+   },
+   {
+    "cls": "_header_shj7k_8 ",
+    "rect": {
+     "x": 372,
+     "y": 49,
+     "width": 1028,
+     "height": 108.5,
+     "top": 49,
+     "right": 1400,
+     "bottom": 157.5,
+     "left": 372
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Collapse sidebar",
+    "w": 32,
+    "h": 32,
+    "cls": "_toggle_u6t2t_1"
+   },
+   {
+    "label": "Restore stopped",
+    "w": 113,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "New shell",
+    "w": 80,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-outlin"
+   },
+   {
+    "label": "New agent",
+    "w": 85,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-contai"
+   },
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoFix t",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-1-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-2-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-4-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-5-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-7-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand fix-login-d8efb24f",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoFix t",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "docs-sweep-1a2b3c4d30d agoSwee",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "scratch-91b3f0c430d agoEmpty w",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand lint-sweep-5b1e93aa",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "lint-sweep-5b1e93aa30d agoFix ",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand details",
+    "w": 24,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "Open...",
+    "w": 70,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Conversation",
+    "w": 99,
+    "h": 39,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Terminal",
+    "w": 69,
+    "h": 39,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Detach",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Stop",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Rename",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Hide",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Remove",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Terminal",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Send",
+    "w": 64,
+    "h": 37,
+    "cls": "MuiButtonBase-root Mui-disabled MuiButton-root Mui"
+   },
+   {
+    "label": "Open Stats",
+    "w": 79,
+    "h": 13,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Collapse sidebar",
+    "expanded": "true",
+    "rect": {
+     "x": 14,
+     "y": 8,
+     "width": 32,
+     "height": 32,
+     "top": 8,
+     "right": 46,
+     "bottom": 40,
+     "left": 14
+    },
+    "display": "flex"
+   },
+   {
+    "label": "Expand details",
+    "expanded": "false",
+    "rect": {
+     "x": 390,
+     "y": 66.875,
+     "width": 23.5,
+     "height": 31,
+     "top": 66.875,
+     "right": 413.5,
+     "bottom": 97.875,
+     "left": 390
+    },
+    "display": "flex"
+   }
+  ]
+ },
+ "2-1400": {
+  "vw": 1400,
+  "vh": 900,
+  "docScrollW": 1400,
+  "bodyScrollW": 1400,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 1400,
+     "height": 49,
+     "top": 0,
+     "right": 1400,
+     "bottom": 49,
+     "left": 0
+    }
+   },
+   {
+    "cls": "_header_shj7k_8 ",
+    "rect": {
+     "x": 372,
+     "y": 49,
+     "width": 1028,
+     "height": 108.5,
+     "top": 49,
+     "right": 1400,
+     "bottom": 157.5,
+     "left": 372
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Collapse sidebar",
+    "w": 32,
+    "h": 32,
+    "cls": "_toggle_u6t2t_1"
+   },
+   {
+    "label": "Restore stopped",
+    "w": 113,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "New shell",
+    "w": 80,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-outlin"
+   },
+   {
+    "label": "New agent",
+    "w": 85,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-contai"
+   },
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoLine ",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-1-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-2-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-4-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-5-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-7-aabbccdd30d ag",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 283,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand fix-login-d8efb24f",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoLine ",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "docs-sweep-1a2b3c4d30d agoSwee",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "scratch-91b3f0c430d agoEmpty w",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand lint-sweep-5b1e93aa",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "lint-sweep-5b1e93aa30d agoFix ",
+    "w": 259,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Collapse details",
+    "w": 24,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "Open...",
+    "w": 70,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Conversation",
+    "w": 99,
+    "h": 39,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Terminal",
+    "w": 69,
+    "h": 39,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Detach",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Stop",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Rename",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Hide",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Remove",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "/w/fix-login-d8efb24f",
+    "w": 151,
+    "h": 14,
+    "cls": "_path_shj7k_41"
+   },
+   {
+    "label": "▸Started from this workspace 8",
+    "w": 990,
+    "h": 41,
+    "cls": "_toggle_1vizw_14"
+   },
+   {
+    "label": "Terminal",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Send",
+    "w": 64,
+    "h": 37,
+    "cls": "MuiButtonBase-root Mui-disabled MuiButton-root Mui"
+   },
+   {
+    "label": "Open Stats",
+    "w": 79,
+    "h": 13,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Collapse sidebar",
+    "expanded": "true",
+    "rect": {
+     "x": 14,
+     "y": 8,
+     "width": 32,
+     "height": 32,
+     "top": 8,
+     "right": 46,
+     "bottom": 40,
+     "left": 14
+    },
+    "display": "flex"
+   },
+   {
+    "label": "Collapse details",
+    "expanded": "true",
+    "rect": {
+     "x": 390,
+     "y": 66.875,
+     "width": 23.5,
+     "height": 31,
+     "top": 66.875,
+     "right": 413.5,
+     "bottom": 97.875,
+     "left": 390
+    },
+    "display": "flex"
+   }
+  ]
+ },
+ "2-1400-regions": [
+  {
+   "cls": "_root_ow7jk_1",
+   "tag": "NAV",
+   "top": 49,
+   "h": 823,
+   "pctVh": 91.4,
+   "scrollH": 1734,
+   "clientH": 823,
+   "scrolls": true,
+   "maxHeight": "none",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "_details_shj7k_115",
+   "tag": "DIV",
+   "top": 158,
+   "h": 360,
+   "pctVh": 40,
+   "scrollH": 465,
+   "clientH": 359,
+   "scrolls": true,
+   "maxHeight": "360px",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "_detail_shj7k_64",
+   "tag": "P",
+   "top": 198,
+   "h": 120,
+   "pctVh": 13.3,
+   "scrollH": 744,
+   "clientH": 120,
+   "scrolls": true,
+   "maxHeight": "120px",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "",
+   "tag": "P",
+   "top": 351,
+   "h": 20,
+   "pctVh": 2.2,
+   "scrollH": 20,
+   "clientH": 20,
+   "scrolls": false,
+   "maxHeight": "160px",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "_result_shj7k_89",
+   "tag": "P",
+   "top": 353,
+   "h": 160,
+   "pctVh": 17.8,
+   "scrollH": 784,
+   "clientH": 160,
+   "scrolls": true,
+   "maxHeight": "160px",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "_scroller_2dglr_9",
+   "tag": "DIV",
+   "top": 518,
+   "h": 294,
+   "pctVh": 32.6,
+   "scrollH": 294,
+   "clientH": 294,
+   "scrolls": false,
+   "maxHeight": "none",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "MuiAlert-message css-zioonp-MuiAlert-message",
+   "tag": "DIV",
+   "top": 630,
+   "h": 36,
+   "pctVh": 4,
+   "scrollH": 36,
+   "clientH": 36,
+   "scrolls": false,
+   "maxHeight": "none",
+   "overflowY": "auto"
+  }
+ ],
+ "3-1400-sidebarToggleVisible": true,
+ "3-1400-before": {
+  "main": {
+   "x": 372,
+   "y": 49,
+   "width": 1028,
+   "height": 823,
+   "top": 49,
+   "right": 1400,
+   "bottom": 872,
+   "left": 372
+  },
+  "aside": {
+   "x": 72,
+   "y": 49,
+   "width": 300,
+   "height": 823,
+   "top": 49,
+   "right": 372,
+   "bottom": 872,
+   "left": 72
+  }
+ },
+ "3-1400-after": {
+  "vw": 1400,
+  "vh": 900,
+  "docScrollW": 1400,
+  "bodyScrollW": 1400,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 1400,
+     "height": 49,
+     "top": 0,
+     "right": 1400,
+     "bottom": 49,
+     "left": 0
+    }
+   },
+   {
+    "cls": "_header_shj7k_8 ",
+    "rect": {
+     "x": 72,
+     "y": 49,
+     "width": 1328,
+     "height": 65.75,
+     "top": 49,
+     "right": 1400,
+     "bottom": 114.75,
+     "left": 72
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Expand sidebar",
+    "w": 32,
+    "h": 32,
+    "cls": "_toggle_u6t2t_1"
+   },
+   {
+    "label": "Restore stopped",
+    "w": 113,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "New shell",
+    "w": 80,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-outlin"
+   },
+   {
+    "label": "New agent",
+    "w": 85,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-contai"
+   },
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 52,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoFix t",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-1-aabbccdd30d ag",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-2-aabbccdd30d ag",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-4-aabbccdd30d ag",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-5-aabbccdd30d ag",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-7-aabbccdd30d ag",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand fix-login-d8efb24f",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoFix t",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "docs-sweep-1a2b3c4d30d agoSwee",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "scratch-91b3f0c430d agoEmpty w",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand lint-sweep-5b1e93aa",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "lint-sweep-5b1e93aa30d agoFix ",
+    "w": 20,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Collapse details",
+    "w": 24,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "Open...",
+    "w": 70,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Conversation",
+    "w": 99,
+    "h": 39,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Terminal",
+    "w": 69,
+    "h": 39,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Detach",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Stop",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Rename",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Hide",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Remove",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "/w/fix-login-d8efb24f",
+    "w": 151,
+    "h": 14,
+    "cls": "_path_shj7k_41"
+   },
+   {
+    "label": "▸Started from this workspace 8",
+    "w": 1290,
+    "h": 41,
+    "cls": "_toggle_1vizw_14"
+   },
+   {
+    "label": "Terminal",
+    "w": 64,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Send",
+    "w": 64,
+    "h": 37,
+    "cls": "MuiButtonBase-root Mui-disabled MuiButton-root Mui"
+   },
+   {
+    "label": "Open Stats",
+    "w": 79,
+    "h": 13,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Expand sidebar",
+    "expanded": "false",
+    "rect": {
+     "x": 14,
+     "y": 8,
+     "width": 32,
+     "height": 32,
+     "top": 8,
+     "right": 46,
+     "bottom": 40,
+     "left": 14
+    },
+    "display": "flex"
+   },
+   {
+    "label": "Collapse details",
+    "expanded": "true",
+    "rect": {
+     "x": 90,
+     "y": 66.875,
+     "width": 23.5,
+     "height": 31,
+     "top": 66.875,
+     "right": 113.5,
+     "bottom": 97.875,
+     "left": 90
+    },
+    "display": "flex"
+   }
+  ]
+ },
+ "3-1400-afterGeom": {
+  "main": {
+   "x": 72,
+   "y": 49,
+   "width": 1328,
+   "height": 823,
+   "top": 49,
+   "right": 1400,
+   "bottom": 872,
+   "left": 72
+  },
+  "aside": {
+   "x": 72,
+   "y": 49,
+   "width": "0px",
+   "height": 823,
+   "top": 49,
+   "right": 72,
+   "bottom": 872,
+   "left": 72,
+   "display": "block",
+   "border": "0px"
+  },
+  "nav": {
+   "x": 0,
+   "y": 49,
+   "width": 72,
+   "height": 823,
+   "top": 49,
+   "right": 72,
+   "bottom": 872,
+   "left": 0
+  }
+ },
+ "1-390-expanded": {
+  "vw": 390,
+  "vh": 844,
+  "docScrollW": 390,
+  "bodyScrollW": 390,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    }
+   },
+   {
+    "cls": "_header_shj7k_8 _compact_shj7k_135",
+    "rect": {
+     "x": 0,
+     "y": 36,
+     "width": 390,
+     "height": 41,
+     "top": 36,
+     "right": 390,
+     "bottom": 77,
+     "left": 0
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Back",
+    "w": 65,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Conversation",
+    "w": 95,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Terminal",
+    "w": 67,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "More actions",
+    "w": 40,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "Details",
+    "w": 40,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "▸Started from this workspace 8",
+    "w": 352,
+    "h": 41,
+    "cls": "_toggle_1vizw_14"
+   },
+   {
+    "label": "Terminal",
+    "w": 63,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Send",
+    "w": 56,
+    "h": 40,
+    "cls": "MuiButtonBase-root Mui-disabled MuiButton-root Mui"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Collapse sidebar",
+    "expanded": "true",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    },
+    "display": "none"
+   }
+  ]
+ },
+ "1-390-collapseBtnCount": 0,
+ "1-390-collapsed": {
+  "vw": 390,
+  "vh": 844,
+  "docScrollW": 390,
+  "bodyScrollW": 390,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    }
+   },
+   {
+    "cls": "_header_shj7k_8 _compact_shj7k_135",
+    "rect": {
+     "x": 0,
+     "y": 36,
+     "width": 390,
+     "height": 41,
+     "top": 36,
+     "right": 390,
+     "bottom": 77,
+     "left": 0
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Back",
+    "w": 65,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Conversation",
+    "w": 95,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Terminal",
+    "w": 67,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "More actions",
+    "w": 40,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "Details",
+    "w": 40,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "▸Started from this workspace 8",
+    "w": 352,
+    "h": 41,
+    "cls": "_toggle_1vizw_14"
+   },
+   {
+    "label": "Terminal",
+    "w": 63,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Send",
+    "w": 56,
+    "h": 40,
+    "cls": "MuiButtonBase-root Mui-disabled MuiButton-root Mui"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Collapse sidebar",
+    "expanded": "true",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    },
+    "display": "none"
+   }
+  ]
+ },
+ "2-390": {
+  "vw": 390,
+  "vh": 844,
+  "docScrollW": 390,
+  "bodyScrollW": 390,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    }
+   },
+   {
+    "cls": "_header_shj7k_8 _compact_shj7k_135",
+    "rect": {
+     "x": 0,
+     "y": 36,
+     "width": 390,
+     "height": 41,
+     "top": 36,
+     "right": 390,
+     "bottom": 77,
+     "left": 0
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Back",
+    "w": 65,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Conversation",
+    "w": 95,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Terminal",
+    "w": 67,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "More actions",
+    "w": 40,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "Details",
+    "w": 40,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "▸Started from this workspace 8",
+    "w": 352,
+    "h": 41,
+    "cls": "_toggle_1vizw_14"
+   },
+   {
+    "label": "Terminal",
+    "w": 63,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Send",
+    "w": 56,
+    "h": 40,
+    "cls": "MuiButtonBase-root Mui-disabled MuiButton-root Mui"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Collapse sidebar",
+    "expanded": "true",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    },
+    "display": "none"
+   }
+  ]
+ },
+ "2-390-regions": [
+  {
+   "cls": "_body_1yi28_40",
+   "tag": "DIV",
+   "top": 0,
+   "h": 820,
+   "pctVh": 97.2,
+   "scrollH": 820,
+   "clientH": 820,
+   "scrolls": false,
+   "maxHeight": "none",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "_main_1yi28_67",
+   "tag": "MAIN",
+   "top": 0,
+   "h": 775,
+   "pctVh": 91.8,
+   "scrollH": 775,
+   "clientH": 775,
+   "scrolls": false,
+   "maxHeight": "none",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "_details_shj7k_115",
+   "tag": "DIV",
+   "top": 77,
+   "h": 110,
+   "pctVh": 13,
+   "scrollH": 109,
+   "clientH": 109,
+   "scrolls": false,
+   "maxHeight": "337.6px",
+   "overflowY": "auto"
+  },
+  {
+   "cls": "_scroller_2dglr_9",
+   "tag": "DIV",
+   "top": 187,
+   "h": 535,
+   "pctVh": 63.4,
+   "scrollH": 535,
+   "clientH": 535,
+   "scrolls": false,
+   "maxHeight": "none",
+   "overflowY": "auto"
+  }
+ ],
+ "3-390-sidebarToggleVisible": false,
+ "3-390-before": {
+  "main": {
+   "x": 0,
+   "y": 0,
+   "width": 390,
+   "height": 775,
+   "top": 0,
+   "right": 390,
+   "bottom": 775,
+   "left": 0
+  },
+  "aside": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 0,
+   "top": 0,
+   "right": 0,
+   "bottom": 0,
+   "left": 0
+  }
+ },
+ "4-390-entry": {
+  "vw": 390,
+  "vh": 844,
+  "docScrollW": 390,
+  "bodyScrollW": 390,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    }
+   },
+   {
+    "cls": "_header_shj7k_8 _compact_shj7k_135",
+    "rect": {
+     "x": 0,
+     "y": 36,
+     "width": 390,
+     "height": 41,
+     "top": 36,
+     "right": 390,
+     "bottom": 77,
+     "left": 0
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Back",
+    "w": 65,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Conversation",
+    "w": 95,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "Terminal",
+    "w": 67,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiToggleButtonGroup-grouped Mu"
+   },
+   {
+    "label": "More actions",
+    "w": 40,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "Details",
+    "w": 40,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButto"
+   },
+   {
+    "label": "▸Started from this workspace 8",
+    "w": 352,
+    "h": 41,
+    "cls": "_toggle_1vizw_14"
+   },
+   {
+    "label": "Terminal",
+    "w": 63,
+    "h": 40,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "Send",
+    "w": 56,
+    "h": 40,
+    "cls": "MuiButtonBase-root Mui-disabled MuiButton-root Mui"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Collapse sidebar",
+    "expanded": "true",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    },
+    "display": "none"
+   }
+  ]
+ },
+ "4-390-list": {
+  "vw": 390,
+  "vh": 844,
+  "docScrollW": 390,
+  "bodyScrollW": 390,
+  "hScroll": false,
+  "headers": [
+   {
+    "cls": "_topBar_1yi28_8",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 390,
+     "height": 80.5,
+     "top": 0,
+     "right": 390,
+     "bottom": 80.5,
+     "left": 0
+    }
+   }
+  ],
+  "btns": [
+   {
+    "label": "Restore stopped",
+    "w": 113,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-text M"
+   },
+   {
+    "label": "New shell",
+    "w": 80,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-outlin"
+   },
+   {
+    "label": "New agent",
+    "w": 85,
+    "h": 31,
+    "cls": "MuiButtonBase-root MuiButton-root MuiButton-contai"
+   },
+   {
+    "label": "Agents, 10",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Repos",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Reviews, 7",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Loops",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Stats",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "Settings",
+    "w": 60,
+    "h": 40,
+    "cls": "_item_1avua_14"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoFix t",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-1-aabbccdd30d ag",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-2-aabbccdd30d ag",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-4-aabbccdd30d ag",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-5-aabbccdd30d ag",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "fix-login-kid-7-aabbccdd30d ag",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 373,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand fix-login-d8efb24f",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "fix-login-d8efb24f30d agoFix t",
+    "w": 349,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "rate-limit-tests-4e5f6a7b30d a",
+    "w": 349,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "ask-buff-bear-42-3f2a9c1-0a1b2",
+    "w": 349,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "docs-sweep-1a2b3c4d30d agoSwee",
+    "w": 349,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-deps-bump-2b3c4d5e30d ago",
+    "w": 349,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "loop-status-check-7c8d9e0f30d ",
+    "w": 349,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "scratch-91b3f0c430d agoEmpty w",
+    "w": 349,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   },
+   {
+    "label": "Expand lint-sweep-5b1e93aa",
+    "w": 24,
+    "h": 85,
+    "cls": "_disclosure_ow7jk_146"
+   },
+   {
+    "label": "lint-sweep-5b1e93aa30d agoFix ",
+    "w": 349,
+    "h": 85,
+    "cls": "_item_ow7jk_46"
+   }
+  ],
+  "toggle": [
+   {
+    "label": "Collapse sidebar",
+    "expanded": "true",
+    "rect": {
+     "x": 0,
+     "y": 0,
+     "width": 0,
+     "height": 0,
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    },
+    "display": "none"
+   }
+  ]
+ }
+}
