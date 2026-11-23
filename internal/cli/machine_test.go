@@ -623,7 +623,7 @@ func TestApp_runMachineChildren(t *testing.T) {
 		assert.Equal(t, 3, a.Rollup.Total)
 		assert.Equal(t, 1, a.Rollup.Done)
 	})
-	t.Run("a child with no record and no result has null progress fields and a null rollup", func(t *testing.T) {
+	t.Run("a child with no record and no result has a null progress and a null rollup", func(t *testing.T) {
 		e := newMachineApp(t)
 		e.app.global.json = true
 		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
@@ -632,11 +632,25 @@ func TestApp_runMachineChildren(t *testing.T) {
 		require.Len(t, got.Workspaces, 2)
 		b := got.Workspaces[1]
 		assert.Equal(t, "b", *b.ID)
-		require.NotNil(t, b.Progress)
-		assert.Nil(t, b.Progress.Name)
-		assert.Nil(t, b.Progress.Note)
-		assert.Nil(t, b.Progress.UpdatedAt)
+		assert.Nil(t, b.Progress)
 		assert.Nil(t, b.Rollup)
+	})
+	t.Run("an unreadable progress file is a warning, with both fields null", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		store := machine.NewStore(e.app.paths.State)
+		require.NoError(t, store.WriteProgress("boss", "b", &machine.Progress{Total: 1}))
+		path := filepath.Join(store.Dir("boss", "b"), "progress.toml")
+		require.NoError(t, os.WriteFile(path, []byte("version = 1\ntotal = -3\n"), 0o600))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		b := got.Workspaces[1]
+		assert.Equal(t, "b", *b.ID)
+		assert.Nil(t, b.Progress)
+		assert.Nil(t, b.Rollup)
+		require.Len(t, got.Warnings, 1)
+		assert.Contains(t, got.Warnings[0], "couldn't read b's progress")
 	})
 	t.Run("none is an empty list", func(t *testing.T) {
 		e := newMachineApp(t)

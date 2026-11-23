@@ -360,15 +360,7 @@ func (a *App) workspaceProgress(store *machine.Store, list []workspace.Workspace
 		a.warned = append(a.warned, fmt.Sprintf("couldn't read %s's progress: %v", id, err))
 		return nil, nil
 	}
-	var own *progressJSON
-	if tree.Progress != nil {
-		own = progressInfo(tree.Progress)
-	}
-	if tree.Rollup.Total == 0 {
-		return own, nil
-	}
-	rollup := rollupInfo(tree.Rollup)
-	return own, &rollup
+	return nodeProgress(tree)
 }
 
 func listWorkspace(e *lifetime.Entry) listWorkspaceJSON {

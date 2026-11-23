@@ -64,8 +64,8 @@ without recording one, or `pending` when it hasn't finished. `role` is
 the role it was spawned with, or `null`; `result` is `null` until it
 records one.
 
-`progress` is the child's own `ws machine progress` record (all fields `null`
-if it never reported), and `rollup` sums its steps and its descendants':
+`progress` is the child's own `ws machine progress` record, or `null` if it
+never reported, and `rollup` sums its steps and its descendants':
 `{"total", "done", "fraction"}`. A finished child with no record counts as one
 step, done if it passed. `rollup` is `null` until a step is planned. See
 `ws llm machine progress`.
