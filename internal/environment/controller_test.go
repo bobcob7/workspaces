@@ -760,21 +760,41 @@ func TestController_onRes(t *testing.T) {
 	t.Run("logs an acknowledged ca.update", func(t *testing.T) {
 		logs := &syncBuffer{}
 		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, nil)), testSettings())
+		c.addUpdate("env-0a1b2c3d", "0123456789abcdef")
 		c.onRes(t.Context(), &envproto.Message{
-			Topic:   envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
-			Payload: []byte(`{"ok":true,"result":{"fingerprints":[]},"error":null}`),
+			Topic:           envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
+			Payload:         []byte(`{"ok":true,"result":{"fingerprints":[]},"error":null}`),
+			CorrelationData: []byte("0123456789abcdef"),
 		})
 		assert.Contains(t, logs.String(), "ca.update acknowledged")
 	})
 	t.Run("logs a refused ca.update with its code", func(t *testing.T) {
 		logs := &syncBuffer{}
 		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, nil)), testSettings())
+		c.addUpdate("env-0a1b2c3d", "0123456789abcdef")
 		c.onRes(t.Context(), &envproto.Message{
-			Topic:   envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
-			Payload: []byte(`{"ok":false,"result":null,"error":{"code":"usage","message":"bad","details":null}}`),
+			Topic:           envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
+			Payload:         []byte(`{"ok":false,"result":null,"error":{"code":"usage","message":"bad","details":null}}`),
+			CorrelationData: []byte("0123456789abcdef"),
 		})
 		assert.Contains(t, logs.String(), "ca.update refused")
 		assert.Contains(t, logs.String(), "usage")
+	})
+	t.Run("a late reply for no pending call is not logged as a ca.update", func(t *testing.T) {
+		logs := &syncBuffer{}
+		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})), testSettings())
+		c.onRes(t.Context(), &envproto.Message{
+			Topic:           envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "fedcba9876543210"),
+			Payload:         []byte(`{"ok":true,"result":{"workspaces":[]},"error":null}`),
+			CorrelationData: []byte("fedcba9876543210"),
+		})
+		c.onRes(t.Context(), &envproto.Message{
+			Topic:           envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "fedcba9876543210"),
+			Payload:         []byte(`{"ok":false,"result":null,"error":{"code":"usage","message":"bad","details":null}}`),
+			CorrelationData: []byte("fedcba9876543210"),
+		})
+		assert.NotContains(t, logs.String(), "ca.update")
+		assert.Contains(t, logs.String(), "reply for no pending call")
 	})
 	t.Run("logs a reply it can't read", func(t *testing.T) {
 		logs := &syncBuffer{}

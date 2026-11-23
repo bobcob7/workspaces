@@ -90,6 +90,7 @@ type Controller struct {
 	mu             sync.Mutex
 	presence       map[string]heard
 	calls          map[string]*pendingCall
+	updates        map[string]string // ca.update request id to the environment it waits on
 	listening      bool
 	listenAddr     string
 	enrollAddr     string
@@ -111,6 +112,7 @@ func NewController(log *slog.Logger, store *Store, b broker, settings Settings, 
 		now:           now,
 		presence:      map[string]heard{},
 		calls:         map[string]*pendingCall{},
+		updates:       map[string]string{},
 		enrollTimeout: enrollReadTimeout,
 		callGrace:     envproto.Grace,
 	}
@@ -620,7 +622,12 @@ func (c *Controller) onRes(ctx context.Context, msg *envproto.Message) {
 		c.log.WarnContext(ctx, "reply refused", "id", id)
 		return
 	}
-	if c.deliver(id, string(msg.CorrelationData), reply) {
+	reqID := string(msg.CorrelationData)
+	if c.deliver(id, reqID, reply) {
+		return
+	}
+	if !c.takeUpdate(id, reqID) {
+		c.log.DebugContext(ctx, "reply for no pending call", "id", id)
 		return
 	}
 	if reply.OK {
@@ -654,6 +661,8 @@ func (c *Controller) sendCAUpdate(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	c.addUpdate(id, reqID)
+	time.AfterFunc(caUpdateExpiry, func() { c.takeUpdate(id, reqID) })
 	return c.broker.Publish(ctx, envproto.Message{
 		Topic:           envproto.Topic(id, envproto.LeafReq),
 		Payload:         payload,
@@ -662,6 +671,24 @@ func (c *Controller) sendCAUpdate(ctx context.Context, id string) error {
 		CorrelationData: []byte(reqID),
 		Expiry:          caUpdateExpiry,
 	})
+}
+
+// addUpdate records that the ca.update request reqID waits for a reply from id.
+func (c *Controller) addUpdate(id, reqID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.updates[reqID] = id
+}
+
+// takeUpdate forgets the ca.update request reqID to id, and reports whether it was waiting.
+func (c *Controller) takeUpdate(id, reqID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if owner, ok := c.updates[reqID]; !ok || owner != id {
+		return false
+	}
+	delete(c.updates, reqID)
+	return true
 }
 
 // marshalRequest encodes {"op": op, "args": args, "request_id": requestID, "deadline": null}.
