@@ -103,21 +103,24 @@ func (a *App) enrolledEnvironments() ([]string, error) {
 // local when the parent is here, else the only environment whose snapshot
 // lists it. Any other parent is workspace_not_found.
 func (a *App) parentEnvironment(parent string) ([]string, error) {
-	_, err := a.workspaces.Find(parent)
+	_, findErr := a.workspaces.Find(parent)
 	switch {
-	case err == nil:
+	case findErr == nil:
 		return []string{localEnvironment}, nil
-	case !errors.Is(err, workspace.ErrNotFound):
-		return nil, domainError(err)
+	case !errors.Is(findErr, workspace.ErrNotFound):
+		return nil, domainError(findErr)
 	}
 	found, err := a.environmentsWith(parent)
 	if err != nil {
 		return nil, err
 	}
-	if len(found) != 1 {
-		return nil, newError(codeWorkspaceNotFound, fmt.Errorf("%w: %s", workspace.ErrNotFound, parent))
+	switch len(found) {
+	case 1:
+		return found, nil
+	case 0:
+		return nil, domainError(findErr)
 	}
-	return found, nil
+	return nil, newError(codeWorkspaceNotFound, fmt.Errorf("%w: %s", workspace.ErrNotFound, parent))
 }
 
 // environmentPresence is the status the running daemon reports for each

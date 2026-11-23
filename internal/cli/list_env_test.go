@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -168,6 +169,24 @@ func TestApp_listedEnvironments(t *testing.T) {
 		_, err := e.app.listedEnvironments(&listOptions{parent: "gone"})
 		assert.Equal(t, codeWorkspaceNotFound, agentErrorCode(err))
 	})
+	t.Run("--parent nosuch with no environment enrolled is the base message", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		_, err := e.app.listedEnvironments(&listOptions{parent: "nosuch"})
+		require.EqualError(t, err, fmt.Sprintf(`%v: "nosuch"`, workspace.ErrNotFound))
+		assert.ErrorIs(t, err, workspace.ErrNotFound)
+	})
+	t.Run("--parent in two environments is workspace_not_found", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		for _, name := range []string{"box", "linux-server"} {
+			rec := addEnvironment(t, e.app, name)
+			enrollEnvironment(t, e.app, rec)
+			writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("deps", "github.com/bobcob7/buff-bear", "", false)))
+		}
+		_, err := e.app.listedEnvironments(&listOptions{parent: "deps"})
+		assert.Equal(t, codeWorkspaceNotFound, agentErrorCode(err))
+	})
 	t.Run("no daemon is dialled with no environment", func(t *testing.T) {
 		e := newRemoteListApp(t, nil)
 		ln := listenDaemon(t, e.app)
@@ -180,6 +199,36 @@ func TestApp_listedEnvironments(t *testing.T) {
 		ln := listenDaemon(t, e.app)
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
 		assert.NoError(t, acceptDialled(t, ln), "the daemon was not dialled")
+	})
+}
+
+func TestApp_runListEnvironments(t *testing.T) {
+	t.Run("a local and a remote workspace with the same id are two rows", func(t *testing.T) {
+		e := newRemoteListApp(t, []lifetime.Entry{{Workspace: listedWorkspace("api-bump")}})
+		rec := addLinuxServer(t, e.app)
+		enrollEnvironment(t, e.app, rec)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.Equal(t, ""+
+			"ID         ENV                      NAME   CREATED   SESSION   REPOS\n"+
+			"api-bump   local                    -      2h ago    -         buff-bear@main\n"+
+			"api-bump   linux-server (offline)   -      2h ago    -         repo@main\n", e.stdout.String())
+	})
+	t.Run("--json has one entry per environment, told apart by environment", func(t *testing.T) {
+		e := newRemoteListApp(t, []lifetime.Entry{{Workspace: listedWorkspace("api-bump")}})
+		rec := addLinuxServer(t, e.app)
+		enrollEnvironment(t, e.app, rec)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 2)
+		assert.Equal(t, "api-bump", *got.Workspaces[0].ID)
+		assert.Equal(t, "local", got.Workspaces[0].Environment)
+		assert.Equal(t, "api-bump", *got.Workspaces[1].ID)
+		assert.Equal(t, "linux-server", got.Workspaces[1].Environment)
+		assert.True(t, got.Workspaces[1].Stale)
 	})
 }
 
