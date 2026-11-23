@@ -185,3 +185,22 @@ frontend (`desktop/src/api.ts`, `desktop/src/store.ts`).
 - Verify: `cd desktop && npm ci && npm run typecheck && npm test`, then
   `cd desktop/src-tauri && cargo test && cargo clippy --all-targets -- -D warnings`
   and the `--no-default-features --features online` pair.
+
+## T5. `wait` and `children`: a null rollup when nothing is planned (small)
+
+`ws list --json` gives `rollup: null` when `total` is 0 (the contract above),
+but `ws machine wait` and `ws machine children` give `{"total":0,"done":0,"fraction":null}`.
+Make them agree with the contract.
+
+- `internal/cli/machine_progress.go`: `childProgress` returns a nil `*rollupJSON`
+  when the tree's rollup `Total` is 0. `ws machine progress show`'s per-node
+  `rollup` objects stay as they are (its tree always has objects).
+- Update the tests that assert the old shape (`internal/cli/machine_wait_test.go`,
+  `machine_test.go`, `machine_progress_test.go`) and add one: a child with no
+  record and no result has `progress` with null fields and `rollup` null.
+- Docs: `internal/cli/guides/ws-machine-wait.md`, `ws-machine-children.md`,
+  `docs/tools/ws-machine.md`, `docs/adrs/0077-agent-progress-reporting.md`: say
+  `rollup` is `null` until a step is planned.
+- Files: those above only.
+- Verify: `go test ./internal/cli/...`, `gofmt -l internal`,
+  `go tool golangci-lint run ./internal/...`.
