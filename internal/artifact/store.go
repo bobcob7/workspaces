@@ -106,7 +106,7 @@ func (s *Store) Put(ctx context.Context, id string, n *NewRevision) (PutResult, 
 	if err = CheckLine("note", n.Note); err != nil {
 		return PutResult{}, err
 	}
-	unlock, err := s.lockArtifact(ctx, dir)
+	unlock, err := lockArtifact(ctx, dir)
 	if err != nil {
 		return PutResult{}, err
 	}
@@ -192,7 +192,7 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 	if err = s.prepare(); err != nil {
 		return err
 	}
-	unlock, err := s.lockArtifact(ctx, dir)
+	unlock, err := lockArtifact(ctx, dir)
 	if err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 // that renamed the artifact away after dirOf would leave a directory holding
 // only the lock: the record is checked under the lock, and such a directory
 // is cleared with ErrNotFound.
-func (s *Store) lockArtifact(ctx context.Context, dir string) (func(), error) {
+func lockArtifact(ctx context.Context, dir string) (func(), error) {
 	unlock, err := lockfile.Exclusive(ctx, filepath.Join(dir, lockFileName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, filepath.Base(dir))

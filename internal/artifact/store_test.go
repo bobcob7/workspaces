@@ -336,7 +336,7 @@ func TestStore_Remove(t *testing.T) {
 		rec := addText(t, s, "notes.txt", "one\n")
 		artifactDir := filepath.Join(dir, rec.ID)
 		require.NoError(t, s.Remove(t.Context(), rec.ID))
-		_, err := s.lockArtifact(t.Context(), artifactDir)
+		_, err := lockArtifact(t.Context(), artifactDir)
 		require.ErrorIs(t, err, ErrNotFound)
 		assert.NoDirExists(t, artifactDir)
 	})
