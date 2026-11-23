@@ -534,6 +534,18 @@ func TestController_onStatus(t *testing.T) {
 		})
 		assert.Empty(t, *updates)
 	})
+	t.Run("doesn't ask an offline environment for ca.update", func(t *testing.T) {
+		store := newTestStore(t)
+		b := envtest.NewBroker()
+		rec, _ := enrollAgent(t, store, "linux-server")
+		c := startController(t, store, b)
+		updates := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
+		c.onStatus(t.Context(), &envproto.Message{
+			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
+			Payload: []byte(`{"status":"offline"}`),
+		})
+		assert.Empty(t, *updates)
+	})
 }
 
 func TestController_onSnapshot(t *testing.T) {
