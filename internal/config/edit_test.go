@@ -543,7 +543,7 @@ func TestEnvironmentKeys(t *testing.T) {
 	t.Run("the four keys come last when the table is set", func(t *testing.T) {
 		settings, err := Settings([]byte(defaultFile + table))
 		require.NoError(t, err)
-		require.Len(t, settings, 9)
+		require.Len(t, settings, 10)
 		assert.Equal(t, "environments.listen", settings[5].Key)
 		assert.Equal(t, "0.0.0.0:9001", settings[5].Value)
 		assert.True(t, settings[5].Set)
@@ -552,6 +552,7 @@ func TestEnvironmentKeys(t *testing.T) {
 		assert.Equal(t, "environments.public_name", settings[7].Key)
 		assert.Equal(t, "environments.renew_before_days", settings[8].Key)
 		assert.Equal(t, 30, settings[8].Default)
+		assert.Equal(t, "environments.agent_loop_scripts", settings[9].Key)
 	})
 	t.Run("the default file has none of them", func(t *testing.T) {
 		settings, err := Settings([]byte(defaultFile))
@@ -584,6 +585,19 @@ func TestEnvironmentKeys(t *testing.T) {
 		setting, err := Lookup(out, "environments.renew_before_days")
 		require.NoError(t, err)
 		assert.Equal(t, 14, setting.Value)
+	})
+	t.Run("agent_loop_scripts is a bool that defaults to true", func(t *testing.T) {
+		setting, err := Lookup([]byte(defaultFile), "environments.agent_loop_scripts")
+		require.NoError(t, err)
+		assert.Equal(t, Setting{Key: "environments.agent_loop_scripts", Type: TypeBool, Value: true, Default: true, Set: false}, setting)
+		out, _, err := Set([]byte(defaultFile), "environments.agent_loop_scripts", []string{"false"})
+		require.NoError(t, err)
+		setting, err = Lookup(out, "environments.agent_loop_scripts")
+		require.NoError(t, err)
+		assert.Equal(t, false, setting.Value)
+		assert.True(t, setting.Set)
+		_, _, err = Set([]byte(defaultFile), "environments.agent_loop_scripts", []string{"maybe"})
+		require.ErrorIs(t, err, ErrValueInvalid)
 	})
 	t.Run("out-of-range values are config_value_invalid", func(t *testing.T) {
 		for _, tt := range []struct{ key, value string }{

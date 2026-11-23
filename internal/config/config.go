@@ -145,6 +145,13 @@ type Environments struct {
 	EnrollListen    string `toml:"enroll_listen" json:"enroll_listen"`
 	PublicName      string `toml:"public_name" json:"public_name"`
 	RenewBeforeDays *int   `toml:"renew_before_days" json:"renew_before_days"`
+	// AgentLoopScripts false refuses a loop script sent by the controller.
+	AgentLoopScripts *bool `toml:"agent_loop_scripts" json:"agent_loop_scripts"`
+}
+
+// LoopScriptsAllowed is [environments] agent_loop_scripts, true when it isn't set.
+func (e *Environments) LoopScriptsAllowed() bool {
+	return e.AgentLoopScripts == nil || *e.AgentLoopScripts
 }
 
 // Defaults for [environments]: the agents' port, first contact's port, and

@@ -399,7 +399,7 @@ func validateExpectRev(rev *int) error {
 // calls it after Validate.
 func validateOp(op string, args any) error {
 	if NeedsConfirm(op, args) && !confirmed(args) {
-		return usageError(op + " needs confirm")
+		return &ArgsError{Code: "usage", Message: op + " needs confirm", cause: ErrNeedsConfirm}
 	}
 	if (op == OpLoopAdd || op == OpLoopEdit || op == OpLoopMemorySet) && HasRedacted(args) {
 		return usageError("a value contains [redacted]; retype it or leave it unchanged")

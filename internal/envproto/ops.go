@@ -200,16 +200,24 @@ var ErrArgs = errors.New("invalid operation arguments")
 type ArgsError struct {
 	Code    string // "usage", "spec_invalid", "name_invalid" or "outside_workspace"
 	Message string
+	cause   error // a sentinel the refusal also wraps, or nil
 }
+
+// ErrNeedsConfirm is wrapped by the ArgsError of an operation that needs
+// confirm: true and didn't carry it.
+var ErrNeedsConfirm = errors.New("the operation needs confirm")
 
 // Error returns the message the reply carries.
 func (e *ArgsError) Error() string {
 	return e.Message
 }
 
-// Unwrap returns ErrArgs.
-func (*ArgsError) Unwrap() error {
-	return ErrArgs
+// Unwrap returns ErrArgs, and the refusal's sentinel when it has one.
+func (e *ArgsError) Unwrap() []error {
+	if e.cause == nil {
+		return []error{ErrArgs}
+	}
+	return []error{ErrArgs, e.cause}
 }
 
 var (

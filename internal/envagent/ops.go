@@ -226,6 +226,9 @@ func (a *Agent) execute(ctx context.Context, spec envproto.OpSpec, args any) []b
 // ReplyError, else "internal".
 func refusalReply(err error) []byte {
 	if ae, ok := errors.AsType[*envproto.ArgsError](err); ok {
+		if errors.Is(err, envproto.ErrNeedsConfirm) {
+			return needsConfirmReply(ae)
+		}
 		return envproto.ErrorReply(ae.Code, ae.Message)
 	}
 	if re, ok := errors.AsType[*envproto.ReplyError](err); ok {
@@ -239,6 +242,20 @@ func refusalReply(err error) []byte {
 		return body
 	}
 	return envproto.ErrorReply("internal", "the operation failed")
+}
+
+// needsConfirmReply is the reply to an operation that needs confirm: its
+// usage error, with details {"needs": "confirm"}.
+func needsConfirmReply(ae *envproto.ArgsError) []byte {
+	body, err := json.Marshal(envproto.Reply{Error: &envproto.ReplyError{
+		Code:    ae.Code,
+		Message: ae.Message,
+		Details: map[string]any{"needs": "confirm"},
+	}})
+	if err != nil {
+		return envproto.ErrorReply(ae.Code, ae.Message)
+	}
+	return body
 }
 
 // acquire takes one of the MaxOps slots, reporting false when ctx has ended

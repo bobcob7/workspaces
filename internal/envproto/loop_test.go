@@ -118,6 +118,22 @@ func TestDecodeArgs_confirm(t *testing.T) {
 		_, err := DecodeArgs(OpLoopRm, json.RawMessage(`{"name":"a"}`))
 		assertArgsError(t, err, "usage")
 	})
+	t.Run("a confirm refusal wraps ErrNeedsConfirm", func(t *testing.T) {
+		for op, raw := range map[string]string{
+			OpLoopRm:           `{"name":"a"}`,
+			OpLoopHistoryClear: `{"name":"a"}`,
+			OpLoopMemoryClear:  `{"name":"a"}`,
+			OpLoopAdd:          `{"name":"a","every":"15m","prompt":"p","script":"echo hi"}`,
+		} {
+			_, err := DecodeArgs(op, json.RawMessage(raw))
+			assert.ErrorIs(t, err, ErrNeedsConfirm, op)
+		}
+	})
+	t.Run("another refusal does not wrap ErrNeedsConfirm", func(t *testing.T) {
+		_, err := DecodeArgs(OpLoopRm, json.RawMessage(`{"name":"a/b","confirm":true}`))
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, ErrNeedsConfirm)
+	})
 	t.Run("loop.rm with confirm is accepted", func(t *testing.T) {
 		_, err := DecodeArgs(OpLoopRm, json.RawMessage(`{"name":"a","confirm":true}`))
 		assert.NoError(t, err)
