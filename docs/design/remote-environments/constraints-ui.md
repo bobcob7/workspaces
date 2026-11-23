@@ -40,7 +40,7 @@ registry (the lock file is pinned; no package changes).
 | A browser other than Playwright's | screenshots only through the orchestrator's child with `desktop/test/tauri-mock.js` and `web-mock.js` |
 | Docker with published ports (the daemon is remote) | `make online-smoke` and the e2e image can't run; Workspace Online is checked with vitest and the `online` cargo tests |
 | A real remote machine | every terminal test runs controller, broker and agent in one process: `envtest` (T4, T6) and the real embedded broker on loopback (T1, T11) |
-| A real WAN | T1 simulates one with an in-process throttling proxy (RTT and bandwidth only, no loss) |
+| A real WAN | T1 simulates one with an in-process throttling proxy (RTT and bandwidth only, no loss); T1d adds a proxy whose connections share one bottleneck queue (64 KiB, and 256 KiB for information), still with no loss |
 | A signed-in `claude` | attach is tested with a fake `claude` script that `exec cat` (T11) or a `ptyStarter` mock (T4) |
 | Windows | no `_windows.go` files; `ptyproc_other.go` and `rawterm_other.go` refuse |
 | macOS | `GOOS=darwin go vet` for `ptyproc` and `rawterm_darwin.go`; CI's macOS legs run them |
@@ -114,7 +114,8 @@ registry (the lock file is pinned; no package changes).
 | `envagent.NewAgent(...)` callers: `internal/cli/env_agent.go`, `internal/envagent/*_test.go`, `internal/mqttbroker/conformance_test.go` | signature | unchanged by design (terminals come through the `ops` value) |
 | `envagent.NoOperations{}` | used by the conformance test | doesn't implement `terminalCommands`: `terminal.open` answers `usage` there until T11 passes the cli operations |
 | the session loop (`Agent.serve`) | operations run on goroutines (PR 3) | terminal frames must not run on the loop either; the `stream/+/in` handler only enqueues |
-| `internal/environment/policy.go:70-107` agent ACL | `stream/<x>/out` publish, `stream/<x>/in` subscribe (with `+`) | already allows terminals; no change. A second stream connection (D1 fallback) would change it |
+| `internal/environment/policy.go:70-107` agent ACL | `stream/<x>/out` publish, `stream/<x>/in` subscribe (with `+`) on the one agent connection | **changed by T1b** (D12): only the stream connection `<id>.t` may use stream topics; T4 must publish and subscribe streams through T1c's `streamConn`, never `a.client`, or the broker disconnects the control connection |
+| `envagent.NewAgent(...)` and `Options` | signature unchanged | T1c adds `Agent.SetStreamClient` and `Options.StreamIdle` (default 60 s in `DefaultOptions`); `internal/cli/env_agent.go` calls `SetStreamClient` with a second `a.newEnvClient(log)` |
 
 ### Controller (`internal/environment`) — T6
 
@@ -144,8 +145,9 @@ registry (the lock file is pinned; no package changes).
 | --- | --- | --- |
 | `MaximumClientWritesPending = 256` | `internal/mqttbroker/broker.go:96` | a slow subscriber loses QoS 0 frames beyond it: the gap check is required |
 | `MaximumPacketSize = 256 KiB + 16 KiB` | `broker.go:95` | stream frames are far below |
-| keep-alive 30 s, will delay 10 s | `envagent` | offline after ~11 s (killed) or ~56 s (silent): a terminal ends then (D10) |
+| keep-alive 30 s, will delay 10 s | `envagent` | offline after ~11 s (killed) or ~56 s (silent): a terminal ends then (D10). The stream connection has the same keep-alive and no will |
 | mochi v2.7.9, paho v0.23.0 | `go.mod` | no change |
+| head-of-line limit: control request p50 under a saturated stream ≤ 2 × idle p50 + 100 ms (about 142 ms at 20 ms RTT) | D1, D17 | failed on one connection (about 2.0 s, T1); T1d must pass it on the second connection through a shared 64 KiB bottleneck |
 
 ### Lint and test rules (all tasks)
 
@@ -162,6 +164,23 @@ registry (the lock file is pinned; no package changes).
 | `gosec` G204 (subprocess with a variable) | `ptyproc.Start` takes a resolved path from the agent's own builder: add a `//nolint:gosec // the path and args come from TerminalCommand, built from validated fields` with that reason |
 | `forbidigo`, `sloglint`, `tagliatelle` (`snake_case` JSON), `errname`, `godot`, `noctx` | as in constraints.md |
 | Build tags | T1's files are `//go:build spike`; `make lint` doesn't build them, so T1 runs `go vet -tags spike` itself |
+
+### Second connection — T1a, T1b, T1c, T1d, T4, T6
+
+| Value or rule | Where | Breaks when |
+| --- | --- | --- |
+| `envproto.StreamSuffix = ".t"`, `StreamClientID(id)` | `internal/envproto/topics.go` (T1a) | any other spelling of the stream client id; `ValidID` must keep refusing it so it never names a topic tree |
+| `ConnectOptions.WriteBuffer` (0: OS default) | `internal/envproto/envproto.go` (T1a), `internal/mqttclient/client.go` (T1c) | `envtest` ignores it (in-memory); only `mqttclient` applies it |
+| stream connection send buffer 64 KiB (`streamWriteBuffer`) | `internal/envagent/streams.go` (T1c) | the control connection must keep the OS default |
+| `Options.StreamIdle` 60 s | `envagent` (T1c) | the stream connection closes that long after the last terminal |
+| claimed id rule: exactly `<cn>.t` → stream; other `….t` → refused; anything else → `<cn>` | `mqttbroker` `peerOfConn` (T1b) | `TestBroker_connect` "the client id is the certificate CN, whatever the client claims" must keep a claim that isn't `<cn>.t` |
+| `policy.connect` accepts `ClientID ∈ {CN, CN + ".t"}` | `internal/environment/policy.go` (T1b) | `TestPolicy_connect` "refuses a client id that isn't the common name" keeps passing (its claim isn't `.t`) |
+| takeover keyed by client id, not CN | `mqttbroker.takeOver` (T1b) | keyed by CN, the stream connection would kick the control one |
+| a `<cn>.t` needs a live `<cn>`; a `<cn>` ending drops its `<cn>.t` | `mqttbroker` hook (T1b) | `envtest` doesn't model it; tests of the coupling live in `internal/mqttbroker` only |
+| no will on `<cn>.t`; no retained publish on `stream/…` | `mqttbroker` `OnConnect`, `OnPublish` (T1b) | `Provides` must list `mqtt.OnPublish`; inline (controller) publishes skip the check |
+| `Clients()` lists `<cn>.t` peers | `mqttbroker`, `envtest` | `Controller.disconnectRefused` and T6's `streamConnected` read it; nothing else counts connections (`ws daemon status` shows presence, not connections) |
+| `ws attach`'s `disconnected` message | T8, `ws-attach.md` | "lost the terminal connection to <name>; the agent keeps running", not "went offline" |
+| `feat/env-ui-t1` merged before T1d | `internal/mqttbroker/termspike_test.go`, `throttle_test.go` (`spike` tag) | T1d extends them |
 
 ## Desktop command lists — T12, T13
 
@@ -222,6 +241,9 @@ for unlisted keys and saves with `config_set`.
 
 ## Not verified by this design
 
+- A second connection's isolation through a shared bottleneck: T1's proxy
+  paced each connection alone; T1d measures it with a modelled shared queue,
+  not a real one (no loss, no real bufferbloat, one agent).
 - Any terminal number: that is T1's job. The design's limits (16 KiB, 1 MiB,
   64 KiB/s, 8 terminals, 15 s/60 s) are ADR 0074's or chosen, not measured.
 - Whether mochi's in-process `Subscribe` callback runs on the publisher's
