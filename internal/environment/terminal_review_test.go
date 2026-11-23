@@ -137,7 +137,7 @@ func TestTerminal_Hardening(t *testing.T) {
 		term := f.open(t)
 		top := envproto.MaxTermSize
 		for _, size := range [][2]int{{0, 24}, {top + 1, 24}, {80, 0}, {80, top + 1}, {-1, 24}, {80, -1}} {
-			assert.Error(t, term.Resize(t.Context(), size[0], size[1]), "%v", size)
+			require.Error(t, term.Resize(t.Context(), size[0], size[1]), "%v", size)
 		}
 		assert.Empty(t, f.sentKinds(envproto.FrameResize))
 		require.NoError(t, term.Resize(t.Context(), 1, 1))
@@ -153,7 +153,7 @@ func TestTerminal_Hardening(t *testing.T) {
 		cancel()
 		err := term.Close(ctx)
 		require.Error(t, err)
-		assert.ErrorContains(t, err, "sending to terminal "+testSID)
+		require.ErrorContains(t, err, "sending to terminal "+testSID)
 		assert.ErrorIs(t, err, context.Canceled)
 	})
 	t.Run("a gap inside RedrawEvery gets a trailing redraw when the window ends", func(t *testing.T) {

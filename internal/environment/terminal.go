@@ -93,7 +93,7 @@ func (c *Controller) OpenTerminal(ctx context.Context, name string, args envprot
 	if err != nil {
 		term.discard()
 		if term != nil && result.SID != "" {
-			go c.closeAbandoned(name, result.SID)
+			go c.closeAbandoned(context.WithoutCancel(ctx), name, result.SID)
 		}
 		return nil, envproto.TerminalOpenResult{}, err
 	}
@@ -109,8 +109,8 @@ func (c *Controller) OpenTerminal(ctx context.Context, name string, args envprot
 
 // closeAbandoned asks the agent, best effort, to close a terminal it opened
 // but whose open call ended without handing it to the caller.
-func (c *Controller) closeAbandoned(name, sid string) {
-	ctx, cancel := context.WithTimeout(context.Background(), abandonedCloseWait)
+func (c *Controller) closeAbandoned(parent context.Context, name, sid string) {
+	ctx, cancel := context.WithTimeout(parent, abandonedCloseWait)
 	defer cancel()
 	raw, err := json.Marshal(envproto.TerminalCloseArgs{SID: sid})
 	if err != nil {
