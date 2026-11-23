@@ -15,6 +15,9 @@ import { ReposList } from "./features/repos/ReposList";
 import { ReposPane } from "./features/repos/ReposPane";
 import { CommentDialog } from "./features/reviews/CommentDialog";
 import { FixDialog } from "./features/reviews/FixDialog";
+import { ArtifactsActions } from "./features/artifacts/ArtifactsActions";
+import { ArtifactsList } from "./features/artifacts/ArtifactsList";
+import { ArtifactsPane } from "./features/artifacts/ArtifactsPane";
 import { LoopsActions } from "./features/loops/LoopsActions";
 import { LoopsList } from "./features/loops/LoopsList";
 import { LoopsPane } from "./features/loops/LoopsPane";
@@ -122,6 +125,7 @@ const sectionViews: Readonly<Partial<Record<Section, SectionView>>> = {
   repos: { actions: ReposActions, list: ReposList, pane: ReposPane },
   reviews: { actions: ReviewsActions, list: ReviewsList, pane: ReviewsPane },
   loops: { actions: LoopsActions, list: LoopsList, pane: LoopsPane },
+  artifacts: { actions: ArtifactsActions, list: ArtifactsList, pane: ArtifactsPane },
   stats: { actions: () => null, list: StatsList, pane: StatsPane },
   settings: { actions: () => null, list: SettingsList, pane: SettingsPane },
 };
@@ -137,6 +141,8 @@ const Warnings = ({ section }: { readonly section: Section }): JSX.Element | nul
         return s.repos.warnings;
       case "loops":
         return s.loops.warnings;
+      case "artifacts":
+        return s.artifacts.warnings;
       case "stats":
         return s.stats.results[s.stats.window].data?.warnings ?? noWarnings;
       case "reviews":

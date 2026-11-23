@@ -52,6 +52,12 @@ const icons: Readonly<Record<Section, JSX.Element>> = {
       <path d="M20 4v4h-4" />
     </>,
   ),
+  artifacts: icon(
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 3v5h5" />
+    </>,
+  ),
   stats: icon(
     <>
       <path d="M4 20V11" />
@@ -73,15 +79,16 @@ const labels: Readonly<Record<Section, string>> = {
   repos: "Repos",
   reviews: "Reviews",
   loops: "Loops",
+  artifacts: "Artifacts",
   stats: "Stats",
   settings: "Settings",
 };
 
-/** Every section in rail order; ⌘1–⌘6 choose them by this position. */
-export const railOrder: readonly Section[] = ["agents", "repos", "reviews", "loops", "stats", "settings"];
+/** Every section in rail order; ⌘1–⌘7 choose them by this position. */
+export const railOrder: readonly Section[] = ["agents", "repos", "reviews", "loops", "artifacts", "stats", "settings"];
 
 /** The sections built so far. A section joins the rail when its PR lands. */
-export const shownSections: readonly Section[] = ["agents", "repos", "reviews", "loops", "stats", "settings"];
+export const shownSections: readonly Section[] = ["agents", "repos", "reviews", "loops", "artifacts", "stats", "settings"];
 
 /** Settings sits apart, at the bottom of the rail. */
 const bottomSections: ReadonlySet<Section> = new Set(["settings"]);
