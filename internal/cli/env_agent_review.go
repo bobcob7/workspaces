@@ -21,8 +21,8 @@ const truncatedFieldCap = 64 << 10
 
 // runReview runs a review.* operation with ws review's own command. Every
 // result and every error goes through the redactor before it leaves.
-// TODO(orchestrator): the 12 per hour review.start limit and its
-// operation_limited reply belong to envagent's limiter (RL5, RL8).
+// TODO: the 12 per hour review.start limit and its operation_limited reply
+// belong to the RL5 limiter, which is not merged yet.
 func (o *agentOperations) runReview(ctx context.Context, op string, args any) (json.RawMessage, error) {
 	out, err := o.dispatchReview(ctx, op, args)
 	if err != nil {
@@ -296,12 +296,16 @@ func cutComment(fields map[string]json.RawMessage, limit int) json.RawMessage {
 	out := make(map[string]json.RawMessage, len(fields))
 	maps.Copy(out, fields)
 	for _, key := range []string{"body", "code"} {
-		out[key] = cutString(out[key], limit)
+		if _, ok := out[key]; ok {
+			out[key] = cutString(out[key], limit)
+		}
 	}
 	var suggestions []map[string]json.RawMessage
 	if json.Unmarshal(out["suggestions"], &suggestions) == nil {
 		for _, s := range suggestions {
-			s["code"] = cutString(s["code"], limit)
+			if _, ok := s["code"]; ok {
+				s["code"] = cutString(s["code"], limit)
+			}
 		}
 		out["suggestions"] = mustMarshal(suggestions)
 	}
@@ -362,10 +366,7 @@ func (o *agentOperations) redactError(err error) error {
 		raw, _, err = o.redactorOrNew().JSON(raw)
 	}
 	if err == nil {
-		err = json.Unmarshal(raw, &out.Details)
-	}
-	if err != nil {
-		out.Details = nil
+		_ = json.Unmarshal(raw, &out.Details)
 	}
 	return out
 }
