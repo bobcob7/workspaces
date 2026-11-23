@@ -31,7 +31,7 @@ func (s *Store) AddThread(ctx context.Context, id string, n *NewThread) (Thread,
 		comment = s.newComment("c1", n.Body, n.By)
 		thread = Thread{ID: fmt.Sprintf("t%d", len(threads)+1), Comments: []Comment{comment}}
 		if n.Anchor != nil {
-			anchor, err := s.newAnchor(dir, rec, *n.Anchor)
+			anchor, err := newAnchor(dir, rec, *n.Anchor)
 			if err != nil {
 				return nil, err
 			}
@@ -132,7 +132,7 @@ func (s *Store) lockedThreads(ctx context.Context, id string, edit func(dir stri
 
 // newAnchor locates req in the latest revision of rec, whose bytes are in
 // dir.
-func (s *Store) newAnchor(dir string, rec *Record, req AnchorRequest) (Anchor, error) {
+func newAnchor(dir string, rec *Record, req AnchorRequest) (Anchor, error) {
 	if rec.Kind == KindImage {
 		return Anchor{}, fmt.Errorf("%w: an image takes whole-artifact comments", ErrInvalid)
 	}

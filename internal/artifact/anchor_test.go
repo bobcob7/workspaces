@@ -157,7 +157,7 @@ func TestAnchorError_Error(t *testing.T) {
 
 func TestAnchorError_Is(t *testing.T) {
 	err := &AnchorError{Occurrences: 2}
-	assert.ErrorIs(t, err, ErrAnchorNotFound)
+	require.ErrorIs(t, err, ErrAnchorNotFound)
 	assert.NotErrorIs(t, err, ErrInvalid)
 }
 

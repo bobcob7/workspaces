@@ -388,7 +388,13 @@ func (s *Store) appendRevision(dir string, rec *Record, n *NewRevision) (PutResu
 	if err := writeRecord(s.tmpDir(), dir, rec); err != nil {
 		return PutResult{}, err
 	}
-	anchored, detached, err := s.moveAnchors(dir, rec, n.Data)
+	return s.movedResult(dir, rec, n.Data)
+}
+
+// movedResult is Put's result once the new revision is written: its threads
+// have been moved to it.
+func (s *Store) movedResult(dir string, rec *Record, data []byte) (PutResult, error) {
+	anchored, detached, err := s.moveAnchors(dir, rec, data)
 	if err != nil {
 		return PutResult{}, err
 	}

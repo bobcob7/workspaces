@@ -184,9 +184,9 @@ func TestStore_Resolve(t *testing.T) {
 }
 
 func TestCheckBody(t *testing.T) {
-	assert.ErrorIs(t, checkBody(""), ErrInvalid)
-	assert.ErrorIs(t, checkBody(" \t\n"), ErrInvalid)
-	assert.ErrorIs(t, checkBody(strings.Repeat("é", MaxBodyRunes+1)), ErrInvalid)
+	require.ErrorIs(t, checkBody(""), ErrInvalid)
+	require.ErrorIs(t, checkBody(" \t\n"), ErrInvalid)
+	require.ErrorIs(t, checkBody(strings.Repeat("é", MaxBodyRunes+1)), ErrInvalid)
 	assert.NoError(t, checkBody(strings.Repeat("é", MaxBodyRunes)))
 	assert.NoError(t, checkBody("**bold**\n\nand more"))
 }

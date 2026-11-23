@@ -67,6 +67,8 @@ func Locate(text string, rev int, req AnchorRequest) (Anchor, error) {
 // Move re-anchors a into text, revision rev (ADR 0079 › New revisions
 // move anchors). ok is false when the quote is gone; the caller then
 // keeps a with State "detached".
+//
+//nolint:gocritic // a is passed by value, as ADR 0079 names the signature.
 func Move(text string, rev int, a Anchor) (moved Anchor, ok bool) {
 	if a.Quote == "" {
 		return a, false
@@ -245,7 +247,7 @@ func contextScore(text string, start, end int, prefix, suffix string) int {
 
 func commonSuffixRunes(a, b string) int {
 	count := 0
-	for len(a) > 0 && len(b) > 0 {
+	for a != "" && b != "" {
 		ra, sa := utf8.DecodeLastRuneInString(a)
 		rb, sb := utf8.DecodeLastRuneInString(b)
 		if ra != rb {
@@ -259,7 +261,7 @@ func commonSuffixRunes(a, b string) int {
 
 func commonPrefixRunes(a, b string) int {
 	count := 0
-	for len(a) > 0 && len(b) > 0 {
+	for a != "" && b != "" {
 		ra, sa := utf8.DecodeRuneInString(a)
 		rb, sb := utf8.DecodeRuneInString(b)
 		if ra != rb {
