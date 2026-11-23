@@ -254,6 +254,11 @@ func TestApp_runClaude_parent(t *testing.T) {
 		require.NoError(t, e.run(t, "fix it"))
 		assert.Empty(t, e.store.CreateCalls()[0].Opts.Parent)
 	})
+	t.Run("locally, no environment is stamped", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		require.NoError(t, e.run(t, "fix it"))
+		assert.Empty(t, e.store.CreateCalls()[0].Opts.Environment)
+	})
 	t.Run("inside a workspace, its child", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		inWorkspace(e)

@@ -120,6 +120,11 @@ func (a *App) runEnvAgentEnroll(ctx context.Context, code string) error {
 // lines to stderr.
 func (a *App) runEnvAgentRun(ctx context.Context) error {
 	log := slog.New(slog.NewJSONHandler(a.stderr, nil))
+	files := envagent.NewFiles(a.paths.Environment)
+	id, err := files.Load()
+	if err != nil {
+		return agentError(err)
+	}
 	client, err := a.newEnvClient(log)
 	if err != nil {
 		return newError(codeInternal, err)
@@ -129,7 +134,7 @@ func (a *App) runEnvAgentRun(ctx context.Context) error {
 	probe := agentClaude{claude: claude.New(log, "claude", a.environ)}
 	opts := envagent.DefaultOptions(a.version, a.config.Environments.RenewDays())
 	opts.WorkspacesRoot = a.paths.Workspaces
-	agent := envagent.NewAgent(log, envagent.NewFiles(a.paths.Environment), client, agentSnapshots{app: a}, probe, envagent.NoOperations{}, rand.Reader, opts)
+	agent := envagent.NewAgent(log, files, client, agentSnapshots{app: a}, probe, newAgentOperations(a, id.Name), rand.Reader, opts)
 	return agentError(agent.Run(ctx))
 }
 
@@ -231,8 +236,8 @@ func agentError(err error) error {
 	return err
 }
 
-// agentSnapshots is the snapshot the agent publishes: the workspaces that
-// ws list shows on this machine.
+// agentSnapshots is the snapshot the agent publishes: every workspace on
+// this machine, hidden ones included and unknown directories left out.
 type agentSnapshots struct{ app *App }
 
 // Workspaces is the visible workspaces as a JSON array, [] when there are none.
@@ -245,8 +250,8 @@ func (s agentSnapshots) Workspaces(ctx context.Context) (json.RawMessage, error)
 	raised := func(e *lifetime.Entry) bool {
 		return attentionOf(s.app.cachedLoopRun(loopRuns, e)) != loop.AttentionNone
 	}
-	entries, _ := visibleEntries(listing.Workspaces, false, raised)
-	return json.Marshal(s.app.listWorkspaces(entries, listing.Unknown, loopRuns))
+	entries, _ := visibleEntries(listing.Workspaces, true, raised)
+	return json.Marshal(s.app.listWorkspaces(entries, nil, loopRuns))
 }
 
 // agentClaude is the agent's probe of claude: its version, or missing, or

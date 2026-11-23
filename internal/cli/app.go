@@ -106,6 +106,9 @@ type App struct {
 	// interactive is set when stdin and stdout are both terminals, so ws
 	// claude can attach to an idle session (ADR 0025).
 	interactive bool
+	// environment is the enrolled environment's name when this App runs an
+	// agent's operation (D2); "" otherwise. ws claude stamps it on records.
+	environment string
 	// notify and stopNotify are signal.Notify and signal.Stop: ws claude
 	// catches SIGHUP while it hands a workspace to its session.
 	notify     func(c chan<- os.Signal, sig ...os.Signal)

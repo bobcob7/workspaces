@@ -21,6 +21,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/exectest"
+	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/mqttclient"
 )
 
@@ -281,5 +282,17 @@ func TestAgentSnapshots_Workspaces(t *testing.T) {
 		data, err := agentSnapshots{app: app}.Workspaces(t.Context())
 		require.NoError(t, err)
 		assert.JSONEq(t, "[]", string(data))
+	})
+}
+
+func TestAgentSnapshots_Workspaces_hidden(t *testing.T) {
+	t.Run("a hidden workspace is included and an unknown directory isn't", func(t *testing.T) {
+		hidden := listedWorkspace("quiet")
+		hidden.Hidden = true
+		e := newListApp([]lifetime.Entry{{Workspace: hidden}}, []string{"/cfg/workspaces/stray"})
+		data, err := agentSnapshots{app: e.app}.Workspaces(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"id":"quiet"`)
+		assert.NotContains(t, string(data), "stray")
 	})
 }

@@ -143,7 +143,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err != nil {
 		return err
 	}
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Hidden: opts.hidden, Parent: parent})
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Hidden: opts.hidden, Parent: parent, Environment: a.environment})
 	if err != nil {
 		a.printWarnings()
 		return domainError(err)
