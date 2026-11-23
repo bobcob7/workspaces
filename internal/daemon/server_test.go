@@ -7,8 +7,10 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -526,7 +528,19 @@ func TestServer_handleCallEnvironment(t *testing.T) {
 		for _, op := range []string{envproto.OpTerminalOpen, envproto.OpTerminalClose} {
 			_, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest(op))
 			assertRemoteCode(t, err, "usage")
+			assert.Equal(t, http.StatusBadRequest, callStatus(t, p.Socket, op))
 		}
 		assert.False(t, called.Load())
 	})
+}
+
+// callStatus posts op as a call over a raw connection and returns the HTTP status.
+func callStatus(t *testing.T, socket, op string) int {
+	t.Helper()
+	body, err := json.Marshal(callRequest(op))
+	require.NoError(t, err)
+	c := dialRaw(t, socket)
+	resp := c.send(t, "POST /v1/environments/linux/call HTTP/1.1\r\nHost: ws-daemon\r\nContent-Type: application/json\r\nContent-Length: "+strconv.Itoa(len(body))+"\r\n\r\n"+string(body))
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode
 }

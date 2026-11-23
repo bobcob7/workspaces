@@ -339,18 +339,87 @@ func TestServer_handleTerminal(t *testing.T) {
 		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 		assert.Equal(t, "environment_offline", errorCode(t, resp))
 	})
-	t.Run("an unknown or outdated environment is answered with the call's codes", func(t *testing.T) {
-		for err, want := range map[error]string{
-			&HostError{Err: ErrEnvironmentUnknown, Message: "no such environment"}:     "environment_unknown",
-			&HostError{Err: ErrEnvironmentOutdated, Message: "the ws is too old"}:      "environment_outdated",
-			&envproto.ReplyError{Code: "workspace_not_found", Message: "no workspace"}: "workspace_not_found",
-			&envproto.ArgsError{Code: "spec_invalid", Message: "bad spec"}:             "spec_invalid",
+	t.Run("a failed open is answered with the call's status and code", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			err    error
+			status int
+			code   string
+		}{
+			"unknown":    {&HostError{Err: ErrEnvironmentUnknown, Message: "no such environment"}, http.StatusNotFound, "environment_unknown"},
+			"outdated":   {&HostError{Err: ErrEnvironmentOutdated, Message: "the ws is too old"}, http.StatusConflict, "environment_outdated"},
+			"reply":      {&envproto.ReplyError{Code: "workspace_not_found", Message: "no workspace"}, http.StatusUnprocessableEntity, "workspace_not_found"},
+			"args":       {&envproto.ArgsError{Code: "spec_invalid", Message: "bad spec"}, http.StatusUnprocessableEntity, "spec_invalid"},
+			"args usage": {&envproto.ArgsError{Code: "usage", Message: "bad args"}, http.StatusBadRequest, "usage"},
 		} {
-			p, _ := terminalDaemon(t, terminalHost(&openRecord{}, nil, err), OriginManaged)
-			resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, upgradeHeaders))
-			assert.NotEqual(t, http.StatusSwitchingProtocols, resp.StatusCode)
-			assert.Equal(t, want, errorCode(t, resp))
+			t.Run(name, func(t *testing.T) {
+				p, _ := terminalDaemon(t, terminalHost(&openRecord{}, nil, tc.err), OriginManaged)
+				resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, upgradeHeaders))
+				assert.Equal(t, tc.status, resp.StatusCode)
+				assert.Equal(t, tc.code, errorCode(t, resp))
+			})
 		}
+	})
+	t.Run("a reply error's details reach the body", func(t *testing.T) {
+		err := &envproto.ReplyError{Code: "workspace_not_found", Message: "no workspace", Details: map[string]any{"workspace": "w9"}}
+		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, nil, err), OriginManaged)
+		resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, upgradeHeaders))
+		defer func() { _ = resp.Body.Close() }()
+		var env errorEnvelope
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+		assert.Equal(t, "w9", env.Error.Details["workspace"])
+	})
+	t.Run("a host that opens no terminal and no error is internal", func(t *testing.T) {
+		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, nil, nil), OriginManaged)
+		resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, upgradeHeaders))
+		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		assert.Equal(t, "internal", errorCode(t, resp))
+	})
+	t.Run("the upgrade tokens match without regard to case", func(t *testing.T) {
+		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, newFakeTerminal(), nil), OriginManaged)
+		resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, map[string]string{"connection": "upgrade", "Upgrade": "WS-Terminal.V1"}))
+		assert.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
+	})
+	t.Run("a stuck input doesn't block the close once the client leaves", func(t *testing.T) {
+		term := newFakeTerminal()
+		entered := make(chan struct{})
+		term.InputFunc = func(ctx context.Context, _ []byte) error {
+			close(entered)
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		p, done := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginTransient)
+		c := openTerminalRaw(t, p.Socket)
+		c.writeFrame(t, 'i', []byte("x"))
+		<-entered
+		require.NoError(t, c.Close())
+		term.assertClosed(t)
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("the daemon didn't exit once the terminal ended")
+		}
+	})
+	t.Run("a daemon shutdown closes the open terminal", func(t *testing.T) {
+		term := newFakeTerminal()
+		p, done := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
+		c := openTerminalRaw(t, p.Socket)
+		_, err := Dial(p).Shutdown(t.Context(), false)
+		require.NoError(t, err)
+		term.assertClosed(t)
+		require.NoError(t, awaitExit(t, done))
+		c.assertEnds(t)
+	})
+	t.Run("a terminal's end restarts the idle timer", func(t *testing.T) {
+		term := newFakeTerminal()
+		p, done := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginTransient)
+		c := openTerminalRaw(t, p.Socket)
+		time.Sleep(300 * time.Millisecond)
+		c.writeFrame(t, 'c', nil)
+		term.assertClosed(t)
+		ended := time.Now()
+		require.NoError(t, awaitExit(t, done))
+		assert.GreaterOrEqual(t, time.Since(ended), fastOptions().idle-20*time.Millisecond)
 	})
 	t.Run("closing the socket closes the terminal", func(t *testing.T) {
 		term := newFakeTerminal()
@@ -604,5 +673,86 @@ func TestClient_OpenTerminal(t *testing.T) {
 		require.NoError(t, conn.Close())
 		require.NoError(t, conn.Close())
 		term.assertClosed(t)
+	})
+}
+
+// fakeDaemon serves one connection with serve after the upgrade answer and
+// reports what the client wrote.
+func fakeDaemon(t *testing.T, serve func(c net.Conn)) *TerminalConn {
+	t.Helper()
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+	go serve(server)
+	return &TerminalConn{rwc: client, in: bufio.NewReader(client)}
+}
+
+func TestTerminalConn(t *testing.T) {
+	t.Parallel()
+	t.Run("Resize refuses a size out of range without writing", func(t *testing.T) {
+		wrote := make(chan int, 1)
+		conn := fakeDaemon(t, func(c net.Conn) {
+			n, _ := c.Read(make([]byte, 64))
+			wrote <- n
+		})
+		for _, size := range [][2]int{{0, 1}, {1, 0}, {1001, 1}, {1, 1001}, {-1, 5}} {
+			require.Error(t, conn.Resize(size[0], size[1]), "%v", size)
+		}
+		require.NoError(t, conn.rwc.Close())
+		assert.Zero(t, <-wrote)
+	})
+	t.Run("Resize accepts the limits", func(t *testing.T) {
+		got := make(chan []byte, 2)
+		conn := fakeDaemon(t, func(c net.Conn) {
+			for range 2 {
+				buf := make([]byte, frameHeaderBytes+4)
+				if _, err := io.ReadFull(c, buf); err != nil {
+					return
+				}
+				got <- buf
+			}
+		})
+		require.NoError(t, conn.Resize(1, 1))
+		require.NoError(t, conn.Resize(envproto.MaxTermSize, envproto.MaxTermSize))
+		assert.Equal(t, byte('r'), (<-got)[0])
+		assert.Equal(t, byte('r'), (<-got)[0])
+	})
+	t.Run("Close sends the close frame", func(t *testing.T) {
+		got := make(chan []byte, 1)
+		conn := fakeDaemon(t, func(c net.Conn) {
+			buf := make([]byte, frameHeaderBytes)
+			_, _ = io.ReadFull(c, buf)
+			got <- buf
+		})
+		require.NoError(t, conn.Close())
+		assert.Equal(t, []byte{'c', 0, 0, 0, 0}, <-got)
+	})
+	t.Run("a daemon frame over the limit is refused", func(t *testing.T) {
+		conn := fakeDaemon(t, func(c net.Conn) {
+			header := []byte{'d', 0, 0, 0, 0}
+			binary.BigEndian.PutUint32(header[1:], 64<<10+1)
+			_, _ = c.Write(header)
+		})
+		_, _, err := conn.Next()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "over the limit")
+	})
+	t.Run("a frame of exactly the limit is read", func(t *testing.T) {
+		conn := fakeDaemon(t, func(c net.Conn) {
+			_ = writeFrame(c, frameOutput, bytes.Repeat([]byte("q"), 64<<10))
+		})
+		data, _, err := conn.Next()
+		require.NoError(t, err)
+		assert.Len(t, data, 64<<10)
+	})
+	t.Run("a connection that ends without an exit is an unexpected EOF", func(t *testing.T) {
+		conn := fakeDaemon(t, func(c net.Conn) { _ = c.Close() })
+		_, exit, err := conn.Next()
+		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+		assert.Nil(t, exit)
+	})
+	t.Run("an unknown frame kind is an error", func(t *testing.T) {
+		conn := fakeDaemon(t, func(c net.Conn) { _ = writeFrame(c, 'z', nil) })
+		_, _, err := conn.Next()
+		require.Error(t, err)
 	})
 }

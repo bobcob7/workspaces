@@ -82,6 +82,7 @@ func (s *server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 // readTerminalArgs decodes the body strictly: an unknown member is refused.
 func readTerminalArgs(w http.ResponseWriter, r *http.Request) (envproto.TerminalOpenArgs, bool) {
 	var args envproto.TerminalOpenArgs
+	defer boundBodyRead(w)()
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	err := json.UnmarshalRead(r.Body, &args, json.RejectUnknownMembers(true))
 	if err == nil {
@@ -156,30 +157,49 @@ func (s *server) serveTerminal(ctx context.Context, conn net.Conn, in *bufio.Rea
 		s.closeTerminal(ctx, term)
 		return
 	}
-	ended := make(chan struct{}, 2)
+	ended := make(chan struct{}, 3)
 	stop := make(chan struct{})
+	frames := make(chan terminalFrame)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		defer func() { ended <- struct{}{} }()
-		s.readFrames(termCtx, in, term)
+		readFrames(in, frames, stop)
+		cancel()
+	}()
+	go func() {
+		defer wg.Done()
+		defer func() { ended <- struct{}{} }()
+		s.applyFrames(termCtx, term, frames)
 	}()
 	go func() {
 		defer wg.Done()
 		defer func() { ended <- struct{}{} }()
 		writeOutput(conn, term, stop)
 	}()
-	<-ended
+	select {
+	case <-ended:
+	case <-s.done:
+	}
 	close(stop)
 	_ = conn.Close()
 	s.closeTerminal(ctx, term)
+	cancel()
 	wg.Wait()
 }
 
-// readFrames applies the CLI's frames to term until the connection ends, a
-// frame is refused or term fails.
-func (s *server) readFrames(ctx context.Context, in io.Reader, term TerminalStream) {
+// terminalFrame is one frame the CLI sent.
+type terminalFrame struct {
+	kind byte
+	body []byte
+}
+
+// readFrames reads the CLI's frames into frames until the connection ends or
+// a frame is over the limit, then closes frames. It never calls the terminal,
+// so a stuck call can't hide the connection's end.
+func readFrames(in io.Reader, frames chan<- terminalFrame, stop <-chan struct{}) {
+	defer close(frames)
 	header := make([]byte, frameHeaderBytes)
 	for {
 		if _, err := io.ReadFull(in, header); err != nil {
@@ -193,7 +213,19 @@ func (s *server) readFrames(ctx context.Context, in io.Reader, term TerminalStre
 		if _, err := io.ReadFull(in, body); err != nil {
 			return
 		}
-		if !s.applyFrame(ctx, term, kind, body) {
+		select {
+		case frames <- terminalFrame{kind: kind, body: body}:
+		case <-stop:
+			return
+		}
+	}
+}
+
+// applyFrames applies the CLI's frames to term, one at a time, until they
+// end, a frame is refused or term fails.
+func (s *server) applyFrames(ctx context.Context, term TerminalStream, frames <-chan terminalFrame) {
+	for f := range frames {
+		if !s.applyFrame(ctx, term, f.kind, f.body) {
 			return
 		}
 	}

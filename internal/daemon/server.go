@@ -91,7 +91,7 @@ func serve(ctx context.Context, p Paths, origin string, sup RunnerSupervisor, en
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
 	go sup.Watch(watchCtx)
-	s := &server{paths: p, info: info, sup: sup, envs: envs, log: log, opts: opts, stop: make(chan struct{}, 1)}
+	s := &server{paths: p, info: info, sup: sup, envs: envs, log: log, opts: opts, stop: make(chan struct{}, 1), done: make(chan struct{})}
 	s.startEnvironments(ctx)
 	defer s.closeEnvironments()
 	s.touch()
@@ -111,6 +111,9 @@ type server struct {
 	// the daemon mustn't exit idle under it.
 	terminals atomic.Int64
 	stop      chan struct{}
+	// done is closed when the daemon begins to shut down: a hijacked
+	// connection outlives http.Server.Shutdown, so terminals watch it.
+	done chan struct{}
 	// envStartErr is why the environments didn't start, or nil; the daemon
 	// keeps running and reports it as a warning.
 	envStartErr error
@@ -156,9 +159,20 @@ func (s *server) run(ctx context.Context, ln net.Listener) error {
 	}
 	s.log.InfoContext(ctx, "daemon listening", "pid", s.info.PID, "origin", s.info.Origin, "socket", s.info.Socket)
 	err := s.waitForExit(ctx, serveErr)
+	close(s.done)
 	closeServer(ctx, srv)
+	s.awaitTerminals()
 	s.log.InfoContext(ctx, "daemon stopped")
 	return err
+}
+
+// awaitTerminals waits, for at most shutdownWait, until every terminal has
+// been closed after done.
+func (s *server) awaitTerminals() {
+	deadline := time.Now().Add(shutdownWait)
+	for s.terminals.Load() > 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func closeServer(ctx context.Context, srv *http.Server) {
@@ -389,12 +403,21 @@ func versionFrom(ctx context.Context) string {
 	return version
 }
 
+// boundBodyRead gives the request body shutdownWait to arrive, so a client
+// that stalls it can't hold the handler. The returned func lifts the bound.
+func boundBodyRead(w http.ResponseWriter) func() {
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Now().Add(shutdownWait))
+	return func() { _ = rc.SetReadDeadline(time.Time{}) }
+}
+
 func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return readBodyUpTo(w, r, v, maxBodyBytes)
 }
 
 // readBodyUpTo decodes the request body into v, refusing one over limit bytes.
 func readBodyUpTo(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	defer boundBodyRead(w)()
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	err := json.UnmarshalRead(r.Body, v)
 	if err == nil {
