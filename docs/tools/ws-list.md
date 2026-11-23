@@ -49,15 +49,36 @@ when its `loop_run.attention` is `blocked` or `needs_attention`
 reads `<name> (blocked)` or `<name> (needs attention)` in place of
 `<name> (hidden)`.
 
+Without `--env`, `ws list` lists this machine's workspaces only, as it always
+has. `--env <name>` lists the workspaces of those environments instead
+(`local` is a name, and `ws env list` shows the others). A remote
+environment's workspaces come from its last snapshot, and are read-only:
+they can be listed, not acted on from here. Until the desktop app shows
+environments (PR 4), remote workspaces appear only with `--env`, because the
+desktop runs `ws list --all` and acts on ids with local commands, and a
+remote id equal to a local one would make it act on the wrong workspace
+([0072](../adrs/0072-remote-environments.md), deviation 1).
+
+Each entry names its environment: `environment` is `local` or the
+environment's name. `environment_status` is `online` or `offline` for a
+remote one, and `online` for local. An environment is `online` when the
+daemon reports its agent connected; with no daemon running, or no answer
+within 2 s, every remote environment is `offline`, without starting one.
+`stale` is `true` for a remote entry whose environment isn't `online`, or
+whose snapshot is more than 90 s old (three refresh periods), and `false`
+otherwise. The table adds an `ENV` column after `ID` when some listed
+workspace runs on an environment other than `local`.
+
 ## Options
 
 | Option          | Description                                    |
 | --------------- | ---------------------------------------------- |
 | `-a`, `--all`   | Include hidden workspaces                      |
 | `-q`, `--ids`   | Print only workspace IDs (like `docker ps -q`); not with `--json` |
-| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children ([0044](../adrs/0044-workspace-trees.md)) |
+| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children ([0044](../adrs/0044-workspace-trees.md)); with `--env`, one environment only |
 | `--repo <SPEC>` | Only workspaces containing this repo, matched by the parts the spec gives (`api` matches any owner and host, `o/api` any host) and its ref, if any, against the ref checked out; no cache lookup |
-| `--json`        | Print `{"workspaces": [...], "warnings"}`       |
+| `--env <NAME>`  | Only the workspaces of this environment: `local` or a name from `ws env list`. Repeatable; default `local` |
+| `--json`        | Print `{"workspaces": [...], "hidden_count", "warnings"}`, with `environment`, `environment_status` and `stale` on each entry |
 
 ## Examples
 
@@ -85,7 +106,10 @@ $ ws list --json
       "hidden": false,
       "parent": null,
       "review": null,
-      "loop_run": null
+      "loop_run": null,
+      "environment": "local",
+      "environment_status": "online",
+      "stale": false
     }
   ],
   "hidden_count": 2,
