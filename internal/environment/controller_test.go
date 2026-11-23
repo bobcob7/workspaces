@@ -879,6 +879,7 @@ func TestController_enrollTimeouts(t *testing.T) {
 }
 
 func TestController_enrollMaxHeaderBytes(t *testing.T) {
+	t.Parallel()
 	store := newTestStore(t)
 	addEnvironment(t, store, "linux-server")
 	c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
