@@ -20,10 +20,12 @@ import (
 func terminalEnvAllowed(key string) bool {
 	switch key {
 	case "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TMPDIR",
-		"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME":
+		"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
+		"LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LC_COLLATE", "LC_TIME", "LC_NUMERIC", "LC_MONETARY",
+		"LC_PAPER", "LC_NAME", "LC_ADDRESS", "LC_TELEPHONE", "LC_MEASUREMENT", "LC_IDENTIFICATION":
 		return true
 	}
-	return strings.HasPrefix(key, "LC_")
+	return false
 }
 
 // TerminalCommand implements envagent's terminalCommands (D6, D8): the
@@ -65,7 +67,8 @@ func (o *agentOperations) attachCommand(ctx context.Context, args *envproto.Term
 	if !within(o.app.paths.Workspaces, dir) {
 		return envagent.TerminalCommand{}, &envproto.ReplyError{Code: string(codeUsage), Message: "the workspace is outside workspaces/"}
 	}
-	path, err := exec.LookPath("claude")
+	env := terminalEnv(o.app.environ)
+	path, err := lookPathIn(env)
 	if err != nil {
 		return envagent.TerminalCommand{}, &envproto.ReplyError{Code: string(codeClaudeMissing), Message: "claude isn't installed: " + err.Error()}
 	}
@@ -73,7 +76,7 @@ func (o *agentOperations) attachCommand(ctx context.Context, args *envproto.Term
 		Path:      path,
 		Args:      []string{"attach", session.ID},
 		Dir:       dir,
-		Env:       terminalEnv(o.app.environ),
+		Env:       env,
 		Workspace: &ws.ID,
 		Session:   &session.ID,
 	}, nil
@@ -115,10 +118,14 @@ func (o *agentOperations) shellCommand(args *envproto.TerminalOpenArgs) (envagen
 	argv = append(argv, "--")
 	argv = append(argv, args.Specs...)
 	env := terminalEnv(o.app.environ)
+	home := homeOf(env)
+	if home == "" {
+		return envagent.TerminalCommand{}, &envproto.ReplyError{Code: string(codeUsage), Message: "HOME is not set in the agent's environment"}
+	}
 	return envagent.TerminalCommand{
 		Path: exe,
 		Args: argv,
-		Dir:  homeOf(env),
+		Dir:  home,
 		Env:  append(env, "WS_ENVIRONMENT="+o.name),
 	}, nil
 }
@@ -135,18 +142,35 @@ func terminalEnv(environ []string) []string {
 	return append(env, "TERM=xterm-256color")
 }
 
-// homeOf is HOME in env, else the process's home directory.
+// homeOf is HOME in env, or "" when it is unset or empty.
 func homeOf(env []string) string {
 	for _, kv := range env {
-		if home, ok := strings.CutPrefix(kv, "HOME="); ok && home != "" {
+		if home, ok := strings.CutPrefix(kv, "HOME="); ok {
 			return home
 		}
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "/"
+	return ""
+}
+
+// lookPathIn finds the claude executable in the absolute directories of the
+// PATH in env, the PATH the child itself will search.
+func lookPathIn(env []string) (string, error) {
+	var pathVar string
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			pathVar = v
+		}
 	}
-	return home
+	for _, dir := range filepath.SplitList(pathVar) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		candidate := filepath.Join(dir, "claude")
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", exec.ErrNotFound
 }
 
 // within reports whether path is root or below it, after cleaning both.
