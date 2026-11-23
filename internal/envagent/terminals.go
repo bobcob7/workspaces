@@ -57,7 +57,6 @@ type terminals struct {
 	reserved    int // terminals open or being opened
 	envID       string
 	pubCtx      context.Context //nolint:containedctx // the session's context without its cancellation, for the exit frames.
-	wg          sync.WaitGroup
 }
 
 // newTerminals returns a manager that opens at most max terminals.
@@ -101,7 +100,7 @@ func (m *terminals) begin(ctx context.Context, id string) {
 	m.envID = id
 	m.pubCtx = context.WithoutCancel(ctx)
 	m.mu.Unlock()
-	m.wg.Go(func() { m.idleLoop(ctx) })
+	go m.idleLoop(ctx)
 }
 
 // idleLoop closes terminals that have had no frame for envproto.IdleClose.
@@ -146,7 +145,6 @@ func (m *terminals) closeAll() {
 	for _, t := range m.snapshot() {
 		<-t.finished
 	}
-	m.wg.Wait()
 }
 
 // lookup is the terminal named sid, nil when this agent didn't open it.
