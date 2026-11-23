@@ -31,6 +31,9 @@ type CreateOptions struct {
 	// Parent is the id of the workspace this one is started from, or
 	// empty (ADR 0044). The caller checks that it exists.
 	Parent string
+	// Environment is the agent's environment name; ignored when the parent
+	// has an environment, which the child inherits (ADR 0072, D2).
+	Environment string
 	// Prepare, if set, runs once the repos are cloned and workspace.toml
 	// is written, before the workspace is moved into place, so it can add
 	// its own records to state/<id>/ (ADR 0022). An error discards the
@@ -53,6 +56,8 @@ type target struct {
 // session can take it over without a moment when the workspace looks
 // abandoned (ADR 0015). The caller unlocks it once the session no longer
 // needs it.
+//
+//nolint:gocritic // the options are copied once; the caller contract takes them by value.
 func (s *Store) Create(ctx context.Context, opts CreateOptions) (Workspace, *lockfile.Lock, error) {
 	if opts.Name != "" && sanitizeName(opts.Name) == "" {
 		return Workspace{}, nil, fmt.Errorf("%w: %q has no letters or digits to make an id from", ErrNameInvalid, opts.Name)
@@ -172,12 +177,12 @@ func (s *Store) claimID(id string) (string, *lockfile.Lock, error) {
 // and then moves the clones into place as the workspace directory. Until
 // that last rename, an interrupted creation leaves only state, which the
 // leftover cleanup removes; after it, the workspace is complete.
-func (s *Store) build(ctx context.Context, id string, opts CreateOptions, targets []target) (Workspace, error) {
+func (s *Store) build(ctx context.Context, id string, opts CreateOptions, targets []target) (Workspace, error) { //nolint:gocritic // copied once, as Create passes it.
 	building := filepath.Join(s.stateOf(id), "building")
 	if err := os.Mkdir(building, 0o750); err != nil {
 		return Workspace{}, fmt.Errorf("creating %s: %w", building, err)
 	}
-	ws := Workspace{ID: id, Name: strings.TrimSpace(opts.Name), Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second), Hidden: opts.Hidden, Parent: opts.Parent}
+	ws := Workspace{ID: id, Name: strings.TrimSpace(opts.Name), Path: s.dir(id), CreatedAt: s.now().UTC().Truncate(time.Second), Hidden: opts.Hidden, Parent: opts.Parent, Environment: s.environmentFor(opts.Parent, opts.Environment)}
 	for i := range targets {
 		r, err := s.addRepo(ctx, building, &targets[i], opts.Offline)
 		if err != nil {
@@ -197,6 +202,20 @@ func (s *Store) build(ctx context.Context, id string, opts CreateOptions, target
 		return Workspace{}, fmt.Errorf("moving %s into place: %w", id, err)
 	}
 	return ws, nil
+}
+
+// environmentFor is the environment a new workspace gets: its parent's when
+// the parent has one, else opts.Environment. A parent that can't be read
+// keeps opts.Environment, as the caller checked that it exists.
+func (s *Store) environmentFor(parentID, environment string) string {
+	if parentID == "" {
+		return environment
+	}
+	parent, err := readRecord(s.recordPath(parentID))
+	if err != nil || parent.Environment == "" {
+		return environment
+	}
+	return parent.Environment
 }
 
 // addRepo brings one repo's cache entry up to date, resolves its ref, and
