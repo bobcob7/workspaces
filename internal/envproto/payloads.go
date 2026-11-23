@@ -5,8 +5,11 @@ import (
 	"time"
 )
 
-// Protocol is the newest operation protocol this ws speaks (ADR 0073). PR 4 is 2.
-const Protocol = 2
+// Protocol is the newest operation protocol this ws speaks (ADR 0073). Reviews and loops make it 3.
+const Protocol = 3
+
+// ProtocolReviewsLoops is the protocol review.* and loop.* need (ADR 0078).
+const ProtocolReviewsLoops = 3
 
 // Statuses an agent reports in its hello and its last will.
 const (

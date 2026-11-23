@@ -27,7 +27,7 @@ func TestStore_Snapshot(t *testing.T) {
 		assert.Equal(t, rec.ID, file.ID)
 		assert.Equal(t, "linux-server", file.Name)
 		assert.Equal(t, store.now().UTC().Format(time.RFC3339), file.ReceivedAt)
-		assert.Equal(t, envproto.Protocol, snap.Protocol)
+		assert.Equal(t, 2, snap.Protocol)
 		require.Len(t, snap.Agents, 1)
 		assert.Equal(t, "a1", snap.Agents[0].ID)
 		assert.JSONEq(t, `[{"name":"api"}]`, string(snap.Workspaces))

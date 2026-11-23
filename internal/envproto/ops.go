@@ -101,6 +101,10 @@ func LookupOp(name string) (OpSpec, bool) {
 		return OpSpec{Name: name, Caller: CallerController, Since: 1, Timeout: 90 * time.Second}, true
 	case OpAgentStop:
 		return OpSpec{Name: name, Caller: CallerController, Since: 1, Timeout: 30 * time.Second, Changes: true}, true
+	case OpReviewStart:
+		return OpSpec{Name: name, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 10 * time.Minute, Changes: true}, true
+	case OpReviewStatus, OpReviewList, OpReviewReport, OpReviewDecide, OpReviewActed, OpReviewProfiles:
+		return OpSpec{Name: name, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second}, true
 	case OpTerminalOpen:
 		return OpSpec{Name: name, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second, Changes: true}, true
 	case OpTerminalClose:
@@ -254,7 +258,7 @@ func newArgs(op string) (any, bool) {
 	case OpTerminalClose:
 		return &TerminalCloseArgs{}, true
 	}
-	return nil, false
+	return newReviewArgs(op)
 }
 
 // decodeStrict fills target from raw, refusing unknown keys and trailing data.
@@ -311,7 +315,7 @@ func Validate(args any) error {
 	case *TerminalCloseArgs:
 		return validateTerminalClose(a)
 	}
-	return usageError("unknown operation arguments")
+	return validateReviewArgs(args)
 }
 
 // ValidRequestID reports whether id is 16 lowercase hex characters.

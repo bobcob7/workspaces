@@ -2,6 +2,7 @@ package envproto
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -89,7 +90,7 @@ func TestSnapshot_Marshal(t *testing.T) {
 		at := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
 		body, err := json.Marshal(Snapshot{At: at, Protocol: Protocol, Workspaces: json.RawMessage(`[]`), Agents: []SnapshotAgent{}})
 		require.NoError(t, err)
-		assert.JSONEq(t, `{"at":"2026-11-22T00:00:00Z","protocol":2,"workspaces":[],"agents":[]}`, string(body))
+		assert.JSONEq(t, fmt.Sprintf(`{"at":"2026-11-22T00:00:00Z","protocol":%d,"workspaces":[],"agents":[]}`, Protocol), string(body))
 	})
 }
 
@@ -117,11 +118,18 @@ func TestRequest_Marshal(t *testing.T) {
 	})
 }
 
+func TestProtocol_reviewsAndLoops(t *testing.T) {
+	t.Run("is 3, the protocol review and loop operations need", func(t *testing.T) {
+		assert.Equal(t, 3, Protocol)
+		assert.Equal(t, Protocol, ProtocolReviewsLoops)
+	})
+}
+
 func TestHello_Protocol(t *testing.T) {
 	t.Run("marshals the protocol number", func(t *testing.T) {
 		body, err := json.Marshal(Hello{Status: StatusOnline, Protocol: Protocol, CAFingerprints: []string{}})
 		require.NoError(t, err)
-		assert.Contains(t, string(body), `"protocol":2`)
+		assert.Contains(t, string(body), fmt.Sprintf(`"protocol":%d`, Protocol))
 	})
 	t.Run("reads 0 from an agent older than PR 3", func(t *testing.T) {
 		var hello Hello

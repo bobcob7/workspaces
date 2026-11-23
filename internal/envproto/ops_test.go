@@ -41,6 +41,19 @@ func TestLookupOp(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, OpSpec{Name: OpTerminalClose, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second}, got)
 	})
+	t.Run("review ops are controller ops since 3", func(t *testing.T) {
+		for _, name := range []string{OpReviewStart, OpReviewStatus, OpReviewList, OpReviewReport, OpReviewDecide, OpReviewActed, OpReviewProfiles} {
+			got, ok := LookupOp(name)
+			require.True(t, ok, name)
+			assert.Equal(t, CallerController, got.Caller, name)
+			assert.Equal(t, ProtocolReviewsLoops, got.Since, name)
+		}
+	})
+	t.Run("review.start has 10 min and changes", func(t *testing.T) {
+		got, ok := LookupOp(OpReviewStart)
+		require.True(t, ok)
+		assert.Equal(t, OpSpec{Name: OpReviewStart, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 10 * time.Minute, Changes: true}, got)
+	})
 	t.Run("refuses names outside the table", func(t *testing.T) {
 		for _, name := range []string{"files.read", "", "workspace.create "} {
 			_, ok := LookupOp(name)
@@ -126,6 +139,11 @@ func TestDecodeArgs(t *testing.T) {
 		args, ok := got.(*CreateArgs)
 		require.True(t, ok)
 		assert.Equal(t, "lab-gpu", *args.Endpoint)
+	})
+	t.Run("refuses an unknown key in review.report with usage", func(t *testing.T) {
+		raw := json.RawMessage(`{"review":"r1","section":"comments","offset":0,"extra":1}`)
+		_, err := DecodeArgs(OpReviewReport, raw)
+		assertArgsError(t, err, "usage")
 	})
 }
 
