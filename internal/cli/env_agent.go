@@ -284,6 +284,54 @@ func (s agentSnapshots) Agents(ctx context.Context) ([]envproto.SnapshotAgent, e
 	return agents[:min(len(agents), envproto.MaxSnapshotAgents)], nil
 }
 
+// Loops is this machine's loops, by name and at most envproto.MaxSnapshotLoops,
+// [] when there are none. Their prompts, scripts and vars stay here.
+func (s agentSnapshots) Loops(ctx context.Context) ([]envproto.SnapshotLoop, error) {
+	loops, err := s.app.readLoops(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(loops, func(i, j int) bool { return loops[i].Name < loops[j].Name })
+	loops = loops[:min(len(loops), envproto.MaxSnapshotLoops)]
+	out := make([]envproto.SnapshotLoop, 0, len(loops))
+	for i := range loops {
+		entry, err := snapshotLoop(&loops[i])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// snapshotLoop maps a loop to its snapshot entry, as ws loop list shows its
+// run and gate.
+func snapshotLoop(l *loop.Loop) (envproto.SnapshotLoop, error) {
+	lastRun, err := json.Marshal(loopRunJSONOf(l.LastRun()))
+	if err != nil {
+		return envproto.SnapshotLoop{}, err
+	}
+	lastGate, err := json.Marshal(gateJSONOf(l.LastGate))
+	if err != nil {
+		return envproto.SnapshotLoop{}, err
+	}
+	out := envproto.SnapshotLoop{
+		Name:     l.Name,
+		Title:    l.Title,
+		Every:    l.Every,
+		Paused:   l.Paused,
+		Hidden:   l.RunsHidden(),
+		Runner:   l.RunsOn(),
+		LastRun:  lastRun,
+		LastGate: lastGate,
+	}
+	if !l.Paused && !l.NextRunAt.IsZero() {
+		next := l.NextRunAt
+		out.NextRunAt = &next
+	}
+	return out, nil
+}
+
 // startedAfter reports whether a session started at a is newer than one at b;
 // a nil start time is the oldest.
 func startedAfter(a, b *time.Time) bool {

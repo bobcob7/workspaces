@@ -298,6 +298,52 @@ func TestAgentSnapshots_Workspaces(t *testing.T) {
 	})
 }
 
+func TestAgentSnapshots_Loops(t *testing.T) {
+	t.Run("maps a loop without its prompt, script or vars", func(t *testing.T) {
+		app := newMockedApp().app
+		store := withLoopStore(t, app)
+		app.loops = store
+		l := loop.Loop{Name: "digest", Title: "Daily digest", Every: "1h", Prompt: "secret prompt", Script: "echo secret-script", Vars: map[string]string{"token": "secret-var"}, Keep: 5, CreatedAt: testNow().Add(-time.Hour), NextRunAt: testNow().Add(time.Hour)}
+		require.NoError(t, store.Create(&l))
+		loops, err := agentSnapshots{app: app}.Loops(t.Context())
+		require.NoError(t, err)
+		require.Len(t, loops, 1)
+		assert.Equal(t, "digest", loops[0].Name)
+		assert.Equal(t, "Daily digest", loops[0].Title)
+		assert.Equal(t, "1h", loops[0].Every)
+		require.NotNil(t, loops[0].NextRunAt)
+		data, err := json.Marshal(loops)
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "secret")
+		assert.NotContains(t, string(data), "prompt")
+		assert.NotContains(t, string(data), "script")
+		assert.NotContains(t, string(data), "vars")
+	})
+	t.Run("no loops is []", func(t *testing.T) {
+		app := newMockedApp().app
+		app.loops = withLoopStore(t, app)
+		loops, err := agentSnapshots{app: app}.Loops(t.Context())
+		require.NoError(t, err)
+		data, err := json.Marshal(loops)
+		require.NoError(t, err)
+		assert.JSONEq(t, "[]", string(data))
+	})
+	t.Run("keeps 100 by name", func(t *testing.T) {
+		app := newMockedApp().app
+		store := withLoopStore(t, app)
+		app.loops = store
+		for i := range envproto.MaxSnapshotLoops + 50 {
+			l := loop.Loop{Name: fmt.Sprintf("loop-%03d", i), Every: "1h", Prompt: "Do it", Keep: 5, CreatedAt: testNow().Add(-time.Hour), NextRunAt: testNow().Add(time.Hour)}
+			require.NoError(t, store.Create(&l))
+		}
+		loops, err := agentSnapshots{app: app}.Loops(t.Context())
+		require.NoError(t, err)
+		require.Len(t, loops, envproto.MaxSnapshotLoops)
+		assert.Equal(t, "loop-000", loops[0].Name)
+		assert.Equal(t, fmt.Sprintf("loop-%03d", envproto.MaxSnapshotLoops-1), loops[len(loops)-1].Name)
+	})
+}
+
 func Test_agentOptions(t *testing.T) {
 	opts := agentOptions("v1", 30, "/ws")
 	assert.Equal(t, 16384, opts.NotSentLowWater)
