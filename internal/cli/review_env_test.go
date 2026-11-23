@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -188,27 +190,22 @@ func TestApp_runRemoteReviewStart(t *testing.T) {
 
 func page(section string, offset int, next *int, ids ...string) string {
 	comments, superseded := "[]", "[]"
-	items := ""
-	for i, id := range ids {
-		if i > 0 {
-			items += ","
-		}
-		items += fmt.Sprintf(`{"id":%q,"profile":"go","priority":5,"category":"x","body":"b","code":null,"anchors":[],"suggestions":[],"decision":null}`, id)
+	var items []string
+	for _, id := range ids {
+		items = append(items, fmt.Sprintf(`{"id":%q,"profile":"go","priority":5,"category":"x","body":"b","code":null,"anchors":[],"suggestions":[],"decision":null}`, id))
 	}
 	if section == envproto.SectionComments {
-		comments = "[" + items + "]"
+		comments = "[" + strings.Join(items, ",") + "]"
 	} else {
-		superseded = "[" + items + "]"
+		superseded = "[" + strings.Join(items, ",") + "]"
 	}
 	nextText := "null"
 	if next != nil {
-		nextText = fmt.Sprint(*next)
+		nextText = strconv.Itoa(*next)
 	}
 	return fmt.Sprintf(`{"repo":"github.com/o/r","ref":%q,"review":null,"agent":null,"profiles":[],"comments":%s,"superseded":%s,"warnings":[],`+
 		`"section":%q,"offset":%d,"next_offset":%s,"total":9,"redacted":1}`, remoteCommit, comments, superseded, section, offset, nextText)
 }
-
-func intp(n int) *int { return &n }
 
 // pagedCaller answers review.report from pages, keyed by "<section>:<offset>".
 func pagedCaller(pages map[string]string) *environmentCallerMock {
@@ -229,9 +226,9 @@ func TestApp_remoteReport(t *testing.T) {
 	t.Run("joins pages in order", func(t *testing.T) {
 		e, _, _ := newEnvOpApp(t, `{}`)
 		useCaller(e.app, pagedCaller(map[string]string{
-			"comments:0":   page("comments", 0, intp(2), "go:a", "go:b"),
+			"comments:0":   page("comments", 0, new(2), "go:a", "go:b"),
 			"comments:2":   page("comments", 2, nil, "go:c"),
-			"superseded:0": page("superseded", 0, intp(1), "#1:x"),
+			"superseded:0": page("superseded", 0, new(1), "#1:x"),
 			"superseded:1": page("superseded", 1, nil, "#1:y"),
 		}))
 		report, err := e.app.remoteReport(t.Context(), "linux-server", "review-r-42")
@@ -261,7 +258,7 @@ func TestApp_remoteReport(t *testing.T) {
 	})
 	t.Run("a next_offset that doesn't advance is an error", func(t *testing.T) {
 		e, caller, _ := newEnvOpApp(t, "")
-		useCaller(e.app, pagedCaller(map[string]string{"comments:0": page("comments", 0, intp(0), "go:a")}))
+		useCaller(e.app, pagedCaller(map[string]string{"comments:0": page("comments", 0, new(0), "go:a")}))
 		_, err := e.app.remoteReport(t.Context(), "linux-server", "review-r-42")
 		requireCode(t, codeInternal, err)
 		assert.Empty(t, caller.CallEnvironmentCalls())

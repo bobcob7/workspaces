@@ -180,7 +180,7 @@ func (a *App) runRemoteReviewStart(ctx context.Context, env string, opts *review
 	var started struct {
 		ID string `json:"id"`
 	}
-	if err := decodeRemote(object, env, &started); err != nil {
+	if err = decodeRemote(object, env, &started); err != nil {
 		return err
 	}
 	wait := "ws review wait --json --env " + env + " " + started.ID
@@ -221,39 +221,51 @@ type remoteReportPage struct {
 // remoteReport fetches every page of both sections and returns the whole
 // reviewReportJSON (comments, then superseded, each in order).
 func (a *App) remoteReport(ctx context.Context, env, id string) (remoteReportJSON, error) {
-	var out remoteReportJSON
-	for i, section := range []string{envproto.SectionComments, envproto.SectionSuperseded} {
-		offset := 0
-		for first := true; ; first = false {
-			var page remoteReportPage
-			object, err := a.callRemoteObject(ctx, env, envproto.OpReviewReport, envproto.ReviewReportArgs{Review: id, Section: section, Offset: offset})
-			if err != nil {
-				return remoteReportJSON{}, err
-			}
-			if err := decodeRemote(object, env, &page); err != nil {
-				return remoteReportJSON{}, err
-			}
-			if i == 0 && first {
-				out.reviewReportJSON = page.reviewReportJSON
-				out.Comments, out.Superseded = []reviewCommentJSON{}, []reviewCommentJSON{}
-			}
-			out.Redacted += page.Redacted
-			if section == envproto.SectionComments {
-				out.Comments = append(out.Comments, page.Comments...)
-			} else {
-				out.Superseded = append(out.Superseded, page.Superseded...)
-			}
-			if page.NextOffset == nil {
-				break
-			}
-			if *page.NextOffset <= offset {
-				return remoteReportJSON{}, newError(codeInternal, fmt.Errorf("environment %s's report page didn't advance past offset %d", env, offset))
-			}
-			offset = *page.NextOffset
-		}
+	commentPages, err := a.remoteSection(ctx, env, id, envproto.SectionComments)
+	if err != nil {
+		return remoteReportJSON{}, err
 	}
-	out.Environment = env
+	supersededPages, err := a.remoteSection(ctx, env, id, envproto.SectionSuperseded)
+	if err != nil {
+		return remoteReportJSON{}, err
+	}
+	out := remoteReportJSON{reviewReportJSON: commentPages[0].reviewReportJSON, Environment: env}
+	out.Comments, out.Superseded = []reviewCommentJSON{}, []reviewCommentJSON{}
+	for i := range commentPages {
+		out.Comments = append(out.Comments, commentPages[i].Comments...)
+		out.Redacted += commentPages[i].Redacted
+	}
+	for i := range supersededPages {
+		out.Superseded = append(out.Superseded, supersededPages[i].Superseded...)
+		out.Redacted += supersededPages[i].Redacted
+	}
 	return out, nil
+}
+
+// remoteSection fetches the pages of one section, from offset 0 until
+// next_offset is null. An offset that doesn't advance is an error, so a
+// misbehaving agent can't make the loop run forever.
+func (a *App) remoteSection(ctx context.Context, env, id, section string) ([]remoteReportPage, error) {
+	var pages []remoteReportPage
+	offset := 0
+	for {
+		object, err := a.callRemoteObject(ctx, env, envproto.OpReviewReport, envproto.ReviewReportArgs{Review: id, Section: section, Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		var page remoteReportPage
+		if err = decodeRemote(object, env, &page); err != nil {
+			return nil, err
+		}
+		pages = append(pages, page)
+		if page.NextOffset == nil {
+			return pages, nil
+		}
+		if *page.NextOffset <= offset {
+			return nil, newError(codeInternal, fmt.Errorf("environment %s's report page didn't advance past offset %d", env, offset))
+		}
+		offset = *page.NextOffset
+	}
 }
 
 // printRemoteReport prints report in format as a local report is printed;
