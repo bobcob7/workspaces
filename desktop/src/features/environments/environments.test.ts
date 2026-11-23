@@ -64,6 +64,7 @@ describe("selectEnvironmentChoices", () => {
           ],
           loadedAt: now,
           error: null,
+          latestRequestId: null,
           lastChoice: "local",
         },
       },

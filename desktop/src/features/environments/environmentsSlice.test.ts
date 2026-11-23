@@ -11,6 +11,11 @@ import {
 
 const initial = environmentsReducer(undefined, { type: "@@init" });
 
+const listing = (...environments: ReturnType<typeof remoteEnvironment>[]) => ({ environments, warnings: [] });
+
+/** Starts a fetch with the given request id, as the thunk does. */
+const started = (state: typeof initial, id: string) => environmentsReducer(state, fetchEnvironments.pending(id, undefined));
+
 beforeEach(() => {
   window.localStorage.clear();
 });
@@ -21,7 +26,7 @@ afterEach(() => {
 
 describe("environmentsReducer", () => {
   it("starts empty with local chosen", () => {
-    expect(initial).toEqual({ items: [], loadedAt: null, error: null, lastChoice: "local" });
+    expect(initial).toEqual({ items: [], loadedAt: null, error: null, lastChoice: "local", latestRequestId: null });
   });
 
   it("reads the last choice from localStorage", () => {
@@ -39,7 +44,7 @@ describe("environmentsReducer", () => {
   it("stores a listing and when it loaded", () => {
     const env = remoteEnvironment();
     const next = environmentsReducer(
-      initial,
+      started(initial, "r"),
       fetchEnvironments.fulfilled({ listing: { environments: [env], warnings: [] }, at: 1234 }, "r", undefined),
     );
     expect(next).toMatchObject({ items: [env], loadedAt: 1234, error: null });
@@ -48,12 +53,12 @@ describe("environmentsReducer", () => {
   it("keeps the last listing and records the error when a fetch fails", () => {
     const env = remoteEnvironment();
     const loaded = environmentsReducer(
-      initial,
+      started(initial, "r"),
       fetchEnvironments.fulfilled({ listing: { environments: [env], warnings: [] }, at: 1 }, "r", undefined),
     );
     const next = environmentsReducer(
-      loaded,
-      fetchEnvironments.rejected(null, "r", undefined, { code: "ws_failed", message: "ws env list failed" }),
+      started(loaded, "r2"),
+      fetchEnvironments.rejected(null, "r2", undefined, { code: "ws_failed", message: "ws env list failed" }),
     );
     expect(next.items).toEqual([env]);
     expect(next.loadedAt).toBe(1);
@@ -62,14 +67,46 @@ describe("environmentsReducer", () => {
 
   it("clears the error on the next good fetch", () => {
     const failed = environmentsReducer(
-      initial,
+      started(initial, "r"),
       fetchEnvironments.rejected(null, "r", undefined, { code: "ws_failed", message: "nope" }),
     );
     const next = environmentsReducer(
-      failed,
-      fetchEnvironments.fulfilled({ listing: { environments: [], warnings: [] }, at: 2 }, "r", undefined),
+      started(failed, "r2"),
+      fetchEnvironments.fulfilled({ listing: { environments: [], warnings: [] }, at: 2 }, "r2", undefined),
     );
     expect(next.error).toBeNull();
+  });
+
+  it("ignores a slower, earlier fetch that settles after a newer one", () => {
+    const fresh = remoteEnvironment({ name: "fresh" });
+    const stale = remoteEnvironment({ name: "stale" });
+    let state = started(started(initial, "old"), "new");
+    state = environmentsReducer(state, fetchEnvironments.fulfilled({ listing: listing(fresh), at: 2 }, "new", undefined));
+    state = environmentsReducer(state, fetchEnvironments.fulfilled({ listing: listing(stale), at: 1 }, "old", undefined));
+    expect(state.items.map((e) => e.name)).toEqual(["fresh"]);
+    expect(state.loadedAt).toBe(2);
+  });
+
+  it("ignores an error from a slower, earlier fetch after a newer one succeeded", () => {
+    let state = started(started(initial, "old"), "new");
+    state = environmentsReducer(state, fetchEnvironments.fulfilled({ listing: listing(), at: 2 }, "new", undefined));
+    state = environmentsReducer(state, fetchEnvironments.rejected(null, "old", undefined, { code: "x", message: "late" }));
+    expect(state.error).toBeNull();
+  });
+
+  it("ignores a stale response end to end through the store", async () => {
+    const resolvers: ((l: ReturnType<typeof listing>) => void)[] = [];
+    const api = fakeApi({
+      environmentsList: vi.fn(() => new Promise<ReturnType<typeof listing>>((resolve) => resolvers.push(resolve))),
+    });
+    const store = testStore({ api });
+    const first = store.dispatch(fetchEnvironments());
+    const second = store.dispatch(fetchEnvironments());
+    resolvers[1]?.(listing(remoteEnvironment({ name: "fresh" })));
+    await second;
+    resolvers[0]?.(listing(remoteEnvironment({ name: "stale" })));
+    await first;
+    expect(store.getState().environments.items.map((e) => e.name)).toEqual(["fresh"]);
   });
 
   it("remembers the last choice and writes it to localStorage", () => {
@@ -137,7 +174,20 @@ describe("environment thunks", () => {
 describe("the enrollment code (D5)", () => {
   const secret = "ws-enroll-SECRET-never-in-the-store";
 
-  it("never reaches the store or localStorage", async () => {
+  it("keeps only declared fields, so a code in a listing never reaches the store", async () => {
+    const leaky = { ...remoteEnvironment(), code: secret, hello: { ...remoteEnvironment().hello, code: secret } };
+    const api = fakeApi({ environmentsList: vi.fn(async () => listing(leaky as ReturnType<typeof remoteEnvironment>)) });
+    const store = testStore({ api });
+    await store.dispatch(fetchEnvironments());
+    expect(store.getState().environments.items).toHaveLength(1);
+    expect(JSON.stringify(store.getState())).not.toContain(secret);
+  });
+
+  it("has no state field for a code", () => {
+    expect(Object.keys(initial)).not.toContain("code");
+  });
+
+  it("does not put what the add call returns into localStorage", async () => {
     const api = fakeApi({
       environmentAdd: vi.fn(async (name: string) => ({
         id: "env_1",
@@ -150,17 +200,8 @@ describe("the enrollment code (D5)", () => {
       })),
     });
     const store = testStore({ api });
-    const code = await api.environmentAdd("new-box");
-    expect(code.code).toBe(secret);
-    await store.dispatch(fetchEnvironments());
-    await store.dispatch(removeEnvironment("other"));
-    await store.dispatch(rotateCa({ finish: false, force: false }));
+    await api.environmentAdd("new-box");
     store.dispatch(lastChoiceSet("new-box"));
-    expect(JSON.stringify(store.getState())).not.toContain(secret);
     expect(JSON.stringify({ ...window.localStorage })).not.toContain(secret);
-  });
-
-  it("has no environment-add thunk or state field for a code", () => {
-    expect(Object.keys(initial)).not.toContain("code");
   });
 });

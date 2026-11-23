@@ -12,6 +12,8 @@ export interface EnvironmentsState {
   readonly error: string | null;
   /** The environment last chosen in the New agent or New shell picker; "local" by default. */
   readonly lastChoice: string;
+  /** The request id of the newest fetch; an older fetch that settles later is ignored. */
+  readonly latestRequestId: string | null;
 }
 
 const readLastChoice = (): string => {
@@ -36,6 +38,32 @@ const initialState = (): EnvironmentsState => ({
   loadedAt: null,
   error: null,
   lastChoice: readLastChoice(),
+  latestRequestId: null,
+});
+
+/** Copies only the declared fields, so nothing extra in a reply (a code, say) is kept in the store. */
+const toEnvironment = (env: RemoteEnvironment): RemoteEnvironment => ({
+  id: env.id,
+  name: env.name,
+  state: env.state,
+  status: env.status,
+  lastSeen: env.lastSeen,
+  createdAt: env.createdAt,
+  enrolledAt: env.enrolledAt,
+  certNotAfter: env.certNotAfter,
+  certCa: env.certCa,
+  hello:
+    env.hello === null
+      ? null
+      : {
+          wsVersion: env.hello.wsVersion,
+          os: env.hello.os,
+          arch: env.hello.arch,
+          claude: env.hello.claude,
+          claudeVersion: env.hello.claudeVersion,
+          certNotAfter: env.hello.certNotAfter,
+        },
+  workspaces: env.workspaces,
 });
 
 /** The listing and when it arrived. */
@@ -98,12 +126,21 @@ const environmentsSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      .addCase(fetchEnvironments.pending, (state, action) => {
+        state.latestRequestId = action.meta.requestId;
+      })
       .addCase(fetchEnvironments.fulfilled, (state, action) => {
-        state.items = [...action.payload.listing.environments];
+        if (action.meta.requestId !== state.latestRequestId) {
+          return;
+        }
+        state.items = action.payload.listing.environments.map(toEnvironment);
         state.loadedAt = action.payload.at;
         state.error = null;
       })
       .addCase(fetchEnvironments.rejected, (state, action) => {
+        if (action.meta.requestId !== state.latestRequestId) {
+          return;
+        }
         state.error = action.payload?.message ?? action.error.message ?? "Could not list environments";
       });
   },
