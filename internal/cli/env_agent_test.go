@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/url"
@@ -16,12 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/envagent"
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/exectest"
+	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/mqttclient"
 )
 
@@ -309,10 +313,91 @@ func TestAgentLoops_Tick(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, started)
 	})
+	t.Run("started is true when an item failed", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		e.claude.CheckFunc = func(context.Context) error { return errors.New("claude is not trusted") }
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.True(t, started)
+		assert.Empty(t, e.claude.StartCalls())
+	})
 	t.Run("false when nothing is due", func(t *testing.T) {
 		e := newTickEnv(t)
 		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
 		require.NoError(t, err)
 		assert.False(t, started)
+	})
+	t.Run("false when every loop is paused or waiting", func(t *testing.T) {
+		e := newTickEnv(t)
+		paused := e.addDueLoop(t)
+		paused.Paused = true
+		require.NoError(t, e.loops.Save(&paused))
+		later := loop.Loop{Name: "later", Every: "1h", Prompt: "Do it", Keep: 5, CreatedAt: testNow().Add(-2 * time.Hour), NextRunAt: testNow().Add(time.Hour)}
+		require.NoError(t, e.loops.Create(&later))
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.False(t, started)
+		assert.Empty(t, e.claude.StartCalls())
+	})
+	t.Run("false when a script skips its loop", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addGatedLoop(t, "Do it", nil)
+		e.app.gate = &fakeGate{result: gate.Result{ExitCode: 1}}
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.False(t, started)
+		assert.Empty(t, e.claude.StartCalls())
+	})
+	t.Run("starts two of three due loops and leaves the third waiting", func(t *testing.T) {
+		e := newTickEnv(t)
+		addDueLoopsNamed(t, e, "alpha", "bravo", "charlie")
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.True(t, started)
+		assert.Len(t, e.claude.StartCalls(), 2)
+		var waiting []string
+		for _, name := range []string{"alpha", "bravo", "charlie"} {
+			l, err := e.loops.Get(name)
+			require.NoError(t, err)
+			if len(l.Runs) == 0 {
+				waiting = append(waiting, name)
+				assert.True(t, l.NextRunAt.Equal(testNow().Add(-time.Minute)), "next_run_at of %s", name)
+			}
+		}
+		assert.Len(t, waiting, 1)
+	})
+	t.Run("runs the pass in the root given, quietly", func(t *testing.T) {
+		e := newTickEnv(t)
+		var configDirs []string
+		e.app.configs = &configLoaderMock{LoadFunc: func(configDir string) (config.Paths, config.Config, error) {
+			configDirs = append(configDirs, configDir)
+			return testPaths(), testConfig(), nil
+		}}
+		_, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"/cfg"}, configDirs)
+		assert.True(t, e.app.global.quiet)
+	})
+	t.Run("a pass that can't load its config is an error with stderr", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.app.configs = &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
+			return config.Paths{}, config.Config{}, errors.New("no such root")
+		}}
+		started, err := agentLoops{newApp: e.writersApp, root: "/nowhere"}.Tick(t.Context())
+		assert.False(t, started)
+		assert.ErrorContains(t, err, "no such root")
+	})
+	t.Run("a pass whose stdout isn't a loop listing is an error", func(t *testing.T) {
+		e := newTickEnv(t)
+		newApp := func(stdout, stderr io.Writer) *App {
+			fmt.Fprint(stdout, "[]")
+			e.app.stdout = io.Discard
+			e.app.stderr = stderr
+			return e.app
+		}
+		started, err := agentLoops{newApp: newApp, root: "/cfg"}.Tick(t.Context())
+		assert.False(t, started)
+		assert.ErrorContains(t, err, "reading the loop pass")
 	})
 }
