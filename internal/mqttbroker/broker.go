@@ -55,7 +55,6 @@ type Broker struct {
 
 	mu      sync.Mutex
 	started bool
-	closed  bool
 	srv     *mqtt.Server
 	ctl     *mqtt.Client
 	rules   envproto.Rules
@@ -98,7 +97,7 @@ func (b *Broker) Start(ctx context.Context, addr string, tlsConfig *tls.Config, 
 	caps.MaximumSessionExpiryInterval = maxSessionExpiry
 	srv := mqtt.New(&mqtt.Options{Capabilities: caps, InlineClient: true, Logger: b.log})
 	b.srv, b.rules = srv, rules
-	if err := srv.AddHook(&hook{b: b}, nil); err != nil {
+	if err := srv.AddHook(&hook{b: b, srv: srv}, nil); err != nil {
 		_ = ln.Close()
 		return "", fmt.Errorf("add hook: %w", err)
 	}
@@ -121,7 +120,7 @@ func (b *Broker) Start(ctx context.Context, addr string, tlsConfig *tls.Config, 
 func (b *Broker) running() (*mqtt.Server, *mqtt.Client, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !b.started || b.closed {
+	if !b.started {
 		return nil, nil, errNotRunning
 	}
 	return b.srv, b.ctl, nil
@@ -204,13 +203,16 @@ func (b *Broker) Disconnect(serial string) int {
 	return len(matched)
 }
 
-// Close stops the listener and every connection. It is safe to call twice.
+// Close stops the listener and every connection, and resets the broker so
+// Start can run again. It is safe to call twice.
 func (b *Broker) Close() error {
 	b.mu.Lock()
-	srv, already := b.srv, b.closed
-	b.closed = true
+	srv := b.srv
+	b.started = false
+	b.srv, b.ctl = nil, nil
+	b.live = map[*mqtt.Client]*session{}
 	b.mu.Unlock()
-	if srv == nil || already {
+	if srv == nil {
 		return nil
 	}
 	return srv.Close()
@@ -292,6 +294,8 @@ func (b *Broker) takeOver(id string) {
 type hook struct {
 	mqtt.HookBase
 	b *Broker
+	// srv is the server this hook serves, which outlives b.srv across a restart.
+	srv *mqtt.Server
 }
 
 // ID names the hook.
@@ -352,7 +356,7 @@ func (h *hook) OnACLCheck(cl *mqtt.Client, topic string, write bool) bool {
 		return true
 	}
 	h.b.log.Warn("acl violation", "client", peer.ClientID, "topic", topic)
-	_ = h.b.srv.DisconnectClient(cl, packets.ErrNotAuthorized)
+	_ = h.srv.DisconnectClient(cl, packets.ErrNotAuthorized)
 	return false
 }
 

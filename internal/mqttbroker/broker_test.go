@@ -442,3 +442,25 @@ func TestBroker_Close(t *testing.T) {
 		assert.NoError(t, f.broker.Close())
 	})
 }
+
+func TestBroker_restart(t *testing.T) {
+	f := startBroker(t)
+	require.NoError(t, f.broker.Close())
+	server := f.ca.issue(t, "broker", x509.ExtKeyUsageServerAuth)
+	cfg := &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{server},
+		ClientCAs:    f.ca.pool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+	}
+	addr, err := f.broker.Start(t.Context(), "127.0.0.1:0", cfg, testRules())
+	require.NoError(t, err)
+	f.addr = addr
+	client, err := f.connect(t, "a", "a", nil)
+	require.NoError(t, err)
+	handler, ch := receiver()
+	_, err = f.broker.Subscribe(t.Context(), "env/a/up", handler)
+	require.NoError(t, err)
+	require.NoError(t, client.Publish(t.Context(), envproto.Message{Topic: "env/a/up", Payload: []byte("x"), QoS: 1}))
+	assert.Equal(t, "x", string(waitMessage(t, ch).Payload))
+}
