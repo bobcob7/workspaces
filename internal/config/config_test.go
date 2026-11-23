@@ -343,6 +343,7 @@ func TestParse_environments(t *testing.T) {
 		{"listen without a port", `listen = "8883"`, "environments.listen"},
 		{"listen port 0", `listen = "0.0.0.0:0"`, "environments.listen"},
 		{"listen port 70000", `listen = "0.0.0.0:70000"`, "environments.listen"},
+		{"listen port with a sign", `listen = "0.0.0.0:+80"`, "environments.listen"},
 		{"enroll without a port", `enroll_listen = "0.0.0.0"`, "environments.enroll_listen"},
 		{"public_name with a port", `public_name = "ws.example.com:8884"`, "environments.public_name"},
 		{"public_name with a leading hyphen", `public_name = "-ws.example.com"`, "environments.public_name"},

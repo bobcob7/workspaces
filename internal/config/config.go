@@ -234,7 +234,7 @@ func checkListenAddr(key, addr string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s %q must be host:port: %w", ErrInvalid, key, addr, err)
 	}
-	n, err := strconv.Atoi(port)
+	n, err := strconv.ParseUint(port, 10, 16)
 	if err != nil || n < 1 || n > 65535 {
 		return fmt.Errorf("%w: %s %q needs a port from 1 to 65535", ErrInvalid, key, addr)
 	}
