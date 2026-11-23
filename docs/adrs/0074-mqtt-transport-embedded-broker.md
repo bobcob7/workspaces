@@ -1,6 +1,6 @@
 # 0074. Controller and agents talk MQTT 5 over mutual TLS through a broker embedded in the `ws` daemon, one topic tree per environment, enforced by certificate
 
-- Status: Proposed
+- Status: Accepted (2026-11-22), amended the same day (see Amendments)
 - Date: 2026-11-22
 
 ## Context
@@ -56,9 +56,10 @@ the first `ws env add`. The controller's own client connects in-process or
 over a loopback listener with its own certificate, never the public one.
 
 **Identity.** An agent's certificate common name is its environment id
-(`env-<8 hex>`, set by `ws`, not chosen by the agent); the broker takes
-the MQTT client id and every ACL decision from it, ignoring the username
-and password.
+(`env-<8 hex>`, set by `ws`, not chosen by the agent); the broker's hook
+sets the MQTT client id to that name, overwriting the id the client
+claims, and takes every ACL decision from it, ignoring the username and
+password.
 
 **Topics**, under `ws/v1/`:
 
@@ -68,15 +69,16 @@ and password.
 | `env/<id>/snapshot` | agent | controller | retained; workspaces and agents, replaced on change and every 30 s |
 | `env/<id>/req` | controller | agent | requests, QoS 1, with a response topic and correlation data |
 | `env/<id>/res/<req>` | agent | controller | the reply, QoS 1 |
+| `env/<id>/up` | agent | controller | agent-initiated requests (`cert.renew`): `{op, args}`, QoS 1, with a response topic (`env/<id>/req`) and correlation data |
 | `env/<id>/stream/<sid>/out` | agent | controller | terminal and log bytes, QoS 0, with a sequence number |
 | `env/<id>/stream/<sid>/in` | controller | agent | terminal input and resize, QoS 0 |
 | `ctl/events` | controller | nobody (reserved) | |
 
 **ACL.** An agent may publish only to its own `status`, `snapshot`,
-`res/#` and `stream/+/out`, and subscribe only to its own `req` and
+`res/#`, `stream/+/out` and `up`, and subscribe only to its own `req` and
 `stream/+/in`. The controller may do everything under `env/#`. No other
 client may publish under `ws/v1/#`. A client that violates an ACL is
-disconnected and the event logged.
+disconnected by the broker's hook and the event logged (see Amendments).
 
 **Requests.** A JSON object `{op, args}`, at most 256 KiB, with message
 expiry equal to the operation's timeout (30 s by default, 10 min for a
@@ -95,9 +97,12 @@ sends the screen's current state. Output the controller isn't reading is
 dropped by the agent after 1 MiB queued, with a visible marker.
 
 **Presence.** Keep-alive 30 s; Last Will with a 10 s delay publishes
-`offline`; the agent publishes `online` on connect, so a machine that
-loses power is `offline` within about 45 s. Sessions don't persist
-(session expiry 0): a reconnect starts clean and republishes its snapshot.
+`offline`; the agent publishes `online` on connect. The agent asks for a
+session expiry of at least 10 s (a session expiry of 0 publishes the will
+at once when the connection closes) and CleanStart on every connect, so a
+reconnect starts clean and republishes its snapshot. A machine that drops
+its connection is `offline` after about 11 s; one whose network goes silent
+is `offline` after about 56 s (see Amendments).
 
 **Reconnect.** Exponential backoff from 1 s to 60 s with jitter; an agent
 never gives up.
@@ -151,11 +156,53 @@ fan-out would be built by hand.
   enforcement (an agent publishing to another's topic is disconnected),
   presence after a killed connection, request expiry, stream gaps and
   redraw, and a client without a certificate being refused.
-- **Unverified:** that the chosen broker module supports MQTT 5 response
-  topics, per-topic ACL hooks keyed to the certificate, and delayed Last
-  Will as listed; a spike picks the module (and falls back to
-  `paho.golang`'s own server-side tests) before any code. Also
-  unmeasured: terminal latency and throughput over two broker hops.
+- **Verified by the [broker spike](../design/remote-environments/broker-spike.md)**
+  (loopback only): `github.com/mochi-mqtt/server/v2` v2.7.9 and
+  `github.com/eclipse/paho.golang` v0.23.0 pass every required item, with
+  the hook work listed under Amendments. Not measured: terminal latency and
+  throughput over a real network.
+
+## Amendments (2026-11-22)
+
+**The `up` topic.** Agent-initiated requests, such as `cert.renew`, go to
+`env/<id>/up` as `{op, args}`, with the response topic `env/<id>/req` and
+correlation data; the controller replies there. The agent tells a reply
+from a request by its correlation data. Without `up` the agent's ACL, which
+allows it only to publish replies, had no topic for them
+([0075](0075-environment-enrollment-and-certificates.md), amended).
+
+**Corrections from the broker spike.** Each one replaces the text above it.
+
+- Session expiry 0 publishes the will at once when the connection closes
+  (measured 0.00 s), not after the delay. The agent asks for a session
+  expiry of at least 10 s; the spike used 30 s.
+- Silent-drop offline detection measured 56.0 s, not about 45 s. The broker
+  notices the silence at 45 s (1.5 times the keep-alive), then waits out the
+  10 s delay and up to a 1 s tick. A killed connection measured about 11 s.
+- The broker takes the client id the client claims, not the certificate's.
+  The hook sets it to the common name and clears the username.
+- The broker doesn't disconnect a client that violates an ACL. It drops a
+  QoS 0 publish silently and answers other violations with reason `0x87`,
+  so the hook disconnects the client itself.
+- The broker doesn't check will topics against the ACL, so a client could
+  set a will on another's `status`. The hook checks the will topic on connect
+  and refuses the connection when it isn't allowed.
+- The broker closes a connection whose packet exceeds its maximum packet
+  size, with no DISCONNECT, and doesn't advertise the size in CONNACK.
+  Clients enforce their own cap on requests (256 KiB) and streams.
+- The broker drops QoS 0 messages for a slow subscriber once its queue is
+  full. The queue is `MaximumClientWritesPending`, set to 256 (the default
+  8192 holds up to 128 MiB of 16 KiB chunks per slow client). The
+  sequence-number gap check is therefore required, not optional.
+- An in-process controller client has no certificate and skips the ACL, so
+  the controller connects over a loopback listener with its own certificate.
+- A reconnect while the broker still holds the old connection is a session
+  takeover, and the broker mishandles a takeover of a live connection
+  (mochi issue #562). The hook takes over the old session itself before the
+  new one is accepted.
+- The versions under Relevant facts are out of date. The latest mochi is
+  v2.7.9 (2025-03-01) and the latest paho is v0.23.0 (2025-09-07). mochi's
+  upkeep is slow, which is a maintenance risk, not a functional one.
 
 ## References
 

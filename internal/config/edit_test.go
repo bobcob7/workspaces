@@ -537,3 +537,69 @@ func TestRemoveTable(t *testing.T) {
 		assert.Equal(t, input, remove(input, "b"))
 	})
 }
+
+func TestEnvironmentKeys(t *testing.T) {
+	const table = "[environments]\nlisten = \"0.0.0.0:9001\"\n"
+	t.Run("the four keys come last when the table is set", func(t *testing.T) {
+		settings, err := Settings([]byte(defaultFile + table))
+		require.NoError(t, err)
+		require.Len(t, settings, 9)
+		assert.Equal(t, "environments.listen", settings[5].Key)
+		assert.Equal(t, "0.0.0.0:9001", settings[5].Value)
+		assert.True(t, settings[5].Set)
+		assert.Equal(t, "environments.enroll_listen", settings[6].Key)
+		assert.Equal(t, "0.0.0.0:8884", settings[6].Default)
+		assert.Equal(t, "environments.public_name", settings[7].Key)
+		assert.Equal(t, "environments.renew_before_days", settings[8].Key)
+		assert.Equal(t, 30, settings[8].Default)
+	})
+	t.Run("the default file has none of them", func(t *testing.T) {
+		settings, err := Settings([]byte(defaultFile))
+		require.NoError(t, err)
+		assert.Len(t, settings, 5)
+	})
+	t.Run("lookup finds a key whose table isn't set", func(t *testing.T) {
+		setting, err := Lookup([]byte(defaultFile), "environments.renew_before_days")
+		require.NoError(t, err)
+		assert.Equal(t, Setting{Key: "environments.renew_before_days", Type: TypeInt, Value: 30, Default: 30, Set: false}, setting)
+	})
+	t.Run("set creates the table and round-trips", func(t *testing.T) {
+		out, changed, err := Set([]byte(defaultFile), "environments.public_name", []string{"ws.example.com"})
+		require.NoError(t, err)
+		require.True(t, changed)
+		setting, err := Lookup(out, "environments.public_name")
+		require.NoError(t, err)
+		assert.Equal(t, "ws.example.com", setting.Value)
+		assert.True(t, setting.Set)
+		out, changed, err = Unset(out, "environments.public_name")
+		require.NoError(t, err)
+		assert.True(t, changed)
+		setting, err = Lookup(out, "environments.public_name")
+		require.NoError(t, err)
+		assert.False(t, setting.Set)
+	})
+	t.Run("renew_before_days sets an int", func(t *testing.T) {
+		out, _, err := Set([]byte(defaultFile), "environments.renew_before_days", []string{"14"})
+		require.NoError(t, err)
+		setting, err := Lookup(out, "environments.renew_before_days")
+		require.NoError(t, err)
+		assert.Equal(t, 14, setting.Value)
+	})
+	t.Run("out-of-range values are config_value_invalid", func(t *testing.T) {
+		for _, tt := range []struct{ key, value string }{
+			{"environments.renew_before_days", "61"},
+			{"environments.renew_before_days", "0"},
+			{"environments.renew_before_days", "soon"},
+			{"environments.listen", "8883"},
+			{"environments.enroll_listen", "0.0.0.0:70000"},
+			{"environments.public_name", "ws.example.com:8884"},
+		} {
+			_, _, err := Set([]byte(defaultFile), tt.key, []string{tt.value})
+			require.ErrorIs(t, err, ErrValueInvalid, tt.key+" "+tt.value)
+		}
+	})
+	t.Run("a bad table is ErrInvalid to Settings", func(t *testing.T) {
+		_, err := Settings([]byte("[environments]\nrenew_before_days = 0\n"))
+		assert.ErrorIs(t, err, ErrInvalid)
+	})
+}

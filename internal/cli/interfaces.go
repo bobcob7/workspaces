@@ -2,11 +2,13 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
 
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/gh"
 	"github.com/bobcob7/workspaces/internal/lifetime"
@@ -17,7 +19,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker envClient
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -65,6 +67,27 @@ type runnerDaemon interface {
 	Preflight(ctx context.Context, req daemon.PreflightRequest) (daemon.PreflightResponse, error)
 	StartRunner(ctx context.Context, id string, resume bool) (int, error)
 	StopRunner(ctx context.Context, id string) (bool, error)
+}
+
+// envBroker is the MQTT broker the daemon embeds (ADR 0074). It has the
+// same method set as the controller's broker, so the cli can hold one.
+type envBroker interface {
+	Start(ctx context.Context, addr string, tlsConfig *tls.Config, rules envproto.Rules) (string, error)
+	Publish(ctx context.Context, msg envproto.Message) error
+	Subscribe(ctx context.Context, filter string, fn func(envproto.Message)) (func(), error)
+	Clients() []envproto.Peer
+	Disconnect(serial string) int
+	Close() error
+}
+
+// envClient is the agent's MQTT connection (ADR 0074). It has the same
+// method set as envagent's mqttClient, so the cli can hand it to the agent.
+type envClient interface {
+	Connect(ctx context.Context, opts envproto.ConnectOptions) error
+	Publish(ctx context.Context, msg envproto.Message) error
+	Subscribe(ctx context.Context, filter string, fn func(envproto.Message)) error
+	Done() <-chan struct{}
+	Close() error
 }
 
 // lifetimeManager keeps each workspace as long as its session: the

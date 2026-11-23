@@ -74,6 +74,14 @@ func guideTopicsBeforeReview() []string {
 		"daemon run",
 		"daemon status",
 		"daemon stop",
+		"env",
+		"env add",
+		"env list",
+		"env rm",
+		"env rotate",
+		"env ca",
+		"env ca rotate",
+		"env ca status",
 	}
 }
 

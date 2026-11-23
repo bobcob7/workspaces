@@ -279,3 +279,88 @@ func TestValidateOwner(t *testing.T) {
 		assert.ErrorIs(t, validateOwner("a//b"), ErrInvalid)
 	})
 }
+
+func TestEnvironments_addresses(t *testing.T) {
+	t.Run("defaults when unset", func(t *testing.T) {
+		var env Environments
+		assert.Equal(t, "0.0.0.0:8883", env.ListenAddr())
+		assert.Equal(t, "0.0.0.0:8884", env.EnrollAddr())
+		assert.Equal(t, 30, env.RenewDays())
+	})
+	t.Run("reads what is set", func(t *testing.T) {
+		days := 7
+		env := Environments{Listen: "127.0.0.1:9001", EnrollListen: "127.0.0.1:9002", RenewBeforeDays: &days}
+		assert.Equal(t, "127.0.0.1:9001", env.ListenAddr())
+		assert.Equal(t, "127.0.0.1:9002", env.EnrollAddr())
+		assert.Equal(t, 7, env.RenewDays())
+	})
+	t.Run("hosts join public_name with each port", func(t *testing.T) {
+		env := Environments{PublicName: "ws.example.com", Listen: "0.0.0.0:9001"}
+		enroll, err := env.EnrollHost()
+		require.NoError(t, err)
+		assert.Equal(t, "ws.example.com:8884", enroll)
+		broker, err := env.BrokerHost()
+		require.NoError(t, err)
+		assert.Equal(t, "ws.example.com:9001", broker)
+	})
+	t.Run("hosts keep IPv6 brackets", func(t *testing.T) {
+		env := Environments{PublicName: "::1"}
+		broker, err := env.BrokerHost()
+		require.NoError(t, err)
+		assert.Equal(t, "[::1]:8883", broker)
+	})
+	t.Run("hosts need public_name", func(t *testing.T) {
+		var env Environments
+		_, err := env.EnrollHost()
+		require.ErrorIs(t, err, ErrNoPublicName)
+		_, err = env.BrokerHost()
+		require.ErrorIs(t, err, ErrNoPublicName)
+	})
+}
+
+func TestParse_environments(t *testing.T) {
+	t.Run("absent table gives the defaults", func(t *testing.T) {
+		cfg, err := parse([]byte(defaultFile))
+		require.NoError(t, err)
+		assert.Equal(t, Environments{}, cfg.Environments)
+	})
+	t.Run("reads every key", func(t *testing.T) {
+		cfg, err := parse([]byte("[environments]\nlisten = \"0.0.0.0:9001\"\nenroll_listen = \"0.0.0.0:9002\"\npublic_name = \"ws.example.com\"\nrenew_before_days = 14\n"))
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Environments.RenewBeforeDays)
+		assert.Equal(t, Environments{Listen: "0.0.0.0:9001", EnrollListen: "0.0.0.0:9002", PublicName: "ws.example.com", RenewBeforeDays: cfg.Environments.RenewBeforeDays}, cfg.Environments)
+		assert.Equal(t, 14, cfg.Environments.RenewDays())
+	})
+	t.Run("accepts an IP public_name", func(t *testing.T) {
+		_, err := parse([]byte("[environments]\npublic_name = \"192.0.2.10\"\n"))
+		require.NoError(t, err)
+	})
+	bad := []struct {
+		name string
+		line string
+		key  string
+	}{
+		{"listen without a port", `listen = "8883"`, "environments.listen"},
+		{"listen port 0", `listen = "0.0.0.0:0"`, "environments.listen"},
+		{"listen port 70000", `listen = "0.0.0.0:70000"`, "environments.listen"},
+		{"listen port with a sign", `listen = "0.0.0.0:+80"`, "environments.listen"},
+		{"enroll without a port", `enroll_listen = "0.0.0.0"`, "environments.enroll_listen"},
+		{"public_name with a port", `public_name = "ws.example.com:8884"`, "environments.public_name"},
+		{"public_name with a leading hyphen", `public_name = "-ws.example.com"`, "environments.public_name"},
+		{"public_name with an empty label", `public_name = "ws..example.com"`, "environments.public_name"},
+		{"renew_before_days 0", `renew_before_days = 0`, "environments.renew_before_days"},
+		{"renew_before_days 61", `renew_before_days = 61`, "environments.renew_before_days"},
+	}
+	for _, tt := range bad {
+		t.Run(tt.name+" is ErrInvalid", func(t *testing.T) {
+			_, err := parse([]byte("[environments]\n" + tt.line + "\n"))
+			require.ErrorIs(t, err, ErrInvalid)
+			assert.ErrorContains(t, err, tt.key)
+		})
+	}
+	t.Run("unknown key is ErrInvalid", func(t *testing.T) {
+		_, err := parse([]byte("[environments]\nlisten_addr = \"0.0.0.0:1\"\n"))
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorContains(t, err, "environments.listen_addr")
+	})
+}

@@ -135,3 +135,11 @@ func assertRemoteCode(t *testing.T, err error, code string) {
 	require.True(t, ok, "want a RemoteError, got %v", err)
 	assert.Equal(t, code, remote.Code)
 }
+
+func TestClient_ReloadEnvironments(t *testing.T) {
+	t.Parallel()
+	t.Run("nothing listening is ErrNotRunning", func(t *testing.T) {
+		err := Dial(testPaths(t)).ReloadEnvironments(t.Context())
+		require.ErrorIs(t, err, ErrNotRunning)
+	})
+}

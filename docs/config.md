@@ -48,6 +48,8 @@ CONFIG_DIR/
   review/profiles/     your review profiles, <name>.md (0038, 0042)
   loops/               agent loops, <name>.toml (0048)
   machine/roles/       your ws machine roles, <name>.md (0050)
+  environments/        this ws's remote environments: CA, records, revocations (0074, 0075)
+  environment/         on an agent only: its certificate and key (0075)
 ```
 
 What `ws` keeps under `state/` and `reviews/`, and when, is described in
@@ -327,6 +329,19 @@ when = "auto"
 | `resume_on_start` | bool | `true` | Resume `stopped` runners when a daemon starts |
 
 The daemon itself is described in [`ws daemon`](tools/ws-daemon.md).
+
+### `[environments]`
+
+| Key | Type | Default | Used for |
+| --- | ---- | ------- | -------- |
+| `listen` | string | `"0.0.0.0:8883"` | Where the daemon listens for agents over MQTT with mutual TLS (0074) |
+| `enroll_listen` | string | `"0.0.0.0:8884"` | Where the daemon listens for an agent's first contact, enrollment (0075) |
+| `public_name` | string | `""` | The DNS name or IP address agents reach this ws at, in the server certificate and in enrollment codes; the daemon listens only when it's set |
+| `renew_before_days` | int | `30` | How many days before expiry an agent renews its certificate, from 1 to 60 |
+
+Each address is `host:port` with a port from 1 to 65535. Changes take
+effect when the daemon next starts, or at once for `ws env` through the
+running daemon. The table is written by `ws config set`, or by hand.
 
 A `token` key anywhere in these tables is an error: tokens go in
 `WS_ENDPOINT_TOKEN_<NAME>` in the environment or `secrets.env`, never in

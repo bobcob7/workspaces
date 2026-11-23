@@ -4,7 +4,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,6 +95,8 @@ type Config struct {
 	Endpoints map[string]Endpoint `toml:"endpoints"`
 	Models    map[string]Model    `toml:"models"`
 	Daemon    Daemon              `toml:"daemon"`
+	// Environments is [environments] (ADRs 0074, 0075).
+	Environments Environments `toml:"environments"`
 	// RunnerErr is why the runner's tables can't be used, or nil (ADR 0071).
 	RunnerErr error `toml:"-"`
 	// roleRunners is each runner.roles.<role>.runner as written; roleRunnersBad
@@ -133,6 +137,134 @@ func (c Config) SpecDefaults() SpecDefaults { //nolint:gocritic // hugeParam: th
 		names = append(names, host.Name)
 	}
 	return SpecDefaults{Hosts: names, Owners: c.Defaults.Owners}
+}
+
+// Environments is [environments] (ADRs 0074, 0075).
+type Environments struct {
+	Listen          string `toml:"listen" json:"listen"`
+	EnrollListen    string `toml:"enroll_listen" json:"enroll_listen"`
+	PublicName      string `toml:"public_name" json:"public_name"`
+	RenewBeforeDays *int   `toml:"renew_before_days" json:"renew_before_days"`
+}
+
+// Defaults for [environments]: the agents' port, first contact's port, and
+// how long before expiry a certificate is renewed.
+const (
+	defaultEnvListen       = "0.0.0.0:8883"
+	defaultEnvEnrollListen = "0.0.0.0:8884"
+	defaultRenewBeforeDays = 30
+)
+
+// ErrNoPublicName marks [environments] that needs public_name to listen.
+var ErrNoPublicName = errors.New("environments.public_name isn't set; set it with ws config set environments.public_name <dns name or IP>")
+
+// ListenAddr is the address agents connect to over MQTT (ADR 0074).
+func (e *Environments) ListenAddr() string {
+	if e.Listen == "" {
+		return defaultEnvListen
+	}
+	return e.Listen
+}
+
+// EnrollAddr is the address agents first contact to enroll (ADR 0075).
+func (e *Environments) EnrollAddr() string {
+	if e.EnrollListen == "" {
+		return defaultEnvEnrollListen
+	}
+	return e.EnrollListen
+}
+
+// RenewDays is how many days before expiry an agent renews its certificate.
+func (e *Environments) RenewDays() int {
+	if e.RenewBeforeDays == nil {
+		return defaultRenewBeforeDays
+	}
+	return *e.RenewBeforeDays
+}
+
+// EnrollHost is the public name with the enrollment listener's port.
+func (e *Environments) EnrollHost() (string, error) {
+	return e.hostOn(e.EnrollAddr())
+}
+
+// BrokerHost is the public name with the broker's listener port.
+func (e *Environments) BrokerHost() (string, error) {
+	return e.hostOn(e.ListenAddr())
+}
+
+// hostOn joins public_name with addr's port.
+func (e *Environments) hostOn(addr string) (string, error) {
+	if e.PublicName == "" {
+		return "", ErrNoPublicName
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fmt.Errorf("splitting %s: %w", addr, err)
+	}
+	return net.JoinHostPort(e.PublicName, port), nil
+}
+
+// check rejects listen addresses without a port from 1 to 65535, a
+// public_name that isn't an IP or a DNS name, and renew_before_days outside
+// 1 to 60. Each failure wraps ErrInvalid and names its key.
+func (e *Environments) check() error {
+	for _, listen := range []struct{ key, addr string }{
+		{"environments.listen", e.Listen},
+		{"environments.enroll_listen", e.EnrollListen},
+	} {
+		if listen.addr == "" {
+			continue
+		}
+		if err := checkListenAddr(listen.key, listen.addr); err != nil {
+			return err
+		}
+	}
+	if e.PublicName != "" && !validPublicName(e.PublicName) {
+		return fmt.Errorf("%w: environments.public_name %q must be an IP address or a DNS name, without a port", ErrInvalid, e.PublicName)
+	}
+	if e.RenewBeforeDays != nil && (*e.RenewBeforeDays < 1 || *e.RenewBeforeDays > 60) {
+		return fmt.Errorf("%w: environments.renew_before_days %d must be 1 to 60", ErrInvalid, *e.RenewBeforeDays)
+	}
+	return nil
+}
+
+// checkListenAddr is nil when addr is host:port with a port from 1 to 65535.
+func checkListenAddr(key, addr string) error {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("%w: %s %q must be host:port: %w", ErrInvalid, key, addr, err)
+	}
+	n, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("%w: %s %q needs a port from 1 to 65535", ErrInvalid, key, addr)
+	}
+	return nil
+}
+
+// validPublicName is whether name is an IP address or a DNS name whose
+// labels are letters, digits and hyphens, 1 to 63 characters, neither
+// starting nor ending with a hyphen.
+func validPublicName(name string) bool {
+	if net.ParseIP(name) != nil {
+		return true
+	}
+	for label := range strings.SplitSeq(name, ".") {
+		if !validLabel(label) {
+			return false
+		}
+	}
+	return true
+}
+
+// validLabel is whether label is a DNS label: 1 to 63 letters, digits or
+// hyphens, not starting or ending with a hyphen.
+func validLabel(label string) bool {
+	if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+		return false
+	}
+	return !strings.ContainsFunc(label, func(r rune) bool {
+		return r != '-' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	})
 }
 
 // Review configures ws review (ADRs 0038, 0039).
@@ -187,9 +319,10 @@ func parse(data []byte) (Config, error) {
 
 // coreFile is config.toml's tables that predate the runner's.
 type coreFile struct {
-	Defaults Defaults `toml:"defaults"`
-	Hosts    []Host   `toml:"hosts"`
-	Review   Review   `toml:"review"`
+	Defaults     Defaults     `toml:"defaults"`
+	Hosts        []Host       `toml:"hosts"`
+	Review       Review       `toml:"review"`
+	Environments Environments `toml:"environments"`
 }
 
 // withoutRunnerTables is data with the runner's sections cut out, so a
@@ -234,7 +367,7 @@ func parseCore(data []byte) (Config, error) {
 	if keys := undecodedNames(meta.Undecoded(), false); len(keys) > 0 {
 		return Config{}, fmt.Errorf("%w: unknown keys %s%s", ErrInvalid, strings.Join(keys, ", "), tokenHint(keys))
 	}
-	cfg := Config{Defaults: core.Defaults, Hosts: core.Hosts, Review: core.Review}
+	cfg := Config{Defaults: core.Defaults, Hosts: core.Hosts, Review: core.Review, Environments: core.Environments}
 	return cfg.normalize(meta.IsDefined("defaults", "host"))
 }
 
@@ -274,7 +407,10 @@ func (c Config) normalize(hostSet bool) (Config, error) { //nolint:gocritic // h
 	if err := c.Review.check(); err != nil {
 		return Config{}, err
 	}
-	return Config{Defaults: Defaults{Host: host, Owners: owners}, Hosts: hosts, Review: c.Review}, nil
+	if err := c.Environments.check(); err != nil {
+		return Config{}, err
+	}
+	return Config{Defaults: Defaults{Host: host, Owners: owners}, Hosts: hosts, Review: c.Review, Environments: c.Environments}, nil
 }
 
 // normalizeHosts lowercases names, fills an empty kind with "auto", and

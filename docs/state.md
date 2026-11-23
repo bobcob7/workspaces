@@ -34,6 +34,12 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `state/.loops/<name>/memory.json` | a loop's shared memory: each key's value, revision, time and writer ([0056](adrs/0056-loop-history-and-memory.md)) | by `ws loop memory` and `ws machine memory`, under `.memory.lock`; deleted by `ws loop rm` |
 | `state/.loops/<name>/.memory.lock` | the memory lock, for memory writes only; never `loops/.lock` ([0056](adrs/0056-loop-history-and-memory.md)) | by the memory writers |
 | `state/<id>/loop.toml` | the run mark: the loop a workspace is a run of, and when the run started ([0056](adrs/0056-loop-history-and-memory.md)); it also marks the workspace for `ws list`'s `loop_run` ([0057](adrs/0057-loop-visibility-and-blocked-runs.md)) | by `ws loop tick` and `ws loop run`, after the workspace is created and before its agent starts |
+| `environments/ca/` | the controller's CA: `ca.key` (mode 0600) and `ca.crt`, and the broker's `server.key` and `server.crt`; a rotation keeps the new CA in `ca.key.new` and `ca.crt.new` until it's done ([0075](adrs/0075-environment-enrollment-and-certificates.md)) | by `ws env add` when there is no CA; the server pair by the daemon when the CA is made or rotated; by `ws env ca rotate`, and `--finish` removes the old CA |
+| `environments/<id>.toml` | a remote environment's record: its state, the secret's hash, and its certificate's serial, expiry and CA ([Remote environments](#remote-environments)) | by `ws env add`, `ws env rotate`, and enrollment; removed by `ws env rm` |
+| `environments/revoked` | the serials of revoked certificates, one per line, which the broker refuses | by `ws env rm` and `ws env rotate`; never trimmed |
+| `environments/.lock` | held while the environments, the CA or the revocations are written | by the environment store |
+| `state/.environments/<name>/snapshot.json` | the last workspace snapshot an agent sent, which `ws env list` counts | by the daemon, as snapshots arrive; removed by `ws env rm` |
+| `environment/` on an agent: `agent.toml`, `key.pem` (mode 0600), `cert.pem`, `ca.pem` | the agent's identity: its environment, its key and certificate, and the CA certificates it verifies the broker with ([0075](adrs/0075-environment-enrollment-and-certificates.md)) | by `ws env agent enroll`; `cert.pem` by a renewal and `ca.pem` by a CA update in `ws env agent run`; removed by `ws env agent unenroll` |
 
 - **Workspace contents.** Nothing `ws` writes goes inside
   `workspaces/<id>/`.
@@ -273,6 +279,30 @@ current finding's `<profile>:<id>` to its decision:
   prune` removes `reviews/<host>/<owner>/<name>/`, every commit of it, for
   each repo that is no longer cached, and then the parent directories
   that leaves empty.
+
+## Remote environments
+
+A remote environment ([0072](adrs/0072-remote-environments.md)) is one
+record, `environments/<id>.toml`, with these fields
+([0075](adrs/0075-environment-enrollment-and-certificates.md)):
+
+| Field | What it is |
+| --- | --- |
+| `version`, `id`, `name`, `created_at` | the record's version; the environment's id (`env-` and 8 hex digits); its name; when `ws env add` made it, in RFC 3339 UTC |
+| `state` | `pending` from `ws env add` or `ws env rotate` until enrollment, then `enrolled` |
+| `secret_hash` | the SHA-256 of the enrollment secret; the secret itself is never stored |
+| `enrolled_at`, `cert_serial`, `cert_not_after`, `cert_ca` | when the agent enrolled; the current certificate's serial, expiry and CA fingerprint; empty until enrollment |
+| `prior_serials` | up to 5 earlier certificate serials, oldest first, that renewal superseded; cleared by `ws env rotate`; omitted when empty |
+
+`ws env rotate` revokes the current certificate, if there is one, and the
+earlier ones in `prior_serials`, and returns the record to `pending` with a
+new code. `ws env rm` revokes the same serials and deletes the record and the
+snapshot. A `ws` built before `prior_serials` can't read a record that has
+one, so upgrade every `ws` that reads environments together. A certificate
+superseded before the last 5 isn't revoked, so it stays valid until it
+expires. `ws env agent unenroll` on the remote
+leaves the record alone, so the environment is listed as offline until
+`ws env rm`.
 
 ## What each command does
 
