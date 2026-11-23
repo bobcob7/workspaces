@@ -1,7 +1,7 @@
 # ws review wait
 
 ```
-ws review wait [--timeout <duration>] [--json] <id>
+ws review wait [--timeout <duration>] [--env <name>] [--json] <id>
 ```
 
 Waits for a review to finish, then prints its report, exactly as `ws
@@ -19,6 +19,7 @@ tells you it exited (see `ws llm review`).
 | Flag                   | Meaning                                                      |
 | ---------------------- | ------------------------------------------------------------ |
 | `--timeout <duration>` | Give up after this long, such as `90m`; default `[review] timeout` in `config.toml`, 60 minutes |
+| `--env <name>`         | Wait for a review on that environment; for people and the desktop app; refused inside a workspace |
 | `--json`               | Print the report as JSON                                     |
 
 ## JSON output

@@ -42,7 +42,7 @@ type reviewSubjectOptions struct {
 
 func (a *App) newReviewReportCmd() *cobra.Command {
 	var subject reviewSubjectOptions
-	var format, decided string
+	var format, decided, env string
 	cmd := &cobra.Command{
 		Use:   "report [--format json|markdown|html] [--decided comment|fix|skip] (<ID> | --repo <REPO> --ref <SHA>)",
 		Short: "Print a review's combined report",
@@ -51,17 +51,26 @@ func (a *App) newReviewReportCmd() *cobra.Command {
 			if cmd.Flags().Changed("decided") && !slices.Contains([]string{store.DecisionComment, store.DecisionFix, store.DecisionSkip}, decided) {
 				return usageErrorf("--decided must be comment, fix, or skip, not %q", decided)
 			}
+			name, err := a.reviewEnv(env, "")
+			if err != nil {
+				return err
+			}
+			if name != "" {
+				return a.runRemoteReviewReport(cmd.Context(), name, args, &subject, format, decided)
+			}
 			return a.runReviewReport(cmd.Context(), args, &subject, format, decided)
 		})),
 	}
 	addReviewSubjectFlags(cmd, &subject)
 	cmd.Flags().StringVar(&format, "format", "", "json, markdown, or html; default: json with --json, else markdown")
 	cmd.Flags().StringVar(&decided, "decided", "", "list only the findings decided comment, fix, or skip")
+	cmd.Flags().StringVar(&env, "env", "", "read the report from this environment (ws env list), by review id; for people and the desktop app; default: local")
 	return cmd
 }
 
 func (a *App) newReviewWaitCmd() *cobra.Command {
 	var timeout time.Duration
+	var env string
 	cmd := &cobra.Command{
 		Use:   "wait [--timeout <DURATION>] <ID>",
 		Short: "Wait for a review to finish, then print its report",
@@ -70,10 +79,18 @@ func (a *App) newReviewWaitCmd() *cobra.Command {
 			if !cmd.Flags().Changed("timeout") {
 				timeout = a.config.Review.WaitTimeout()
 			}
+			name, err := a.reviewEnv(env, "")
+			if err != nil {
+				return err
+			}
+			if name != "" {
+				return a.waitRemoteReview(cmd.Context(), name, args[0], timeout)
+			}
 			return a.runReviewWait(cmd.Context(), args[0], timeout)
 		})),
 	}
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "give up after this long, such as 90m; default: [review] timeout, 60m")
+	cmd.Flags().StringVar(&env, "env", "", "wait for a review on this environment (ws env list); for people and the desktop app; default: local")
 	return cmd
 }
 

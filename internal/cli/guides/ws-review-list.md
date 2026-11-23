@@ -1,7 +1,7 @@
 # ws review list
 
 ```
-ws review list [--repo <repo>] [--pr <n>] [--json]
+ws review list [--repo <repo>] [--pr <n>] [--env <name>] [--json]
 ```
 
 Lists reviews, newest first, including those whose agent and workspace
@@ -22,6 +22,7 @@ the workspace.
 | --------------- | -------------------------------------------------------- |
 | `--repo <repo>` | Only reviews of this repo id, `host/owner/name`          |
 | `--pr <n>`      | Only reviews of this pull request                        |
+| `--env <name>`  | List the reviews on that environment; for people and the desktop app; refused inside a workspace |
 | `--json`        | Print the result as JSON                                 |
 
 ## JSON output

@@ -17,14 +17,23 @@ import (
 // newReviewProfilesCmd lists the profiles, and holds the operations that
 // manage them (ADR 0042).
 func (a *App) newReviewProfilesCmd() *cobra.Command {
+	var env string
 	cmd := &cobra.Command{
 		Use:   "profiles [show | add | edit | rm]",
 		Short: "List review profiles with their settings, or manage them",
 		Args:  knownOperation,
-		RunE: runE(a.withConfig(func(*cobra.Command, []string) error {
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, _ []string) error {
+			name, err := a.reviewEnv(env, "")
+			if err != nil {
+				return err
+			}
+			if name != "" {
+				return a.runRemoteReviewProfiles(cmd.Context(), name)
+			}
 			return a.runReviewProfiles()
 		})),
 	}
+	cmd.Flags().StringVar(&env, "env", "", "list the profiles on this environment (ws env list), read only; for people and the desktop app; default: local")
 	cmd.AddCommand(
 		a.newReviewProfilesShowCmd(),
 		a.newReviewProfilesAddCmd(),
@@ -257,14 +266,19 @@ func (a *App) runReviewProfiles() error {
 	if a.global.json {
 		return a.writeJSON(reviewProfilesJSON{Profiles: out, Warnings: a.warnings()})
 	}
-	tw := tabwriter.NewWriter(a.stdout, 0, 0, 3, ' ', 0)
+	printProfilesTable(a.stdout, out)
+	a.printWarnings()
+	return nil
+}
+
+// printProfilesTable prints a table of the profiles.
+func printProfilesTable(w io.Writer, profiles []reviewProfileInfoJSON) {
+	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tSOURCE\tWHEN\tMATCH\tMODEL\tDESCRIPTION")
-	for _, p := range out {
+	for _, p := range profiles {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", p.Name, p.Source, p.When, dashIfEmpty(strings.Join(p.Match, " ")), dashIfEmpty(p.Model), p.Description)
 	}
 	_ = tw.Flush()
-	a.printWarnings()
-	return nil
 }
 
 // profileInfo is p with config.toml's when and model applied.

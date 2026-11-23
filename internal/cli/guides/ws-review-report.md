@@ -1,7 +1,7 @@
 # ws review report
 
 ```
-ws review report [--format json|markdown|html] [--decided comment|fix|skip] [--json] (<id> | --repo <repo> --ref <sha>)
+ws review report [--format json|markdown|html] [--decided comment|fix|skip] [--env <name>] [--json] (<id> | --repo <repo> --ref <sha>)
 ```
 
 Combines a review's stored submissions into one report. Name the review
@@ -21,6 +21,7 @@ submission's are `#<n>:<id>`, under `superseded`.
 | `--decided <d>`     | List only the findings decided `comment`, `fix`, or `skip`       |
 | `--repo <repo>`     | The reviewed repo's id, with `--ref`                             |
 | `--ref <sha>`       | The reviewed commit, all 40 characters, with `--repo`            |
+| `--env <name>`      | Read the report from that environment, by id only (not with `--repo`/`--ref`); for people and the desktop app; refused inside a workspace |
 | `--json`            | Print the report as JSON; the same as `--format json`            |
 
 ## JSON output

@@ -46,7 +46,7 @@ func TestErrorCode_exitCode(t *testing.T) {
 	t.Run("failures exit 1", func(t *testing.T) {
 		assertExit(t, exitFailed, codeFetchFailed, codeCloneFailed, codeGitFailed,
 			codeClaudeMissing, codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
-			codeChildFailed, codeWaitTimeout, codeEnrollmentFailed, codeEnvironmentOffline, codeEnvironmentOutdated)
+			codeChildFailed, codeWaitTimeout, codeEnrollmentFailed, codeEnvironmentOffline, codeEnvironmentOutdated, codeOperationLimited)
 	})
 	t.Run("usage errors exit 2", func(t *testing.T) {
 		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace, codeResultInvalid, codeRoleInvalid, codeMemoryInvalid)

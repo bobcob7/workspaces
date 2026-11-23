@@ -1,7 +1,7 @@
 # ws review acted
 
 ```
-ws review acted [--json] (<id> | --repo <repo> --ref <sha>) <finding>... (--commented <url> | --fix-sent <agent>)
+ws review acted [--env <name>] [--json] (<id> | --repo <repo> --ref <sha>) <finding>... (--commented <url> | --fix-sent <agent>)
 ```
 
 Records that decided findings were acted on, by filling their decision's
@@ -21,6 +21,7 @@ decided the matching way. All are checked before any is changed.
 | `--fix-sent <agent>`  | The findings were sent to this agent's workspace to fix  |
 | `--repo <repo>`       | The reviewed repo's id, with `--ref`                     |
 | `--ref <sha>`         | The reviewed commit, all 40 characters, with `--repo`    |
+| `--env <name>`        | Record it on that environment, by id only; for people and the desktop app; refused inside a workspace |
 | `--json`              | Print the result as JSON                                 |
 
 ## JSON output

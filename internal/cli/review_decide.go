@@ -32,6 +32,7 @@ type actedOptions struct {
 func (a *App) newReviewDecideCmd() *cobra.Command {
 	var subject reviewSubjectOptions
 	var opts decideOptions
+	var env string
 	cmd := &cobra.Command{
 		Use:   "decide (<ID> | --repo <REPO> --ref <SHA>) <FINDING>... (--comment | --fix [--suggestion <N>] | --skip | --clear) [--note <TEXT>]",
 		Short: "Decide what to do with a review's findings",
@@ -41,6 +42,13 @@ func (a *App) newReviewDecideCmd() *cobra.Command {
 			opts.hasNote = cmd.Flags().Changed("note")
 			if err := opts.check(); err != nil {
 				return err
+			}
+			name, err := a.reviewEnv(env, "")
+			if err != nil {
+				return err
+			}
+			if name != "" {
+				return a.runRemoteReviewDecide(cmd.Context(), name, args, &subject, &opts)
 			}
 			return a.runReviewDecide(cmd.Context(), args, &subject, &opts)
 		})),
@@ -52,12 +60,14 @@ func (a *App) newReviewDecideCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.skip, "skip", false, "leave the findings as they are")
 	cmd.Flags().BoolVar(&opts.clear, "clear", false, "remove the findings' decisions")
 	cmd.Flags().StringVar(&opts.note, "note", "", "a note kept with the decisions")
+	cmd.Flags().StringVar(&env, "env", "", "decide on this environment (ws env list), by review id; for people and the desktop app; default: local")
 	return cmd
 }
 
 func (a *App) newReviewActedCmd() *cobra.Command {
 	var subject reviewSubjectOptions
 	var opts actedOptions
+	var env string
 	cmd := &cobra.Command{
 		Use:   "acted (<ID> | --repo <REPO> --ref <SHA>) <FINDING>... (--commented <URL> | --fix-sent <AGENT>)",
 		Short: "Record that decided findings were acted on",
@@ -66,12 +76,20 @@ func (a *App) newReviewActedCmd() *cobra.Command {
 			if err := opts.check(); err != nil {
 				return err
 			}
+			name, err := a.reviewEnv(env, "")
+			if err != nil {
+				return err
+			}
+			if name != "" {
+				return a.runRemoteReviewActed(cmd.Context(), name, args, &subject, &opts)
+			}
 			return a.runReviewActed(cmd.Context(), args, &subject, &opts)
 		})),
 	}
 	addReviewSubjectFlags(cmd, &subject)
 	cmd.Flags().StringVar(&opts.commented, "commented", "", "the findings were posted in the review at this URL")
 	cmd.Flags().StringVar(&opts.fixSent, "fix-sent", "", "the findings were sent to this agent to fix")
+	cmd.Flags().StringVar(&env, "env", "", "record it on this environment (ws env list), by review id; for people and the desktop app; default: local")
 	return cmd
 }
 

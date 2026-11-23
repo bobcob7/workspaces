@@ -1,7 +1,7 @@
 # ws review start
 
 ```
-ws review start [--pr <n>] [--profile <p>[:<model>]]... [--auto <p>[:<model>]]... [--requester <id>|none] [--name <name>] [--offline] [--json] <spec> [-- <claude args>... [<focus>]]
+ws review start [--pr <n>] [--profile <p>[:<model>]]... [--auto <p>[:<model>]]... [--requester <id>|none] [--name <name>] [--offline] [--env <name>] [--json] <spec> [-- <claude args>... [<focus>]]
 ```
 
 Starts a review of one repo's commit: a new workspace at that commit, with
@@ -46,6 +46,7 @@ Returns as soon as the agent has started.
 | `--requester <id>\|none`  | Who asked for the review; default: the workspace you're in  |
 | `--name <name>`           | Name the workspace instead of `review-…`                    |
 | `--offline`               | Don't fetch the cache; `gh` still runs with `--pr`          |
+| `--env <name>`            | Start the review on that environment (`ws env list`); for people and the desktop app; refused inside a workspace; not with `--offline` |
 | `--json`                  | Print the result as JSON                                    |
 
 ## JSON output
@@ -80,6 +81,8 @@ review`). Without `--json`: `ws claude`'s line, then the wait command.
 | `--requester` names no workspace                       | `workspace_not_found` | 3 |
 | Repo or ref not found                                  | `repo_not_found`, `repo_ambiguous`, `ref_not_found` | 3 |
 | The pull request doesn't exist                         | `pr_not_found`     | 3    |
+| With `--env`, the environment's agent limited reviews (a rate limit) | `operation_limited` | 1 |
+| With `--env`, `--offline`, a claude flag other than `--model` and `--permission-mode`, or `--env` inside a workspace | `usage` | 2 |
 | `gh` isn't on `PATH`, or isn't signed in               | `gh_missing`, `gh_auth` | 1 |
 | Fetch, clone, or `claude` failed, as for `ws claude`   | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed` | 1 |
 | `config.toml` or a profile file is malformed           | `config_invalid`   | 1    |
