@@ -1,10 +1,12 @@
 package envagent
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -228,6 +230,78 @@ func TestAgent_tickLoops(t *testing.T) {
 		close(gate)
 		require.Eventually(t, func() bool { return !agent.ticking.Load() }, 5*time.Second, 5*time.Millisecond)
 		assert.False(t, cancelled.Load())
+	})
+	t.Run("Run does not return while a pass is running", func(t *testing.T) {
+		t.Parallel()
+		opts := testOptions()
+		ticks, _ := loopTimer(&opts)
+		started := make(chan struct{})
+		gate := make(chan struct{})
+		ticker := tickerMock(func(context.Context) (bool, error) {
+			close(started)
+			<-gate
+			return false, nil
+		})
+		agent, _, _ := loopAgent(t, ticker, opts)
+		run := runAgent(t, agent)
+		fire(t, ticks)
+		<-started
+		run.cancel()
+		select {
+		case <-run.finished:
+			t.Fatal("Run returned while a pass was running")
+		case <-time.After(200 * time.Millisecond):
+		}
+		close(gate)
+		select {
+		case <-run.finished:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Run never returned after the pass ended")
+		}
+	})
+	t.Run("Run does not return while the ticker goroutine is still running", func(t *testing.T) {
+		t.Parallel()
+		opts := testOptions()
+		opts.LoopTick = testLoopTick
+		inTimer := make(chan struct{})
+		release := make(chan struct{})
+		opts.After = func(d time.Duration) <-chan time.Time {
+			if d != testLoopTick {
+				return time.After(d)
+			}
+			close(inTimer)
+			<-release
+			return make(chan time.Time)
+		}
+		ticker := tickerMock(func(context.Context) (bool, error) { return false, nil })
+		agent, _, _ := loopAgent(t, ticker, opts)
+		run := runAgent(t, agent)
+		<-inTimer
+		run.cancel()
+		select {
+		case <-run.finished:
+			t.Fatal("Run returned while the ticker goroutine was running")
+		case <-time.After(200 * time.Millisecond):
+		}
+		close(release)
+		select {
+		case <-run.finished:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Run never returned after the ticker goroutine ended")
+		}
+	})
+	t.Run("a tick error is logged as a warning", func(t *testing.T) {
+		t.Parallel()
+		opts := testOptions()
+		ticks, _ := loopTimer(&opts)
+		ticker := tickerMock(func(context.Context) (bool, error) { return false, errors.New("the pass failed") })
+		agent, _, _ := loopAgent(t, ticker, opts)
+		var logs bytes.Buffer
+		agent.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+		runAgent(t, agent)
+		fire(t, ticks)
+		require.Eventually(t, func() bool { return len(ticker.TickCalls()) == 1 && !agent.ticking.Load() }, 5*time.Second, 5*time.Millisecond)
+		assert.Contains(t, logs.String(), "loop pass failed")
 	})
 }
 

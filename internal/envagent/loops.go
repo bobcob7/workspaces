@@ -12,7 +12,8 @@ func (a *Agent) SetLoopTicker(t loopTicker) {
 
 // tickLoops runs until ctx ends: wait LoopTick, then one pass unless one is
 // still running, then signalChanged when it changed something. serve starts
-// it after the hello and cancels it when the connection ends. A pass that is
+// it after the hello, cancels it when the connection ends and waits for it
+// to return, so no pass starts after Run waits for the passes. A pass that is
 // running then isn't cancelled: it runs under the agent's run context.
 func (a *Agent) tickLoops(ctx context.Context) {
 	for {

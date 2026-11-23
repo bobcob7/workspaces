@@ -49,7 +49,7 @@ const (
 )
 
 // CodeOperationLimited is the error code of a request the agent refused for
-// its rate limit (ADR 0078). It equals internal/cli's codeOperationLimited.
+// its rate limit (ADR 0078).
 const CodeOperationLimited = "operation_limited"
 
 const (

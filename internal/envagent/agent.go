@@ -220,7 +220,10 @@ func (a *Agent) serve(parent context.Context, id *Identity) {
 		a.terms.begin(ctx, id.ID)
 	}
 	if a.ticker != nil && a.opts.LoopTick > 0 {
-		go a.tickLoops(ctx)
+		var ticker sync.WaitGroup
+		defer ticker.Wait()
+		defer cancelOps()
+		ticker.Go(func() { a.tickLoops(ctx) })
 	}
 	snapshotTimer := a.opts.After(a.opts.SnapshotCheck)
 	renewTimer := a.opts.After(a.opts.RenewCheck)

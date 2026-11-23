@@ -1,6 +1,7 @@
 package envagent
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -131,5 +132,108 @@ func TestLimiter_allow(t *testing.T) {
 			require.True(t, ok)
 			require.Zero(t, retry)
 		}
+	})
+	t.Run("a loop is allowed again exactly 60 s after its run", func(t *testing.T) {
+		t.Parallel()
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		args := &envproto.LoopRunArgs{Name: "nightly"}
+		ok, _ := l.allow(envproto.OpLoopRun, args)
+		require.True(t, ok)
+		clock.advance(time.Minute)
+		ok, retry := l.allow(envproto.OpLoopRun, args)
+		assert.True(t, ok)
+		assert.Zero(t, retry)
+	})
+	t.Run("review.start is allowed again exactly 5 min after the 12th", func(t *testing.T) {
+		t.Parallel()
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		for range 12 {
+			ok, _ := l.allow(envproto.OpReviewStart, &envproto.ReviewStartArgs{})
+			require.True(t, ok)
+		}
+		clock.advance(5 * time.Minute)
+		ok, retry := l.allow(envproto.OpReviewStart, &envproto.ReviewStartArgs{})
+		assert.True(t, ok)
+		assert.Zero(t, retry)
+	})
+	t.Run("the wait is the remaining time, not less", func(t *testing.T) {
+		t.Parallel()
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		args := &envproto.LoopRunArgs{Name: "nightly"}
+		ok, _ := l.allow(envproto.OpLoopRun, args)
+		require.True(t, ok)
+		clock.advance(1500 * time.Millisecond)
+		ok, retry := l.allow(envproto.OpLoopRun, args)
+		require.False(t, ok)
+		assert.Equal(t, 58500*time.Millisecond, retry)
+	})
+}
+
+func TestLimitedError(t *testing.T) {
+	t.Parallel()
+	t.Run("a wait of 58.5 s is reported as 59 seconds", func(t *testing.T) {
+		t.Parallel()
+		err := limitedError(envproto.OpLoopRun, 58500*time.Millisecond)
+		assert.Equal(t, 59, err.Details["retry_after_seconds"])
+		assert.Contains(t, err.Message, "59 seconds")
+	})
+	t.Run("a wait of 1.2 s is reported as 2 seconds", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, 2, limitedError(envproto.OpReviewStart, 1200*time.Millisecond).Details["retry_after_seconds"])
+	})
+	t.Run("a tiny wait is reported as 1 second", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, 1, limitedError(envproto.OpReviewStart, time.Millisecond).Details["retry_after_seconds"])
+	})
+}
+
+func TestLimiter_forgetFull(t *testing.T) {
+	t.Parallel()
+	seed := func(l *limiter, n int, at time.Time) {
+		for i := range n {
+			l.buckets[fmt.Sprintf("loop.run:loop-%d", i)] = &tokenBucket{tokens: 1, at: at}
+		}
+	}
+	t.Run("over maxBuckets the per-loop buckets are dropped and the global ones keep their state", func(t *testing.T) {
+		t.Parallel()
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		start := clock.Now()
+		seed(l, maxBuckets+44, start)
+		l.buckets["loop.run"] = &tokenBucket{tokens: 3, at: start}
+		l.buckets["review.start"] = &tokenBucket{tokens: 2, at: start}
+		l.buckets["loop.write"] = &tokenBucket{tokens: 5, at: start}
+		clock.advance(time.Minute)
+		ok, _ := l.allow(envproto.OpLoopAdd, nil)
+		require.True(t, ok)
+		for key := range l.buckets {
+			assert.NotContains(t, key, "loop.run:", "per-loop bucket kept")
+		}
+		assert.InDelta(t, 3, l.buckets["loop.run"].tokens, 1e-9)
+		assert.InDelta(t, 2, l.buckets["review.start"].tokens, 1e-9)
+		assert.InDelta(t, 5, l.buckets["loop.write"].tokens, 1e-9, "6 after the refill, 5 after the call")
+	})
+	t.Run("at or under maxBuckets nothing is dropped", func(t *testing.T) {
+		t.Parallel()
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		seed(l, 100, clock.Now())
+		clock.advance(time.Minute)
+		ok, _ := l.allow(envproto.OpLoopAdd, nil)
+		require.True(t, ok)
+		assert.Len(t, l.buckets, 101)
+	})
+	t.Run("per-loop buckets that are not yet full again are kept", func(t *testing.T) {
+		t.Parallel()
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		seed(l, maxBuckets+44, clock.Now())
+		clock.advance(59 * time.Second)
+		ok, _ := l.allow(envproto.OpLoopAdd, nil)
+		require.True(t, ok)
+		assert.Greater(t, len(l.buckets), maxBuckets)
 	})
 }
