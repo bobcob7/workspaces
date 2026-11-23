@@ -25,8 +25,13 @@ func discardDaemonLog() *slog.Logger {
 }
 
 func TestApp_daemonEnvironments(t *testing.T) {
+	t.Run("is NopEnvironments with no reason when [environments] has no public_name", func(t *testing.T) {
+		app, _, _ := newDaemonTestApp(t)
+		assert.Equal(t, daemon.NopEnvironments{}, app.daemonEnvironments(discardDaemonLog()))
+	})
 	t.Run("the default broker is the mochi adapter, so the host isn't NopEnvironments", func(t *testing.T) {
 		app, _, _ := newDaemonTestApp(t)
+		app.config.Environments = config.Environments{PublicName: "127.0.0.1"}
 		broker, err := app.newEnvBroker(discardDaemonLog())
 		require.NoError(t, err)
 		assert.IsType(t, &mqttbroker.Broker{}, broker)
@@ -39,6 +44,10 @@ func TestApp_daemonEnvironments(t *testing.T) {
 		_, _, _, err := app.envStore().Add(t.Context(), "linux", "127.0.0.1:8884")
 		require.NoError(t, err)
 		serveEnvDaemon(t, app)
+		require.NoError(t, app.runDaemonStatus(t.Context()))
+		assert.Contains(t, stdout.String(), "environments: listening on 127.0.0.1:")
+		assert.Contains(t, stdout.String(), "1 pending")
+		stdout.Reset()
 		app.global.json = true
 		require.NoError(t, app.runDaemonStatus(t.Context()))
 		obj := decodeJSONObject(t, stdout)
@@ -58,17 +67,6 @@ func TestApp_daemonEnvironments(t *testing.T) {
 		envs, ok := decodeJSONObject(t, stdout)["environments"].(map[string]any)
 		require.True(t, ok)
 		assert.Equal(t, true, envs["listening"])
-	})
-	t.Run("the environments' listen addresses are reported", func(t *testing.T) {
-		app, stdout, _ := newDaemonTestApp(t)
-		app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
-		app.config.Environments = config.Environments{Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", PublicName: "127.0.0.1"}
-		_, _, _, err := app.envStore().Add(t.Context(), "linux", "127.0.0.1:8884")
-		require.NoError(t, err)
-		serveEnvDaemon(t, app)
-		require.NoError(t, app.runDaemonStatus(t.Context()))
-		assert.Contains(t, stdout.String(), "environments: listening on 127.0.0.1:")
-		assert.Contains(t, stdout.String(), "1 pending")
 	})
 }
 

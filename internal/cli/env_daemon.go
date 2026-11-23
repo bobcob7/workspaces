@@ -18,14 +18,18 @@ func (a *App) envStore() *environment.Store {
 	return environment.NewStore(a.paths.Environments, a.paths.State, a.now, rand.Reader)
 }
 
-// daemonEnvironments is the daemon's host: envHost around a Controller, or
-// NopEnvironments{Reason: err.Error()} when newEnvBroker fails.
+// daemonEnvironments is the daemon's host: envHost around a Controller. It is
+// a NopEnvironments without a reason when [environments] has no public_name,
+// and one with newEnvBroker's error as its reason when that fails.
 func (a *App) daemonEnvironments(log *slog.Logger) daemon.EnvironmentHost {
+	env := &a.config.Environments
+	if env.PublicName == "" {
+		return daemon.NopEnvironments{}
+	}
 	broker, err := a.newEnvBroker(log)
 	if err != nil {
 		return daemon.NopEnvironments{Reason: err.Error()}
 	}
-	env := &a.config.Environments
 	settings := environment.Settings{
 		Listen:          env.ListenAddr(),
 		EnrollListen:    env.EnrollAddr(),
