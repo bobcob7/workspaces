@@ -320,14 +320,14 @@
       {
         id: "env_7f3a", name: "linux-server", state: "enrolled", status: "online",
         last_seen: "2026-11-23T08:10:00Z", created_at: "2026-10-02T09:00:00Z", enrolled_at: "2026-10-02T09:04:00Z",
-        cert_not_after: "2027-10-02T09:04:00Z", cert_ca: "sha256:4c1e0a7d",
-        hello: { ws_version: "0.9.0", os: "linux", arch: "amd64", claude: "installed", claude_version: "2.1.0", cert_not_after: "2027-10-02T09:04:00Z" },
+        cert_not_after: "2027-10-02T09:04:00Z", cert_ca: "current",
+        hello: { ws_version: "0.9.0", os: "linux", arch: "amd64", claude: "present", claude_version: "2.1.0", cert_not_after: "2027-10-02T09:04:00Z" },
         workspaces: 2,
       },
       {
         id: "env_b20d", name: "win-rig", state: "enrolled", status: "offline",
         last_seen: "2026-11-22T14:02:00Z", created_at: "2026-10-20T16:30:00Z", enrolled_at: "2026-10-20T16:35:00Z",
-        cert_not_after: "2027-10-20T16:35:00Z", cert_ca: "sha256:4c1e0a7d",
+        cert_not_after: "2027-10-20T16:35:00Z", cert_ca: "current",
         hello: null, workspaces: 1,
       },
     ],

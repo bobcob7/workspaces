@@ -213,8 +213,15 @@ fn named_args(op: &str, name: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pty::Terminals;
+    use crate::reviews::checker::Checker;
+    use crate::reviews::report;
+    use crate::reviews::store::Store;
     use crate::runner::Runner;
+    use crate::stats;
+    use crate::tray::watcher::Watcher;
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::Arc;
 
     /// A directory holding a fake `ws` script, for PATH. The script writes
     /// its arguments, one per line, to `args`.
@@ -271,7 +278,7 @@ mod tests {
     #[tokio::test]
     async fn environments_list_decodes_ws_output() {
         let (dir, runner) = fake_ws(
-            r#"echo '{"environments":[{"id":"env_1","name":"linux-server","state":"enrolled","status":"online","last_seen":"2026-11-23T08:00:00Z","created_at":null,"enrolled_at":"2026-11-01T00:00:00Z","cert_not_after":"2027-11-01T00:00:00Z","cert_ca":"sha256:ab","hello":{"ws_version":"0.9.0","os":"linux","arch":"amd64","claude":"installed","claude_version":null,"cert_not_after":"2027-11-01T00:00:00Z"},"workspaces":2}],"warnings":[]}'"#,
+            r#"echo '{"environments":[{"id":"env_1","name":"linux-server","state":"enrolled","status":"online","last_seen":"2026-11-23T08:00:00Z","created_at":null,"enrolled_at":"2026-11-01T00:00:00Z","cert_not_after":"2027-11-01T00:00:00Z","cert_ca":"current","hello":{"ws_version":"0.9.0","os":"linux","arch":"amd64","claude":"present","claude_version":null,"cert_not_after":"2027-11-01T00:00:00Z"},"workspaces":2}],"warnings":[]}'"#,
         );
         let listing: EnvironmentListing = runner.ws_json_as_given(&env_list_args()).await.unwrap();
         assert_eq!(lines(&dir), ["env", "list", "--json"]);
@@ -283,19 +290,51 @@ mod tests {
         assert_eq!(out["hello"]["claudeVersion"], serde_json::Value::Null);
     }
 
+    /// `AppState` has no `Debug` impl, since its terminal and review fields
+    /// have none. The pattern names every field, so a new field stops this
+    /// module compiling until it is printed here or ignored.
+    fn state_debug(state: &AppState) -> String {
+        let AppState {
+            runner,
+            terminals: _,
+            jobs_dir,
+            store,
+            reviews: _,
+            reports,
+            watcher,
+            stats,
+        } = state;
+        format!("{runner:?} {jobs_dir:?} {store:?} {reports:?} {watcher:?} {stats:?}")
+    }
+
+    fn test_state(runner: Runner) -> AppState {
+        AppState {
+            runner,
+            terminals: Terminals::default(),
+            jobs_dir: None,
+            store: Arc::new(Store::open(None)),
+            reviews: Arc::new(Checker::default()),
+            reports: report::Cache::default(),
+            watcher: Arc::new(Watcher::default()),
+            stats: Arc::new(stats::Cache::default()),
+        }
+    }
+
     #[tokio::test]
     async fn environment_add_result_is_not_kept() {
         let (_dir, runner) = fake_ws(
             r#"echo '{"id":"env_2","name":"win-rig","state":"pending","code":"ENRL-SECRET-1234","ca_created":false,"revoked_serials":[],"warnings":[]}'"#,
         );
-        let added: EnrollmentCode = runner
+        let state = test_state(runner);
+        let added: EnrollmentCode = state
+            .runner
             .ws_json_as_given(&env_add_args("win-rig"))
             .await
             .unwrap();
         assert_eq!(added.code, "ENRL-SECRET-1234");
         assert!(
-            !format!("{runner:?}").contains(&added.code),
-            "the runner must not keep the enrollment code"
+            !state_debug(&state).contains(&added.code),
+            "the app state must not keep the enrollment code"
         );
     }
 }
