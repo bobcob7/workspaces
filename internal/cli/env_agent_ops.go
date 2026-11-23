@@ -20,8 +20,8 @@ type agentOperations struct {
 	app *App // the agent's App: paths, config, environ, version
 	// newApp builds the App one CLI operation runs in: cli.New with stdin
 	// empty and the given streams, environment set to name.
-	newApp func(stdout, stderr io.Writer) *App
-	name   string // the enrolled environment's name
+	newApp    func(stdout, stderr io.Writer) *App
+	name      string                 // the enrolled environment's name
 	locksMu   sync.Mutex             // guards sendLocks
 	sendLocks map[string]*sync.Mutex // the send lock of each Claude Code session id
 }
