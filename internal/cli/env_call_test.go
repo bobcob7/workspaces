@@ -99,6 +99,13 @@ func TestApp_callEnvironment(t *testing.T) {
 		requireCode(t, codeInternal, err)
 		assert.Equal(t, map[string]any{"remote_code": "from_the_future", "environment": "linux-server"}, asCLIError(err).details)
 	})
+	t.Run("an unknown daemon code is internal with remote_code", func(t *testing.T) {
+		app := newRemoteApp(t)
+		useCaller(app, callerReturning("", &daemon.RemoteError{Code: "from_the_future", Message: "no"}))
+		_, err := app.callEnvironment(t.Context(), "linux-server", envproto.OpWorkspaceList, envproto.ListArgs{})
+		requireCode(t, codeInternal, err)
+		assert.Equal(t, "from_the_future", asCLIError(err).details["remote_code"])
+	})
 	t.Run("an error reply without an error is internal", func(t *testing.T) {
 		app := newRemoteApp(t)
 		useCaller(app, callerReturning(`{"ok":false,"result":null,"error":null}`, nil))

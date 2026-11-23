@@ -75,19 +75,24 @@ func (a *App) callEnvironment(ctx context.Context, name, op string, args any) (j
 }
 
 // callError is the error for a failed call to the daemon: an answer from the
-// daemon keeps its code, if ws knows it, and its details; anything else is
-// returned as it is.
+// daemon keeps its code, if ws knows it, and its details; an unknown code is
+// internal with details.remote_code. Anything else is returned as it is.
 func callError(err error) error {
 	remote, ok := errors.AsType[*daemon.RemoteError](err)
 	if !ok {
 		return err
 	}
 	code := errorCode(remote.Code)
+	details := maps.Clone(remote.Details)
 	if !code.known() {
 		code = codeInternal
+		if details == nil {
+			details = map[string]any{}
+		}
+		details["remote_code"] = remote.Code
 	}
 	ce := newError(code, err)
-	ce.details = remote.Details
+	ce.details = details
 	return ce
 }
 
