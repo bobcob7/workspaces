@@ -110,7 +110,7 @@ func TestApp_remoteEntries(t *testing.T) {
 		rec := addLinuxServer(t, app)
 		writeRemoteSnapshot(t, app, rec, testNow(), remoteWorkspaces(
 			remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false),
-			`{"id":null,"name":null,"path":"/srv/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null}`,
+			`{"id":null,"name":null,"path":"/srv/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null,"progress":null,"rollup":null}`,
 		))
 		got, err := app.remoteEntries("linux-server", map[string]string{"linux-server": "online"})
 		require.NoError(t, err)

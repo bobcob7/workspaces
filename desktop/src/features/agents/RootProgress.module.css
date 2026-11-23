@@ -1,0 +1,12 @@
+.root {
+  margin: 0 18px;
+  padding-top: 10px;
+  min-width: 0;
+}
+
+.note {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

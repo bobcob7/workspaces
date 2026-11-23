@@ -13,11 +13,17 @@ you were started with a role, it must be one of the role's verdicts; your
 prompt says which. Otherwise use `PASS` or `FAIL`, or `APPROVED` or
 `CHANGES_REQUESTED` for a review; any other verdict counts as a failure.
 
-The report is copied, so it's kept after your workspace is removed. Write
-it outside your repo, such as `../report.md`, so it's never committed, or
-pass it on stdin with `--file -`.
+The report is free-form Markdown; one line is fine. Give it with `--file`,
+never as an argument: `ws machine result PASS "done"` is a `usage` error.
+Without `--file` no report is recorded, and `ws machine wait` shows
+`report: null`, so always give one. It is copied, so it's kept after your
+workspace is removed. Write it outside your repo, such as `../report.md`, so
+it's never committed, or pass it on stdin with `--file -`.
 
 Running `result` again replaces your verdict and report.
+
+A passing verdict also finishes your `ws machine progress` steps (`done` becomes
+`total`) when you declared a total; any other verdict leaves them as they were.
 
 A loop run (a workspace `ws loop` started, not one of its children) can
 record `BLOCKED` to ask a person for help: `--file` is required and holds
@@ -52,14 +58,15 @@ result is kept, and `role` your role or `null`. `outcome` is `pass` or
 | Situation                                                   | Error code          | Exit |
 | ----------------------------------------------------------- | ------------------- | ---- |
 | Run outside a workspace                                     | `outside_workspace` | 2    |
-| Not exactly one verdict                                     | `usage`             | 2    |
+| Not exactly one verdict, such as the report given as an argument | `usage`        | 2    |
 | A malformed verdict, one your role doesn't allow, or a report that is empty, over 1 MiB, or unreadable | `result_invalid` | 2 |
 
 ## Examples
 
 ```console
 $ ws machine result PASS --file ../report.md
+$ printf 'Counted to 10\n' | ws machine result PASS --file -
 $ ws machine result CHANGES_REQUESTED --file ../review.md
-$ ws machine result FAIL
+$ printf 'The build failed: see ../log.txt\n' | ws machine result FAIL --file -
 $ ws machine result BLOCKED --file ../question.md
 ```

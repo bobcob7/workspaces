@@ -163,6 +163,22 @@ func TestApp_newMachineResultCmd(t *testing.T) {
 	t.Run("has a --file flag", func(t *testing.T) {
 		assert.NotNil(t, cmd.Flags().Lookup("file"))
 	})
+	t.Run("--help says what an agent needs the first time", func(t *testing.T) {
+		e := newMachineApp(t)
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "result", "--help"), e.stderr.String())
+		out := e.stdout.String()
+		for _, want := range []string{
+			"last step", "--file -", "free-form markdown", "1 byte to 1 MiB", "report: null",
+			"done to total", "ws llm machine result", "printf 'Counted to 10\\n' | ws machine result PASS --file -",
+		} {
+			assert.Contains(t, out, want)
+		}
+	})
+	t.Run("the report as an argument is a usage error naming --file", func(t *testing.T) {
+		e := newMachineApp(t)
+		assert.Equal(t, exitUsage, runMachine(t, e, "machine", "result", "PASS", "one-line report"))
+		assert.Contains(t, e.stderr.String(), "pass the report with --file")
+	})
 }
 
 func TestApp_readReport(t *testing.T) {
@@ -239,4 +255,24 @@ func jsonField(t *testing.T, out, key string) string {
 	raw, ok := fields[key]
 	require.True(t, ok, "no %s in %s", key, out)
 	return string(raw)
+}
+
+func TestResultArgs(t *testing.T) {
+	app, _, _ := newTestApp()
+	cmd := app.newMachineResultCmd()
+	t.Run("accepts exactly one verdict", func(t *testing.T) {
+		assert.NoError(t, resultArgs(cmd, []string{"PASS"}))
+	})
+	t.Run("without a verdict names --file for the report", func(t *testing.T) {
+		err := resultArgs(cmd, nil)
+		requireUsageError(t, err)
+		require.ErrorContains(t, err, "needs a verdict such as PASS or FAIL")
+		require.ErrorContains(t, err, "--file PATH or --file - (stdin)")
+	})
+	t.Run("with the report as a second argument says where it goes", func(t *testing.T) {
+		err := resultArgs(cmd, []string{"PASS", "one-line report"})
+		requireUsageError(t, err)
+		require.ErrorContains(t, err, "takes exactly one verdict, got 2 arguments")
+		require.ErrorContains(t, err, "pass the report with --file PATH or --file - (stdin)")
+	})
 }

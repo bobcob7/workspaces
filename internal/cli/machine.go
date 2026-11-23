@@ -45,6 +45,7 @@ func (a *App) newMachineCmd() *cobra.Command {
 		a.newMachineRmCmd(),
 		a.newMachineRolesCmd(),
 		a.newMachineMemoryCmd(),
+		a.newMachineProgressCmd(),
 	)
 	return cmd
 }
@@ -413,7 +414,7 @@ func (a *App) runMachineChildren(ctx context.Context, all bool) error {
 	listed := a.listWorkspaces(entries, nil, nil)
 	children := make([]machineChildJSON, 0, len(listed))
 	for i := range listed {
-		children = append(children, a.machineChild(store, root, &listed[i]))
+		children = append(children, a.machineChild(store, root, entryWorkspaces(listing.Workspaces), &listed[i]))
 	}
 	return a.writeJSON(machineChildrenJSON{Workspaces: children, Warnings: a.warnings()})
 }

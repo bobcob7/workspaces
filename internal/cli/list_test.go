@@ -35,12 +35,14 @@ func listedWorkspace(id string) workspace.Workspace {
 }
 
 // newListApp is a test App whose lifetime manager lists entries and
-// unknown.
+// unknown, and whose store lists the workspaces in entries.
 func newListApp(entries []lifetime.Entry, unknown []string) *mockedApp {
 	e := newMockedApp()
+	e.app.paths = testPaths()
 	e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) {
 		return lifetime.Listing{Workspaces: entries, Unknown: unknown}, nil
 	}
+	e.store.ListFunc = func() ([]workspace.Workspace, error) { return entryWorkspaces(entries), nil }
 	return e
 }
 
@@ -96,12 +98,64 @@ func TestApp_runList(t *testing.T) {
 		assert.JSONEq(t, `{"workspaces":[
 			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false,"runner":"claude","model":"claude-sonnet-5-5","ws_runner":null},
-			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"environment":"local","environment_status":"online","stale":false},
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"environment":"local","environment_status":"online","stale":false},
 			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null,"runner":null,"model":null,"ws_runner":null},
-			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"environment":"local","environment_status":"online","stale":false},
-			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null,"environment":"local","environment_status":"online","stale":false}
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"environment":"local","environment_status":"online","stale":false},
+			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null,"progress":null,"rollup":null,"environment":"local","environment_status":"online","stale":false}
 		],"hidden_count":0,"warnings":[]}`, e.stdout.String())
+	})
+	t.Run("--json has each workspace's progress, its rollup counting a hidden child", func(t *testing.T) {
+		plan := listedWorkspace("plan")
+		build := listedWorkspace("build")
+		build.Parent = "plan"
+		build.Hidden = true
+		e := newListApp([]lifetime.Entry{{Workspace: plan}}, nil)
+		e.store.ListFunc = func() ([]workspace.Workspace, error) { return []workspace.Workspace{plan, build}, nil }
+		e.app.paths = config.NewPaths(t.TempDir())
+		store := machine.NewStore(e.app.paths.State)
+		require.NoError(t, store.WriteProgress("plan", "plan", &machine.Progress{Name: "ship", Total: 4, Done: 1, Note: "tests", UpdatedAt: testNow()}))
+		require.NoError(t, store.WriteProgress("plan", "build", &machine.Progress{Total: 3, Done: 2}))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		ws := got.Workspaces[0]
+		require.NotNil(t, ws.Progress)
+		require.NotNil(t, ws.Progress.Name)
+		assert.Equal(t, "ship", *ws.Progress.Name)
+		assert.Equal(t, 1, ws.Progress.Done)
+		require.NotNil(t, ws.Rollup)
+		assert.Equal(t, 7, ws.Rollup.Total)
+		assert.Equal(t, 3, ws.Rollup.Done)
+		require.NotNil(t, ws.Rollup.Fraction)
+		assert.InDelta(t, 3.0/7.0, *ws.Rollup.Fraction, 0.0001)
+	})
+	t.Run("--json has null progress and rollup when no step is planned", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{{Workspace: listedWorkspace("idle")}}, nil)
+		e.app.paths = config.NewPaths(t.TempDir())
+		require.NoError(t, machine.NewStore(e.app.paths.State).WriteProgress("idle", "idle", &machine.Progress{Name: "waiting"}))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		require.NotNil(t, got.Workspaces[0].Progress)
+		assert.Equal(t, "waiting", *got.Workspaces[0].Progress.Name)
+		assert.Nil(t, got.Workspaces[0].Rollup)
+	})
+	t.Run("an unreadable progress record is a warning and leaves both null", func(t *testing.T) {
+		e := newListApp([]lifetime.Entry{{Workspace: listedWorkspace("broken")}}, nil)
+		e.app.paths = config.NewPaths(t.TempDir())
+		store := machine.NewStore(e.app.paths.State)
+		dir := store.Dir("broken", "broken")
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "progress.toml"), []byte("total = [\n"), 0o600))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.Contains(t, e.stdout.String(), `"progress":null,"rollup":null`)
+		assert.Contains(t, e.stdout.String(), "couldn't read broken's progress")
 	})
 	t.Run("--json with nothing to list", func(t *testing.T) {
 		e := newListApp(nil, nil)
@@ -369,7 +423,7 @@ func TestApp_runList(t *testing.T) {
 		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
 		e.app.global.json = true
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"linux-server"}}))
-		assert.JSONEq(t, `{"workspaces":[{"id":"api-bump","name":null,"path":"/srv/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z","session":null,"hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"repo","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"environment":"linux-server","environment_status":"offline","stale":true}],"hidden_count":0,"warnings":[]}`, e.stdout.String())
+		assert.JSONEq(t, `{"workspaces":[{"id":"api-bump","name":null,"path":"/srv/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z","session":null,"hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"repo","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"environment":"linux-server","environment_status":"offline","stale":true}],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--env unknown is environment_unknown", func(t *testing.T) {
 		e := newRemoteListApp(t, nil)

@@ -279,6 +279,8 @@ pub(crate) mod testing {
             runner: String::new(),
             model: None,
             ws_runner: None,
+            progress: None,
+            rollup: None,
         }
     }
 }

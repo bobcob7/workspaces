@@ -79,6 +79,10 @@ type listWorkspaceJSON struct {
 	Review *record.Record `json:"review"`
 	// LoopRun is the loop run this workspace is, or null (ADR 0057).
 	LoopRun *listLoopRunJSON `json:"loop_run"`
+	// Progress is the workspace's own progress record, or null (ADR 0077).
+	Progress *progressJSON `json:"progress"`
+	// Rollup is its steps and its descendants', or null when none is planned.
+	Rollup *rollupJSON `json:"rollup"`
 }
 
 // listLoopRunJSON is the loop a workspace runs, and what that run asks of a
@@ -255,13 +259,23 @@ func (a *App) localListing(ctx context.Context, opts *listOptions, filter *repo.
 		unknown = nil
 	}
 	rows := append(a.localRows(entries, loopRuns), unknownRows(unknown)...)
-	return envListing{entries: a.localEntries(entries, unknown, loopRuns), rows: rows, hidden: hidden}, nil
+	local, err := a.localEntries(entries, unknown, loopRuns)
+	if err != nil {
+		return envListing{}, err
+	}
+	return envListing{entries: local, rows: rows, hidden: hidden}, nil
 }
 
 // localEntries is the JSON of the local entries and unknown directories,
 // each with the environment it runs in.
-func (a *App) localEntries(entries []lifetime.Entry, unknown []string, loopRuns map[string]*listLoopRunJSON) []listEntryJSON {
+func (a *App) localEntries(entries []lifetime.Entry, unknown []string, loopRuns map[string]*listLoopRunJSON) ([]listEntryJSON, error) {
 	ws := a.listWorkspaces(entries, unknown, loopRuns)
+	if a.global.json {
+		var err error
+		if ws, err = a.listedWorkspaces(entries, unknown, loopRuns); err != nil {
+			return nil, err
+		}
+	}
 	out := make([]listEntryJSON, 0, len(ws))
 	for i := range ws {
 		env := localEnvironment
@@ -270,7 +284,7 @@ func (a *App) localEntries(entries []lifetime.Entry, unknown []string, loopRuns 
 		}
 		out = append(out, listEntryJSON{listWorkspaceJSON: ws[i], Environment: env, EnvironmentStatus: envOnline})
 	}
-	return out
+	return out, nil
 }
 
 // localRows are the table rows of the local entries, in tree order.
@@ -487,6 +501,35 @@ func (a *App) listWorkspaces(entries []lifetime.Entry, unknown []string, loopRun
 		out = append(out, listWorkspaceJSON{Path: dir, Repos: []listRepoJSON{}})
 	}
 	return out
+}
+
+// listedWorkspaces is listWorkspaces with each workspace's progress and
+// rollup, counted over every workspace, hidden ones included (ADR 0077).
+func (a *App) listedWorkspaces(entries []lifetime.Entry, unknown []string, loopRuns map[string]*listLoopRunJSON) ([]listWorkspaceJSON, error) {
+	list, err := a.workspaces.List()
+	if err != nil {
+		return nil, fmt.Errorf("listing workspaces: %w", err)
+	}
+	out := a.listWorkspaces(entries, unknown, loopRuns)
+	store := machine.NewStore(a.paths.State)
+	for i := range out {
+		if out[i].ID != nil {
+			out[i].Progress, out[i].Rollup = a.workspaceProgress(store, list, *out[i].ID)
+		}
+	}
+	return out, nil
+}
+
+// workspaceProgress is id's own progress and its rollup in the tree under its
+// root. The rollup is null when no step is planned. Both are null when the
+// tree can't be read, which is a warning.
+func (a *App) workspaceProgress(store *machine.Store, list []workspace.Workspace, id string) (*progressJSON, *rollupJSON) {
+	tree, err := progressTreeOf(store, machine.Root(list, id), list, id)
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't read %s's progress: %v", id, err))
+		return nil, nil
+	}
+	return nodeProgress(tree)
 }
 
 func listWorkspace(e *lifetime.Entry) listWorkspaceJSON {

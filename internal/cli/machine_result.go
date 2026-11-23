@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/machine"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // machineResultInfoJSON is a child's recorded result (ADR 0050).
@@ -48,8 +49,10 @@ type machineResultJSON struct {
 // machineChildJSON is ws list's workspace plus its role and result.
 type machineChildJSON struct {
 	listWorkspaceJSON
-	Role   *string                `json:"role"`
-	Result *machineResultInfoJSON `json:"result"`
+	Role     *string                `json:"role"`
+	Result   *machineResultInfoJSON `json:"result"`
+	Progress *progressJSON          `json:"progress"`
+	Rollup   *rollupJSON            `json:"rollup"`
 }
 
 // machineChildrenJSON is ws machine children's output.
@@ -59,12 +62,36 @@ type machineChildrenJSON struct {
 	Warnings    []string           `json:"warnings"`
 }
 
+// resultLong is ws machine result --help: what the guide says an agent most
+// needs, and a pointer to the rest.
+const resultLong = "Record your verdict, and a report, for the agent that started you. It waits on you with `ws machine wait`.\n\n" +
+	"Run this as your last step, once your work is pushed. The verdict is one word such as PASS or FAIL (your role may name others).\n\n" +
+	"Give the report with --file <path>, or --file - to read it from stdin; it is not an argument. It is free-form markdown, one line is fine, " +
+	"and it must be 1 byte to 1 MiB. Without --file no report is recorded and the agent waiting on you sees report: null, so always give one.\n\n" +
+	"A passing verdict also sets your `ws machine progress` done to total, if you declared a total.\n\n" +
+	"Run `ws llm machine result` for the verdicts, exit codes and BLOCKED."
+
+// resultArgs wants exactly one argument, the verdict, and says where the
+// report goes, since agents try it as a second argument.
+func resultArgs(cmd *cobra.Command, args []string) error {
+	switch len(args) {
+	case 1:
+		return nil
+	case 0:
+		return usageErrorf("%s needs a verdict such as PASS or FAIL; pass the report with --file PATH or --file - (stdin)", commandName(cmd))
+	}
+	return usageErrorf("%s takes exactly one verdict, got %d arguments; pass the report with --file PATH or --file - (stdin)", commandName(cmd), len(args))
+}
+
 func (a *App) newMachineResultCmd() *cobra.Command {
 	var file string
 	cmd := &cobra.Command{
 		Use:   "result <VERDICT> [--file <PATH> | --file -]",
 		Short: "Record your verdict and report for the agent that started you",
-		Args:  exactlyOneArg("a verdict"),
+		Long:  resultLong,
+		Example: "  printf 'Counted to 10\\n' | ws machine result PASS --file -\n" +
+			"  ws machine result FAIL --file ../report.md",
+		Args: resultArgs,
 		RunE: runE(a.withConfig(func(_ *cobra.Command, args []string) error {
 			return a.runMachineResult(args[0], file)
 		})),
@@ -114,6 +141,9 @@ func (a *App) runMachineResult(verdict, file string) error {
 	}
 	if err = store.WriteResult(root, caller, result, report); err != nil {
 		return fmt.Errorf("recording %s's result: %w", caller, err)
+	}
+	if err = a.completeProgress(store, root, caller, machine.OutcomeOf(rec.Spawn, v)); err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't finish %s's progress: %v", caller, err))
 	}
 	rec, err = store.Read(root, caller)
 	if err != nil {
@@ -179,7 +209,7 @@ func (a *App) readReport(file string) ([]byte, error) {
 
 // machineChild is ws list's workspace with its role and result from store.
 // A record that can't be read is a warning, and leaves both null.
-func (a *App) machineChild(store *machine.Store, root string, ws *listWorkspaceJSON) machineChildJSON {
+func (a *App) machineChild(store *machine.Store, root string, list []workspace.Workspace, ws *listWorkspaceJSON) machineChildJSON {
 	out := machineChildJSON{listWorkspaceJSON: *ws}
 	rec, err := store.Read(root, *ws.ID)
 	if err != nil {
@@ -188,5 +218,27 @@ func (a *App) machineChild(store *machine.Store, root string, ws *listWorkspaceJ
 	}
 	out.Role = optional(rec.Role())
 	out.Result = resultInfo(&rec)
+	out.Progress, out.Rollup = a.childProgress(store, root, list, *ws.ID)
 	return out
+}
+
+// completeProgress finishes the caller's declared steps once it has passed,
+// so a finished task doesn't sit at 3 of 4 (ADR 0077). Any other outcome
+// leaves the record as it was.
+func (a *App) completeProgress(store *machine.Store, root, caller string, outcome machine.Outcome) error {
+	if outcome != machine.OutcomePass {
+		return nil
+	}
+	p, err := store.ReadProgress(root, caller)
+	if err != nil {
+		return fmt.Errorf("reading %s's progress: %w", caller, err)
+	}
+	if p == nil || !p.Complete() {
+		return nil
+	}
+	p.UpdatedAt = a.now().UTC().Truncate(time.Second)
+	if err = store.WriteProgress(root, caller, p); err != nil {
+		return fmt.Errorf("recording %s's progress: %w", caller, err)
+	}
+	return nil
 }

@@ -232,7 +232,8 @@ The preamble says so, and the runner enforces what it can:
   `search` refuse paths that resolve outside the workspace, with symlinks
   resolved, and refuse anything under `.git/`.
 - **Commands**: `run` refuses commands that call `ws` (other than `ws
-  machine result`), `claude`, `sudo`, `git push` with `--force` to
+  machine result` and `ws machine progress set|step|show`), `claude`,
+  `sudo`, `git push` with `--force` to
   anything but the role's `BRANCH`, and `git push` to `main` or `master`.
   These checks catch mistakes, not attacks
   ([0066](0066-runner-security-boundaries.md)).

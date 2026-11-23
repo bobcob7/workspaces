@@ -84,6 +84,8 @@ const (
 	codeMemoryConflict errorCode = "memory_conflict"
 	codeMemoryFull     errorCode = "memory_full"
 	codeNotLoopRun     errorCode = "not_loop_run"
+	// From ADR 0077.
+	codeProgressInvalid errorCode = "progress_invalid"
 	// From ADR 0068.
 	codeDaemonUnavailable errorCode = "daemon_unavailable"
 	codeDaemonRunning     errorCode = "daemon_running"
@@ -152,7 +154,7 @@ func (c errorCode) exitCode() int {
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
-		codeMemoryInvalid:
+		codeMemoryInvalid, codeProgressInvalid:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown,
@@ -185,7 +187,7 @@ func (c errorCode) known() bool {
 		codeDaemonRunning, codeEndpointUnknown, codeEndpointUnreachable, codeModelNotServed,
 		codeModelWithoutTools, codeRunnerFailed, codeEnvironmentUnknown, codeEnvironmentExists,
 		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
-		codeEnvironmentOutdated, codeEnvironmentMismatch:
+		codeEnvironmentOutdated, codeEnvironmentMismatch, codeProgressInvalid:
 		return true
 	}
 	return false

@@ -172,7 +172,7 @@ messages aren't.
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `config_uneditable`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout`, `daemon_unavailable`, `endpoint_unreachable`, `model_without_tools`, `runner_failed`, `enrollment_failed`, `environment_offline`, `environment_outdated` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid`, `memory_invalid` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid`, `memory_invalid`, `progress_invalid` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown`, `memory_not_found`, `endpoint_unknown`, `model_not_served`, `environment_unknown` |
 | 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin`, `memory_conflict`, `memory_full`, `not_loop_run`, `daemon_running`, `environment_exists`, `enrollment_used`, `ca_in_use`, `environment_mismatch` |
 
@@ -203,6 +203,10 @@ For agents:
   - `ws llm machine memory get`: print one memory value of your loop
   - `ws llm machine memory set`: set one memory value of your loop
   - `ws llm machine memory rm`: remove one memory value of your loop
+  - `ws llm machine progress`: report your task's steps and short name
+  - `ws llm machine progress set`: name your task, and set its steps and note
+  - `ws llm machine progress step`: finish steps of your task
+  - `ws llm machine progress show`: show your progress and your descendants'
 - `ws llm review`: structured reviews: getting your work reviewed, and the reviewer's commands:
   - `ws llm review start`: start a review of a pull request or commit
   - `ws llm review wait`: wait for a review, then print its report

@@ -212,6 +212,8 @@ mod tests {
             runner: String::new(),
             model: None,
             ws_runner: None,
+            progress: None,
+            rollup: None,
         }
     }
 
