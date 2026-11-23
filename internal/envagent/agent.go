@@ -34,6 +34,7 @@ type Options struct {
 	RenewCheck      time.Duration // check whether the certificate is due for renewal.
 	KeepAlive       time.Duration
 	WillDelay       time.Duration
+	NotSentLowWater int           // bytes of unsent data the socket send queue may hold; 0 is the OS default.
 	RequestTimeout  time.Duration // how long a request waits for its reply.
 	WorkspacesRoot  string        // the agent's CONFIG_DIR/workspaces, for CheckWorkspaceRef.
 	MaxOps          int           // operations run at once.
@@ -155,12 +156,13 @@ func checkExpiry(id *Identity, now time.Time) error {
 // announces the agent with its hello and a snapshot.
 func (a *Agent) connect(ctx context.Context, id *Identity) error {
 	err := a.client.Connect(ctx, envproto.ConnectOptions{
-		Address:   id.Broker,
-		TLS:       id.TLSConfig(),
-		ClientID:  id.ID,
-		KeepAlive: a.opts.KeepAlive,
-		Will:      &envproto.Message{Topic: envproto.Topic(id.ID, envproto.LeafStatus), Payload: envproto.OfflinePayload(), QoS: 1, Retain: true},
-		WillDelay: a.opts.WillDelay,
+		Address:         id.Broker,
+		TLS:             id.TLSConfig(),
+		ClientID:        id.ID,
+		KeepAlive:       a.opts.KeepAlive,
+		Will:            &envproto.Message{Topic: envproto.Topic(id.ID, envproto.LeafStatus), Payload: envproto.OfflinePayload(), QoS: 1, Retain: true},
+		WillDelay:       a.opts.WillDelay,
+		NotSentLowWater: a.opts.NotSentLowWater,
 	})
 	if err != nil {
 		return err

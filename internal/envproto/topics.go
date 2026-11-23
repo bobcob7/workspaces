@@ -9,9 +9,6 @@ import (
 // Prefix starts every environment topic.
 const Prefix = "ws/v1/env/"
 
-// StreamSuffix ends the client id of an agent's stream connection (D11).
-const StreamSuffix = ".t"
-
 // Topic levels under an environment's id.
 const (
 	LeafStatus   = "status"
@@ -44,12 +41,6 @@ func ParseTopic(topic string) (id string, rest []string, ok bool) {
 		return "", nil, false
 	}
 	return parts[0], parts[1:], true
-}
-
-// StreamClientID is the client id of environment id's stream connection:
-// id + StreamSuffix.
-func StreamClientID(id string) string {
-	return id + StreamSuffix
 }
 
 // ValidID reports whether id matches ^env-[0-9a-f]{8}$.

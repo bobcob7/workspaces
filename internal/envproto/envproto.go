@@ -30,8 +30,10 @@ type ConnectOptions struct {
 	KeepAlive time.Duration
 	Will      *Message
 	WillDelay time.Duration
-	// WriteBuffer is the socket send buffer in bytes; 0 keeps the OS default (D14).
-	WriteBuffer int
+	// NotSentLowWater is how many bytes of not-yet-sent data the socket's send
+	// queue may hold (TCP_NOTSENT_LOWAT), so a large write backs up into the
+	// writer instead of the kernel. 0 keeps the OS default.
+	NotSentLowWater int
 }
 
 // Peer is a connected client as its verified certificate names it.

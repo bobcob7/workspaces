@@ -5,7 +5,6 @@ package mqttclient
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -72,7 +71,7 @@ func (c *Client) Connect(ctx context.Context, opts envproto.ConnectOptions) erro
 	}
 	c.handlers = nil
 	c.mu.Unlock()
-	dialer := tls.Dialer{Config: opts.TLS}
+	dialer := newDialer(opts)
 	raw, err := dialer.DialContext(ctx, "tcp", opts.Address)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", opts.Address, err)
