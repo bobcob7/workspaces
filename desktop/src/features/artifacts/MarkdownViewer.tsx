@@ -28,30 +28,36 @@ const openLink = (event: MouseEvent<HTMLAnchorElement>, href: string | undefined
   void api.openExternal(href).catch(() => undefined);
 };
 
-const lineAttributes = (node: ExtraProps["node"]): Record<string, number | undefined> => ({
+interface BlockProps extends ExtraProps {
+  readonly children?: ReactNode;
+  /** Set by rehypeAnchors on a block that is outlined as a whole. */
+  readonly className?: string;
+  readonly "data-thread"?: string;
+}
+
+/** The source lines of a block, and the highlight the anchors plugin gave it. */
+const blockAttributes = ({ node, className, "data-thread": thread }: BlockProps): Record<string, string | number | undefined> => ({
+  className,
+  "data-thread": thread,
   "data-line-start": node?.position?.start.line,
   "data-line-end": node?.position?.end.line,
 });
-
-interface BlockProps extends ExtraProps {
-  readonly children?: ReactNode;
-}
 
 /** Block elements carry their source lines, so a selection can be anchored to them (ADR 0079). */
 const components: Components = {
   a: ({ href, children }) => <a href={href} onClick={(event) => openLink(event, href)}>{children}</a>,
   img: ({ alt, src }) => <span>{`[image: ${alt ?? ""}](${src ?? ""})`}</span>,
-  p: ({ node, children }: BlockProps) => <p {...lineAttributes(node)}>{children}</p>,
-  h1: ({ node, children }: BlockProps) => <h1 {...lineAttributes(node)}>{children}</h1>,
-  h2: ({ node, children }: BlockProps) => <h2 {...lineAttributes(node)}>{children}</h2>,
-  h3: ({ node, children }: BlockProps) => <h3 {...lineAttributes(node)}>{children}</h3>,
-  h4: ({ node, children }: BlockProps) => <h4 {...lineAttributes(node)}>{children}</h4>,
-  h5: ({ node, children }: BlockProps) => <h5 {...lineAttributes(node)}>{children}</h5>,
-  h6: ({ node, children }: BlockProps) => <h6 {...lineAttributes(node)}>{children}</h6>,
-  li: ({ node, children }: BlockProps) => <li {...lineAttributes(node)}>{children}</li>,
-  blockquote: ({ node, children }: BlockProps) => <blockquote {...lineAttributes(node)}>{children}</blockquote>,
-  pre: ({ node, children }: BlockProps) => <pre {...lineAttributes(node)}>{children}</pre>,
-  tr: ({ node, children }: BlockProps) => <tr {...lineAttributes(node)}>{children}</tr>,
+  p: (props: BlockProps) => <p {...blockAttributes(props)}>{props.children}</p>,
+  h1: (props: BlockProps) => <h1 {...blockAttributes(props)}>{props.children}</h1>,
+  h2: (props: BlockProps) => <h2 {...blockAttributes(props)}>{props.children}</h2>,
+  h3: (props: BlockProps) => <h3 {...blockAttributes(props)}>{props.children}</h3>,
+  h4: (props: BlockProps) => <h4 {...blockAttributes(props)}>{props.children}</h4>,
+  h5: (props: BlockProps) => <h5 {...blockAttributes(props)}>{props.children}</h5>,
+  h6: (props: BlockProps) => <h6 {...blockAttributes(props)}>{props.children}</h6>,
+  li: (props: BlockProps) => <li {...blockAttributes(props)}>{props.children}</li>,
+  blockquote: (props: BlockProps) => <blockquote {...blockAttributes(props)}>{props.children}</blockquote>,
+  pre: (props: BlockProps) => <pre {...blockAttributes(props)}>{props.children}</pre>,
+  tr: (props: BlockProps) => <tr {...blockAttributes(props)}>{props.children}</tr>,
 };
 
 const remarkPlugins = [remarkGfm];

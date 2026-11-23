@@ -41,20 +41,23 @@ interface Covering {
   readonly depth: number;
 }
 
+/** Block elements only: inline markup (bold, links, code) never takes a highlight of its own. */
+const blockTags = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "pre", "tr"]);
+
 const coversLine = (element: Element, line: number): boolean => {
   const start = element.position?.start.line;
   const end = element.position?.end.line;
-  return start !== undefined && end !== undefined && start <= line && line <= end;
+  return blockTags.has(element.tagName) && start !== undefined && end !== undefined && start <= line && line <= end;
 };
 
-/** The deepest element whose source lines include `line`, or null. */
-const innermostCovering = (parent: Root | Element, line: number, depth = 0): Covering | null => {
+/** The deepest block element whose source lines include `line`, or null. */
+const innermostBlock = (parent: Root | Element, line: number, depth = 0): Covering | null => {
   let best: Covering | null = null;
   for (const child of parent.children) {
     if (child.type !== "element") {
       continue;
     }
-    const inner = innermostCovering(child, line, depth + 1);
+    const inner = innermostBlock(child, line, depth + 1);
     const candidate = inner ?? (coversLine(child, line) ? { element: child, depth: depth + 1 } : null);
     if (candidate !== null && (best === null || candidate.depth > best.depth)) {
       best = candidate;
@@ -106,7 +109,7 @@ const markBlock = (element: Element, thread: string): void => {
 };
 
 const highlight = (tree: Root, thread: string, anchor: Anchor): void => {
-  const target = innermostCovering(tree, anchor.lineStart);
+  const target = innermostBlock(tree, anchor.lineStart);
   if (target === null) {
     return;
   }

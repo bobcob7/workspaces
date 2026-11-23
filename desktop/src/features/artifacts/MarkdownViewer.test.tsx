@@ -14,6 +14,9 @@ const thread = (overrides: Partial<Thread> = {}): Thread => ({
   ...overrides,
 });
 
+const anchoredThread = (quote: string, lineStart: number): Thread =>
+  thread({ id: "t1", anchor: { rev: 2, start: 0, end: quote.length, lineStart, lineEnd: lineStart, quote, prefix: "", suffix: "", state: "anchored" } });
+
 const renderViewer = (overrides: Partial<MarkdownViewerProps> = {}) => {
   const props: MarkdownViewerProps = {
     source: "# Pitch\n\nToday the cache is shared.\n",
@@ -128,5 +131,35 @@ describe("MarkdownViewer", () => {
     await userEvent.click(screen.getByRole("button", { name: "Comment" }));
 
     expect(onComment).toHaveBeenCalledWith({ quote: "**Bold** text", line: 1, prefix: "", suffix: "" }, true);
+  });
+
+  it("marks a quote beside bold text and leaves the bold unmarked", () => {
+    const { container } = renderViewer({
+      source: "Today the **cache** is shared.\n",
+      highlights: [anchoredThread("is shared", 1)],
+    });
+
+    expect(container.querySelector('mark[data-thread="t1"]')).toHaveTextContent("is shared");
+    expect(container.querySelector("strong")).not.toHaveAttribute("data-thread");
+  });
+
+  it("marks a quote beside a link and keeps the link", () => {
+    const { container } = renderViewer({
+      source: "Say [hi](https://example.com) now\n",
+      highlights: [anchoredThread("now", 1)],
+    });
+
+    expect(container.querySelector('mark[data-thread="t1"]')).toHaveTextContent("now");
+    expect(container.querySelector("a")).toHaveAttribute("href", "https://example.com");
+  });
+
+  it("outlines the paragraph for a whole-block quote that contains bold markup", () => {
+    const { container } = renderViewer({
+      source: "**Bold** text\n",
+      highlights: [anchoredThread("**Bold** text", 1)],
+    });
+
+    expect(container.querySelector("p")).toHaveClass("anchoredBlock");
+    expect(container.querySelector("p")).toHaveAttribute("data-thread", "t1");
   });
 });
