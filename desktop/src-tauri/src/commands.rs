@@ -12,6 +12,7 @@ use crate::runner::{self, AppError, Runner};
 use crate::transcript::{self, Chunk};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -89,15 +90,33 @@ pub async fn list(
     if let Some(list) = &ws {
         warnings.extend(list.warnings.iter().map(model::warning_text));
     }
-    // A session without its state file still gets the PR links kept for it.
-    let job_for = |id: &str| -> Option<JobState> {
+    // The scan stays synchronous: `model::merge` takes a sync lookup, and the
+    // per-session (mtime, len) cache makes an unchanged transcript a stat call.
+    let seen = std::cell::RefCell::new(HashSet::new());
+    let job_for = job_for_fn(jobs_dir, pr_links, &seen);
+    let complete = ws.is_some() && agents.is_ok();
+    let entries = model::merge(ws, &agents.unwrap_or_default(), &job_for, now_ms());
+    // Only a complete listing says which sessions are gone.
+    if complete {
+        pr_links.prune(&seen.borrow());
+    }
+    Ok(Listing { entries, warnings })
+}
+
+/// Looks up a session's job: it always returns one (empty when there is no
+/// state file) so kept PR links still show, and records the ids it is asked for.
+fn job_for_fn<'a>(
+    jobs_dir: Option<&'a Path>,
+    pr_links: &'a crate::pr_links::PrLinks,
+    seen: &'a std::cell::RefCell<HashSet<String>>,
+) -> impl Fn(&str) -> Option<JobState> + 'a {
+    move |id: &str| {
+        seen.borrow_mut().insert(id.to_string());
         let job = jobs_dir
             .and_then(|dir| jobs::read_job(dir, id))
             .unwrap_or_default();
         Some(pr_links.augment(id, job))
-    };
-    let entries = model::merge(ws, &agents.unwrap_or_default(), &job_for, now_ms());
-    Ok(Listing { entries, warnings })
+    }
 }
 
 #[derive(Deserialize)]
@@ -793,5 +812,36 @@ mod tests {
             ..request()
         };
         assert_eq!(new_agent_args(&req), ["claude"]);
+    }
+
+    #[test]
+    fn job_for_always_returns_a_job_with_kept_links_and_records_ids() {
+        let links = crate::pr_links::PrLinks::default();
+        let seen = std::cell::RefCell::new(HashSet::new());
+        let job_for = job_for_fn(None, &links, &seen);
+        let job = job_for("s1").expect("a job even without a state file");
+        assert!(job.children.unwrap_or_default().is_empty());
+        assert!(seen.borrow().contains("s1"));
+    }
+
+    #[tokio::test]
+    async fn list_prunes_sessions_only_on_a_complete_listing() {
+        let dir = fake_programs(
+            r#"echo '{"workspaces":[],"warnings":[]}'"#,
+            r#"echo '[{"id":"s2","sessionId":"u","cwd":"/x","kind":"background","status":"busy","pid":2,"startedAt":1}]'"#,
+        );
+        let runner = Runner::new(dir.path().display().to_string());
+        let links = crate::pr_links::PrLinks::default();
+        let gone = crate::jobs::JobState {
+            children: Some(vec![crate::jobs::JobChild {
+                href: Some("https://github.com/o/r/pull/4".into()),
+                kind: Some("pr".into()),
+            }]),
+            ..Default::default()
+        };
+        links.augment("gone", gone);
+        list(&runner, None, &links).await.unwrap();
+        let after = links.augment("gone", crate::jobs::JobState::default());
+        assert!(after.children.unwrap_or_default().is_empty());
     }
 }

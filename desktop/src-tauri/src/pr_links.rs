@@ -5,14 +5,17 @@
 
 use crate::jobs::{JobChild, JobState};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 pub const FILE_NAME: &str = "pr-links.json";
 /// The transcript's tail that is scanned; older links are not looked for.
 const SCAN_TAIL_BYTES: u64 = 4 * 1024 * 1024;
+/// Links kept per session; the oldest are dropped beyond this.
+const MAX_LINKS_PER_SESSION: usize = 50;
 const PR_KIND: &str = "pr";
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -26,6 +29,15 @@ struct StickyFile {
 pub struct PrLinks {
     path: Option<PathBuf>,
     data: Mutex<StickyFile>,
+    scans: Mutex<HashMap<String, CachedScan>>,
+}
+
+/// A transcript scan and the file stamp it was made at.
+#[derive(Debug)]
+struct CachedScan {
+    path: String,
+    stamp: (Option<SystemTime>, u64),
+    hrefs: Vec<String>,
 }
 
 impl PrLinks {
@@ -35,6 +47,7 @@ impl PrLinks {
         Self {
             path,
             data: Mutex::new(data),
+            scans: Mutex::default(),
         }
     }
 
@@ -45,7 +58,7 @@ impl PrLinks {
         let scanned = job
             .link_scan_path
             .as_deref()
-            .map_or_else(Vec::new, |p| scan_file(Path::new(p)));
+            .map_or_else(Vec::new, |p| self.scan_cached(session, p));
         let reported = job
             .children
             .iter()
@@ -83,6 +96,9 @@ impl PrLinks {
                 kept.push(href);
             }
         }
+        if kept.len() > MAX_LINKS_PER_SESSION {
+            kept.drain(..kept.len() - MAX_LINKS_PER_SESSION);
+        }
         if kept == known {
             return kept;
         }
@@ -92,6 +108,59 @@ impl PrLinks {
             write(path, &data).ok();
         }
         kept
+    }
+}
+
+impl PrLinks {
+    /// Drops kept links and cached scans of sessions not in `live`. An empty
+    /// `live` changes nothing, so a failed or empty listing cannot wipe them.
+    pub fn prune(&self, live: &HashSet<String>) {
+        if live.is_empty() {
+            return;
+        }
+        if let Ok(mut scans) = self.scans.lock() {
+            scans.retain(|id, _| live.contains(id));
+        }
+        let Ok(mut data) = self.data.lock() else {
+            return;
+        };
+        let before = data.sessions.len();
+        data.sessions.retain(|id, _| live.contains(id));
+        if data.sessions.len() != before {
+            if let Some(path) = &self.path {
+                write(path, &data).ok();
+            }
+        }
+    }
+
+    /// The transcript's PR links, rescanned only when its mtime or length
+    /// changed since the session's last scan.
+    fn scan_cached(&self, session: &str, path: &str) -> Vec<String> {
+        let stamp = std::fs::metadata(path)
+            .ok()
+            .map(|m| (m.modified().ok(), m.len()));
+        let Some(stamp) = stamp else {
+            return Vec::new();
+        };
+        if let Ok(scans) = self.scans.lock() {
+            if let Some(hit) = scans.get(session) {
+                if hit.path == path && hit.stamp == stamp {
+                    return hit.hrefs.clone();
+                }
+            }
+        }
+        let hrefs = scan_file(Path::new(path));
+        if let Ok(mut scans) = self.scans.lock() {
+            scans.insert(
+                session.to_string(),
+                CachedScan {
+                    path: path.to_string(),
+                    stamp,
+                    hrefs: hrefs.clone(),
+                },
+            );
+        }
+        hrefs
     }
 }
 
@@ -355,5 +424,132 @@ mod tests {
 
         let missing = PrLinks::open(Some(dir.path().join("absent/pr-links.json")));
         assert!(hrefs(&missing.augment("s1", JobState::default())).is_empty());
+    }
+
+    #[test]
+    fn unchanged_transcript_is_not_rescanned() {
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = dir.path().join("session.jsonl");
+        std::fs::write(&transcript, "https://github.com/o/r/pull/4\n").unwrap();
+        let mtime = std::fs::metadata(&transcript).unwrap().modified().unwrap();
+        let job = || JobState {
+            link_scan_path: Some(transcript.to_string_lossy().into_owned()),
+            ..JobState::default()
+        };
+        let links = PrLinks::open(None);
+        assert_eq!(
+            hrefs(&links.augment("s1", job())),
+            ["https://github.com/o/r/pull/4"]
+        );
+
+        // Same length and mtime: the cached scan is used, so the edit is unseen.
+        std::fs::write(&transcript, "https://github.com/o/r/pull/5\n").unwrap();
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&transcript)
+            .unwrap();
+        file.set_modified(mtime).unwrap();
+        assert_eq!(
+            hrefs(&links.augment("s1", job())),
+            ["https://github.com/o/r/pull/4"]
+        );
+
+        // A changed length is rescanned.
+        std::fs::write(&transcript, "https://github.com/o/r/pull/55\n").unwrap();
+        let out = hrefs(&links.augment("s1", job()));
+        assert!(out.contains(&"https://github.com/o/r/pull/55".to_string()));
+    }
+
+    #[test]
+    fn kept_links_are_capped_dropping_the_oldest() {
+        let links = PrLinks::open(None);
+        let many: Vec<JobChild> = (1..=60)
+            .map(|n| child(&format!("https://github.com/o/r/pull/{n}"), "pr"))
+            .collect();
+        links.augment("s1", job_with(many));
+        let later = hrefs(&links.augment("s1", JobState::default()));
+        assert_eq!(later.len(), MAX_LINKS_PER_SESSION);
+        assert_eq!(later.first().unwrap(), "https://github.com/o/r/pull/11");
+        assert_eq!(later.last().unwrap(), "https://github.com/o/r/pull/60");
+    }
+
+    #[test]
+    fn prune_drops_sessions_missing_from_the_listing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE_NAME);
+        let links = PrLinks::open(Some(path.clone()));
+        for id in ["s1", "s2"] {
+            links.augment(
+                id,
+                job_with(vec![child("https://github.com/o/r/pull/4", "pr")]),
+            );
+        }
+        links.prune(&HashSet::from(["s1".to_string()]));
+        assert!(hrefs(&links.augment("s2", JobState::default())).is_empty());
+        assert_eq!(hrefs(&links.augment("s1", JobState::default())).len(), 1);
+        let reopened = PrLinks::open(Some(path));
+        assert!(hrefs(&reopened.augment("s2", JobState::default())).is_empty());
+    }
+
+    #[test]
+    fn prune_with_an_empty_listing_keeps_everything() {
+        let links = PrLinks::open(None);
+        links.augment(
+            "s1",
+            job_with(vec![child("https://github.com/o/r/pull/4", "pr")]),
+        );
+        links.prune(&HashSet::new());
+        assert_eq!(hrefs(&links.augment("s1", JobState::default())).len(), 1);
+    }
+
+    #[test]
+    fn scan_reads_only_the_tail_of_a_large_transcript() {
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = dir.path().join("big.jsonl");
+        let mut text = String::from("https://github.com/o/r/pull/1\n");
+        text.push_str(&"x".repeat(SCAN_TAIL_BYTES as usize + 10));
+        text.push_str("\nhttps://github.com/o/r/pull/2\n");
+        std::fs::write(&transcript, text).unwrap();
+        assert_eq!(
+            scan_file(&transcript),
+            ["https://github.com/o/r/pull/2".to_string()]
+        );
+    }
+
+    #[test]
+    fn failed_save_keeps_links_in_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        // The parent of the file is a regular file, so every save fails.
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, "").unwrap();
+        let links = PrLinks::open(Some(blocker.join(FILE_NAME)));
+        let first = links.augment(
+            "s1",
+            job_with(vec![child("https://github.com/o/r/pull/4", "pr")]),
+        );
+        assert_eq!(hrefs(&first), ["https://github.com/o/r/pull/4"]);
+        let later = links.augment("s1", JobState::default());
+        assert_eq!(hrefs(&later), ["https://github.com/o/r/pull/4"]);
+    }
+
+    #[test]
+    fn sessions_do_not_share_links() {
+        let links = PrLinks::open(None);
+        links.augment(
+            "s1",
+            job_with(vec![child("https://github.com/o/r/pull/4", "pr")]),
+        );
+        links.augment(
+            "s2",
+            job_with(vec![child("https://github.com/o/r/pull/5", "pr")]),
+        );
+        assert_eq!(
+            hrefs(&links.augment("s1", JobState::default())),
+            ["https://github.com/o/r/pull/4"]
+        );
+        assert_eq!(
+            hrefs(&links.augment("s2", JobState::default())),
+            ["https://github.com/o/r/pull/5"]
+        );
     }
 }
