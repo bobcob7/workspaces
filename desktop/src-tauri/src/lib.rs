@@ -7,6 +7,7 @@
 compile_error!("the desktop and online features can't be enabled together");
 
 mod about;
+mod artifacts;
 mod cache;
 mod commands;
 mod daemon_host;
@@ -171,6 +172,14 @@ pub fn run() {
             loops::loops_memory_remove,
             loops::loops_memory_clear,
             stats::stats_get,
+            artifacts::artifact_list,
+            artifacts::artifact_show,
+            artifacts::artifact_read,
+            artifacts::artifact_add,
+            artifacts::artifact_remove,
+            artifacts::artifact_comments,
+            artifacts::artifact_comment_add,
+            artifacts::artifact_comment_resolve,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")

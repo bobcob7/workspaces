@@ -17,7 +17,7 @@ use crate::runner::{AppError, Runner};
 use crate::tray::watcher::{wanted, Watcher, WATCH_INTERVAL};
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{ConnectInfo, Path, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Request, State};
 use axum::http::header::{self, HeaderValue};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::{from_fn, from_fn_with_state, Next};
@@ -189,7 +189,10 @@ pub fn router(online: Arc<Online>) -> Router {
         .route("/api/login", post(login));
     let protected = Router::new()
         .route("/api/logout", post(logout))
-        .route("/api/invoke/{command}", post(invoke))
+        .route(
+            "/api/invoke/{command}",
+            post(invoke).layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
         .route("/api/ws", get(ws_upgrade))
         .route("/api/reports/{file}", get(report_file))
         .route("/api/push/vapid", get(vapid))
@@ -927,6 +930,20 @@ mod tests {
             .unwrap();
         assert_eq!(limited.status(), 429);
         assert!(limited.headers().contains_key("retry-after"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn invoke_accepts_bodies_up_to_16_mib() {
+        let test = Test::start().await;
+        let cookie = test.login().await;
+        let body = format!(r#"{{"pad":"{}"}}"#, "x".repeat(3 << 20));
+        let response = test
+            .post("/api/invoke/nope", &body)
+            .header("Cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 404);
     }
 
     #[tokio::test(flavor = "multi_thread")]

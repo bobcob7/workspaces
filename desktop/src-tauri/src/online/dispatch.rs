@@ -9,7 +9,7 @@ use crate::open;
 use crate::pty::TermSpec;
 use crate::reviews;
 use crate::runner::AppError;
-use crate::{cache, loops, roles, runner_service, secrets, stats, ws_config};
+use crate::{artifacts, cache, loops, roles, runner_service, secrets, stats, ws_config};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -166,6 +166,14 @@ pub const COMMANDS: &[&str] = &[
     "loops_memory_remove",
     "loops_memory_clear",
     "stats_get",
+    "artifact_list",
+    "artifact_show",
+    "artifact_read",
+    "artifact_add",
+    "artifact_remove",
+    "artifact_comments",
+    "artifact_comment_add",
+    "artifact_comment_resolve",
 ];
 
 /// Runs `command` with Tauri-style camelCase `args` (`Value::Null` = `{}`).
@@ -535,6 +543,51 @@ pub async fn dispatch(
         "stats_get" => {
             let since_ms = args!(args, { since_ms: Option<i64> });
             result(stats::stats_get(State::new(&ctx.state), since_ms).await)
+        }
+        "artifact_list" => {
+            let (kind, workspace) =
+                args!(args, { kind: Option<String>, workspace: Option<String> });
+            result(artifacts::artifact_list(State::new(&ctx.state), kind, workspace).await)
+        }
+        "artifact_show" => {
+            let id = args!(args, { id: String });
+            result(artifacts::artifact_show(State::new(&ctx.state), id).await)
+        }
+        "artifact_read" => {
+            let (id, rev) = args!(args, { id: String, rev: Option<u32> });
+            result(artifacts::artifact_read(State::new(&ctx.state), id, rev).await)
+        }
+        "artifact_add" => {
+            let (name, title, data_base64) =
+                args!(args, { name: String, title: Option<String>, data_base64: String });
+            result(artifacts::artifact_add(State::new(&ctx.state), name, title, data_base64).await)
+        }
+        "artifact_remove" => {
+            let id = args!(args, { id: String });
+            result(artifacts::artifact_remove(State::new(&ctx.state), id).await)
+        }
+        "artifact_comments" => {
+            let id = args!(args, { id: String });
+            result(artifacts::artifact_comments(State::new(&ctx.state), id).await)
+        }
+        "artifact_comment_add" => {
+            let (id, body, reply, anchor) = args!(args, {
+                id: String,
+                body: String,
+                reply: Option<String>,
+                anchor: Option<artifacts::NewAnchor>,
+            });
+            result(
+                artifacts::artifact_comment_add(State::new(&ctx.state), id, body, reply, anchor)
+                    .await,
+            )
+        }
+        "artifact_comment_resolve" => {
+            let (id, thread, reopen) = args!(args, { id: String, thread: String, reopen: bool });
+            result(
+                artifacts::artifact_comment_resolve(State::new(&ctx.state), id, thread, reopen)
+                    .await,
+            )
         }
         _ => Err(DispatchError::UnknownCommand(command.to_string())),
     }
