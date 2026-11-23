@@ -248,8 +248,9 @@ func TestAgent_dispatch(t *testing.T) {
 		runner := listRunner()
 		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
 		awaitOnline(t, fx)
-		first := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceList, envproto.ListArgs{}), "b1")
-		second := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceList, envproto.ListArgs{}), "b2")
+		hide := envproto.HideArgs{Workspace: "fix-login", Hidden: true}
+		first := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide), "b1")
+		second := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide), "b2")
 		assert.True(t, first.OK)
 		assert.Equal(t, first.Result, second.Result)
 		assert.Len(t, runner.RunCalls(), 1)
@@ -436,4 +437,218 @@ func refusalCode(err error) string {
 		return "not a reply error"
 	}
 	return re.Code
+}
+
+// bad is a workspace reference outside the workspaces.
+const bad = "../x"
+
+func TestWorkspaceRefs(t *testing.T) {
+	t.Parallel()
+	parent := bad
+	tests := []struct {
+		name string
+		args any
+		want []string
+	}{
+		{name: "create with a parent", args: &envproto.CreateArgs{Parent: &parent}, want: []string{bad}},
+		{name: "create without a parent", args: &envproto.CreateArgs{}, want: nil},
+		{name: "workspace args", args: &envproto.WorkspaceArgs{Workspace: bad}, want: []string{bad}},
+		{name: "rm", args: &envproto.RmArgs{Workspace: bad}, want: []string{bad}},
+		{name: "rename", args: &envproto.RenameArgs{Workspace: bad}, want: []string{bad}},
+		{name: "hide", args: &envproto.HideArgs{Workspace: bad}, want: []string{bad}},
+		{name: "logs", args: &envproto.LogsArgs{Workspace: bad}, want: []string{bad}},
+		{name: "send", args: &envproto.SendArgs{Workspace: bad}, want: []string{bad}},
+		{name: "list", args: &envproto.ListArgs{}, want: nil},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, workspaceRefs(tt.args), tt.name)
+	}
+}
+
+func TestAgent_admitWorkspaceRefs(t *testing.T) {
+	t.Parallel()
+	a := &Agent{opts: opsOptions()}
+	parent := bad
+	tests := []struct {
+		op   string
+		args any
+		code string
+	}{
+		{envproto.OpWorkspaceCreate, envproto.CreateArgs{Kind: envproto.KindClaude, Specs: []string{}, Parent: &parent}, "outside_workspace"},
+		{envproto.OpWorkspaceCreate, envproto.CreateArgs{Kind: envproto.KindClaude, Specs: []string{}}, ""},
+		{envproto.OpWorkspaceRm, envproto.RmArgs{Workspace: bad}, "outside_workspace"},
+		{envproto.OpWorkspaceRename, envproto.RenameArgs{Workspace: bad, Name: "x"}, "outside_workspace"},
+		{envproto.OpWorkspaceHide, envproto.HideArgs{Workspace: bad}, "outside_workspace"},
+		{envproto.OpAgentStatus, envproto.WorkspaceArgs{Workspace: bad}, "outside_workspace"},
+		{envproto.OpAgentStop, envproto.WorkspaceArgs{Workspace: bad}, "outside_workspace"},
+		{envproto.OpAgentLogs, envproto.LogsArgs{Workspace: bad}, "outside_workspace"},
+		{envproto.OpAgentSend, envproto.SendArgs{Workspace: bad, Message: "hi"}, "outside_workspace"},
+	}
+	for _, tt := range tests {
+		var req envproto.Request
+		require.NoError(t, json.Unmarshal(opRequest(t, "0123456789abcdef", tt.op, tt.args), &req))
+		_, _, err := a.admit(&req)
+		assert.Equal(t, tt.code, refusalCode(err), tt.op)
+	}
+}
+
+// blockingRunner blocks the first call until release closes, closing started.
+func blockingRunner(started, release chan struct{}) *operationRunnerMock {
+	var calls atomic.Int32
+	return &operationRunnerMock{RunFunc: func(context.Context, string, any) (json.RawMessage, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		return json.RawMessage(`[]`), nil
+	}}
+}
+
+func TestAgent_dedupe(t *testing.T) {
+	t.Parallel()
+	hide := envproto.HideArgs{Workspace: "fix-login", Hidden: true}
+	t.Run("duplicates of a running request don't hold a slot", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		started := make(chan struct{})
+		release := make(chan struct{})
+		runner := blockingRunner(started, release)
+		opts := opsOptions()
+		opts.MaxOps = 2
+		runAgent(t, newOpsAgent(fx, runner, opts))
+		awaitOnline(t, fx)
+		slow := envproto.Topic(fx.id.ID, envproto.LeafRes, "g1")
+		slowReplies := captureMessages(t, fx.broker, slow)
+		sendToAgent(t, fx, opRequest(t, "1111111111111111", envproto.OpWorkspaceHide, hide), slow, "g1")
+		<-started
+		dup := envproto.Topic(fx.id.ID, envproto.LeafRes, "g2")
+		dupReplies := captureMessages(t, fx.broker, dup)
+		for range 3 {
+			sendToAgent(t, fx, opRequest(t, "1111111111111111", envproto.OpWorkspaceHide, hide), dup, "g2")
+		}
+		other := askAgent(t, fx, opRequest(t, "2222222222222222", envproto.OpWorkspaceHide, hide), "g3")
+		assert.True(t, other.OK)
+		close(release)
+		require.Eventually(t, func() bool { return len(slowReplies.all()) == 1 && len(dupReplies.all()) == 3 }, 5*time.Second, 10*time.Millisecond)
+		assert.Len(t, runner.RunCalls(), 2)
+	})
+	t.Run("a panic in an op replies internal and frees the request id", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		var calls atomic.Int32
+		runner := &operationRunnerMock{RunFunc: func(context.Context, string, any) (json.RawMessage, error) {
+			if calls.Add(1) == 1 {
+				panic("boom")
+			}
+			return json.RawMessage(`[]`), nil
+		}}
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		first := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide), "h1")
+		require.NotNil(t, first.Error)
+		assert.Equal(t, "internal", first.Error.Code)
+		second := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide), "h2")
+		assert.True(t, second.OK)
+	})
+	t.Run("a reply from an op cut off by its deadline isn't remembered", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		var calls atomic.Int32
+		runner := &operationRunnerMock{RunFunc: func(ctx context.Context, _ string, _ any) (json.RawMessage, error) {
+			if calls.Add(1) == 1 {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			return json.RawMessage(`[]`), nil
+		}}
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		first := askAgent(t, fx, opRequestDue(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide,
+			time.Now().Add(150*time.Millisecond)), "i1")
+		assert.False(t, first.OK)
+		second := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide), "i2")
+		assert.True(t, second.OK)
+		assert.EqualValues(t, 2, calls.Load())
+	})
+	t.Run("read-only ops are not stored", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		for i, op := range []string{envproto.OpWorkspaceList, envproto.OpAgentStatus, envproto.OpAgentLogs} {
+			var args any = envproto.ListArgs{}
+			if op != envproto.OpWorkspaceList {
+				args = envproto.LogsArgs{Workspace: "fix-login"}
+				if op == envproto.OpAgentStatus {
+					args = envproto.WorkspaceArgs{Workspace: "fix-login"}
+				}
+			}
+			id := fmt.Sprintf("%016d", i)
+			askAgent(t, fx, opRequest(t, id, op, args), fmt.Sprintf("j%da", i))
+			askAgent(t, fx, opRequest(t, id, op, args), fmt.Sprintf("j%db", i))
+		}
+		assert.Len(t, runner.RunCalls(), 6)
+	})
+	t.Run("a request id reused for another request is refused", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide), "k1")
+		reply := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide,
+			envproto.HideArgs{Workspace: "other", Hidden: true}), "k2")
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "usage", reply.Error.Code)
+		assert.Len(t, runner.RunCalls(), 1)
+	})
+}
+
+func TestAgent_operationGoroutines(t *testing.T) {
+	t.Parallel()
+	hide := envproto.HideArgs{Workspace: "fix-login", Hidden: true}
+	t.Run("stopping the agent waits for running operations", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		started := make(chan struct{})
+		var finished atomic.Bool
+		runner := &operationRunnerMock{RunFunc: func(ctx context.Context, _ string, _ any) (json.RawMessage, error) {
+			close(started)
+			<-ctx.Done()
+			time.Sleep(100 * time.Millisecond)
+			finished.Store(true)
+			return nil, ctx.Err()
+		}}
+		run := runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		res := envproto.Topic(fx.id.ID, envproto.LeafRes, "l1")
+		sendToAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide), res, "l1")
+		<-started
+		require.NoError(t, run.stop())
+		assert.True(t, finished.Load())
+	})
+	t.Run("a burst beyond the queue is refused at once", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		started := make(chan struct{})
+		release := make(chan struct{})
+		runner := blockingRunner(started, release)
+		opts := opsOptions()
+		opts.MaxOps = 1
+		runAgent(t, newOpsAgent(fx, runner, opts))
+		awaitOnline(t, fx)
+		res := envproto.Topic(fx.id.ID, envproto.LeafRes, "m1")
+		replies := captureMessages(t, fx.broker, res)
+		for i := range queueFactor {
+			sendToAgent(t, fx, opRequest(t, fmt.Sprintf("%016d", i), envproto.OpWorkspaceHide, hide), res, "m1")
+		}
+		<-started
+		refused := askAgent(t, fx, opRequest(t, fmt.Sprintf("%016d", queueFactor), envproto.OpWorkspaceHide, hide), "m2")
+		require.NotNil(t, refused.Error)
+		assert.Equal(t, "internal", refused.Error.Code)
+		assert.Equal(t, "the agent has too many operations waiting", refused.Error.Message)
+		close(release)
+		require.Eventually(t, func() bool { return len(replies.all()) == queueFactor }, 5*time.Second, 10*time.Millisecond)
+	})
 }

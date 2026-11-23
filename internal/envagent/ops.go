@@ -2,6 +2,8 @@ package envagent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,7 +48,44 @@ func (a *Agent) dispatch(ctx context.Context, id *Identity, msg *envproto.Messag
 		a.reply(ctx, id, msg, refusalReply(err))
 		return
 	}
-	go a.runOp(ctx, id, msg, &req, spec, args)
+	if !a.startOp(ctx, id, msg, &req, spec, args) {
+		a.reply(ctx, id, msg, envproto.ErrorReply("internal", "the agent has too many operations waiting"))
+	}
+}
+
+// startOp runs the operation on a goroutine the agent tracks, reporting false
+// when queueSlots operations are already running or waiting for a slot.
+func (a *Agent) startOp(ctx context.Context, id *Identity, msg *envproto.Message, req *envproto.Request, spec envproto.OpSpec, args any) bool {
+	select {
+	case a.queue <- struct{}{}:
+	default:
+		return false
+	}
+	a.running.Go(func() {
+		defer func() { <-a.queue }()
+		a.runOp(ctx, id, msg, req, spec, args)
+	})
+	return true
+}
+
+// remembered reports whether the reply of op is kept for duplicates. The
+// read-only operations are not: agent.logs can hold secrets, and the
+// controller asks again for a fresh answer.
+func remembered(op string) bool {
+	switch op {
+	case envproto.OpAgentLogs, envproto.OpAgentStatus, envproto.OpWorkspaceList:
+		return false
+	}
+	return true
+}
+
+// requestSum is the hash of a request's op and arguments.
+func requestSum(req *envproto.Request) string {
+	h := sha256.New()
+	h.Write([]byte(req.Op))
+	h.Write([]byte{0})
+	h.Write(req.Args)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // admit checks a request for an operation the controller may send: its
@@ -101,23 +140,33 @@ func workspaceRefs(args any) []string {
 	return nil
 }
 
-// runOp waits for one of MaxOps slots (until the request's deadline, else
-// replies internal "the agent was busy until the deadline"), runs the
-// operation under context.WithDeadline(ctx, deadline) through the dedupe
-// store, replies on msg's response topic, and when the op's spec has
-// Changes and the reply is ok, signals a.changed (buffered 1, non-blocking
-// send).
+// runOp runs the operation under context.WithDeadline(ctx, deadline)
+// through the dedupe store, replies on msg's response topic, and when the
+// op's spec has Changes and the reply is ok, signals a.changed (buffered 1,
+// non-blocking send). Only the request that owns the id takes one of MaxOps
+// slots, waiting for it until the deadline, else the reply is internal "the
+// agent was busy until the deadline"; a duplicate waits for the owner without one.
 func (a *Agent) runOp(ctx context.Context, id *Identity, msg *envproto.Message, req *envproto.Request, spec envproto.OpSpec, args any) {
 	opCtx, cancel := context.WithDeadline(ctx, *req.Deadline)
 	defer cancel()
-	if !a.acquire(opCtx) {
-		a.reply(ctx, id, msg, envproto.ErrorReply("internal", "the agent was busy until the deadline"))
-		return
+	run := func() []byte {
+		if !a.acquire(opCtx) {
+			return envproto.ErrorReply("internal", "the agent was busy until the deadline")
+		}
+		defer a.release()
+		return a.execute(opCtx, spec, args)
 	}
-	defer a.release()
-	reply, err := a.requests.do(opCtx, req.RequestID, func() []byte { return a.execute(opCtx, spec, args) })
-	if err != nil {
+	reply, err := a.requests.do(opCtx, req.RequestID, requestSum(req), remembered(req.Op), run)
+	switch {
+	case errors.Is(err, errRequestMismatch):
+		a.reply(ctx, id, msg, envproto.ErrorReply("usage", "request id reused for a different request"))
+		return
+	case errors.Is(err, errAbandoned) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
 		a.reply(ctx, id, msg, envproto.ErrorReply("internal", "the operation didn't finish before its deadline"))
+		return
+	case err != nil:
+		a.log.ErrorContext(ctx, "operation failed", "op", spec.Name, "error", err)
+		a.reply(ctx, id, msg, envproto.ErrorReply("internal", "the operation failed"))
 		return
 	}
 	a.reply(ctx, id, msg, reply)

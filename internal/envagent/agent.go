@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -17,6 +18,9 @@ import (
 // ErrCertificateExpired is returned by Run when the agent's certificate has
 // expired, so it can't connect again.
 var ErrCertificateExpired = errors.New("the agent's certificate has expired")
+
+// queueFactor is how many operations may wait per MaxOps slot.
+const queueFactor = 8
 
 // inboxSize is how many requests and replies may wait for the session loop.
 const inboxSize = 16
@@ -75,6 +79,8 @@ type Agent struct {
 	inbox     chan envproto.Message
 	pending   map[string]chan envproto.Message // replies awaited, by correlation data
 	slots     chan struct{}                    // one per operation running, MaxOps in all
+	queue     chan struct{}                    // one per operation running or waiting for a slot
+	running   sync.WaitGroup                   // the operation goroutines
 	changed   chan struct{}                    // an operation changed the workspaces
 	// The last snapshot published, for deciding when to publish again.
 	workspaces []byte
@@ -98,6 +104,7 @@ func NewAgent(log *slog.Logger, files *Files, client mqttClient, snapshots snaps
 		inbox:     make(chan envproto.Message, inboxSize),
 		pending:   make(map[string]chan envproto.Message),
 		slots:     make(chan struct{}, max(opts.MaxOps, 1)),
+		queue:     make(chan struct{}, max(opts.MaxOps, 1)*queueFactor),
 		changed:   make(chan struct{}, 1),
 	}
 }
@@ -172,17 +179,21 @@ func (a *Agent) connect(ctx context.Context, id *Identity) error {
 
 // serve runs one connection until ctx ends, when it publishes the offline
 // status, or until the broker drops the client.
-func (a *Agent) serve(ctx context.Context, id *Identity) {
+func (a *Agent) serve(parent context.Context, id *Identity) {
+	ctx, cancelOps := context.WithCancel(parent)
+	defer cancelOps()
 	done := a.client.Done()
 	snapshotTimer := a.opts.After(a.opts.SnapshotCheck)
 	renewTimer := a.opts.After(a.opts.RenewCheck)
 	for {
 		select {
 		case <-ctx.Done():
+			a.drainOps(cancelOps)
 			a.goOffline(ctx, id)
 			return
 		case <-done:
 			a.log.WarnContext(ctx, "connection lost")
+			a.drainOps(cancelOps)
 			a.closeClient(ctx)
 			return
 		case <-snapshotTimer:
@@ -197,6 +208,13 @@ func (a *Agent) serve(ctx context.Context, id *Identity) {
 			a.handle(ctx, id, &msg)
 		}
 	}
+}
+
+// drainOps cancels the operations' context and waits for their goroutines, so
+// none replies on a closed client.
+func (a *Agent) drainOps(cancel context.CancelFunc) {
+	cancel()
+	a.running.Wait()
 }
 
 // goOffline publishes the retained offline status and closes the connection.
