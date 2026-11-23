@@ -19,7 +19,7 @@ func TestStore_Snapshot(t *testing.T) {
 		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
 		c.onSnapshot(t.Context(), &envproto.Message{
 			Topic:   envproto.Topic(rec.ID, envproto.LeafSnapshot),
-			Payload: []byte(`{"at":"2026-11-22T10:00:00Z","protocol":1,"workspaces":[{"name":"api"}],"agents":[{"id":"a1","session_id":"s1","name":"api","state":"idle","status":"running","pid":42,"started_at":null}]}`),
+			Payload: []byte(`{"at":"2026-11-22T10:00:00Z","protocol":2,"workspaces":[{"name":"api"}],"agents":[{"id":"a1","session_id":"s1","name":"api","state":"idle","status":"running","pid":42,"started_at":null}]}`),
 		})
 		file, snap, err := store.Snapshot("linux-server")
 		require.NoError(t, err)

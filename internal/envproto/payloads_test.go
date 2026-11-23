@@ -89,7 +89,7 @@ func TestSnapshot_Marshal(t *testing.T) {
 		at := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
 		body, err := json.Marshal(Snapshot{At: at, Protocol: Protocol, Workspaces: json.RawMessage(`[]`), Agents: []SnapshotAgent{}})
 		require.NoError(t, err)
-		assert.JSONEq(t, `{"at":"2026-11-22T00:00:00Z","protocol":1,"workspaces":[],"agents":[]}`, string(body))
+		assert.JSONEq(t, `{"at":"2026-11-22T00:00:00Z","protocol":2,"workspaces":[],"agents":[]}`, string(body))
 	})
 }
 
@@ -121,7 +121,7 @@ func TestHello_Protocol(t *testing.T) {
 	t.Run("marshals the protocol number", func(t *testing.T) {
 		body, err := json.Marshal(Hello{Status: StatusOnline, Protocol: Protocol, CAFingerprints: []string{}})
 		require.NoError(t, err)
-		assert.Contains(t, string(body), `"protocol":1`)
+		assert.Contains(t, string(body), `"protocol":2`)
 	})
 	t.Run("reads 0 from an agent older than PR 3", func(t *testing.T) {
 		var hello Hello

@@ -31,6 +31,16 @@ func TestLookupOp(t *testing.T) {
 			assert.Equal(t, want, got, name)
 		}
 	})
+	t.Run("terminal.open is CallerTerminal since 2", func(t *testing.T) {
+		got, ok := LookupOp(OpTerminalOpen)
+		require.True(t, ok)
+		assert.Equal(t, OpSpec{Name: OpTerminalOpen, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second, Changes: true}, got)
+	})
+	t.Run("terminal.close is CallerTerminal since 2", func(t *testing.T) {
+		got, ok := LookupOp(OpTerminalClose)
+		require.True(t, ok)
+		assert.Equal(t, OpSpec{Name: OpTerminalClose, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second}, got)
+	})
 	t.Run("refuses names outside the table", func(t *testing.T) {
 		for _, name := range []string{"files.read", "", "workspace.create "} {
 			_, ok := LookupOp(name)
