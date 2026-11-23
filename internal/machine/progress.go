@@ -80,15 +80,21 @@ func (s *Store) WriteProgress(root, child string, p *Progress) error {
 }
 
 // ReadProgress reads child's progress.toml; a missing file is nil. A version
-// above FormatVersion is ErrNewer, a file that doesn't parse ErrInvalid.
+// above FormatVersion is ErrNewer, a file that doesn't parse or breaks the
+// rules of Progress.Check ErrInvalid, so a hand-edited record can't reach a
+// rollup.
 func (s *Store) ReadProgress(root, child string) (*Progress, error) {
 	if err := checkComponents(root, child); err != nil {
 		return nil, err
 	}
 	var p Progress
-	found, err := readTOML(filepath.Join(s.Dir(root, child), progressFile), &p)
+	path := filepath.Join(s.Dir(root, child), progressFile)
+	found, err := readTOML(path, &p)
 	if err != nil || !found {
 		return nil, err
+	}
+	if err = p.Check(); err != nil {
+		return nil, fmt.Errorf("%s: %w: %w", path, ErrInvalid, err)
 	}
 	return &p, nil
 }

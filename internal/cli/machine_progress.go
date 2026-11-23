@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -150,7 +151,8 @@ func (a *App) progressCaller() (caller, root string, err error) {
 }
 
 // updateProgress applies change to the caller's progress, checks it, writes
-// it, and prints the tree.
+// it, and prints the tree. A record that is invalid is replaced, so an agent
+// can recover by writing again.
 func (a *App) updateProgress(change func(*machine.Progress)) error {
 	caller, root, err := a.progressCaller()
 	if err != nil {
@@ -158,7 +160,7 @@ func (a *App) updateProgress(change func(*machine.Progress)) error {
 	}
 	store := machine.NewStore(a.paths.State)
 	p, err := store.ReadProgress(root, caller)
-	if err != nil {
+	if err != nil && !errors.Is(err, machine.ErrInvalid) {
 		return fmt.Errorf("reading %s's progress: %w", caller, err)
 	}
 	if p == nil {

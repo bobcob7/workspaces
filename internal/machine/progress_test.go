@@ -1,6 +1,8 @@
 package machine
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,6 +76,26 @@ func TestStore_WriteProgress(t *testing.T) {
 	t.Run("refuses an id that is a path", func(t *testing.T) {
 		_, err := NewStore(t.TempDir()).ReadProgress("boss", "../x")
 		assert.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("refuses a hand-edited record that fails Check, naming the path", func(t *testing.T) {
+		for name, body := range map[string]string{
+			"control characters": "version = 1\nname = \"a\\u0007b\"\n",
+			"a huge note":        "version = 1\nnote = \"" + strings.Repeat("x", MaxProgressNote+1) + "\"\n",
+			"negative steps":     "version = 1\ntotal = -3\n",
+			"overflowing steps":  "version = 1\ntotal = 99999999999999999999\n",
+			"done above total":   "version = 1\ntotal = 1\ndone = 2\n",
+		} {
+			t.Run(name, func(t *testing.T) {
+				store := NewStore(t.TempDir())
+				require.NoError(t, store.WriteProgress("boss", "plan", &Progress{Total: 1}))
+				path := filepath.Join(store.Dir("boss", "plan"), progressFile)
+				require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+				got, err := store.ReadProgress("boss", "plan")
+				assert.Nil(t, got)
+				require.ErrorIs(t, err, ErrInvalid)
+				assert.ErrorContains(t, err, path)
+			})
+		}
 	})
 }
 

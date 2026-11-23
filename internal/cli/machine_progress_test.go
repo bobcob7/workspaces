@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,6 +50,18 @@ func TestApp_machineProgress(t *testing.T) {
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--total", "1"))
 		assert.Equal(t, exitUsage, runMachine(t, e, "machine", "progress", "step", "--by", "2"))
 		assert.Contains(t, e.stderr.String(), "progress_invalid")
+	})
+	t.Run("set replaces a record that is invalid, so an agent can recover", func(t *testing.T) {
+		e := newProgressApp(t)
+		store := machine.NewStore(e.app.paths.State)
+		require.NoError(t, store.WriteProgress("boss", "plan", &machine.Progress{Total: 1}))
+		path := filepath.Join(store.Dir("boss", "plan"), "progress.toml")
+		require.NoError(t, os.WriteFile(path, []byte("version = 1\ntotal = -3\n"), 0o600))
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--total", "2"), e.stderr.String())
+		p, err := store.ReadProgress("boss", "plan")
+		require.NoError(t, err)
+		require.NotNil(t, p)
+		assert.Equal(t, 2, p.Total)
 	})
 	t.Run("set with no flag is usage", func(t *testing.T) {
 		e := newProgressApp(t)
