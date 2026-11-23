@@ -38,7 +38,7 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `environments/<id>.toml` | a remote environment's record: its state, the secret's hash, and its certificate's serial, expiry and CA ([Remote environments](#remote-environments)) | by `ws env add`, `ws env rotate`, and enrollment; removed by `ws env rm` |
 | `environments/revoked` | the serials of revoked certificates, one per line, which the broker refuses | by `ws env rm` and `ws env rotate`; never trimmed |
 | `environments/.lock` | held while the environments, the CA or the revocations are written | by the environment store |
-| `state/.environments/<name>/snapshot.json` | the last workspace snapshot an agent sent, which `ws env list` counts | by the daemon, as snapshots arrive; removed by `ws env rm` |
+| `state/.environments/<name>/snapshot.json` | the last workspace snapshot an agent sent, which `ws env list` counts and `ws list --env` reads ([Remote environments](#remote-environments)) | by the daemon, as snapshots arrive; removed by `ws env rm` |
 | `environment/` on an agent: `agent.toml`, `key.pem` (mode 0600), `cert.pem`, `ca.pem` | the agent's identity: its environment, its key and certificate, and the CA certificates it verifies the broker with ([0075](adrs/0075-environment-enrollment-and-certificates.md)) | by `ws env agent enroll`; `cert.pem` by a renewal and `ca.pem` by a CA update in `ws env agent run`; removed by `ws env agent unenroll` |
 
 - **Workspace contents.** Nothing `ws` writes goes inside
@@ -69,8 +69,11 @@ so a `ws` from before hidden workspaces leaves a hidden one alone
 ([0043](adrs/0043-hidden-workspaces.md)); and version 3 when it has
 `parent = "<id>"`, the workspace it was started from, so a `ws` from
 before trees never removes a parent without its children
-([0044](adrs/0044-workspace-trees.md)). `hidden` and `parent` are written
-only when set.
+([0044](adrs/0044-workspace-trees.md)); and version 4 when it has
+`environment = "<name>"`, the environment it runs on, written only for a
+remote one, so a `ws` from before environments leaves it alone
+([0072](adrs/0072-remote-environments.md)). `hidden`, `parent` and
+`environment` are written only when set.
 
 A review workspace also has `review.toml`, version 1
 ([0039](adrs/0039-ws-review-command.md)):
@@ -303,6 +306,15 @@ superseded before the last 5 isn't revoked, so it stays valid until it
 expires. `ws env agent unenroll` on the remote
 leaves the record alone, so the environment is listed as offline until
 `ws env rm`.
+
+`state/.environments/<name>/snapshot.json` is `{"version", "id", "name",
+"received_at", "snapshot"}`: the controller's stamp, `received_at`, and the
+agent's `snapshot`, which is `{"at", "protocol", "workspaces", "agents"}`
+([0072](adrs/0072-remote-environments.md)). `at` is when the agent made it;
+`protocol` is the operation protocol the agent speaks (0 from an agent older
+than PR 3); `workspaces` is its `ws list --json --all` array, without unknown
+directories; `agents` is its Claude Code sessions, `[]` from an agent older
+than PR 3. A snapshot over 256 KiB isn't published, and its entries go stale.
 
 ## What each command does
 
