@@ -95,6 +95,11 @@ type ReplyError struct {
 	Details map[string]any `json:"details"`
 }
 
+// Error returns the message the reply carries, so an operation can fail with a ReplyError.
+func (e *ReplyError) Error() string {
+	return e.Message
+}
+
 // OKReply marshals {ok: true, result, error: null}.
 func OKReply(result any) ([]byte, error) {
 	return json.Marshal(struct {

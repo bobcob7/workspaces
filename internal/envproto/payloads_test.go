@@ -15,6 +15,13 @@ func TestOfflinePayload(t *testing.T) {
 	})
 }
 
+func TestReplyError_Error(t *testing.T) {
+	t.Run("is the message the reply carries", func(t *testing.T) {
+		var err error = &ReplyError{Code: "usage", Message: "a name is required"}
+		assert.EqualError(t, err, "a name is required")
+	})
+}
+
 func TestOKReply(t *testing.T) {
 	t.Run("marshals the result with a null error", func(t *testing.T) {
 		body, err := OKReply(map[string]string{"cert": "pem"})
