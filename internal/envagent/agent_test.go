@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -95,9 +96,14 @@ func testProbe() *claudeProbeMock {
 
 // testSnapshots reports workspaces as the workspaces array.
 func testSnapshots(workspaces string) *snapshotSourceMock {
-	return &snapshotSourceMock{WorkspacesFunc: func(context.Context) (json.RawMessage, error) {
-		return json.RawMessage(workspaces), nil
-	}}
+	return &snapshotSourceMock{
+		WorkspacesFunc: func(context.Context) (json.RawMessage, error) {
+			return json.RawMessage(workspaces), nil
+		},
+		AgentsFunc: func(context.Context) ([]envproto.SnapshotAgent, error) {
+			return []envproto.SnapshotAgent{}, nil
+		},
+	}
 }
 
 // runningAgent is an agent whose Run is in a goroutine.
@@ -129,7 +135,7 @@ func (r *runningAgent) stop() error {
 
 // newFixtureAgent is an agent over the fixture's files with a real broker client.
 func newFixtureAgent(fx *agentFixture, opts Options, snapshots string) *Agent { //nolint:gocritic // hugeParam: Options is passed by value, as NewAgent takes it.
-	return NewAgent(discardLog(), fx.files, fx.broker.NewClient(), testSnapshots(snapshots), testProbe(), rand.Reader, opts)
+	return NewAgent(discardLog(), fx.files, fx.broker.NewClient(), testSnapshots(snapshots), testProbe(), NoOperations{}, rand.Reader, opts)
 }
 
 // manualRenewCheck is a RenewCheck no other timer uses, so manualRenewal can tell its timer.
@@ -239,7 +245,7 @@ func TestAgent_Run(t *testing.T) {
 			waits = append(waits, d)
 			return time.After(d)
 		}
-		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), rand.Reader, opts)
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), NoOperations{}, rand.Reader, opts)
 		require.NoError(t, agent.Run(ctx))
 		require.Len(t, client.ConnectCalls(), 9)
 		require.GreaterOrEqual(t, len(waits), 8)
@@ -310,7 +316,7 @@ func TestAgent_Run(t *testing.T) {
 		})
 		opts := testOptions()
 		opts.RequestTimeout = 50 * time.Millisecond
-		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), rand.Reader, opts)
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), NoOperations{}, rand.Reader, opts)
 		run := runAgent(t, agent)
 		require.Eventually(t, func() bool { return len(client.ConnectCalls()) == 1 }, 5*time.Second, 10*time.Millisecond)
 		run.cancel()
@@ -330,12 +336,77 @@ func TestAgent_Run(t *testing.T) {
 			recorder.add(&msg)
 			return nil
 		})
-		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("null"), testProbe(), rand.Reader, testOptions())
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("null"), testProbe(), NoOperations{}, rand.Reader, testOptions())
+		runAgent(t, agent)
+		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
+		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) > 0 }, 5*time.Second, 10*time.Millisecond)
+		payload := recorder.on(snapshot)[0].Payload
+		var got envproto.Snapshot
+		require.NoError(t, json.Unmarshal(payload, &got))
+		assert.JSONEq(t, "[]", string(got.Workspaces))
+		assert.Equal(t, envproto.Protocol, got.Protocol)
+		assert.Contains(t, string(payload), `"agents":[]`)
+	})
+}
+
+func TestAgent_refreshSnapshot(t *testing.T) {
+	t.Parallel()
+	t.Run("the snapshot carries the agents", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		recorder := &publishRecorder{}
+		client := connectedMock(func(_ context.Context, msg envproto.Message) error {
+			recorder.add(&msg)
+			return nil
+		})
+		snapshots := testSnapshots("[]")
+		snapshots.AgentsFunc = func(context.Context) ([]envproto.SnapshotAgent, error) {
+			return []envproto.SnapshotAgent{{ID: "ab12cd34", SessionID: "s-1", Name: "fix", State: "working", Status: "busy", PID: new(42)}}, nil
+		}
+		agent := NewAgent(discardLog(), fx.files, client, snapshots, testProbe(), NoOperations{}, rand.Reader, testOptions())
 		runAgent(t, agent)
 		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
 		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) > 0 }, 5*time.Second, 10*time.Millisecond)
 		var got envproto.Snapshot
 		require.NoError(t, json.Unmarshal(recorder.on(snapshot)[0].Payload, &got))
-		assert.JSONEq(t, "[]", string(got.Workspaces))
+		require.Len(t, got.Agents, 1)
+		assert.Equal(t, "ab12cd34", got.Agents[0].ID)
+	})
+	t.Run("a failing Agents still publishes the workspaces with agents []", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		recorder := &publishRecorder{}
+		client := connectedMock(func(_ context.Context, msg envproto.Message) error {
+			recorder.add(&msg)
+			return nil
+		})
+		snapshots := testSnapshots(`[{"id":"api"}]`)
+		snapshots.AgentsFunc = func(context.Context) ([]envproto.SnapshotAgent, error) {
+			return nil, errors.New("claude is missing")
+		}
+		agent := NewAgent(discardLog(), fx.files, client, snapshots, testProbe(), NoOperations{}, rand.Reader, testOptions())
+		runAgent(t, agent)
+		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
+		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) > 0 }, 5*time.Second, 10*time.Millisecond)
+		payload := recorder.on(snapshot)[0].Payload
+		var got envproto.Snapshot
+		require.NoError(t, json.Unmarshal(payload, &got))
+		assert.JSONEq(t, `[{"id":"api"}]`, string(got.Workspaces))
+		assert.Contains(t, string(payload), `"agents":[]`)
+	})
+	t.Run("an oversized snapshot isn't published and is warned about once", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		oversized := `["` + strings.Repeat("x", envproto.MaxRequestBytes) + `"]`
+		client := &mqttClientMock{PublishFunc: func(context.Context, envproto.Message) error { return nil }}
+		var logs bytes.Buffer
+		log := slog.New(slog.NewJSONHandler(&logs, nil))
+		agent := NewAgent(log, fx.files, client, testSnapshots(oversized), testProbe(), NoOperations{}, rand.Reader, testOptions())
+		id := fx.id
+		agent.refreshSnapshot(t.Context(), &id, false)
+		agent.refreshSnapshot(t.Context(), &id, false)
+		assert.Empty(t, client.PublishCalls())
+		assert.Equal(t, 1, strings.Count(logs.String(), "snapshot too large"))
+		assert.Contains(t, logs.String(), `"bytes":`)
 	})
 }

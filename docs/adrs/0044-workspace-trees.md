@@ -1,6 +1,6 @@
 # 0044. A workspace started from inside another is its child; removing a workspace removes its descendants first
 
-- Status: Accepted (2026-10-28)
+- Status: Accepted (2026-10-28); amended by [0072](0072-remote-environments.md) (2026-11-22): a tree is on one environment
 - Date: 2026-10-28
 
 ## Context

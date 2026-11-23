@@ -63,3 +63,20 @@ func (n NopEnvironments) Warnings() []string {
 
 // Close does nothing.
 func (NopEnvironments) Close() error { return nil }
+
+// Call is an offline environment: nothing listens for one.
+//
+//nolint:gocritic // hugeParam: the CallRequest value is the fixed API.
+func (NopEnvironments) Call(_ context.Context, name string, req CallRequest) (CallReply, error) {
+	return CallReply{}, &HostError{
+		Err:     ErrEnvironmentOffline,
+		Message: "environment " + name + " is offline: the controller isn't listening",
+		Details: map[string]any{
+			"environment": name,
+			"reason":      "not_listening",
+			"last_seen":   nil,
+			"request_id":  req.RequestID,
+			"op":          req.Op,
+		},
+	}
+}

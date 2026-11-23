@@ -1,6 +1,6 @@
 # 0072. A workspace belongs to one environment, the local machine or an enrolled remote one; children inherit their parent's
 
-- Status: Proposed
+- Status: Accepted (2026-11-22), with the amendments below
 - Date: 2026-11-22
 
 ## Context
@@ -152,3 +152,67 @@ Can be revisited with its own ADR.
   that no command with an offline environment touches `local`.
 - **Unverified:** how stale a snapshot is in practice; measure the
   snapshot interval against the broker's keep-alive once built.
+
+## Amendments
+
+Accepted by the owner on 2026-11-22 for PR 3
+([0076](0076-environment-platforms-and-phasing.md)). The decisions are
+the design's, in
+[tasks-ops.md](../design/remote-environments/tasks-ops.md#decisions-this-design-adds-to-the-adrs).
+Where the built code differs from them, the deviation is listed below.
+
+- **D2, records and parents.** `environment = "<name>"` is written only when
+  it isn't `local`. A child takes its parent's environment; `--env` naming
+  another one is `environment_mismatch`. A remote entry's `parent` is an id
+  on the same environment, so trees are keyed by `(environment, id)`.
+- **D3, snapshot and presence.** The snapshot is `{"at", "protocol",
+  "workspaces", "agents"}`. An entry is `"stale": true` when its environment
+  isn't `online` or its snapshot is more than 90 s old. Presence comes from
+  the daemon's `GET /v1/status`. Scope in PR 3: see deviation 1.
+- **D4, request id and timeouts.** Every request carries `request_id` (16
+  lowercase hex characters from `crypto/rand`) and `deadline`. Timeouts:
+  `workspace.create` 10 min, `workspace.rm` 2 min, `agent.send` 90 s, every
+  other operation 30 s. The agent runs each operation under the deadline and
+  deduplicates on the request id: it remembers 512 ids for 15 min after they
+  finish, and a duplicate gets the stored reply, so an operation runs once.
+  The controller republishes a pending call once when its environment
+  reconnects, and waits until the deadline plus 15 s. A timeout fails
+  `environment_offline` with details `{"environment", "request_id", "op",
+  "reason": "timeout"}`; the workspace, if one was made, is an ordinary
+  listed workspace that `ws rm` removes.
+- **D5, protocol number.** The hello carries `"protocol"` (`envproto.Protocol`,
+  1 in PR 3; an agent that sends none is 0). Each operation has `Since`, and
+  an operation whose `Since` is above the agent's protocol is refused before
+  it is sent with `environment_outdated` (exit 1), details `{"environment",
+  "op", "ws_version", "protocol", "need_protocol"}`. PR 4 bumps `Protocol`
+  to 2 for `terminal.*`.
+- **D7, `ws shell --env`.** Deviation 2: it isn't in PR 3.
+- **D9, results.** `ws claude --env <name> --json` prints the remote's
+  `ws claude --json` object with `"environment": "<name>"` added. Remote
+  error codes keep their exit code and gain `details.environment`; a code
+  this `ws` doesn't know becomes `internal` with `details.remote_code`.
+- **Claude prompts.** A prompt for a Claude agent on an environment that
+  starts with `-` (after leading white space) is refused with `usage`,
+  because `claude` would read it as a flag. Runner prompts aren't affected.
+
+### Deviations from the design
+
+1. **Plain `ws list` stays local until PR 4.** `ws list --env <name>` (or
+   `--env local`) lists remote workspaces; plain `ws list` lists local ones
+   only, as before. Reason: the desktop app runs `ws list --all` and acts on
+   ids with local commands (`ws rm <id>`, `claude attach <id>`), so a remote
+   id equal to a local one would make it act on the wrong workspace. PR 4
+   makes every environment the default, with the desktop's environment
+   badges. This defers part of "one place to see everything" by one PR.
+2. **`ws shell --env` moves to PR 4.** A shell is an interactive terminal,
+   and PR 4's `terminal.*` streams are what connect one to a remote machine.
+   So PR 3 adds no `--env` to `ws shell`, and the wire has no `shell` kind:
+   `workspace.create` refuses it with `usage`. The design's D7 refusal isn't
+   built; this is its recommended alternative.
+3. **The `environment_outdated` message** is the one `internal/environment`
+   builds, `environment <name> runs ws <version>, which speaks protocol N;
+   <op> needs protocol M`, not the wording D5 proposed. Changing it is a code
+   change.
+
+Deviation 1 and 2 are also in the stack table of
+[0076](0076-environment-platforms-and-phasing.md).

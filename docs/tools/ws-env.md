@@ -186,6 +186,81 @@ guide shows, or text without `--json`.
 (the count in its last snapshot). Every field is always present: a value that
 isn't known is `null`, and a list is `[]`.
 
+## Limits
+
+An agent's snapshot lists its Claude Code sessions, `agents`, newest started
+first and at most 200. A session with no start time comes last, and the
+sessions past the 200th are left out of the snapshot. Each snapshot and each
+reply is at most 256 KiB.
+
+## Operations
+
+Once enrolled and connected, the controller runs work on the environment
+through a fixed table of operations. Each is the remote's own `ws` code path,
+run in-process with the same arguments and the same JSON result as the CLI
+command ([0073](../adrs/0073-environment-agent-is-ws.md)). The controller's
+side is `ws claude --env` and `ws list --env` ([`ws claude`](ws-claude.md#environments),
+[`ws list`](ws-list.md)); the rest are used by them.
+
+| Operation | Runs | Since | Timeout |
+| --- | --- | --- | --- |
+| `workspace.create` (`claude` and `runner` kinds) | `ws claude`, or `ws claude --runner ws` | 1 | 10 min |
+| `workspace.list` | `ws list --json --all` | 1 | 30 s |
+| `workspace.rm` | `ws rm`, with `--keep-children` | 1 | 2 min |
+| `workspace.rename` | `ws rename` | 1 | 30 s |
+| `workspace.hide` | `ws hide` and `ws unhide` | 1 | 30 s |
+| `agent.status` | Claude Code's `agents`, for one session | 1 | 30 s |
+| `agent.logs` | Claude Code's `logs`, at most 2000 lines | 1 | 30 s |
+| `agent.send` | a message to a Claude Code or `ws` runner agent | 1 | 90 s |
+| `agent.stop` | Claude Code's `stop` | 1 | 30 s |
+
+`Since` is the protocol the operation needs (see below). A `shell` kind
+isn't in the table: a shell needs the terminal streams, which come with the
+next release ([0072](../adrs/0072-remote-environments.md), deviation 2).
+
+**Protocol.** The hello carries `protocol`, the newest operation protocol the
+agent speaks: 1 in this release, and 0 from an agent older than it. An
+operation whose `Since` is above the agent's protocol is refused before it is
+sent, with `environment_outdated` (exit 1). Its details are `environment`,
+`op`, `ws_version`, `protocol` and `need_protocol`, so an agent from before
+this release runs none of the operations. The version string isn't compared:
+`git describe` strings don't order reliably.
+
+**Requests, timeouts and deduplication.** Each request carries a
+`request_id`, 16 lowercase hex characters from `crypto/rand`, and a
+`deadline`. The agent answers on `env/<id>/res/<request_id>`, and runs each
+operation under its deadline. The controller waits until the deadline plus
+15 s. The agent keeps each request id, running or finished, in memory: a
+finished one for 15 minutes, at most 512 of them, the oldest finished dropped
+first. A duplicate of a running request waits for it and gets the same reply;
+a duplicate of a finished one gets the stored reply. So an operation runs
+once, even when the controller republishes it after a reconnect. If the agent
+restarts mid-create, the store is lost, and the removal pass on the remote
+removes the half-built workspace ([0015](../adrs/0015-workspace-lifetime-follows-session.md)).
+A call that times out fails `environment_offline` with details
+`{"environment", "request_id", "op", "reason": "timeout"}`. The operation may
+still have run; `ws list --env <name>` shows what exists.
+
+**Security.** The operations are an allow-list, checked three times
+([0072](../adrs/0072-remote-environments.md), D6):
+
+- The agent refuses an operation it doesn't know (`usage`), and one whose
+  caller isn't the controller. The controller refuses one on the agent's
+  channel whose caller isn't the agent. The daemon's call endpoint refuses
+  any operation that isn't controller-callable.
+- Arguments decode strictly: an unknown key is refused, and each field is
+  checked before anything runs. A model matches
+  `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`; a name is 1 to 64 bytes without
+  control characters (`name_invalid`); a prompt is 1 to 65536 bytes and a
+  message 1 to 16384 bytes; `tail` is 0 to 2000. There are no free-form
+  Claude arguments: only a prompt and a model.
+- A spec must not start with `-` and must parse as a repo spec on the agent,
+  which refuses local paths and `file://` (`spec_invalid`). A Claude prompt
+  can't start with `-`, since `claude` would read it as a flag (`usage`).
+- A workspace reference is an id, or an absolute path under the agent's
+  `workspaces/` with no `..` element; anything else is `outside_workspace`
+  (exit 2), and nothing runs.
+
 ## Exit codes
 
 | Situation | Error code | Exit |

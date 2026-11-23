@@ -50,6 +50,14 @@ The shell's environment gains:
 `ws shell` exits with the shell's exit code, or 128+N when signal N
 killed the shell.
 
+## Environments
+
+`ws shell` runs only on this machine. It has no `--env` yet: a shell on a
+remote environment needs the terminal streams, which arrive in the release
+after PR 3, so `--env` is an unknown flag until then. For an agent on a
+remote environment, use [`ws claude --env`](ws-claude.md#environments)
+([0072](../adrs/0072-remote-environments.md), deviation 2).
+
 ## Options
 
 | Option          | Description                       |

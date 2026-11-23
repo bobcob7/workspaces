@@ -23,6 +23,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/gittest"
 	"github.com/bobcob7/workspaces/internal/lockfile"
@@ -253,6 +254,11 @@ func TestApp_runClaude_parent(t *testing.T) {
 		e := newClaudeEnv(t)
 		require.NoError(t, e.run(t, "fix it"))
 		assert.Empty(t, e.store.CreateCalls()[0].Opts.Parent)
+	})
+	t.Run("locally, no environment is stamped", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		require.NoError(t, e.run(t, "fix it"))
+		assert.Empty(t, e.store.CreateCalls()[0].Opts.Environment)
 	})
 	t.Run("inside a workspace, its child", func(t *testing.T) {
 		e := newClaudeEnv(t)
@@ -1056,5 +1062,189 @@ func TestApp_runClaude_untouched(t *testing.T) {
 		code := e.app.execute(t.Context(), e.app.newRootCmd(), []string{"claude", "--name", "Fix Login", "--", "fix it"})
 		require.Equal(t, exitOK, code, e.stderr.String())
 		assert.Equal(t, "x  e8cdf5d8  /cfg/workspaces/x\n", e.stdout.String())
+	})
+}
+
+// remoteClaudeEnv is a claudeEnv with environment linux-server, whose
+// snapshot lists workspace api-bump, and a caller that answers with reply.
+type remoteClaudeEnv struct {
+	*claudeEnv
+	caller *environmentCallerMock
+}
+
+const remoteCreated = `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1","parent":null,"repos":[],"warnings":[],"runner":"claude","model":null,"ws_runner":null},"error":null}`
+
+func newRemoteClaudeEnv(t *testing.T, reply string, err error) *remoteClaudeEnv {
+	t.Helper()
+	e := &remoteClaudeEnv{claudeEnv: newClaudeEnv(t), caller: callerReturning(reply, err)}
+	e.app.paths = config.NewPaths(t.TempDir())
+	useCaller(e.app, e.caller)
+	rec := addLinuxServer(t, e.app)
+	writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
+	return e
+}
+
+func (e *remoteClaudeEnv) create(t *testing.T) envproto.CreateArgs {
+	t.Helper()
+	require.Len(t, e.caller.CallEnvironmentCalls(), 1)
+	var args envproto.CreateArgs
+	require.NoError(t, json.Unmarshal(e.caller.CallEnvironmentCalls()[0].Req.Args, &args))
+	return args
+}
+
+func TestApp_runClaude_environment(t *testing.T) {
+	run := func(e *remoteClaudeEnv, opts claudeOptions) error {
+		return e.app.runClaude(t.Context(), &opts)
+	}
+	t.Run("--env sends workspace.create with the typed args", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", name: "fix", hidden: true, specs: []string{"buff-bear"}, claudeArgs: []string{"fix it", "--model", "opus"}}))
+		call := e.caller.CallEnvironmentCalls()[0]
+		assert.Equal(t, "linux-server", call.Name)
+		assert.Equal(t, envproto.OpWorkspaceCreate, call.Req.Op)
+		assert.True(t, envproto.ValidRequestID(call.Req.RequestID))
+		assert.Equal(t, testNow().Add(10*time.Minute), call.Req.Deadline)
+		assert.JSONEq(t, `{"kind":"claude","specs":["buff-bear"],"name":"fix","parent":null,"hidden":true,"offline":false,"prompt":"fix it","model":"opus","endpoint":null}`, string(call.Req.Args))
+		assert.Empty(t, e.store.CreateCalls())
+		assert.Empty(t, e.claude.StartCalls())
+	})
+	t.Run("--json prints the agent's result with environment", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		e.app.global.json = true
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		var got map[string]any
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Equal(t, "linux-server", got["environment"])
+		assert.Equal(t, "fix-login-1", got["id"])
+		assert.Equal(t, "/srv/ws/fix-login-1", got["path"])
+		assert.Equal(t, []any{}, got["warnings"])
+	})
+	t.Run("--json merges the local warnings into the agent's", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1","warnings":["agent warning"]},"error":null}`, nil)
+		e.app.global.json = true
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
+		}
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		var got struct {
+			Warnings []string `json:"warnings"`
+		}
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Equal(t, []string{"agent warning", "not a child of fix-login-d8efb24f: it runs on linux-server"}, got.Warnings)
+	})
+	t.Run("--json lists the local warnings when the result has no warnings key", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1"},"error":null}`, nil)
+		e.app.global.json = true
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
+		}
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		var got struct {
+			Warnings []string `json:"warnings"`
+		}
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Equal(t, []string{"not a child of fix-login-d8efb24f: it runs on linux-server"}, got.Warnings)
+	})
+	t.Run("--json has an empty warnings list when there are none", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1"},"error":null}`, nil)
+		e.app.global.json = true
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		var got map[string]any
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Equal(t, []any{}, got["warnings"])
+	})
+	t.Run("without --json prints the line with the environment", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		assert.Equal(t, "fix-login-1  s1  /srv/ws/fix-login-1  (on linux-server)\n", e.stdout.String())
+	})
+	t.Run("an agent error keeps its code and exit code", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, `{"ok":false,"result":null,"error":{"code":"repo_not_found","message":"no repo","details":null}}`, nil)
+		err := run(e, claudeOptions{env: "linux-server", specs: []string{"nope"}})
+		requireCode(t, codeRepoNotFound, err)
+		assert.Equal(t, exitNotFound, asCLIError(err).exitCode())
+	})
+	t.Run("an unknown remote code is internal", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, `{"ok":false,"result":null,"error":{"code":"from_the_future","message":"no","details":null}}`, nil)
+		err := run(e, claudeOptions{env: "linux-server"})
+		requireCode(t, codeInternal, err)
+		assert.Equal(t, "from_the_future", asCLIError(err).details["remote_code"])
+	})
+	t.Run("a null result is internal", func(t *testing.T) {
+		for _, asJSON := range []bool{false, true} {
+			e := newRemoteClaudeEnv(t, `{"ok":true,"result":null,"error":null}`, nil)
+			e.app.global.json = asJSON
+			requireCode(t, codeInternal, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		}
+	})
+	t.Run("offline maps to environment_offline with details", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, "", &daemon.RemoteError{Code: "environment_offline", Message: "offline", Details: map[string]any{"environment": "linux-server"}})
+		err := run(e, claudeOptions{env: "linux-server"})
+		requireCode(t, codeEnvironmentOffline, err)
+		assert.Equal(t, map[string]any{"environment": "linux-server"}, asCLIError(err).details)
+	})
+	t.Run("outdated maps to environment_outdated", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, "", &daemon.RemoteError{Code: "environment_outdated", Message: "old"})
+		requireCode(t, codeEnvironmentOutdated, run(e, claudeOptions{env: "linux-server"}))
+	})
+	t.Run("--env with a local --parent is environment_mismatch and sends nothing", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		err := run(e, claudeOptions{env: "linux-server", parent: "fix-login-d8efb24f"})
+		requireCode(t, codeEnvironmentMismatch, err)
+		assert.Empty(t, e.caller.CallEnvironmentCalls())
+	})
+	t.Run("--parent found on one environment runs there without --env", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		require.NoError(t, run(e, claudeOptions{parent: "api-bump", claudeArgs: []string{"fix it"}}))
+		assert.Equal(t, "linux-server", e.caller.CallEnvironmentCalls()[0].Name)
+		require.NotNil(t, e.create(t).Parent)
+		assert.Equal(t, "api-bump", *e.create(t).Parent)
+	})
+	t.Run("--parent found on two is usage", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		rec, _, _, err := e.app.envStore().Add(t.Context(), "mac-mini", "127.0.0.1:8884")
+		require.NoError(t, err)
+		writeRemoteSnapshot(t, e.app, &rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
+		requireUsageError(t, run(e, claudeOptions{parent: "api-bump"}))
+		assert.Empty(t, e.caller.CallEnvironmentCalls())
+	})
+	t.Run("the default parent is dropped with a warning under --env", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
+		}
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		assert.Nil(t, e.create(t).Parent)
+		assert.Contains(t, e.stderr.String(), "not a child of fix-login-d8efb24f: it runs on linux-server")
+	})
+	t.Run("--runner ws --env sends kind runner with the prompt", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", runner: config.RunnerWS, endpoint: "box", claudeArgs: []string{"do it", "--model", "m1"}}))
+		args := e.create(t)
+		assert.Equal(t, envproto.KindRunner, args.Kind)
+		require.NotNil(t, args.Prompt)
+		assert.Equal(t, "do it", *args.Prompt)
+		assert.Equal(t, "m1", *args.Model)
+		assert.Equal(t, "box", *args.Endpoint)
+	})
+	t.Run("--runner ws without a prompt is usage and sends nothing", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		requireUsageError(t, run(e, claudeOptions{env: "linux-server", runner: config.RunnerWS}))
+		assert.Empty(t, e.caller.CallEnvironmentCalls())
+	})
+	t.Run("arguments other than a prompt and --model after -- are usage", func(t *testing.T) {
+		for _, args := range [][]string{{"fix it", "--permission-mode", "plan"}, {"fix it", "extra"}, {"--model"}} {
+			e := newRemoteClaudeEnv(t, remoteCreated, nil)
+			err := run(e, claudeOptions{env: "linux-server", claudeArgs: args})
+			requireUsageError(t, err)
+			require.ErrorContains(t, err, "only a prompt and --model can be passed to an agent on an environment")
+			assert.Empty(t, e.caller.CallEnvironmentCalls())
+		}
+	})
+	t.Run("--env local runs locally", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		require.NoError(t, run(e, claudeOptions{env: "local", claudeArgs: []string{"fix it"}}))
+		assert.Empty(t, e.caller.CallEnvironmentCalls())
+		assert.Len(t, e.store.CreateCalls(), 1)
 	})
 }

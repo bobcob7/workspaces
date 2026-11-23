@@ -80,6 +80,46 @@ environment of whatever started it. To give agents a new environment, run
 [`ws restart`](ws-restart.md). The agent's working directory is the
 workspace.
 
+## Environments
+
+With `--env <name>`, `ws` asks the environment's agent to create the
+workspace and start the agent there, on that machine, and prints the result
+([remote environments](../adrs/0072-remote-environments.md); the names are
+`ws env list`'s). `--env local`, or no `--env`, runs here. The remote path
+never attaches: it returns once the agent has started, and `ws` prints the
+result. Both `--runner claude` and `--runner ws` work there, and so do `--name`,
+`--hidden`, `--offline`, `--parent` and `--endpoint`. After `--` only a
+prompt and `--model <m>` are accepted (`usage` otherwise), and a prompt for a
+Claude agent can't start with `-`, since `claude` would read it as a flag
+(`usage`).
+
+`--parent` on a remote start is an id on that environment:
+
+- Given with `--env`, the parent must be in that environment's last snapshot
+  (`ws list --env <name>`); the agent checks again and is the authority.
+  Found only locally or on another environment: `environment_mismatch`
+  (exit 4), and nothing is sent. Nowhere: `workspace_not_found` (exit 3).
+- Given without `--env`, a parent found in exactly one environment's
+  snapshot runs the child there, so children inherit the environment. Found
+  in more than one, `usage` asks for `--env`. A parent that is only local
+  works as it always has.
+- The default parent, the workspace `ws` runs in, is dropped with the warning
+  `not a child of <id>: it runs on <name>` when `--env` names a remote
+  environment. Only an explicit `--parent` can be a mismatch.
+
+The JSON output is the remote's own `--json` object, with paths on the
+remote, and `"environment": "<name>"` added. A local start prints no
+`environment`, so its output doesn't change. An error from the agent keeps
+its code and exit code, with `details.environment` added. A code this `ws`
+doesn't know becomes `internal`, with `details.remote_code`.
+
+A request that gets no answer in time fails `environment_offline` with
+details `reason: "timeout"`. The operation may still have run, so check
+`ws list --env <name>` before starting again. Its timeout is 10 minutes for
+the create, and the agent deduplicates on a request id, so a resent request
+doesn't create a second workspace
+([0072](../adrs/0072-remote-environments.md), D4).
+
 ## Options
 
 | Option          | Description                                                 |
@@ -88,9 +128,10 @@ workspace.
 | `--offline`     | Don't fetch; use the cache as-is                            |
 | `--hidden`      | Hide the workspace from `ws list` (without `-a`) and the desktop app's default views; for helpers started by scripts or agents. See [`ws hide`](ws-hide.md) and [0043](../adrs/0043-hidden-workspaces.md) |
 | `--parent <WORKSPACE>\|none` | The workspace this one is removed with ([0044](../adrs/0044-workspace-trees.md)); default: the workspace `ws` runs in, so an agent's helpers are its children; `none` for a top-level workspace |
+| `--env <name>`  | Create and run it on this environment (`ws env list`), not here; `local` is this machine. See [Environments](#environments) |
 | `--runner claude\|ws` | Which agent runs it: Claude Code (the default), or `ws`'s own runner ([0070](../adrs/0070-runner-agents-for-people-and-loops.md)) |
 | `--endpoint <name>` | With `--runner ws`, another endpoint from `config.toml`; `usage` without it |
-| `--json`        | Print `{"id", "session", "path", "parent", "repos", "warnings", "runner", "model", "ws_runner"}` |
+| `--json`        | Print `{"id", "session", "path", "parent", "repos", "warnings", "runner", "model", "ws_runner"}`, plus `"environment"` with `--env` |
 
 ## Runner agents
 
@@ -176,6 +217,11 @@ See also the [workspace creation errors](README.md#creating-a-workspace).
 | `claude` older than 2.1.302                      | `claude_failed`    | 1    |
 | Workspace root not trusted by Claude Code        | `claude_untrusted` | 1    |
 | `claude --bg` failed for another reason; its output is shown | `claude_failed` | 1 |
+| `--env` names no environment                     | `environment_unknown` | 3 |
+| `--env` names an environment that is offline, or didn't answer in time | `environment_offline` | 1 |
+| The environment's `ws` is older than this one needs | `environment_outdated` | 1 |
+| `--parent` is on another environment than `--env`, or a local parent with a remote `--env` | `environment_mismatch` | 4 |
+| After `--` anything but a prompt and `--model <m>` with `--env`, or a prompt starting with `-` | `usage` | 2 |
 
 ## See also
 

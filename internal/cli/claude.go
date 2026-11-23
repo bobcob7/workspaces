@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -12,6 +14,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -21,6 +24,7 @@ type claudeOptions struct {
 	offline    bool
 	hidden     bool
 	parent     string
+	env        string
 	runner     string
 	endpoint   string
 	specs      []string
@@ -48,6 +52,7 @@ func (a *App) newClaudeCmd() *cobra.Command {
 	addCreateFlags(cmd, &opts.name, &opts.offline)
 	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views")
 	cmd.Flags().StringVar(&opts.parent, "parent", "", "the workspace this one is removed with, or none; default: the one ws runs in")
+	cmd.Flags().StringVar(&opts.env, "env", "", "run it on this environment (ws env list); default: local, or the parent's")
 	cmd.Flags().StringVar(&opts.runner, "runner", config.RunnerClaude, "claude or ws: which agent runs it; a ws agent needs a prompt and can't be attached")
 	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "with --runner ws, another endpoint from config.toml")
 	return cmd
@@ -133,17 +138,24 @@ type claudeRepo struct {
 // interrupted or hung up on; otherwise ws prints the result and exits.
 // With --runner ws it starts a runner agent instead (runWSClaude).
 func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
+	runOn, parentID, err := a.remoteParent(ctx, opts.env, opts.parent)
+	if err != nil {
+		return err
+	}
+	if runOn != "" {
+		return a.runRemoteClaude(ctx, opts, runOn, parentID)
+	}
 	if opts.runner == config.RunnerWS {
 		return a.runWSClaude(ctx, opts)
 	}
-	if err := a.claude.Check(ctx); err != nil {
+	if err = a.claude.Check(ctx); err != nil {
 		return domainError(err)
 	}
 	parent, err := a.enclosingOr(opts.parent)
 	if err != nil {
 		return err
 	}
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Hidden: opts.hidden, Parent: parent})
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Hidden: opts.hidden, Parent: parent, Environment: a.environment})
 	if err != nil {
 		a.printWarnings()
 		return domainError(err)
@@ -161,6 +173,136 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 		return nil
 	}
 	return a.printClaudeResult(&ws, started.ID, opts.result)
+}
+
+// runRemoteClaude builds envproto.CreateArgs from opts (kind runner for
+// --runner ws; the prompt and --model from after "--"), calls
+// workspace.create on environment env, and prints the agent's result with
+// "environment" added (D9). It never attaches.
+func (a *App) runRemoteClaude(ctx context.Context, opts *claudeOptions, env, parent string) error {
+	args, err := remoteCreateArgs(opts, parent)
+	if err != nil {
+		return err
+	}
+	result, err := a.callEnvironment(ctx, env, envproto.OpWorkspaceCreate, args)
+	if err != nil {
+		return err
+	}
+	object, err := remoteObject(result, env)
+	if err != nil {
+		return err
+	}
+	if !a.global.json {
+		return a.printRemoteClaude(object, env)
+	}
+	name, err := json.Marshal(env)
+	if err != nil {
+		return fmt.Errorf("encoding the environment name: %w", err)
+	}
+	object["environment"] = name
+	if err := addWarnings(object, a.warned); err != nil {
+		return err
+	}
+	return a.writeJSON(object)
+}
+
+// remoteObject reads an agent's result, which must be a JSON object.
+func remoteObject(result json.RawMessage, env string) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(result, &object); err != nil {
+		return nil, newError(codeInternal, fmt.Errorf("reading the result of %s: %w", env, err))
+	}
+	if object == nil {
+		return nil, newError(codeInternal, fmt.Errorf("reading the result of %s: not a JSON object", env))
+	}
+	return object, nil
+}
+
+// addWarnings appends warnings to the "warnings" list of the agent's result,
+// which is always a list.
+func addWarnings(object map[string]json.RawMessage, warnings []string) error {
+	all := []string{}
+	if raw, ok := object["warnings"]; ok {
+		if err := json.Unmarshal(raw, &all); err != nil {
+			return newError(codeInternal, fmt.Errorf("reading the warnings of the result: %w", err))
+		}
+	}
+	merged := slices.Concat(all, warnings)
+	if merged == nil {
+		merged = []string{}
+	}
+	data, err := json.Marshal(merged)
+	if err != nil {
+		return fmt.Errorf("encoding the warnings: %w", err)
+	}
+	object["warnings"] = data
+	return nil
+}
+
+// printRemoteClaude prints "<id>  <session>  <path>  (on <name>)", with the
+// agent's warnings and ws's own on stderr.
+func (a *App) printRemoteClaude(object map[string]json.RawMessage, env string) error {
+	var shown struct {
+		ID       string   `json:"id"`
+		Session  string   `json:"session"`
+		Path     string   `json:"path"`
+		Warnings []string `json:"warnings"`
+	}
+	raw, err := json.Marshal(object)
+	if err != nil {
+		return fmt.Errorf("encoding the result: %w", err)
+	}
+	if err := json.Unmarshal(raw, &shown); err != nil {
+		return newError(codeInternal, fmt.Errorf("reading the result of %s: %w", env, err))
+	}
+	for _, w := range slices.Concat(a.warned, shown.Warnings) {
+		fmt.Fprintf(a.stderr, "ws: warning: %s\n", w)
+	}
+	fmt.Fprintf(a.stdout, "%s  %s  %s  (on %s)\n", shown.ID, shown.Session, shown.Path, env)
+	return nil
+}
+
+// remoteCreateArgs is workspace.create's arguments for opts: kind runner for
+// --runner ws, with the prompt and --model from after "--". Any other
+// argument there is usage.
+func remoteCreateArgs(opts *claudeOptions, parent string) (*envproto.CreateArgs, error) {
+	args := &envproto.CreateArgs{
+		Kind: envproto.KindClaude, Specs: slices.Clone(opts.specs), Name: optional(opts.name),
+		Parent: optional(parent), Hidden: opts.hidden, Offline: opts.offline,
+	}
+	if args.Specs == nil {
+		args.Specs = []string{}
+	}
+	if opts.runner == config.RunnerWS {
+		prompt, model, err := runnerPromptArgs(opts.claudeArgs)
+		if err != nil {
+			return nil, err
+		}
+		args.Kind, args.Prompt, args.Model, args.Endpoint = envproto.KindRunner, &prompt, optional(model), optional(opts.endpoint)
+		return args, nil
+	}
+	prompt, model, err := remotePromptArgs(opts.claudeArgs)
+	if err != nil {
+		return nil, err
+	}
+	args.Prompt, args.Model = optional(prompt), optional(model)
+	return args, nil
+}
+
+// remotePromptArgs reads the arguments after "--" for an agent on an
+// environment: an optional prompt, then an optional --model <m>.
+func remotePromptArgs(after []string) (prompt, model string, err error) {
+	rest := after
+	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		prompt, rest = rest[0], rest[1:]
+	}
+	switch {
+	case len(rest) == 0:
+		return prompt, "", nil
+	case len(rest) == 2 && rest[0] == "--model" && rest[1] != "":
+		return prompt, rest[1], nil
+	}
+	return "", "", usageErrorf("only a prompt and --model can be passed to an agent on an environment")
 }
 
 // runWSClaude starts ws's own runner agent in a new workspace, with the

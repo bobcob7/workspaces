@@ -72,8 +72,16 @@ and a pointer to this ADR, and the docs don't claim support.
 | --- | --- | --- |
 | 1. This one | ADRs 0072-0076, [design](../design/remote-environments/README.md) | |
 | 2. Core | `internal/environment` (records, CA, enrollment), broker in the daemon, `ws env`, `ws env agent`, hello and snapshot | 0073, 0074, 0075 |
-| 3. Operations | `workspace.create/list/rm`, agent status/logs/send/stop, `ws claude --env`, `ws list --env`, trees (`environment` on records) | 0072 |
-| 4. Terminals and desktop | `terminal.*` streams, desktop and Workspace Online: Settings › Environments, picker, badges, offline state | |
+| 3. Operations | `workspace.create/list/rm`, agent status/logs/send/stop, `ws claude --env`, `ws list --env` (plain `ws list` stays local, see below), trees (`environment` on records) | 0072 |
+| 4. Terminals and desktop | `terminal.*` streams, `ws shell --env` (moved from PR 3, see below), desktop and Workspace Online: Settings › Environments, picker, badges, offline state, `ws list` showing every environment by default | |
+
+**PR 3 deviations (owner decisions, 2026-11-22).** (1) Plain `ws list` lists
+local workspaces only until PR 4, and remote ones appear with `ws list --env
+<name>`: the desktop app runs `ws list --all` and acts on ids with local
+commands, so a remote id equal to a local one would make it act on the wrong
+workspace. (2) `ws shell --env` moves to PR 4: a shell needs the `terminal.*`
+streams that PR 4 adds. Both are recorded in
+[0072](0072-remote-environments.md)'s Amendments.
 
 ### Why this option
 

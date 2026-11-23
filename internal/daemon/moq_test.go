@@ -882,6 +882,9 @@ var _ EnvironmentHost = &EnvironmentHostMock{}
 //
 //		// make and configure a mocked EnvironmentHost
 //		mockedEnvironmentHost := &EnvironmentHostMock{
+//			CallFunc: func(ctx context.Context, name string, req CallRequest) (CallReply, error) {
+//				panic("mock out the Call method")
+//			},
 //			CloseFunc: func() error {
 //				panic("mock out the Close method")
 //			},
@@ -904,6 +907,9 @@ var _ EnvironmentHost = &EnvironmentHostMock{}
 //
 //	}
 type EnvironmentHostMock struct {
+	// CallFunc mocks the Call method.
+	CallFunc func(ctx context.Context, name string, req CallRequest) (CallReply, error)
+
 	// CloseFunc mocks the Close method.
 	CloseFunc func() error
 
@@ -921,6 +927,15 @@ type EnvironmentHostMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Call holds details about calls to the Call method.
+		Call []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Name is the name argument value.
+			Name string
+			// Req is the req argument value.
+			Req CallRequest
+		}
 		// Close holds details about calls to the Close method.
 		Close []struct {
 		}
@@ -941,11 +956,52 @@ type EnvironmentHostMock struct {
 		Warnings []struct {
 		}
 	}
+	lockCall     sync.RWMutex
 	lockClose    sync.RWMutex
 	lockReload   sync.RWMutex
 	lockStart    sync.RWMutex
 	lockStatus   sync.RWMutex
 	lockWarnings sync.RWMutex
+}
+
+// Call calls CallFunc.
+func (mock *EnvironmentHostMock) Call(ctx context.Context, name string, req CallRequest) (CallReply, error) {
+	if mock.CallFunc == nil {
+		panic("EnvironmentHostMock.CallFunc: method is nil but EnvironmentHost.Call was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Name string
+		Req  CallRequest
+	}{
+		Ctx:  ctx,
+		Name: name,
+		Req:  req,
+	}
+	mock.lockCall.Lock()
+	mock.calls.Call = append(mock.calls.Call, callInfo)
+	mock.lockCall.Unlock()
+	return mock.CallFunc(ctx, name, req)
+}
+
+// CallCalls gets all the calls that were made to Call.
+// Check the length with:
+//
+//	len(mockedEnvironmentHost.CallCalls())
+func (mock *EnvironmentHostMock) CallCalls() []struct {
+	Ctx  context.Context
+	Name string
+	Req  CallRequest
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Name string
+		Req  CallRequest
+	}
+	mock.lockCall.RLock()
+	calls = mock.calls.Call
+	mock.lockCall.RUnlock()
+	return calls
 }
 
 // Close calls CloseFunc.

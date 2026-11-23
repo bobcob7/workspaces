@@ -101,6 +101,10 @@ const (
 	codeEnrollmentFailed   errorCode = "enrollment_failed"   // exit 1
 	codeEnrollmentUsed     errorCode = "enrollment_used"     // exit 4
 	codeCAInUse            errorCode = "ca_in_use"           // exit 4
+	// From ADR 0072 (PR 3).
+	codeEnvironmentOffline  errorCode = "environment_offline"  // exit 1
+	codeEnvironmentOutdated errorCode = "environment_outdated" // exit 1
+	codeEnvironmentMismatch errorCode = "environment_mismatch" // exit 4
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -145,7 +149,8 @@ func (c errorCode) exitCode() int {
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable,
-		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed:
+		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed,
+		codeEnvironmentOffline, codeEnvironmentOutdated:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
@@ -158,10 +163,34 @@ func (c errorCode) exitCode() int {
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
 		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
-		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse:
+		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch:
 		return exitRefused
 	}
 	return exitFailed
+}
+
+// known reports whether c is one of ws's error codes, as opposed to a code a
+// newer remote ws answered with.
+func (c errorCode) known() bool {
+	switch c {
+	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing, codeClaudeUntrusted,
+		codeClaudeFailed, codeInternal, codeConfigInvalid, codeUsage, codeSpecInvalid, codeNameInvalid,
+		codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound, codeWorkspaceExists,
+		codeShellRunning, codeWorkspaceBusy, codeSessionMismatch, codeReviewInvalid, codeReviewUnverifiable,
+		codeProfileUnknown, codeReviewNotFound, codeReviewTimeout, codeGhMissing, codeGhAuth,
+		codePRNotFound, codeFindingNotFound, codeProfileInvalid, codeProfileExists, codeProfileBuiltin,
+		codeChildKept, codeOutsideWorkspace, codeNotDescendant, codeLoopInvalid, codeLoopNotFound,
+		codeLoopExists, codeLoopSkipped, codeLoopScriptFailed, codeResultInvalid, codeChildFailed,
+		codeWaitTimeout, codeRoleInvalid, codeRoleUnknown, codeRoleExists, codeRoleBuiltin,
+		codeConfigKeyUnknown, codeConfigValueInvalid, codeConfigUneditable, codeMemoryInvalid,
+		codeMemoryNotFound, codeMemoryConflict, codeMemoryFull, codeNotLoopRun, codeDaemonUnavailable,
+		codeDaemonRunning, codeEndpointUnknown, codeEndpointUnreachable, codeModelNotServed,
+		codeModelWithoutTools, codeRunnerFailed, codeEnvironmentUnknown, codeEnvironmentExists,
+		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
+		codeEnvironmentOutdated, codeEnvironmentMismatch, codeProgressInvalid:
+		return true
+	}
+	return false
 }
 
 func newError(code errorCode, err error) *cliError {

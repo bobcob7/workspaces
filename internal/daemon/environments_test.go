@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,5 +33,16 @@ func TestNopEnvironments_lifecycle(t *testing.T) {
 		require.NoError(t, envs.Start(t.Context()))
 		require.NoError(t, envs.Reload(t.Context()))
 		require.NoError(t, envs.Close())
+	})
+}
+
+func TestNopEnvironments_Call(t *testing.T) {
+	t.Run("is offline, not listening", func(t *testing.T) {
+		_, err := NopEnvironments{}.Call(t.Context(), "linux", CallRequest{Op: "workspace.list", RequestID: "0123456789abcdef"})
+		require.ErrorIs(t, err, ErrEnvironmentOffline)
+		hostErr, ok := errors.AsType[*HostError](err)
+		require.True(t, ok)
+		assert.Equal(t, "not_listening", hostErr.Details["reason"])
+		assert.Equal(t, "linux", hostErr.Details["environment"])
 	})
 }

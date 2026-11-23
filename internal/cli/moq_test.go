@@ -3552,3 +3552,81 @@ func (mock *envClientMock) SubscribeCalls() []struct {
 	mock.lockSubscribe.RUnlock()
 	return calls
 }
+
+// Ensure, that environmentCallerMock does implement environmentCaller.
+// If this is not the case, regenerate this file with moq.
+var _ environmentCaller = &environmentCallerMock{}
+
+// environmentCallerMock is a mock implementation of environmentCaller.
+//
+//	func TestSomethingThatUsesenvironmentCaller(t *testing.T) {
+//
+//		// make and configure a mocked environmentCaller
+//		mockedenvironmentCaller := &environmentCallerMock{
+//			CallEnvironmentFunc: func(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error) {
+//				panic("mock out the CallEnvironment method")
+//			},
+//		}
+//
+//		// use mockedenvironmentCaller in code that requires environmentCaller
+//		// and then make assertions.
+//
+//	}
+type environmentCallerMock struct {
+	// CallEnvironmentFunc mocks the CallEnvironment method.
+	CallEnvironmentFunc func(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// CallEnvironment holds details about calls to the CallEnvironment method.
+		CallEnvironment []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Name is the name argument value.
+			Name string
+			// Req is the req argument value.
+			Req daemon.CallRequest
+		}
+	}
+	lockCallEnvironment sync.RWMutex
+}
+
+// CallEnvironment calls CallEnvironmentFunc.
+func (mock *environmentCallerMock) CallEnvironment(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error) {
+	if mock.CallEnvironmentFunc == nil {
+		panic("environmentCallerMock.CallEnvironmentFunc: method is nil but environmentCaller.CallEnvironment was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Name string
+		Req  daemon.CallRequest
+	}{
+		Ctx:  ctx,
+		Name: name,
+		Req:  req,
+	}
+	mock.lockCallEnvironment.Lock()
+	mock.calls.CallEnvironment = append(mock.calls.CallEnvironment, callInfo)
+	mock.lockCallEnvironment.Unlock()
+	return mock.CallEnvironmentFunc(ctx, name, req)
+}
+
+// CallEnvironmentCalls gets all the calls that were made to CallEnvironment.
+// Check the length with:
+//
+//	len(mockedenvironmentCaller.CallEnvironmentCalls())
+func (mock *environmentCallerMock) CallEnvironmentCalls() []struct {
+	Ctx  context.Context
+	Name string
+	Req  daemon.CallRequest
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Name string
+		Req  daemon.CallRequest
+	}
+	mock.lockCallEnvironment.RLock()
+	calls = mock.calls.CallEnvironment
+	mock.lockCallEnvironment.RUnlock()
+	return calls
+}

@@ -132,7 +132,7 @@ func TestAgent_handle(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)
 		client := &countingClient{Client: fx.broker.NewClient()}
-		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), rand.Reader, testOptions())
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), NoOperations{}, rand.Reader, testOptions())
 		runAgent(t, agent)
 		awaitOnline(t, fx)
 		rotation, err := fx.store.RotateCA(t.Context())
@@ -170,10 +170,11 @@ func TestAgent_hello(t *testing.T) {
 		probe := &claudeProbeMock{ProbeFunc: func(context.Context) (string, *string) {
 			return envproto.ClaudeMissing, nil
 		}}
-		agent := NewAgent(discardLog(), fx.files, nil, testSnapshots("[]"), probe, rand.Reader, testOptions())
+		agent := NewAgent(discardLog(), fx.files, nil, testSnapshots("[]"), probe, NoOperations{}, rand.Reader, testOptions())
 		id := fx.id
 		hello := agent.hello(t.Context(), &id)
 		assert.Equal(t, envproto.StatusOnline, hello.Status)
+		assert.Equal(t, envproto.Protocol, hello.Protocol)
 		assert.Equal(t, "test", hello.WSVersion)
 		assert.Equal(t, runtime.GOOS, hello.OS)
 		assert.Equal(t, runtime.GOARCH, hello.Arch)

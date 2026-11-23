@@ -82,13 +82,19 @@ func TestReadRecord(t *testing.T) {
 	})
 	t.Run("a newer version", func(t *testing.T) {
 		t.Parallel()
-		_, err := readRecord(recordIn(t, "version = 4\nid = \"fix-login\"\npath = \"/w/fix-login\"\n"))
-		assert.ErrorContains(t, err, "written by a newer ws (version 4; this ws reads up to 3); upgrade ws")
+		_, err := readRecord(recordIn(t, "version = 5\nid = \"fix-login\"\npath = \"/w/fix-login\"\n"))
+		assert.ErrorContains(t, err, "written by a newer ws (version 5; this ws reads up to 4); upgrade ws")
 	})
 	t.Run("a newer version with keys this ws doesn't know", func(t *testing.T) {
 		t.Parallel()
-		_, err := readRecord(recordIn(t, "version = 4\nid = \"fix-login\"\npath = \"/w/fix-login\"\nextra = 1\n"))
+		_, err := readRecord(recordIn(t, "version = 5\nid = \"fix-login\"\npath = \"/w/fix-login\"\nextra = 1\n"))
 		assert.ErrorContains(t, err, "newer ws")
+	})
+	t.Run("version 4 reads back its environment", func(t *testing.T) {
+		t.Parallel()
+		ws, err := readRecord(recordIn(t, "version = 4\nid = \"fix-login\"\npath = \"/w/fix-login\"\nenvironment = \"linux-server\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", ws.Environment)
 	})
 	t.Run("no version", func(t *testing.T) {
 		t.Parallel()
@@ -160,6 +166,32 @@ func TestWriteRecord(t *testing.T) {
 			assert.Equal(t, parentVersion, got.Version)
 			assert.Equal(t, ws, got)
 		}
+	})
+	t.Run("a workspace with an environment is version 4", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "x", "workspace.toml")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		ws := sampleRecord("/w", "x")
+		ws.Environment = "linux-server"
+		require.NoError(t, writeRecord(path, &ws))
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "version = 4\n")
+		assert.Contains(t, string(data), "environment = \"linux-server\"\n")
+		got, err := readRecord(path)
+		require.NoError(t, err)
+		assert.Equal(t, ws, got)
+	})
+	t.Run("an environment wins over a parent for the version", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "x", "workspace.toml")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		ws := sampleRecord("/w", "x")
+		ws.Environment, ws.Parent, ws.Hidden = "linux-server", "fix-login-d8efb24f", true
+		require.NoError(t, writeRecord(path, &ws))
+		got, err := readRecord(path)
+		require.NoError(t, err)
+		assert.Equal(t, environmentVersion, got.Version)
 	})
 	t.Run("missing directory", func(t *testing.T) {
 		t.Parallel()

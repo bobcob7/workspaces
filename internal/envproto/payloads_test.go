@@ -3,6 +3,7 @@ package envproto
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,6 +12,13 @@ import (
 func TestOfflinePayload(t *testing.T) {
 	t.Run("is exactly the offline status", func(t *testing.T) {
 		assert.JSONEq(t, `{"status":"offline"}`, string(OfflinePayload()))
+	})
+}
+
+func TestReplyError_Error(t *testing.T) {
+	t.Run("is the message the reply carries", func(t *testing.T) {
+		var err error = &ReplyError{Code: "usage", Message: "a name is required"}
+		assert.EqualError(t, err, "a name is required")
 	})
 }
 
@@ -73,5 +81,51 @@ func TestErrorEnvelope_Marshal(t *testing.T) {
 		body, err := json.Marshal(ErrorEnvelope{Error: ReplyError{Code: "enrollment_used", Message: "used"}})
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"error":{"code":"enrollment_used","message":"used","details":null}}`, string(body))
+	})
+}
+
+func TestSnapshot_Marshal(t *testing.T) {
+	t.Run("marshals the protocol and an empty agents list", func(t *testing.T) {
+		at := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
+		body, err := json.Marshal(Snapshot{At: at, Protocol: Protocol, Workspaces: json.RawMessage(`[]`), Agents: []SnapshotAgent{}})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"at":"2026-11-22T00:00:00Z","protocol":1,"workspaces":[],"agents":[]}`, string(body))
+	})
+}
+
+func TestRequest_Marshal(t *testing.T) {
+	t.Run("marshals a null deadline and keeps the request id", func(t *testing.T) {
+		body, err := json.Marshal(Request{Op: OpCAUpdate, Args: json.RawMessage(`{}`), RequestID: "0123456789abcdef"})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"op":"ca.update","args":{},"request_id":"0123456789abcdef","deadline":null}`, string(body))
+	})
+	t.Run("round-trips the request id and the deadline", func(t *testing.T) {
+		deadline := time.Date(2026, 11, 22, 1, 2, 3, 0, time.UTC)
+		body, err := json.Marshal(Request{Op: OpAgentStatus, Args: json.RawMessage(`{"workspace":"a"}`), RequestID: "fedcba9876543210", Deadline: &deadline})
+		require.NoError(t, err)
+		var got Request
+		require.NoError(t, json.Unmarshal(body, &got))
+		assert.Equal(t, "fedcba9876543210", got.RequestID)
+		require.NotNil(t, got.Deadline)
+		assert.True(t, deadline.Equal(*got.Deadline))
+	})
+	t.Run("a PR 2 request has an empty request id and a nil deadline", func(t *testing.T) {
+		var req Request
+		require.NoError(t, json.Unmarshal([]byte(`{"op":"cert.renew","args":{}}`), &req))
+		assert.Empty(t, req.RequestID)
+		assert.Nil(t, req.Deadline)
+	})
+}
+
+func TestHello_Protocol(t *testing.T) {
+	t.Run("marshals the protocol number", func(t *testing.T) {
+		body, err := json.Marshal(Hello{Status: StatusOnline, Protocol: Protocol, CAFingerprints: []string{}})
+		require.NoError(t, err)
+		assert.Contains(t, string(body), `"protocol":1`)
+	})
+	t.Run("reads 0 from an agent older than PR 3", func(t *testing.T) {
+		var hello Hello
+		require.NoError(t, json.Unmarshal([]byte(`{"status":"online"}`), &hello))
+		assert.Equal(t, 0, hello.Protocol)
 	})
 }

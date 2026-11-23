@@ -74,7 +74,7 @@ func (a *App) startRunnerAgent(ctx context.Context, rs runnerStart) (runnerStart
 	if check.ContextTokens != nil && *check.ContextTokens > 0 {
 		resolved.ContextTokens = *check.ContextTokens
 	}
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: rs.Name, Specs: parseSpecs(rs.Specs), Offline: rs.Offline, Hidden: rs.Hidden, Parent: rs.Parent})
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: rs.Name, Specs: parseSpecs(rs.Specs), Offline: rs.Offline, Hidden: rs.Hidden, Parent: rs.Parent, Environment: a.environment})
 	if err != nil {
 		return runnerStarted{}, domainError(err)
 	}

@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync/atomic"
@@ -88,6 +90,11 @@ func (r *reloadRecorder) Reload(context.Context) error {
 	return nil
 }
 
+// Call is offline: the recorder serves no environment.
+func (*reloadRecorder) Call(context.Context, string, daemon.CallRequest) (daemon.CallReply, error) {
+	return daemon.CallReply{}, daemon.ErrEnvironmentOffline
+}
+
 // serveRecordingEnvDaemon runs an in-process managed daemon whose host
 // records the reload requests, and returns the host.
 func serveRecordingEnvDaemon(t *testing.T, app *App) *reloadRecorder {
@@ -163,5 +170,99 @@ func TestEnvironmentsStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(data), `"hello":null`)
 		assert.Nil(t, environmentHello(nil))
+	})
+}
+
+func TestEnvHost_Call(t *testing.T) {
+	callOf := func(op string) daemon.CallRequest {
+		return daemon.CallRequest{Op: op, Args: []byte("{}"), RequestID: "0123456789abcdef", Deadline: time.Now().Add(20 * time.Second)}
+	}
+	newHost := func(t *testing.T) (daemon.EnvironmentHost, environment.Record) {
+		t.Helper()
+		app, _, _ := newDaemonTestApp(t)
+		app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
+		app.config.Environments = config.Environments{PublicName: "127.0.0.1"}
+		rec := enrollTestEnvironment(t, app)
+		return app.daemonEnvironments(discardDaemonLog()), rec
+	}
+	t.Run("a controller that isn't listening is offline, not listening", func(t *testing.T) {
+		host, rec := newHost(t)
+		_, err := host.Call(t.Context(), rec.Name, callOf(envproto.OpWorkspaceList))
+		require.ErrorIs(t, err, daemon.ErrEnvironmentOffline)
+		hostErr, ok := errors.AsType[*daemon.HostError](err)
+		require.True(t, ok)
+		assert.Equal(t, "not_listening", hostErr.Details["reason"])
+		assert.Equal(t, rec.Name, hostErr.Details["environment"])
+	})
+	t.Run("an unknown environment is ErrEnvironmentUnknown", func(t *testing.T) {
+		host, _ := newHost(t)
+		_, err := host.Call(t.Context(), "nope", callOf(envproto.OpWorkspaceList))
+		require.ErrorIs(t, err, daemon.ErrEnvironmentUnknown)
+	})
+	t.Run("an operation the controller doesn't send is ErrNotForwarded", func(t *testing.T) {
+		host, rec := newHost(t)
+		_, err := host.Call(t.Context(), rec.Name, callOf(envproto.OpCertRenew))
+		require.ErrorIs(t, err, daemon.ErrNotForwarded)
+	})
+}
+
+func TestCallHostError(t *testing.T) {
+	t.Run("an unknown environment is ErrEnvironmentUnknown", func(t *testing.T) {
+		err := callHostError(environment.ErrUnknown)
+		require.ErrorIs(t, err, daemon.ErrEnvironmentUnknown)
+	})
+	t.Run("an offline environment carries its offline details", func(t *testing.T) {
+		seen := time.Date(2026, 11, 22, 9, 30, 0, 0, time.UTC)
+		offline := &environment.OfflineError{Environment: "linux", Reason: "timeout", LastSeen: &seen, RequestID: "0123456789abcdef", Op: "workspace.list"}
+		err := callHostError(offline)
+		require.ErrorIs(t, err, daemon.ErrEnvironmentOffline)
+		hostErr, ok := errors.AsType[*daemon.HostError](err)
+		require.True(t, ok)
+		assert.Equal(t, offline.Error(), hostErr.Error())
+		assert.Equal(t, offlineDetails(offline), hostErr.Details)
+	})
+	t.Run("an outdated environment names its versions and the need", func(t *testing.T) {
+		outdated := &environment.OutdatedError{Environment: "linux", Op: "workspace.create", WSVersion: "v0.30.0", Protocol: 1, Need: 2}
+		err := callHostError(outdated)
+		require.ErrorIs(t, err, daemon.ErrEnvironmentOutdated)
+		hostErr, ok := errors.AsType[*daemon.HostError](err)
+		require.True(t, ok)
+		assert.Equal(t, map[string]any{
+			"environment":   "linux",
+			"op":            "workspace.create",
+			"ws_version":    "v0.30.0",
+			"protocol":      1,
+			"need_protocol": 2,
+		}, hostErr.Details)
+	})
+	t.Run("a refused operation is ErrNotForwarded", func(t *testing.T) {
+		err := callHostError(fmt.Errorf("cert.renew: %w", environment.ErrNotForwarded))
+		require.ErrorIs(t, err, daemon.ErrNotForwarded)
+	})
+	t.Run("a pending request id is ErrRequestPending", func(t *testing.T) {
+		err := callHostError(fmt.Errorf("%w: %q", environment.ErrRequestPending, "0123456789abcdef"))
+		require.ErrorIs(t, err, daemon.ErrRequestPending)
+	})
+	t.Run("any other error is returned as it is", func(t *testing.T) {
+		other := errors.New("broker gone")
+		assert.Same(t, other, callHostError(other))
+	})
+}
+
+func TestOfflineDetails(t *testing.T) {
+	t.Run("a never-seen environment has a null last_seen", func(t *testing.T) {
+		details := offlineDetails(&environment.OfflineError{Environment: "linux", Reason: "offline", RequestID: "0123456789abcdef", Op: "workspace.list"})
+		assert.Equal(t, map[string]any{
+			"environment": "linux",
+			"reason":      "offline",
+			"last_seen":   nil,
+			"request_id":  "0123456789abcdef",
+			"op":          "workspace.list",
+		}, details)
+	})
+	t.Run("last_seen is RFC 3339 UTC", func(t *testing.T) {
+		seen := time.Date(2026, 11, 22, 4, 30, 0, 0, time.FixedZone("CST", -6*60*60))
+		details := offlineDetails(&environment.OfflineError{Environment: "linux", Reason: "offline", LastSeen: &seen})
+		assert.Equal(t, "2026-11-22T10:30:00Z", details["last_seen"])
 	})
 }

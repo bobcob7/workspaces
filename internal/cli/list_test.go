@@ -54,6 +54,11 @@ func TestApp_newListCmd(t *testing.T) {
 		assert.NotNil(t, cmd.Flags().ShorthandLookup("q"))
 		assertFlag(t, cmd, "repo", "")
 	})
+	t.Run("has --env, repeatable", func(t *testing.T) {
+		f := cmd.Flags().Lookup("env")
+		require.NotNil(t, f)
+		assert.Equal(t, "stringArray", f.Value.Type())
+	})
 	t.Run("takes no arguments", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"extra"}))
 	})
@@ -93,11 +98,11 @@ func TestApp_runList(t *testing.T) {
 		assert.JSONEq(t, `{"workspaces":[
 			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false,"runner":"claude","model":"claude-sonnet-5-5","ws_runner":null},
-			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null},
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"environment":"local","environment_status":"online","stale":false},
 			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null,"runner":null,"model":null,"ws_runner":null},
-			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null},
-			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null,"progress":null,"rollup":null}
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"environment":"local","environment_status":"online","stale":false},
+			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null,"progress":null,"rollup":null,"environment":"local","environment_status":"online","stale":false}
 		],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--json has each workspace's progress, its rollup counting a hidden child", func(t *testing.T) {
@@ -412,6 +417,99 @@ func TestApp_runList(t *testing.T) {
 		assert.Equal(t, "unknown", string(got.Workspaces[0].Session.State))
 		assert.Len(t, got.Warnings, 1)
 	})
+	t.Run("--env lists a remote environment's snapshot entries as JSON", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		rec := addLinuxServer(t, e.app)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"linux-server"}}))
+		assert.JSONEq(t, `{"workspaces":[{"id":"api-bump","name":null,"path":"/srv/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z","session":null,"hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"repo","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"environment":"linux-server","environment_status":"offline","stale":true}],"hidden_count":0,"warnings":[]}`, e.stdout.String())
+	})
+	t.Run("--env unknown is environment_unknown", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		err := e.app.runList(t.Context(), &listOptions{envs: []string{"nowhere"}})
+		assert.Equal(t, codeEnvironmentUnknown, agentErrorCode(err))
+	})
+	t.Run("--env local --env linux-server lists both, local first", func(t *testing.T) {
+		e := newRemoteListApp(t, []lifetime.Entry{{Workspace: listedWorkspace("fix-login")}})
+		rec := addLinuxServer(t, e.app)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"local", "linux-server"}}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 2)
+		assert.Equal(t, "fix-login", *got.Workspaces[0].ID)
+		assert.Equal(t, "local", got.Workspaces[0].Environment)
+		assert.Equal(t, "api-bump", *got.Workspaces[1].ID)
+		assert.Equal(t, "linux-server", got.Workspaces[1].Environment)
+	})
+	t.Run("hidden remote entries are left out and counted, unless -a", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		rec := addLinuxServer(t, e.app)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("secret", "github.com/bobcob7/buff-bear", "", true)))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"linux-server"}}))
+		assert.JSONEq(t, `{"workspaces":[],"hidden_count":1,"warnings":[]}`, e.stdout.String())
+		e.stdout.Reset()
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"linux-server"}, all: true}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		assert.Zero(t, got.HiddenCount)
+	})
+	t.Run("--parent takes one --env", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		addLinuxServer(t, e.app)
+		err := e.app.runList(t.Context(), &listOptions{envs: []string{"local", "linux-server"}, parent: "deps"})
+		requireUsageError(t, err)
+	})
+	t.Run("--parent with one remote environment lists that workspace's children", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		rec := addLinuxServer(t, e.app)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(
+			remoteWorkspace("deps", "github.com/bobcob7/buff-bear", "", false),
+			remoteWorkspace("deps-test", "github.com/bobcob7/buff-bear", "deps", false),
+			remoteWorkspace("other", "github.com/bobcob7/buff-bear", "", false),
+		))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"linux-server"}, parent: "deps"}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		assert.Equal(t, "deps-test", *got.Workspaces[0].ID)
+	})
+	t.Run("--repo filters remote entries by repo id", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		rec := addLinuxServer(t, e.app)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(
+			remoteWorkspace("api-bump", "github.com/bobcob7/api", "", false),
+			remoteWorkspace("buff-fix", "github.com/bobcob7/buff-bear", "", false),
+		))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"linux-server"}, repo: "api"}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 1)
+		assert.Equal(t, "api-bump", *got.Workspaces[0].ID)
+	})
+	t.Run("-q prints remote ids", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		rec := addLinuxServer(t, e.app)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"linux-server"}, idsOnly: true}))
+		assert.Equal(t, "api-bump\n", e.stdout.String())
+	})
+	t.Run("the ENV column appears only with a remote entry", func(t *testing.T) {
+		e := newRemoteListApp(t, []lifetime.Entry{{Workspace: listedWorkspace("fix-login")}})
+		rec := addLinuxServer(t, e.app)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"local", "linux-server"}}))
+		assert.Equal(t, ""+
+			"ID          ENV                      NAME   CREATED   SESSION   REPOS\n"+
+			"fix-login   local                    -      2h ago    -         buff-bear@main\n"+
+			"api-bump    linux-server (offline)   -      2h ago    -         repo@main\n", e.stdout.String())
+	})
 }
 
 func TestFilterEntries(t *testing.T) {
@@ -567,7 +665,7 @@ func TestListSession(t *testing.T) {
 func TestApp_printList(t *testing.T) {
 	t.Run("just the header with nothing to list", func(t *testing.T) {
 		e := newListApp(nil, nil)
-		e.app.printList(nil, nil, nil)
+		e.app.printList(nil, false)
 		assert.Equal(t, "ID   NAME   CREATED   SESSION   REPOS\n", e.stdout.String())
 	})
 }

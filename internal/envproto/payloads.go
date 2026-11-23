@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// Protocol is the newest operation protocol this ws speaks (ADR 0073). PR 3 is 1.
+const Protocol = 1
+
 // Statuses an agent reports in its hello and its last will.
 const (
 	StatusOnline  = "online"
@@ -27,7 +30,8 @@ const (
 // EnrollPath is the enrollment listener's route.
 const EnrollPath = "/v1/enroll"
 
-// MaxRequestBytes caps a request body on the enrollment listener.
+// MaxRequestBytes is the general payload ceiling: it caps enrollment bodies,
+// daemon call bodies, MQTT broker packets, and snapshot and reply sizes.
 const MaxRequestBytes = 256 << 10
 
 // Hello is the retained status an agent publishes on connect (ADR 0073).
@@ -42,6 +46,7 @@ type Hello struct {
 	CertSerial     string    `json:"cert_serial"`
 	CertNotAfter   time.Time `json:"cert_not_after"`
 	CAFingerprints []string  `json:"ca_fingerprints"`
+	Protocol       int       `json:"protocol"` // 0 from an agent older than PR 3
 }
 
 // OfflinePayload is the Last Will: exactly {"status":"offline"}.
@@ -49,16 +54,32 @@ func OfflinePayload() []byte {
 	return []byte(`{"status":"` + StatusOffline + `"}`)
 }
 
-// Snapshot is what an agent publishes on env/<id>/snapshot.
+// Snapshot is what an agent publishes on env/<id>/snapshot. Callers set
+// Agents to an empty slice, never nil, so the JSON is [].
 type Snapshot struct {
 	At         time.Time       `json:"at"`
-	Workspaces json.RawMessage `json:"workspaces"` // ws list --json's "workspaces" array
+	Protocol   int             `json:"protocol"`
+	Workspaces json.RawMessage `json:"workspaces"` // ws list --json --all's array, no unknown dirs
+	Agents     []SnapshotAgent `json:"agents"`
+}
+
+// SnapshotAgent is one Claude Code session on the agent's machine.
+type SnapshotAgent struct {
+	ID        string     `json:"id"`
+	SessionID string     `json:"session_id"`
+	Name      string     `json:"name"`
+	State     string     `json:"state"`
+	Status    string     `json:"status"`
+	PID       *int       `json:"pid"`
+	StartedAt *time.Time `json:"started_at"`
 }
 
 // Request is the body of a request on env/<id>/req or env/<id>/up.
 type Request struct {
-	Op   string          `json:"op"`
-	Args json.RawMessage `json:"args"`
+	Op        string          `json:"op"`
+	Args      json.RawMessage `json:"args"`
+	RequestID string          `json:"request_id"` // ValidRequestID; "" only from a PR 2 controller
+	Deadline  *time.Time      `json:"deadline"`   // null for ca.update
 }
 
 // Reply is the body of a reply on env/<id>/res/<req> or the response topic.
@@ -73,6 +94,11 @@ type ReplyError struct {
 	Code    string         `json:"code"`
 	Message string         `json:"message"`
 	Details map[string]any `json:"details"`
+}
+
+// Error returns the message the reply carries, so an operation can fail with a ReplyError.
+func (e *ReplyError) Error() string {
+	return e.Message
 }
 
 // OKReply marshals {ok: true, result, error: null}.

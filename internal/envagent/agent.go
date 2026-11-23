@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -17,6 +18,9 @@ import (
 // ErrCertificateExpired is returned by Run when the agent's certificate has
 // expired, so it can't connect again.
 var ErrCertificateExpired = errors.New("the agent's certificate has expired")
+
+// queueFactor is how many operations may wait per MaxOps slot.
+const queueFactor = 8
 
 // inboxSize is how many requests and replies may wait for the session loop.
 const inboxSize = 16
@@ -31,6 +35,8 @@ type Options struct {
 	KeepAlive       time.Duration
 	WillDelay       time.Duration
 	RequestTimeout  time.Duration // how long a request waits for its reply.
+	WorkspacesRoot  string        // the agent's CONFIG_DIR/workspaces, for CheckWorkspaceRef.
+	MaxOps          int           // operations run at once.
 	BackoffMin      time.Duration
 	BackoffMax      time.Duration
 	Now             func() time.Time
@@ -49,6 +55,7 @@ func DefaultOptions(version string, renewBeforeDays int) Options {
 		KeepAlive:       30 * time.Second,
 		WillDelay:       10 * time.Second,
 		RequestTimeout:  30 * time.Second,
+		MaxOps:          4,
 		BackoffMin:      time.Second,
 		BackoffMax:      time.Minute,
 		Now:             time.Now,
@@ -65,28 +72,40 @@ type Agent struct {
 	client    mqttClient
 	snapshots snapshotSource
 	claude    claudeProbe
+	ops       operationRunner
+	requests  *requests
 	random    io.Reader
 	opts      Options
 	inbox     chan envproto.Message
 	pending   map[string]chan envproto.Message // replies awaited, by correlation data
+	slots     chan struct{}                    // one per operation running, MaxOps in all
+	queue     chan struct{}                    // one per operation running or waiting for a slot
+	running   sync.WaitGroup                   // the operation goroutines
+	changed   chan struct{}                    // an operation changed the workspaces
 	// The last snapshot published, for deciding when to publish again.
 	workspaces []byte
+	agents     []byte
 	snapshotAt time.Time
 }
 
 // NewAgent returns an agent that keeps its identity in files and talks
 // through client.
-func NewAgent(log *slog.Logger, files *Files, client mqttClient, snapshots snapshotSource, claude claudeProbe, random io.Reader, opts Options) *Agent { //nolint:gocritic // hugeParam: Options is passed by value, as the signature has it.
+func NewAgent(log *slog.Logger, files *Files, client mqttClient, snapshots snapshotSource, claude claudeProbe, ops operationRunner, random io.Reader, opts Options) *Agent { //nolint:gocritic // hugeParam: Options is passed by value, as the signature has it.
 	return &Agent{
 		log:       log,
 		files:     files,
 		client:    client,
 		snapshots: snapshots,
 		claude:    claude,
+		ops:       ops,
+		requests:  newRequests(opts.Now),
 		random:    random,
 		opts:      opts,
 		inbox:     make(chan envproto.Message, inboxSize),
 		pending:   make(map[string]chan envproto.Message),
+		slots:     make(chan struct{}, max(opts.MaxOps, 1)),
+		queue:     make(chan struct{}, max(opts.MaxOps, 1)*queueFactor),
+		changed:   make(chan struct{}, 1),
 	}
 }
 
@@ -160,17 +179,21 @@ func (a *Agent) connect(ctx context.Context, id *Identity) error {
 
 // serve runs one connection until ctx ends, when it publishes the offline
 // status, or until the broker drops the client.
-func (a *Agent) serve(ctx context.Context, id *Identity) {
+func (a *Agent) serve(parent context.Context, id *Identity) {
+	ctx, cancelOps := context.WithCancel(parent)
+	defer cancelOps()
 	done := a.client.Done()
 	snapshotTimer := a.opts.After(a.opts.SnapshotCheck)
 	renewTimer := a.opts.After(a.opts.RenewCheck)
 	for {
 		select {
 		case <-ctx.Done():
+			a.drainOps(cancelOps)
 			a.goOffline(ctx, id)
 			return
 		case <-done:
 			a.log.WarnContext(ctx, "connection lost")
+			a.drainOps(cancelOps)
 			a.closeClient(ctx)
 			return
 		case <-snapshotTimer:
@@ -179,10 +202,19 @@ func (a *Agent) serve(ctx context.Context, id *Identity) {
 		case <-renewTimer:
 			a.renewIfDue(ctx, id)
 			renewTimer = a.opts.After(a.opts.RenewCheck)
+		case <-a.changed:
+			a.refreshSnapshot(ctx, id, true)
 		case msg := <-a.inbox:
 			a.handle(ctx, id, &msg)
 		}
 	}
+}
+
+// drainOps cancels the operations' context and waits for their goroutines, so
+// none replies on a closed client.
+func (a *Agent) drainOps(cancel context.CancelFunc) {
+	cancel()
+	a.running.Wait()
 }
 
 // goOffline publishes the retained offline status and closes the connection.
@@ -210,9 +242,9 @@ func (a *Agent) closeClient(ctx context.Context) {
 	}
 }
 
-// refreshSnapshot publishes the workspaces when they changed or SnapshotEvery
-// has passed since the last snapshot, or always when force is set. A failure
-// is logged; the next check tries again.
+// refreshSnapshot publishes the workspaces and agents when they changed or
+// SnapshotEvery has passed since the last snapshot, or always when force is
+// set. A failure is logged; the next check tries again.
 func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 	raw, err := a.snapshots.Workspaces(ctx)
 	if err != nil {
@@ -222,13 +254,30 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		raw = json.RawMessage("[]")
 	}
-	now := a.opts.Now().UTC()
-	if !force && bytes.Equal(raw, a.workspaces) && now.Sub(a.snapshotAt) < a.opts.SnapshotEvery {
+	agents := a.snapshotAgents(ctx)
+	agentsJSON, err := json.Marshal(agents)
+	if err != nil {
+		a.log.ErrorContext(ctx, "snapshot agents not encoded", "error", err)
 		return
 	}
-	payload, err := json.Marshal(envproto.Snapshot{At: now, Workspaces: raw})
+	now := a.opts.Now().UTC()
+	if !force && bytes.Equal(raw, a.workspaces) && bytes.Equal(agentsJSON, a.agents) && now.Sub(a.snapshotAt) < a.opts.SnapshotEvery {
+		return
+	}
+	payload, err := json.Marshal(envproto.Snapshot{
+		At:         now,
+		Protocol:   envproto.Protocol,
+		Workspaces: raw,
+		Agents:     agents,
+	})
 	if err != nil {
 		a.log.ErrorContext(ctx, "snapshot not encoded", "error", err)
+		return
+	}
+	if len(payload) > envproto.MaxRequestBytes {
+		a.log.WarnContext(ctx, "snapshot too large", "bytes", len(payload))
+		// Remember it, so the unchanged checks don't warn again until SnapshotEvery.
+		a.workspaces, a.agents, a.snapshotAt = raw, agentsJSON, now
 		return
 	}
 	err = a.client.Publish(ctx, envproto.Message{
@@ -241,7 +290,21 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 		a.log.WarnContext(ctx, "snapshot not published", "error", err)
 		return
 	}
-	a.workspaces, a.snapshotAt = raw, now
+	a.workspaces, a.agents, a.snapshotAt = raw, agentsJSON, now
+}
+
+// snapshotAgents is the Claude Code sessions to publish. A failing read is
+// logged and publishes none, so the workspaces still go out.
+func (a *Agent) snapshotAgents(ctx context.Context) []envproto.SnapshotAgent {
+	agents, err := a.snapshots.Agents(ctx)
+	if err != nil {
+		a.log.WarnContext(ctx, "snapshot agents not read", "error", err)
+		return []envproto.SnapshotAgent{}
+	}
+	if agents == nil {
+		return []envproto.SnapshotAgent{}
+	}
+	return agents
 }
 
 // publishHello publishes the retained online hello for id.

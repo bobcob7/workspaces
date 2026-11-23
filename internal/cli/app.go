@@ -88,6 +88,9 @@ type App struct {
 	// dialDaemon is the client to this config directory's daemon, started
 	// when none runs (ADR 0068): daemonClient, unless a test replaces it.
 	dialDaemon func(ctx context.Context) (runnerDaemon, error)
+	// dialEnvironments is the client to the daemon's call endpoint, started
+	// when none runs (ADR 0068): the daemon's client, unless a test replaces it.
+	dialEnvironments func(ctx context.Context) (environmentCaller, error)
 	// runnerWait is how long a started runner has to write its status
 	// (reference.md's 10 s).
 	runnerWait time.Duration
@@ -106,6 +109,9 @@ type App struct {
 	// interactive is set when stdin and stdout are both terminals, so ws
 	// claude can attach to an idle session (ADR 0025).
 	interactive bool
+	// environment is the enrolled environment's name when this App runs an
+	// agent's operation (D2); "" otherwise. ws claude stamps it on records.
+	environment string
 	// notify and stopNotify are signal.Notify and signal.Stop: ws claude
 	// catches SIGHUP while it hands a workspace to its session.
 	notify     func(c chan<- os.Signal, sig ...os.Signal)
@@ -161,6 +167,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		stopNotify:     signal.Stop,
 	}
 	a.dialDaemon = a.dialDaemonClient
+	a.dialEnvironments = a.dialEnvironmentCaller
 	a.newEnvBroker = func(log *slog.Logger) (envBroker, error) { return mqttbroker.New(log), nil }
 	a.newEnvClient = func(log *slog.Logger) (envClient, error) { return mqttclient.New(log), nil }
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {

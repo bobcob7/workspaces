@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/bobcob7/workspaces/internal/envproto"
 )
 
 // Origins say what started a daemon, as daemon.json's origin.
@@ -29,6 +31,9 @@ const (
 	parentInterval = 2 * time.Second
 	shutdownWait   = 5 * time.Second
 	maxBodyBytes   = 64 << 10
+	// callBodyBytes caps a call's body: its operation's arguments, at most a
+	// request, and the JSON around them.
+	callBodyBytes = envproto.MaxRequestBytes + 4<<10
 )
 
 // options are Serve's timings. Tests change them.
@@ -246,6 +251,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/runners/{id}/stop", s.handleStop)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
 	mux.HandleFunc("POST /v1/environments/reload", s.handleReloadEnvironments)
+	mux.HandleFunc("POST /v1/environments/{name}/call", s.handleCallEnvironment)
 	return mux
 }
 
@@ -271,6 +277,37 @@ func (s *server) handleReloadEnvironments(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, reloadResponse{Reloaded: true})
+}
+
+// handleCallEnvironment sends one operation to an environment and answers
+// its reply unchanged.
+func (s *server) handleCallEnvironment(w http.ResponseWriter, r *http.Request) {
+	var req CallRequest
+	if !readBodyUpTo(w, r, &req, callBodyBytes) {
+		return
+	}
+	if !envproto.ValidRequestID(req.RequestID) {
+		writeError(w, http.StatusBadRequest, "usage", "the request id isn't valid", nil)
+		return
+	}
+	if req.Deadline.IsZero() {
+		writeError(w, http.StatusBadRequest, "usage", "the call has no deadline", nil)
+		return
+	}
+	if len(req.Args) > envproto.MaxRequestBytes {
+		writeError(w, http.StatusBadRequest, "usage", "the call's args are too large", nil)
+		return
+	}
+	if spec, known := envproto.LookupOp(req.Op); known && time.Until(req.Deadline) > spec.Timeout+envproto.Grace {
+		writeError(w, http.StatusBadRequest, "usage", "the call's deadline is too far away", nil)
+		return
+	}
+	reply, err := s.envs.Call(r.Context(), r.PathValue("name"), req)
+	if err != nil {
+		writeCallFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, reply)
 }
 
 func (s *server) handlePreflight(w http.ResponseWriter, r *http.Request) {
@@ -345,12 +382,22 @@ func versionFrom(ctx context.Context) string {
 }
 
 func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	if err := json.UnmarshalRead(r.Body, v); err != nil {
-		writeError(w, http.StatusBadRequest, "usage", "the request body isn't valid JSON", nil)
+	return readBodyUpTo(w, r, v, maxBodyBytes)
+}
+
+// readBodyUpTo decodes the request body into v, refusing one over limit bytes.
+func readBodyUpTo(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	err := json.UnmarshalRead(r.Body, v)
+	if err == nil {
+		return true
+	}
+	if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+		writeError(w, http.StatusBadRequest, "usage", "the request body is too large", nil)
 		return false
 	}
-	return true
+	writeError(w, http.StatusBadRequest, "usage", "the request body isn't valid JSON", nil)
+	return false
 }
 
 func writeFailure(w http.ResponseWriter, err error) {
@@ -365,6 +412,33 @@ func writeFailure(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, "internal", err.Error(), nil)
 }
 
+// writeCallFailure answers a failed call with the status and code of its
+// HostError, and any other failure as writeFailure does.
+func writeCallFailure(w http.ResponseWriter, err error) {
+	hostErr, ok := errors.AsType[*HostError](err)
+	if !ok {
+		writeFailure(w, err)
+		return
+	}
+	status, code := callCode(hostErr.Err)
+	writeError(w, status, code, hostErr.Error(), hostErr.Details)
+}
+
+// callCode is the status and error code a call's sentinel maps to.
+func callCode(err error) (int, string) {
+	switch {
+	case errors.Is(err, ErrEnvironmentUnknown):
+		return http.StatusNotFound, "environment_unknown"
+	case errors.Is(err, ErrEnvironmentOffline):
+		return http.StatusServiceUnavailable, "environment_offline"
+	case errors.Is(err, ErrEnvironmentOutdated):
+		return http.StatusConflict, "environment_outdated"
+	case errors.Is(err, ErrNotForwarded), errors.Is(err, ErrRequestPending):
+		return http.StatusBadRequest, "usage"
+	}
+	return http.StatusInternalServerError, "internal"
+}
+
 func writeError(w http.ResponseWriter, status int, code, message string, details map[string]any) {
 	writeJSON(w, status, errorEnvelope{Error: RemoteError{Code: code, Message: message, Details: details}})
 }
@@ -377,7 +451,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) //nolint:gosec // G705: the body is JSON under application/json, not HTML.
 }
 
 var errNotUnixConn = errors.New("connection isn't a unix socket")

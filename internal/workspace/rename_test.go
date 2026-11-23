@@ -8,6 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func putEnvironmentWorkspace(t *testing.T, s *Store) Workspace {
+	t.Helper()
+	ws := putWorkspace(t, s, "fix-login-d8efb24f", testNow())
+	ws.Environment = "linux-server"
+	require.NoError(t, writeRecord(s.recordPath(ws.ID), &ws))
+	return ws
+}
+
 func TestStore_Rename(t *testing.T) {
 	t.Parallel()
 	t.Run("changes the name and keeps the id and path", func(t *testing.T) {
@@ -30,6 +38,17 @@ func TestStore_Rename(t *testing.T) {
 		got, err := readRecord(s.recordPath(ws.ID))
 		require.NoError(t, err)
 		assert.Equal(t, "Fix login", got.Name)
+	})
+	t.Run("keeps the environment", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putEnvironmentWorkspace(t, s)
+		got, err := s.Rename(ws.ID, "Fix login")
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", got.Environment)
+		read, err := readRecord(s.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", read.Environment)
 	})
 	t.Run("renames as many times as asked", func(t *testing.T) {
 		t.Parallel()
@@ -82,6 +101,17 @@ func TestStore_Rename(t *testing.T) {
 
 func TestStore_SetHidden(t *testing.T) {
 	t.Parallel()
+	t.Run("keeps the environment", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putEnvironmentWorkspace(t, s)
+		got, err := s.SetHidden(ws.ID, true)
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", got.Environment)
+		read, err := readRecord(s.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", read.Environment)
+	})
 	t.Run("hides and writes the record", func(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
@@ -124,6 +154,17 @@ func TestStore_SetHidden(t *testing.T) {
 
 func TestStore_SetParent(t *testing.T) {
 	t.Parallel()
+	t.Run("keeps the environment", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		ws := putEnvironmentWorkspace(t, s)
+		got, err := s.SetParent(ws.ID, "other-parent-00000001")
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", got.Environment)
+		read, err := readRecord(s.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", read.Environment)
+	})
 	t.Run("makes a child a root", func(t *testing.T) {
 		t.Parallel()
 		s := newTestStore(t, nil, nil)
