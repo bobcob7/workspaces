@@ -27,13 +27,13 @@ func newProgressApp(t *testing.T) *mockedApp {
 
 // assertStoredProgress checks the caller's stored record, ignoring its
 // version and time.
-func assertStoredProgress(t *testing.T, e *mockedApp, want machine.Progress) {
+func assertStoredProgress(t *testing.T, e *mockedApp, want *machine.Progress) {
 	t.Helper()
 	got, err := machine.NewStore(e.app.paths.State).ReadProgress("boss", "plan")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	got.Version, got.UpdatedAt = 0, time.Time{}
-	assert.Equal(t, want, *got)
+	assert.Equal(t, *want, *got)
 }
 
 func TestApp_machineProgress(t *testing.T) {
@@ -80,26 +80,26 @@ func TestApp_machineProgress(t *testing.T) {
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--name", "build", "--total", "4", "--done", "3"))
 		assert.Equal(t, exitUsage, runMachine(t, e, "machine", "progress", "set", "--total", "2"))
 		assert.Contains(t, e.stderr.String(), "progress_invalid")
-		assertStoredProgress(t, e, machine.Progress{Name: "build", Total: 4, Done: 3})
+		assertStoredProgress(t, e, &machine.Progress{Name: "build", Total: 4, Done: 3})
 	})
 	t.Run("set --done above total is progress_invalid and leaves the record alone", func(t *testing.T) {
 		e := newProgressApp(t)
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--name", "build", "--total", "4", "--done", "3"))
 		assert.Equal(t, exitUsage, runMachine(t, e, "machine", "progress", "set", "--done", "5"))
 		assert.Contains(t, e.stderr.String(), "progress_invalid")
-		assertStoredProgress(t, e, machine.Progress{Name: "build", Total: 4, Done: 3})
+		assertStoredProgress(t, e, &machine.Progress{Name: "build", Total: 4, Done: 3})
 	})
 	t.Run("set --name empty clears the name and keeps the other fields", func(t *testing.T) {
 		e := newProgressApp(t)
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--name", "build", "--total", "4", "--done", "1", "--note", "tests"))
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--name", ""), e.stderr.String())
-		assertStoredProgress(t, e, machine.Progress{Total: 4, Done: 1, Note: "tests"})
+		assertStoredProgress(t, e, &machine.Progress{Total: 4, Done: 1, Note: "tests"})
 	})
 	t.Run("set --note empty clears the note and keeps the other fields", func(t *testing.T) {
 		e := newProgressApp(t)
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--name", "build", "--total", "4", "--done", "1", "--note", "tests"))
 		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--note", ""), e.stderr.String())
-		assertStoredProgress(t, e, machine.Progress{Name: "build", Total: 4, Done: 1})
+		assertStoredProgress(t, e, &machine.Progress{Name: "build", Total: 4, Done: 1})
 	})
 	t.Run("set with no flag is usage", func(t *testing.T) {
 		e := newProgressApp(t)
