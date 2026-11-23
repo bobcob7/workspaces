@@ -35,7 +35,7 @@ The RL tasks build on T-tasks of tasks-ui.md. Line numbers below are from
 | `snapshotSource` implementations | `agentSnapshots` (`internal/cli/env_agent.go`), `snapshotSourceMock`, and any hand fakes in `internal/mqttbroker/conformance_test.go` | each gains `Loops`, or it stops compiling |
 | `remembered(op)` | read-only ops answer `false` (`agent.logs`, `agent.status`, `workspace.list`) | `review.status`, `review.list`, `review.report`, `review.profiles`, `loop.list`, `loop.show`, `loop.history`, `loop.history_run`, `loop.memory_list` and `loop.memory_get` must be `false`. Their replies can hold secrets and should be fresh |
 | `workspaceRefs(args)` | `CheckWorkspaceRef` on workspace arguments | review ids and loop names are **not** workspace paths. Don't add them here; their checks are typed (RL1, RL2) |
-| `NewAgent` signature | unchanged since PR 3 | RL5 adds `SetLoopTicker`, as T1c adds `SetStreamClient` |
+| `NewAgent` signature | unchanged since PR 3 | RL5 adds `SetLoopTicker`; T1a only adds a field to `Options` |
 | `Options` | `DefaultOptions` | gains `LoopTick` 60 s. Existing tests that build `Options` by hand get 0, meaning no ticking |
 | the session loop | never blocks | the ticker and passes run on their own goroutines |
 

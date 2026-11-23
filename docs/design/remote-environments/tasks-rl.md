@@ -1238,7 +1238,7 @@ Change:
 - `agent_test.go`, `ops_test.go`.
 - `internal/cli/env_agent.go`: pass `agentLoops` to the agent. RL4 made
   `agentSnapshots.Loops`. Add `Agent.SetLoopTicker(t loopTicker)`, called
-  like T1c's `SetStreamClient`, so `NewAgent`'s signature doesn't change.
+  so `NewAgent`'s signature doesn't change (T1a adds only an option to `Options`).
 
 ```go
 // loopTicker runs one pass of the agent's loop scheduler.
