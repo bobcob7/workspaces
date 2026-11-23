@@ -4,7 +4,12 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
  * Action types of other slices, matched by string: importing their action
  * creators would make a cycle, since those slices import from this one.
  */
-const pickedTypes: readonly string[] = ["repos/repoSelected", "loops/loopSelected", "reviews/reviewSelected"];
+const pickedTypes: readonly string[] = [
+  "repos/repoSelected",
+  "loops/loopSelected",
+  "reviews/reviewSelected",
+  "artifacts/artifactSelected",
+];
 const openedTypes: readonly string[] = ["loops/creatingStarted", "settings/groupChosen", "stats/windowChosen"];
 
 export type Dialog = "agent" | "shell";

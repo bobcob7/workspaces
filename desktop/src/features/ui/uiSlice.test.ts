@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { artifactSelected } from "../artifacts/artifactsSlice";
 import { creatingStarted, loopSelected } from "../loops/loopsSlice";
 import { repoSelected } from "../repos/reposSlice";
 import { reviewSelected } from "../reviews/reviewsSlice";
@@ -51,6 +52,10 @@ describe("uiReducer", () => {
 
   it("shows the detail pane when an agent is selected", () => {
     expect(uiReducer(initial(), selected("k")).narrowPane).toBe("detail");
+  });
+
+  it("shows the detail pane when an artifact is picked", () => {
+    expect(uiReducer(initial(), artifactSelected("art-00000001")).narrowPane).toBe("detail");
   });
 
   it("shows the list pane when the selection is cleared", () => {
