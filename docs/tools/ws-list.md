@@ -125,8 +125,9 @@ as no verdict.
 `progress` is the workspace's own progress record, as [`ws machine progress`](ws-machine.md)
 reports it (`name`, `total`, `done`, `note`, `updated_at`), or `null` when it has
 none. `rollup` is `{"total", "done", "fraction"}` for its steps and those of
-everything it started, hidden ones included, or `null` when no step is planned
-([0077](../adrs/0077-agent-progress-reporting.md)).
+everything it started, hidden ones included, or `null` when no step is planned.
+A started workspace with a result but no record counts as one step, done only if
+it passed ([0077](../adrs/0077-agent-progress-reporting.md)).
 
 `session.state` is `working`, `idle`, `starting`, `stopped`, `unknown`, or
 `running` for a shell. It is `ws`'s reading, not Claude Code's own `state`

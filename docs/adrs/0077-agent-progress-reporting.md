@@ -48,8 +48,8 @@ hands to a child is that child's to report.
 **Nesting is the workspace tree.** `show` returns the caller and its
 descendants. Each node has a `rollup`: its own `total` and `done` plus its
 children's rollups, and `fraction = done / total` (`null` while `total` is
-0). A workspace with no record contributes no steps and passes its children's
-up. A UI draws a bar per node from `progress`, and an overall bar from the
+0). A workspace with no record contributes no steps, unless it has a result,
+and passes its children's up. A UI draws a bar per node from `progress`, and an overall bar from the
 root's `rollup`.
 
 **Edits.** `set` changes only the fields given, so an agent may raise
@@ -116,8 +116,7 @@ The parent says what share of its bar each child fills.
 
 - The built-in implementer, reviewer and verifier roles and the ws runner's
   preamble tell agents to `set` a name and total early and `step` as they go,
-  and the runner's `run` tool may call `ws machine progress`. The handbook's
-  orchestration procedure says the same.
+  and the runner's `run` tool may call `ws machine progress`.
 - `ws list --json` carries each workspace's `progress` and `rollup`, and the
   desktop app draws a bar per row, per child, and an overall bar for a root
   workspace. The desktop does no step arithmetic of its own.

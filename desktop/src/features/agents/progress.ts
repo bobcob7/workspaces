@@ -1,7 +1,7 @@
 import type { Entry, EntryProgress } from "../../api";
 import { descendantsOf } from "./status";
 
-/** The verdicts that fail a run; `ws machine result` defaults (roles can add more). */
+/** A desktop heuristic matching the default fail verdicts, not the CLI's own list (roles can add more). */
 const failVerdicts: ReadonlySet<string> = new Set(["FAIL", "CHANGES_REQUESTED"]);
 
 /** Whether an entry's result is a failing verdict, which draws its progress bar in the error colour. */
