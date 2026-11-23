@@ -86,7 +86,6 @@ func TestMove(t *testing.T) {
 	base := "alpha\nthe cache is shared\nomega\n"
 	anchored, err := Locate(base, 1, AnchorRequest{Quote: "the cache is shared"})
 	require.NoError(t, err)
-
 	t.Run("follows the quote after an edit above it", func(t *testing.T) {
 		text := "new line\n" + base
 		moved, ok := Move(text, 2, anchored)
