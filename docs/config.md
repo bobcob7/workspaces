@@ -48,6 +48,7 @@ CONFIG_DIR/
   review/profiles/     your review profiles, <name>.md (0038, 0042)
   loops/               agent loops, <name>.toml (0048)
   machine/roles/       your ws machine roles, <name>.md (0050)
+  artifacts/           files people and agents share, and their comments (0078)
   environments/        this ws's remote environments: CA, records, revocations (0074, 0075)
   environment/         on an agent only: its certificate and key (0075)
 ```

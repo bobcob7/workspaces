@@ -46,17 +46,18 @@ func TestErrorCode_exitCode(t *testing.T) {
 	t.Run("failures exit 1", func(t *testing.T) {
 		assertExit(t, exitFailed, codeFetchFailed, codeCloneFailed, codeGitFailed,
 			codeClaudeMissing, codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
-			codeChildFailed, codeWaitTimeout, codeEnrollmentFailed, codeEnvironmentOffline, codeEnvironmentOutdated)
+			codeChildFailed, codeWaitTimeout, codeEnrollmentFailed, codeEnvironmentOffline, codeEnvironmentOutdated, codeArtifactUnreachable)
 	})
 	t.Run("usage errors exit 2", func(t *testing.T) {
-		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace, codeResultInvalid, codeRoleInvalid, codeMemoryInvalid)
+		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace, codeResultInvalid, codeRoleInvalid, codeMemoryInvalid, codeArtifactInvalid)
 	})
 	t.Run("not found or ambiguous exits 3", func(t *testing.T) {
-		assertExit(t, exitNotFound, codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound, codeRoleUnknown, codeMemoryNotFound, codeEnvironmentUnknown)
+		assertExit(t, exitNotFound, codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound, codeRoleUnknown, codeMemoryNotFound, codeEnvironmentUnknown, codeArtifactUnknown)
 	})
 	t.Run("refusals exit 4", func(t *testing.T) {
 		assertExit(t, exitRefused, codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch, codeNotDescendant, codeRoleExists, codeRoleBuiltin,
-			codeMemoryConflict, codeMemoryFull, codeNotLoopRun, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch)
+			codeMemoryConflict, codeMemoryFull, codeNotLoopRun, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch,
+			codeArtifactConflict, codeArtifactFull, codeArtifactForbidden)
 	})
 	t.Run("unknown code exits 1", func(t *testing.T) {
 		assert.Equal(t, exitFailed, errorCode("made_up").exitCode())

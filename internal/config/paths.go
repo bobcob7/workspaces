@@ -24,6 +24,8 @@ type Paths struct {
 	Environments string
 	// Environment is the agent's own files, in an agent's CONFIG_DIR (ADR 0075).
 	Environment string
+	// Artifacts holds artifacts and their comments (ADR 0078).
+	Artifacts string
 }
 
 // NewPaths lays out the files and directories under root.
@@ -41,5 +43,6 @@ func NewPaths(root string) Paths {
 		MachineRoles:   filepath.Join(root, "machine", "roles"),
 		Environments:   filepath.Join(root, "environments"),
 		Environment:    filepath.Join(root, "environment"),
+		Artifacts:      filepath.Join(root, "artifacts"),
 	}
 }
