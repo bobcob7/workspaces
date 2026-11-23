@@ -90,9 +90,10 @@ func TestStore_FinishCA(t *testing.T) {
 		enrolledEnvironment(t, store)
 		_, err := store.RotateCA(t.Context())
 		require.NoError(t, err)
-		_, err = store.FinishCA(t.Context(), false)
+		rotation, err := store.FinishCA(t.Context(), false)
 		require.ErrorIs(t, err, ErrCAInUse)
 		assert.Contains(t, err.Error(), "1 environments")
+		assert.Equal(t, []string{"linux-server"}, rotation.Stranded)
 	})
 	t.Run("succeeds once each environment has renewed onto the new CA", func(t *testing.T) {
 		t.Parallel()

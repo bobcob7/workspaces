@@ -138,7 +138,7 @@ func (s *Store) FinishCA(ctx context.Context, force bool) (CARotation, error) {
 	}
 	stranded := namesOn(recs, envproto.Fingerprint(old))
 	if len(stranded) > 0 && !force {
-		return CARotation{}, fmt.Errorf("%w: %d environments", ErrCAInUse, len(stranded))
+		return CARotation{Stranded: stranded}, fmt.Errorf("%w: %d environments", ErrCAInUse, len(stranded))
 	}
 	current, err := s.currentCert()
 	if err != nil {
