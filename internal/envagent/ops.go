@@ -27,8 +27,9 @@ func (NoOperations) Run(context.Context, string, any) (json.RawMessage, error) {
 }
 
 // dispatch handles a request from env/<id>/req that isn't a reply: decodes
-// the envelope, looks the op up, checks its caller is CallerController or
-// CallerInternal, decodes and validates the arguments, checks workspace
+// the envelope, looks the op up, checks its caller is CallerController,
+// CallerInternal or CallerTerminal (the agent can't tell the controller's
+// terminal path from its call path; the controller refuses terminal ops on call), decodes and validates the arguments, checks workspace
 // references with CheckWorkspaceRef, then either replies at once (a
 // refusal, or ca.update, which runs on the session loop as today) or hands
 // the operation to runOp on its own goroutine. It never blocks the session
@@ -93,7 +94,7 @@ func requestSum(req *envproto.Request) string {
 // operation's spec and the decoded arguments.
 func (a *Agent) admit(req *envproto.Request) (envproto.OpSpec, any, error) {
 	spec, ok := envproto.LookupOp(req.Op)
-	if !ok || (spec.Caller != envproto.CallerController && spec.Caller != envproto.CallerInternal) {
+	if !ok || (spec.Caller != envproto.CallerController && spec.Caller != envproto.CallerInternal && spec.Caller != envproto.CallerTerminal) {
 		return envproto.OpSpec{}, nil, &envproto.ReplyError{Code: "usage", Message: "unknown operation " + req.Op}
 	}
 	if req.Deadline == nil {
@@ -136,6 +137,10 @@ func workspaceRefs(args any) []string {
 		return []string{a.Workspace}
 	case *envproto.SendArgs:
 		return []string{a.Workspace}
+	case *envproto.TerminalOpenArgs:
+		if a.Workspace != nil {
+			return []string{*a.Workspace}
+		}
 	}
 	return nil
 }
@@ -183,7 +188,13 @@ func replyOK(reply []byte) bool {
 
 // execute runs one operation and returns its reply, which must fit a message.
 func (a *Agent) execute(ctx context.Context, spec envproto.OpSpec, args any) []byte {
-	result, err := a.ops.Run(ctx, spec.Name, args)
+	var result json.RawMessage
+	var err error
+	if spec.Caller == envproto.CallerTerminal {
+		result, err = a.terminalOp(ctx, spec.Name, args)
+	} else {
+		result, err = a.ops.Run(ctx, spec.Name, args)
+	}
 	if err != nil {
 		if _, ok := errors.AsType[*envproto.ReplyError](err); !ok {
 			a.log.WarnContext(ctx, "operation failed", "op", spec.Name, "error", err)

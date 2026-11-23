@@ -38,6 +38,7 @@ type Options struct {
 	RequestTimeout  time.Duration // how long a request waits for its reply.
 	WorkspacesRoot  string        // the agent's CONFIG_DIR/workspaces, for CheckWorkspaceRef.
 	MaxOps          int           // operations run at once.
+	MaxTerminals    int           // terminals open at once; 0 is envproto.MaxTerminals.
 	BackoffMin      time.Duration
 	BackoffMax      time.Duration
 	Now             func() time.Time
@@ -57,6 +58,7 @@ func DefaultOptions(version string, renewBeforeDays int) Options {
 		WillDelay:       10 * time.Second,
 		RequestTimeout:  30 * time.Second,
 		MaxOps:          4,
+		MaxTerminals:    envproto.MaxTerminals,
 		BackoffMin:      time.Second,
 		BackoffMax:      time.Minute,
 		Now:             time.Now,
@@ -82,6 +84,7 @@ type Agent struct {
 	slots     chan struct{}                    // one per operation running, MaxOps in all
 	queue     chan struct{}                    // one per operation running or waiting for a slot
 	running   sync.WaitGroup                   // the operation goroutines
+	terms     *terminals                       // nil when ops can't build terminal commands
 	changed   chan struct{}                    // an operation changed the workspaces
 	// The last snapshot published, for deciding when to publish again.
 	workspaces []byte
@@ -92,7 +95,7 @@ type Agent struct {
 // NewAgent returns an agent that keeps its identity in files and talks
 // through client.
 func NewAgent(log *slog.Logger, files *Files, client mqttClient, snapshots snapshotSource, claude claudeProbe, ops operationRunner, random io.Reader, opts Options) *Agent { //nolint:gocritic // hugeParam: Options is passed by value, as the signature has it.
-	return &Agent{
+	a := &Agent{
 		log:       log,
 		files:     files,
 		client:    client,
@@ -108,6 +111,10 @@ func NewAgent(log *slog.Logger, files *Files, client mqttClient, snapshots snaps
 		queue:     make(chan struct{}, max(opts.MaxOps, 1)*queueFactor),
 		changed:   make(chan struct{}, 1),
 	}
+	if commands, ok := ops.(terminalCommands); ok {
+		a.terms = newTerminals(log, client, commands, random, &opts)
+	}
+	return a
 }
 
 // Run loads the identity (ErrNotEnrolled when there is none), then connects
@@ -171,6 +178,10 @@ func (a *Agent) connect(ctx context.Context, id *Identity) error {
 		a.closeClient(ctx)
 		return err
 	}
+	if err := a.subscribeStreams(ctx, id); err != nil {
+		a.closeClient(ctx)
+		return err
+	}
 	if err := a.publishHello(ctx, id); err != nil {
 		a.closeClient(ctx)
 		return err
@@ -185,17 +196,22 @@ func (a *Agent) serve(parent context.Context, id *Identity) {
 	ctx, cancelOps := context.WithCancel(parent)
 	defer cancelOps()
 	done := a.client.Done()
+	if a.terms != nil {
+		a.terms.begin(ctx, id.ID)
+	}
 	snapshotTimer := a.opts.After(a.opts.SnapshotCheck)
 	renewTimer := a.opts.After(a.opts.RenewCheck)
 	for {
 		select {
 		case <-ctx.Done():
 			a.drainOps(cancelOps)
+			a.closeTerminals()
 			a.goOffline(ctx, id)
 			return
 		case <-done:
 			a.log.WarnContext(ctx, "connection lost")
 			a.drainOps(cancelOps)
+			a.closeTerminals()
 			a.closeClient(ctx)
 			return
 		case <-snapshotTimer:
@@ -209,6 +225,21 @@ func (a *Agent) serve(parent context.Context, id *Identity) {
 		case msg := <-a.inbox:
 			a.handle(ctx, id, &msg)
 		}
+	}
+}
+
+// subscribeStreams subscribes to the terminals' input, when the agent has any.
+func (a *Agent) subscribeStreams(ctx context.Context, id *Identity) error {
+	if a.terms == nil {
+		return nil
+	}
+	return a.client.Subscribe(ctx, envproto.Topic(id.ID, envproto.LeafStream, "+", "in"), func(msg envproto.Message) { a.terms.onStreamIn(&msg) })
+}
+
+// closeTerminals ends every terminal before the connection closes.
+func (a *Agent) closeTerminals() {
+	if a.terms != nil {
+		a.terms.closeAll()
 	}
 }
 
