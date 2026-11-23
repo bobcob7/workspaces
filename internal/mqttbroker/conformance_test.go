@@ -397,9 +397,9 @@ func TestConformance_renewal(t *testing.T) {
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "--config-dir" {
 		configs := config.NewLoader(os.Getenv, os.UserConfigDir)
-		os.Exit(cli.New("test", os.Stdin, os.Stdout, os.Stderr, configs, os.Environ()).Run(context.Background(), os.Args[1:]))
+		os.Exit(cli.New("test", os.Stdin, os.Stdout, os.Stderr, configs, os.Environ()).Run(context.Background(), os.Args[1:])) //nolint:forbidigo // A test binary run as ws exits with ws's code.
 	}
-	os.Exit(m.Run())
+	os.Exit(m.Run()) //nolint:forbidigo // TestMain exits with the tests' code.
 }
 
 // fakeClaudeScript answers what the agent asks of claude: its version, its
@@ -419,11 +419,11 @@ type cliAgent struct {
 	stopped chan struct{}
 }
 
-// startCLIAgent enrolls and runs `ws env agent` as environment name. A
+// startCLIAgent enrolls and runs `ws env agent` as the environment "linux". A
 // non-empty via is the address the agent dials instead of the broker's.
-func startCLIAgent(t *testing.T, s *stack, name, via string) *cliAgent {
+func startCLIAgent(t *testing.T, s *stack, via string) *cliAgent {
 	t.Helper()
-	_, code, _, err := s.store.Add(t.Context(), name, s.enrollAddr)
+	_, code, _, err := s.store.Add(t.Context(), "linux", s.enrollAddr)
 	require.NoError(t, err)
 	dir := t.TempDir()
 	bin := t.TempDir()
@@ -456,7 +456,7 @@ func startCLIAgent(t *testing.T, s *stack, name, via string) *cliAgent {
 		run := cli.New("test", strings.NewReader(""), io.Discard, &stderr, configs, environ)
 		run.Run(ctx, []string{"--config-dir", dir, "env", "agent", "run"})
 	}()
-	s.waitStatus(t, name, "online")
+	s.waitStatus(t, "linux", "online")
 	return a
 }
 
@@ -556,7 +556,7 @@ func TestConformance_terminals(t *testing.T) {
 	goroutines := runtime.NumGoroutine()
 	t.Run("a shell terminal echoes input", func(t *testing.T) {
 		s := newStack(t)
-		startCLIAgent(t, s, "linux", "")
+		startCLIAgent(t, s, "")
 		term, res, err := s.ctrl.OpenTerminal(t.Context(), "linux", shellOpen())
 		require.NoError(t, err)
 		assert.Nil(t, res.Workspace)
@@ -566,7 +566,7 @@ func TestConformance_terminals(t *testing.T) {
 	})
 	t.Run("an attach terminal runs the command the agent chose", func(t *testing.T) {
 		s := newStack(t)
-		a := startCLIAgent(t, s, "linux", "")
+		a := startCLIAgent(t, s, "")
 		args := envproto.TerminalOpenArgs{Kind: envproto.TermAttach, Workspace: &a.attach, Specs: []string{}, Cols: 80, Rows: 24}
 		term, res, err := s.ctrl.OpenTerminal(t.Context(), "linux", args)
 		require.NoError(t, err)
@@ -578,7 +578,7 @@ func TestConformance_terminals(t *testing.T) {
 	})
 	t.Run("a slow reader sees the dropped marker, not a hang", func(t *testing.T) {
 		s := newStack(t)
-		startCLIAgent(t, s, "linux", "")
+		startCLIAgent(t, s, "")
 		term, _, err := s.ctrl.OpenTerminal(t.Context(), "linux", shellOpen())
 		require.NoError(t, err)
 		require.NoError(t, term.Input(t.Context(), []byte("yes | head -c 4000000; echo done-$((1+1))\n")))
@@ -590,7 +590,7 @@ func TestConformance_terminals(t *testing.T) {
 	t.Run("killing the agent's connection ends the terminal with disconnected within 15 s", func(t *testing.T) {
 		s := newStack(t)
 		proxy := newKillableProxy(t, s.brokerAddr)
-		startCLIAgent(t, s, "linux", proxy.Addr())
+		startCLIAgent(t, s, proxy.Addr())
 		term, _, err := s.ctrl.OpenTerminal(t.Context(), "linux", shellOpen())
 		require.NoError(t, err)
 		require.NoError(t, proxy.ln.Close())
@@ -602,7 +602,7 @@ func TestConformance_terminals(t *testing.T) {
 		t.Skip("product bug: the will never fires when the agent reconnects within its 10 s will delay, and the agent's disconnected exit frame has no connection to travel on; the online hello that follows doesn't end the controller's terminals (onStatus ends them only on offline), so the terminal hangs with no output until the user closes it. Fix needs a per-connection marker the controller can compare (a session counter in the hello), which touches T2, T4 and T6.")
 		s := newStack(t)
 		proxy := newKillableProxy(t, s.brokerAddr)
-		startCLIAgent(t, s, "linux", proxy.Addr())
+		startCLIAgent(t, s, proxy.Addr())
 		term, _, err := s.ctrl.OpenTerminal(t.Context(), "linux", shellOpen())
 		require.NoError(t, err)
 		proxy.Kill()
@@ -611,7 +611,7 @@ func TestConformance_terminals(t *testing.T) {
 	})
 	t.Run("another environment's agent can't publish on this terminal's out topic", func(t *testing.T) {
 		s := newStack(t)
-		startCLIAgent(t, s, "linux", "")
+		startCLIAgent(t, s, "")
 		other := s.enroll(t, "mac")
 		term, res, err := s.ctrl.OpenTerminal(t.Context(), "linux", shellOpen())
 		require.NoError(t, err)
@@ -630,11 +630,11 @@ func TestConformance_terminals(t *testing.T) {
 	})
 	t.Run("a ninth terminal is terminal_limit", func(t *testing.T) {
 		s := newStack(t)
-		startCLIAgent(t, s, "linux", "")
+		startCLIAgent(t, s, "")
 		for range envproto.MaxTerminals {
 			term, _, err := s.ctrl.OpenTerminal(t.Context(), "linux", shellOpen())
 			require.NoError(t, err)
-			defer term.Close(context.WithoutCancel(t.Context())) //nolint:errcheck // Teardown.
+			t.Cleanup(func() { _ = term.Close(context.WithoutCancel(t.Context())) })
 		}
 		_, _, err := s.ctrl.OpenTerminal(t.Context(), "linux", shellOpen())
 		re, ok := errors.AsType[*envproto.ReplyError](err)
