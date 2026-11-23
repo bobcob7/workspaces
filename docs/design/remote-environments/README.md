@@ -84,6 +84,6 @@ actions (attach, stop, remove) are disabled with the reason.
 | --- | --- |
 | Start on an offline environment | `win-rig is offline (last seen 14:02). Nothing was started.` |
 | Child with a different environment than its parent | `environment_mismatch: this workspace is a child of one on linux-server` |
-| Agent older than the controller | `linux-server runs ws 0.28; this controller needs 0.31 or newer. Update it there.` |
+| Agent older than the controller | `environment linux-server runs ws 0.28, which speaks protocol 0; workspace.create needs protocol 1`. The wording is the one built; see [0072](../../adrs/0072-remote-environments.md)'s amendments for D5's proposal |
 | Claude Code missing on the remote | `claude isn't installed on linux-server.` |
 | Code already used | `That code was already used. Run ws env rotate linux-server for a new one.` |
