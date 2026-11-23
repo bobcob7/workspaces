@@ -3,10 +3,12 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -368,7 +370,7 @@ func TestApp_runShell_environment(t *testing.T) {
 		assert.Equal(t, "linux-server", e.store.CreateCalls()[0].Opts.Environment)
 	})
 	t.Run("an invalid WS_ENVIRONMENT is ignored with a warning", func(t *testing.T) {
-		for _, bad := range []string{"Linux Server", "local", "-x", ""} {
+		for _, bad := range []string{"Linux Server", "local", "-x", "", "a" + strings.Repeat("b", 32)} {
 			e := newShellEnv(t)
 			e.app.environ = []string{"WS_ENVIRONMENT=" + bad}
 			require.NoError(t, e.app.runShell(t.Context(), &shellOptions{}))
@@ -397,6 +399,29 @@ func TestApp_runShell_environment(t *testing.T) {
 		assert.True(t, args.Offline)
 		assert.Equal(t, []string{"buff-bear"}, args.Specs)
 		assert.Equal(t, "$ ", te.stdout.String())
+	})
+	t.Run("--env exits with a negative code too", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		te := newTermEnv(t)
+		te.app.paths = e.app.paths
+		te.app.configs = e.app.configs
+		te.frames <- termFrame{exit: exited(-1)}
+		err := te.app.runShell(t.Context(), &shellOptions{env: "linux-server"})
+		var exit *shellExitError
+		require.ErrorAs(t, err, &exit)
+		assert.Equal(t, -1, exit.status)
+	})
+	t.Run("--env sends specs as an empty list, never null", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		te := newTermEnv(t)
+		te.app.paths = e.app.paths
+		te.app.configs = e.app.configs
+		te.frames <- termFrame{exit: exited(0)}
+		require.NoError(t, te.app.runShell(t.Context(), &shellOptions{env: "linux-server"}))
+		require.Len(t, te.opened, 1)
+		raw, err := json.Marshal(te.opened[0])
+		require.NoError(t, err)
+		assert.Contains(t, string(raw), `"specs":[]`)
 	})
 	t.Run("--env exits 0 for a shell that exited 0", func(t *testing.T) {
 		e, _, _ := newEnvOpApp(t, `{}`)

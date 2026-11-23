@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,6 +80,9 @@ func TestApp_runAttach(t *testing.T) {
 		require.NotNil(t, te.opened[0].Workspace)
 		assert.Equal(t, "api-bump", *te.opened[0].Workspace)
 		assert.Equal(t, "claude\r\n", te.stdout.String())
+		raw, err := json.Marshal(te.opened[0])
+		require.NoError(t, err)
+		assert.Contains(t, string(raw), `"specs":[]`)
 	})
 	t.Run("an unknown environment is environment_unknown", func(t *testing.T) {
 		e, _ := attachApp(t)

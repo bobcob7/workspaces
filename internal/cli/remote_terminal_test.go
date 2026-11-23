@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -41,6 +42,8 @@ type termEnv struct {
 	winch    chan<- os.Signal
 	opened   []envproto.TerminalOpenArgs
 	size     [2]int
+	notified []os.Signal
+	stopped  int
 }
 
 func newTermEnv(t *testing.T) *termEnv {
@@ -105,12 +108,17 @@ func newTermEnv(t *testing.T) *termEnv {
 		e.pauses = append(e.pauses, d)
 		e.mu.Unlock()
 	}
-	e.app.notify = func(c chan<- os.Signal, _ ...os.Signal) {
+	e.app.notify = func(c chan<- os.Signal, sigs ...os.Signal) {
 		e.mu.Lock()
 		e.winch = c
+		e.notified = append([]os.Signal(nil), sigs...)
 		e.mu.Unlock()
 	}
-	e.app.stopNotify = func(chan<- os.Signal) {}
+	e.app.stopNotify = func(chan<- os.Signal) {
+		e.mu.Lock()
+		e.stopped++
+		e.mu.Unlock()
+	}
 	return e
 }
 
@@ -133,7 +141,7 @@ func exited(code int) *envproto.TerminalExit {
 	return &envproto.TerminalExit{Code: &code, Reason: "exited"}
 }
 
-func shellArgs() envproto.TerminalOpenArgs {
+func terminalShellArgs() envproto.TerminalOpenArgs {
 	return envproto.TerminalOpenArgs{Kind: envproto.TermShell, Specs: []string{}}
 }
 
@@ -143,7 +151,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		e.frames <- termFrame{data: []byte("hello ")}
 		e.frames <- termFrame{data: []byte("world")}
 		e.frames <- termFrame{exit: exited(0)}
-		exit, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+		exit, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 		require.NoError(t, err)
 		assert.Equal(t, "hello world", e.stdout.String())
 		require.NotNil(t, exit.Code)
@@ -152,7 +160,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 	t.Run("opens with the terminal's size", func(t *testing.T) {
 		e := newTermEnv(t)
 		e.frames <- termFrame{exit: exited(0)}
-		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 		require.NoError(t, err)
 		require.Len(t, e.opened, 1)
 		assert.Equal(t, 100, e.opened[0].Cols)
@@ -163,7 +171,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		data := bytes.Repeat([]byte("abcdefghij"), 1000)
 		done := make(chan error, 1)
 		go func() {
-			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 			done <- err
 		}()
 		_, err := e.stdinW.Write(data)
@@ -182,7 +190,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		size := 2 * envproto.InputPaceBytes
 		done := make(chan error, 1)
 		go func() {
-			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 			done <- err
 		}()
 		_, err := e.stdinW.Write(bytes.Repeat([]byte("x"), size))
@@ -211,7 +219,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		e := newTermEnv(t)
 		done := make(chan error, 1)
 		go func() {
-			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 			done <- err
 		}()
 		require.Eventually(t, func() bool {
@@ -236,7 +244,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 	t.Run("restores the terminal on exit", func(t *testing.T) {
 		e := newTermEnv(t)
 		e.frames <- termFrame{exit: exited(3)}
-		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 		require.NoError(t, err)
 		_, _, _, raw, restored := e.snapshot()
 		assert.Equal(t, 1, raw)
@@ -247,7 +255,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 1)
 		go func() {
-			_, err := e.app.runRemoteTerminal(ctx, "linux-server", shellArgs())
+			_, err := e.app.runRemoteTerminal(ctx, "linux-server", terminalShellArgs())
 			done <- err
 		}()
 		require.Eventually(t, func() bool {
@@ -264,7 +272,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		e := newTermEnv(t)
 		done := make(chan error, 1)
 		go func() {
-			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 			done <- err
 		}()
 		require.Eventually(t, func() bool {
@@ -284,7 +292,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 	t.Run("restores the terminal on a panic", func(t *testing.T) {
 		e := newTermEnv(t)
 		e.term.NextFunc = func() ([]byte, *envproto.TerminalExit, error) { panic("boom") }
-		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 		require.Error(t, err)
 		_, _, _, _, restored := e.snapshot()
 		assert.Equal(t, 1, restored)
@@ -294,7 +302,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		e.term.InputFunc = func([]byte) error { panic("boom") }
 		done := make(chan error, 1)
 		go func() {
-			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 			done <- err
 		}()
 		_, err := e.stdinW.Write([]byte("x"))
@@ -306,14 +314,14 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 	t.Run("a disconnected exit is environment_offline", func(t *testing.T) {
 		e := newTermEnv(t)
 		e.frames <- termFrame{exit: &envproto.TerminalExit{Reason: "disconnected"}}
-		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 		requireCode(t, codeEnvironmentOffline, err)
 		assert.Contains(t, err.Error(), "linux-server went offline; the agent keeps running")
 	})
 	t.Run("a terminal the agent closed for its input rate is an error", func(t *testing.T) {
 		e := newTermEnv(t)
 		e.frames <- termFrame{exit: &envproto.TerminalExit{Reason: "input_limit"}}
-		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "input_limit")
 	})
@@ -324,7 +332,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 				return nil, envproto.TerminalOpenResult{}, newError(codeTerminalLimit, io.ErrClosedPipe)
 			}}, nil
 		}
-		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 		requireCode(t, codeTerminalLimit, err)
 		_, _, _, raw, _ := e.snapshot()
 		assert.Zero(t, raw)
@@ -333,7 +341,7 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		e := newTermEnv(t)
 		done := make(chan error, 1)
 		go func() {
-			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", shellArgs())
+			_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
 			done <- err
 		}()
 		_, err := e.stdinW.Write([]byte("s3cret-token"))
@@ -342,5 +350,244 @@ func TestApp_runRemoteTerminal(t *testing.T) {
 		e.frames <- termFrame{exit: exited(0)}
 		require.NoError(t, <-done)
 		assert.Empty(t, e.stdout.String())
+	})
+}
+
+// startRun runs a terminal in the background and waits until the signals are
+// registered.
+func (e *termEnv) startRun(ctx context.Context) <-chan runResult {
+	done := make(chan runResult, 1)
+	go func() {
+		exit, err := e.app.runRemoteTerminal(ctx, "linux-server", terminalShellArgs())
+		done <- runResult{exit: exit, err: err}
+	}()
+	e.waitForSignals()
+	return done
+}
+
+type runResult struct {
+	exit envproto.TerminalExit
+	err  error
+}
+
+func (e *termEnv) waitForSignals() {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		e.mu.Lock()
+		ready := e.winch != nil
+		e.mu.Unlock()
+		if ready {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func (e *termEnv) signals() chan<- os.Signal {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.winch
+}
+
+func waitRun(t *testing.T, done <-chan runResult) runResult {
+	t.Helper()
+	select {
+	case r := <-done:
+		return r
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "the run didn't end")
+		return runResult{}
+	}
+}
+
+func TestApp_runRemoteTerminal_signals(t *testing.T) {
+	for _, sig := range []os.Signal{syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT} {
+		t.Run("a "+sig.String()+" during the resize pause ends the run", func(t *testing.T) {
+			e := newTermEnv(t)
+			e.app.pause = func(_ context.Context, d time.Duration) {
+				if d == resizeCoalesce {
+					e.signals() <- sig
+				}
+			}
+			done := e.startRun(t.Context())
+			e.signals() <- syscall.SIGWINCH
+			r := waitRun(t, done)
+			require.NoError(t, r.err)
+			assert.Equal(t, "closed", r.exit.Reason)
+			_, resizes, closed, _, restored := e.snapshot()
+			assert.Empty(t, resizes)
+			assert.Equal(t, 1, closed)
+			assert.Equal(t, 1, restored)
+		})
+	}
+	t.Run("a SIGWINCH storm sends one resize", func(t *testing.T) {
+		e := newTermEnv(t)
+		e.app.pause = func(_ context.Context, d time.Duration) {
+			if d == resizeCoalesce {
+				for range 3 {
+					e.signals() <- syscall.SIGWINCH
+				}
+			}
+		}
+		done := e.startRun(t.Context())
+		e.signals() <- syscall.SIGWINCH
+		require.Eventually(t, func() bool {
+			_, resizes, _, _, _ := e.snapshot()
+			return len(resizes) == 1
+		}, 5*time.Second, time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
+		_, resizes, _, _, _ := e.snapshot()
+		assert.Len(t, resizes, 1)
+		e.frames <- termFrame{exit: exited(0)}
+		require.NoError(t, waitRun(t, done).err)
+	})
+	t.Run("a failed resize ends the run and restores the terminal", func(t *testing.T) {
+		e := newTermEnv(t)
+		e.term.ResizeFunc = func(int, int) error { return io.ErrClosedPipe }
+		done := e.startRun(t.Context())
+		e.signals() <- syscall.SIGWINCH
+		r := waitRun(t, done)
+		requireCode(t, codeInternal, r.err)
+		assert.Contains(t, r.err.Error(), "sending the terminal's size")
+		_, _, closed, _, restored := e.snapshot()
+		assert.Equal(t, 1, closed)
+		assert.Equal(t, 1, restored)
+	})
+	t.Run("a resize waits exactly the coalescing time", func(t *testing.T) {
+		e := newTermEnv(t)
+		done := e.startRun(t.Context())
+		e.signals() <- syscall.SIGWINCH
+		require.Eventually(t, func() bool {
+			_, resizes, _, _, _ := e.snapshot()
+			return len(resizes) == 1
+		}, 5*time.Second, time.Millisecond)
+		e.frames <- termFrame{exit: exited(0)}
+		require.NoError(t, waitRun(t, done).err)
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		assert.Equal(t, []time.Duration{100 * time.Millisecond}, e.pauses)
+	})
+	t.Run("registers the four signals and stops them on every return", func(t *testing.T) {
+		e := newTermEnv(t)
+		e.frames <- termFrame{exit: exited(0)}
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
+		require.NoError(t, err)
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		assert.ElementsMatch(t, []os.Signal{syscall.SIGWINCH, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT}, e.notified)
+		assert.Equal(t, 1, e.stopped)
+	})
+	t.Run("stops the signals when raw mode fails", func(t *testing.T) {
+		e := newTermEnv(t)
+		e.app.rawMode = func() (func(), error) { return nil, usageErrorf("no tty") }
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
+		requireUsageError(t, err)
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		assert.Equal(t, 1, e.stopped)
+	})
+}
+
+func TestApp_runRemoteTerminal_cancel(t *testing.T) {
+	t.Run("waits for the output reader and reports closed", func(t *testing.T) {
+		e := newTermEnv(t)
+		var nextReturned atomic.Bool
+		e.term.NextFunc = func() ([]byte, *envproto.TerminalExit, error) {
+			f := <-e.frames
+			nextReturned.Store(true)
+			return f.data, f.exit, f.err
+		}
+		e.term.CloseFunc = func() error {
+			e.mu.Lock()
+			e.closed++
+			e.mu.Unlock()
+			return nil
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := e.startRun(ctx)
+		cancel()
+		select {
+		case <-done:
+			require.FailNow(t, "returned before the reader ended")
+		case <-time.After(100 * time.Millisecond):
+		}
+		assert.False(t, nextReturned.Load())
+		e.frames <- termFrame{exit: &envproto.TerminalExit{Reason: "closed"}}
+		r := waitRun(t, done)
+		require.NoError(t, r.err)
+		assert.Equal(t, "closed", r.exit.Reason)
+		assert.True(t, nextReturned.Load())
+	})
+}
+
+func TestApp_currentSize(t *testing.T) {
+	cases := []struct {
+		name       string
+		cols, rows int
+		err        error
+		want       [2]int
+	}{
+		{"the terminal's size", 100, 30, nil, [2]int{100, 30}},
+		{"the smallest size", 1, 1, nil, [2]int{1, 1}},
+		{"the largest size", 1000, 1000, nil, [2]int{1000, 1000}},
+		{"an error", 100, 30, io.ErrClosedPipe, [2]int{80, 24}},
+		{"zero columns", 0, 30, nil, [2]int{80, 24}},
+		{"zero rows", 100, 0, nil, [2]int{80, 24}},
+		{"negative columns", -1, 30, nil, [2]int{80, 24}},
+		{"negative rows", 100, -1, nil, [2]int{80, 24}},
+		{"too many columns", 1001, 30, nil, [2]int{80, 24}},
+		{"too many rows", 100, 1001, nil, [2]int{80, 24}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app, _, _ := newTestApp()
+			app.termSize = func() (int, int, error) { return tc.cols, tc.rows, tc.err }
+			cols, rows := app.currentSize()
+			assert.Equal(t, tc.want, [2]int{cols, rows})
+		})
+	}
+	t.Run("the open args carry 80x24 when the size is unknown", func(t *testing.T) {
+		e := newTermEnv(t)
+		e.app.termSize = func() (int, int, error) { return 0, 0, io.ErrClosedPipe }
+		e.frames <- termFrame{exit: exited(0)}
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
+		require.NoError(t, err)
+		require.Len(t, e.opened, 1)
+		assert.Equal(t, 80, e.opened[0].Cols)
+		assert.Equal(t, 24, e.opened[0].Rows)
+	})
+}
+
+func TestExitError(t *testing.T) {
+	cases := []struct {
+		reason string
+		code   errorCode
+		msg    string
+	}{
+		{"exited", "", ""},
+		{"closed", "", ""},
+		{"disconnected", codeEnvironmentOffline, "linux-server went offline; the agent keeps running"},
+		{"idle", codeInternal, "linux-server closed the terminal: it was idle for too long"},
+		{"input_gap", codeInternal, "linux-server closed the terminal: its input arrived out of order (input_gap)"},
+		{"input_limit", codeInternal, "linux-server closed the terminal: the input came faster than it accepts (input_limit)"},
+		{"strange", codeInternal, "linux-server closed the terminal: strange"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			err := exitError("linux-server", &envproto.TerminalExit{Reason: tc.reason})
+			if tc.code == "" {
+				require.NoError(t, err)
+				return
+			}
+			requireCode(t, tc.code, err)
+			assert.Equal(t, tc.msg, err.Error())
+		})
+	}
+	t.Run("the daemon's connection ending is internal", func(t *testing.T) {
+		e := newTermEnv(t)
+		e.frames <- termFrame{err: io.EOF}
+		_, err := e.app.runRemoteTerminal(t.Context(), "linux-server", terminalShellArgs())
+		requireCode(t, codeInternal, err)
+		assert.Contains(t, err.Error(), "the connection to the daemon ended")
 	})
 }

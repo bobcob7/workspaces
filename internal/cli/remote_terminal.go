@@ -223,13 +223,30 @@ func (r *terminalRun) watchSignals(ctx context.Context, sigs <-chan os.Signal) {
 			return
 		}
 		r.app.pause(ctx, resizeCoalesce)
-		select {
-		case <-sigs:
-		default:
+		if drainsToStop(sigs) {
+			r.cancel(context.Canceled)
+			return
 		}
 		cols, rows := r.app.currentSize()
 		if err := r.term.Resize(cols, rows); err != nil {
+			r.cancel(newError(codeInternal, fmt.Errorf("sending the terminal's size: %w", err)))
 			return
+		}
+	}
+}
+
+// drainsToStop takes every signal waiting on sigs, and is whether any of
+// them is not a SIGWINCH.
+func drainsToStop(sigs <-chan os.Signal) bool {
+	stop := false
+	for {
+		select {
+		case sig := <-sigs:
+			if sig != syscall.SIGWINCH {
+				stop = true
+			}
+		default:
+			return stop
 		}
 	}
 }
@@ -242,6 +259,12 @@ func exitError(env string, exit *envproto.TerminalExit) error {
 		return nil
 	case "disconnected":
 		return newError(codeEnvironmentOffline, fmt.Errorf("%s went offline; the agent keeps running", env))
+	case "idle":
+		return newError(codeInternal, fmt.Errorf("%s closed the terminal: it was idle for too long", env))
+	case "input_gap":
+		return newError(codeInternal, fmt.Errorf("%s closed the terminal: its input arrived out of order (input_gap)", env))
+	case "input_limit":
+		return newError(codeInternal, fmt.Errorf("%s closed the terminal: the input came faster than it accepts (input_limit)", env))
 	}
 	return newError(codeInternal, fmt.Errorf("%s closed the terminal: %s", env, exit.Reason))
 }
