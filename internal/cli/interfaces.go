@@ -19,7 +19,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker envClient environmentCaller
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker envClient environmentCaller terminalOpener remoteTerminal
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -72,6 +72,20 @@ type runnerDaemon interface {
 // environmentCaller is the daemon's call endpoint (daemon.Client).
 type environmentCaller interface {
 	CallEnvironment(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error)
+}
+
+// terminalOpener opens a remote terminal through the daemon (daemon.Client).
+type terminalOpener interface {
+	OpenTerminal(ctx context.Context, name string, args envproto.TerminalOpenArgs) (remoteTerminal, envproto.TerminalOpenResult, error)
+}
+
+// remoteTerminal is the CLI's side of an open remote terminal
+// (daemon.TerminalConn).
+type remoteTerminal interface {
+	Next() ([]byte, *envproto.TerminalExit, error)
+	Input(p []byte) error
+	Resize(cols, rows int) error
+	Close() error
 }
 
 // envBroker is the MQTT broker the daemon embeds (ADR 0074). It has the

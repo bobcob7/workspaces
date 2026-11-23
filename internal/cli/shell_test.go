@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/gittest"
 	"github.com/bobcob7/workspaces/internal/lockfile"
@@ -104,6 +105,7 @@ func TestApp_newShellCmd(t *testing.T) {
 	t.Run("has the create flags", func(t *testing.T) {
 		assertFlag(t, cmd, "name", "")
 		assertFlag(t, cmd, "offline", "false")
+		assertFlag(t, cmd, "env", "")
 	})
 	t.Run("accepts no spec, for an empty workspace", func(t *testing.T) {
 		assert.NoError(t, cmd.Args(cmd, nil))
@@ -354,5 +356,63 @@ func TestApp_removeWorkspace(t *testing.T) {
 		e.store.RemoveFunc = func(string, workspace.RemoveOptions) error { return workspace.ErrUnsafe }
 		e.app.removeWorkspace("x")
 		assert.Equal(t, "ws: couldn't remove workspace x: refusing to delete\n", e.stderr.String())
+	})
+}
+
+func TestApp_runShell_environment(t *testing.T) {
+	t.Run("WS_ENVIRONMENT stamps the workspace's environment", func(t *testing.T) {
+		e := newShellEnv(t)
+		e.app.environ = []string{"WS_ENVIRONMENT=linux-server"}
+		require.NoError(t, e.app.runShell(t.Context(), &shellOptions{}))
+		require.Len(t, e.store.CreateCalls(), 1)
+		assert.Equal(t, "linux-server", e.store.CreateCalls()[0].Opts.Environment)
+	})
+	t.Run("an invalid WS_ENVIRONMENT is ignored with a warning", func(t *testing.T) {
+		for _, bad := range []string{"Linux Server", "local", "-x", ""} {
+			e := newShellEnv(t)
+			e.app.environ = []string{"WS_ENVIRONMENT=" + bad}
+			require.NoError(t, e.app.runShell(t.Context(), &shellOptions{}))
+			assert.Empty(t, e.store.CreateCalls()[0].Opts.Environment, bad)
+			if bad != "" {
+				assert.Contains(t, e.stderr.String(), "WS_ENVIRONMENT", bad)
+			}
+		}
+	})
+	t.Run("--env runs a remote shell and exits with its code", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		te := newTermEnv(t)
+		te.app.paths = e.app.paths
+		te.app.configs = e.app.configs
+		te.frames <- termFrame{data: []byte("$ ")}
+		te.frames <- termFrame{exit: exited(7)}
+		err := te.app.runShell(t.Context(), &shellOptions{env: "linux-server", name: "n", offline: true, specs: []string{"buff-bear"}})
+		var exit *shellExitError
+		require.ErrorAs(t, err, &exit)
+		assert.Equal(t, 7, exit.status)
+		require.Len(t, te.opened, 1)
+		args := te.opened[0]
+		assert.Equal(t, envproto.TermShell, args.Kind)
+		require.NotNil(t, args.Name)
+		assert.Equal(t, "n", *args.Name)
+		assert.True(t, args.Offline)
+		assert.Equal(t, []string{"buff-bear"}, args.Specs)
+		assert.Equal(t, "$ ", te.stdout.String())
+	})
+	t.Run("--env exits 0 for a shell that exited 0", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		te := newTermEnv(t)
+		te.app.paths = e.app.paths
+		te.app.configs = e.app.configs
+		te.frames <- termFrame{exit: exited(0)}
+		require.NoError(t, te.app.runShell(t.Context(), &shellOptions{env: "linux-server"}))
+	})
+	t.Run("--env needs a terminal", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, `{}`)
+		te := newTermEnv(t)
+		te.app.paths = e.app.paths
+		te.app.configs = e.app.configs
+		te.app.stdinTerminal = func() bool { return false }
+		requireUsageError(t, te.app.runShell(t.Context(), &shellOptions{env: "linux-server"}))
+		assert.Empty(t, te.opened)
 	})
 }

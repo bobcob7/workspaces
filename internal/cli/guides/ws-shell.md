@@ -1,7 +1,7 @@
 # ws shell
 
 ```
-ws shell [--name <name>] [--offline] [<spec>...]
+ws shell [--env <name>] [--name <name>] [--offline] [<spec>...]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, and
@@ -29,6 +29,22 @@ is removed by a later `ws` command once nothing from the shell runs.
 | --------------- | ----------------------------------------------------------- |
 | `--name <name>` | Name the workspace and make its id from the name, as `ws claude --name` does |
 | `--offline`     | Don't fetch; use the cache as it is                         |
+| `--env <name>`  | Run the shell on that environment (`ws env list`); default: here |
+
+## On an environment
+
+With `--env`, the shell runs on that environment's machine, in a workspace
+that lives for as long as this terminal is open. `ws` puts the terminal in
+raw mode, sends keystrokes and size changes to the shell, and shows its
+output; it needs a terminal on stdin (`usage` otherwise). When the shell
+exits, `ws shell` exits with its status. The local terminal is restored on
+every exit. If the environment goes offline, the shell ends and `ws shell`
+exits 1 (`environment_offline`). The agent allows 8 terminals at once
+(`terminal_limit`).
+
+`WS_ENVIRONMENT` is set by the environment agent in the shell it starts, so
+the `ws shell` that runs there records the workspace's environment. It is not
+for people; an invalid value is ignored with a warning.
 
 `--json` is refused (`usage`): there is no result to print.
 
@@ -38,6 +54,8 @@ Before the shell starts, the workspace creation errors of `ws claude`
 apply (`usage`, `spec_invalid`, `name_invalid`, `repo_not_found`, `repo_ambiguous`,
 `ref_not_found`, `workspace_exists`, `fetch_failed`, `clone_failed`,
 `git_failed`), and `internal` (exit 1) if the shell can't be started.
+With `--env`: `environment_unknown` (exit 3), `environment_offline` and
+`environment_outdated` (exit 1), and `terminal_limit` (exit 4).
 Once the shell has started, `ws shell` exits with the shell's exit code, or
 128+N when signal N killed it.
 

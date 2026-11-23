@@ -31,6 +31,7 @@ func guideTopicsBeforeReview() []string {
 		"",
 		"claude",
 		"shell",
+		"attach",
 		"list",
 		"rm",
 		"stop",

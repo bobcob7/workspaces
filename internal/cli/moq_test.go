@@ -3630,3 +3630,271 @@ func (mock *environmentCallerMock) CallEnvironmentCalls() []struct {
 	mock.lockCallEnvironment.RUnlock()
 	return calls
 }
+
+// Ensure, that terminalOpenerMock does implement terminalOpener.
+// If this is not the case, regenerate this file with moq.
+var _ terminalOpener = &terminalOpenerMock{}
+
+// terminalOpenerMock is a mock implementation of terminalOpener.
+//
+//	func TestSomethingThatUsesterminalOpener(t *testing.T) {
+//
+//		// make and configure a mocked terminalOpener
+//		mockedterminalOpener := &terminalOpenerMock{
+//			OpenTerminalFunc: func(ctx context.Context, name string, args envproto.TerminalOpenArgs) (remoteTerminal, envproto.TerminalOpenResult, error) {
+//				panic("mock out the OpenTerminal method")
+//			},
+//		}
+//
+//		// use mockedterminalOpener in code that requires terminalOpener
+//		// and then make assertions.
+//
+//	}
+type terminalOpenerMock struct {
+	// OpenTerminalFunc mocks the OpenTerminal method.
+	OpenTerminalFunc func(ctx context.Context, name string, args envproto.TerminalOpenArgs) (remoteTerminal, envproto.TerminalOpenResult, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// OpenTerminal holds details about calls to the OpenTerminal method.
+		OpenTerminal []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Name is the name argument value.
+			Name string
+			// Args is the args argument value.
+			Args envproto.TerminalOpenArgs
+		}
+	}
+	lockOpenTerminal sync.RWMutex
+}
+
+// OpenTerminal calls OpenTerminalFunc.
+func (mock *terminalOpenerMock) OpenTerminal(ctx context.Context, name string, args envproto.TerminalOpenArgs) (remoteTerminal, envproto.TerminalOpenResult, error) {
+	if mock.OpenTerminalFunc == nil {
+		panic("terminalOpenerMock.OpenTerminalFunc: method is nil but terminalOpener.OpenTerminal was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Name string
+		Args envproto.TerminalOpenArgs
+	}{
+		Ctx:  ctx,
+		Name: name,
+		Args: args,
+	}
+	mock.lockOpenTerminal.Lock()
+	mock.calls.OpenTerminal = append(mock.calls.OpenTerminal, callInfo)
+	mock.lockOpenTerminal.Unlock()
+	return mock.OpenTerminalFunc(ctx, name, args)
+}
+
+// OpenTerminalCalls gets all the calls that were made to OpenTerminal.
+// Check the length with:
+//
+//	len(mockedterminalOpener.OpenTerminalCalls())
+func (mock *terminalOpenerMock) OpenTerminalCalls() []struct {
+	Ctx  context.Context
+	Name string
+	Args envproto.TerminalOpenArgs
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Name string
+		Args envproto.TerminalOpenArgs
+	}
+	mock.lockOpenTerminal.RLock()
+	calls = mock.calls.OpenTerminal
+	mock.lockOpenTerminal.RUnlock()
+	return calls
+}
+
+// Ensure, that remoteTerminalMock does implement remoteTerminal.
+// If this is not the case, regenerate this file with moq.
+var _ remoteTerminal = &remoteTerminalMock{}
+
+// remoteTerminalMock is a mock implementation of remoteTerminal.
+//
+//	func TestSomethingThatUsesremoteTerminal(t *testing.T) {
+//
+//		// make and configure a mocked remoteTerminal
+//		mockedremoteTerminal := &remoteTerminalMock{
+//			CloseFunc: func() error {
+//				panic("mock out the Close method")
+//			},
+//			InputFunc: func(p []byte) error {
+//				panic("mock out the Input method")
+//			},
+//			NextFunc: func() ([]byte, *envproto.TerminalExit, error) {
+//				panic("mock out the Next method")
+//			},
+//			ResizeFunc: func(cols int, rows int) error {
+//				panic("mock out the Resize method")
+//			},
+//		}
+//
+//		// use mockedremoteTerminal in code that requires remoteTerminal
+//		// and then make assertions.
+//
+//	}
+type remoteTerminalMock struct {
+	// CloseFunc mocks the Close method.
+	CloseFunc func() error
+
+	// InputFunc mocks the Input method.
+	InputFunc func(p []byte) error
+
+	// NextFunc mocks the Next method.
+	NextFunc func() ([]byte, *envproto.TerminalExit, error)
+
+	// ResizeFunc mocks the Resize method.
+	ResizeFunc func(cols int, rows int) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Close holds details about calls to the Close method.
+		Close []struct {
+		}
+		// Input holds details about calls to the Input method.
+		Input []struct {
+			// P is the p argument value.
+			P []byte
+		}
+		// Next holds details about calls to the Next method.
+		Next []struct {
+		}
+		// Resize holds details about calls to the Resize method.
+		Resize []struct {
+			// Cols is the cols argument value.
+			Cols int
+			// Rows is the rows argument value.
+			Rows int
+		}
+	}
+	lockClose  sync.RWMutex
+	lockInput  sync.RWMutex
+	lockNext   sync.RWMutex
+	lockResize sync.RWMutex
+}
+
+// Close calls CloseFunc.
+func (mock *remoteTerminalMock) Close() error {
+	if mock.CloseFunc == nil {
+		panic("remoteTerminalMock.CloseFunc: method is nil but remoteTerminal.Close was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockClose.Lock()
+	mock.calls.Close = append(mock.calls.Close, callInfo)
+	mock.lockClose.Unlock()
+	return mock.CloseFunc()
+}
+
+// CloseCalls gets all the calls that were made to Close.
+// Check the length with:
+//
+//	len(mockedremoteTerminal.CloseCalls())
+func (mock *remoteTerminalMock) CloseCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockClose.RLock()
+	calls = mock.calls.Close
+	mock.lockClose.RUnlock()
+	return calls
+}
+
+// Input calls InputFunc.
+func (mock *remoteTerminalMock) Input(p []byte) error {
+	if mock.InputFunc == nil {
+		panic("remoteTerminalMock.InputFunc: method is nil but remoteTerminal.Input was just called")
+	}
+	callInfo := struct {
+		P []byte
+	}{
+		P: p,
+	}
+	mock.lockInput.Lock()
+	mock.calls.Input = append(mock.calls.Input, callInfo)
+	mock.lockInput.Unlock()
+	return mock.InputFunc(p)
+}
+
+// InputCalls gets all the calls that were made to Input.
+// Check the length with:
+//
+//	len(mockedremoteTerminal.InputCalls())
+func (mock *remoteTerminalMock) InputCalls() []struct {
+	P []byte
+} {
+	var calls []struct {
+		P []byte
+	}
+	mock.lockInput.RLock()
+	calls = mock.calls.Input
+	mock.lockInput.RUnlock()
+	return calls
+}
+
+// Next calls NextFunc.
+func (mock *remoteTerminalMock) Next() ([]byte, *envproto.TerminalExit, error) {
+	if mock.NextFunc == nil {
+		panic("remoteTerminalMock.NextFunc: method is nil but remoteTerminal.Next was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockNext.Lock()
+	mock.calls.Next = append(mock.calls.Next, callInfo)
+	mock.lockNext.Unlock()
+	return mock.NextFunc()
+}
+
+// NextCalls gets all the calls that were made to Next.
+// Check the length with:
+//
+//	len(mockedremoteTerminal.NextCalls())
+func (mock *remoteTerminalMock) NextCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockNext.RLock()
+	calls = mock.calls.Next
+	mock.lockNext.RUnlock()
+	return calls
+}
+
+// Resize calls ResizeFunc.
+func (mock *remoteTerminalMock) Resize(cols int, rows int) error {
+	if mock.ResizeFunc == nil {
+		panic("remoteTerminalMock.ResizeFunc: method is nil but remoteTerminal.Resize was just called")
+	}
+	callInfo := struct {
+		Cols int
+		Rows int
+	}{
+		Cols: cols,
+		Rows: rows,
+	}
+	mock.lockResize.Lock()
+	mock.calls.Resize = append(mock.calls.Resize, callInfo)
+	mock.lockResize.Unlock()
+	return mock.ResizeFunc(cols, rows)
+}
+
+// ResizeCalls gets all the calls that were made to Resize.
+// Check the length with:
+//
+//	len(mockedremoteTerminal.ResizeCalls())
+func (mock *remoteTerminalMock) ResizeCalls() []struct {
+	Cols int
+	Rows int
+} {
+	var calls []struct {
+		Cols int
+		Rows int
+	}
+	mock.lockResize.RLock()
+	calls = mock.calls.Resize
+	mock.lockResize.RUnlock()
+	return calls
+}

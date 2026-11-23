@@ -3,15 +3,21 @@ package cli
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/shell"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
+// environmentNamePattern is what an enrolled environment's name looks like.
+var environmentNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
 type shellOptions struct {
+	env     string
 	name    string
 	offline bool
 	specs   []string
@@ -30,6 +36,7 @@ func (a *App) newShellCmd() *cobra.Command {
 		})),
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
+	cmd.Flags().StringVar(&opts.env, "env", "", "run the shell on this environment (ws env list); default: local")
 	return cmd
 }
 
@@ -40,7 +47,14 @@ func (a *App) newShellCmd() *cobra.Command {
 // until the workspace is gone, so the workspace never looks abandoned in
 // between. Once the shell has run, ws exits with its status (ADR 0016).
 func (a *App) runShell(ctx context.Context, opts *shellOptions) error {
-	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline})
+	name, remote, err := a.remoteTarget(opts.env)
+	if err != nil {
+		return err
+	}
+	if remote {
+		return a.runRemoteShell(ctx, name, opts)
+	}
+	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Environment: a.agentEnvironment()})
 	if err != nil {
 		a.printWarnings()
 		return domainError(err)
@@ -53,6 +67,44 @@ func (a *App) runShell(ctx context.Context, opts *shellOptions) error {
 	}
 	if status != 0 {
 		return &shellExitError{status: status}
+	}
+	return nil
+}
+
+// agentEnvironment is the environment name the environment agent put in
+// WS_ENVIRONMENT, for the shell workspace's record (PR 3's D2). A value that
+// isn't a valid environment name, or is local, is ignored with a warning.
+func (a *App) agentEnvironment() string {
+	value := environValue(a.environ, "WS_ENVIRONMENT")
+	if value == "" {
+		return ""
+	}
+	if value == localEnvironment || !environmentNamePattern.MatchString(value) {
+		a.warned = append(a.warned, "ignoring WS_ENVIRONMENT: it isn't a valid environment name")
+		return ""
+	}
+	return value
+}
+
+// runRemoteShell runs a shell workspace on environment env for as long as
+// this terminal is open, and exits with the shell's status.
+func (a *App) runRemoteShell(ctx context.Context, env string, opts *shellOptions) error {
+	if !a.stdinTerminal() {
+		return usageErrorf("ws shell --env needs a terminal")
+	}
+	args := envproto.TerminalOpenArgs{Kind: envproto.TermShell, Specs: opts.specs, Offline: opts.offline}
+	if args.Specs == nil {
+		args.Specs = []string{}
+	}
+	if opts.name != "" {
+		args.Name = &opts.name
+	}
+	exit, err := a.runRemoteTerminal(ctx, env, args)
+	if err != nil {
+		return err
+	}
+	if exit.Code != nil && *exit.Code != 0 {
+		return &shellExitError{status: *exit.Code}
 	}
 	return nil
 }

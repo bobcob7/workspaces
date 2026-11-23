@@ -105,6 +105,8 @@ const (
 	codeEnvironmentOffline  errorCode = "environment_offline"  // exit 1
 	codeEnvironmentOutdated errorCode = "environment_outdated" // exit 1
 	codeEnvironmentMismatch errorCode = "environment_mismatch" // exit 4
+	// From PR 4 (ADR 0074).
+	codeTerminalLimit errorCode = "terminal_limit" // exit 4
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -163,7 +165,7 @@ func (c errorCode) exitCode() int {
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
 		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
-		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch:
+		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch, codeTerminalLimit:
 		return exitRefused
 	}
 	return exitFailed
@@ -187,7 +189,7 @@ func (c errorCode) known() bool {
 		codeDaemonRunning, codeEndpointUnknown, codeEndpointUnreachable, codeModelNotServed,
 		codeModelWithoutTools, codeRunnerFailed, codeEnvironmentUnknown, codeEnvironmentExists,
 		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
-		codeEnvironmentOutdated, codeEnvironmentMismatch, codeProgressInvalid:
+		codeEnvironmentOutdated, codeEnvironmentMismatch, codeTerminalLimit, codeProgressInvalid:
 		return true
 	}
 	return false
