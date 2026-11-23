@@ -72,7 +72,24 @@ func spikeCert(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, cn s
 	return tls.Certificate{Certificate: [][]byte{der, ca.Raw}, PrivateKey: key}
 }
 
-func newSpikeRig(t *testing.T, p spikeProfile) *spikeRig {
+// spikeEnv is the real broker, listening on addr, with the CA that signs
+// the agent certificates.
+type spikeEnv struct {
+	broker *Broker
+	addr   string
+	pool   *x509.CertPool
+	ca     *x509.Certificate
+	caKey  *ecdsa.PrivateKey
+}
+
+// agentTLS is the TLS config of an agent whose certificate has the given CN.
+func (e *spikeEnv) agentTLS(t *testing.T, cn string, serial int64) *tls.Config {
+	t.Helper()
+	cert := spikeCert(t, e.ca, e.caKey, cn, x509.ExtKeyUsageClientAuth, serial)
+	return &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: e.pool, Certificates: []tls.Certificate{cert}, ServerName: "127.0.0.1"}
+}
+
+func startSpikeBroker(t *testing.T) *spikeEnv {
 	t.Helper()
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -92,11 +109,10 @@ func newSpikeRig(t *testing.T, p spikeProfile) *spikeRig {
 	pool := x509.NewCertPool()
 	pool.AddCert(ca)
 	server := spikeCert(t, ca, caKey, "broker", x509.ExtKeyUsageServerAuth, 2)
-	agentCert := spikeCert(t, ca, caKey, spikeID, x509.ExtKeyUsageClientAuth, 3)
 	broker := New(spikeLog())
 	t.Cleanup(func() { _ = broker.Close() })
 	rules := envproto.Rules{Allow: func(peer envproto.Peer, _ envproto.Access, topic string) bool {
-		return strings.HasPrefix(topic, envproto.Prefix+peer.CN+"/")
+		return strings.HasPrefix(topic, envproto.Prefix+strings.TrimSuffix(peer.CN, ".t")+"/")
 	}}
 	addr, err := broker.Start(t.Context(), "127.0.0.1:0", &tls.Config{
 		MinVersion:   tls.VersionTLS13,
@@ -105,19 +121,25 @@ func newSpikeRig(t *testing.T, p spikeProfile) *spikeRig {
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 	}, rules)
 	require.NoError(t, err)
-	dial := addr
+	return &spikeEnv{broker: broker, addr: addr, pool: pool, ca: ca, caKey: caKey}
+}
+
+func newSpikeRig(t *testing.T, p spikeProfile) *spikeRig {
+	t.Helper()
+	env := startSpikeBroker(t)
+	dial := env.addr
 	if p.rtt > 0 || p.bps > 0 {
-		dial = newThrottle(t, addr, p.rtt, p.bps).Addr()
+		dial = newThrottle(t, env.addr, p.rtt, p.bps).Addr()
 	}
 	agent := mqttclient.New(spikeLog())
 	t.Cleanup(func() { _ = agent.Close() })
 	require.NoError(t, agent.Connect(t.Context(), envproto.ConnectOptions{
 		Address:   dial,
-		TLS:       &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: []tls.Certificate{agentCert}, ServerName: "127.0.0.1"},
+		TLS:       env.agentTLS(t, spikeID, 3),
 		ClientID:  spikeID,
 		KeepAlive: 30 * time.Second,
 	}))
-	return &spikeRig{broker: broker, agent: agent}
+	return &spikeRig{broker: env.broker, agent: agent}
 }
 
 func streamTopic(sid, dir string) string {
