@@ -25,6 +25,7 @@ type listOptions struct {
 	idsOnly bool
 	repo    string
 	parent  string
+	envs    []string
 }
 
 func (a *App) newListCmd() *cobra.Command {
@@ -42,15 +43,25 @@ func (a *App) newListCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.idsOnly, "ids", "q", false, "print only workspace IDs")
 	cmd.Flags().StringVar(&opts.repo, "repo", "", "only workspaces containing this repo")
 	cmd.Flags().StringVar(&opts.parent, "parent", "", "only the workspaces this one started")
+	cmd.Flags().StringArrayVar(&opts.envs, "env", nil, "only these environments (local or a name from ws env list); default: local")
 	return cmd
 }
 
 // listJSON is ws list's output (docs/tools/ws-list.md).
 type listJSON struct {
-	Workspaces []listWorkspaceJSON `json:"workspaces"`
+	Workspaces []listEntryJSON `json:"workspaces"`
 	// HiddenCount is how many hidden workspaces were left out (ADR 0043).
 	HiddenCount int      `json:"hidden_count"`
 	Warnings    []string `json:"warnings"`
+}
+
+// listEntryJSON is one ws list entry: a workspace and where it runs. Only ws
+// list uses it; ws machine children keeps listWorkspaceJSON.
+type listEntryJSON struct {
+	listWorkspaceJSON
+	Environment       string `json:"environment"`
+	EnvironmentStatus string `json:"environment_status"`
+	Stale             bool   `json:"stale"`
 }
 
 type listWorkspaceJSON struct {
@@ -113,9 +124,9 @@ type listRepoJSON struct {
 	RefKind string `json:"ref_kind"`
 }
 
-// runList removes workspaces whose session is gone, then lists the rest
-// with their sessions, oldest first, and the directories under
-// workspaces/ that aren't workspaces last (ADRs 0012, 0015).
+// runList lists the workspaces of each environment --env names, local by
+// default, with their sessions, oldest first, and the directories under
+// workspaces/ that aren't workspaces last (ADRs 0012, 0015, 0072).
 func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	if opts.idsOnly && a.global.json {
 		return usageErrorf("list -q doesn't support --json")
@@ -128,13 +139,111 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 		}
 		filter = &sp
 	}
-	parent, err := a.parentFilter(opts.parent)
+	envs, err := a.selectEnvironments(opts.envs)
 	if err != nil {
 		return err
 	}
-	listing, err := a.lifetime.List(ctx)
+	if opts.parent != "" && len(envs) > 1 {
+		return usageErrorf("--parent takes one --env")
+	}
+	listings, err := a.listEnvironments(ctx, opts, envs, filter)
 	if err != nil {
 		return err
+	}
+	entries, rows, hidden := joinListings(listings)
+	switch {
+	case a.global.json:
+		return a.writeJSON(listJSON{Workspaces: entries, HiddenCount: hidden, Warnings: a.warnings()})
+	case opts.idsOnly:
+		for i := range entries {
+			if entries[i].ID != nil {
+				fmt.Fprintln(a.stdout, *entries[i].ID)
+			}
+		}
+	default:
+		a.printList(rows, hasEnvColumn(entries))
+		a.printHiddenNote(hidden)
+	}
+	a.printWarnings()
+	return nil
+}
+
+// envListing is one environment's part of ws list: its entries as JSON in
+// listing order, its table rows in tree order, and how many hidden entries
+// it left out.
+type envListing struct {
+	entries []listEntryJSON
+	rows    []listRow
+	hidden  int
+}
+
+// listRow is one line of ws list's table.
+type listRow struct {
+	env     string
+	id      string
+	depth   int
+	name    string
+	created string
+	session string
+	repos   string
+}
+
+// listEnvironments lists each of envs in order: local from this machine,
+// the others from their snapshots.
+func (a *App) listEnvironments(ctx context.Context, opts *listOptions, envs []string, filter *repo.Spec) ([]envListing, error) {
+	var presence map[string]string
+	listings := make([]envListing, 0, len(envs))
+	for _, name := range envs {
+		if name == localEnvironment {
+			local, err := a.localListing(ctx, opts, filter)
+			if err != nil {
+				return nil, err
+			}
+			listings = append(listings, local)
+			continue
+		}
+		if presence == nil {
+			presence = a.environmentPresence(ctx)
+		}
+		listings = append(listings, a.remoteEnvListing(name, opts, filter, presence))
+	}
+	return listings, nil
+}
+
+// joinListings is the JSON entries and table rows of all listings, in order,
+// and how many hidden entries they left out in all.
+func joinListings(listings []envListing) ([]listEntryJSON, []listRow, int) {
+	entries := []listEntryJSON{}
+	var rows []listRow
+	hidden := 0
+	for i := range listings {
+		entries = append(entries, listings[i].entries...)
+		rows = append(rows, listings[i].rows...)
+		hidden += listings[i].hidden
+	}
+	return entries, rows, hidden
+}
+
+// hasEnvColumn is whether the table has an ENV column: some entry runs in an
+// environment other than local.
+func hasEnvColumn(entries []listEntryJSON) bool {
+	for i := range entries {
+		if entries[i].Environment != localEnvironment {
+			return true
+		}
+	}
+	return false
+}
+
+// localListing is this machine's part of ws list.
+func (a *App) localListing(ctx context.Context, opts *listOptions, filter *repo.Spec) (envListing, error) {
+	parent, err := a.parentFilter(opts.parent)
+	if err != nil {
+		return envListing{}, err
+	}
+	listing, err := a.lifetime.List(ctx)
+	if err != nil {
+		return envListing{}, err
 	}
 	loopRuns := map[string]*listLoopRunJSON{}
 	raised := func(e *lifetime.Entry) bool {
@@ -145,19 +254,63 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	if filter != nil || parent != "" {
 		unknown = nil
 	}
-	switch {
-	case a.global.json:
-		return a.writeJSON(listJSON{Workspaces: a.listWorkspaces(entries, unknown, loopRuns), HiddenCount: hidden, Warnings: a.warnings()})
-	case opts.idsOnly:
-		for i := range entries {
-			fmt.Fprintln(a.stdout, entries[i].Workspace.ID)
+	rows := append(a.localRows(entries, loopRuns), unknownRows(unknown)...)
+	return envListing{entries: a.localEntries(entries, unknown, loopRuns), rows: rows, hidden: hidden}, nil
+}
+
+// localEntries is the JSON of the local entries and unknown directories,
+// each with the environment it runs in.
+func (a *App) localEntries(entries []lifetime.Entry, unknown []string, loopRuns map[string]*listLoopRunJSON) []listEntryJSON {
+	ws := a.listWorkspaces(entries, unknown, loopRuns)
+	out := make([]listEntryJSON, 0, len(ws))
+	for i := range ws {
+		env := localEnvironment
+		if i < len(entries) {
+			env = localEnvironmentOf(&entries[i].Workspace)
 		}
-	default:
-		a.printList(entries, unknown, loopRuns)
-		a.printHiddenNote(hidden)
+		out = append(out, listEntryJSON{listWorkspaceJSON: ws[i], Environment: env, EnvironmentStatus: envOnline})
 	}
-	a.printWarnings()
-	return nil
+	return out
+}
+
+// localRows are the table rows of the local entries, in tree order.
+func (a *App) localRows(entries []lifetime.Entry, loopRuns map[string]*listLoopRunJSON) []listRow {
+	order, depths := treeOrder(entries)
+	now := a.now()
+	rows := make([]listRow, 0, len(order))
+	for k, i := range order {
+		e := &entries[i]
+		ws := &e.Workspace
+		rows = append(rows, listRow{
+			env:     localEnvironmentOf(ws),
+			id:      ws.ID,
+			depth:   depths[k],
+			name:    nameText(ws.Name, ws.Hidden, attentionOf(a.cachedLoopRun(loopRuns, e))),
+			created: ago(now.Sub(ws.CreatedAt)),
+			session: sessionText(e.Session),
+			repos:   reposText(ws.Repos),
+		})
+	}
+	return rows
+}
+
+// unknownRows are the table rows of the unknown directories.
+func unknownRows(dirs []string) []listRow {
+	rows := make([]listRow, 0, len(dirs))
+	for _, dir := range dirs {
+		rows = append(rows, listRow{env: localEnvironment, id: "unknown", name: "-", created: "-", session: "-", repos: dir})
+	}
+	return rows
+}
+
+// localEnvironmentOf is the environment a workspace on this machine runs in:
+// the one its record names when an environment agent made it, else local
+// (D2).
+func localEnvironmentOf(ws *workspace.Workspace) string {
+	if ws.Environment != "" {
+		return ws.Environment
+	}
+	return localEnvironment
 }
 
 // visibleEntries leaves out hidden workspaces unless all, except loop runs
@@ -221,22 +374,32 @@ func childrenOf(entries []lifetime.Entry, parent string) []lifetime.Entry {
 // gives its depth: 0 for one whose parent isn't listed (ADR 0044). Roots
 // and siblings keep their order, oldest first.
 func treeOrder(entries []lifetime.Entry) ([]int, []int) {
+	return orderTree(len(entries), func(i int) (string, string) {
+		return entries[i].Workspace.ID, entries[i].Workspace.Parent
+	})
+}
+
+// orderTree is treeOrder for n items, whose id and parent id item(i) gives.
+func orderTree(n int, item func(i int) (id, parent string)) ([]int, []int) {
+	ids := make([]string, n)
+	parents := make([]string, n)
 	listed := map[string]bool{}
-	for i := range entries {
-		listed[entries[i].Workspace.ID] = true
+	for i := range n {
+		ids[i], parents[i] = item(i)
+		listed[ids[i]] = true
 	}
 	kids := map[string][]int{}
 	var roots []int
-	for i := range entries {
-		p := entries[i].Workspace.Parent
-		if p != "" && p != entries[i].Workspace.ID && listed[p] {
+	for i := range n {
+		p := parents[i]
+		if p != "" && p != ids[i] && listed[p] {
 			kids[p] = append(kids[p], i)
 			continue
 		}
 		roots = append(roots, i)
 	}
-	order := make([]int, 0, len(entries))
-	depths := make([]int, 0, len(entries))
+	order := make([]int, 0, n)
+	depths := make([]int, 0, n)
 	seen := map[int]bool{}
 	var visit func(i, depth int)
 	visit = func(i, depth int) {
@@ -245,14 +408,14 @@ func treeOrder(entries []lifetime.Entry) ([]int, []int) {
 		}
 		seen[i] = true
 		order, depths = append(order, i), append(depths, depth)
-		for _, c := range kids[entries[i].Workspace.ID] {
+		for _, c := range kids[ids[i]] {
 			visit(c, depth+1)
 		}
 	}
 	for _, r := range roots {
 		visit(r, 0)
 	}
-	for i := range entries {
+	for i := range n {
 		visit(i, 0)
 	}
 	return order, depths
@@ -439,19 +602,23 @@ func attentionOf(info *listLoopRunJSON) loop.Attention {
 }
 
 // printList prints a table like `docker ps`, each workspace under the
-// one that started it.
-func (a *App) printList(entries []lifetime.Entry, unknown []string, loopRuns map[string]*listLoopRunJSON) {
+// one that started it. withEnv adds the ENV column after ID; a listing
+// without a remote entry has none, so its table is the same as it always was.
+func (a *App) printList(rows []listRow, withEnv bool) {
 	tw := tabwriter.NewWriter(a.stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tCREATED\tSESSION\tREPOS")
-	now := a.now()
-	order, depths := treeOrder(entries)
-	for k, i := range order {
-		ws := &entries[i].Workspace
-		name := nameText(ws.Name, ws.Hidden, attentionOf(a.cachedLoopRun(loopRuns, &entries[i])))
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", treeID(ws.ID, depths[k]), name, ago(now.Sub(ws.CreatedAt)), sessionText(entries[i].Session), reposText(ws.Repos))
+	if withEnv {
+		fmt.Fprintln(tw, "ID\tENV\tNAME\tCREATED\tSESSION\tREPOS")
+	} else {
+		fmt.Fprintln(tw, "ID\tNAME\tCREATED\tSESSION\tREPOS")
 	}
-	for _, dir := range unknown {
-		fmt.Fprintf(tw, "unknown\t-\t-\t-\t%s\n", dir)
+	for i := range rows {
+		r := &rows[i]
+		id := treeID(r.id, r.depth)
+		if withEnv {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", id, r.env, r.name, r.created, r.session, r.repos)
+			continue
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", id, r.name, r.created, r.session, r.repos)
 	}
 	_ = tw.Flush()
 }
