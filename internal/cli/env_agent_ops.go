@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/redact"
 	"github.com/bobcob7/workspaces/internal/repo"
 )
 
@@ -24,17 +27,32 @@ type agentOperations struct {
 	name      string                 // the enrolled environment's name
 	locksMu   sync.Mutex             // guards sendLocks
 	sendLocks map[string]*sync.Mutex // the send lock of each Claude Code session id
+	redactor  *redact.Redactor       // removes secrets from review.* results
 }
 
 // newAgentOperations returns the operations of the agent a, enrolled as name.
 func newAgentOperations(a *App, name string) *agentOperations {
-	o := &agentOperations{app: a, name: name}
+	o := &agentOperations{app: a, name: name, redactor: agentRedactor(a)}
 	o.newApp = func(stdout, stderr io.Writer) *App {
 		n := New(a.version, strings.NewReader(""), stdout, stderr, a.configs, a.environ)
 		n.environment = name
 		return n
 	}
 	return o
+}
+
+// agentRedactor is the redactor of a's secrets.env values and environment. A
+// secrets.env that can't be read is logged and the environment alone is used.
+func agentRedactor(a *App) *redact.Redactor {
+	log := slog.New(slog.NewJSONHandler(a.stderr, nil))
+	secrets, warnings, err := config.ReadSecrets(a.paths.Root)
+	if err != nil {
+		log.Warn("couldn't read secrets.env; redacting the environment only", "error", err)
+	}
+	for _, w := range warnings {
+		log.Warn("secrets.env", "warning", w)
+	}
+	return redact.New(redact.SecretValues(secrets, a.environ)...)
 }
 
 // Run implements envagent's operationRunner: agent.* drives the workspace's
@@ -45,6 +63,9 @@ func (o *agentOperations) Run(ctx context.Context, op string, args any) (json.Ra
 	}
 	if strings.HasPrefix(op, "agent.") {
 		return o.runAgent(ctx, op, args)
+	}
+	if strings.HasPrefix(op, "review.") {
+		return o.runReview(ctx, op, args)
 	}
 	return o.runWorkspace(ctx, op, args)
 }
