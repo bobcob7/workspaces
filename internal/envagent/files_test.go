@@ -144,6 +144,13 @@ func TestFiles_Load(t *testing.T) {
 		_, err := files.Load()
 		require.ErrorContains(t, err, "version 2")
 	})
+	t.Run("refuses a key that doesn't match cert.pem", func(t *testing.T) {
+		t.Parallel()
+		files, id := savedFiles(t)
+		require.NoError(t, files.SaveCertificate(newTestKey(t), id.Cert))
+		_, err := files.Load()
+		require.ErrorIs(t, err, errKeyMismatch)
+	})
 }
 
 func TestFiles_Save(t *testing.T) {

@@ -43,6 +43,8 @@ var (
 	ErrEnrollmentUsed = errors.New("that code was already used")
 	// ErrEnrollmentFailed is returned when the server refuses the enrollment or answers wrongly.
 	ErrEnrollmentFailed = errors.New("enrollment failed")
+	// errKeyMismatch is returned when key.pem and cert.pem are not a pair, as after an interrupted renewal.
+	errKeyMismatch = errors.New("key.pem doesn't match cert.pem; unenroll and enroll again")
 )
 
 // Identity is an enrolled agent.
@@ -109,6 +111,9 @@ func (f *Files) Load() (Identity, error) {
 	cert, err := readCert(f.path(certFileName))
 	if err != nil {
 		return Identity{}, err
+	}
+	if !key.PublicKey.Equal(cert.PublicKey) {
+		return Identity{}, errKeyMismatch
 	}
 	roots, err := f.loadRoots()
 	if err != nil {
@@ -194,6 +199,7 @@ func (f *Files) saveAgentFile(id *Identity) error {
 }
 
 // SaveCertificate replaces key.pem and cert.pem, each atomically, key first.
+// A crash between the two leaves them unpaired, which Load refuses.
 func (f *Files) SaveCertificate(key *ecdsa.PrivateKey, cert *x509.Certificate) error {
 	keyPEM, err := encodeKey(key)
 	if err != nil {
@@ -353,11 +359,11 @@ func writeFileAtomic(path string, data []byte) error {
 		return fmt.Errorf("creating temp file for %s: %w", path, err)
 	}
 	if err := writeSynced(tmp, data); err != nil {
-		_ = os.Remove(tmp.Name()) // the write failed; the temp file is only debris
+		_ = os.Remove(tmp.Name()) // the write failed; the temp file is only debris.
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name()) // the rename failed; the temp file is only debris
+		_ = os.Remove(tmp.Name()) // the rename failed; the temp file is only debris.
 		return fmt.Errorf("renaming into %s: %w", path, err)
 	}
 	return nil
@@ -366,15 +372,15 @@ func writeFileAtomic(path string, data []byte) error {
 // writeSynced sets perm, writes and syncs f, then closes it.
 func writeSynced(f *os.File, data []byte) error {
 	if err := f.Chmod(fileMode); err != nil {
-		_ = f.Close() // the chmod error is the one to report
+		_ = f.Close() // the chmod error is the one to report.
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
-		_ = f.Close() // the write error is the one to report
+		_ = f.Close() // the write error is the one to report.
 		return err
 	}
 	if err := f.Sync(); err != nil {
-		_ = f.Close() // the sync error is the one to report
+		_ = f.Close() // the sync error is the one to report.
 		return err
 	}
 	return f.Close()
