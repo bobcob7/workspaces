@@ -1,7 +1,7 @@
 # ws claude
 
 ```
-ws claude [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--json] [<spec>...] [-- <claude args>...]
+ws claude [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--env <name>] [--json] [<spec>...] [-- <claude args>...]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, then
@@ -29,6 +29,16 @@ Code, started as `ws machine spawn --runner ws` starts one (ADR 0070). It
 needs a prompt after `--`, takes only `--model` after it, and never attaches.
 The output is the same, with `runner`, `model` and `ws_runner` filled in.
 
+With `--env <name>`, the workspace and its agent are created on that
+environment (`ws env list`), by `ws` running there, not on this machine. It
+returns once the agent has started and never attaches. After `--` only a
+prompt and `--model <m>` are accepted (`usage` otherwise). `--env local` is
+the same as no `--env`. A workspace's `--parent` is an id on one
+environment: given without `--env`, a parent found only on one environment
+runs the child there; found on several, pass `--env`. The default parent
+(the workspace `ws` runs in) is dropped with a warning when `--env` names a
+remote environment.
+
 Everything before `--` is a repo spec, so the prompt must come after `--`.
 Everything after `--` goes to `claude` unchanged: the prompt, and options
 such as `--model opus` or `--permission-mode`. `--settings` is refused
@@ -55,6 +65,7 @@ Its workspace stays, even after it finishes, until the session is deleted
 | `--offline`     | Don't fetch; use the cache as it is. Uncached repos and refs fail |
 | `--hidden`      | Hide the workspace: `ws list` shows it only with `-a`, and the desktop app keeps it in a collapsed Hidden group that doesn't count as waiting for input. For helpers the user needn't follow; see `ws llm hide` |
 | `--parent <id>\|none` | The workspace this one is removed with; default: the workspace you run `ws` in, so a helper you start is yours. `none` for work meant to outlive you |
+| `--env <name>` | Run it on this environment (`ws env list`); default: local, or the parent's. See above |
 | `--runner claude\|ws` | Which agent runs it: Claude Code (the default) or `ws`'s own runner (see `ws llm machine spawn`). A `ws` agent needs a prompt and can't be attached; after the prompt only `--model <alias or id>` is accepted |
 | `--endpoint <name>` | With `--runner ws`, another endpoint from config.toml   |
 | `--json`        | Print the result as JSON                                    |
@@ -81,7 +92,12 @@ Its workspace stays, even after it finishes, until the session is deleted
 - `ref_kind`: `branch`, `tag`, or `commit`. `ref` is the default branch's
   name when the spec gave none.
 
-Without `--json`: `<id>  <session>  <path>` on one line.
+- `environment`: only with `--env` (or a parent on an environment): the
+  environment's name. The other fields are the remote's, so `path` is a
+  path on that machine.
+
+Without `--json`: `<id>  <session>  <path>` on one line, with `  (on <name>)`
+added for an environment.
 
 ## Exit codes
 
@@ -103,6 +119,13 @@ Without `--json`: `<id>  <session>  <path>` on one line.
 | Fetch or clone failed                                  | `fetch_failed`, `clone_failed`, `git_failed` | 1 |
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root; `details.directory` is the directory a person must trust | `claude_untrusted` | 1 |
+| `--env` names no environment                           | `environment_unknown` | 3 |
+| `--env` with a `--parent` found nowhere                | `workspace_not_found` | 3 |
+| `--parent` found on several environments without `--env` | `usage`          | 2    |
+| The environment is offline, or the daemon hasn't heard from it; `details.environment` | `environment_offline` | 1 |
+| The environment's `ws` is too old for the operation    | `environment_outdated` | 1  |
+| `--parent` is local or on another environment than `--env`, or a remote `--parent` with `--env local` | `environment_mismatch` | 4 |
+| An error on the environment (for example `repo_not_found`) keeps its code, with `details.environment`; a code this `ws` doesn't know is `internal` with `details.remote_code` | as the remote's | |
 | `claude` is older than 2.1.302, or `claude --bg` failed; `details.stderr` has its output | `claude_failed` | 1 |
 
 On `claude_untrusted`, tell the person to run `claude` once in

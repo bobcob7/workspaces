@@ -93,3 +93,13 @@ func TestAsCLIError(t *testing.T) {
 func TestShellExitError_Error(t *testing.T) {
 	assert.Equal(t, "the shell exited with status 3", (&shellExitError{status: 3}).Error())
 }
+
+func TestErrorCode_known(t *testing.T) {
+	t.Run("a code of ws is known", func(t *testing.T) {
+		assert.True(t, codeRepoNotFound.known())
+		assert.True(t, codeEnvironmentMismatch.known())
+	})
+	t.Run("any other code is not", func(t *testing.T) {
+		assert.False(t, errorCode("made_up").known())
+	})
+}
