@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,20 +15,44 @@ func TestProgress_Check(t *testing.T) {
 		p := Progress{Name: "build auth", Total: 5, Done: 2, Note: "writing tests"}
 		assert.NoError(t, p.Check())
 	})
+	t.Run("accepts the edges of every rule", func(t *testing.T) {
+		assert.NoError(t, (&Progress{Total: 3, Done: 3}).Check())
+		assert.NoError(t, (&Progress{Total: MaxProgressStep, Done: MaxProgressStep}).Check())
+		assert.NoError(t, (&Progress{}).Check())
+		assert.NoError(t, (&Progress{Name: strings.Repeat("x", MaxProgressName)}).Check())
+		assert.NoError(t, (&Progress{Note: strings.Repeat("x", MaxProgressNote)}).Check())
+	})
 	t.Run("refuses done above total", func(t *testing.T) {
-		p := Progress{Total: 2, Done: 3}
-		require.ErrorIs(t, p.Check(), ErrProgressInvalid)
+		err := (&Progress{Total: 2, Done: 3}).Check()
+		require.ErrorIs(t, err, ErrProgressInvalid)
+		require.ErrorContains(t, err, "more than total")
 	})
 	t.Run("refuses negative and oversized steps", func(t *testing.T) {
-		require.ErrorIs(t, (&Progress{Total: -1}).Check(), ErrProgressInvalid)
-		require.ErrorIs(t, (&Progress{Total: MaxProgressStep + 1}).Check(), ErrProgressInvalid)
-		require.ErrorIs(t, (&Progress{Total: 1, Done: -1}).Check(), ErrProgressInvalid)
+		err := (&Progress{Total: -1}).Check()
+		require.ErrorIs(t, err, ErrProgressInvalid)
+		require.ErrorContains(t, err, "total -1")
+		err = (&Progress{Total: MaxProgressStep + 1}).Check()
+		require.ErrorIs(t, err, ErrProgressInvalid)
+		require.ErrorContains(t, err, "must be 0 to")
+		err = (&Progress{Total: 1, Done: -1}).Check()
+		require.ErrorIs(t, err, ErrProgressInvalid)
+		require.ErrorContains(t, err, "negative")
 	})
-	t.Run("refuses a long or multi-line name and note", func(t *testing.T) {
-		long := string(make([]rune, MaxProgressName+1))
-		require.ErrorIs(t, (&Progress{Name: "x" + long}).Check(), ErrProgressInvalid)
-		require.ErrorIs(t, (&Progress{Name: "a\nb"}).Check(), ErrProgressInvalid)
-		require.ErrorIs(t, (&Progress{Note: "a\tb"}).Check(), ErrProgressInvalid)
+	t.Run("refuses a name or note over its length", func(t *testing.T) {
+		err := (&Progress{Name: strings.Repeat("x", MaxProgressName+1)}).Check()
+		require.ErrorIs(t, err, ErrProgressInvalid)
+		require.ErrorContains(t, err, "name is over")
+		err = (&Progress{Note: strings.Repeat("x", MaxProgressNote+1)}).Check()
+		require.ErrorIs(t, err, ErrProgressInvalid)
+		require.ErrorContains(t, err, "note is over")
+	})
+	t.Run("refuses a multi-line name and note", func(t *testing.T) {
+		err := (&Progress{Name: "a\nb"}).Check()
+		require.ErrorIs(t, err, ErrProgressInvalid)
+		require.ErrorContains(t, err, "name must be one line")
+		err = (&Progress{Note: "a\tb"}).Check()
+		require.ErrorIs(t, err, ErrProgressInvalid)
+		require.ErrorContains(t, err, "note must be one line")
 	})
 }
 
