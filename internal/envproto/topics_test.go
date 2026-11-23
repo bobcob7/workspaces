@@ -30,11 +30,18 @@ func TestParseTopic(t *testing.T) {
 			"ws/v1/env/env-1a2b3c4d",
 			"ws/v1/env/env-1a2b3c4d/",
 			"ws/v1/env/env-1a2b3c4d//status",
+			"ws/v1/env/env-1a2b3c4d.t/status",
 			"",
 		} {
 			_, _, ok := ParseTopic(topic)
 			assert.False(t, ok, topic)
 		}
+	})
+}
+
+func TestStreamClientID(t *testing.T) {
+	t.Run("appends .t to the id", func(t *testing.T) {
+		assert.Equal(t, "env-1a2b3c4d.t", StreamClientID("env-1a2b3c4d"))
 	})
 }
 

@@ -30,6 +30,8 @@ type ConnectOptions struct {
 	KeepAlive time.Duration
 	Will      *Message
 	WillDelay time.Duration
+	// WriteBuffer is the socket send buffer in bytes; 0 keeps the OS default (D14).
+	WriteBuffer int
 }
 
 // Peer is a connected client as its verified certificate names it.
