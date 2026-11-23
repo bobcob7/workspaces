@@ -1,4 +1,20 @@
 // Package redact removes secrets from text an environment agent returns (ADR 0078).
+//
+// Findings for ADR 0078. Redaction is best-effort. It catches literal exact
+// values of at least 8 bytes and eight token formats: gh[pousr]_, github_pat_,
+// sk-ant-, glpat-, xox[abprs]-, AKIA, PEM private keys, and Authorization
+// bearer or token headers. It does NOT catch encoded, split or unknown-format
+// secrets. Base64 and URL-encoded forms of a secret, a token split across two
+// strings, JWTs, Google API keys, npm and GitLab runner tokens, Slack xapp-
+// tokens, AWS secret access keys, Basic authorization, JSON-quoted headers, URL
+// userinfo, .netrc passwords and TOKEN= or password: forms all pass through.
+//
+// String works on one string at a time, so callers redact whole result strings,
+// never stream pieces. A ghp_ token followed by more than 255 characters keeps
+// its tail. An exact value that is a substring of an ordinary word also replaces
+// that word in reports. The real control is that no secret travels over MQTT by
+// design: secrets are never put in a result on purpose, and remote results must
+// be treated as potentially sensitive.
 package redact
 
 import (
