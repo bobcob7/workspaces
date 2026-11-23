@@ -129,7 +129,7 @@ func (r *runningAgent) stop() error {
 
 // newFixtureAgent is an agent over the fixture's files with a real broker client.
 func newFixtureAgent(fx *agentFixture, opts Options, snapshots string) *Agent { //nolint:gocritic // hugeParam: Options is passed by value, as NewAgent takes it.
-	return NewAgent(discardLog(), fx.files, fx.broker.NewClient(), testSnapshots(snapshots), testProbe(), rand.Reader, opts)
+	return NewAgent(discardLog(), fx.files, fx.broker.NewClient(), testSnapshots(snapshots), testProbe(), NoOperations{}, rand.Reader, opts)
 }
 
 // manualRenewCheck is a RenewCheck no other timer uses, so manualRenewal can tell its timer.
@@ -239,7 +239,7 @@ func TestAgent_Run(t *testing.T) {
 			waits = append(waits, d)
 			return time.After(d)
 		}
-		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), rand.Reader, opts)
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), NoOperations{}, rand.Reader, opts)
 		require.NoError(t, agent.Run(ctx))
 		require.Len(t, client.ConnectCalls(), 9)
 		require.GreaterOrEqual(t, len(waits), 8)
@@ -310,7 +310,7 @@ func TestAgent_Run(t *testing.T) {
 		})
 		opts := testOptions()
 		opts.RequestTimeout = 50 * time.Millisecond
-		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), rand.Reader, opts)
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), NoOperations{}, rand.Reader, opts)
 		run := runAgent(t, agent)
 		require.Eventually(t, func() bool { return len(client.ConnectCalls()) == 1 }, 5*time.Second, 10*time.Millisecond)
 		run.cancel()
@@ -330,12 +330,15 @@ func TestAgent_Run(t *testing.T) {
 			recorder.add(&msg)
 			return nil
 		})
-		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("null"), testProbe(), rand.Reader, testOptions())
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("null"), testProbe(), NoOperations{}, rand.Reader, testOptions())
 		runAgent(t, agent)
 		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
 		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) > 0 }, 5*time.Second, 10*time.Millisecond)
+		payload := recorder.on(snapshot)[0].Payload
 		var got envproto.Snapshot
-		require.NoError(t, json.Unmarshal(recorder.on(snapshot)[0].Payload, &got))
+		require.NoError(t, json.Unmarshal(payload, &got))
 		assert.JSONEq(t, "[]", string(got.Workspaces))
+		assert.Equal(t, envproto.Protocol, got.Protocol)
+		assert.Contains(t, string(payload), `"agents":[]`)
 	})
 }

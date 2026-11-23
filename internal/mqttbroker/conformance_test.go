@@ -129,7 +129,7 @@ func runAgent(t *testing.T, e *enrolled, mutate func(*envagent.Options)) {
 	if mutate != nil {
 		mutate(&opts)
 	}
-	agent := envagent.NewAgent(discardLog(), e.files, mqttclient.New(discardLog()), emptySnapshots{}, noClaude{}, rand.Reader, opts)
+	agent := envagent.NewAgent(discardLog(), e.files, mqttclient.New(discardLog()), emptySnapshots{}, noClaude{}, envagent.NoOperations{}, rand.Reader, opts)
 	ctx, cancel := context.WithCancel(t.Context())
 	var wg sync.WaitGroup
 	wg.Go(func() { assert.NoError(t, agent.Run(ctx)) })

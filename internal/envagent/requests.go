@@ -10,17 +10,13 @@ import (
 )
 
 // handle routes a message from env/<id>/req. A reply goes to the request
-// waiting for it; anything else is a request, answered on its response topic.
+// waiting for it; anything else is a request, dispatched to be answered on its
+// response topic.
 func (a *Agent) handle(ctx context.Context, id *Identity, msg *envproto.Message) {
 	if a.deliverReply(msg) {
 		return
 	}
-	var req envproto.Request
-	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		a.reply(ctx, id, msg, envproto.ErrorReply("usage", "malformed request"))
-		return
-	}
-	a.reply(ctx, id, msg, a.answer(ctx, id, req))
+	a.dispatch(ctx, id, msg)
 }
 
 // deliverReply hands msg to the request it answers, reporting whether one was waiting.
@@ -37,15 +33,6 @@ func (a *Agent) deliverReply(msg *envproto.Message) bool {
 	default:
 	}
 	return true
-}
-
-// answer runs req and returns its reply. Only ca.update is an operation the
-// controller sends the agent.
-func (a *Agent) answer(ctx context.Context, id *Identity, req envproto.Request) []byte {
-	if req.Op != envproto.OpCAUpdate {
-		return envproto.ErrorReply("usage", "unknown operation "+req.Op)
-	}
-	return a.updateRoots(ctx, id, req.Args)
 }
 
 // updateRoots saves the roots in args, updates id, and republishes the hello
@@ -106,6 +93,7 @@ func (a *Agent) hello(ctx context.Context, id *Identity) envproto.Hello {
 	return envproto.Hello{
 		Status:         envproto.StatusOnline,
 		At:             a.opts.Now().UTC(),
+		Protocol:       envproto.Protocol,
 		WSVersion:      a.opts.Version,
 		OS:             runtime.GOOS,
 		Arch:           runtime.GOARCH,

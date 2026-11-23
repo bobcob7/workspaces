@@ -393,3 +393,81 @@ func (mock *claudeProbeMock) ProbeCalls() []struct {
 	mock.lockProbe.RUnlock()
 	return calls
 }
+
+// Ensure, that operationRunnerMock does implement operationRunner.
+// If this is not the case, regenerate this file with moq.
+var _ operationRunner = &operationRunnerMock{}
+
+// operationRunnerMock is a mock implementation of operationRunner.
+//
+//	func TestSomethingThatUsesoperationRunner(t *testing.T) {
+//
+//		// make and configure a mocked operationRunner
+//		mockedoperationRunner := &operationRunnerMock{
+//			RunFunc: func(ctx context.Context, op string, args any) (json.RawMessage, error) {
+//				panic("mock out the Run method")
+//			},
+//		}
+//
+//		// use mockedoperationRunner in code that requires operationRunner
+//		// and then make assertions.
+//
+//	}
+type operationRunnerMock struct {
+	// RunFunc mocks the Run method.
+	RunFunc func(ctx context.Context, op string, args any) (json.RawMessage, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Run holds details about calls to the Run method.
+		Run []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Op is the op argument value.
+			Op string
+			// Args is the args argument value.
+			Args any
+		}
+	}
+	lockRun sync.RWMutex
+}
+
+// Run calls RunFunc.
+func (mock *operationRunnerMock) Run(ctx context.Context, op string, args any) (json.RawMessage, error) {
+	if mock.RunFunc == nil {
+		panic("operationRunnerMock.RunFunc: method is nil but operationRunner.Run was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Op   string
+		Args any
+	}{
+		Ctx:  ctx,
+		Op:   op,
+		Args: args,
+	}
+	mock.lockRun.Lock()
+	mock.calls.Run = append(mock.calls.Run, callInfo)
+	mock.lockRun.Unlock()
+	return mock.RunFunc(ctx, op, args)
+}
+
+// RunCalls gets all the calls that were made to Run.
+// Check the length with:
+//
+//	len(mockedoperationRunner.RunCalls())
+func (mock *operationRunnerMock) RunCalls() []struct {
+	Ctx  context.Context
+	Op   string
+	Args any
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Op   string
+		Args any
+	}
+	mock.lockRun.RLock()
+	calls = mock.calls.Run
+	mock.lockRun.RUnlock()
+	return calls
+}
