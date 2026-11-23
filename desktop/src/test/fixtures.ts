@@ -59,6 +59,8 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   runner: "claude",
   model: null,
   wsRunner: null,
+  progress: null,
+  rollup: null,
   ...overrides,
 });
 

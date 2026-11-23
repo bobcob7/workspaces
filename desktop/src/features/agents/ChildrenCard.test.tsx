@@ -63,4 +63,25 @@ describe("ChildrenCard", () => {
     renderWithStore(<ChildrenCard entry={root} />, loadedWith([]));
     expect(screen.queryByRole("region", { name: "Started from this workspace" })).not.toBeInTheDocument();
   });
+
+  it("names a child's bar by its progress name, else by the child's name", () => {
+    const named = entry({ key: "a", workspaceId: "a", name: "a-impl", parentId: "root", rollup: { total: 3, done: 1, fraction: 0.3333 }, progress: { name: "token bucket", total: 3, done: 1, note: null, updatedAt: null } });
+    const bare = entry({ key: "b", workspaceId: "b", name: "b-impl", parentId: "root", rollup: { total: 1, done: 0, fraction: 0 } });
+    renderWithStore(<ChildrenCard entry={root} />, loadedWith([named, bare]));
+    expect(screen.getByRole("progressbar", { name: "token bucket progress" })).toHaveAttribute("aria-valuenow", "1");
+    expect(screen.getByRole("progressbar", { name: "b-impl progress" })).toHaveAttribute("aria-valuemax", "1");
+  });
+
+  it("draws a child without a rollup with no bar", () => {
+    renderWithStore(<ChildrenCard entry={root} />, loadedWith(childrenNamed(["a"])));
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("draws a failed child's bar in the error colour and the rest in the primary colour", () => {
+    const failed = entry({ key: "f", workspaceId: "f", name: "f-review", parentId: "root", result: "CHANGES_REQUESTED", rollup: { total: 1, done: 0, fraction: 0 } });
+    const passing = entry({ key: "p", workspaceId: "p", name: "p-impl", parentId: "root", rollup: { total: 1, done: 1, fraction: 1 } });
+    renderWithStore(<ChildrenCard entry={root} />, loadedWith([failed, passing]));
+    expect(screen.getByRole("progressbar", { name: "f-review progress" })).toHaveClass("MuiLinearProgress-colorError");
+    expect(screen.getByRole("progressbar", { name: "p-impl progress" })).toHaveClass("MuiLinearProgress-colorPrimary");
+  });
 });

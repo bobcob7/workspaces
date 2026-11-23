@@ -35,6 +35,7 @@ import { agentViewChosen, sectionChosen, selected, type AgentView } from "../ui/
 import { editorDir, openWorkspace, renameEntry, setEntryHidden, stopAgent } from "./agentsSlice";
 import { ChildrenCard } from "./ChildrenCard";
 import { RemoveDialog } from "./RemoveDialog";
+import { RootProgress } from "./RootProgress";
 import { isLive } from "./status";
 import { RunCard } from "./RunCard";
 import { isRunnerRunning, modelTooltip, stepLabel, tokensLine } from "./runner";
@@ -489,6 +490,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
         )}
         </div>
       </header>
+      <RootProgress entry={entry} />
       <ChildrenCard entry={entry} />
       {run !== null && <RunCard entry={entry} run={run} />}
       {shellShown && dirTerminal !== undefined ? (

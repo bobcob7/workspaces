@@ -48,8 +48,15 @@
     runner: overrides.kind === "shell" ? "" : "claude",
     model: overrides.kind === "shell" ? null : "sonnet-5-5",
     wsRunner: null,
+    progress: null,
+    rollup: leafRollup(false),
     ...overrides,
   });
+
+  /** A workspace with no step record counts as one step, done if it passed (ws progress). */
+  function leafRollup(done) {
+    return { total: 1, done: done ? 1 : 0, fraction: done ? 1 : 0 };
+  }
 
   const wsRun = (overrides) => ({
     modelAlias: "qwen9b-think",
@@ -610,6 +617,8 @@
         status: "needsInput",
         intent: "Fix the login rate limit",
         updatedAt: "2026-10-24T09:40:00Z",
+        progress: { name: "fix login", total: 4, done: 1, note: null, updatedAt: "2026-10-24T09:00:00Z" },
+        rollup: { total: 12, done: 3, fraction: 0.25 },
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
       }),
       entry({
@@ -643,6 +652,8 @@
         status: "working",
         intent: "Implement T1: token bucket",
         updatedAt: "2026-10-24T09:35:00Z",
+        progress: { name: "token bucket", total: 3, done: 1, note: "tests", updatedAt: "2026-10-24T09:35:00Z" },
+        rollup: { total: 4, done: 1, fraction: 0.25 },
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
       }),
       entry({
@@ -653,6 +664,7 @@
         status: "needsInput",
         intent: "Write rate limit tests",
         updatedAt: "2026-10-24T09:32:00Z",
+        rollup: leafRollup(false),
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
       }),
       entry({
@@ -663,7 +675,9 @@
         path: "/w/fix-login-t1-review-6d0a4f21",
         status: "done",
         intent: "Review T1",
+        result: "FAIL",
         updatedAt: "2026-10-24T09:20:00Z",
+        rollup: leafRollup(false),
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
       }),
       entry({
@@ -674,6 +688,7 @@
         status: "working",
         intent: "Implement T2: login throttle",
         updatedAt: "2026-10-24T09:38:00Z",
+        rollup: leafRollup(false),
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
         runner: "ws",
         model: "qwen/qwen3.5-9b",
@@ -688,6 +703,7 @@
         intent: "Verify T2",
         result: "PASS",
         updatedAt: "2026-10-24T09:10:00Z",
+        rollup: leafRollup(true),
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
         runner: "ws",
         model: "qwen/qwen3.5-9b",
@@ -702,6 +718,7 @@
         hidden: true,
         intent: "Review pull request #42",
         updatedAt: "2026-10-24T09:25:00Z",
+        rollup: leafRollup(false),
         repos: [repo(buffBear, "buff-bear", "main", "branch")],
       }),
       entry({

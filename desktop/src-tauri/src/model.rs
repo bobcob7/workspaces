@@ -40,6 +40,35 @@ pub struct WsWorkspace {
     /// The loop run this workspace is, with what it asks of a person (ADR 0057).
     #[serde(default)]
     pub loop_run: Option<WsLoopRun>,
+    /// The workspace's own step record, null without one (ADR 0077).
+    #[serde(default)]
+    pub progress: Option<WsProgress>,
+    /// Its steps plus its descendants', null when there are none (ADR 0077).
+    #[serde(default)]
+    pub rollup: Option<WsRollup>,
+}
+
+/// A workspace's `progress` from `ws list` (ADR 0077).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct WsProgress {
+    #[serde(default)]
+    pub name: Option<String>,
+    pub total: u64,
+    pub done: u64,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// A workspace's `rollup` from `ws list`: its steps and its descendants' (ADR 0077).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct WsRollup {
+    pub total: u64,
+    pub done: u64,
+    pub fraction: f64,
 }
 
 /// A loop run's `loop_run` from `ws list` (ADR 0057).
@@ -239,6 +268,10 @@ pub struct Entry {
     pub model: Option<String>,
     /// A `ws` runner's progress and endpoint.
     pub ws_runner: Option<WsRunner>,
+    /// The workspace's own step record (ADR 0077).
+    pub progress: Option<WsProgress>,
+    /// The steps of the workspace and its descendants (ADR 0077).
+    pub rollup: Option<WsRollup>,
 }
 
 /// The model id shown for an agent: `claude-sonnet-5-5` reads `sonnet-5-5`.
@@ -358,6 +391,8 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         runner,
         model,
         ws_runner,
+        progress: ws.progress,
+        rollup: ws.rollup,
     }
 }
 
@@ -395,6 +430,8 @@ fn session_entry(agent: &ClaudeAgent, id: &str, job: Option<JobState>, now_ms: i
         runner: "claude".to_string(),
         model: None,
         ws_runner: None,
+        progress: None,
+        rollup: None,
     }
 }
 
@@ -694,6 +731,48 @@ mod tests {
         assert_eq!(runner.model_alias.as_deref(), Some("qwen9b"));
         assert_eq!((runner.step, runner.max_steps), (Some(12), Some(80)));
         assert_eq!(runner.mcp[0].loaded, 3);
+    }
+
+    #[test]
+    fn merge_reads_progress_and_rollup() {
+        let list = ws_list(
+            r#"{"workspaces":[{"id":"orch-d8efb24f","path":"/w/orch",
+            "progress":{"name":"build auth","total":4,"done":1,"note":"tests","updated_at":"2026-11-22T20:00:00Z"},
+            "rollup":{"total":7,"done":3,"fraction":0.4286}}],"warnings":[]}"#,
+        );
+        let entries = merge(Some(list), &[], &|_| None, NOW);
+        let e = &entries[0];
+        let progress = e.progress.as_ref().expect("a progress record");
+        assert_eq!(progress.name.as_deref(), Some("build auth"));
+        assert_eq!((progress.total, progress.done), (4, 1));
+        assert_eq!(progress.note.as_deref(), Some("tests"));
+        assert_eq!(progress.updated_at.as_deref(), Some("2026-11-22T20:00:00Z"));
+        let rollup = e.rollup.as_ref().expect("a rollup");
+        assert_eq!((rollup.total, rollup.done), (7, 3));
+        assert!((rollup.fraction - 0.4286).abs() < 1e-9);
+    }
+
+    #[test]
+    fn merge_reads_missing_progress_and_rollup_as_none() {
+        let entries = merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW);
+        assert_eq!(entries[0].progress, None);
+        assert_eq!(entries[0].rollup, None);
+    }
+
+    #[test]
+    fn merge_reads_a_null_progress_name_and_note() {
+        let list = ws_list(
+            r#"{"workspaces":[{"id":"t1-d8efb24f","path":"/w/t1",
+            "progress":{"name":null,"total":2,"done":0,"note":null,"updated_at":null},
+            "rollup":null}],"warnings":[]}"#,
+        );
+        let entries = merge(Some(list), &[], &|_| None, NOW);
+        let progress = entries[0].progress.as_ref().expect("a progress record");
+        assert_eq!(
+            (progress.name.as_deref(), progress.note.as_deref()),
+            (None, None)
+        );
+        assert_eq!(entries[0].rollup, None);
     }
 
     #[test]
