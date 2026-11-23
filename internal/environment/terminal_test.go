@@ -38,8 +38,10 @@ type termFixture struct {
 	tickEvery atomic.Int64
 	// afterOpen runs in the agent's handler right after it published the open reply.
 	afterOpen func()
-	other     *envtest.Client
-	otherID   string
+	// silentClose makes the agent record terminal.close but never answer it.
+	silentClose atomic.Bool
+	other       *envtest.Client
+	otherID     string
 }
 
 func newTermFixture(t *testing.T) *termFixture {
@@ -75,6 +77,9 @@ func (f *termFixture) answer(t *testing.T) func(envproto.Message) {
 		f.ops = append(f.ops, req.Op)
 		override := f.openReply
 		f.mu.Unlock()
+		if req.Op == envproto.OpTerminalClose && f.silentClose.Load() {
+			return
+		}
 		reply := envproto.Reply{OK: true, Result: mustJSON(t, envproto.TerminalCloseResult{SID: testSID, Closed: true})}
 		if req.Op == envproto.OpTerminalOpen {
 			reply = envproto.Reply{OK: true, Result: mustJSON(t, envproto.TerminalOpenResult{SID: testSID})}

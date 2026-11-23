@@ -13,8 +13,8 @@ import (
 	"github.com/bobcob7/workspaces/internal/envproto"
 )
 
-// abandonedCloseWait bounds the close sent for a terminal OpenTerminal abandoned.
-const abandonedCloseWait = 5 * time.Second
+// defaultAbandonedCloseWait bounds the close sent for a terminal OpenTerminal abandoned.
+const defaultAbandonedCloseWait = 5 * time.Second
 
 // ErrTerminalEnded is returned for input to a terminal that has ended.
 var ErrTerminalEnded = errors.New("the terminal has ended")
@@ -110,7 +110,7 @@ func (c *Controller) OpenTerminal(ctx context.Context, name string, args envprot
 // closeAbandoned asks the agent, best effort, to close a terminal it opened
 // but whose open call ended without handing it to the caller.
 func (c *Controller) closeAbandoned(parent context.Context, name, sid string) {
-	ctx, cancel := context.WithTimeout(parent, abandonedCloseWait)
+	ctx, cancel := context.WithTimeout(parent, c.abandonedCloseWait)
 	defer cancel()
 	raw, err := json.Marshal(envproto.TerminalCloseArgs{SID: sid})
 	if err != nil {

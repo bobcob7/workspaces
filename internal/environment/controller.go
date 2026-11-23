@@ -80,6 +80,8 @@ type Controller struct {
 	enrollTimeout time.Duration
 	// callGrace is how long after its deadline a call still waits for a reply.
 	callGrace time.Duration
+	// abandonedCloseWait bounds the close sent for a terminal OpenTerminal abandoned.
+	abandonedCloseWait time.Duration
 	// newTicker returns a channel that ticks every d and a func that stops it.
 	newTicker func(d time.Duration) (<-chan time.Time, func())
 
@@ -108,18 +110,19 @@ type Controller struct {
 // effects.
 func NewController(log *slog.Logger, store *Store, b broker, settings Settings, now func() time.Time) *Controller {
 	c := &Controller{
-		log:           log,
-		store:         store,
-		broker:        b,
-		settings:      settings,
-		now:           now,
-		presence:      map[string]heard{},
-		calls:         map[string]*pendingCall{},
-		updates:       map[string]string{},
-		terminals:     map[termKey]*Terminal{},
-		newTicker:     realTicker,
-		enrollTimeout: enrollReadTimeout,
-		callGrace:     envproto.Grace,
+		log:                log,
+		store:              store,
+		broker:             b,
+		settings:           settings,
+		now:                now,
+		presence:           map[string]heard{},
+		calls:              map[string]*pendingCall{},
+		updates:            map[string]string{},
+		terminals:          map[termKey]*Terminal{},
+		newTicker:          realTicker,
+		enrollTimeout:      enrollReadTimeout,
+		callGrace:          envproto.Grace,
+		abandonedCloseWait: defaultAbandonedCloseWait,
 	}
 	c.policy = &policy{store: store, trust: c.currentTrust}
 	return c

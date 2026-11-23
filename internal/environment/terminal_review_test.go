@@ -3,6 +3,8 @@ package environment
 import (
 	"bytes"
 	"context"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +32,12 @@ func (t *Terminal) queueLen() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return len(t.queue)
+}
+
+func (t *Terminal) seen() uint64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.lastSeq
 }
 
 func TestController_deliver(t *testing.T) {
@@ -193,5 +201,87 @@ func TestTerminal_Hardening(t *testing.T) {
 			return n > closes
 		}, termWait, time.Millisecond)
 		assert.Zero(t, f.c.terminalCount())
+	})
+	t.Run("gaps inside the window arm one trailing redraw, and it opens a new window", func(t *testing.T) {
+		f := newTermFixture(t)
+		term := f.open(t)
+		f.data(t, 2, "b")
+		awaitFrames(t, f, envproto.FrameRedraw, 1)
+		f.clock.Add(int64(envproto.RedrawEvery / 2))
+		f.data(t, 4, "d")
+		require.Eventually(t, func() bool { return term.seen() >= 4 }, termWait, time.Millisecond)
+		time.Sleep(termQuietWait)
+		f.data(t, 6, "f")
+		f.data(t, 8, "h")
+		require.Eventually(t, func() bool { return term.seen() >= 8 }, termWait, time.Millisecond)
+		f.clock.Add(int64(envproto.RedrawEvery * 7 / 10))
+		awaitFrames(t, f, envproto.FrameRedraw, 2)
+		assert.Never(t, func() bool { return len(f.sentKinds(envproto.FrameRedraw)) > 2 }, 3*termQuietWait, time.Millisecond, "one timer is armed for the whole window")
+		f.data(t, 10, "j")
+		require.Eventually(t, func() bool { return term.seen() >= 10 }, termWait, time.Millisecond)
+		assert.Never(t, func() bool { return len(f.sentKinds(envproto.FrameRedraw)) > 2 }, termQuietWait, time.Millisecond, "the trailing redraw starts a new window")
+		require.NoError(t, term.Close(t.Context()))
+	})
+	t.Run("an open that is not registered is not closed on the agent", func(t *testing.T) {
+		unusable := envproto.Reply{OK: true, Result: mustJSON(t, envproto.TerminalOpenResult{SID: "x"})}
+		for name, reply := range map[string]*envproto.Reply{"the sid is taken": nil, "the sid is unusable": &unusable} {
+			t.Run(name, func(t *testing.T) {
+				f := newTermFixture(t)
+				if reply == nil {
+					f.open(t)
+				} else {
+					f.openReply = reply
+				}
+				ended := false
+				for range 200 {
+					ctx, cancel := context.WithCancel(t.Context())
+					f.afterOpen = cancel
+					_, _, err := f.c.OpenTerminal(ctx, "linux-server", attachArgs())
+					require.Error(t, err)
+					if !strings.Contains(err.Error(), "usable terminal id") {
+						ended = true
+						break
+					}
+				}
+				require.True(t, ended, "the open call never ended in error after the reply")
+				assert.Never(t, func() bool { return slices.Contains(f.sentOps(), envproto.OpTerminalClose) }, termQuietWait, time.Millisecond)
+			})
+		}
+	})
+	t.Run("closing the controller drops output nobody reads and stops the goroutines", func(t *testing.T) {
+		f := newTermFixture(t)
+		term := f.open(t)
+		for seq := uint64(1); seq <= 3; seq++ {
+			f.data(t, seq, "unread")
+		}
+		require.Eventually(t, func() bool { return term.queueLen() >= 2 }, termWait, time.Millisecond)
+		require.NoError(t, f.c.Close())
+		stoppedWithin(t, term)
+		closedWithin(t, term)
+		assert.Equal(t, "disconnected", term.Exit().Reason)
+	})
+	t.Run("the close of an abandoned terminal is bounded when the agent never answers", func(t *testing.T) {
+		f := newTermFixture(t)
+		f.c.abandonedCloseWait = 20 * time.Millisecond
+		f.silentClose.Store(true)
+		abandoned := false
+		for range 200 {
+			ctx, cancel := context.WithCancel(t.Context())
+			f.afterOpen = cancel
+			term, _, err := f.c.OpenTerminal(ctx, "linux-server", attachArgs())
+			if err == nil {
+				require.NoError(t, term.Close(t.Context()))
+				continue
+			}
+			abandoned = true
+			break
+		}
+		require.True(t, abandoned, "the open call never ended with the reply registered")
+		require.Eventually(t, func() bool { return slices.Contains(f.sentOps(), envproto.OpTerminalClose) }, termWait, time.Millisecond)
+		require.Eventually(t, func() bool {
+			f.c.mu.Lock()
+			defer f.c.mu.Unlock()
+			return len(f.c.calls) == 0
+		}, termWait, time.Millisecond, "the abandoned close was left waiting for the agent")
 	})
 }
