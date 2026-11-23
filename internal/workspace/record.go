@@ -26,6 +26,9 @@ const (
 	// hidden or not, so an older ws never removes a parent without its
 	// children (ADR 0044).
 	parentVersion = 3
+	// environmentVersion is the version of a workspace.toml with an
+	// environment, so an older ws leaves a remote's workspace alone (ADR 0072).
+	environmentVersion = 4
 )
 
 // Workspace is a workspace's state/<id>/workspace.toml (ADR 0012).
@@ -43,7 +46,11 @@ type Workspace struct {
 	// Parent is the id of the workspace this one was started from; its
 	// removal removes this one first (ADR 0044). Empty for a root.
 	Parent string `toml:"parent,omitempty"`
-	Repos  []Repo `toml:"repos"`
+	// Environment is the environment this workspace was created for, set
+	// only by an environment agent and inherited by children (ADR 0072, D2).
+	// Empty for a workspace a person made on this machine.
+	Environment string `toml:"environment,omitempty"`
+	Repos       []Repo `toml:"repos"`
 }
 
 // Repo is one repo checked out in a workspace.
@@ -107,7 +114,7 @@ func readRecord(path string) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if err := checkVersion(ws.Version, parentVersion); err != nil {
+	if err := checkVersion(ws.Version, environmentVersion); err != nil {
 		return Workspace{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
@@ -140,6 +147,8 @@ func checkVersion(version, newest int) error {
 // its fields (ADRs 0043, 0044).
 func writeRecord(path string, ws *Workspace) error {
 	switch {
+	case ws.Environment != "":
+		ws.Version = environmentVersion
 	case ws.Parent != "":
 		ws.Version = parentVersion
 	case ws.Hidden:
