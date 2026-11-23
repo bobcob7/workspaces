@@ -475,7 +475,10 @@ mod tests {
         assert_eq!(content.size, 2);
         assert_eq!(content.data_base64, "aGk=");
         assert_eq!(
-            read_file(&dir, "cat_args").lines().map(str::to_string).collect::<Vec<_>>(),
+            read_file(&dir, "cat_args")
+                .lines()
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
             strings(&["artifact", "cat", "art-1a2b3c4d", "--rev", "1"])
         );
     }

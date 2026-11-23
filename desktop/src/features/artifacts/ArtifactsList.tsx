@@ -3,9 +3,18 @@ import { useEffect, useState } from "react";
 import type { ArtifactSummary } from "../../api";
 import { age, formatSize } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
-import { artifactFilterChosen, artifactSearchChanged, artifactSelected, uploadArtifacts, type ArtifactFilter } from "./artifactsSlice";
+import {
+  artifactFilterChosen,
+  artifactSearchChanged,
+  artifactSelected,
+  loadArtifacts,
+  uploadArtifacts,
+  type ArtifactFilter,
+} from "./artifactsSlice";
 import styles from "./ArtifactsList.module.css";
 import { imagesFromClipboard } from "./upload";
+
+const artifactsPollInterval = 10_000;
 
 const filters: readonly { readonly value: ArtifactFilter; readonly label: string }[] = [
   { value: "all", label: "All" },
@@ -52,6 +61,12 @@ export const ArtifactsList = (): JSX.Element => {
   const error = useAppSelector((s) => s.artifacts.error);
   const [dragging, setDragging] = useState(false);
   const shown = visibleArtifacts(items, filter, search);
+
+  useEffect(() => {
+    void dispatch(loadArtifacts());
+    const timer = window.setInterval(() => void dispatch(loadArtifacts()), artifactsPollInterval);
+    return () => window.clearInterval(timer);
+  }, [dispatch]);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent): void => {

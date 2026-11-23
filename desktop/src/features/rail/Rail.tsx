@@ -93,7 +93,7 @@ export const shownSections: readonly Section[] = ["agents", "repos", "reviews", 
 /** Settings sits apart, at the bottom of the rail. */
 const bottomSections: ReadonlySet<Section> = new Set(["settings"]);
 
-/** The section ⌘<key> chooses, if that key is ⌘1–⌘6 and its section is shown. */
+/** The section ⌘<key> chooses, if that key is ⌘1–⌘7 and its section is shown. */
 export const shortcutSection = (event: Pick<KeyboardEvent, "key" | "metaKey" | "altKey" | "shiftKey" | "ctrlKey">): Section | null => {
   if (!event.metaKey || event.altKey || event.shiftKey || event.ctrlKey) {
     return null;

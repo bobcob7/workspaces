@@ -6,7 +6,6 @@ import { fakeApi, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { ArtifactsActions } from "./ArtifactsActions";
 import { ArtifactsList, visibleArtifacts } from "./ArtifactsList";
-import { loadArtifacts } from "./artifactsSlice";
 
 const summary = (overrides: Partial<ArtifactSummary>): ArtifactSummary => ({
   id: "art-00000001",
@@ -36,9 +35,8 @@ const pitch = summary({
 });
 const log = summary({ id: "art-00000003", name: "build.log", kind: "text", contentType: "text/plain" });
 
-const renderList = async (items: readonly ArtifactSummary[], extra: Parameters<typeof fakeApi>[0] = {}) => {
+const renderList = (items: readonly ArtifactSummary[], extra: Parameters<typeof fakeApi>[0] = {}) => {
   const store = testStore({ api: fakeApi({ artifactList: vi.fn(async () => items), ...extra }) });
-  await store.dispatch(loadArtifacts());
   renderWithStore(
     <>
       <ArtifactsActions />
@@ -68,15 +66,26 @@ describe("visibleArtifacts", () => {
 });
 
 describe("ArtifactsList", () => {
+  it("loads the list when it opens, with the store empty", async () => {
+    const artifactList = vi.fn(async () => [pitch, login]);
+    const store = testStore({ api: fakeApi({ artifactList }) });
+    renderWithStore(<ArtifactsList />, store);
+    expect(store.getState().artifacts.items).toEqual([]);
+    expect(await screen.findByRole("button", { name: /Pitch: cache sharing/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /login-error.png/ })).toBeInTheDocument();
+    expect(artifactList).toHaveBeenCalledWith(null, null);
+  });
+
   it("shows each artifact by its title, with its kind, revision and threads", async () => {
-    await renderList([login, pitch]);
-    expect(screen.getByRole("button", { name: /Pitch: cache sharing/ })).toHaveTextContent("r2");
+    renderList([login, pitch]);
+    expect(await screen.findByRole("button", { name: /Pitch: cache sharing/ })).toHaveTextContent("r2");
     expect(screen.getByRole("button", { name: /Pitch: cache sharing/ })).toHaveTextContent("2 open · 1 det.");
     expect(screen.getByRole("button", { name: /login-error.png/ })).toHaveTextContent("you");
   });
 
   it("filters by kind when a chip is chosen", async () => {
-    const store = await renderList([login, pitch, log]);
+    const store = renderList([login, pitch, log]);
+    await screen.findByRole("button", { name: /build.log/ });
     await userEvent.click(screen.getByRole("button", { name: "Text" }));
     expect(store.getState().artifacts.filter).toBe("text");
     expect(screen.getByRole("list", { name: "Artifacts" })).toHaveTextContent("build.log");
@@ -84,14 +93,15 @@ describe("ArtifactsList", () => {
   });
 
   it("selects a row when it is clicked", async () => {
-    const store = await renderList([pitch]);
-    await userEvent.click(screen.getByRole("button", { name: /Pitch: cache sharing/ }));
+    const store = renderList([pitch]);
+    await userEvent.click(await screen.findByRole("button", { name: /Pitch: cache sharing/ }));
     expect(store.getState().artifacts.selected).toBe("art-00000001");
   });
 
   it("uploads files dropped on the list and selects the one made last", async () => {
     const artifactAdd = vi.fn(async () => asArtifact(pitch));
-    const store = await renderList([], { artifactAdd, artifactList: vi.fn(async () => [pitch]) });
+    const store = renderList([], { artifactAdd, artifactList: vi.fn(async () => [pitch]) });
+    await screen.findByRole("button", { name: /Pitch: cache sharing/ });
     const file = new File(["# Pitch"], "pitch.md", { type: "text/markdown" });
     fireEvent.drop(screen.getByRole("list", { name: "Artifacts" }).closest("div") as HTMLElement, {
       dataTransfer: { files: [file], types: ["Files"] },
@@ -102,7 +112,8 @@ describe("ArtifactsList", () => {
 
   it("uploads an image pasted anywhere in the section", async () => {
     const artifactAdd = vi.fn(async () => asArtifact(login));
-    const store = await renderList([], { artifactAdd, artifactList: vi.fn(async () => [login]) });
+    const store = renderList([], { artifactAdd, artifactList: vi.fn(async () => [login]) });
+    await screen.findByRole("button", { name: /login-error.png/ });
     const paste = new Event("paste") as ClipboardEvent;
     const image = new File(["png"], "", { type: "image/png" });
     Object.defineProperty(paste, "clipboardData", {
@@ -116,7 +127,8 @@ describe("ArtifactsList", () => {
 
   it("uploads files chosen in the picker", async () => {
     const artifactAdd = vi.fn(async () => asArtifact(log));
-    await renderList([], { artifactAdd, artifactList: vi.fn(async () => [log]) });
+    renderList([], { artifactAdd, artifactList: vi.fn(async () => [log]) });
+    await screen.findByRole("button", { name: /build.log/ });
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     await userEvent.upload(input, new File(["ok"], "build.log", { type: "text/plain" }));
     await waitFor(() => expect(artifactAdd).toHaveBeenCalledWith("build.log", null, "b2s="));

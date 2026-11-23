@@ -47,18 +47,18 @@ export const loadArtifacts = createAppThunk<readonly ArtifactSummary[], void>(
   },
 );
 
-/** Uploads files, then loads the list again. Resolves to the artifacts made. */
+/** Uploads files, then loads the list again, even when a file fails. Resolves to the artifacts made. */
 export const uploadArtifacts = createAppThunk<readonly Artifact[], readonly File[]>(
   "artifacts/upload",
   async (files, { extra, dispatch, rejectWithValue }) => {
     try {
-      const uploaded = await uploadFiles(files, extra.api);
-      await dispatch(loadArtifacts());
-      return uploaded;
+      return await uploadFiles(files, extra.api);
     } catch (err: unknown) {
       const error = toAppError(err);
       dispatch(noticeShown({ severity: "error", message: error.message }));
       return rejectWithValue(error);
+    } finally {
+      await dispatch(loadArtifacts());
     }
   },
 );

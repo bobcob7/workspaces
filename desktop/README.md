@@ -284,7 +284,7 @@ src-tauri/src/
   online/       # Workspace Online (feature `online`): config, auth, push, dispatch, wire, and the server (ADR 0053)
 src/
   api.ts                    # typed invoke wrappers
-  features/rail/            # the section rail and ⌘1–⌘6
+  features/rail/            # the section rail and ⌘1–⌘7
   features/agents/          # list, statuses, entry pane, agents slice, top-bar actions
   features/repos/           # repo list, detail with branches and tags, add and remove dialogs, repos slice
   features/conversation/    # conversation view, tool call pairing, conversations slice
