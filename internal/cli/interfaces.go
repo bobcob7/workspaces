@@ -19,7 +19,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker envClient
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker envClient environmentCaller
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -67,6 +67,11 @@ type runnerDaemon interface {
 	Preflight(ctx context.Context, req daemon.PreflightRequest) (daemon.PreflightResponse, error)
 	StartRunner(ctx context.Context, id string, resume bool) (int, error)
 	StopRunner(ctx context.Context, id string) (bool, error)
+}
+
+// environmentCaller is the daemon's call endpoint (daemon.Client).
+type environmentCaller interface {
+	CallEnvironment(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error)
 }
 
 // envBroker is the MQTT broker the daemon embeds (ADR 0074). It has the

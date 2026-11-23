@@ -88,6 +88,9 @@ type App struct {
 	// dialDaemon is the client to this config directory's daemon, started
 	// when none runs (ADR 0068): daemonClient, unless a test replaces it.
 	dialDaemon func(ctx context.Context) (runnerDaemon, error)
+	// dialEnvironments is the client to the daemon's call endpoint, started
+	// when none runs (ADR 0068): the daemon's client, unless a test replaces it.
+	dialEnvironments func(ctx context.Context) (environmentCaller, error)
 	// runnerWait is how long a started runner has to write its status
 	// (reference.md's 10 s).
 	runnerWait time.Duration
@@ -164,6 +167,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		stopNotify:     signal.Stop,
 	}
 	a.dialDaemon = a.dialDaemonClient
+	a.dialEnvironments = a.dialEnvironmentCaller
 	a.newEnvBroker = func(log *slog.Logger) (envBroker, error) { return mqttbroker.New(log), nil }
 	a.newEnvClient = func(log *slog.Logger) (envClient, error) { return mqttclient.New(log), nil }
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
