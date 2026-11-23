@@ -20,7 +20,12 @@ import (
 )
 
 const (
-	statusPending     = "pending"
+	statusPending = "pending"
+	// enrollReadTimeout bounds each of the enrollment server's reads, writes and
+	// idle time. WriteTimeout starts once the headers are read, so a handler that
+	// runs past it (for example while it waits on the store lock) drops the
+	// response after the enrollment secret is used, and the agent needs a new
+	// code to retry.
 	enrollReadTimeout = 10 * time.Second
 	// enrollMaxHeaderBytes bounds a request's headers on the enrollment listener.
 	enrollMaxHeaderBytes = 8 << 10

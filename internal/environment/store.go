@@ -61,7 +61,9 @@ type Record struct {
 	CertNotAfter string `toml:"cert_not_after"`
 	CertCA       string `toml:"cert_ca"`
 	// PriorSerials are the last certificates that renewal superseded, oldest
-	// first. Rotate and Remove revoke them with the current one.
+	// first, at most maxPriorSerials. Rotate and Remove revoke them with the
+	// current one. A certificate superseded before that is dropped unrevoked,
+	// so it stays valid until it expires.
 	PriorSerials []string `toml:"prior_serials,omitempty"`
 }
 

@@ -8,8 +8,8 @@ Removes environment `<NAME>`: revokes its certificate, if it has one, and
 deletes its record and its snapshot. The machine it runs on is offline from
 then on, and can't reconnect until it's added again with `ws env add`.
 
-The removed certificate's serial is listed in `revoked_serials`, so it
-can't be used again. Deleting a pending environment just cancels its code.
+`revoked_serials` lists the serials that can no longer be used: the current
+certificate first, then up to 5 earlier ones that renewal superseded. Deleting a pending environment just cancels its code.
 
 Its files on the remote machine aren't touched. Run `ws env agent unenroll`
 there to delete them.
@@ -26,7 +26,7 @@ there to delete them.
 {
   "id": "env-1a2b3c4d",
   "name": "linux-server",
-  "revoked_serials": ["5e0c…"],
+  "revoked_serials": ["5e0c…", "4b7a…"],
   "warnings": []
 }
 ```

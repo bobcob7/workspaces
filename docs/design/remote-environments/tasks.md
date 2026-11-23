@@ -596,6 +596,7 @@ Create `internal/environment/errors.go`, `store.go`, `store_test.go`,
   cert_serial = "5e0c…"         # "" while pending
   cert_not_after = "2027-02-20T14:05:11Z"
   cert_ca = "3b1f…"             # Fingerprint of the issuing CA
+  prior_serials = ["4b7a…"]     # up to 5 superseded by renewal, oldest first; omitted when empty
   ```
 
   Reading refuses unknown keys and `version != 1`.
@@ -645,6 +646,9 @@ type Record struct {
 	CertSerial   string `toml:"cert_serial"`
 	CertNotAfter string `toml:"cert_not_after"`
 	CertCA       string `toml:"cert_ca"`
+	// PriorSerials are the last certificates renewal superseded, oldest first,
+	// at most 5. Rotate and Remove revoke them with the current one.
+	PriorSerials []string `toml:"prior_serials,omitempty"`
 }
 
 // Store is the controller's environments: records, CA, revocations and snapshots.

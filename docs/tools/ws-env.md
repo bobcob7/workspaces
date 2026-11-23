@@ -74,9 +74,11 @@ On your machine, under `CONFIG_DIR`:
   listeners' server certificate. The key is read only by the daemon.
 - `environments/<id>.toml`: one record per environment: `state` is
   `pending` or `enrolled`, the secret's hash, and the current certificate's
-  serial, expiry and CA. A pending record has no certificate.
-- `environments/revoked`: the serials of certificates `ws env rm` and
-  `ws env rotate` revoked. Connections with them are refused.
+  serial, expiry and CA. A pending record has no certificate. `prior_serials`
+  lists up to 5 earlier certificates that renewal superseded.
+- `environments/revoked`: the serials of the certificates `ws env rm` and
+  `ws env rotate` revoked: the current one and up to 5 that renewal
+  superseded. Connections with them are refused.
 - `state/.environments/<name>/snapshot.json`: the last workspace snapshot
   each agent sent, which `ws env list` counts.
 
@@ -109,8 +111,9 @@ next CA command finishes it first.
 
 ## Revoking
 
-`ws env rm <name>` revokes the environment's certificate, deletes its record
-and its snapshot, and reloads the daemon, which disconnects it. The agent
+`ws env rm <name>` revokes the environment's current certificate and up to 5
+earlier ones that renewal superseded, deletes its record and its snapshot, and
+reloads the daemon, which disconnects it. The agent
 can't reconnect with that certificate. `ws env agent unenroll` on the remote
 deletes its files; until then the controller still lists it.
 

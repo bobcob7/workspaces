@@ -292,10 +292,15 @@ record, `environments/<id>.toml`, with these fields
 | `state` | `pending` from `ws env add` or `ws env rotate` until enrollment, then `enrolled` |
 | `secret_hash` | the SHA-256 of the enrollment secret; the secret itself is never stored |
 | `enrolled_at`, `cert_serial`, `cert_not_after`, `cert_ca` | when the agent enrolled; the current certificate's serial, expiry and CA fingerprint; empty until enrollment |
+| `prior_serials` | up to 5 earlier certificate serials, oldest first, that renewal superseded; cleared by `ws env rotate`; omitted when empty |
 
-`ws env rotate` revokes the current certificate, if there is one, and
-returns the record to `pending` with a new code. `ws env rm` revokes it and
-deletes the record and the snapshot. `ws env agent unenroll` on the remote
+`ws env rotate` revokes the current certificate, if there is one, and the
+earlier ones in `prior_serials`, and returns the record to `pending` with a
+new code. `ws env rm` revokes the same serials and deletes the record and the
+snapshot. A `ws` built before `prior_serials` can't read a record that has
+one, so upgrade every `ws` that reads environments together. A certificate
+superseded before the last 5 isn't revoked, so it stays valid until it
+expires. `ws env agent unenroll` on the remote
 leaves the record alone, so the environment is listed as offline until
 `ws env rm`.
 

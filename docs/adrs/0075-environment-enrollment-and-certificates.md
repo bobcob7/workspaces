@@ -193,9 +193,10 @@ key and default (30). The controller's value drives only the CA-expiry
 warning.
 
 **Record states.** `environments/<id>.toml` has `state = "pending"` or
-`"enrolled"`. `ws env rm` revokes and deletes the record. `ws env rotate`
-revokes the current certificate, if there is one, and makes the record
-`pending` with a new code.
+`"enrolled"`. Renewal records the up to 5 certificates it superseded in
+`prior_serials`. `ws env rm` revokes the current certificate and those, then
+deletes the record. `ws env rotate` revokes the same serials and makes the
+record `pending` with a new code.
 
 **Error codes.** Besides `enrollment_failed` and `enrollment_used`, the
 code set gains `environment_unknown` (exit 3, from
