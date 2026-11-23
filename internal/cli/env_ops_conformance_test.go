@@ -162,6 +162,8 @@ type conformance struct {
 	agentClaud *fakeClaude
 	ctrlClaude *claudeClientMock
 	stopAgent  func()
+
+	snapshotCheck time.Duration
 }
 
 // conformanceLog discards logs.
@@ -171,14 +173,22 @@ func conformanceLog() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Disc
 // the agent too and waits until the controller sees it online with a snapshot.
 func newConformance(t *testing.T, startAgent bool) *conformance {
 	t.Helper()
+	return newConformanceEvery(t, startAgent, 10*time.Millisecond)
+}
+
+// newConformanceEvery is newConformance with the agent's snapshot check
+// interval, long when only an operation's change signal may republish.
+func newConformanceEvery(t *testing.T, startAgent bool, snapshotCheck time.Duration) *conformance {
+	t.Helper()
 	ctx := t.Context()
 	c := &conformance{
-		t:          t,
-		ctrlDir:    t.TempDir(),
-		agentDir:   t.TempDir(),
-		broker:     envtest.NewBroker(),
-		agentClaud: newFakeClaude(),
-		stopAgent:  func() {},
+		t:             t,
+		ctrlDir:       t.TempDir(),
+		agentDir:      t.TempDir(),
+		broker:        envtest.NewBroker(),
+		agentClaud:    newFakeClaude(),
+		stopAgent:     func() {},
+		snapshotCheck: snapshotCheck,
 	}
 	c.loader = config.NewLoader(func(string) string { return "" }, func() (string, error) { return "", errors.New("no user config dir") })
 	c.ctrlClaude = &claudeClientMock{
@@ -245,7 +255,7 @@ func (c *conformance) controllerApp(stdout, stderr io.Writer) *App {
 func (c *conformance) runAgent() {
 	c.t.Helper()
 	opts := envagent.DefaultOptions("test", 30)
-	opts.SnapshotCheck = 10 * time.Millisecond
+	opts.SnapshotCheck = c.snapshotCheck
 	opts.RenewCheck = time.Hour
 	opts.WorkspacesRoot = c.agentApp.paths.Workspaces
 	opts.BackoffMin, opts.BackoffMax = time.Millisecond, 10*time.Millisecond
@@ -576,6 +586,23 @@ func TestConformance_EnvOps(t *testing.T) {
 		assert.Equal(t, string(codeClaudeMissing), stderrCodeOf(t, stderr))
 		assert.Empty(t, c.agentClaud.StartCalls(), "no session was started")
 	})
+	t.Run("a claude prompt that starts with a dash is refused", func(t *testing.T) {
+		c := newConformance(t, true)
+		prompt := "--model x"
+		_, err := c.call(envproto.OpWorkspaceCreate, &envproto.CreateArgs{Kind: envproto.KindClaude, Specs: []string{}, Prompt: &prompt})
+		assert.Equal(t, string(codeUsage), replyCode(err))
+		assert.Empty(t, c.agentClaud.StartCalls(), "no session was started")
+	})
+	t.Run("workspace.hide with Hidden false unhides", func(t *testing.T) {
+		c := newConformance(t, true)
+		id := c.createRemote("Unhide me")
+		_, err := c.call(envproto.OpWorkspaceHide, &envproto.HideArgs{Workspace: id, Hidden: true})
+		require.NoError(t, err)
+		require.True(t, c.record(id).Hidden)
+		_, err = c.call(envproto.OpWorkspaceHide, &envproto.HideArgs{Workspace: id, Hidden: false})
+		require.NoError(t, err)
+		assert.False(t, c.record(id).Hidden)
+	})
 	t.Run("an unknown operation and a path outside workspaces/ are refused", func(t *testing.T) {
 		c := newConformance(t, true)
 		unknown := c.rawRequest("workspace.nuke", map[string]any{})
@@ -593,7 +620,7 @@ func TestConformance_EnvOps(t *testing.T) {
 		assert.Equal(t, string(codeUsage), replyCode(err), "the controller side refuses an unknown operation too")
 	})
 	t.Run("ws list --env shows the new workspace after the operation", func(t *testing.T) {
-		c := newConformance(t, true)
+		c := newConformanceEvery(t, true, time.Hour)
 		stdout, stderr, code := c.controllerCLI("claude", "--env", conformanceEnvName, "--name", "Fresh")
 		require.Equal(t, exitOK, code, stderr)
 		id := resultID(t, json.RawMessage(stdout))
