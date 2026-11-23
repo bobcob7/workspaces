@@ -56,8 +56,8 @@ type NewRevision struct {
 	BaseRev int
 }
 
-// PutResult is Put's record and how many threads were anchored and
-// detached after moving anchors (both 0 until T2).
+// PutResult is Put's record and how many threads' anchors were moved to the
+// new revision, and how many were left detached.
 type PutResult struct {
 	Record   Record
 	Anchored int
@@ -132,6 +132,7 @@ func (s *Store) Show(id string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
+	setAnchorStates(threads, rec.Latest().Rev)
 	return Entry{Record: rec, Threads: Counts(threads)}, nil
 }
 
@@ -231,13 +232,38 @@ func lockArtifact(ctx context.Context, dir string) (func(), error) {
 	}
 }
 
-// Threads is the artifact's threads (for T2 and the CLI).
+// Threads is the artifact's threads, their anchors' states set for the
+// latest revision.
 func (s *Store) Threads(id string) ([]Thread, error) {
 	dir, err := s.dirOf(id)
 	if err != nil {
 		return nil, err
 	}
-	return readThreads(dir)
+	rec, err := readRecord(dir)
+	if err != nil {
+		return nil, err
+	}
+	threads, err := readThreads(dir)
+	if err != nil {
+		return nil, err
+	}
+	setAnchorStates(threads, rec.Latest().Rev)
+	return threads, nil
+}
+
+// setAnchorStates sets each anchor's State from the latest revision, so a
+// stored state can't say "anchored" for an older revision.
+func setAnchorStates(threads []Thread, latest int) {
+	for i := range threads {
+		a := threads[i].Anchor
+		if a == nil {
+			continue
+		}
+		a.State = stateDetached
+		if a.Rev == latest {
+			a.State = stateAnchored
+		}
+	}
 }
 
 func (s *Store) tmpDir() string {
@@ -362,7 +388,40 @@ func (s *Store) appendRevision(dir string, rec *Record, n *NewRevision) (PutResu
 	if err := writeRecord(s.tmpDir(), dir, rec); err != nil {
 		return PutResult{}, err
 	}
-	return PutResult{Record: *rec}, nil
+	anchored, detached, err := s.moveAnchors(dir, rec, n.Data)
+	if err != nil {
+		return PutResult{}, err
+	}
+	return PutResult{Record: *rec, Anchored: anchored, Detached: detached}, nil
+}
+
+// moveAnchors re-anchors every thread in dir to the latest revision of rec,
+// whose bytes are data, and writes comments.json when there are threads. A
+// quote that is gone leaves the thread detached at its last anchor.
+func (s *Store) moveAnchors(dir string, rec *Record, data []byte) (int, int, error) {
+	if rec.Kind == KindImage {
+		return 0, 0, nil
+	}
+	threads, err := readThreads(dir)
+	if err != nil || len(threads) == 0 {
+		return 0, 0, err
+	}
+	anchored, detached := 0, 0
+	text := string(data)
+	for i := range threads {
+		a := threads[i].Anchor
+		if a == nil {
+			continue
+		}
+		if moved, ok := Move(text, rec.Latest().Rev, *a); ok {
+			threads[i].Anchor = &moved
+			anchored++
+			continue
+		}
+		a.State = stateDetached
+		detached++
+	}
+	return anchored, detached, writeThreads(s.tmpDir(), dir, threads)
 }
 
 // checkQuota is ErrFull when extra more bytes would take the store past its

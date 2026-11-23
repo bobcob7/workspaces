@@ -194,6 +194,60 @@ func TestStore_Put(t *testing.T) {
 		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("defghij\n"), By: Person()})
 		require.ErrorIs(t, err, ErrFull)
 	})
+	t.Run("moves a thread's anchor to the new revision", func(t *testing.T) {
+		t.Parallel()
+		s, _ := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "notes.txt", "one\nthe cache is shared\n")
+		req := AnchorRequest{Quote: "the cache is shared"}
+		_, _, err := s.AddThread(t.Context(), rec.ID, &NewThread{Body: "why", By: Person(), Anchor: &req})
+		require.NoError(t, err)
+		res, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("top\none\nthe cache is shared\n"), By: Person()})
+		require.NoError(t, err)
+		assert.Equal(t, 1, res.Anchored)
+		assert.Equal(t, 0, res.Detached)
+		threads, err := s.Threads(rec.ID)
+		require.NoError(t, err)
+		require.NotNil(t, threads[0].Anchor)
+		assert.Equal(t, 2, threads[0].Anchor.Rev)
+		assert.Equal(t, 3, threads[0].Anchor.LineStart)
+		assert.Equal(t, "anchored", threads[0].Anchor.State)
+	})
+	t.Run("detaches a thread whose quote is gone and reattaches it when it returns", func(t *testing.T) {
+		t.Parallel()
+		s, _ := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "notes.txt", "one\nthe cache is shared\n")
+		req := AnchorRequest{Quote: "the cache is shared"}
+		_, _, err := s.AddThread(t.Context(), rec.ID, &NewThread{Body: "why", By: Person(), Anchor: &req})
+		require.NoError(t, err)
+		res, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("one\nthe cache is local\n"), By: Person()})
+		require.NoError(t, err)
+		assert.Equal(t, 0, res.Anchored)
+		assert.Equal(t, 1, res.Detached)
+		entry, err := s.Show(rec.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 1, entry.Threads.Detached)
+		res, err = s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("one\nthe cache is shared\n"), By: Person()})
+		require.NoError(t, err)
+		assert.Equal(t, 1, res.Anchored)
+		threads, err := s.Threads(rec.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 3, threads[0].Anchor.Rev)
+		assert.Equal(t, "anchored", threads[0].Anchor.State)
+	})
+	t.Run("leaves a whole-artifact thread alone", func(t *testing.T) {
+		t.Parallel()
+		s, _ := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "notes.txt", "one\n")
+		_, _, err := s.AddThread(t.Context(), rec.ID, &NewThread{Body: "whole", By: Person()})
+		require.NoError(t, err)
+		res, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("two\n"), By: Person()})
+		require.NoError(t, err)
+		assert.Equal(t, 0, res.Anchored)
+		assert.Equal(t, 0, res.Detached)
+		threads, err := s.Threads(rec.ID)
+		require.NoError(t, err)
+		assert.Nil(t, threads[0].Anchor)
+	})
 	t.Run("refuses an unknown or invalid id", func(t *testing.T) {
 		t.Parallel()
 		s, _ := newTestStore(t, fixedClock(testBase))
@@ -309,6 +363,24 @@ func TestStore_Show(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 		_, err = s.Threads("art-00000000")
 		require.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
+func TestSetAnchorStates(t *testing.T) {
+	t.Run("marks an anchor on the latest revision anchored", func(t *testing.T) {
+		threads := []Thread{{Anchor: &Anchor{Rev: 2, State: stateDetached}}}
+		setAnchorStates(threads, 2)
+		assert.Equal(t, stateAnchored, threads[0].Anchor.State)
+	})
+	t.Run("marks an anchor on an older revision detached", func(t *testing.T) {
+		threads := []Thread{{Anchor: &Anchor{Rev: 1, State: stateAnchored}}}
+		setAnchorStates(threads, 2)
+		assert.Equal(t, stateDetached, threads[0].Anchor.State)
+	})
+	t.Run("skips threads about the whole artifact", func(t *testing.T) {
+		threads := []Thread{{ID: "t1"}}
+		setAnchorStates(threads, 1)
+		assert.Nil(t, threads[0].Anchor)
 	})
 }
 

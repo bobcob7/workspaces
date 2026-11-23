@@ -115,8 +115,7 @@ type ThreadCounts struct {
 	Detached int `json:"detached"`
 }
 
-// Anchor is where a thread points in a revision (ADR 0079). T1 only reads
-// and counts anchors; T2 writes them.
+// Anchor is where a thread points in a revision (ADR 0079).
 type Anchor struct {
 	Rev       int    `json:"rev"`
 	Start     int    `json:"start"`
