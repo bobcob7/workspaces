@@ -69,7 +69,7 @@ func (a *App) callEnvironment(ctx context.Context, name, op string, args any) (j
 		return nil, newError(codeInternal, fmt.Errorf("reading the reply of %s: %w", name, err))
 	}
 	if !reply.OK {
-		return nil, replyError(name, reply.Error)
+		return nil, remoteReplyError(name, reply.Error)
 	}
 	return reply.Result, nil
 }
@@ -96,10 +96,10 @@ func callError(err error) error {
 	return ce
 }
 
-// replyError is the error for an agent's error reply (D9): its code, or
+// remoteReplyError is the error for an agent's error reply (D9): its code, or
 // internal with details.remote_code when ws doesn't know the code, and
 // details.environment.
-func replyError(name string, remote *envproto.ReplyError) error {
+func remoteReplyError(name string, remote *envproto.ReplyError) error {
 	if remote == nil {
 		return newError(codeInternal, fmt.Errorf("environment %s failed without saying why", name))
 	}
