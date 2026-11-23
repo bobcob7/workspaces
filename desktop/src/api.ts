@@ -59,6 +59,12 @@ export interface Entry {
   readonly runner: EntryRunner;
   /** The agent's model for display: a `claude-` prefix dropped, any other id whole. */
   readonly model: string | null;
+  /** "local" or the name of the environment the entry runs in. */
+  readonly environment: string;
+  /** The entry's environment is connected (always true for local). */
+  readonly environmentOnline: boolean;
+  /** The entry's snapshot of a remote environment is old. */
+  readonly snapshotStale: boolean;
   /** A `ws` runner's progress and endpoint; null for anything else. */
   readonly wsRunner: WsRunner | null;
   /** The workspace's own step record, null without one (ADR 0077). */
@@ -152,6 +158,80 @@ export interface NewAgent {
   /** "claude" or "ws" (ADR 0070); left out for claude. */
   readonly runner?: string;
   readonly endpoint?: string;
+  /** The environment to create the agent in; left out for this machine. */
+  readonly environment?: string;
+}
+
+export type EnvironmentState = "pending" | "enrolled";
+export type EnvironmentStatus = "pending" | "online" | "offline" | "unknown";
+
+/** What an environment reported about itself. */
+export interface EnvironmentHello {
+  readonly wsVersion: string;
+  readonly os: string;
+  readonly arch: string;
+  readonly claude: "present" | "missing";
+  readonly claudeVersion: string | null;
+  readonly certNotAfter: string;
+}
+
+/** One remote environment, from `ws env list` (ADR 0072). */
+export interface RemoteEnvironment {
+  readonly id: string;
+  readonly name: string;
+  readonly state: EnvironmentState;
+  readonly status: EnvironmentStatus;
+  readonly lastSeen: string | null;
+  readonly createdAt: string | null;
+  readonly enrolledAt: string | null;
+  readonly certNotAfter: string | null;
+  readonly certCa: "current" | "old" | null;
+  readonly hello: EnvironmentHello | null;
+  readonly workspaces: number | null;
+}
+
+export interface EnvironmentListing {
+  readonly environments: readonly RemoteEnvironment[];
+  readonly warnings: readonly string[];
+}
+
+/** The one-time enrollment code (ADR 0075). A bearer secret: keep it in component state only, never in Redux or storage. */
+export interface EnrollmentCode {
+  readonly id: string;
+  readonly name: string;
+  readonly state: EnvironmentState;
+  readonly code: string;
+  readonly caCreated: boolean | null;
+  readonly revokedSerials: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export interface EnvironmentRemoved {
+  readonly id: string;
+  readonly name: string;
+  readonly revokedSerials: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export interface CaInfo {
+  readonly fingerprint: string;
+  readonly notAfter: string;
+}
+
+export interface CaStatus {
+  readonly current: CaInfo | null;
+  readonly old: CaInfo | null;
+  readonly environmentsOnCurrent: number;
+  readonly environmentsOnOld: number;
+  readonly warnings: readonly string[];
+}
+
+export interface CaRotated {
+  readonly current: CaInfo | null;
+  readonly old: CaInfo | null;
+  readonly dropped: CaInfo | null;
+  readonly stranded: readonly string[];
+  readonly warnings: readonly string[];
 }
 
 export interface Created {
@@ -193,8 +273,14 @@ export interface Versions {
 }
 
 export type TermSpec =
-  | { readonly kind: "attach"; readonly sessionId: string; readonly cwd: string }
-  | { readonly kind: "shell"; readonly name: string; readonly specs: readonly string[] }
+  | {
+      readonly kind: "attach";
+      readonly sessionId: string;
+      readonly cwd: string;
+      readonly environment?: string;
+      readonly workspaceId?: string;
+    }
+  | { readonly kind: "shell"; readonly name: string; readonly specs: readonly string[]; readonly environment?: string }
   | { readonly kind: "dir"; readonly cwd: string };
 
 export type TermEvent =
@@ -789,7 +875,7 @@ export interface Settings {
   readonly open: OpenSettings;
 }
 
-export type ConfigType = "string" | "strings" | "duration" | "bool" | "hosts";
+export type ConfigType = "string" | "strings" | "duration" | "bool" | "hosts" | "int";
 export type ConfigValue = string | boolean | readonly string[] | readonly ConfiguredHost[];
 
 /** One key of config.toml, with its effective value and default (ws config). */
@@ -1269,13 +1355,26 @@ export const api = {
   endpointTokenSet: async (name: string, token: string): Promise<void> => call<void>("endpoint_token_set", { name, token }),
   settingsEnvironment: async (): Promise<Environment> => call<Environment>("settings_environment"),
   createAgent: async (request: NewAgent): Promise<Created> => call<Created>("create_agent", { request }),
-  removeEntry: async (workspaceId: string | null, sessionId: string | null, keepChildren = false): Promise<void> =>
-    call<void>("remove_entry", { workspaceId, sessionId, keepChildren }),
-  renameWorkspace: async (workspaceId: string, name: string): Promise<Renamed> =>
-    call<Renamed>("rename_workspace", { workspaceId, name }),
-  setWorkspaceHidden: async (workspaceId: string, hidden: boolean): Promise<HiddenSet> =>
-    call<HiddenSet>("set_workspace_hidden", { workspaceId, hidden }),
-  stopAgent: async (sessionId: string): Promise<void> => call<void>("stop_agent", { sessionId }),
+  removeEntry: async (
+    workspaceId: string | null,
+    sessionId: string | null,
+    keepChildren = false,
+    environment = "local",
+  ): Promise<void> => call<void>("remove_entry", { workspaceId, sessionId, keepChildren, environment }),
+  renameWorkspace: async (workspaceId: string, name: string, environment = "local"): Promise<Renamed> =>
+    call<Renamed>("rename_workspace", { workspaceId, name, environment }),
+  setWorkspaceHidden: async (workspaceId: string, hidden: boolean, environment = "local"): Promise<HiddenSet> =>
+    call<HiddenSet>("set_workspace_hidden", { workspaceId, hidden, environment }),
+  stopAgent: async (sessionId: string, workspaceId: string | null = null, environment = "local"): Promise<void> =>
+    call<void>("stop_agent", { sessionId, workspaceId, environment }),
+  environmentsList: async (): Promise<EnvironmentListing> => call<EnvironmentListing>("environments_list"),
+  environmentAdd: async (name: string): Promise<EnrollmentCode> => call<EnrollmentCode>("environment_add", { name }),
+  environmentRotate: async (name: string): Promise<EnrollmentCode> => call<EnrollmentCode>("environment_rotate", { name }),
+  environmentRemove: async (name: string): Promise<EnvironmentRemoved> =>
+    call<EnvironmentRemoved>("environment_remove", { name }),
+  environmentsCaStatus: async (): Promise<CaStatus> => call<CaStatus>("environments_ca_status"),
+  environmentsCaRotate: async (finish: boolean, force: boolean): Promise<CaRotated> =>
+    call<CaRotated>("environments_ca_rotate", { finish, force }),
   runnerStop: async (workspaceId: string): Promise<RunnerStopped> =>
     call<RunnerStopped>("runner_stop", { id: workspaceId }),
   restoreAgents: async (): Promise<readonly string[]> => call<string[]>("restore_agents"),

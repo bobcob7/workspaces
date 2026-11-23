@@ -22,6 +22,7 @@ import type {
   ListedRole,
   ProfileDetail,
   PullRequest,
+  RemoteEnvironment,
   RepoRef,
   ReviewPlan,
   ReviewRun,
@@ -61,6 +62,32 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   wsRunner: null,
   progress: null,
   rollup: null,
+  environment: "local",
+  environmentOnline: true,
+  snapshotStale: false,
+  ...overrides,
+});
+
+/** An enrolled, online environment as `ws env list` reports it. */
+export const remoteEnvironment = (overrides: Partial<RemoteEnvironment> = {}): RemoteEnvironment => ({
+  id: "env_7f3a",
+  name: "linux-server",
+  state: "enrolled",
+  status: "online",
+  lastSeen: "2026-11-23T08:10:00Z",
+  createdAt: "2026-10-02T09:00:00Z",
+  enrolledAt: "2026-10-02T09:04:00Z",
+  certNotAfter: "2027-10-02T09:04:00Z",
+  certCa: "current",
+  hello: {
+    wsVersion: "0.9.0",
+    os: "linux",
+    arch: "amd64",
+    claude: "present",
+    claudeVersion: "2.1.0",
+    certNotAfter: "2027-10-02T09:04:00Z",
+  },
+  workspaces: 2,
   ...overrides,
 });
 
@@ -740,6 +767,28 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   loopsMemoryRemove: vi.fn(async (name: string, key: string) => ({ loop: name, key, removed: true, warnings: [] })),
   loopsMemoryClear: vi.fn(async (name: string) => ({ loop: name, removed: 0, warnings: [] })),
   statsGet: vi.fn(async () => statsSnapshot()),
+  environmentsList: vi.fn(async () => ({ environments: [], warnings: [] })),
+  environmentAdd: vi.fn(async (name: string) => ({
+    id: "env_7f3a",
+    name,
+    state: "pending" as const,
+    code: "ws-enroll-test-code",
+    caCreated: null,
+    revokedSerials: [],
+    warnings: [],
+  })),
+  environmentRotate: vi.fn(async (name: string) => ({
+    id: "env_7f3a",
+    name,
+    state: "pending" as const,
+    code: "ws-enroll-test-code",
+    caCreated: null,
+    revokedSerials: [],
+    warnings: [],
+  })),
+  environmentRemove: vi.fn(async (name: string) => ({ id: "env_7f3a", name, revokedSerials: [], warnings: [] })),
+  environmentsCaStatus: vi.fn(async () => ({ current: null, old: null, environmentsOnCurrent: 0, environmentsOnOld: 0, warnings: [] })),
+  environmentsCaRotate: vi.fn(async () => ({ current: null, old: null, dropped: null, stranded: [], warnings: [] })),
   ...overrides,
 });
 

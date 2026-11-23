@@ -21,12 +21,12 @@ export interface TreeNode {
   readonly children: readonly TreeNode[];
 }
 
-/** The listed entry that entry was started from, or undefined. */
+/** The listed entry on the same environment that entry was started from, or undefined. */
 export const parentOf = (entries: readonly Entry[], entry: Entry): Entry | undefined => {
   if (entry.parentId === null) {
     return undefined;
   }
-  return entries.find((e) => e.workspaceId === entry.parentId && e.key !== entry.key);
+  return entries.find((e) => e.workspaceId === entry.parentId && e.environment === entry.environment && e.key !== entry.key);
 };
 
 /** Keys of the ancestors of the entry with key, nearest first; [] for a root or an unknown key. Stops before repeating a key, so a cycle ends. */

@@ -3,6 +3,7 @@ import { useDispatch, useSelector, useStore } from "react-redux";
 import type { Api } from "./api";
 import { agentsReducer } from "./features/agents/agentsSlice";
 import { actionsReducer } from "./features/reviews/actionsSlice";
+import { environmentsReducer } from "./features/environments/environmentsSlice";
 import { conversationsReducer } from "./features/conversation/conversationSlice";
 import { loopDataReducer } from "./features/loops/loopDataSlice";
 import { loopsReducer } from "./features/loops/loopsSlice";
@@ -26,6 +27,7 @@ export const rootReducer = combineReducers({
   actions: actionsReducer,
   agents: agentsReducer,
   conversations: conversationsReducer,
+  environments: environmentsReducer,
   loopData: loopDataReducer,
   loops: loopsReducer,
   repos: reposReducer,

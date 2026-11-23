@@ -29,6 +29,16 @@ const cycle = [
   entry({ key: "y", workspaceId: "y", parentId: "x", updatedAt: "2026-11-11T08:00:00Z" }),
 ];
 
+describe("parentOf", () => {
+  it("a child is found only on its parent's environment", () => {
+    const local = entry({ key: "p", workspaceId: "p", environment: "local" });
+    const remote = entry({ key: "env:box:p", workspaceId: "p", environment: "box" });
+    const child = entry({ key: "env:box:c", workspaceId: "c", parentId: "p", environment: "box" });
+    expect(parentOf([local, remote, child], child)).toBe(remote);
+    expect(parentOf([local], child)).toBeUndefined();
+  });
+});
+
 describe("buildForest", () => {
   it("leaves hidden entries out of the tree by default", () => {
     expect(shape(buildForest(all, noFilter, null))).toEqual([
