@@ -290,14 +290,13 @@ func (a *App) addComment(ctx context.Context, arg string, by artifact.Actor, opt
 		return err
 	}
 	store := a.artifactStore()
+	var thread artifact.Thread
+	var comment artifact.Comment
 	if cmd.Flags().Changed("reply") {
-		thread, comment, err := store.Reply(ctx, id, opts.reply, body, by)
-		if err != nil {
-			return artifactError(err)
-		}
-		return a.writeCommentAdded(id, &thread, &comment)
+		thread, comment, err = store.Reply(ctx, id, opts.reply, body, by)
+	} else {
+		thread, comment, err = store.AddThread(ctx, id, &artifact.NewThread{Body: body, By: by, Anchor: opts.anchorRequest(cmd)})
 	}
-	thread, comment, err := store.AddThread(ctx, id, &artifact.NewThread{Body: body, By: by, Anchor: opts.anchorRequest(cmd)})
 	if err != nil {
 		return artifactError(err)
 	}

@@ -82,7 +82,7 @@ func TestApp_machineArtifactComment(t *testing.T) {
 		out := jsonObjectOf(t, e.stdout.String())
 		assert.Equal(t, "c2", jsonObject(t, out["comment"])["id"])
 		assert.Equal(t, "t1", jsonObject(t, out["thread"])["id"])
-		assert.Len(t, out["thread"].(map[string]any)["comments"], 2)
+		assert.Len(t, jsonObject(t, out["thread"])["comments"], 2)
 	})
 	t.Run("--reply with --quote is usage", func(t *testing.T) {
 		e, _ := newMachineArtifactApp(t)
