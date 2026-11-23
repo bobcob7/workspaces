@@ -252,6 +252,13 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   [0074](docs/adrs/0074-mqtt-transport-embedded-broker.md),
   [0075](docs/adrs/0075-environment-enrollment-and-certificates.md)), and
   `ws env agent`, which runs on the remote machine
+- [x] **Remote environments, operations**: `ws claude --env`, `ws list --env`,
+  the nine operations of the environment agent, and the environment fields of
+  `ws list --json`; `ws shell --env` follows with the terminal streams
+  ([0072](docs/adrs/0072-remote-environments.md),
+  [0076](docs/adrs/0076-environment-platforms-and-phasing.md)); plain
+  `ws list` shows remote workspaces only with `--env` until the desktop app
+  does ([0072](docs/adrs/0072-remote-environments.md), deviation 1)
 
 Longer term, `ws` aims to depend on no particular model, provider or
 agent harness, with Claude Code staying the default until measured runs
