@@ -144,6 +144,7 @@ func (c *Controller) deliver(id, reqID string, reply envproto.Reply) bool {
 	select {
 	case pc.reply <- reply:
 	default:
+		// A second reply to the same request is dropped: the call has its answer.
 	}
 	return true
 }

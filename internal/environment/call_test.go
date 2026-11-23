@@ -86,15 +86,13 @@ func (f callFixture) answerRequests(t *testing.T, reply envproto.Reply) {
 	t.Helper()
 	err := f.agent.Subscribe(t.Context(), envproto.Topic(f.id, envproto.LeafReq), func(msg envproto.Message) {
 		payload, err := json.Marshal(reply)
-		if err != nil {
-			return
-		}
-		_ = f.agent.Publish(t.Context(), envproto.Message{
+		assert.NoError(t, err)
+		assert.NoError(t, f.agent.Publish(t.Context(), envproto.Message{
 			Topic:           msg.ResponseTopic,
 			Payload:         payload,
 			QoS:             1,
 			CorrelationData: msg.CorrelationData,
-		})
+		}))
 	})
 	require.NoError(t, err)
 }
