@@ -46,6 +46,18 @@ pub struct WsWorkspace {
     /// Its steps plus its descendants', null when there are none (ADR 0077).
     #[serde(default)]
     pub rollup: Option<WsRollup>,
+    /// The environment the workspace runs in: "local" or a name.
+    #[serde(default)]
+    pub environment: Option<String>,
+    /// "online" or "offline" for the environment.
+    #[serde(default)]
+    pub environment_status: Option<String>,
+    /// The environment's snapshot is old (top level, not the session's).
+    #[serde(default)]
+    pub stale: Option<bool>,
+    /// The state of the remote agent that runs the session.
+    #[serde(default)]
+    pub agent_state: Option<String>,
 }
 
 /// A workspace's `progress` from `ws list` (ADR 0077).
@@ -272,6 +284,12 @@ pub struct Entry {
     pub progress: Option<WsProgress>,
     /// The steps of the workspace and its descendants (ADR 0077).
     pub rollup: Option<WsRollup>,
+    /// "local" or the name of the environment the entry runs in.
+    pub environment: String,
+    /// The entry's environment is connected (always true for local).
+    pub environment_online: bool,
+    /// The entry's snapshot of a remote environment is old.
+    pub snapshot_stale: bool,
 }
 
 /// The model id shown for an agent: `claude-sonnet-5-5` reads `sonnet-5-5`.
@@ -301,6 +319,22 @@ fn agent_status(ws_state: &str, job: Option<&JobState>) -> Status {
         "running" => Status::Running,
         _ => Status::Unknown,
     }
+}
+
+/// The status of a remote agent, from the snapshot: the controller can't
+/// read the remote's job files, so `agent_state` stands in for them.
+fn remote_agent_status(ws_state: &str, agent_state: Option<&str>) -> Status {
+    match (ws_state, agent_state) {
+        ("working", _) => Status::Working,
+        ("idle", Some("blocked")) => Status::NeedsInput,
+        ("idle", Some("done")) => Status::Done,
+        _ => agent_status(ws_state, None),
+    }
+}
+
+/// The key of a remote entry, so a remote and a local id never collide.
+fn remote_key(environment: &str, id: &str) -> String {
+    format!("env:{environment}:{id}")
 }
 
 /// Reads a session `ws` doesn't know the way `ws list` reads its own
@@ -337,7 +371,18 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         .clone()
         .or_else(|| ws.id.clone())
         .unwrap_or_else(|| ws.path.rsplit('/').next().unwrap_or(&ws.path).to_string());
-    let key = ws.id.clone().unwrap_or_else(|| format!("path:{}", ws.path));
+    let environment = ws
+        .environment
+        .clone()
+        .unwrap_or_else(|| "local".to_string());
+    let remote = environment != "local";
+    let key = match (&ws.id, remote) {
+        (Some(id), true) => remote_key(&environment, id),
+        (Some(id), false) => id.clone(),
+        (None, _) => format!("path:{}", ws.path),
+    };
+    let environment_online = !remote || ws.environment_status.as_deref() == Some("online");
+    let snapshot_stale = remote && ws.stale.unwrap_or(false);
     let (kind, status, session_id, stale) = match &ws.session {
         None if ws.id.is_none() => (Kind::Unknown, Status::Unknown, None, None),
         None => (Kind::Pending, Status::Pending, None, None),
@@ -347,9 +392,12 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
     let runner = agent_runner(kind, ws.session.as_ref());
     let job = session_id
         .as_deref()
-        .filter(|_| runner != "ws")
+        .filter(|_| runner != "ws" && !remote)
         .and_then(job_for);
     let status = match (&ws.session, kind) {
+        (Some(s), Kind::Agent) if remote => {
+            remote_agent_status(&s.state, ws.agent_state.as_deref())
+        }
         (Some(s), Kind::Agent) => agent_status(&s.state, job.as_ref()),
         _ => status,
     };
@@ -393,6 +441,9 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         ws_runner,
         progress: ws.progress,
         rollup: ws.rollup,
+        environment,
+        environment_online,
+        snapshot_stale,
     }
 }
 
@@ -432,6 +483,9 @@ fn session_entry(agent: &ClaudeAgent, id: &str, job: Option<JobState>, now_ms: i
         ws_runner: None,
         progress: None,
         rollup: None,
+        environment: "local".to_string(),
+        environment_online: true,
+        snapshot_stale: false,
     }
 }
 
@@ -793,6 +847,62 @@ mod tests {
         let entries = merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW);
         assert_eq!(entries[0].runner, "claude");
         assert_eq!(entries[0].model, None);
+    }
+
+    fn remote_list(state: &str, agent_state: &str) -> WsList {
+        ws_list(&format!(
+            r#"{{"workspaces":[{{"id":"fix","path":"/r/fix","environment":"linux-server",
+            "environment_status":"online","stale":false,"agent_state":"{agent_state}",
+            "session":{{"kind":"agent","id":"s1","state":"{state}"}}}}]}}"#
+        ))
+    }
+
+    #[test]
+    fn remote_entry_key_has_environment() {
+        let entries = merge(Some(remote_list("idle", "")), &[], &|_| None, NOW);
+        assert_eq!(entries[0].key, "env:linux-server:fix");
+        assert_eq!(entries[0].environment, "linux-server");
+        assert!(entries[0].environment_online);
+        assert!(!entries[0].snapshot_stale);
+    }
+
+    #[test]
+    fn local_entry_key_is_unchanged() {
+        let entries = merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW);
+        assert_eq!(entries[0].key, "fix-login");
+        assert_eq!(entries[0].environment, "local");
+        assert!(entries[0].environment_online);
+    }
+
+    #[test]
+    fn remote_blocked_agent_needs_input() {
+        assert_eq!(
+            remote_agent_status("idle", Some("blocked")),
+            Status::NeedsInput
+        );
+        assert_eq!(remote_agent_status("idle", Some("done")), Status::Done);
+        assert_eq!(remote_agent_status("working", None), Status::Working);
+        assert_eq!(remote_agent_status("idle", None), Status::Idle);
+        let entries = merge(Some(remote_list("idle", "blocked")), &[], &|_| None, NOW);
+        assert_eq!(entries[0].status, Status::NeedsInput);
+    }
+
+    #[test]
+    fn remote_entry_reads_no_job() {
+        let entries = merge(
+            Some(remote_list("idle", "")),
+            &[],
+            &|_| panic!("a remote entry must not read a job file"),
+            NOW,
+        );
+        assert_eq!(entries[0].status, Status::Idle);
+    }
+
+    #[test]
+    fn missing_environment_is_local() {
+        let entries = merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW);
+        assert_eq!(entries[0].environment, "local");
+        assert!(!entries[0].snapshot_stale);
     }
 
     #[test]

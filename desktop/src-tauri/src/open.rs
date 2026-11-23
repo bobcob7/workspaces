@@ -370,7 +370,9 @@ pub async fn workspace_open(
     with: OpenWith,
     path: String,
     repos: Vec<String>,
+    environment: Option<String>,
 ) -> Result<Opened, AppError> {
+    crate::commands::refuse_remote(environment.as_deref(), "Opening the files")?;
     let settings = state.store.get().settings.open;
     let path_env = state.runner.path().to_string();
     tokio::task::spawn_blocking(move || {

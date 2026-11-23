@@ -448,6 +448,9 @@ pub mod tests {
             ws_runner: None,
             progress: None,
             rollup: None,
+            environment: "local".to_string(),
+            environment_online: true,
+            snapshot_stale: false,
         }
     }
 

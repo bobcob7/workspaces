@@ -215,10 +215,11 @@ pub async fn dispatch(
             result(commands::create_agent(State::new(&ctx.state), request).await)
         }
         "remove_entry" => {
-            let (workspace_id, session_id, keep_children) = args!(args, {
+            let (workspace_id, session_id, keep_children, environment) = args!(args, {
                 workspace_id: Option<String>,
                 session_id: Option<String>,
                 keep_children: Option<bool>,
+                environment: Option<String>,
             });
             result(
                 commands::remove_entry(
@@ -226,41 +227,78 @@ pub async fn dispatch(
                     workspace_id,
                     session_id,
                     keep_children,
+                    environment,
                 )
                 .await,
             )
         }
         "rename_workspace" => {
-            let (workspace_id, name) = args!(args, { workspace_id: String, name: String });
-            result(commands::rename_workspace(State::new(&ctx.state), workspace_id, name).await)
+            let (workspace_id, name, environment) = args!(args, {
+                workspace_id: String,
+                name: String,
+                environment: Option<String>,
+            });
+            result(
+                commands::rename_workspace(State::new(&ctx.state), workspace_id, name, environment)
+                    .await,
+            )
         }
         "versions" => versions(ctx).await,
         "set_workspace_hidden" => {
-            let (workspace_id, hidden) = args!(args, { workspace_id: String, hidden: bool });
+            let (workspace_id, hidden, environment) = args!(args, {
+                workspace_id: String,
+                hidden: bool,
+                environment: Option<String>,
+            });
             result(
-                commands::set_workspace_hidden(State::new(&ctx.state), workspace_id, hidden).await,
+                commands::set_workspace_hidden(
+                    State::new(&ctx.state),
+                    workspace_id,
+                    hidden,
+                    environment,
+                )
+                .await,
             )
         }
         "stop_agent" => {
-            let session_id = args!(args, { session_id: String });
-            result(commands::stop_agent(State::new(&ctx.state), session_id).await)
+            let (session_id, workspace_id, environment) = args!(args, {
+                session_id: String,
+                workspace_id: Option<String>,
+                environment: Option<String>,
+            });
+            result(
+                commands::stop_agent(
+                    State::new(&ctx.state),
+                    session_id,
+                    workspace_id,
+                    environment,
+                )
+                .await,
+            )
         }
         "restore_agents" => result(commands::restore_agents(State::new(&ctx.state)).await),
         "open_external" => unsupported("open_external"),
         "read_transcript" => {
-            let (session_id, offset, workspace_id) = args!(args, {
+            let (session_id, offset, workspace_id, environment) = args!(args, {
                 session_id: String,
                 offset: u64,
                 workspace_id: Option<String>,
+                environment: Option<String>,
             });
             result(
-                commands::read_transcript(State::new(&ctx.state), session_id, offset, workspace_id)
-                    .await,
+                commands::read_transcript(
+                    State::new(&ctx.state),
+                    session_id,
+                    offset,
+                    workspace_id,
+                    environment,
+                )
+                .await,
             )
         }
         "runner_stop" => {
-            let id = args!(args, { id: String });
-            result(commands::runner_stop(State::new(&ctx.state), id).await)
+            let (id, environment) = args!(args, { id: String, environment: Option<String> });
+            result(commands::runner_stop(State::new(&ctx.state), id, environment).await)
         }
         "terminal_open" => {
             let (spec, cols, rows, on_event) = args!(args, {
@@ -747,6 +785,28 @@ mod tests {
             value,
             serde_json::json!({"id": "x-d8efb24f", "name": "draft"})
         );
+    }
+
+    #[tokio::test]
+    async fn remove_entry_accepts_environment() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"workspaceId": "fix-1", "environment": "linux-server"});
+        let err = dispatch(&ctx, "remove_entry", args, None).await;
+        let Err(DispatchError::App(err)) = err else {
+            panic!("expected the fake ws's failure, got {err:?}");
+        };
+        assert_eq!(err.message, "rm --json --env linux-server -- fix-1");
+    }
+
+    #[tokio::test]
+    async fn remove_entry_without_environment_is_local() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"workspaceId": "fix-1"});
+        let err = dispatch(&ctx, "remove_entry", args, None).await;
+        let Err(DispatchError::App(err)) = err else {
+            panic!("expected the fake ws's failure, got {err:?}");
+        };
+        assert_eq!(err.message, "rm --json -- fix-1");
     }
 
     #[tokio::test]

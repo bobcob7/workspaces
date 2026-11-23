@@ -4,7 +4,7 @@ use crate::ipc::Channel;
 use crate::ipc::State;
 use crate::jobs::{self, JobState};
 use crate::model::{self, ClaudeAgent, Listing, WsList};
-use crate::pty::{TermEvent, TermSpec, Terminals};
+use crate::pty::{remote_env, TermEvent, TermSpec, Terminals};
 use crate::reviews::checker::Checker;
 use crate::reviews::report;
 use crate::reviews::store::Store;
@@ -120,6 +120,9 @@ pub struct NewAgent {
     pub runner: Option<String>,
     #[serde(default)]
     pub endpoint: Option<String>,
+    /// The environment to create the agent in; blank or `local` is this machine.
+    #[serde(default)]
+    pub environment: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -139,6 +142,9 @@ fn non_empty(value: Option<&String>) -> Option<&str> {
 pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
     let ws = non_empty(req.runner.as_ref()) == Some("ws");
     let mut args = vec!["claude".to_string()];
+    if let Some(env) = remote_env(req.environment.as_deref()) {
+        args.extend(["--env".to_string(), env.to_string()]);
+    }
     if let Some(name) = non_empty(req.name.as_ref()) {
         args.extend(["--name".to_string(), name.to_string()]);
     }
@@ -200,8 +206,8 @@ struct ItemResult {
 
 /// Runs a `ws` command that reports per-workspace results, which it prints
 /// even when some fail, and returns the first item's error, if any.
-async fn ws_items(runner: &Runner, args: &[&str]) -> CmdResult<Vec<String>> {
-    let mut args = strings(args);
+async fn ws_items(runner: &Runner, args: &[impl AsRef<str>]) -> CmdResult<Vec<String>> {
+    let mut args: Vec<String> = args.iter().map(|a| a.as_ref().to_string()).collect();
     args.insert(1, "--json".to_string());
     let outcome = runner.run("ws", &args).await?;
     let Ok(results) = serde_json::from_slice::<ItemResults>(&outcome.stdout) else {
@@ -228,29 +234,52 @@ async fn ws_items(runner: &Runner, args: &[&str]) -> CmdResult<Vec<String>> {
 
 /// The arguments of `ws rm` for a workspace, which removes the workspaces
 /// it started too, unless they're kept (ADR 0044).
-pub fn rm_args(workspace_id: &str, keep_children: bool) -> Vec<&str> {
-    let mut args = vec!["rm"];
+/// `--env <name>` goes before `--` when the workspace is remote.
+pub fn rm_args(workspace_id: &str, keep_children: bool, environment: Option<&str>) -> Vec<String> {
+    let mut args = strings(&["rm"]);
+    args.extend(env_args(environment));
     if keep_children {
-        args.push("--keep-children");
+        args.push("--keep-children".to_string());
     }
-    args.extend(["--", workspace_id]);
+    args.extend(strings(&["--", workspace_id]));
     args
+}
+
+/// `--env <name>` for a remote environment, nothing for local or none.
+fn env_args(environment: Option<&str>) -> Vec<String> {
+    remote_env(environment)
+        .map(|env| vec!["--env".to_string(), env.to_string()])
+        .unwrap_or_default()
+}
+
+/// Refuses a command that only works on this machine when the entry is
+/// remote (ADR 0076, D3).
+pub fn refuse_remote(environment: Option<&str>, what: &str) -> CmdResult<()> {
+    match remote_env(environment) {
+        Some(env) => Err(AppError::new(
+            "local_only",
+            format!("{what} isn't supported for an agent on {env}"),
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Removes a workspace, its session, and the workspaces it started
 /// (`ws rm`), or, for a session outside any workspace, deletes the session
-/// (`claude rm`).
+/// (`claude rm`), which is local only.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn remove_entry(
     state: State<'_, AppState>,
     workspace_id: Option<String>,
     session_id: Option<String>,
     keep_children: Option<bool>,
+    environment: Option<String>,
 ) -> CmdResult<()> {
     if let Some(id) = workspace_id {
-        let args = rm_args(&id, keep_children.unwrap_or(false));
+        let args = rm_args(&id, keep_children.unwrap_or(false), environment.as_deref());
         return ws_items(&state.runner, &args).await.map(|_| ());
     }
+    refuse_remote(environment.as_deref(), "Deleting a bare session")?;
     let id = session_id.ok_or_else(|| AppError::new("usage", "nothing to remove"))?;
     state
         .runner
@@ -272,11 +301,20 @@ pub async fn rename_workspace(
     state: State<'_, AppState>,
     workspace_id: String,
     name: String,
+    environment: Option<String>,
 ) -> CmdResult<Renamed> {
     state
         .runner
-        .ws_json(&strings(&["rename", "--", &workspace_id, &name]))
+        .ws_json(&rename_args(&workspace_id, &name, environment.as_deref()))
         .await
+}
+
+/// The arguments of `ws rename` for a workspace.
+pub fn rename_args(workspace_id: &str, name: &str, environment: Option<&str>) -> Vec<String> {
+    let mut args = strings(&["rename"]);
+    args.extend(env_args(environment));
+    args.extend(strings(&["--", workspace_id, name]));
+    args
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -287,9 +325,12 @@ pub struct HiddenSet {
 
 /// The arguments that hide or show a workspace: `ws hide` or `ws unhide`
 /// (ADR 0043).
-pub fn set_hidden_args(workspace_id: &str, hidden: bool) -> Vec<String> {
+pub fn set_hidden_args(workspace_id: &str, hidden: bool, environment: Option<&str>) -> Vec<String> {
     let op = if hidden { "hide" } else { "unhide" };
-    strings(&[op, "--", workspace_id])
+    let mut args = strings(&[op]);
+    args.extend(env_args(environment));
+    args.extend(strings(&["--", workspace_id]));
+    args
 }
 
 /// Hides or shows a workspace.
@@ -298,10 +339,15 @@ pub async fn set_workspace_hidden(
     state: State<'_, AppState>,
     workspace_id: String,
     hidden: bool,
+    environment: Option<String>,
 ) -> CmdResult<HiddenSet> {
     state
         .runner
-        .ws_json(&set_hidden_args(&workspace_id, hidden))
+        .ws_json(&set_hidden_args(
+            &workspace_id,
+            hidden,
+            environment.as_deref(),
+        ))
         .await
 }
 
@@ -317,13 +363,39 @@ pub async fn versions(
     Ok(crate::about::versions(&state.runner, crate::about::app_version(&version)).await)
 }
 
+/// The program and arguments that stop an agent: `ws stop --env <name> --
+/// <id>` for a remote one, `claude stop <session>` otherwise.
+pub fn stop_args(
+    session_id: &str,
+    workspace_id: Option<&str>,
+    environment: Option<&str>,
+) -> CmdResult<(&'static str, Vec<String>)> {
+    let Some(env) = remote_env(environment) else {
+        return Ok(("claude", strings(&["stop", session_id])));
+    };
+    let id = workspace_id.filter(|id| !id.is_empty()).ok_or_else(|| {
+        AppError::new("bad_args", "stopping a remote agent needs its workspace id")
+    })?;
+    Ok(("ws", strings(&["stop", "--env", env, "--", id])))
+}
+
+/// Stops an agent: `claude stop`, or `ws stop` on a remote environment.
 #[cfg_attr(feature = "desktop", tauri::command)]
-pub async fn stop_agent(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
-    state
-        .runner
-        .claude(&strings(&["stop", &session_id]))
-        .await
-        .map(|_| ())
+pub async fn stop_agent(
+    state: State<'_, AppState>,
+    session_id: String,
+    workspace_id: Option<String>,
+    environment: Option<String>,
+) -> CmdResult<()> {
+    let (program, args) = stop_args(&session_id, workspace_id.as_deref(), environment.as_deref())?;
+    if program == "claude" {
+        return state.runner.claude(&args).await.map(|_| ());
+    }
+    let outcome = state.runner.run(program, &args).await?;
+    if outcome.success {
+        return Ok(());
+    }
+    Err(runner::ws_error(&outcome.stderr))
 }
 
 /// Respawns every stopped agent workspace: `ws restore`. Returns the ids
@@ -356,7 +428,9 @@ pub async fn read_transcript(
     session_id: String,
     offset: u64,
     workspace_id: Option<String>,
+    environment: Option<String>,
 ) -> CmdResult<Chunk> {
+    refuse_remote(environment.as_deref(), "Showing the conversation")?;
     if let Some(id) = workspace_id {
         return runner_conversation(id, offset).await;
     }
@@ -448,7 +522,12 @@ pub fn runner_stop_args(workspace_id: &str) -> Vec<String> {
 /// Stops a `ws` runner without removing its workspace: `ws runner stop`
 /// through the daemon.
 #[cfg_attr(feature = "desktop", tauri::command)]
-pub async fn runner_stop(state: State<'_, AppState>, id: String) -> CmdResult<RunnerStopped> {
+pub async fn runner_stop(
+    state: State<'_, AppState>,
+    id: String,
+    environment: Option<String>,
+) -> CmdResult<RunnerStopped> {
+    refuse_remote(environment.as_deref(), "Stopping a ws runner")?;
     state.runner.ws_json_as_given(&runner_stop_args(&id)).await
 }
 
@@ -587,17 +666,36 @@ mod tests {
 
     #[test]
     fn rm_args_keep_children_or_not() {
-        assert_eq!(rm_args("x", false), ["rm", "--", "x"]);
-        assert_eq!(rm_args("-x", true), ["rm", "--keep-children", "--", "-x"]);
+        assert_eq!(rm_args("x", false, None), ["rm", "--", "x"]);
+        assert_eq!(
+            rm_args("-x", true, Some("local")),
+            ["rm", "--keep-children", "--", "-x"]
+        );
+    }
+
+    #[test]
+    fn rm_args_with_env() {
+        assert_eq!(
+            rm_args("x", true, Some("linux-server")),
+            ["rm", "--env", "linux-server", "--keep-children", "--", "x"]
+        );
+    }
+
+    #[test]
+    fn set_hidden_args_with_env() {
+        assert_eq!(
+            set_hidden_args("x", true, Some("win-rig")),
+            ["hide", "--env", "win-rig", "--", "x"]
+        );
     }
 
     #[test]
     fn set_hidden_args_hide_or_unhide() {
         assert_eq!(
-            set_hidden_args("x-d8efb24f", true),
+            set_hidden_args("x-d8efb24f", true, None),
             ["hide", "--", "x-d8efb24f"]
         );
-        assert_eq!(set_hidden_args("-x", false), ["unhide", "--", "-x"]);
+        assert_eq!(set_hidden_args("-x", false, None), ["unhide", "--", "-x"]);
     }
 
     #[tokio::test]
@@ -608,7 +706,7 @@ mod tests {
         );
         let runner = Runner::new(dir.path().display().to_string());
         let set: HiddenSet = runner
-            .ws_json(&set_hidden_args("x-d8efb24f", true))
+            .ws_json(&set_hidden_args("x-d8efb24f", true, None))
             .await
             .unwrap();
         assert_eq!(set.id, "x-d8efb24f");
@@ -680,7 +778,55 @@ mod tests {
             offline: false,
             runner: None,
             endpoint: None,
+            environment: None,
         }
+    }
+
+    #[test]
+    fn new_agent_args_adds_env() {
+        let req = NewAgent {
+            environment: Some("linux-server".into()),
+            ..request()
+        };
+        assert_eq!(new_agent_args(&req), ["claude", "--env", "linux-server"]);
+        let local = NewAgent {
+            environment: Some("local".into()),
+            ..request()
+        };
+        assert_eq!(new_agent_args(&local), ["claude"]);
+    }
+
+    #[test]
+    fn rename_args_with_env() {
+        assert_eq!(
+            rename_args("x", "-n", Some("win-rig")),
+            ["rename", "--env", "win-rig", "--", "x", "-n"]
+        );
+        assert_eq!(rename_args("x", "n", None), ["rename", "--", "x", "n"]);
+    }
+
+    #[test]
+    fn stop_args_remote_uses_ws_stop() {
+        let (program, args) = stop_args("s1", Some("fix-1"), Some("linux-server")).unwrap();
+        assert_eq!(program, "ws");
+        assert_eq!(args, ["stop", "--env", "linux-server", "--", "fix-1"]);
+        let (program, args) = stop_args("s1", Some("fix-1"), None).unwrap();
+        assert_eq!((program, args), ("claude", strings(&["stop", "s1"])));
+        assert_eq!(
+            stop_args("s1", None, Some("linux-server"))
+                .unwrap_err()
+                .code,
+            "bad_args"
+        );
+    }
+
+    #[test]
+    fn local_only_commands_refuse_a_remote_environment() {
+        let err = refuse_remote(Some("linux-server"), "Stopping a ws runner").unwrap_err();
+        assert_eq!(err.code, "local_only");
+        assert!(err.message.contains("linux-server"), "{}", err.message);
+        assert!(refuse_remote(Some("local"), "x").is_ok());
+        assert!(refuse_remote(None, "x").is_ok());
     }
 
     #[test]
@@ -699,6 +845,7 @@ mod tests {
             offline: true,
             runner: None,
             endpoint: None,
+            environment: None,
         };
         assert_eq!(
             new_agent_args(&req),
