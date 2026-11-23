@@ -66,7 +66,7 @@ func (a *App) localRawMode() (func(), error) {
 	if !ok {
 		return nil, usageErrorf("stdin isn't a terminal")
 	}
-	return makeRaw(int(f.Fd())) //nolint:gosec // G115: a file descriptor fits an int.
+	return makeRaw(int(f.Fd()))
 }
 
 // localTermSize is stdout's size.
@@ -75,7 +75,7 @@ func (a *App) localTermSize() (cols, rows int, err error) {
 	if !ok {
 		return 0, 0, usageErrorf("stdout isn't a terminal")
 	}
-	return terminalSize(int(f.Fd())) //nolint:gosec // G115: a file descriptor fits an int.
+	return terminalSize(int(f.Fd()))
 }
 
 // currentSize is the local terminal's size, or 80x24 when it can't say.
@@ -134,7 +134,7 @@ func (a *App) runRemoteTerminal(ctx context.Context, env string, args envproto.T
 		if result.err != nil {
 			return exit, result.err
 		}
-		return *result.exit, a.exitError(env, result.exit)
+		return *result.exit, exitError(env, result.exit)
 	case <-ctx.Done():
 	}
 	closeTerm()
@@ -154,7 +154,7 @@ type termResult struct {
 
 // recoverTo turns a panic of a terminal goroutine into an error for the run,
 // so the terminal is restored by the run's deferred calls.
-func (r *terminalRun) recoverTo(report func(error)) {
+func recoverTo(report func(error)) {
 	if p := recover(); p != nil {
 		report(fmt.Errorf("the terminal failed: %v", p))
 	}
@@ -162,7 +162,7 @@ func (r *terminalRun) recoverTo(report func(error)) {
 
 // readOutput copies output to stdout until the exit, and reports it.
 func (r *terminalRun) readOutput(done chan<- termResult) {
-	defer r.recoverTo(func(err error) { done <- termResult{err: newError(codeInternal, err)} })
+	defer recoverTo(func(err error) { done <- termResult{err: newError(codeInternal, err)} })
 	for {
 		data, exit, err := r.term.Next()
 		switch {
@@ -184,7 +184,7 @@ func (r *terminalRun) readOutput(done chan<- termResult) {
 // after each so the rate stays at InputPaceBytes per second. The end of
 // stdin closes the terminal.
 func (r *terminalRun) copyInput(ctx context.Context) {
-	defer r.recoverTo(func(err error) { r.cancel(newError(codeInternal, err)) })
+	defer recoverTo(func(err error) { r.cancel(newError(codeInternal, err)) })
 	buf := make([]byte, envproto.MaxInputBytes)
 	for ctx.Err() == nil {
 		n, err := r.app.stdin.Read(buf)
@@ -210,7 +210,7 @@ func (r *terminalRun) copyInput(ctx context.Context) {
 // and ends the terminal on a SIGTERM, SIGHUP or SIGINT, so the run restores
 // the local terminal.
 func (r *terminalRun) watchSignals(ctx context.Context, sigs <-chan os.Signal) {
-	defer r.recoverTo(func(err error) { r.cancel(newError(codeInternal, err)) })
+	defer recoverTo(func(err error) { r.cancel(newError(codeInternal, err)) })
 	for {
 		var sig os.Signal
 		select {
@@ -236,7 +236,7 @@ func (r *terminalRun) watchSignals(ctx context.Context, sigs <-chan os.Signal) {
 
 // exitError is nil for an exit that is the terminal's own end, and the error
 // for one the agent or the connection caused.
-func (a *App) exitError(env string, exit *envproto.TerminalExit) error {
+func exitError(env string, exit *envproto.TerminalExit) error {
 	switch exit.Reason {
 	case "exited", "closed":
 		return nil
