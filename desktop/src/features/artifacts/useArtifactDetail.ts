@@ -24,6 +24,7 @@ export const useArtifactDetail = (id: string): ArtifactDetailData => {
   const [comments, setComments] = useState<CommentList | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const shownRev = chosenRev ?? artifact?.latest ?? null;
+  const shownContent = content !== null && content.rev === shownRev ? content : null;
 
   useEffect(() => {
     let active = true;
@@ -73,7 +74,7 @@ export const useArtifactDetail = (id: string): ArtifactDetailData => {
 
   return {
     artifact,
-    content,
+    content: shownContent,
     comments,
     error,
     shownRev,

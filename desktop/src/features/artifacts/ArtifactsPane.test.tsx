@@ -92,7 +92,7 @@ describe("ArtifactsPane", () => {
   it("reads the revision chosen in the picker", async () => {
     const revisions = [revision(1, "image/png"), revision(2, "image/png")];
     vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact({ ...image, latest: 2 }, revisions));
-    const read = vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+    const read = vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) => content({ rev }));
     renderPane([image], image.id);
     await screen.findByRole("img", { name: "login-error.png" });
 
@@ -184,5 +184,27 @@ describe("ArtifactsPane", () => {
     renderPane([image], image.id);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("no such artifact");
+  });
+
+  it("doesn't show the previous revision's text while the chosen one loads", async () => {
+    const revisions = [revision(1, "text/markdown; charset=utf-8"), revision(2, "text/markdown; charset=utf-8")];
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(pitch, revisions));
+    let finishRev1: (value: ArtifactContent) => void = () => undefined;
+    const rev1 = new Promise<ArtifactContent>((resolve) => {
+      finishRev1 = resolve;
+    });
+    vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+      rev === 2
+        ? content({ rev: 2, contentType: "text/markdown; charset=utf-8", dataBase64: btoa("Latest draft text") })
+        : rev1,
+    );
+    renderPane([pitch], pitch.id);
+    await screen.findByText("Latest draft text");
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+    expect(screen.queryByText("Latest draft text")).toBeNull();
+    finishRev1(content({ rev: 1, contentType: "text/markdown; charset=utf-8", dataBase64: btoa("First draft text") }));
+    expect(await screen.findByText("First draft text")).toBeInTheDocument();
   });
 });
