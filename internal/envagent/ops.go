@@ -29,9 +29,9 @@ func (NoOperations) Run(context.Context, string, any) (json.RawMessage, error) {
 // dispatch handles a request from env/<id>/req that isn't a reply: decodes
 // the envelope, looks the op up, checks its caller is CallerController,
 // CallerInternal or CallerTerminal (the agent can't tell the controller's
-// terminal path from its call path; the controller refuses terminal ops on call), decodes and validates the arguments, checks workspace
-// references with CheckWorkspaceRef, then either replies at once (a
-// refusal, or ca.update, which runs on the session loop as today) or hands
+// terminal path from its call path; the controller refuses terminal ops on
+// call), decodes and validates the arguments, checks workspace references
+// with CheckWorkspaceRef, then either replies at once (a refusal, or ca.update, which runs on the session loop as today) or hands
 // the operation to runOp on its own goroutine. It never blocks the session
 // loop on an operation.
 func (a *Agent) dispatch(ctx context.Context, id *Identity, msg *envproto.Message) {

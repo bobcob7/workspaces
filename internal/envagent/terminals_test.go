@@ -34,6 +34,15 @@ type fakeProc struct {
 	resizes [][2]int
 	closed  bool
 	exit    *int
+	gate    atomic.Pointer[chan struct{}]
+}
+
+// blockWrites makes Write wait until the returned func is called or the process ends.
+func (p *fakeProc) blockWrites() (release func()) {
+	gate := make(chan struct{})
+	p.gate.Store(&gate)
+	var once sync.Once
+	return func() { once.Do(func() { close(gate) }) }
 }
 
 func newFakeProc() *fakeProc {
@@ -44,6 +53,12 @@ func newFakeProc() *fakeProc {
 func (p *fakeProc) Read(b []byte) (int, error) { return p.r.Read(b) }
 
 func (p *fakeProc) Write(b []byte) (int, error) {
+	if gate := p.gate.Load(); gate != nil {
+		select {
+		case <-*gate:
+		case <-p.ended:
+		}
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
@@ -466,10 +481,56 @@ func TestTerminal_input(t *testing.T) {
 				seq++
 				h.send(sid, envproto.FrameInput, seq, []byte("a"))
 			}
+			require.Eventually(t, func() bool { return len(proc.input()) == int(seq) }, 5*time.Second, 5*time.Millisecond)
 			h.clock.advance(time.Second)
 		}
-		require.Eventually(t, func() bool { return len(proc.input()) == 3*envproto.InputLimitFrames }, 5*time.Second, 5*time.Millisecond)
 		assert.False(t, proc.isClosed())
+	})
+	t.Run("a burst of InputLimitFrames frames while the pty write is blocked is accepted", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		sid, proc := h.open()
+		release := proc.blockWrites()
+		defer release()
+		for i := 1; i <= envproto.InputLimitFrames; i++ {
+			h.send(sid, envproto.FrameInput, uint64(i), []byte("a"))
+		}
+		assert.False(t, h.m.lookup(sid).isClosing(), "input inside the rate must not close the terminal")
+		release()
+		require.Eventually(t, func() bool { return len(proc.input()) == envproto.InputLimitFrames }, 5*time.Second, 5*time.Millisecond)
+		assert.False(t, proc.isClosed())
+	})
+	t.Run("a burst of maximum-size frames inside the byte rate is accepted while the pty write is blocked", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		sid, proc := h.open()
+		release := proc.blockWrites()
+		defer release()
+		body := bytes.Repeat([]byte("a"), envproto.MaxInputBytes)
+		frames := envproto.InputLimitBytes / envproto.MaxInputBytes
+		for i := 1; i <= frames; i++ {
+			h.send(sid, envproto.FrameInput, uint64(i), body)
+		}
+		assert.False(t, h.m.lookup(sid).isClosing())
+		release()
+		require.Eventually(t, func() bool { return len(proc.input()) == frames*len(body) }, 5*time.Second, 5*time.Millisecond)
+	})
+	t.Run("a queued frame keeps its bytes when the broker's buffer is reused", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		sid, proc := h.open()
+		release := proc.blockWrites()
+		defer release()
+		h.send(sid, envproto.FrameInput, 1, []byte("first"))
+		payload, err := envproto.MarshalFrame(envproto.Frame{Kind: envproto.FrameInput, Seq: 2, Body: []byte("second")})
+		require.NoError(t, err)
+		h.sendRaw(sid, payload)
+		for i := range payload[10:] {
+			payload[10+i] = 'X'
+		}
+		release()
+		require.Eventually(t, func() bool { return len(proc.input()) == len("firstsecond") }, 5*time.Second, 5*time.Millisecond)
+		assert.Equal(t, "firstsecond", proc.input())
 	})
 	t.Run("a gap in input closes the terminal", func(t *testing.T) {
 		t.Parallel()
@@ -578,6 +639,111 @@ func TestTerminals_closeAll(t *testing.T) {
 	})
 }
 
+// isClosing reports whether the terminal has started to end.
+func (t *terminal) isClosing() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closed
+}
+
+func TestTerminal_finish(t *testing.T) {
+	t.Parallel()
+	// stopped is a terminal that has not been run: its goroutines are done, so
+	// finish can be called directly with the publisher's last state.
+	stopped := func(h *termHarness) (*terminal, string) {
+		const sid = "0123456789abcdef"
+		require.True(h.t, h.m.reserve())
+		tm := newTerminal(h.m, sid, newFakeProc(), 80, 24)
+		close(tm.readDone)
+		close(tm.inDone)
+		return tm, sid
+	}
+	t.Run("output left in the queue is published before the exit frame", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		tm, sid := stopped(h)
+		tm.push([]byte("last words"))
+		tm.close(reasonExited)
+		var seq uint64
+		tm.finish(&seq)
+		frames := h.frames(sid)
+		require.Len(t, frames, 2)
+		assert.Equal(t, envproto.FrameData, frames[0].Kind)
+		assert.Equal(t, "last words", string(frames[0].Body))
+		assert.Equal(t, envproto.FrameExit, frames[1].Kind)
+	})
+	t.Run("a stalled broker holds finish for a short deadline, not per frame", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		release := h.blockData()
+		defer release()
+		h.m.publishWait = time.Minute
+		h.m.finishWait = 50 * time.Millisecond
+		tm, sid := stopped(h)
+		for range 4 {
+			tm.push([]byte("queued"))
+		}
+		tm.close(reasonDisconnected)
+		done := make(chan struct{})
+		go func() {
+			var seq uint64
+			tm.finish(&seq)
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			require.Fail(t, "finish waited on the stalled broker")
+		}
+		frames := h.frames(sid)
+		require.NotEmpty(t, frames)
+		assert.Equal(t, envproto.FrameExit, frames[len(frames)-1].Kind)
+	})
+}
+
+func TestTerminals_open(t *testing.T) {
+	t.Parallel()
+	t.Run("a failed TerminalCommand gives its slot back", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		good := h.m.commands
+		h.m.commands = &terminalCommandsMock{TerminalCommandFunc: func(context.Context, *envproto.TerminalOpenArgs) (TerminalCommand, error) {
+			return TerminalCommand{}, &envproto.ReplyError{Code: "workspace_not_found", Message: "no such workspace"}
+		}}
+		for range envproto.MaxTerminals + 1 {
+			_, err := h.m.open(t.Context(), attachArgs())
+			var reply *envproto.ReplyError
+			require.ErrorAs(t, err, &reply)
+			require.Equal(t, "workspace_not_found", reply.Code)
+		}
+		h.m.commands = good
+		h.open()
+	})
+	t.Run("a failed Start gives its slot back", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		good := h.m.starter
+		h.m.starter = &ptyStarterMock{StartFunc: func(ptyproc.Spec) (ptyProcess, error) { return nil, io.ErrClosedPipe }}
+		for range envproto.MaxTerminals + 1 {
+			_, err := h.m.open(t.Context(), attachArgs())
+			require.ErrorIs(t, err, io.ErrClosedPipe)
+		}
+		h.m.starter = good
+		h.open()
+	})
+	t.Run("a sid already in use is not handed out again", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		same := bytes.Repeat([]byte{0xaa}, sidBytes)
+		other := bytes.Repeat([]byte{0xbb}, sidBytes)
+		h.m.random = bytes.NewReader(bytes.Join([][]byte{same, same, other}, nil))
+		first, _ := h.open()
+		second, _ := h.open()
+		assert.Equal(t, "aaaaaaaaaaaaaaaa", first)
+		assert.Equal(t, "bbbbbbbbbbbbbbbb", second)
+	})
+}
+
 // terminalOps is an operationRunner that also builds terminal commands.
 type terminalOps struct {
 	*operationRunnerMock
@@ -595,6 +761,7 @@ type termFixture struct {
 	procs *procList
 	ops   *terminalOps
 	reqs  atomic.Int64
+	run   *runningAgent
 }
 
 func newTermFixture(t *testing.T, commands *terminalCommandsMock) *termFixture {
@@ -605,9 +772,9 @@ func newTermFixture(t *testing.T, commands *terminalCommandsMock) *termFixture {
 	require.NotNil(t, agent.terms)
 	procs := &procList{}
 	agent.terms.starter = procs.starter()
-	runAgent(t, agent)
+	run := runAgent(t, agent)
 	awaitOnline(t, fx)
-	return &termFixture{fx: fx, agent: agent, procs: procs, ops: ops}
+	return &termFixture{fx: fx, agent: agent, procs: procs, ops: ops, run: run}
 }
 
 // ask sends op with args as a fresh request and returns the reply.
@@ -704,7 +871,9 @@ func TestAgent_terminalOpen(t *testing.T) {
 		again := f.ask(t, envproto.OpTerminalOpen, attachArgs())
 		assert.True(t, again.OK, "a closed terminal frees its slot")
 	})
-	t.Run("an open on up is refused", func(t *testing.T) {
+	// The agent subscribes to req and never to up, so this documents that an
+	// open published on up goes nowhere; no agent code enforces it.
+	t.Run("an open on up is never seen by the agent", func(t *testing.T) {
 		t.Parallel()
 		f := newTermFixture(t, attachCommands())
 		res := envproto.Topic(f.fx.id.ID, envproto.LeafRes, "up1")
@@ -750,6 +919,21 @@ func TestAgent_terminalOpen(t *testing.T) {
 		require.Equal(t, 1, f.fx.broker.Disconnect(f.fx.id.Cert.SerialNumber.Text(16)))
 		require.Eventually(t, func() bool { return f.procs.at(0).isClosed() && f.procs.at(1).isClosed() }, 5*time.Second, 5*time.Millisecond)
 		require.Eventually(t, func() bool { return len(f.agent.terms.snapshot()) == 0 }, 5*time.Second, 5*time.Millisecond)
+	})
+	t.Run("stopping the agent closes every terminal with reason disconnected", func(t *testing.T) {
+		t.Parallel()
+		f := newTermFixture(t, attachCommands())
+		sid := f.open(t)
+		out := captureMessages(t, f.fx.broker, envproto.Topic(f.fx.id.ID, envproto.LeafStream, sid, "out"))
+		f.run.cancel()
+		require.Eventually(t, func() bool { return f.procs.at(0).isClosed() }, 5*time.Second, 5*time.Millisecond)
+		require.Eventually(t, func() bool { return len(out.all()) == 1 }, 5*time.Second, 5*time.Millisecond)
+		frame, err := envproto.UnmarshalFrame(out.all()[0].Payload)
+		require.NoError(t, err)
+		require.Equal(t, envproto.FrameExit, frame.Kind)
+		var exit envproto.TerminalExit
+		require.NoError(t, json.Unmarshal(frame.Body, &exit))
+		assert.Equal(t, "disconnected", exit.Reason)
 	})
 	t.Run("terminal.close of an unknown sid answers closed false", func(t *testing.T) {
 		t.Parallel()

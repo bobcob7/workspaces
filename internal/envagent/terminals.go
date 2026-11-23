@@ -32,7 +32,14 @@ const (
 	// redrawLowWater is the queued output under which the agent redraws after a drop.
 	redrawLowWater = 256 << 10
 	// inputBacklog is how many validated frames wait for a terminal's writer.
-	inputBacklog = 256
+	// It holds two seconds of frames at envproto.InputLimitFrames, so a pty
+	// that stops reading never turns input inside the rate into input_limit.
+	// The byte bucket allows at most envproto.InputLimitBytes of bodies, so the
+	// queued bodies stay near that however many frames wait.
+	inputBacklog = 2 * envproto.InputLimitFrames
+	// finishWait bounds how long finish waits on the broker for the last output
+	// and, separately, for the exit frame.
+	finishWait = 5 * time.Second
 	// frameWireMax is the largest message on a stream topic.
 	frameWireMax = envproto.MaxChunkBytes + 10
 	// sidBytes is the random bytes in a sid.
@@ -53,6 +60,7 @@ type terminals struct {
 	max         int
 	publishWait time.Duration
 	redrawDelay time.Duration
+	finishWait  time.Duration
 	mu          sync.Mutex
 	byID        map[string]*terminal
 	reserved    int // terminals open or being opened
@@ -77,6 +85,7 @@ func newTerminals(log *slog.Logger, client mqttClient, commands terminalCommands
 		max:         limit,
 		publishWait: max(opts.RequestTimeout, time.Second),
 		redrawDelay: redrawDelay,
+		finishWait:  finishWait,
 		byID:        make(map[string]*terminal),
 		pubCtx:      context.Background(),
 	}
@@ -393,9 +402,6 @@ func (t *terminal) admit(payload []byte) string {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.closed {
-		return ""
-	}
 	if f.Seq != t.nextIn {
 		return reasonInputGap
 	}
@@ -534,10 +540,10 @@ func (t *terminal) push(chunk []byte) {
 func (t *terminal) pop() (chunk []byte, dropped uint64, queued int, ok bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	dropped, t.dropped = t.dropped, 0
 	if len(t.queue) == 0 {
-		return nil, dropped, 0, false
+		return nil, 0, 0, false
 	}
+	dropped, t.dropped = t.dropped, 0
 	chunk = t.queue[0]
 	t.queue = t.queue[1:]
 	t.queued -= len(chunk)
@@ -556,7 +562,7 @@ func (t *terminal) publish() {
 		case <-t.stop:
 			stopped = true
 		case <-t.wake:
-			redrawWanted = t.flush(&seq, redrawWanted)
+			redrawWanted = t.flush(t.m.baseCtx(), &seq, redrawWanted)
 		case <-retry:
 			retry = nil
 		}
@@ -578,18 +584,19 @@ func (t *terminal) lowWater() bool {
 
 // flush publishes everything queued, a dropped frame before the first chunk
 // after a drop. It returns true when a drop wants a redraw.
-func (t *terminal) flush(seq *uint64, redrawWanted bool) bool {
-	for {
+func (t *terminal) flush(ctx context.Context, seq *uint64, redrawWanted bool) bool {
+	for ctx.Err() == nil {
 		chunk, dropped, _, ok := t.pop()
 		if dropped > 0 {
-			t.send(seq, envproto.FrameDropped, dropBody(dropped))
+			t.send(ctx, seq, envproto.FrameDropped, dropBody(dropped))
 			redrawWanted = true
 		}
 		if !ok {
 			return redrawWanted
 		}
-		t.send(seq, envproto.FrameData, chunk)
+		t.send(ctx, seq, envproto.FrameData, chunk)
 	}
+	return redrawWanted
 }
 
 // dropBody is a dropped frame's body: the count as a big-endian uint64.
@@ -601,25 +608,34 @@ func dropBody(n uint64) []byte {
 
 // send publishes one output frame at QoS 0. A failure is logged and the
 // frame is lost, which the receiver sees as a gap.
-func (t *terminal) send(seq *uint64, kind envproto.FrameKind, body []byte) {
+func (t *terminal) send(base context.Context, seq *uint64, kind envproto.FrameKind, body []byte) {
 	*seq++
 	payload, err := envproto.MarshalFrame(envproto.Frame{Kind: kind, Seq: *seq, Body: body})
 	if err != nil {
-		t.m.log.Error("terminal frame not encoded", "error", err)
+		t.m.log.ErrorContext(base, "terminal frame not encoded", "error", err)
 		return
 	}
 	t.m.mu.Lock()
-	envID, base := t.m.envID, t.m.pubCtx
+	envID := t.m.envID
 	t.m.mu.Unlock()
 	ctx, cancel := context.WithTimeout(base, t.m.publishWait)
 	defer cancel()
 	topic := envproto.Topic(envID, envproto.LeafStream, t.sid, "out")
 	if err := t.m.client.Publish(ctx, envproto.Message{Topic: topic, Payload: payload}); err != nil {
-		t.m.log.Debug("terminal frame not published", "error", err)
+		t.m.log.DebugContext(ctx, "terminal frame not published", "error", err)
 	}
 }
 
-// finish ends the process, flushes the output left and publishes the exit frame.
+// baseCtx is the context the terminals publish under.
+func (m *terminals) baseCtx() context.Context {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pubCtx
+}
+
+// finish ends the process, flushes the output left and publishes the exit
+// frame. Each of the two waits at most finishWait on the broker, so a stalled
+// broker can't hold the session loop in closeAll for long.
 func (t *terminal) finish(seq *uint64) {
 	if err := t.proc.Close(); err != nil {
 		t.m.log.Debug("terminal not closed", "error", err)
@@ -628,7 +644,9 @@ func (t *terminal) finish(seq *uint64) {
 	<-t.readDone
 	<-t.inDone
 	t.bg.Wait()
-	t.flush(seq, false)
+	flushCtx, cancelFlush := context.WithTimeout(t.m.baseCtx(), t.m.finishWait)
+	t.flush(flushCtx, seq, false)
+	cancelFlush()
 	t.mu.Lock()
 	reason := t.reason
 	t.mu.Unlock()
@@ -636,7 +654,9 @@ func (t *terminal) finish(seq *uint64) {
 	if err != nil {
 		t.m.log.Error("terminal exit not encoded", "error", err)
 	} else {
-		t.send(seq, envproto.FrameExit, body)
+		exitCtx, cancelExit := context.WithTimeout(t.m.baseCtx(), t.m.finishWait)
+		t.send(exitCtx, seq, envproto.FrameExit, body)
+		cancelExit()
 	}
 	t.m.mu.Lock()
 	delete(t.m.byID, t.sid)
