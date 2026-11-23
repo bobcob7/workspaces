@@ -37,7 +37,7 @@ func assertNothingCreated(t *testing.T, s *Store) {
 
 // createUnlocked runs Create and unlocks the lock it returns, for tests
 // that don't hand it to a session.
-func createUnlocked(t *testing.T, s *Store, opts CreateOptions) (Workspace, error) {
+func createUnlocked(t *testing.T, s *Store, opts CreateOptions) (Workspace, error) { //nolint:gocritic // a fixture copied once per test.
 	t.Helper()
 	ws, lock, err := s.Create(t.Context(), opts)
 	if lock != nil {
@@ -121,6 +121,48 @@ func TestStore_Create(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "fix-login-d8efb24f", got.Parent)
 		assert.Equal(t, parentVersion, got.Version)
+	})
+	t.Run("a root gets the environment it was created for", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		ws, err := createUnlocked(t, e.store, CreateOptions{Environment: "linux-server"})
+		require.NoError(t, err)
+		got, err := readRecord(e.store.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", got.Environment)
+		assert.Equal(t, environmentVersion, got.Version)
+	})
+	t.Run("a child inherits its parent's environment", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		parent, err := createUnlocked(t, e.store, CreateOptions{Name: "parent", Environment: "linux-server"})
+		require.NoError(t, err)
+		child, err := createUnlocked(t, e.store, CreateOptions{Parent: parent.ID, Environment: "other"})
+		require.NoError(t, err)
+		got, err := readRecord(e.store.recordPath(child.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", got.Environment)
+	})
+	t.Run("a child of a parent without an environment gets the options' environment", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		parent, err := createUnlocked(t, e.store, CreateOptions{Name: "parent"})
+		require.NoError(t, err)
+		child, err := createUnlocked(t, e.store, CreateOptions{Parent: parent.ID, Environment: "linux-server"})
+		require.NoError(t, err)
+		got, err := readRecord(e.store.recordPath(child.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", got.Environment)
+	})
+	t.Run("no environment leaves no key and version 1", func(t *testing.T) {
+		t.Parallel()
+		e := newGitEnv(t)
+		ws, err := createUnlocked(t, e.store, CreateOptions{Name: "plain"})
+		require.NoError(t, err)
+		data, err := os.ReadFile(e.store.recordPath(ws.ID))
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "environment =")
+		assert.Contains(t, string(data), "version = 1\n")
 	})
 	t.Run("no repos makes an empty workspace", func(t *testing.T) {
 		t.Parallel()
