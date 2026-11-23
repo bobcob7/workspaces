@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -23,27 +24,58 @@ type finding struct {
 // check returns the blank lines inside the bodies of f's function
 // declarations, in line order. A line is blank when it is empty after
 // strings.TrimSpace. Lines inside a string literal (a raw string spanning
-// lines) and lines inside a block comment don't count. Function literals
-// are covered by the declaration that holds them. src is the file's source.
+// lines) and lines inside a block comment don't count. A function literal
+// is named by the declaration that holds it, or by its package-level var.
+// Each line is reported once, under the outermost function that holds it.
+// src is the file's source.
 func check(fset *token.FileSet, f *ast.File, src []byte) []finding {
 	lines := bytes.Split(src, []byte("\n"))
 	skip := multiLineLines(fset, f)
+	seen := map[int]bool{}
 	var out []finding
-	for _, decl := range f.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
-			continue
-		}
-		open := fset.Position(fn.Body.Lbrace).Line
-		closing := fset.Position(fn.Body.Rbrace).Line
+	scan := func(body *ast.BlockStmt, name string) {
+		open := fset.Position(body.Lbrace).Line
+		closing := fset.Position(body.Rbrace).Line
 		for line := open + 1; line < closing; line++ {
-			if skip[line] || len(bytes.TrimSpace(lines[line-1])) != 0 {
+			if seen[line] || skip[line] || len(bytes.TrimSpace(lines[line-1])) != 0 {
 				continue
 			}
-			out = append(out, finding{Line: line, Func: funcName(fn)})
+			seen[line] = true
+			out = append(out, finding{Line: line, Func: name})
 		}
 	}
+	for _, decl := range f.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+			scan(fn.Body, funcName(fn))
+		}
+	}
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			name := specName(spec)
+			ast.Inspect(spec, func(n ast.Node) bool {
+				if lit, ok := n.(*ast.FuncLit); ok {
+					scan(lit.Body, name)
+				}
+				return true
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Line < out[j].Line })
 	return out
+}
+
+// specName returns the first name a package-level spec declares, or
+// "<package>" when it declares none.
+func specName(spec ast.Spec) string {
+	vs, ok := spec.(*ast.ValueSpec)
+	if !ok || len(vs.Names) == 0 {
+		return "<package>"
+	}
+	return vs.Names[0].Name
 }
 
 // multiLineLines returns the lines after the first line of every comment
@@ -84,6 +116,8 @@ func receiverName(expr ast.Expr) string {
 	case *ast.IndexExpr:
 		return receiverName(t.X)
 	case *ast.IndexListExpr:
+		return receiverName(t.X)
+	case *ast.ParenExpr:
 		return receiverName(t.X)
 	case *ast.Ident:
 		return t.Name
