@@ -138,7 +138,7 @@ registry (the lock file is pinned; no package changes).
 | `peerListener{uid: os.Getuid()}` (`server.go:150`) | same-user check on every connection | unchanged; the upgrade is on the same listener |
 | `daemon.Status` JSON and `ws-daemon-status.md` | | unchanged (terminals aren't reported in PR 4) |
 
-### Broker and streams — T1, T4, T11
+### Broker and streams — T1, T1a, T4, T11
 
 | Value | Where | Note |
 | --- | --- | --- |
@@ -146,6 +146,7 @@ registry (the lock file is pinned; no package changes).
 | `MaximumPacketSize = 256 KiB + 16 KiB` | `broker.go:95` | stream frames are far below |
 | keep-alive 30 s, will delay 10 s | `envagent` | offline after ~11 s (killed) or ~56 s (silent): a terminal ends then (D10) |
 | mochi v2.7.9, paho v0.23.0 | `go.mod` | no change |
+| `TCP_NOTSENT_LOWAT` 16 KiB (`envproto.AgentNotSentLowWater`) | the agent's one connection, set in `mqttclient`'s dial (T1a) | bounds the not-yet-sent queue so bulk output can't delay control requests (D1's Result); 0 = OS default |
 
 ### Lint and test rules (all tasks)
 

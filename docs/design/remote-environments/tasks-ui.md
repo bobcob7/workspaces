@@ -144,6 +144,32 @@ bounded channel), never stalls the agent's connection.
 The spike's tests live behind the build tag `spike` (`go test -tags spike`),
 so `make test` never runs them.
 
+**Result (T1, then the follow-up in [terminal-spike.md](terminal-spike.md)
+section 5). Decided by the owner, 2026-11-23: one connection with a bounded
+send buffer.** T1 found **NO-GO** on 20ms-10mbit: echo p50 20.77 ms and p99
+21.06 ms, throughput 99.2 % of the link and broker heap growth 0.5 to 2.0 MiB
+per slow stream all pass, but a control request during a saturated stream took
+1.95 to 2.0 s against about 142 ms. Section 5 showed the cause is the agent's
+own unbounded kernel TCP send buffer, not the broker: bounding it with
+`TCP_NOTSENT_LOWAT` at 16 KiB on the single connection cuts the control request
+from about 3 s to about 0.18 s (169 to 195 ms), keeps the stream at 99 % of the
+link, passes D1's limit on a 100 Mbit/s profile (56 ms against 182 ms) and
+misses it on a 10 Mbit/s uplink by about 40 ms (182 to 195 ms against 142 ms),
+only during a bulk dump such as `cat` of a big file; ordinary terminal use
+never builds the queue. **Chosen:** the single connection, with
+`envproto.ConnectOptions.NotSentLowWater` set to 16 KiB by the agent for all
+its traffic (T1a). No second connection, no broker identity or ACL change, and
+not the WebSocket (nothing failed on throughput or memory). **Cost:** control
+requests wait about 0.18 s during a bulk dump on a 10 Mbit/s uplink, so D1's
+limit is knowingly missed by about 40 ms in that one case. **Why accepted:**
+it is a one-off delay under bulk output on a slow link, the alternative adds a
+second connection, a broker identity and ACL, and a lifecycle for a 0.1 s
+gain, and typing during the same dump also drops from 2 to 3 s to about 0.15 s.
+**What would reopen it:** a real WAN measurement (the harness's proxy itself
+holds 64 to 100 ms ahead of the link, and throughput on a long fat path was
+not measured), or users seeing stalls of control requests or keystrokes during
+bulk output.
+
 ### D2. How a terminal reaches the broker: the CLI is the only stream client, through an upgraded daemon socket. **Owner review.**
 
 Today a desktop terminal is a local pty running `claude attach <session>` or
@@ -362,7 +388,7 @@ exactly these files under `desktop/docs/`, which T18 links:
 | 0074, Requests | "A JSON object `{op, args}`" (for everything on `req`) | `terminal.input`, `terminal.resize`, `terminal.redraw` and the ping are **binary frames on `stream/<sid>/in`**, not requests; only `terminal.open` and `terminal.close` are requests. Frame format: T2. |
 | 0074, Streams | "on a gap it asks for a redraw (`terminal.redraw`), which sends the screen's current state" | The agent keeps no screen model. A redraw makes the program repaint by changing the pty size by one row and back (two `SIGWINCH`), which repaints Claude Code and other full-screen programs; a line-mode shell shows only the marker. |
 | 0074, Streams | "Output the controller isn't reading is dropped by the agent after 1 MiB queued, with a visible marker" | Also by the controller after 1 MiB unread by its client (the CLI), with the same marker. |
-| 0074, Where it's weak | "If measured terminal latency is poor, terminals move to a second connection or a direct WebSocket" | Replace with the spike's result and the chosen path ([terminal-spike.md](../design/remote-environments/terminal-spike.md)). |
+| 0074, Where it's weak | "If measured terminal latency is poor, terminals move to a second connection or a direct WebSocket" | Replace with the spike's result and the chosen path ([terminal-spike.md](../design/remote-environments/terminal-spike.md)). Add: "the agent's connection bounds its not-yet-sent queue (TCP_NOTSENT_LOWAT 16 KiB) so bulk terminal output cannot delay control requests; measured in terminal-spike.md". |
 | 0073, operations table | "`workspace.create` (`claude`, `shell` or `runner` kind …) / `ws shell`" | A shell is `terminal.open` kind `shell`, not a `workspace.create` kind: the workspace lives as long as the terminal. The agent runs **its own executable** (`os.Executable()`) as `ws shell` in a pty, the one operation that isn't in-process (PR 3's D1), because a shell needs its own process and controlling terminal. |
 | 0073, operations table | "`terminal.open`, `terminal.input`, `terminal.resize` … `claude attach` or the shell" | Add `terminal.close`, `terminal.redraw`; attach takes a **workspace**, and the agent reads its session id. |
 | 0072, Decision › Choosing it | "`ws claude --env <name>`, `ws shell --env <name>`, and an Environment picker" | Add `ws attach [--env]`, `ws stop [--env]` and `--env` on `ws rm`, `ws rename`, `ws hide`, `ws unhide` (D9). |
@@ -429,27 +455,29 @@ exactly these files under `desktop/docs/`, which T18 links:
 ## Order
 
 ```
-T1 (spike) ──────────────────────────────┐ gates T4, T6, T7, T8, T11
-T2 ─┬─ T4 ─ T5 ──────────────┐
-T3 ─┘                         ├─ T11
+T1 (spike, DONE) ────────────────────────┐ gates T4, T6, T7, T8, T11
+T1a ──┐                                   │
+T2 ───┼─ T4 ─ T5 ──────────────┐
+T3 ───┘                         ├─ T11
 T2 ── T6 ── T7 ── T8 ─────────┘
 T9 ─┬──────────── T12 ─┬─ T14 ─┬─ T15
 T10 ┘  (T12 also needs T8)     ├─ T16 ─ T17
 T13 ───────────────────┘        └──────────── T18 (after all)
 ```
 
-Edges: T4←T1,T2,T3; T5←T4; T6←T1,T2; T7←T6; T8←T7,T10; T9←–; T10←–;
+Edges: T1a←–; T4←T1,T1a,T2,T3; T5←T4; T6←T1,T2; T7←T6; T8←T7,T10; T9←–; T10←–;
 T11←T5,T8; T12←T8,T9,T10; T13←–; T14←T12,T13; T15←T14; T16←T14;
 T17←T16; T18←T11,T15,T17.
 
 | Task | Area | Depends on | Parallel with | Size | Model |
 | --- | --- | --- | --- | --- | --- |
-| T1 Spike: terminal latency, throughput, slow reader, memory | spike | – | T2, T3, T9, T10, T13 | | `sonnet` |
-| T2 Protocol: terminal ops, frames, limits, protocol 2 | agent terminals | – | T1, T3, T9, T10, T13 | | |
-| T3 `internal/ptyproc`: a process in a pseudo-terminal | agent terminals | – | T1, T2, T9, T10, T13 | `small` | |
-| T4 Agent: terminals, streams, limits, lifetime | agent terminals | T1, T2, T3 | T6, T9, T10, T13 | | `sonnet` |
+| T1 Spike: terminal latency, throughput, slow reader, memory (DONE) | spike | – | T1a, T2, T3, T9, T10, T13 | | `sonnet` |
+| T1a `mqttclient` dial option: bound the not-yet-sent queue | agent terminals | – | T2, T3, T6, T9, T10, T13 | `small` | `sonnet` |
+| T2 Protocol: terminal ops, frames, limits, protocol 2 | agent terminals | – | T1, T1a, T3, T9, T10, T13 | | |
+| T3 `internal/ptyproc`: a process in a pseudo-terminal | agent terminals | – | T1, T1a, T2, T9, T10, T13 | `small` | |
+| T4 Agent: terminals, streams, limits, lifetime | agent terminals | T1, T1a, T2, T3 | T6, T9, T10, T13 | | `sonnet` |
 | T5 Agent side in `internal/cli`: attach and shell command lines | agent terminals | T4 | T6, T7 | `small` | |
-| T6 Controller: `OpenTerminal`, gaps, buffer, ping | controller and daemon | T1, T2 | T3, T4, T5, T9, T10, T13 | | `sonnet` |
+| T6 Controller: `OpenTerminal`, gaps, buffer, ping | controller and daemon | T1, T2 | T1a, T3, T4, T5, T9, T10, T13 | | `sonnet` |
 | T7 Daemon: the upgraded terminal route and client | controller and daemon | T6 | T5, T9, T13 | | `sonnet` |
 | T8 CLI: `ws attach` and `ws shell --env` | CLI | T7, T10 | T13 | | |
 | T9 `ws list`: every environment by default, `agent_state` | CLI | – | T1-T7, T13 | | |
@@ -471,7 +499,9 @@ T13 are package-local and may run beside one heavy child.
 
 ## T1. Spike: terminal latency, throughput, slow reader, memory (`sonnet`)
 
-- **Depends on:** nothing. **Parallel:** T2, T3, T9, T10, T13.
+- **Status: DONE** (merged on `feat/env-ui`). **Verdict:** NO-GO against D1 as
+  written on 20ms-10mbit; resolved by D1's Result.
+- **Depends on:** nothing. **Parallel:** T1a, T2, T3, T9, T10, T13.
 - **Pinned values touched:** constraints-ui.md › Broker and streams.
 - **Gates:** T4, T6, T7, T8, T11 don't start until the orchestrator has read
   its verdict. On no-go, the orchestrator follows D1 (and asks the owner
@@ -555,9 +585,71 @@ make lint
 
 ---
 
+## T1a. `mqttclient` dial option: bound the not-yet-sent queue (`small`, `sonnet`)
+
+- **Depends on:** nothing (T1 is merged). **Parallel:** T2, T3, T6, T9, T10,
+  T13. **Blocks:** T4 (T4 depends on T1a).
+- **Pinned values touched:** constraints-ui.md › Broker and streams.
+- Why: D1's Result. The agent's own unbounded kernel send queue delayed
+  control requests behind bulk terminal output by about 3 s; bounding it with
+  `TCP_NOTSENT_LOWAT` on the one connection cuts that to about 0.18 s.
+
+### Files
+
+Change: `internal/envproto/envproto.go` (`ConnectOptions` gains
+`NotSentLowWater int`: bytes, 0 means the OS default; a `const
+AgentNotSentLowWater = 16 << 10`), `internal/mqttclient/client.go` (`Connect`
+dials with a `net.Dialer` whose `Control` function applies the option, wrapped
+by the existing `tls.Dialer{NetDialer: …}`), `internal/envagent/agent.go`
+(`Options` gains `NotSentLowWater`; `connect` passes it in `ConnectOptions`),
+`internal/cli/env_agent.go` (`env_agent run` sets `NotSentLowWater` to
+`envproto.AgentNotSentLowWater`, so it covers **all** agent traffic, not only
+streams).
+
+Create: `internal/mqttclient/notsent_unix.go` (`//go:build unix`:
+`setNotSentLowWater(network, address string, c syscall.RawConn, bytes int)
+error` calls `unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_NOTSENT_LOWAT,
+bytes)` from `golang.org/x/sys/unix`, already in `go.mod`),
+`internal/mqttclient/notsent_other.go` (`//go:build !unix`: a no-op that
+returns nil), and the tests below.
+
+`TCP_NOTSENT_LOWAT` exists on Linux and macOS; where the option is refused the
+dial fails with the error wrapped (a configured bound that can't be applied is
+not silently dropped). A value of 0 installs no `Control` function.
+
+### Tests
+
+- `client_test.go`: the option plumbing: `Connect` with `NotSentLowWater` 0
+  installs no `Control` function; with a value it reaches the dial (an
+  unexported function field on `Client` defaulting to `setNotSentLowWater`,
+  replaced in the test).
+- `notsent_linux_test.go` (`//go:build linux`): a real loopback TCP connection
+  dialed with the option set to 16 KiB; `unix.GetsockoptInt(fd, IPPROTO_TCP,
+  TCP_NOTSENT_LOWAT)` returns 16384; with 0 it returns 0.
+- `internal/envagent/agent_test.go`: the agent passes `Options.NotSentLowWater`
+  through to `Connect` (the `envClientMock`'s recorded options).
+- `internal/cli/env_agent_test.go`: `env_agent run` builds the agent with
+  `NotSentLowWater` = 16 KiB.
+
+### Acceptance
+
+- `ConnectOptions.NotSentLowWater` zero value keeps today's behaviour.
+- On Linux the connected socket reports `TCP_NOTSENT_LOWAT` 16384.
+- `GOOS=windows go build ./...` and `GOOS=darwin go build ./...` still pass.
+
+### Verify
+
+```
+go test -p 2 -count=1 ./internal/mqttclient/ ./internal/envagent/ ./internal/envproto/
+GOOS=windows go vet ./internal/mqttclient/
+make lint
+```
+
+---
+
 ## T2. Protocol: terminal ops, frames, limits, protocol 2
 
-- **Depends on:** nothing. **Parallel:** T1, T3, T9, T10, T13.
+- **Depends on:** nothing. **Parallel:** T1, T1a, T3, T9, T10, T13.
 - **Pinned values touched:** constraints-ui.md › Wire payloads, Error codes
   (none here; T4 uses `terminal_limit` as a string).
 
@@ -723,7 +815,7 @@ make lint
 
 ## T3. `internal/ptyproc`: a process in a pseudo-terminal (`small`)
 
-- **Depends on:** nothing. **Parallel:** T1, T2, T9, T10, T13.
+- **Depends on:** nothing. **Parallel:** T1, T1a, T2, T9, T10, T13.
 - **Pinned values touched:** constraints-ui.md › Lint rules (`depguard`,
   platform files).
 
@@ -800,7 +892,7 @@ make lint
 
 ## T4. Agent: terminals, streams, limits, lifetime (`sonnet`)
 
-- **Depends on:** T1 (go), T2, T3. **Parallel:** T6, T9, T10, T13.
+- **Depends on:** T1 (merged), T1a, T2, T3. **Parallel:** T6, T9, T10, T13.
 - **Pinned values touched:** constraints-ui.md › `envagent` signatures,
   Broker and streams.
 - **Security-critical and concurrency-heavy**: the mutation-testing reviewer
@@ -969,7 +1061,7 @@ make lint
 
 ## T6. Controller: `OpenTerminal`, gaps, buffer, ping (`sonnet`)
 
-- **Depends on:** T1 (go), T2. **Parallel:** T3, T4, T5, T9, T10, T13.
+- **Depends on:** T1 (merged), T2. **Parallel:** T1a, T3, T4, T5, T9, T10, T13.
 - **Pinned values touched:** constraints-ui.md › Controller.
 - **Concurrency-heavy**: `c.mu` is never held across a broker call (the
   broker's handlers take it).
