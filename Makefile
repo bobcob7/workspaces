@@ -46,6 +46,8 @@ lint:
 	@! grep -rn '"go.opentelemetry.io/' --include='*.go' . | grep -vE '^\./internal/telemetry/'
 	@# The daemon supervises runners: ws runner run is started only from internal/daemon.
 	@! grep -rn '"runner", "run"' --include='*.go' . | grep -vE '^\./internal/(daemon|cli)/' | grep -v '_test\.go:'
+	@# The owner's rule: no blank lines inside function bodies (internal/blanklines).
+	go test -count=1 -run '^TestRepository$$' ./internal/blanklines/
 
 fmt:
 	go tool golangci-lint fmt ./...
