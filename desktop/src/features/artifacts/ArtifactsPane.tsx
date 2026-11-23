@@ -1,12 +1,16 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
-import { useEffect, useState, type JSX } from "react";
-import { api, toAppError, type AppError, type Artifact, type ArtifactContent } from "../../api";
+import { useState, type JSX } from "react";
+import type { Artifact, ArtifactContent, NewAnchor, Thread } from "../../api";
 import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { removeArtifact } from "./artifactsSlice";
+import { CommentComposer } from "./CommentComposer";
 import { decodeText } from "./content";
 import { ImageViewer } from "./ImageViewer";
+import { MarkdownViewer } from "./MarkdownViewer";
 import { TextViewer } from "./TextViewer";
+import { ThreadList } from "./ThreadList";
+import { useArtifactDetail } from "./useArtifactDetail";
 import styles from "./ArtifactsPane.module.css";
 
 const bylineOf = (artifact: Artifact): string => {
@@ -17,89 +21,119 @@ const bylineOf = (artifact: Artifact): string => {
 const threadsText = (artifact: Artifact): string =>
   `${artifact.threads.open} open · ${artifact.threads.resolved} resolved · ${artifact.threads.detached} detached`;
 
-interface ArtifactViewProps {
-  readonly artifact: Artifact;
-  readonly content: ArtifactContent;
+/** A comment being written: anchored to a selection, or to the whole artifact when `anchor` is null. */
+interface Draft {
+  readonly anchor: NewAnchor | null;
+  readonly wholeBlock: boolean;
 }
 
-/** The viewer for the artifact's kind. Markdown shows as text until its viewer lands. */
-const ArtifactView = ({ artifact, content }: ArtifactViewProps): JSX.Element =>
-  artifact.kind === "image" ? (
-    <ImageViewer
-      name={artifact.name}
-      contentType={content.contentType}
-      size={content.size}
-      dataBase64={content.dataBase64}
-      byline={bylineOf(artifact)}
+interface ArtifactBodyProps {
+  readonly artifact: Artifact;
+  readonly content: ArtifactContent;
+  readonly shownRev: number;
+  readonly threads: readonly Thread[];
+  readonly onLatest: boolean;
+  readonly activeThread: string | null;
+  readonly onActivate: (thread: string) => void;
+  readonly onChanged: () => void;
+}
+
+/** The viewer, the margin of threads and the composer for the shown revision. */
+const ArtifactBody = ({
+  artifact,
+  content,
+  shownRev,
+  threads,
+  onLatest,
+  activeThread,
+  onActivate,
+  onChanged,
+}: ArtifactBodyProps): JSX.Element => {
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const source = decodeText(content.dataBase64);
+  const composer = (
+    <CommentComposer
+      artifactId={artifact.id}
+      anchor={draft?.anchor ?? null}
+      wholeBlock={draft?.wholeBlock ?? false}
+      onPosted={() => {
+        setDraft(null);
+        onChanged();
+      }}
+      onDismiss={draft === null ? null : () => setDraft(null)}
     />
-  ) : (
-    <TextViewer text={decodeText(content.dataBase64)} />
   );
+  const threadList = (
+    <ThreadList
+      artifactId={artifact.id}
+      threads={threads}
+      activeThread={activeThread}
+      readOnly={!onLatest}
+      onActivate={onActivate}
+      onChanged={onChanged}
+    />
+  );
+
+  if (artifact.kind === "markdown") {
+    return (
+      <div className={styles.split}>
+        <MarkdownViewer
+          source={source}
+          highlights={onLatest ? threads : []}
+          revision={shownRev}
+          onComment={onLatest ? (anchor, wholeBlock) => setDraft({ anchor, wholeBlock }) : null}
+          activeThread={activeThread}
+          onThreadClick={onActivate}
+        />
+        <aside className={styles.margin}>
+          {onLatest && draft !== null && composer}
+          {onLatest && draft === null && (
+            <Button size="small" onClick={() => setDraft({ anchor: null, wholeBlock: false })}>
+              Comment on the whole artifact
+            </Button>
+          )}
+          {threadList}
+        </aside>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {artifact.kind === "image" ? (
+        <ImageViewer
+          name={artifact.name}
+          contentType={content.contentType}
+          size={content.size}
+          dataBase64={content.dataBase64}
+          byline={bylineOf(artifact)}
+        />
+      ) : (
+        <TextViewer text={source} />
+      )}
+      {threadList}
+      {onLatest && composer}
+    </>
+  );
+};
 
 interface ArtifactDetailProps {
   readonly id: string;
 }
 
-/** One artifact: its header, revision picker and viewer. Remounted for each selection. */
+/** One artifact: its header, revision picker, viewer and threads. Remounted for each selection. */
 const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
   const dispatch = useAppDispatch();
-  const updatedAt = useAppSelector((s) => s.artifacts.items.find((item) => item.id === id)?.updatedAt ?? null);
-  const [artifact, setArtifact] = useState<Artifact | null>(null);
-  const [chosenRev, setChosenRev] = useState<number | null>(null);
-  const [content, setContent] = useState<ArtifactContent | null>(null);
-  const [error, setError] = useState<AppError | null>(null);
+  const { artifact, content, comments, error, shownRev, chooseRev, reload } = useArtifactDetail(id);
   const [confirming, setConfirming] = useState(false);
-  const shownRev = chosenRev ?? artifact?.latest ?? null;
-
-  useEffect(() => {
-    let active = true;
-    const load = async (): Promise<void> => {
-      try {
-        const shown = await api.artifactShow(id);
-        if (active) {
-          setArtifact(shown);
-        }
-      } catch (err: unknown) {
-        if (active) {
-          setError(toAppError(err));
-        }
-      }
-    };
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [id, updatedAt]);
-
-  useEffect(() => {
-    if (shownRev === null) {
-      return;
-    }
-    let active = true;
-    const load = async (): Promise<void> => {
-      try {
-        const read = await api.artifactRead(id, shownRev);
-        if (active) {
-          setContent(read);
-          setError(null);
-        }
-      } catch (err: unknown) {
-        if (active) {
-          setError(toAppError(err));
-        }
-      }
-    };
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [id, shownRev]);
+  const [activeThread, setActiveThread] = useState<string | null>(null);
+  const onLatest = artifact !== null && shownRev === artifact.latest;
 
   const copyReference = (): void => {
     if (artifact === null || shownRev === null) {
       return;
     }
-    const suffix = shownRev === artifact.latest ? "" : `/r${shownRev}`;
+    const suffix = onLatest ? "" : `/r${shownRev}`;
     void navigator.clipboard.writeText(`${artifact.reference}${suffix}`).catch(() => undefined);
   };
 
@@ -124,7 +158,7 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
               className={styles.revision}
               aria-label="Revision"
               value={shownRev ?? ""}
-              onChange={(event) => setChosenRev(Number(event.target.value))}
+              onChange={(event) => chooseRev(Number(event.target.value))}
             >
               {artifact.revisions.map((revision) => (
                 <option key={revision.rev} value={revision.rev}>
@@ -144,7 +178,18 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
           {error.message}
         </p>
       )}
-      {artifact !== null && content !== null && <ArtifactView artifact={artifact} content={content} />}
+      {artifact !== null && content !== null && comments !== null && shownRev !== null && (
+        <ArtifactBody
+          artifact={artifact}
+          content={content}
+          shownRev={shownRev}
+          threads={comments.threads}
+          onLatest={onLatest}
+          activeThread={activeThread}
+          onActivate={setActiveThread}
+          onChanged={reload}
+        />
+      )}
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
         <DialogTitle>{`Delete ${artifact?.name ?? "this artifact"}?`}</DialogTitle>
         <DialogContent>
@@ -161,7 +206,7 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
   );
 };
 
-/** The Artifacts section's detail pane: the selected artifact's header and viewer. */
+/** The Artifacts section's detail pane: the selected artifact's header, viewer and comment threads. */
 export const ArtifactsPane = (): JSX.Element => {
   const selected = useAppSelector((s) => s.artifacts.selected);
   return (

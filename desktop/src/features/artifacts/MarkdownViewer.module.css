@@ -1,0 +1,50 @@
+.root {
+  position: relative;
+  min-width: 0;
+}
+
+.article {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.article :global(mark) {
+  background: var(--highlight, #fde68a);
+  color: inherit;
+  cursor: pointer;
+}
+
+.article :global(.anchoredBlock) {
+  border-left: 3px solid var(--highlight, #f59e0b);
+  padding-left: 8px;
+}
+
+.article :global(pre) {
+  overflow-x: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--surface-muted, rgba(127, 127, 127, 0.1));
+}
+
+.article :global(table) {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.article :global(td),
+.article :global(th) {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+
+.article :global([data-focused]) {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
+.comment {
+  position: absolute;
+  transform: translateY(6px);
+  z-index: 1;
+}

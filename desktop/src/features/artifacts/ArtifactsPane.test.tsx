@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, type Artifact, type ArtifactContent, type ArtifactSummary } from "../../api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { api, type Artifact, type ArtifactContent, type ArtifactSummary, type CommentList } from "../../api";
 import { fakeApi, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { ArtifactsPane } from "./ArtifactsPane";
@@ -25,6 +25,14 @@ const summary = (overrides: Partial<ArtifactSummary>): ArtifactSummary => ({
 
 const image = summary({});
 const log = summary({ id: "art-00000003", name: "build.log", kind: "text", contentType: "text/plain" });
+const pitch = summary({
+  id: "art-00000001",
+  name: "pitch.md",
+  title: "Pitch: cache sharing",
+  kind: "markdown",
+  contentType: "text/markdown; charset=utf-8",
+  latest: 2,
+});
 
 const asArtifact = (item: ArtifactSummary, revisions: Artifact["revisions"]): Artifact => ({ ...item, revisions });
 
@@ -46,6 +54,8 @@ const content = (overrides: Partial<ArtifactContent>): ArtifactContent => ({
   ...overrides,
 });
 
+const noComments = (id: string): CommentList => ({ artifactId: id, latest: 1, threads: [] });
+
 const renderPane = (items: readonly ArtifactSummary[], selected: string, overrides: Parameters<typeof fakeApi>[0] = {}) => {
   const store = testStore({ api: fakeApi(overrides) });
   store.dispatch(loadArtifacts.fulfilled(items, "req", undefined));
@@ -53,6 +63,10 @@ const renderPane = (items: readonly ArtifactSummary[], selected: string, overrid
   renderWithStore(<ArtifactsPane />, store);
   return store;
 };
+
+beforeEach(() => {
+  vi.spyOn(api, "artifactComments").mockImplementation(async (id) => noComments(id));
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -95,6 +109,50 @@ describe("ArtifactsPane", () => {
     renderPane([log], log.id);
 
     expect(await screen.findByText(/step 2 failed/)).toBeInTheDocument();
+  });
+
+  it("posts a comment on the whole image", async () => {
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+    const post = vi.spyOn(api, "artifactCommentAdd").mockResolvedValue({
+      thread: { id: "t5", anchor: null, resolved: false, resolvedAt: null, resolvedBy: null, comments: [] },
+      comment: { id: "c6", author: { kind: "person", workspace: null, name: null }, body: "Looks wrong", createdAt: "2026-11-23T18:10:00Z" },
+    });
+    renderPane([image], image.id);
+    await screen.findByRole("img", { name: "login-error.png" });
+
+    await userEvent.type(screen.getByRole("textbox", { name: "Comment" }), "Looks wrong");
+    await userEvent.click(screen.getByRole("button", { name: "Post" }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(image.id, "Looks wrong", null, null));
+  });
+
+  it("highlights an open thread's quote in a Markdown artifact", async () => {
+    const text = "# Pitch\n\nToday the cache is shared.\n";
+    vi.spyOn(api, "artifactShow").mockResolvedValue(
+      asArtifact(pitch, [revision(1, "text/markdown; charset=utf-8"), revision(2, "text/markdown; charset=utf-8")]),
+    );
+    vi.spyOn(api, "artifactRead").mockResolvedValue(
+      content({ rev: 2, contentType: "text/markdown; charset=utf-8", dataBase64: btoa(text) }),
+    );
+    vi.spyOn(api, "artifactComments").mockResolvedValue({
+      artifactId: pitch.id,
+      latest: 2,
+      threads: [
+        {
+          id: "t1",
+          anchor: { rev: 2, start: 0, end: 16, lineStart: 3, lineEnd: 3, quote: "cache is shared", prefix: "", suffix: ".", state: "anchored" },
+          resolved: false,
+          resolvedAt: null,
+          resolvedBy: null,
+          comments: [{ id: "c1", author: { kind: "person", workspace: null, name: null }, body: "Shared how?", createdAt: "2026-11-23T18:20:00Z" }],
+        },
+      ],
+    });
+    renderPane([pitch], pitch.id);
+
+    expect(await screen.findByText("Shared how?")).toBeInTheDocument();
+    expect(document.querySelector('mark[data-thread="t1"]')).toHaveTextContent("cache is shared");
   });
 
   it("removes the artifact after the user confirms the delete", async () => {
