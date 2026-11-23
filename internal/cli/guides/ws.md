@@ -40,6 +40,9 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   child with `ws machine rm` as soon as you've used its result;
   `ws machine children` lists them. If work must outlive you, ask a
   person to start it.
+- On a remote environment, `ws machine spawn` and `ws review start` run on
+  that machine, and your children are there too. You never choose an
+  environment.
 - Removing a workspace discards everything in it, whatever its git state.
   Push, or copy out, anything worth keeping before `ws machine rm` or
   `claude rm`.
