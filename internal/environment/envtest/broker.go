@@ -48,7 +48,6 @@ var (
 type Broker struct {
 	mu        sync.Mutex
 	started   bool
-	closed    bool
 	tlsConfig *tls.Config
 	rules     envproto.Rules
 	clients   []*Client
@@ -157,10 +156,13 @@ func (b *Broker) Retained(topic string) (envproto.Message, bool) {
 }
 
 // Close stops the broker; clients' Done channels close, wills aren't
-// published.
+// published. Like the real broker, it forgets its subscriptions and retained
+// messages, and Start can run again.
 func (b *Broker) Close() error {
 	b.mu.Lock()
-	b.closed = true
+	b.started = false
+	b.subs = nil
+	b.retained = map[string]envproto.Message{}
 	clients := slices.Clone(b.clients)
 	b.mu.Unlock()
 	for _, c := range clients {
@@ -265,7 +267,7 @@ func (c *Client) Close() error {
 func (b *Broker) serving() (*tls.Config, envproto.Rules, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !b.started || b.closed {
+	if !b.started {
 		return nil, envproto.Rules{}, ErrNotServing
 	}
 	return b.tlsConfig, b.rules, nil
@@ -293,7 +295,7 @@ func (c *Client) admit(access envproto.Access, topic string) error {
 func (b *Broker) register(c *Client, peer envproto.Peer, will *envproto.Message, conns []net.Conn) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !b.started || b.closed {
+	if !b.started {
 		closeAll(conns...)
 		return ErrNotServing
 	}
