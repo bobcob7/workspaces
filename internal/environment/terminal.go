@@ -273,6 +273,8 @@ func (t *Terminal) apply(ctx context.Context, frame *envproto.Frame) *envproto.T
 		t.pushLocked(envproto.DroppedMarker(binary.BigEndian.Uint64(frame.Body)), false)
 	case envproto.FrameExit:
 		return exitOf(ctx, t.log, frame.Body)
+	case envproto.FrameInput, envproto.FrameResize, envproto.FrameRedraw, envproto.FramePing, envproto.FrameClose:
+		// Input kinds only travel to the agent; one from it is ignored.
 	}
 	return nil
 }
@@ -421,12 +423,12 @@ func (t *Terminal) Exit() envproto.TerminalExit {
 	return t.exit
 }
 
-// finish ends the terminal with exit unless it already ended, and reports whether it did.
-func (t *Terminal) finish(exit envproto.TerminalExit) bool {
+// finish ends the terminal with exit unless it already ended.
+func (t *Terminal) finish(exit envproto.TerminalExit) {
 	t.mu.Lock()
 	if t.ended {
 		t.mu.Unlock()
-		return false
+		return
 	}
 	t.ended = true
 	t.exit = exit
@@ -437,7 +439,6 @@ func (t *Terminal) finish(exit envproto.TerminalExit) bool {
 	case t.wake <- struct{}{}:
 	default:
 	}
-	return true
 }
 
 // discard drops a terminal OpenTerminal registered but couldn't return.

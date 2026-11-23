@@ -190,7 +190,7 @@ func TestController_Call(t *testing.T) {
 			req := listRequest(20 * time.Second)
 			req.Op = op
 			_, err := f.c.Call(t.Context(), "linux-server", req)
-			assert.ErrorIs(t, err, ErrNotForwarded, op)
+			require.ErrorIs(t, err, ErrNotForwarded, op)
 		}
 		assert.Empty(t, rc.messages())
 	})

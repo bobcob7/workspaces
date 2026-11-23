@@ -67,9 +67,10 @@ func (f *termFixture) addOtherEnvironment(t *testing.T) {
 }
 
 func (f *termFixture) answer(t *testing.T) func(envproto.Message) {
+	t.Helper()
 	return func(msg envproto.Message) {
 		var req envproto.Request
-		assert.NoError(t, json.Unmarshal(msg.Payload, &req))
+		require.NoError(t, json.Unmarshal(msg.Payload, &req))
 		f.mu.Lock()
 		f.ops = append(f.ops, req.Op)
 		override := f.openReply
@@ -81,7 +82,7 @@ func (f *termFixture) answer(t *testing.T) func(envproto.Message) {
 				reply = *override
 			}
 		}
-		assert.NoError(t, f.agent.Publish(context.WithoutCancel(t.Context()), envproto.Message{
+		require.NoError(t, f.agent.Publish(context.WithoutCancel(t.Context()), envproto.Message{
 			Topic:           msg.ResponseTopic,
 			Payload:         mustJSON(t, reply),
 			QoS:             1,
@@ -94,9 +95,10 @@ func (f *termFixture) answer(t *testing.T) func(envproto.Message) {
 }
 
 func (f *termFixture) record(t *testing.T) func(envproto.Message) {
+	t.Helper()
 	return func(msg envproto.Message) {
 		frame, err := envproto.UnmarshalFrame(msg.Payload)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, byte(1), msg.QoS, "input frames are QoS 1")
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -223,8 +225,8 @@ func TestController_OpenTerminal(t *testing.T) {
 		f.hear(t, envproto.StatusOffline, envproto.Protocol)
 		_, _, err := f.c.OpenTerminal(t.Context(), "linux-server", attachArgs())
 		var offline *OfflineError
+		require.ErrorIs(t, err, ErrOffline)
 		require.ErrorAs(t, err, &offline)
-		assert.ErrorIs(t, err, ErrOffline)
 		assert.Empty(t, f.sentOps())
 	})
 	t.Run("an unknown environment is ErrUnknown", func(t *testing.T) {
@@ -361,15 +363,26 @@ func TestController_OpenTerminal(t *testing.T) {
 	t.Run("the handler never blocks the broker", func(t *testing.T) {
 		f := newTermFixture(t)
 		f.open(t)
-		done := make(chan struct{})
+		payloads := make([][]byte, 200)
+		for i := range payloads {
+			payload, err := envproto.MarshalFrame(envproto.Frame{Kind: envproto.FrameData, Seq: uint64(i + 1), Body: []byte("0123456789")})
+			require.NoError(t, err)
+			payloads[i] = payload
+		}
+		done := make(chan error, 1)
 		go func() {
-			defer close(done)
-			for i := 1; i <= 200; i++ {
-				f.outFrame(t, testSID, envproto.FrameData, uint64(i), []byte("0123456789"))
+			for _, payload := range payloads {
+				msg := envproto.Message{Topic: envproto.Topic(f.id, envproto.LeafStream, testSID, "out"), Payload: payload}
+				if err := f.agent.Publish(context.WithoutCancel(t.Context()), msg); err != nil {
+					done <- err
+					return
+				}
 			}
+			done <- nil
 		}()
 		select {
-		case <-done:
+		case err := <-done:
+			require.NoError(t, err)
 		case <-time.After(time.Second):
 			require.FailNow(t, "publishing 200 frames blocked behind an unread Output")
 		}
@@ -440,15 +453,18 @@ func TestController_OpenTerminal(t *testing.T) {
 		f := newTermFixture(t)
 		term := f.open(t)
 		var wg sync.WaitGroup
+		errs := make(chan error, 40)
 		for range 20 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				assert.NoError(t, term.Input(t.Context(), bytes.Repeat([]byte("a"), 3*envproto.MaxInputBytes)))
-				assert.NoError(t, term.Resize(t.Context(), 100, 40))
-			}()
+			wg.Go(func() {
+				errs <- term.Input(t.Context(), bytes.Repeat([]byte("a"), 3*envproto.MaxInputBytes))
+				errs <- term.Resize(t.Context(), 100, 40)
+			})
 		}
 		wg.Wait()
+		close(errs)
+		for err := range errs {
+			require.NoError(t, err)
+		}
 		frames := f.sent()
 		require.Len(t, frames, 20*4)
 		for i, fr := range frames {
@@ -474,7 +490,7 @@ func TestController_OpenTerminal(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		require.Error(t, term.Input(ctx, []byte("rm -rf")))
-		assert.ErrorIs(t, term.Input(t.Context(), []byte("ls")), ErrTerminalEnded)
+		require.ErrorIs(t, term.Input(t.Context(), []byte("ls")), ErrTerminalEnded)
 		assert.Empty(t, f.sentKinds(envproto.FrameInput))
 	})
 	t.Run("close sends a close frame and terminal.close", func(t *testing.T) {
@@ -501,9 +517,9 @@ func TestController_OpenTerminal(t *testing.T) {
 		f.open(t)
 		assert.Equal(t, int64(envproto.PingInterval), f.tickEvery.Load())
 		f.tick <- time.Time{}
-		pings := awaitFrames(t, f, envproto.FramePing, 1)
+		awaitFrames(t, f, envproto.FramePing, 1)
 		f.tick <- time.Time{}
-		pings = awaitFrames(t, f, envproto.FramePing, 2)
+		pings := awaitFrames(t, f, envproto.FramePing, 2)
 		assert.Equal(t, []uint64{1, 2}, []uint64{pings[0].Seq, pings[1].Seq})
 	})
 	t.Run("no ping is sent after the terminal ends", func(t *testing.T) {
