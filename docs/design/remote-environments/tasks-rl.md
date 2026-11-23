@@ -1237,7 +1237,7 @@ Change:
   R2 tables).
 - `agent_test.go`, `ops_test.go`.
 - `internal/cli/env_agent.go`: pass `agentLoops` to the agent. RL4 made
-  `agentSnapshots.Loops`. Add `Agent.SetLoopTicker(t loopTicker)`, called
+  `agentSnapshots.Loops`. Add `Agent.SetLoopTicker(t loopTicker)`, set after construction
   so `NewAgent`'s signature doesn't change (T1a adds only an option to `Options`).
 
 ```go
