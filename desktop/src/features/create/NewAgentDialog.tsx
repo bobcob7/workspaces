@@ -9,10 +9,12 @@ import {
   FormControlLabel,
   TextField,
 } from "@mui/material";
-import { useState, type FormEvent, type JSX } from "react";
+import { useRef, useState, type FormEvent, type JSX } from "react";
 import type { AppError } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { createAgent, createErrorCleared } from "../agents/agentsSlice";
+import { AttachmentBar } from "../artifacts/AttachButton";
+import { insertAtCaret, useAttachments } from "../artifacts/useAttachments";
 import { dialogClosed } from "../ui/uiSlice";
 import { RepoSpecsField } from "./RepoSpecsField";
 import { RunnerModelFields, type RunnerModelValues } from "./RunnerModelFields";
@@ -44,6 +46,10 @@ export const NewAgentDialog = (): JSX.Element => {
   const [prompt, setPrompt] = useState("");
   const [runnerFields, setRunnerFields] = useState<RunnerModelValues>(emptyRunner);
   const [offline, setOffline] = useState(false);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachments = useAttachments((reference) =>
+    setPrompt((current) => insertAtCaret(current, promptRef.current, reference)),
+  );
   const runnerSettings = useRunnerSettings(open);
   const promptMissing = runnerFields.runner === "ws" && prompt.trim() === "";
   usePrefilledSpecs(open, setSpecs);
@@ -85,6 +91,10 @@ export const NewAgentDialog = (): JSX.Element => {
             label="Task"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            inputRef={promptRef}
+            onPaste={attachments.onPaste}
+            onDrop={attachments.onDrop}
+            onDragOver={attachments.onDragOver}
             multiline
             minRows={4}
             placeholder={
@@ -94,6 +104,7 @@ export const NewAgentDialog = (): JSX.Element => {
             }
             helperText={promptMissing ? "Required for the ws runner" : undefined}
           />
+          <AttachmentBar text={prompt} onTextChange={setPrompt} attachments={attachments} />
           <RunnerModelFields {...runnerFields} settings={runnerSettings} onChange={changeRunner} />
           <FormControlLabel
             control={<Checkbox checked={offline} onChange={(e) => setOffline(e.target.checked)} />}
@@ -110,7 +121,7 @@ export const NewAgentDialog = (): JSX.Element => {
           <Button onClick={close} disabled={creating}>
             Cancel
           </Button>
-          <Button type="submit" variant="contained" disabled={creating || promptMissing}>
+          <Button type="submit" variant="contained" disabled={creating || promptMissing || attachments.busy}>
             {creating ? "Starting…" : "Start agent"}
           </Button>
         </DialogActions>
