@@ -114,11 +114,16 @@ The parent says what share of its bar each child fills.
 
 ## Consequences
 
-- Orchestrator and role prompts should tell agents to `set` a name and total
-  early and `step` as they go; this ADR adds the command and its guide, not
-  those prompt edits.
-- The desktop app can read `progress.toml` for a live view; it isn't part of
-  this change.
+- The built-in implementer, reviewer and verifier roles and the ws runner's
+  preamble tell agents to `set` a name and total early and `step` as they go,
+  and the runner's `run` tool may call `ws machine progress`. The handbook's
+  orchestration procedure says the same.
+- `ws list --json` carries each workspace's `progress` and `rollup`, and the
+  desktop app draws a bar per row, per child, and an overall bar for a root
+  workspace. The desktop does no step arithmetic of its own.
+- A desktop child counts as failed when its result is `FAIL` or
+  `CHANGES_REQUESTED`; a role with other fail verdicts isn't recognised, and
+  `BLOCKED` isn't a failure.
 - A workspace's record is deleted with the root, as results are.
 - Unverified: whether small models update progress reliably without a prompt
   nudge. The implicit step is the fallback if they don't.
