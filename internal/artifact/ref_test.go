@@ -16,7 +16,7 @@ func TestNewID(t *testing.T) {
 	})
 	t.Run("fails when the randomness runs out", func(t *testing.T) {
 		_, err := NewID(bytes.NewReader([]byte{0x01}))
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 }
 
@@ -53,9 +53,9 @@ func TestParseRef(t *testing.T) {
 	})
 	t.Run("rejects anything else", func(t *testing.T) {
 		_, _, err := ParseRef("@artifact:art-1a2b3c4d/r0")
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 		_, _, err = ParseRef("pitch.md")
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 	})
 }
 

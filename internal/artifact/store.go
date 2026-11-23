@@ -76,10 +76,10 @@ func (s *Store) Add(ctx context.Context, n *NewArtifact) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	if err := s.prepare(); err != nil {
+	if err = s.prepare(); err != nil {
 		return Record{}, err
 	}
-	if err := s.checkQuota(int64(len(n.Data))); err != nil {
+	if err = s.checkQuota(int64(len(n.Data))); err != nil {
 		return Record{}, err
 	}
 	id, dir, err := s.createDir()
@@ -100,10 +100,10 @@ func (s *Store) Put(ctx context.Context, id string, n *NewRevision) (PutResult, 
 	if err != nil {
 		return PutResult{}, err
 	}
-	if err := s.prepare(); err != nil {
+	if err = s.prepare(); err != nil {
 		return PutResult{}, err
 	}
-	if err := CheckLine("note", n.Note); err != nil {
+	if err = CheckLine("note", n.Note); err != nil {
 		return PutResult{}, err
 	}
 	unlock, err := lockfile.Exclusive(ctx, filepath.Join(dir, lockFileName))
@@ -164,7 +164,7 @@ func (s *Store) List() ([]Entry, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	var entries []Entry
+	var found []*Entry
 	var warnings []string
 	for _, id := range ids {
 		e, err := s.Show(id)
@@ -172,9 +172,13 @@ func (s *Store) List() ([]Entry, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("%s: %v", id, err))
 			continue
 		}
-		entries = append(entries, e)
+		found = append(found, &e)
 	}
-	slices.SortFunc(entries, compareEntries)
+	slices.SortFunc(found, compareEntries)
+	entries := make([]Entry, 0, len(found))
+	for _, e := range found {
+		entries = append(entries, *e)
+	}
 	return entries, warnings, nil
 }
 
@@ -185,7 +189,7 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.prepare(); err != nil {
+	if err = s.prepare(); err != nil {
 		return err
 	}
 	unlock, err := lockfile.Exclusive(ctx, filepath.Join(dir, lockFileName))
@@ -428,7 +432,7 @@ func findRevision(rec *Record, rev int) (Revision, bool) {
 	return Revision{}, false
 }
 
-func compareEntries(a, b Entry) int {
+func compareEntries(a, b *Entry) int {
 	ta, tb := a.Record.Latest().CreatedAt, b.Record.Latest().CreatedAt
 	switch {
 	case ta.After(tb):

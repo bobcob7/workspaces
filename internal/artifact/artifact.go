@@ -57,7 +57,7 @@ func (e *ConflictError) Error() string {
 }
 
 // Is reports whether target is ErrConflict.
-func (e *ConflictError) Is(target error) bool {
+func (*ConflictError) Is(target error) bool {
 	return target == ErrConflict
 }
 

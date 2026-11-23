@@ -87,14 +87,14 @@ func TestStore_Add(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, "art-01010101"), 0o700))
 		s := NewStore(dir, bytes.NewReader(bytes.Repeat([]byte{1}, 4*idAttempts)), fixedClock(testBase))
 		_, err := s.Add(t.Context(), &NewArtifact{Name: "a.txt", Data: []byte("a"), By: Person()})
-		assert.ErrorIs(t, err, os.ErrExist)
+		require.ErrorIs(t, err, os.ErrExist)
 	})
 	t.Run("fails when the random source is empty", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "artifacts")
 		s := NewStore(dir, bytes.NewReader(nil), fixedClock(testBase))
 		_, err := s.Add(t.Context(), &NewArtifact{Name: "a.txt", Data: []byte("a"), By: Person()})
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.NoDirExists(t, filepath.Join(dir, "art-00000000"))
 	})
 	t.Run("refuses an invalid name, title, note or body", func(t *testing.T) {
@@ -102,13 +102,13 @@ func TestStore_Add(t *testing.T) {
 		s, _ := newTestStore(t, fixedClock(testBase))
 		long := strings.Repeat("t", MaxLineRunes+1)
 		_, err := s.Add(t.Context(), &NewArtifact{Name: "../x.txt", Data: []byte("a"), By: Person()})
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 		_, err = s.Add(t.Context(), &NewArtifact{Name: "x.txt", Title: long, Data: []byte("a"), By: Person()})
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 		_, err = s.Add(t.Context(), &NewArtifact{Name: "x.txt", Note: "a\nb", Data: []byte("a"), By: Person()})
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 		_, err = s.Add(t.Context(), &NewArtifact{Name: "x.txt", Data: nil, By: Person()})
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 	})
 	t.Run("refuses an add past the store quota", func(t *testing.T) {
 		t.Parallel()
@@ -116,7 +116,7 @@ func TestStore_Add(t *testing.T) {
 		s.maxStoreBytes = 10
 		addText(t, s, "a.txt", "abcdef")
 		_, err := s.Add(t.Context(), &NewArtifact{Name: "b.txt", Data: []byte("ghijkl"), By: Person()})
-		assert.ErrorIs(t, err, ErrFull)
+		require.ErrorIs(t, err, ErrFull)
 	})
 }
 
@@ -151,7 +151,7 @@ func TestStore_Put(t *testing.T) {
 		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("two\n"), By: Person()})
 		require.NoError(t, err)
 		_, err = s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("three\n"), BaseRev: 1, By: Person()})
-		assert.ErrorIs(t, err, ErrConflict)
+		require.ErrorIs(t, err, ErrConflict)
 		var conflict *ConflictError
 		require.ErrorAs(t, err, &conflict)
 		assert.Equal(t, 2, conflict.Latest)
@@ -163,7 +163,7 @@ func TestStore_Put(t *testing.T) {
 		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("# two\n"), By: Person()})
 		require.NoError(t, err)
 		_, err = s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("\x89PNG\r\n\x1a\nbytes"), By: Person()})
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 	})
 	t.Run("refuses the revision past the limit", func(t *testing.T) {
 		t.Parallel()
@@ -174,7 +174,7 @@ func TestStore_Put(t *testing.T) {
 			require.NoError(t, err)
 		}
 		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("r\n"), By: Person()})
-		assert.ErrorIs(t, err, ErrFull)
+		require.ErrorIs(t, err, ErrFull)
 	})
 	t.Run("refuses a revision past the store quota", func(t *testing.T) {
 		t.Parallel()
@@ -182,22 +182,22 @@ func TestStore_Put(t *testing.T) {
 		s.maxStoreBytes = 8
 		rec := addText(t, s, "notes.txt", "abc\n")
 		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("defghij\n"), By: Person()})
-		assert.ErrorIs(t, err, ErrFull)
+		require.ErrorIs(t, err, ErrFull)
 	})
 	t.Run("refuses an unknown or invalid id", func(t *testing.T) {
 		t.Parallel()
 		s, _ := newTestStore(t, fixedClock(testBase))
 		_, err := s.Put(t.Context(), "art-00000000", &NewRevision{Data: []byte("x"), By: Person()})
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 		_, err = s.Put(t.Context(), "../etc", &NewRevision{Data: []byte("x"), By: Person()})
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 	})
 	t.Run("refuses a note that is not one line", func(t *testing.T) {
 		t.Parallel()
 		s, _ := newTestStore(t, fixedClock(testBase))
 		rec := addText(t, s, "notes.txt", "one\n")
 		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("two\n"), Note: "a\nb", By: Person()})
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 	})
 }
 
@@ -222,13 +222,13 @@ func TestStore_Read(t *testing.T) {
 		s, _ := newTestStore(t, fixedClock(testBase))
 		rec := addText(t, s, "notes.txt", "one\n")
 		_, _, _, err := s.Read(rec.ID, 5)
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 	})
 	t.Run("refuses an unknown artifact", func(t *testing.T) {
 		t.Parallel()
 		s, _ := newTestStore(t, fixedClock(testBase))
 		_, _, _, err := s.Read("art-00000000", 0)
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 	})
 	t.Run("fails when a revision file is missing", func(t *testing.T) {
 		t.Parallel()
@@ -236,7 +236,7 @@ func TestStore_Read(t *testing.T) {
 		rec := addText(t, s, "notes.txt", "one\n")
 		require.NoError(t, os.Remove(revisionPath(filepath.Join(dir, rec.ID), 1)))
 		_, _, _, err := s.Read(rec.ID, 0)
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 }
 
@@ -296,9 +296,9 @@ func TestStore_Show(t *testing.T) {
 		t.Parallel()
 		s, _ := newTestStore(t, fixedClock(testBase))
 		_, err := s.Show("art-00000000")
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 		_, err = s.Threads("art-00000000")
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 	})
 }
 
@@ -309,7 +309,7 @@ func TestStore_Remove(t *testing.T) {
 		rec := addText(t, s, "notes.txt", "one\n")
 		require.NoError(t, s.Remove(t.Context(), rec.ID))
 		_, err := s.Show(rec.ID)
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 		entries, err := os.ReadDir(filepath.Join(dir, tmpDirName))
 		require.NoError(t, err)
 		assert.Empty(t, entries)
@@ -318,7 +318,7 @@ func TestStore_Remove(t *testing.T) {
 		t.Parallel()
 		s, _ := newTestStore(t, fixedClock(testBase))
 		err := s.Remove(t.Context(), "art-00000000")
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 	})
 }
 

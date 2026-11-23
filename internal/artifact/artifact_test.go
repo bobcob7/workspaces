@@ -38,7 +38,7 @@ func TestConflictError_Error(t *testing.T) {
 	t.Run("matches ErrConflict through errors wrapping", func(t *testing.T) {
 		err := error(&ConflictError{Base: 1, Latest: 2})
 		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrConflict)
+		require.ErrorIs(t, err, ErrConflict)
 		assert.NotErrorIs(t, err, ErrNotFound)
 	})
 }

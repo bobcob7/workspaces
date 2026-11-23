@@ -18,8 +18,8 @@ const (
 
 var (
 	idPattern     = regexp.MustCompile(`^art-[0-9a-f]{8}$`)
-	refPattern    = regexp.MustCompile(`^(?:@artifact:)?(art-[0-9a-f]{8})(?:/r([1-9][0-9]{0,2}))?$`)
-	inTextPattern = regexp.MustCompile(`@artifact:(art-[0-9a-f]{8})(?:/r([1-9][0-9]{0,2}))?`)
+	refPattern    = regexp.MustCompile(`^(?:@artifact:)?(art-[0-9a-f]{8})(?:/r([1-9]\d{0,2}))?$`)
+	inTextPattern = regexp.MustCompile(`@artifact:(art-[0-9a-f]{8})(?:/r([1-9]\d{0,2}))?`)
 )
 
 // NewID is "art-" and 8 lowercase hex digits from random.

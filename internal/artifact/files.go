@@ -69,13 +69,14 @@ func readRecord(dir string) (Record, error) {
 	if err != nil {
 		return r, fmt.Errorf("reading %s: %w", path, err)
 	}
-	if err := json.Unmarshal(data, &r); err != nil {
+	if err = json.Unmarshal(data, &r); err != nil {
 		return r, fmt.Errorf("reading %s: %w: %w", path, ErrInvalid, err)
 	}
-	return r, checkRecord(path, r)
+	err = checkRecord(path, &r)
+	return r, err
 }
 
-func checkRecord(path string, r Record) error {
+func checkRecord(path string, r *Record) error {
 	if r.Version > FormatVersion {
 		return fmt.Errorf("reading %s: %w", path, ErrNewer)
 	}

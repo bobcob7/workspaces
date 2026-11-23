@@ -83,7 +83,7 @@ func assertDetected(t *testing.T, name string, data []byte, kind Kind, ct string
 func assertRefused(t *testing.T, name string, data []byte) {
 	t.Helper()
 	_, _, err := Detect(name, data)
-	assert.ErrorIs(t, err, ErrInvalid)
+	require.ErrorIs(t, err, ErrInvalid)
 }
 
 func TestCheckName(t *testing.T) {
@@ -94,12 +94,12 @@ func TestCheckName(t *testing.T) {
 		assert.NoError(t, CheckName(string(bytes.Repeat([]byte("é"), MaxNameRunes))))
 	})
 	t.Run("refuses names that are empty, too long, or not one path element", func(t *testing.T) {
-		assert.ErrorIs(t, CheckName(""), ErrInvalid)
-		assert.ErrorIs(t, CheckName(string(bytes.Repeat([]byte("a"), MaxNameRunes+1))), ErrInvalid)
-		assert.ErrorIs(t, CheckName("a/b.md"), ErrInvalid)
-		assert.ErrorIs(t, CheckName(`a\b.md`), ErrInvalid)
-		assert.ErrorIs(t, CheckName(".hidden"), ErrInvalid)
-		assert.ErrorIs(t, CheckName("a\nb"), ErrInvalid)
+		require.ErrorIs(t, CheckName(""), ErrInvalid)
+		require.ErrorIs(t, CheckName(string(bytes.Repeat([]byte("a"), MaxNameRunes+1))), ErrInvalid)
+		require.ErrorIs(t, CheckName("a/b.md"), ErrInvalid)
+		require.ErrorIs(t, CheckName(`a\b.md`), ErrInvalid)
+		require.ErrorIs(t, CheckName(".hidden"), ErrInvalid)
+		require.ErrorIs(t, CheckName("a\nb"), ErrInvalid)
 	})
 }
 
@@ -109,8 +109,8 @@ func TestCheckLine(t *testing.T) {
 		assert.NoError(t, CheckLine("title", "Pitch: cache sharing"))
 	})
 	t.Run("refuses text over the limit or with a control character", func(t *testing.T) {
-		assert.ErrorIs(t, CheckLine("note", string(bytes.Repeat([]byte("a"), MaxLineRunes+1))), ErrInvalid)
-		assert.ErrorIs(t, CheckLine("note", "two\nlines"), ErrInvalid)
-		assert.ErrorIs(t, CheckLine("note", "tab\there"), ErrInvalid)
+		require.ErrorIs(t, CheckLine("note", string(bytes.Repeat([]byte("a"), MaxLineRunes+1))), ErrInvalid)
+		require.ErrorIs(t, CheckLine("note", "two\nlines"), ErrInvalid)
+		require.ErrorIs(t, CheckLine("note", "tab\there"), ErrInvalid)
 	})
 }

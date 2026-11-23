@@ -41,7 +41,7 @@ func TestWriteAtomic(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		err := writeAtomic(filepath.Join(dir, "missing"), filepath.Join(dir, "r1"), []byte("x"))
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 	t.Run("fails and removes the temporary file when the rename fails", func(t *testing.T) {
 		t.Parallel()
@@ -50,7 +50,7 @@ func TestWriteAtomic(t *testing.T) {
 		require.NoError(t, os.Mkdir(target, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(target, "keep"), []byte("k"), 0o600))
 		err := writeAtomic(dir, target, []byte("x"))
-		assert.Error(t, err)
+		require.Error(t, err)
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err)
 		assert.Len(t, entries, 1)
@@ -73,28 +73,28 @@ func TestReadRecord(t *testing.T) {
 	t.Run("reports a missing record as not found", func(t *testing.T) {
 		t.Parallel()
 		_, err := readRecord(t.TempDir())
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 	})
 	t.Run("refuses bad JSON as invalid", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, recordFile), []byte("{"), 0o600))
 		_, err := readRecord(dir)
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 	})
 	t.Run("refuses a record from a newer ws", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, recordFile), []byte(`{"version": 2}`), 0o600))
 		_, err := readRecord(dir)
-		assert.ErrorIs(t, err, ErrNewer)
+		require.ErrorIs(t, err, ErrNewer)
 	})
 	t.Run("refuses a record with no revisions", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, recordFile), []byte(`{"version": 1, "revisions": []}`), 0o600))
 		_, err := readRecord(dir)
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 	})
 }
 
@@ -121,20 +121,20 @@ func TestReadThreads(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, threadsFile), []byte("[]"), 0o600))
 		_, err := readThreads(dir)
-		assert.ErrorIs(t, err, ErrInvalid)
+		require.ErrorIs(t, err, ErrInvalid)
 	})
 	t.Run("refuses a file from a newer ws", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, threadsFile), []byte(`{"version": 2}`), 0o600))
 		_, err := readThreads(dir)
-		assert.ErrorIs(t, err, ErrNewer)
+		require.ErrorIs(t, err, ErrNewer)
 	})
 }
 
 func TestRevisionPath(t *testing.T) {
 	t.Run("names the revision file by number", func(t *testing.T) {
-		assert.Equal(t, filepath.Join("/x", "r7"), revisionPath("/x", 7))
+		assert.Equal(t, filepath.Join("base", "r7"), revisionPath("base", 7))
 	})
 }
 

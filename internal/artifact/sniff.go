@@ -139,11 +139,11 @@ func skipDoctype(s string) (string, bool) {
 	if len(s) < len(keyword) || !strings.EqualFold(s[:len(keyword)], keyword) {
 		return "", false
 	}
-	i := strings.IndexByte(s, '>')
-	if i < 0 {
+	_, rest, found := strings.Cut(s, ">")
+	if !found {
 		return "", false
 	}
-	return s[i+1:], true
+	return rest, true
 }
 
 func isSVGRoot(s string) bool {
