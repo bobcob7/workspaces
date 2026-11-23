@@ -58,6 +58,12 @@ func (p *throttle) serve() {
 			_ = in.Close()
 			continue
 		}
+		for _, c := range []net.Conn{in, out} {
+			if tcp, ok := c.(*net.TCPConn); ok {
+				_ = tcp.SetReadBuffer(32 << 10)
+				_ = tcp.SetWriteBuffer(32 << 10)
+			}
+		}
 		p.mu.Lock()
 		p.conns = append(p.conns, in, out)
 		p.mu.Unlock()
@@ -74,7 +80,7 @@ type stamped struct {
 // pipe copies src to dst: a reader stamps each chunk, a writer releases it
 // rtt/2 later and paces it through a token bucket over bytes.
 func (p *throttle) pipe(dst, src net.Conn) {
-	queue := make(chan stamped, 256)
+	queue := make(chan stamped, 16)
 	go func() {
 		defer close(queue)
 		for {

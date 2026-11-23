@@ -227,6 +227,12 @@ func (r *spikeRig) flood(t *testing.T, sid string, stop <-chan struct{}) *atomic
 	return &sent
 }
 
+// fast is a handler that only counts.
+func (h *slowHandler) fast(m envproto.Message) {
+	h.g.see(m.Topic, m.Payload)
+	h.handled.Add(1)
+}
+
 // gaps counts sequence numbers a receiver never saw, per stream.
 type gaps struct {
 	mu       sync.Mutex
@@ -263,12 +269,15 @@ func TestSpike_throughput(t *testing.T) {
 			start := time.Now()
 			sent := r.flood(t, "s1", stop)
 			time.Sleep(10 * time.Second)
-			close(stop)
+			g.mu.Lock()
+			windowBytes := g.bytes
+			g.mu.Unlock()
 			elapsed := time.Since(start)
+			close(stop)
 			time.Sleep(time.Second + 2*p.rtt)
 			g.mu.Lock()
 			defer g.mu.Unlock()
-			mibs := float64(g.bytes) / (1 << 20) / elapsed.Seconds()
+			mibs := float64(windowBytes) / (1 << 20) / elapsed.Seconds()
 			link := "n/a"
 			if p.bps > 0 {
 				link = strconv.FormatFloat(mibs*8*1.048576/(float64(p.bps)/1e6)*100, 'f', 1, 64) + "%"
@@ -362,7 +371,7 @@ func (pr *probe) request(t *testing.T, r *spikeRig, id string) (time.Duration, b
 	select {
 	case <-ch:
 		return time.Since(start), true
-	case <-time.After(20 * time.Second):
+	case <-time.After(10 * time.Second):
 		return 0, false
 	}
 }
@@ -386,13 +395,16 @@ func TestSpike_slowReader(t *testing.T) {
 		t.Run(p.name, func(t *testing.T) {
 			r := newSpikeRig(t, p)
 			pr := r.newProbe(t)
-			idle := pr.series(t, r, "idle", 10)
+			idle := pr.series(t, r, "idle", 5)
 			require.NotEmpty(t, idle)
 			t.Logf("RESULT slowreader profile=%s control request idle p50=%sms max=%sms n=%d", p.name, millis(median(idle)), millis(idle[len(idle)-1]), len(idle))
-			for _, mode := range []string{"inline", "buffered"} {
+			for _, mode := range []string{"fast", "inline", "buffered"} {
 				var h slowHandler
-				fn := h.inline
-				if mode == "buffered" {
+				fn := h.fast
+				switch mode {
+				case "inline":
+					fn = h.inline
+				case "buffered":
 					fn = h.buffered(t)
 				}
 				unsub, err := r.broker.Subscribe(t.Context(), streamTopic(mode, "out"), fn)
@@ -401,7 +413,7 @@ func TestSpike_slowReader(t *testing.T) {
 				start := time.Now()
 				sent := r.flood(t, mode, stop)
 				time.Sleep(time.Second)
-				busy := pr.series(t, r, mode, 10)
+				busy := pr.series(t, r, mode, 5)
 				close(stop)
 				elapsed := time.Since(start)
 				time.Sleep(time.Second + 2*p.rtt)
@@ -411,7 +423,7 @@ func TestSpike_slowReader(t *testing.T) {
 					worst, mid = busy[len(busy)-1], median(busy)
 				}
 				h.g.mu.Lock()
-				t.Logf("RESULT slowreader profile=%s handler=%s sent=%d handled=%d dropped_by_handler=%d lost_by_broker=%d in=%.1fs control request answered=%d/10 p50=%sms max=%sms (idle p50 %sms)",
+				t.Logf("RESULT slowreader profile=%s handler=%s sent=%d handled=%d dropped_by_handler=%d gaps_seen=%d in=%.1fs control request answered=%d/5 p50=%sms max=%sms (idle p50 %sms)",
 					p.name, mode, sent.Load(), h.handled.Load(), h.dropped.Load(), h.g.lost, elapsed.Seconds(), len(busy), millis(mid), millis(worst), millis(median(idle)))
 				h.g.mu.Unlock()
 			}
