@@ -129,6 +129,10 @@ func (emptySnapshots) Agents(context.Context) ([]envproto.SnapshotAgent, error) 
 	return []envproto.SnapshotAgent{}, nil
 }
 
+func (emptySnapshots) Loops(context.Context) ([]envproto.SnapshotLoop, error) {
+	return []envproto.SnapshotLoop{}, nil
+}
+
 type noClaude struct{}
 
 func (noClaude) Probe(context.Context) (string, *string) {

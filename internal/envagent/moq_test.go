@@ -276,6 +276,9 @@ var _ snapshotSource = &snapshotSourceMock{}
 //			AgentsFunc: func(ctx context.Context) ([]envproto.SnapshotAgent, error) {
 //				panic("mock out the Agents method")
 //			},
+//			LoopsFunc: func(ctx context.Context) ([]envproto.SnapshotLoop, error) {
+//				panic("mock out the Loops method")
+//			},
 //			WorkspacesFunc: func(ctx context.Context) (json.RawMessage, error) {
 //				panic("mock out the Workspaces method")
 //			},
@@ -289,6 +292,9 @@ type snapshotSourceMock struct {
 	// AgentsFunc mocks the Agents method.
 	AgentsFunc func(ctx context.Context) ([]envproto.SnapshotAgent, error)
 
+	// LoopsFunc mocks the Loops method.
+	LoopsFunc func(ctx context.Context) ([]envproto.SnapshotLoop, error)
+
 	// WorkspacesFunc mocks the Workspaces method.
 	WorkspacesFunc func(ctx context.Context) (json.RawMessage, error)
 
@@ -299,6 +305,11 @@ type snapshotSourceMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// Loops holds details about calls to the Loops method.
+		Loops []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// Workspaces holds details about calls to the Workspaces method.
 		Workspaces []struct {
 			// Ctx is the ctx argument value.
@@ -306,6 +317,7 @@ type snapshotSourceMock struct {
 		}
 	}
 	lockAgents     sync.RWMutex
+	lockLoops      sync.RWMutex
 	lockWorkspaces sync.RWMutex
 }
 
@@ -338,6 +350,38 @@ func (mock *snapshotSourceMock) AgentsCalls() []struct {
 	mock.lockAgents.RLock()
 	calls = mock.calls.Agents
 	mock.lockAgents.RUnlock()
+	return calls
+}
+
+// Loops calls LoopsFunc.
+func (mock *snapshotSourceMock) Loops(ctx context.Context) ([]envproto.SnapshotLoop, error) {
+	if mock.LoopsFunc == nil {
+		panic("snapshotSourceMock.LoopsFunc: method is nil but snapshotSource.Loops was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockLoops.Lock()
+	mock.calls.Loops = append(mock.calls.Loops, callInfo)
+	mock.lockLoops.Unlock()
+	return mock.LoopsFunc(ctx)
+}
+
+// LoopsCalls gets all the calls that were made to Loops.
+// Check the length with:
+//
+//	len(mockedsnapshotSource.LoopsCalls())
+func (mock *snapshotSourceMock) LoopsCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockLoops.RLock()
+	calls = mock.calls.Loops
+	mock.lockLoops.RUnlock()
 	return calls
 }
 
@@ -886,5 +930,71 @@ func (mock *ptyProcessMock) WriteCalls() []struct {
 	mock.lockWrite.RLock()
 	calls = mock.calls.Write
 	mock.lockWrite.RUnlock()
+	return calls
+}
+
+// Ensure, that loopTickerMock does implement loopTicker.
+// If this is not the case, regenerate this file with moq.
+var _ loopTicker = &loopTickerMock{}
+
+// loopTickerMock is a mock implementation of loopTicker.
+//
+//	func TestSomethingThatUsesloopTicker(t *testing.T) {
+//
+//		// make and configure a mocked loopTicker
+//		mockedloopTicker := &loopTickerMock{
+//			TickFunc: func(ctx context.Context) (bool, error) {
+//				panic("mock out the Tick method")
+//			},
+//		}
+//
+//		// use mockedloopTicker in code that requires loopTicker
+//		// and then make assertions.
+//
+//	}
+type loopTickerMock struct {
+	// TickFunc mocks the Tick method.
+	TickFunc func(ctx context.Context) (bool, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Tick holds details about calls to the Tick method.
+		Tick []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+	}
+	lockTick sync.RWMutex
+}
+
+// Tick calls TickFunc.
+func (mock *loopTickerMock) Tick(ctx context.Context) (bool, error) {
+	if mock.TickFunc == nil {
+		panic("loopTickerMock.TickFunc: method is nil but loopTicker.Tick was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockTick.Lock()
+	mock.calls.Tick = append(mock.calls.Tick, callInfo)
+	mock.lockTick.Unlock()
+	return mock.TickFunc(ctx)
+}
+
+// TickCalls gets all the calls that were made to Tick.
+// Check the length with:
+//
+//	len(mockedloopTicker.TickCalls())
+func (mock *loopTickerMock) TickCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockTick.RLock()
+	calls = mock.calls.Tick
+	mock.lockTick.RUnlock()
 	return calls
 }

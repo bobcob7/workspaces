@@ -75,7 +75,10 @@ func (a *Agent) startOp(ctx context.Context, id *Identity, msg *envproto.Message
 // controller asks again for a fresh answer.
 func remembered(op string) bool {
 	switch op {
-	case envproto.OpAgentLogs, envproto.OpAgentStatus, envproto.OpWorkspaceList:
+	case envproto.OpAgentLogs, envproto.OpAgentStatus, envproto.OpWorkspaceList,
+		envproto.OpReviewStatus, envproto.OpReviewList, envproto.OpReviewReport, envproto.OpReviewProfiles,
+		envproto.OpLoopList, envproto.OpLoopShow, envproto.OpLoopHistory, envproto.OpLoopHistoryRun,
+		envproto.OpLoopMemoryList, envproto.OpLoopMemoryGet:
 		return false
 	}
 	return true
@@ -114,6 +117,12 @@ func (a *Agent) admit(req *envproto.Request) (envproto.OpSpec, any, error) {
 	for _, ref := range workspaceRefs(args) {
 		if err := CheckWorkspaceRef(a.opts.WorkspacesRoot, ref); err != nil {
 			return envproto.OpSpec{}, nil, err
+		}
+	}
+	// A duplicate request id takes no token: the stored or running reply answers it.
+	if !a.requests.known(req.RequestID) {
+		if ok, retry := a.limits.allow(req.Op, args); !ok {
+			return envproto.OpSpec{}, nil, limitedError(req.Op, retry)
 		}
 	}
 	return spec, args, nil
@@ -220,7 +229,14 @@ func refusalReply(err error) []byte {
 		return envproto.ErrorReply(ae.Code, ae.Message)
 	}
 	if re, ok := errors.AsType[*envproto.ReplyError](err); ok {
-		return envproto.ErrorReply(re.Code, re.Message)
+		if len(re.Details) == 0 {
+			return envproto.ErrorReply(re.Code, re.Message)
+		}
+		body, merr := json.Marshal(envproto.Reply{Error: re})
+		if merr != nil {
+			return envproto.ErrorReply("internal", "the operation failed")
+		}
+		return body
 	}
 	return envproto.ErrorReply("internal", "the operation failed")
 }

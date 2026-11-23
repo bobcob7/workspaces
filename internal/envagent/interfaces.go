@@ -9,7 +9,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/ptyproc"
 )
 
-//go:generate go tool moq -out moq_test.go . mqttClient snapshotSource claudeProbe operationRunner terminalCommands ptyStarter ptyProcess
+//go:generate go tool moq -out moq_test.go . mqttClient snapshotSource claudeProbe operationRunner terminalCommands ptyStarter ptyProcess loopTicker
 
 // mqttClient is the agent's MQTT 5 connection (envtest.Client in tests,
 // internal/mqttclient in ws). Connect may be called again after Done.
@@ -27,6 +27,13 @@ type snapshotSource interface {
 	Workspaces(ctx context.Context) (json.RawMessage, error)
 	// Agents is this machine's Claude Code sessions, [] when there are none.
 	Agents(ctx context.Context) ([]envproto.SnapshotAgent, error)
+	// Loops is this machine's loops, [] when there are none.
+	Loops(ctx context.Context) ([]envproto.SnapshotLoop, error)
+}
+
+// loopTicker runs one pass of the agent's loop scheduler.
+type loopTicker interface {
+	Tick(ctx context.Context) (changed bool, err error)
 }
 
 // claudeProbe reports envproto.ClaudeMissing or ClaudePresent, and the version when present.

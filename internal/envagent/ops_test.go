@@ -256,6 +256,36 @@ func TestAgent_dispatch(t *testing.T) {
 		assert.Equal(t, first.Result, second.Result)
 		assert.Len(t, runner.RunCalls(), 1)
 	})
+	t.Run("a limited op answers operation_limited with retry_after_seconds", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		run := envproto.LoopRunArgs{Name: "nightly"}
+		first := askAgent(t, fx, opRequest(t, "0123456789abcde1", envproto.OpLoopRun, run), "l1")
+		require.True(t, first.OK)
+		second := askAgent(t, fx, opRequest(t, "0123456789abcde2", envproto.OpLoopRun, run), "l2")
+		require.False(t, second.OK)
+		require.NotNil(t, second.Error)
+		assert.Equal(t, envproto.CodeOperationLimited, second.Error.Code)
+		assert.Equal(t, "loop.run", second.Error.Details["op"])
+		assert.InDelta(t, 60, second.Error.Details["retry_after_seconds"], 1)
+		assert.Len(t, runner.RunCalls(), 1, "a refused request never reaches the runner")
+	})
+	t.Run("a duplicate request id is not limited", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		run := envproto.LoopRunArgs{Name: "nightly"}
+		first := askAgent(t, fx, opRequest(t, "0123456789abcde1", envproto.OpLoopRun, run), "d1")
+		second := askAgent(t, fx, opRequest(t, "0123456789abcde1", envproto.OpLoopRun, run), "d2")
+		assert.True(t, first.OK)
+		assert.True(t, second.OK)
+		assert.Len(t, runner.RunCalls(), 1)
+	})
 	t.Run("a slow op doesn't block the next request", func(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)
@@ -406,6 +436,20 @@ func TestAgent_dispatch(t *testing.T) {
 	})
 }
 
+func TestRemembered(t *testing.T) {
+	t.Parallel()
+	for _, op := range []string{
+		envproto.OpReviewStatus, envproto.OpReviewList, envproto.OpReviewReport, envproto.OpReviewProfiles,
+		envproto.OpLoopList, envproto.OpLoopShow, envproto.OpLoopHistory, envproto.OpLoopHistoryRun,
+		envproto.OpLoopMemoryList, envproto.OpLoopMemoryGet,
+	} {
+		assert.False(t, remembered(op), op)
+	}
+	for _, op := range []string{envproto.OpReviewStart, envproto.OpLoopRun, envproto.OpLoopAdd, envproto.OpLoopRm, envproto.OpWorkspaceHide} {
+		assert.True(t, remembered(op), op)
+	}
+}
+
 func TestCheckWorkspaceRef(t *testing.T) {
 	const root = "/cfg/workspaces"
 	tests := []struct {
@@ -469,7 +513,7 @@ func TestWorkspaceRefs(t *testing.T) {
 
 func TestAgent_admitWorkspaceRefs(t *testing.T) {
 	t.Parallel()
-	a := &Agent{opts: opsOptions()}
+	a := &Agent{opts: opsOptions(), requests: newRequests(time.Now), limits: newLimiter(time.Now)}
 	parent := bad
 	tests := []struct {
 		op   string

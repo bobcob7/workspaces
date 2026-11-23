@@ -148,7 +148,9 @@ func (a *App) runEnvAgentRun(ctx context.Context) error {
 	defer stop()
 	probe := agentClaude{claude: claude.New(log, "claude", a.environ)}
 	opts := agentOptions(a.version, a.config.Environments.RenewDays(), a.paths.Workspaces)
-	agent := envagent.NewAgent(log, files, client, agentSnapshots{app: a}, probe, newAgentOperations(a, id.Name), rand.Reader, opts)
+	ops := newAgentOperations(a, id.Name)
+	agent := envagent.NewAgent(log, files, client, agentSnapshots{app: a}, probe, ops, rand.Reader, opts)
+	agent.SetLoopTicker(agentLoops{newApp: ops.newApp, root: a.paths.Root})
 	return agentError(agent.Run(ctx))
 }
 

@@ -48,6 +48,10 @@ const (
 	RedactedMarker   = "[redacted]"
 )
 
+// CodeOperationLimited is the error code of a request the agent refused for
+// its rate limit (ADR 0078). It equals internal/cli's codeOperationLimited.
+const CodeOperationLimited = "operation_limited"
+
 const (
 	maxLoopTitleBytes = 80
 	maxKeepPerLoop    = 50

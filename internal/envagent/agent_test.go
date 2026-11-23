@@ -105,6 +105,9 @@ func testSnapshots(workspaces string) *snapshotSourceMock {
 		AgentsFunc: func(context.Context) ([]envproto.SnapshotAgent, error) {
 			return []envproto.SnapshotAgent{}, nil
 		},
+		LoopsFunc: func(context.Context) ([]envproto.SnapshotLoop, error) {
+			return []envproto.SnapshotLoop{}, nil
+		},
 	}
 }
 

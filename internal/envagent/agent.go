@@ -10,9 +10,11 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/redact"
 )
 
 // ErrCertificateExpired is returned by Run when the agent's certificate has
@@ -43,7 +45,9 @@ type Options struct {
 	BackoffMax      time.Duration
 	Now             func() time.Time
 	After           func(time.Duration) <-chan time.Time
-	Jitter          func() float64 // in [0, 1).
+	Jitter          func() float64   // in [0, 1).
+	LoopTick        time.Duration    // how often a connected agent runs a loop pass; 0 is off.
+	Redactor        *redact.Redactor // hides secrets in the published loops; nil hides none.
 }
 
 // DefaultOptions returns the intervals ADR 0075 asks for.
@@ -64,6 +68,7 @@ func DefaultOptions(version string, renewBeforeDays int) Options {
 		Now:             time.Now,
 		After:           time.After,
 		Jitter:          rand.Float64,
+		LoopTick:        time.Minute,
 	}
 }
 
@@ -87,9 +92,15 @@ type Agent struct {
 	terms     *terminals                       // nil when ops can't build terminal commands
 	changed   chan struct{}                    // an operation changed the workspaces
 	connID    string                           // the current connection's id, in every hello it sends
+	runCtx    context.Context                  //nolint:containedctx // the context loop passes run under, so a lost connection doesn't kill one.
+	ticker    loopTicker                       // nil when the agent runs no loops.
+	ticking   atomic.Bool                      // a loop pass is running.
+	passes    sync.WaitGroup                   // the loop pass goroutines.
+	limits    *limiter
 	// The last snapshot published, for deciding when to publish again.
 	workspaces []byte
 	agents     []byte
+	loops      []byte
 	snapshotAt time.Time
 }
 
@@ -111,6 +122,7 @@ func NewAgent(log *slog.Logger, files *Files, client mqttClient, snapshots snaps
 		slots:     make(chan struct{}, max(opts.MaxOps, 1)),
 		queue:     make(chan struct{}, max(opts.MaxOps, 1)*queueFactor),
 		changed:   make(chan struct{}, 1),
+		limits:    newLimiter(opts.Now),
 	}
 	if commands, ok := ops.(terminalCommands); ok {
 		a.terms = newTerminals(log, client, commands, random, &opts)
@@ -127,6 +139,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	a.runCtx = ctx
+	defer a.passes.Wait()
 	attempt := 0
 	for {
 		select {
@@ -204,6 +218,9 @@ func (a *Agent) serve(parent context.Context, id *Identity) {
 	done := a.client.Done()
 	if a.terms != nil {
 		a.terms.begin(ctx, id.ID)
+	}
+	if a.ticker != nil && a.opts.LoopTick > 0 {
+		go a.tickLoops(ctx)
 	}
 	snapshotTimer := a.opts.After(a.opts.SnapshotCheck)
 	renewTimer := a.opts.After(a.opts.RenewCheck)
@@ -299,8 +316,14 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 		a.log.ErrorContext(ctx, "snapshot agents not encoded", "error", err)
 		return
 	}
+	loops := a.snapshotLoops(ctx)
+	loopsJSON, err := json.Marshal(loops)
+	if err != nil {
+		a.log.ErrorContext(ctx, "snapshot loops not encoded", "error", err)
+		return
+	}
 	now := a.opts.Now().UTC()
-	if !force && bytes.Equal(raw, a.workspaces) && bytes.Equal(agentsJSON, a.agents) && now.Sub(a.snapshotAt) < a.opts.SnapshotEvery {
+	if !force && bytes.Equal(raw, a.workspaces) && bytes.Equal(agentsJSON, a.agents) && bytes.Equal(loopsJSON, a.loops) && now.Sub(a.snapshotAt) < a.opts.SnapshotEvery {
 		return
 	}
 	payload, err := json.Marshal(envproto.Snapshot{
@@ -308,6 +331,7 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 		Protocol:   envproto.Protocol,
 		Workspaces: raw,
 		Agents:     agents,
+		Loops:      loops,
 	})
 	if err != nil {
 		a.log.ErrorContext(ctx, "snapshot not encoded", "error", err)
@@ -316,7 +340,7 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 	if len(payload) > envproto.MaxRequestBytes {
 		a.log.WarnContext(ctx, "snapshot too large", "bytes", len(payload))
 		// Remember it, so the unchanged checks don't warn again until SnapshotEvery.
-		a.workspaces, a.agents, a.snapshotAt = raw, agentsJSON, now
+		a.workspaces, a.agents, a.loops, a.snapshotAt = raw, agentsJSON, loopsJSON, now
 		return
 	}
 	err = a.client.Publish(ctx, envproto.Message{
@@ -329,7 +353,7 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 		a.log.WarnContext(ctx, "snapshot not published", "error", err)
 		return
 	}
-	a.workspaces, a.agents, a.snapshotAt = raw, agentsJSON, now
+	a.workspaces, a.agents, a.loops, a.snapshotAt = raw, agentsJSON, loopsJSON, now
 }
 
 // snapshotAgents is the Claude Code sessions to publish. A failing read is
@@ -344,6 +368,41 @@ func (a *Agent) snapshotAgents(ctx context.Context) []envproto.SnapshotAgent {
 		return []envproto.SnapshotAgent{}
 	}
 	return agents
+}
+
+// snapshotLoops is the loops to publish, redacted. A failing read is logged
+// and publishes none, so the workspaces still go out.
+func (a *Agent) snapshotLoops(ctx context.Context) []envproto.SnapshotLoop {
+	loops, err := a.snapshots.Loops(ctx)
+	if err != nil {
+		a.log.WarnContext(ctx, "snapshot loops not read", "error", err)
+		return []envproto.SnapshotLoop{}
+	}
+	if len(loops) == 0 {
+		return []envproto.SnapshotLoop{}
+	}
+	return a.redactLoops(ctx, loops)
+}
+
+// redactLoops hides the agent's secrets in loops. A loop list that can't be
+// redacted is not published.
+func (a *Agent) redactLoops(ctx context.Context, loops []envproto.SnapshotLoop) []envproto.SnapshotLoop {
+	if a.opts.Redactor == nil {
+		return loops
+	}
+	raw, err := json.Marshal(loops)
+	if err == nil {
+		raw, _, err = a.opts.Redactor.JSON(raw)
+	}
+	var out []envproto.SnapshotLoop
+	if err == nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	if err != nil {
+		a.log.WarnContext(ctx, "snapshot loops not redacted", "error", err)
+		return []envproto.SnapshotLoop{}
+	}
+	return out
 }
 
 // publishHello publishes the retained online hello for id.
