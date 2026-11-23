@@ -316,6 +316,28 @@
 
   const data = {
     roles: initialRoles(),
+    environments: [
+      {
+        id: "env_7f3a", name: "linux-server", state: "enrolled", status: "online",
+        last_seen: "2026-11-23T08:10:00Z", created_at: "2026-10-02T09:00:00Z", enrolled_at: "2026-10-02T09:04:00Z",
+        cert_not_after: "2027-10-02T09:04:00Z", cert_ca: "sha256:4c1e0a7d",
+        hello: { ws_version: "0.9.0", os: "linux", arch: "amd64", claude: "installed", claude_version: "2.1.0", cert_not_after: "2027-10-02T09:04:00Z" },
+        workspaces: 2,
+      },
+      {
+        id: "env_b20d", name: "win-rig", state: "enrolled", status: "offline",
+        last_seen: "2026-11-22T14:02:00Z", created_at: "2026-10-20T16:30:00Z", enrolled_at: "2026-10-20T16:35:00Z",
+        cert_not_after: "2027-10-20T16:35:00Z", cert_ca: "sha256:4c1e0a7d",
+        hello: null, workspaces: 1,
+      },
+    ],
+    environmentCa: {
+      current: { fingerprint: "sha256:4c1e0a7d", not_after: "2036-10-02T00:00:00Z" },
+      old: null,
+      environments_on_current: 2,
+      environments_on_old: 0,
+      warnings: [],
+    },
     runnerSettings: {
       runner: { model: "qwen9b" },
       endpoints: [
@@ -1244,6 +1266,41 @@
       online: null,
     }),
     versions: () => data.versions,
+    environments_list: () => ({ environments: data.environments, warnings: [] }),
+    environment_add: ({ name }) => {
+      if (data.environments.some((env) => env.name === name)) {
+        throw { code: "environment_exists", message: `an environment named ${name} already exists` };
+      }
+      const added = { id: `env_${name}`, name, state: "pending", status: "pending", last_seen: null, created_at: "2026-11-23T08:00:00Z", enrolled_at: null, cert_not_after: null, cert_ca: null, hello: null, workspaces: null };
+      data.environments = [...data.environments, added];
+      return { id: added.id, name, state: "pending", code: "ENRL-7KQ2-M9XD-4TPL", ca_created: false, revoked_serials: [], warnings: [] };
+    },
+    environment_rotate: ({ name }) => {
+      const env = data.environments.find((candidate) => candidate.name === name);
+      if (env === undefined) {
+        throw { code: "environment_missing", message: `no environment named ${name}` };
+      }
+      return { id: env.id, name, state: "pending", code: "ENRL-2HPA-8VLZ-6WQN", ca_created: false, revoked_serials: [], warnings: [] };
+    },
+    environment_remove: ({ name }) => {
+      const env = data.environments.find((candidate) => candidate.name === name);
+      if (env === undefined) {
+        throw { code: "environment_missing", message: `no environment named ${name}` };
+      }
+      data.environments = data.environments.filter((candidate) => candidate !== env);
+      return { id: env.id, name, revoked_serials: ["3f9a21c0"], warnings: [] };
+    },
+    environments_ca_status: () => data.environmentCa,
+    environments_ca_rotate: ({ finish }) => {
+      const { current, old } = data.environmentCa;
+      if (finish) {
+        data.environmentCa = { ...data.environmentCa, old: null, environments_on_old: 0 };
+        return { current, old: null, dropped: old, stranded: [], warnings: [] };
+      }
+      const next = { fingerprint: "sha256:9b72e41c", not_after: "2037-11-23T00:00:00Z" };
+      data.environmentCa = { current: next, old: current, environments_on_current: 0, environments_on_old: data.environments.length, warnings: [] };
+      return { current: next, old: current, dropped: null, stranded: [], warnings: [] };
+    },
     roles_list: () => data.roles.map(({ prompt, path, ...role }) => role),
     roles_show: ({ name }) => findRole(name),
     roles_add: ({ name, draft }) => {

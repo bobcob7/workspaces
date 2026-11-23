@@ -9,7 +9,7 @@ use crate::open;
 use crate::pty::TermSpec;
 use crate::reviews;
 use crate::runner::AppError;
-use crate::{cache, loops, roles, runner_service, secrets, stats, ws_config};
+use crate::{cache, environments, loops, roles, runner_service, secrets, stats, ws_config};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -166,6 +166,12 @@ pub const COMMANDS: &[&str] = &[
     "loops_memory_remove",
     "loops_memory_clear",
     "stats_get",
+    "environments_list",
+    "environment_add",
+    "environment_rotate",
+    "environment_remove",
+    "environments_ca_status",
+    "environments_ca_rotate",
 ];
 
 /// Runs `command` with Tauri-style camelCase `args` (`Value::Null` = `{}`).
@@ -535,6 +541,30 @@ pub async fn dispatch(
         "stats_get" => {
             let since_ms = args!(args, { since_ms: Option<i64> });
             result(stats::stats_get(State::new(&ctx.state), since_ms).await)
+        }
+        "environments_list" => {
+            result(environments::environments_list(State::new(&ctx.state)).await)
+        }
+        "environment_add" => {
+            let name = args!(args, { name: String });
+            result(environments::environment_add(State::new(&ctx.state), name).await)
+        }
+        "environment_rotate" => {
+            let name = args!(args, { name: String });
+            result(environments::environment_rotate(State::new(&ctx.state), name).await)
+        }
+        "environment_remove" => {
+            let name = args!(args, { name: String });
+            result(environments::environment_remove(State::new(&ctx.state), name).await)
+        }
+        "environments_ca_status" => {
+            result(environments::environments_ca_status(State::new(&ctx.state)).await)
+        }
+        "environments_ca_rotate" => {
+            let (finish, force) = args!(args, { finish: bool, force: bool });
+            result(
+                environments::environments_ca_rotate(State::new(&ctx.state), finish, force).await,
+            )
         }
         _ => Err(DispatchError::UnknownCommand(command.to_string())),
     }
