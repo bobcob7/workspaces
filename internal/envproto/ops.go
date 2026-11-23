@@ -110,7 +110,7 @@ func LookupOp(name string) (OpSpec, bool) {
 	case OpTerminalClose:
 		return OpSpec{Name: name, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second}, true
 	}
-	return OpSpec{}, false
+	return loopOpSpec(name)
 }
 
 // CreateArgs are the arguments of workspace.create.
@@ -231,6 +231,9 @@ func DecodeArgs(op string, raw json.RawMessage) (any, error) {
 	if err := Validate(target); err != nil {
 		return nil, err
 	}
+	if err := validateOp(op, target); err != nil {
+		return nil, err
+	}
 	return target, nil
 }
 
@@ -258,7 +261,10 @@ func newArgs(op string) (any, bool) {
 	case OpTerminalClose:
 		return &TerminalCloseArgs{}, true
 	}
-	return newReviewArgs(op)
+	if target, ok := newReviewArgs(op); ok {
+		return target, true
+	}
+	return newLoopArgs(op)
 }
 
 // decodeStrict fills target from raw, refusing unknown keys and trailing data.

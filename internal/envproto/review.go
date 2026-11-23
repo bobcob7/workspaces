@@ -155,7 +155,7 @@ func validateReviewArgs(args any) error {
 	case *ReviewProfilesArgs:
 		return nil
 	}
-	return usageError("unknown operation arguments")
+	return validateLoopArgs(args)
 }
 
 // PermissionModes are the permission modes a review or a loop may ask claude for: the ones its --permission-mode flag accepts (ADR 0051).

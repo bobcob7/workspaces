@@ -88,9 +88,9 @@ func TestErrorEnvelope_Marshal(t *testing.T) {
 func TestSnapshot_Marshal(t *testing.T) {
 	t.Run("marshals the protocol and an empty agents list", func(t *testing.T) {
 		at := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
-		body, err := json.Marshal(Snapshot{At: at, Protocol: Protocol, Workspaces: json.RawMessage(`[]`), Agents: []SnapshotAgent{}})
+		body, err := json.Marshal(Snapshot{At: at, Protocol: Protocol, Workspaces: json.RawMessage(`[]`), Agents: []SnapshotAgent{}, Loops: []SnapshotLoop{}})
 		require.NoError(t, err)
-		assert.JSONEq(t, fmt.Sprintf(`{"at":"2026-11-22T00:00:00Z","protocol":%d,"workspaces":[],"agents":[]}`, Protocol), string(body))
+		assert.JSONEq(t, fmt.Sprintf(`{"at":"2026-11-22T00:00:00Z","protocol":%d,"workspaces":[],"agents":[],"loops":[]}`, Protocol), string(body))
 	})
 }
 

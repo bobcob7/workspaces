@@ -64,6 +64,9 @@ type Snapshot struct {
 	Protocol   int             `json:"protocol"`
 	Workspaces json.RawMessage `json:"workspaces"` // ws list --json --all's array, no unknown dirs
 	Agents     []SnapshotAgent `json:"agents"`
+	// Loops is the agent's loops (ADR 0078). No omitempty: an agent with no
+	// loops sends [], and a snapshot without the key (an older agent) is null.
+	Loops []SnapshotLoop `json:"loops"`
 }
 
 // SnapshotAgent is one Claude Code session on the agent's machine.
