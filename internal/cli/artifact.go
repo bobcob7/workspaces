@@ -74,12 +74,6 @@ type artifactRemoveJSON struct {
 	Error   *itemErrorJSON `json:"error"`
 }
 
-// artifactRemoveResultJSON is the output of rm: one item per argument.
-type artifactRemoveResultJSON struct {
-	Artifacts []artifactRemoveJSON `json:"artifacts"`
-	Warnings  []string             `json:"warnings"`
-}
-
 // summaryJSON is e as a summary: its latest revision's type, size and time,
 // and its thread counts.
 func summaryJSON(e *artifact.Entry) artifactSummaryJSON {
@@ -176,7 +170,7 @@ func (a *App) artifactSource(path string) (io.Reader, func(), error) {
 	if path == "-" {
 		return a.stdin, func() {}, nil
 	}
-	f, err := os.Open(path) //nolint:gosec // G304: the file is the one the person or agent named.
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, nil, newError(codeArtifactInvalid, fmt.Errorf("reading %s: %w", path, err))
 	}
@@ -273,7 +267,7 @@ func (f *artifactFilter) keep(rec *artifact.Record) bool {
 		return false
 	case f.workspace != "" && !createdIn(rec, f.workspace):
 		return false
-	case f.mine && !(rec.Root != nil && *rec.Root == f.root):
+	case f.mine && (rec.Root == nil || *rec.Root != f.root):
 		return false
 	}
 	return true

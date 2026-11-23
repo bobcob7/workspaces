@@ -29,8 +29,8 @@ func (a *App) machineCaller() (machineArtifactCaller, error) {
 	if err != nil {
 		return machineArtifactCaller{}, err
 	}
-	if err = a.refuseOnAgentMachine(); err != nil {
-		return machineArtifactCaller{}, err
+	if a.enrolledAgent() {
+		return machineArtifactCaller{}, newError(codeArtifactUnreachable, errors.New("artifacts live on the machine this environment is enrolled with, and this ws can't reach them yet (ADR 0078)"))
 	}
 	list, err := a.workspaces.List()
 	if err != nil {
@@ -54,14 +54,12 @@ func workspaceByID(list []workspace.Workspace, id string) workspace.Workspace {
 	return workspace.Workspace{}
 }
 
-// refuseOnAgentMachine is artifact_unreachable when this CONFIG_DIR is an
-// enrolled environment's agent: that machine's artifacts aren't this one's
-// (ADR 0078). Writing agent.toml there is how enrollment is recorded.
-func (a *App) refuseOnAgentMachine() error {
-	if _, err := os.Stat(filepath.Join(a.paths.Environment, "agent.toml")); err != nil {
-		return nil
-	}
-	return newError(codeArtifactUnreachable, errors.New("artifacts live on the machine this environment is enrolled with, and this ws can't reach them yet (ADR 0078)"))
+// enrolledAgent reports whether this CONFIG_DIR is an enrolled environment's
+// agent, which has agent.toml (ADR 0075). Artifacts there aren't this
+// ws's to reach (ADR 0078).
+func (a *App) enrolledAgent() bool {
+	_, err := os.Stat(filepath.Join(a.paths.Environment, "agent.toml"))
+	return err == nil
 }
 
 // checkOwner is removeArtifacts' check for agents: an artifact is removed

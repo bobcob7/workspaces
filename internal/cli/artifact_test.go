@@ -37,11 +37,27 @@ func writeTestFile(t *testing.T, name string, data []byte) string {
 	return path
 }
 
+// artifactsOf is the "artifacts" array of the JSON object s.
+func artifactsOf(t *testing.T, s string) []any {
+	t.Helper()
+	arr, ok := jsonObjectOf(t, s)["artifacts"].([]any)
+	require.True(t, ok, "no artifacts array in %s", s)
+	return arr
+}
+
+// jsonString is v, which must be a string.
+func jsonString(t *testing.T, v any) string {
+	t.Helper()
+	s, ok := v.(string)
+	require.True(t, ok, "want a string, got %v", v)
+	return s
+}
+
 // addedID runs ws artifact add --json on args and returns the new artifact's id.
 func addedID(t *testing.T, e *mockedApp, args ...string) string {
 	t.Helper()
 	require.Equal(t, exitOK, runMachine(t, e, append([]string{"artifact", "add"}, append(args, "--json")...)...), e.stderr.String())
-	return jsonObjectOf(t, e.stdout.String())["artifact"].(map[string]any)["id"].(string)
+	return jsonString(t, jsonObject(t, jsonObjectOf(t, e.stdout.String())["artifact"])["id"])
 }
 
 func TestApp_artifactAdd(t *testing.T) {
@@ -93,7 +109,7 @@ func TestApp_artifactList(t *testing.T) {
 		assert.Contains(t, e.stdout.String(), id+"  image ")
 		e.stdout.Reset()
 		require.Equal(t, exitOK, runMachine(t, e, "artifact", "list", "--json"), e.stderr.String())
-		list := jsonObjectOf(t, e.stdout.String())["artifacts"].([]any)
+		list := artifactsOf(t, e.stdout.String())
 		require.Len(t, list, 1)
 		assert.Equal(t, id, jsonObject(t, list[0])["id"])
 	})
@@ -146,14 +162,14 @@ func TestApp_artifactRm(t *testing.T) {
 		id := addedID(t, e, writeTestFile(t, "a.txt", []byte("hi")))
 		e.stdout.Reset()
 		require.Equal(t, exitOK, runMachine(t, e, "artifact", "rm", id, "--json"), e.stderr.String())
-		items := jsonObjectOf(t, e.stdout.String())["artifacts"].([]any)
+		items := artifactsOf(t, e.stdout.String())
 		assert.Equal(t, map[string]any{"id": id, "removed": true, "error": nil}, items[0])
 		assert.Equal(t, exitNotFound, runMachine(t, e, "artifact", "show", id, "--json"))
 	})
 	t.Run("an unknown id fails its item and the exit code", func(t *testing.T) {
 		e := newArtifactApp(t)
 		assert.Equal(t, exitNotFound, runMachine(t, e, "artifact", "rm", "art-1a2b3c4d", "--json"))
-		items := jsonObjectOf(t, e.stdout.String())["artifacts"].([]any)
+		items := artifactsOf(t, e.stdout.String())
 		assert.Equal(t, false, jsonObject(t, items[0])["removed"])
 	})
 }
@@ -190,7 +206,7 @@ func TestArtifactRef(t *testing.T) {
 
 func TestArtifactError(t *testing.T) {
 	t.Run("maps the store's errors to ws codes", func(t *testing.T) {
-		assert.NoError(t, artifactError(nil))
+		require.NoError(t, artifactError(nil))
 		requireCode(t, codeArtifactInvalid, artifactError(artifact.ErrInvalid))
 		requireCode(t, codeArtifactInvalid, artifactError(artifact.ErrNewer))
 		requireCode(t, codeArtifactUnknown, artifactError(artifact.ErrNotFound))
