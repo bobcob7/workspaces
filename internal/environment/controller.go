@@ -67,15 +67,6 @@ type heard struct {
 	hello    *envproto.Hello
 }
 
-// snapshotRecord is state/.environments/<name>/snapshot.json.
-type snapshotRecord struct {
-	Version    int             `json:"version"`
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	ReceivedAt string          `json:"received_at"`
-	Snapshot   json.RawMessage `json:"snapshot"`
-}
-
 // Controller runs the broker and the enrollment listener in the daemon.
 type Controller struct {
 	log      *slog.Logger
@@ -87,6 +78,8 @@ type Controller struct {
 	// enrollTimeout bounds how long an enrollment connection may take to send
 	// a request, receive its reply, or sit idle.
 	enrollTimeout time.Duration
+	// callGrace is how long after its deadline a call still waits for a reply.
+	callGrace time.Duration
 
 	// lifecycle serializes Start, Reload and Close. mu is never held across
 	// a broker call, since the broker's handlers take mu.
@@ -96,6 +89,7 @@ type Controller struct {
 
 	mu             sync.Mutex
 	presence       map[string]heard
+	calls          map[string]*pendingCall
 	listening      bool
 	listenAddr     string
 	enrollAddr     string
@@ -116,7 +110,9 @@ func NewController(log *slog.Logger, store *Store, b broker, settings Settings, 
 		settings:      settings,
 		now:           now,
 		presence:      map[string]heard{},
+		calls:         map[string]*pendingCall{},
 		enrollTimeout: enrollReadTimeout,
+		callGrace:     envproto.Grace,
 	}
 	c.policy = &policy{store: store, trust: c.currentTrust}
 	return c
@@ -490,23 +486,32 @@ func (c *Controller) onStatus(ctx context.Context, msg *envproto.Message) {
 		c.log.DebugContext(ctx, "status ignored", "id", id)
 		return
 	}
-	c.recordStatus(id, &hello)
-	if hello.Status == envproto.StatusOnline && c.missingRoot(hello.CAFingerprints) {
+	cameBack := c.recordStatus(id, &hello)
+	if hello.Status != envproto.StatusOnline {
+		return
+	}
+	if cameBack {
+		c.republish(ctx, id)
+	}
+	if c.missingRoot(hello.CAFingerprints) {
 		c.requestCAUpdate(ctx, id)
 	}
 }
 
-// recordStatus stores what a status message says about the environment id.
-func (c *Controller) recordStatus(id string, hello *envproto.Hello) {
+// recordStatus stores what a status message says about the environment id,
+// and reports whether it came back online from offline.
+func (c *Controller) recordStatus(id string, hello *envproto.Hello) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	h := c.presence[id]
+	cameBack := hello.Status == envproto.StatusOnline && !h.online
 	h.lastSeen = c.now().UTC()
 	h.online = hello.Status == envproto.StatusOnline
 	if h.online {
 		h.hello = hello
 	}
 	c.presence[id] = h
+	return cameBack
 }
 
 // onSnapshot writes the environment's snapshot to state/.environments/<name>/snapshot.json.
@@ -524,7 +529,7 @@ func (c *Controller) onSnapshot(ctx context.Context, msg *envproto.Message) {
 		c.log.WarnContext(ctx, "snapshot refused", "id", id)
 		return
 	}
-	data, err := json.Marshal(snapshotRecord{
+	data, err := json.Marshal(SnapshotFile{
 		Version:    snapshotVersion,
 		ID:         id,
 		Name:       rec.Name,
@@ -560,8 +565,12 @@ func (c *Controller) answer(ctx context.Context, id string, payload []byte) []by
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return envproto.ErrorReply("usage", "malformed request")
 	}
-	if req.Op != envproto.OpCertRenew {
+	spec, known := envproto.LookupOp(req.Op)
+	switch {
+	case !known:
 		return envproto.ErrorReply("usage", fmt.Sprintf("unknown operation %q", req.Op))
+	case spec.Caller != envproto.CallerAgent:
+		return envproto.ErrorReply("usage", req.Op+" isn't an operation an agent may send")
 	}
 	return c.renew(ctx, id, req.Args)
 }
@@ -599,7 +608,8 @@ func (c *Controller) publishReply(ctx context.Context, topic string, correlation
 	}
 }
 
-// onRes logs whether an environment acknowledged a ca.update.
+// onRes delivers a reply to the call waiting for it, and otherwise logs
+// whether an environment acknowledged a ca.update.
 func (c *Controller) onRes(ctx context.Context, msg *envproto.Message) {
 	id, _, ok := envproto.ParseTopic(msg.Topic)
 	if !ok {
@@ -608,6 +618,9 @@ func (c *Controller) onRes(ctx context.Context, msg *envproto.Message) {
 	var reply envproto.Reply
 	if err := json.Unmarshal(msg.Payload, &reply); err != nil {
 		c.log.WarnContext(ctx, "reply refused", "id", id)
+		return
+	}
+	if c.deliver(id, string(msg.CorrelationData), reply) {
 		return
 	}
 	if reply.OK {
@@ -637,7 +650,7 @@ func (c *Controller) sendCAUpdate(ctx context.Context, id string) error {
 	}
 	payload, err := marshalRequest(envproto.OpCAUpdate, envproto.CAUpdateArgs{
 		CABundle: string(c.currentTrust().bundlePEM()),
-	})
+	}, reqID)
 	if err != nil {
 		return err
 	}
@@ -651,13 +664,13 @@ func (c *Controller) sendCAUpdate(ctx context.Context, id string) error {
 	})
 }
 
-// marshalRequest encodes {"op": op, "args": args}.
-func marshalRequest(op string, args any) ([]byte, error) {
+// marshalRequest encodes {"op": op, "args": args, "request_id": requestID, "deadline": null}.
+func marshalRequest(op string, args any, requestID string) ([]byte, error) {
 	raw, err := json.Marshal(args)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(envproto.Request{Op: op, Args: raw})
+	return json.Marshal(envproto.Request{Op: op, Args: raw, RequestID: requestID})
 }
 
 // newRequestID returns 16 random hex characters for a request.

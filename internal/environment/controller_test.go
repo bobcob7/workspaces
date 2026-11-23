@@ -601,7 +601,7 @@ func TestController_onUp(t *testing.T) {
 	renewMessage := func(t *testing.T, id, op string) *envproto.Message {
 		t.Helper()
 		csr := string(newTestCSR(t, newTestKey(t)))
-		payload, err := marshalRequest(op, envproto.RenewArgs{CSR: csr})
+		payload, err := marshalRequest(op, envproto.RenewArgs{CSR: csr}, callRequestID)
 		require.NoError(t, err)
 		return &envproto.Message{
 			Topic:           envproto.Topic(id, envproto.LeafUp),
@@ -787,6 +787,48 @@ func TestController_onRes(t *testing.T) {
 	})
 }
 
+func TestController_answer(t *testing.T) {
+	t.Run("a workspace operation on up is refused", func(t *testing.T) {
+		store := newTestStore(t)
+		rec, _ := enrollAgent(t, store, "linux-server")
+		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
+		payload, err := marshalRequest(envproto.OpWorkspaceList, envproto.ListArgs{}, callRequestID)
+		require.NoError(t, err)
+		reply := replyOf(t, &envproto.Message{Payload: c.answer(t.Context(), rec.ID, payload)})
+		assert.False(t, reply.OK)
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "usage", reply.Error.Code)
+	})
+	t.Run("cert.renew still renews", func(t *testing.T) {
+		store := newTestStore(t)
+		rec, _ := enrollAgent(t, store, "linux-server")
+		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
+		payload, err := marshalRequest(envproto.OpCertRenew, envproto.RenewArgs{CSR: string(newTestCSR(t, newTestKey(t)))}, callRequestID)
+		require.NoError(t, err)
+		reply := replyOf(t, &envproto.Message{Payload: c.answer(t.Context(), rec.ID, payload)})
+		assert.True(t, reply.OK)
+	})
+}
+
+func TestController_sendCAUpdate(t *testing.T) {
+	t.Run("sends ca.update with its request id and a null deadline", func(t *testing.T) {
+		store := newTestStore(t)
+		rec, _ := enrollAgent(t, store, "linux-server")
+		b := envtest.NewBroker()
+		c := startController(t, store, b)
+		requests := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
+		require.NoError(t, c.sendCAUpdate(t.Context(), rec.ID))
+		require.Len(t, *requests, 1)
+		msg := (*requests)[0]
+		req := requestOf(t, &msg)
+		assert.Equal(t, envproto.OpCAUpdate, req.Op)
+		assert.True(t, envproto.ValidRequestID(req.RequestID))
+		assert.Equal(t, req.RequestID, string(msg.CorrelationData))
+		assert.Equal(t, envproto.Topic(rec.ID, envproto.LeafRes, req.RequestID), msg.ResponseTopic)
+		assert.Nil(t, req.Deadline)
+	})
+}
+
 // failingSubscribe is a broker whose first Subscribe fails.
 type failingSubscribe struct {
 	*envtest.Broker
@@ -839,7 +881,7 @@ func TestController_Reload_contextOutlivesRequest(t *testing.T) {
 		defer mu.Unlock()
 		replies = append(replies, msg)
 	}))
-	payload, err := marshalRequest(envproto.OpCertRenew, envproto.RenewArgs{CSR: string(newTestCSR(t, newTestKey(t)))})
+	payload, err := marshalRequest(envproto.OpCertRenew, envproto.RenewArgs{CSR: string(newTestCSR(t, newTestKey(t)))}, callRequestID)
 	require.NoError(t, err)
 	require.NoError(t, agent.Publish(t.Context(), envproto.Message{
 		Topic:           envproto.Topic(rec.ID, envproto.LeafUp),
