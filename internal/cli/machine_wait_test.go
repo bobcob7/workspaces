@@ -407,3 +407,47 @@ func TestApp_runMachineWait_wsRunner(t *testing.T) {
 		assert.Nil(t, item.WSRunner)
 	})
 }
+
+func TestApp_runMachineWaitProgress(t *testing.T) {
+	t.Run("an item carries the child's progress and its rollup with descendants", func(t *testing.T) {
+		e := newWaitApp(t)
+		store := machine.NewStore(e.app.paths.State)
+		require.NoError(t, store.WriteProgress("boss", "a", &machine.Progress{Name: "impl", Total: 3, Done: 1}))
+		require.NoError(t, store.WriteProgress("boss", "a1", &machine.Progress{Total: 2, Done: 2}))
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateIdle, "a1": lifetime.StateIdle})
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		item := parseWait(t, e.stdout.String()).Children[0]
+		require.NotNil(t, item.Progress)
+		assert.Equal(t, "impl", *item.Progress.Name)
+		require.NotNil(t, item.Rollup)
+		assert.Equal(t, 5, item.Rollup.Total)
+		assert.Equal(t, 3, item.Rollup.Done)
+	})
+	t.Run("an unreadable progress file is a warning, with both fields null", func(t *testing.T) {
+		e := newWaitApp(t)
+		store := machine.NewStore(e.app.paths.State)
+		require.NoError(t, store.WriteProgress("boss", "a", &machine.Progress{Total: 1}))
+		path := filepath.Join(store.Dir("boss", "a"), "progress.toml")
+		require.NoError(t, os.WriteFile(path, []byte("version = 1\ntotal = -3\n"), 0o600))
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateIdle})
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		assert.Nil(t, got.Children[0].Progress)
+		assert.Nil(t, got.Children[0].Rollup)
+		require.Len(t, got.Warnings, 1)
+		assert.Contains(t, got.Warnings[0], "couldn't read a's progress")
+	})
+	t.Run("a child that never reported has a null progress and a one-step rollup", func(t *testing.T) {
+		e := newWaitApp(t)
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateIdle})
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		item := parseWait(t, e.stdout.String()).Children[0]
+		assert.Nil(t, item.Progress)
+		require.NotNil(t, item.Rollup)
+		assert.Equal(t, 1, item.Rollup.Total)
+		assert.Equal(t, 1, item.Rollup.Done)
+	})
+}

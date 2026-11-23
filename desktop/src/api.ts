@@ -61,6 +61,26 @@ export interface Entry {
   readonly model: string | null;
   /** A `ws` runner's progress and endpoint; null for anything else. */
   readonly wsRunner: WsRunner | null;
+  /** The workspace's own step record, null without one (ADR 0077). */
+  readonly progress: EntryProgress | null;
+  /** The steps of the workspace and its descendants, null when there are none. */
+  readonly rollup: EntryRollup | null;
+}
+
+/** A workspace's step record: what it is doing and how far it has got. */
+export interface EntryProgress {
+  readonly name: string | null;
+  readonly total: number;
+  readonly done: number;
+  readonly note: string | null;
+  readonly updatedAt: string | null;
+}
+
+/** The steps of a workspace and of everything it started. */
+export interface EntryRollup {
+  readonly total: number;
+  readonly done: number;
+  readonly fraction: number;
 }
 
 /** A `ws` runner's progress and endpoint, from ws list (reference.md). */

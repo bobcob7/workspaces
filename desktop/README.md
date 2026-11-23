@@ -345,6 +345,18 @@ The Agents list as a tree ([ADR 0058](../docs/adrs/0058-workspace-tree-and-filte
 - [Status filter](docs/tree-list-status.png): Working only.
 - [At 360px](docs/tree-list-mobile.png): the filter bar wrapped, search on its own row.
 
+## Progress bars
+
+A workspace that reports steps with `ws machine progress` (ADR 0077) shows a thin bar with `done/total` beside it: in its row, on each child in the Started from this workspace card, and, for a top-level workspace, one overall bar under the header with the latest step note. The bar counts the workspace's own steps plus its descendants', as `ws list --json` gives them. A bar whose last verdict failed (`FAIL` or `CHANGES_REQUESTED`) is drawn in the error colour. Rows without a rollup show no bar.
+
+| **Agents list** | **Orchestrator pane** |
+| --- | --- |
+| ![](docs/progress-list.png) | ![](docs/progress-pane.png) |
+
+| **Started from this workspace** | **Pane at 360px** |
+| --- | --- |
+| ![](docs/progress-children.png) | ![](docs/progress-phone.png) |
+
 ## Status
 
 | Shown        | When                                                            |

@@ -57,4 +57,22 @@ describe("EntryRow", () => {
     renderRow(entry({ runner: "claude", model: null }));
     expect(screen.getByRole("button")).not.toHaveAttribute("title");
   });
+
+  it("draws a progress bar of the workspace's steps when it has a rollup", () => {
+    renderRow(entry({ name: "fix-login", rollup: { total: 4, done: 1, fraction: 0.25 } }));
+    const bar = screen.getByRole("progressbar", { name: "fix-login progress" });
+    expect(bar).toHaveAttribute("aria-valuenow", "1");
+    expect(bar).toHaveAttribute("aria-valuemax", "4");
+    expect(screen.getByText("1/4")).toBeVisible();
+  });
+
+  it("draws no progress bar without a rollup", () => {
+    renderRow(entry({ rollup: null }));
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("draws a failed entry's progress bar in the error colour", () => {
+    renderRow(entry({ name: "t1-review", result: "FAIL", rollup: { total: 1, done: 0, fraction: 0 } }));
+    expect(screen.getByRole("progressbar", { name: "t1-review progress" })).toHaveClass("MuiLinearProgress-colorError");
+  });
 });

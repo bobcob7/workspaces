@@ -65,7 +65,8 @@ does it honestly not protect?
 2. **Files.** File tools resolve symlinks and refuse paths outside the
    workspace, and anything under `.git/`. `run`'s working directory is the
    session directory.
-3. **Commands.** The deny-list from 0065 (other `ws` commands, `claude`,
+3. **Commands.** The deny-list from 0065 (other `ws` commands than
+   `ws machine result` and `ws machine progress`, `claude`,
    `sudo`, force pushes outside `BRANCH`, pushes to `main` or `master`) is
    matched on the parsed command words. It catches model mistakes; it
    can't stop a determined `sh -c "$(echo … | base64 -d)"`.

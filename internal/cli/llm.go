@@ -121,6 +121,10 @@ func guideTopicsFromReview() []string {
 		"machine memory get",
 		"machine memory set",
 		"machine memory rm",
+		"machine progress",
+		"machine progress set",
+		"machine progress step",
+		"machine progress show",
 		"llm",
 	}
 }

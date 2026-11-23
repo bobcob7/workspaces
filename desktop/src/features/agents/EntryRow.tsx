@@ -1,8 +1,10 @@
 import type { JSX } from "react";
 import type { Entry, LoopAttention } from "../../api";
 import { age, repoLabel } from "../../format";
+import { isFailed } from "./progress";
 import { modelTooltip, stepLabel } from "./runner";
 import { StatusDot } from "./StatusDot";
+import { StepProgress } from "./StepProgress";
 import styles from "./Sidebar.module.css";
 
 const attentionPrefix: Readonly<Record<LoopAttention, string>> = {
@@ -60,5 +62,13 @@ export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRo
       </span>
       {entry.model !== null && <span className={styles.modelLabel}>{entry.model}</span>}
     </span>
+    {entry.rollup !== null && (
+      <StepProgress
+        label={`${entry.name} progress`}
+        done={entry.rollup.done}
+        total={entry.rollup.total}
+        failed={isFailed(entry)}
+      />
+    )}
   </button>
 );

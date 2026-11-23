@@ -22,6 +22,9 @@ ws machine memory list
 ws machine memory get <KEY>
 ws machine memory set [--expect-rev <N>] [--file <PATH> | --file -] <KEY> [<VALUE>]
 ws machine memory rm [--expect-rev <N>] <KEY>
+ws machine progress set [--name <name>] [--total <n>] [--done <n>] [--note <text>]
+ws machine progress step [--by <n>] [--note <text>]
+ws machine progress show
 ```
 
 ## Description
@@ -432,6 +435,38 @@ $ ws machine memory get seen
 $ ws machine memory set --expect-rev 3 seen "#412 #415 #418"
 ```
 
+## ws machine progress
+
+Reports how far the caller's task has got, so a person can watch a long or
+orchestrated run as a progress bar ([0077](../adrs/0077-agent-progress-reporting.md)).
+Each workspace keeps one record, `progress.toml` under the root's `machine/`
+directory, holding a short `name` (up to 40 characters), `total` steps, `done`
+steps (never above `total`), and a one-line `note` (up to 200). It's the
+caller's own steps only: work handed to children is theirs to report.
+
+- `set` changes the fields whose flags are given; at least one is required.
+- `step` adds `--by` (default 1) to `done`, optionally setting the note.
+- `show` prints the caller's tree.
+
+Nesting follows the workspace tree ([0044](../adrs/0044-workspace-trees.md)),
+so a child spawned by the caller needs no link. A node's **rollup** is the
+steps of that workspace plus its descendants': `total` and `done` are sums,
+and `fraction` is `done / total`, or `null` while no step is planned. A
+workspace that never reported has no steps of its own, unless it has a result
+(below), and passes its children's up. `wait` and `children` add the same
+`progress` and `rollup` to each child's item: `progress` is `null` if the child
+never reported, and `rollup` is `null` until a step is planned. A passing `ws machine result` sets `done` to
+`total` when a total was declared, and a finished child with a result but no
+record counts as one step, done only if it passed
+([0077](../adrs/0077-agent-progress-reporting.md)). Every command prints the same object, and an agent
+writes only its own record.
+
+```console
+$ ws machine progress set --name "build auth" --total 4
+$ ws machine progress step --note "design done"
+{"id":"plan","progress":{"name":"build auth","total":4,"done":1,"note":"design done","updated_at":"2026-11-22T20:00:00Z"},"tree":{"id":"plan","progress":{…},"rollup":{"total":7,"done":3,"fraction":0.4286},"children":[{"id":"t1-impl-d8efb24f","progress":{…},"rollup":{…},"children":[]}]},"warnings":[]}
+```
+
 ## Errors
 
 | Situation                                       | Error code          | Exit |
@@ -455,6 +490,8 @@ $ ws machine memory set --expect-rev 3 seen "#412 #415 #418"
 | `wait`: a finished child whose outcome is `fail` or `missing` (an item's error) | `child_failed` | 1 |
 | `wait`: a child not finished at the timeout (an item's error) | `wait_timeout` | 1 |
 | `roles`: your role file can't be parsed, for `edit` | `config_invalid` | 1  |
+| `progress`: a bad name or note, a step count out of range, or `done` above `total` | `progress_invalid` | 2 |
+| `progress set` with no flag; `progress step --by` under 1 | `usage` | 2 |
 | `memory`: a key that isn't valid | `memory_invalid` | 2 |
 | `memory set`: neither or both of `<VALUE>` and `--file` | `usage` | 2 |
 | `memory`: a data file from a newer `ws` | `loop_invalid` | 2 |

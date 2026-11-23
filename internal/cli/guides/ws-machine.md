@@ -9,6 +9,7 @@ ws machine logs [--tail <n>] <workspace>
 ws machine rm [--dry-run] [--keep-children] (<workspace>... | --all)
 ws machine roles [show | add | edit | rm] …
 ws machine memory [list | get | set | rm] …
+ws machine progress [set | step | show] …
 ```
 
 Commands for agents: start, wait for, list, and remove the workspaces your
@@ -44,6 +45,10 @@ changes nothing. Errors are one JSON line on stderr.
   and waits on you: record your verdict and report.
 - `ws machine memory` as a loop run, to keep notes for the loop's next runs:
   `set` a value, then `get` or `list` it; use `--expect-rev` when runs overlap.
+- `ws machine progress` on any task of more than a few steps, and always on a
+  long or orchestrated run: `set --name <short name> --total <n>` once you know
+  the plan, then `step` as each step finishes. A person watches it as a progress
+  bar, and children's progress nests under yours.
 - `ws machine children` to find your helpers and reviews, and check on
   their sessions and results.
 - `ws machine logs` to see what a child did and why it stopped, once
@@ -72,6 +77,7 @@ Run `ws llm machine <op>` for each one's guide.
 | `wait`: a child hadn't finished at the timeout  | `wait_timeout`        | 1    |
 | `memory`: a bad key, or a value over the limits | `memory_invalid`, `memory_full` | 2, 4 |
 | `memory`: your workspace isn't a loop run       | `not_loop_run`        | 4    |
+| `progress`: a bad name, note or step count        | `progress_invalid`    | 2    |
 | `memory`: a key that isn't set, or `--expect-rev` didn't match | `memory_not_found`, `memory_conflict` | 3, 4 |
 
 ## Examples

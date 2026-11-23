@@ -104,12 +104,12 @@ func TestApp_newMachineCmd(t *testing.T) {
 	t.Run("is in the group for agents", func(t *testing.T) {
 		assert.Equal(t, agentsGroup, cmd.GroupID)
 	})
-	t.Run("has spawn, result, wait, children, logs, rm, roles, and memory", func(t *testing.T) {
+	t.Run("has spawn, result, wait, children, logs, rm, roles, memory, and progress", func(t *testing.T) {
 		var names []string
 		for _, sub := range cmd.Commands() {
 			names = append(names, sub.Name())
 		}
-		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "logs", "rm", "roles", "memory"}, names)
+		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "logs", "rm", "roles", "memory", "progress"}, names)
 	})
 	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"nope"}))
@@ -604,6 +604,53 @@ func TestApp_runMachineChildren(t *testing.T) {
 		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
 		assert.Contains(t, e.stdout.String(), `"role":null,"result":null`)
 		assert.Contains(t, e.stdout.String(), "couldn't read a's machine record")
+	})
+	t.Run("each child's progress and rollup, once per child", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		require.NoError(t, machine.NewStore(e.app.paths.State).WriteProgress("boss", "a", &machine.Progress{Name: "impl", Total: 3, Done: 1}))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		assert.Equal(t, 2, strings.Count(e.stdout.String(), `"progress":`))
+		assert.Equal(t, 2, strings.Count(e.stdout.String(), `"rollup":`))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 2)
+		a := got.Workspaces[0]
+		require.NotNil(t, a.Progress)
+		require.NotNil(t, a.Progress.Name)
+		assert.Equal(t, "impl", *a.Progress.Name)
+		require.NotNil(t, a.Rollup)
+		assert.Equal(t, 3, a.Rollup.Total)
+		assert.Equal(t, 1, a.Rollup.Done)
+	})
+	t.Run("a child with no record and no result has a null progress and a null rollup", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 2)
+		b := got.Workspaces[1]
+		assert.Equal(t, "b", *b.ID)
+		assert.Nil(t, b.Progress)
+		assert.Nil(t, b.Rollup)
+	})
+	t.Run("an unreadable progress file is a warning, with both fields null", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		store := machine.NewStore(e.app.paths.State)
+		require.NoError(t, store.WriteProgress("boss", "b", &machine.Progress{Total: 1}))
+		path := filepath.Join(store.Dir("boss", "b"), "progress.toml")
+		require.NoError(t, os.WriteFile(path, []byte("version = 1\ntotal = -3\n"), 0o600))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		b := got.Workspaces[1]
+		assert.Equal(t, "b", *b.ID)
+		assert.Nil(t, b.Progress)
+		assert.Nil(t, b.Rollup)
+		require.Len(t, got.Warnings, 1)
+		assert.Contains(t, got.Warnings[0], "couldn't read b's progress")
 	})
 	t.Run("none is an empty list", func(t *testing.T) {
 		e := newMachineApp(t)
