@@ -255,19 +255,15 @@ func TestAgent_dispatch(t *testing.T) {
 		runner := listRunner()
 		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
 		awaitOnline(t, fx)
-		cases := []struct {
-			op   string
-			args string
-		}{
-			{op: envproto.OpWorkspaceList, args: `{"foo":1}`},
-			{op: envproto.OpWorkspaceRename, args: `{"workspace":"fix-login","name":"x","foo":1}`},
-		}
-		for i, tt := range cases {
-			reply := askAgent(t, fx, opRequest(t, fmt.Sprintf("%016x", i+1), tt.op, json.RawMessage(tt.args)), fmt.Sprintf("d%d", i+2))
-			require.NotNil(t, reply.Error, tt.op)
-			assert.Equal(t, "usage", reply.Error.Code, tt.op)
-			assert.Contains(t, reply.Error.Message, "foo", tt.op)
-		}
+		list := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceList, json.RawMessage(`{"foo":1}`)), "d2")
+		require.NotNil(t, list.Error)
+		assert.Equal(t, "usage", list.Error.Code)
+		assert.Contains(t, list.Error.Message, "foo")
+		rename := askAgent(t, fx, opRequest(t, "fedcba9876543210", envproto.OpWorkspaceRename,
+			json.RawMessage(`{"workspace":"fix-login","name":"x","foo":1}`)), "d3")
+		require.NotNil(t, rename.Error)
+		assert.Equal(t, "usage", rename.Error.Code)
+		assert.Contains(t, rename.Error.Message, "foo")
 		assert.Empty(t, runner.RunCalls())
 	})
 	t.Run("a spec that starts with - is refused", func(t *testing.T) {
