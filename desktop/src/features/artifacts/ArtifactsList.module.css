@@ -124,4 +124,8 @@
   .search {
     min-height: 40px;
   }
+
+  .chip {
+    min-width: 40px;
+  }
 }
