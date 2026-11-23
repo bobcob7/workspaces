@@ -160,7 +160,7 @@ in the pod.
 | A Tauri window (no display) | nothing runs the desktop app; the screenshot child uses Vite + Playwright with `desktop/test/tauri-mock.js` (handbook: "screenshots of the desktop app"), which needs `npm i -D playwright` per run and Node 22+ |
 | A local Docker daemon | no `make online-image` / `make online-smoke` checks here; Workspace Online is tested by `cargo test --no-default-features --features online` |
 | Windows, macOS | CI's legs only; use nothing Linux-only in `internal/artifact` (`syscall.Flock` is fine: `internal/lockfile` already wraps locking, use it) |
-| A remote environment | `artifact_unreachable` is tested by writing an `environment/agent.toml` fixture (`envagent.NewFiles(dir).Save`) in a temp `CONFIG_DIR`, not with a real agent |
+| A remote environment | `artifact_unreachable` is tested by writing any `environment/agent.toml` file in a temp `CONFIG_DIR`, not with a real agent |
 | `make test` cheaply | run `go test -p 2` on the task's packages; `make lint` lints the whole repo (2-4 min), once per task, last |
 
 Run heavy checks one at a time: `go test -p 2 ./internal/<pkg>/...`, then

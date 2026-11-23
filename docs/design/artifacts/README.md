@@ -462,8 +462,10 @@ New agent
 - The terminal's **reply box** (`ReplyBox`) has the same Attach button,
   drop and paste; on send, when the message contains references, it
   appends the hint line (see "Ids and references") before sending.
-- On an agent whose workspace is on a remote environment, Attach is
-  disabled with the tooltip "Artifacts aren't reachable from <env> yet."
+- Once the desktop's entries carry their environment (ADR 0076's desktop
+  PR), Attach on an agent on a remote environment is disabled with the
+  tooltip "Artifacts aren't reachable from <env> yet." Until then `ws claude`'s
+  warning is the only signal.
 
 ## Not in this design
 

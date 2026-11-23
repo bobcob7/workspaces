@@ -636,12 +636,13 @@ code is the first failure's (follow `ws rm`'s multi-item pattern in
 `RunE` first:
 
 1. `caller, err := a.caller()` (`outside_workspace`);
-2. `a.refuseOnAgentMachine()`: `envagent.NewFiles(a.paths.Environment).Load()`;
-   `nil` error → `newError(codeArtifactUnreachable, errors.New("artifacts
-   live on the machine this environment is enrolled with, and this ws
-   can't reach them yet (ADR 0078)"))`; `ErrNotEnrolled` → continue; any
-   other error → continue too (a broken identity isn't this command's
-   business).
+2. `a.refuseOnAgentMachine()`: when `filepath.Join(a.paths.Environment,
+   "agent.toml")` exists (`os.Stat` succeeds; ADR 0078 says enrolled means
+   that file exists; don't call `envagent.Files.Load`, which also needs a
+   valid key and certificate) → `newError(codeArtifactUnreachable,
+   errors.New("artifacts live on the machine this environment is enrolled
+   with, and this ws can't reach them yet (ADR 0078)"))`; otherwise
+   continue.
 3. The actor: `artifact.Agent(caller, name)`, where `name` is the
    caller's `Workspace.Name` from `a.workspaces.List()` (the id when it is
    empty); the root: `machine.Root(list, caller)` from the same list, as
@@ -686,10 +687,9 @@ a test app over `t.TempDir()` with a workspace created inside it):
   with `details.latest == 2`.
 - `rm` of a person's artifact is `artifact_forbidden` exit 4; of its own
   succeeds.
-- Outside a workspace: `outside_workspace`. With
-  `envagent.NewFiles(paths.Environment).Save(&identity)` done first (see
-  `internal/cli/env_agent_test.go` for a fixture identity): every
-  subcommand is `artifact_unreachable` exit 1.
+- Outside a workspace: `outside_workspace`. With any file written at
+  `<CONFIG_DIR>/environment/agent.toml` first: every subcommand is
+  `artifact_unreachable` exit 1.
 
 `artifact_test.go`: people `add`/`list --workspace`/`show`/`cat` (raw
 bytes, also with `--json`)/`rm`; `ws artifact` is hidden
