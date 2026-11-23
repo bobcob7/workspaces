@@ -204,3 +204,55 @@ Make them agree with the contract.
 - Files: those above only.
 - Verify: `go test ./internal/cli/...`, `gofmt -l internal`,
   `go tool golangci-lint run ./internal/...`.
+
+## T6. Desktop: fix the child progress bars' layout, and retake the screenshots
+
+A real-browser pass found two layout bugs in the "Started from this workspace"
+card (`desktop/src/features/agents/ChildrenCard.tsx`, `ChildrenCard.module.css`,
+`StepProgress.tsx`, `StepProgress.module.css`). jsdom tests passed because they
+don't lay anything out.
+
+1. The child bars have width 0. `.row` is flex with `.spacer {flex:1}`, and the
+   progress wrapper (`StepProgress.module.css .wrap`) has no width or
+   flex-grow, so `.bar {flex:1; min-width:0}` has nothing to grow into. Measured
+   at 1280px: bar 0x4px, wrapper 23px (the `done/total` count only), on all
+   five rows.
+2. At 360px the card's `.list` (max-height 220px, overflow auto) clips row 3's
+   Remove button (cut to "Rem") and the names break into 3 to 5 lines (`.name`
+   is 56px wide and 98px tall). Rows have no wrap or min-width rule.
+
+**Required result, measured in the browser (`getComputedStyle` /
+`getBoundingClientRect`), not by class name:**
+- At 1280px: every child bar is at least 80px wide.
+- At 360px: every child bar is at least 120px wide, each row's Remove and Open
+  buttons are fully inside the card (right edge <= the card's right edge), no
+  name is more than 2 lines, and the page has no horizontal scroll
+  (`documentElement.scrollWidth == clientWidth`).
+- On narrow screens (`max-width: 720px`) let a row wrap so the bar sits on its
+  own line under the name and status; keep buttons at `min-height: 40px`.
+- Rows with no `rollup` look exactly as before.
+- Change only those four files (plus a test only if one can pin new markup).
+  No new dependency.
+
+**How to check** (no Tauri shell is available): install Node 24 from the
+official tarball into `$CLAUDE_JOB_DIR/tmp` (check SHA256, put on PATH);
+`cd desktop && npm ci`; run `npx vite --port 1420` in the background; with
+Playwright (use a cached Chromium if the pinned build is missing) load
+`desktop/test/tauri-mock.js` with `page.addInitScript({path})`, open the
+`fix-login` entry, expand the "Started from this workspace" card. The mock has
+an orchestrator and five children, one failed. Stop Vite and delete
+`.playwright-mcp/` afterwards.
+
+**Retake the shots** at the end, replacing these files and keeping their
+names, which `desktop/README.md` already links:
+`desktop/docs/progress-list.png` (1280, the list), `progress-pane.png` (1280,
+the pane with the overall bar), `progress-children.png` (1280, the card
+expanded), `progress-phone.png` (360, the pane with the card expanded). Start
+from the PNGs on branch `origin/feat/machine-progress-shots`, which show the
+bug; take them again after the fix. The README text from that branch
+(`git show origin/feat/machine-progress-shots:desktop/README.md`) is the text to
+use for the 'Progress bars' section; add the four image links to it.
+
+- Report the measured widths before and after, and any layout problem you see
+  that you did not fix.
+- Verify: `cd desktop && npm run typecheck && npm test -- --maxWorkers=2`.
