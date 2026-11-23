@@ -31,10 +31,37 @@ describe("StepProgress", () => {
     expect(screen.getByRole("progressbar", { name: "build progress" })).toHaveClass("MuiLinearProgress-colorPrimary");
   });
 
-  it("is empty rather than dividing by zero when there are no steps", () => {
+  it("clamps done above total to the full bar", () => {
+    render(<StepProgress label="over progress" done={7} total={4} />);
+    const bar = screen.getByRole("progressbar", { name: "over progress" });
+    expect(bar).toHaveAttribute("aria-valuenow", "4");
+    expect(bar).toHaveAttribute("aria-valuemax", "4");
+  });
+
+  it("clamps a negative done to an empty bar", () => {
+    render(<StepProgress label="negative progress" done={-2} total={4} />);
+    expect(screen.getByRole("progressbar", { name: "negative progress" })).toHaveAttribute("aria-valuenow", "0");
+  });
+
+  it("clamps a NaN done to an empty bar", () => {
+    render(<StepProgress label="nan progress" done={Number.NaN} total={4} />);
+    expect(screen.getByRole("progressbar", { name: "nan progress" })).toHaveAttribute("aria-valuenow", "0");
+  });
+
+  it("draws no bar for a NaN total", () => {
+    render(<StepProgress label="nan total progress" done={1} total={Number.NaN} />);
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("draws no bar for an infinite or negative total", () => {
+    const { rerender } = render(<StepProgress label="bad total progress" done={1} total={Number.POSITIVE_INFINITY} />);
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    rerender(<StepProgress label="bad total progress" done={0} total={-1} />);
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("draws no bar when total is 0", () => {
     render(<StepProgress label="empty progress" done={0} total={0} />);
-    const bar = screen.getByRole("progressbar", { name: "empty progress" });
-    expect(bar).toHaveAttribute("aria-valuemax", "0");
-    expect(screen.getByText("0/0")).toBeVisible();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 });
