@@ -16,12 +16,10 @@ type limit struct {
 }
 
 // The limits of ADR 0078.
-var (
-	reviewStartLimit = limit{capacity: 12, refill: time.Hour}
-	loopRunLimit     = limit{capacity: 30, refill: time.Hour}
-	loopRunNameLimit = limit{capacity: 1, refill: time.Minute}
-	loopWriteLimit   = limit{capacity: 60, refill: time.Hour}
-)
+func reviewStartLimit() limit { return limit{capacity: 12, refill: time.Hour} }
+func loopRunLimit() limit     { return limit{capacity: 30, refill: time.Hour} }
+func loopRunNameLimit() limit { return limit{capacity: 1, refill: time.Minute} }
+func loopWriteLimit() limit   { return limit{capacity: 60, refill: time.Hour} }
 
 // maxBuckets is how many buckets the limiter holds before it forgets the full ones.
 const maxBuckets = 256
@@ -55,15 +53,15 @@ type keyedLimit struct {
 func limitsFor(op string, args any) []keyedLimit {
 	switch op {
 	case envproto.OpReviewStart:
-		return []keyedLimit{{"review.start", reviewStartLimit}}
+		return []keyedLimit{{"review.start", reviewStartLimit()}}
 	case envproto.OpLoopRun:
-		out := []keyedLimit{{"loop.run", loopRunLimit}}
+		out := []keyedLimit{{"loop.run", loopRunLimit()}}
 		if run, ok := args.(*envproto.LoopRunArgs); ok {
-			out = append(out, keyedLimit{"loop.run:" + run.Name, loopRunNameLimit})
+			out = append(out, keyedLimit{"loop.run:" + run.Name, loopRunNameLimit()})
 		}
 		return out
 	case envproto.OpLoopAdd, envproto.OpLoopEdit, envproto.OpLoopRm:
-		return []keyedLimit{{"loop.write", loopWriteLimit}}
+		return []keyedLimit{{"loop.write", loopWriteLimit()}}
 	}
 	return nil
 }
@@ -122,7 +120,7 @@ func (l *limiter) forgetFull(now time.Time) {
 		return
 	}
 	for key, b := range l.buckets {
-		if key != "loop.run" && key != "review.start" && key != "loop.write" && now.Sub(b.at) >= loopRunNameLimit.refill {
+		if key != "loop.run" && key != "review.start" && key != "loop.write" && now.Sub(b.at) >= loopRunNameLimit().refill {
 			delete(l.buckets, key)
 		}
 	}
