@@ -99,6 +99,10 @@ const (
 	codeEnrollmentFailed   errorCode = "enrollment_failed"   // exit 1
 	codeEnrollmentUsed     errorCode = "enrollment_used"     // exit 4
 	codeCAInUse            errorCode = "ca_in_use"           // exit 4
+	// From ADR 0072 (PR 3).
+	codeEnvironmentOffline  errorCode = "environment_offline"  // exit 1
+	codeEnvironmentOutdated errorCode = "environment_outdated" // exit 1
+	codeEnvironmentMismatch errorCode = "environment_mismatch" // exit 4
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -143,7 +147,8 @@ func (c errorCode) exitCode() int {
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable,
-		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed:
+		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed,
+		codeEnvironmentOffline, codeEnvironmentOutdated:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
@@ -156,7 +161,7 @@ func (c errorCode) exitCode() int {
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
 		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
-		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse:
+		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch:
 		return exitRefused
 	}
 	return exitFailed
