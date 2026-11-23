@@ -129,12 +129,24 @@ func awaitCall(t *testing.T, done <-chan callResult) callResult {
 
 // listRequest is a workspace.list call due in timeout.
 func listRequest(timeout time.Duration) CallRequest {
+	return listRequestWithID(callRequestID, timeout)
+}
+
+// listRequestWithID is a workspace.list call with request id reqID due in timeout.
+func listRequestWithID(reqID string, timeout time.Duration) CallRequest {
 	return CallRequest{
 		Op:        envproto.OpWorkspaceList,
 		Args:      json.RawMessage(`{}`),
-		RequestID: callRequestID,
+		RequestID: reqID,
 		Deadline:  time.Now().Add(timeout),
 	}
+}
+
+// pendingCount returns how many calls the controller is waiting on.
+func pendingCount(c *Controller) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.calls)
 }
 
 // mustJSON encodes v, failing the test on an error.
@@ -199,6 +211,7 @@ func TestController_Call(t *testing.T) {
 		assert.Equal(t, "offline", offline.Reason)
 		assert.NotNil(t, offline.LastSeen)
 		assert.Empty(t, rc.messages())
+		assert.Zero(t, pendingCount(f.c))
 	})
 	t.Run("a protocol-0 agent is OutdatedError for workspace.list", func(t *testing.T) {
 		f := newCallFixture(t)
@@ -219,6 +232,7 @@ func TestController_Call(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, reply.OK)
 		assert.JSONEq(t, `{"workspaces":[]}`, string(reply.Result))
+		assert.Zero(t, pendingCount(f.c))
 	})
 	t.Run("the agent's error reply is returned as a Reply", func(t *testing.T) {
 		f := newCallFixture(t)
@@ -240,6 +254,72 @@ func TestController_Call(t *testing.T) {
 		assert.Equal(t, "timeout", offline.Reason)
 		assert.Equal(t, callRequestID, offline.RequestID)
 		assert.Equal(t, envproto.OpWorkspaceList, offline.Op)
+		assert.Zero(t, pendingCount(f.c))
+	})
+	t.Run("a second call with a pending request id is refused and the first gets its reply", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		rc := f.captureRequests(t)
+		f.c.callGrace = 10 * time.Millisecond
+		first := f.callAsync(t.Context(), listRequest(time.Minute))
+		require.Eventually(t, func() bool { return len(rc.messages()) == 1 }, time.Second, time.Millisecond)
+		_, err := f.c.Call(t.Context(), "linux-server", listRequest(10*time.Millisecond))
+		require.Error(t, err)
+		assert.Len(t, rc.messages(), 1)
+		assert.Equal(t, 1, pendingCount(f.c))
+		f.c.onRes(t.Context(), replyMessage(t, f.id, callRequestID, okReply))
+		res := awaitCall(t, first)
+		require.NoError(t, res.err)
+		assert.True(t, res.reply.OK)
+		assert.Zero(t, pendingCount(f.c))
+	})
+	t.Run("concurrent calls each get the reply for their own request id", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		rc := f.captureRequests(t)
+		const otherID = "fedcba9876543210"
+		first := f.callAsync(t.Context(), listRequest(time.Minute))
+		second := f.callAsync(t.Context(), listRequestWithID(otherID, time.Minute))
+		require.Eventually(t, func() bool { return len(rc.messages()) == 2 }, time.Second, time.Millisecond)
+		f.c.onRes(t.Context(), replyMessage(t, f.id, otherID, envproto.Reply{OK: true, Result: json.RawMessage(`{"workspaces":["b"]}`)}))
+		res := awaitCall(t, second)
+		require.NoError(t, res.err)
+		assert.JSONEq(t, `{"workspaces":["b"]}`, string(res.reply.Result))
+		select {
+		case <-first:
+			require.FailNow(t, "a reply for another request finished the first call")
+		case <-time.After(20 * time.Millisecond):
+		}
+		f.c.onRes(t.Context(), replyMessage(t, f.id, callRequestID, envproto.Reply{OK: true, Result: json.RawMessage(`{"workspaces":["a"]}`)}))
+		res = awaitCall(t, first)
+		require.NoError(t, res.err)
+		assert.JSONEq(t, `{"workspaces":["a"]}`, string(res.reply.Result))
+		assert.Zero(t, pendingCount(f.c))
+	})
+	t.Run("a reply from another environment's id is not delivered", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		rc := f.captureRequests(t)
+		done := f.callAsync(t.Context(), listRequest(time.Minute))
+		require.Eventually(t, func() bool { return len(rc.messages()) == 1 }, time.Second, time.Millisecond)
+		f.c.onRes(t.Context(), replyMessage(t, "env-0a1b2c3d", callRequestID, okReply))
+		select {
+		case <-done:
+			require.FailNow(t, "another environment's reply finished the call")
+		case <-time.After(20 * time.Millisecond):
+		}
+		f.c.onRes(t.Context(), replyMessage(t, f.id, callRequestID, okReply))
+		assert.NoError(t, awaitCall(t, done).err)
+	})
+	t.Run("a duplicate reply after the call answered is dropped and stored nowhere", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		f.answerRequests(t, okReply)
+		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(time.Minute))
+		require.NoError(t, err)
+		assert.True(t, reply.OK)
+		f.c.onRes(t.Context(), replyMessage(t, f.id, callRequestID, envproto.Reply{OK: false, Error: &envproto.ReplyError{Code: "usage", Message: "late"}}))
+		assert.Zero(t, pendingCount(f.c))
 	})
 	t.Run("a reconnect republishes the same request id once", func(t *testing.T) {
 		f := newCallFixture(t)

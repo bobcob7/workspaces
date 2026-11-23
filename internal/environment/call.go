@@ -55,24 +55,7 @@ func (c *Controller) Call(ctx context.Context, name string, req CallRequest) (en
 	if !c.isListening() {
 		return envproto.Reply{}, offlineFor(name, &req, reasonNotListening, nil)
 	}
-	h := c.heardFrom(rec.ID)
-	if !h.online {
-		return envproto.Reply{}, offlineFor(name, &req, reasonOffline, lastSeenOf(h))
-	}
-	if h.hello != nil && h.hello.Protocol < spec.Since {
-		return envproto.Reply{}, &OutdatedError{
-			Environment: name,
-			Op:          req.Op,
-			WSVersion:   h.hello.WSVersion,
-			Protocol:    h.hello.Protocol,
-			Need:        spec.Since,
-		}
-	}
-	expiry := time.Until(req.Deadline)
-	if expiry <= 0 {
-		return envproto.Reply{}, offlineFor(name, &req, reasonTimeout, nil)
-	}
-	msg, err := requestMessage(rec.ID, &req, expiry)
+	msg, err := requestMessage(rec.ID, &req, time.Until(req.Deadline))
 	if err != nil {
 		return envproto.Reply{}, err
 	}
@@ -82,7 +65,9 @@ func (c *Controller) Call(ctx context.Context, name string, req CallRequest) (en
 		msg:      msg,
 		reply:    make(chan envproto.Reply, 1),
 	}
-	c.addCall(req.RequestID, pc)
+	if err := c.admitCall(name, &req, spec.Since, pc); err != nil {
+		return envproto.Reply{}, err
+	}
 	defer c.removeCall(req.RequestID)
 	if err := c.broker.Publish(ctx, msg); err != nil {
 		return envproto.Reply{}, fmt.Errorf("sending %s to %s: %w", req.Op, name, err)
@@ -111,18 +96,35 @@ func (c *Controller) enrolled(name string) (Record, error) {
 	return rec, nil
 }
 
-// heardFrom returns what the controller has heard from the environment id.
-func (c *Controller) heardFrom(id string) heard {
+// admitCall registers pc as the call waiting for the reply to its request id.
+// It refuses, without registering, a request id that is already pending, an
+// environment that isn't online, an agent too old for the op, and a deadline
+// that has passed. The checks and the registration share one hold of mu, so
+// a status change can't land between them.
+func (c *Controller) admitCall(name string, req *CallRequest, since int, pc *pendingCall) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.presence[id]
-}
-
-// addCall registers pc as the call waiting for the reply to reqID.
-func (c *Controller) addCall(reqID string, pc *pendingCall) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.calls[reqID] = pc
+	if _, pending := c.calls[req.RequestID]; pending {
+		return fmt.Errorf("request id %q is already pending", req.RequestID)
+	}
+	h := c.presence[pc.env]
+	if !h.online {
+		return offlineFor(name, req, reasonOffline, lastSeenOf(h))
+	}
+	if h.hello != nil && h.hello.Protocol < since {
+		return &OutdatedError{
+			Environment: name,
+			Op:          req.Op,
+			WSVersion:   h.hello.WSVersion,
+			Protocol:    h.hello.Protocol,
+			Need:        since,
+		}
+	}
+	if time.Until(pc.deadline) <= 0 {
+		return offlineFor(name, req, reasonTimeout, nil)
+	}
+	c.calls[req.RequestID] = pc
+	return nil
 }
 
 // removeCall forgets the call waiting for the reply to reqID.
