@@ -259,7 +259,8 @@ func decodeStrict(raw json.RawMessage, target any) error {
 // RenameArgs.Name 1-64 bytes without control characters (name_invalid);
 // Model against modelPattern; Endpoint 1-128 bytes, not starting with "-",
 // without control characters; Prompt 1..MaxPromptBytes, required for
-// KindRunner and refused with Endpoint for KindClaude; Message
+// KindRunner, refused with Endpoint for KindClaude, and for KindClaude
+// not starting with "-" after leading whitespace; Message
 // 1..MaxMessageBytes; Tail 0..MaxTail; every workspace reference and Parent
 // non-empty and without a NUL byte. A nil pointer is a usage error. Paths
 // are checked by the agent.
@@ -359,6 +360,9 @@ func validatePrompt(a *CreateArgs) error {
 	}
 	if *a.Prompt == "" || len(*a.Prompt) > MaxPromptBytes {
 		return usageError(fmt.Sprintf("prompt must be 1 to %d bytes", MaxPromptBytes))
+	}
+	if a.Kind == KindClaude && strings.HasPrefix(strings.TrimSpace(*a.Prompt), "-") {
+		return usageError("a claude prompt cannot start with a dash, claude would read it as a flag")
 	}
 	return nil
 }

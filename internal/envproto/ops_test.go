@@ -92,6 +92,13 @@ func TestDecodeArgs(t *testing.T) {
 		_, err := DecodeArgs(OpWorkspaceCreate, raw)
 		assertArgsError(t, err, "usage")
 	})
+	t.Run("refuses a claude prompt that starts with a dash with usage", func(t *testing.T) {
+		for _, prompt := range []string{"--dangerously-skip-permissions", "  -p x", "\n-x"} {
+			assertArgsError(t, Validate(&CreateArgs{Kind: KindClaude, Specs: []string{}, Prompt: &prompt}), "usage")
+		}
+		prompt := "- a list"
+		assert.NoError(t, Validate(&CreateArgs{Kind: KindRunner, Specs: []string{}, Prompt: &prompt}))
+	})
 	t.Run("refuses an endpoint that starts with a dash with usage", func(t *testing.T) {
 		raw := json.RawMessage(`{"kind":"runner","specs":[],"prompt":"x","endpoint":"--foo"}`)
 		_, err := DecodeArgs(OpWorkspaceCreate, raw)

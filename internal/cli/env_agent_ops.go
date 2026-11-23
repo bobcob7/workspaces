@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -35,6 +36,9 @@ func newAgentOperations(a *App, name string) *agentOperations {
 // Run implements envagent's operationRunner for the workspace operations.
 func (o *agentOperations) Run(ctx context.Context, op string, args any) (json.RawMessage, error) {
 	root := o.app.paths.Root
+	if err := checkKind(args); err != nil {
+		return nil, err
+	}
 	switch a := args.(type) {
 	case *envproto.CreateArgs:
 		for _, spec := range a.Specs {
@@ -50,15 +54,15 @@ func (o *agentOperations) Run(ctx context.Context, op string, args any) (json.Ra
 		if a.KeepChildren {
 			argv = append(argv, "--keep-children")
 		}
-		return o.runCLI(ctx, append(argv, a.Workspace))
+		return o.runCLI(ctx, append(argv, "--", a.Workspace))
 	case *envproto.RenameArgs:
-		return o.runCLI(ctx, append(cliPrefix(root), "rename", a.Workspace, a.Name))
+		return o.runCLI(ctx, append(cliPrefix(root), "rename", "--", a.Workspace, a.Name))
 	case *envproto.HideArgs:
 		verb := "unhide"
 		if a.Hidden {
 			verb = "hide"
 		}
-		return o.runCLI(ctx, append(cliPrefix(root), verb, a.Workspace))
+		return o.runCLI(ctx, append(cliPrefix(root), verb, "--", a.Workspace))
 	}
 	return nil, &envproto.ReplyError{Code: string(codeUsage), Message: "unknown operation " + op}
 }
@@ -71,23 +75,46 @@ func (o *agentOperations) runCLI(ctx context.Context, argv []string) (json.RawMe
 	if code := o.newApp(&stdout, &stderr).Run(ctx, argv); code != exitOK {
 		return nil, cliFailure(stderr.Bytes())
 	}
-	out := bytes.TrimSpace(stdout.Bytes())
-	if !json.Valid(out) {
+	return commandObject(stdout.Bytes())
+}
+
+// commandObject is out as the one JSON object a command printed, or internal.
+func commandObject(out []byte) (json.RawMessage, error) {
+	out = bytes.TrimSpace(out)
+	if !bytes.HasPrefix(out, []byte("{")) || !json.Valid(out) {
 		return nil, &envproto.ReplyError{Code: string(codeInternal), Message: "the command printed no JSON object"}
 	}
 	return json.RawMessage(out), nil
 }
 
-// cliFailure is the error a failed command reported on stderr.
+// cliFailure is the error a failed command reported on stderr: the last
+// {"error": {...}} line with a code, since warning lines can precede it, or
+// internal with the first non-empty line.
 func cliFailure(stderr []byte) error {
-	line, _, _ := strings.Cut(strings.TrimSpace(string(stderr)), "\n")
-	var body struct {
-		Error *errorBody `json:"error"`
+	lines := strings.Split(strings.TrimSpace(string(stderr)), "\n")
+	for _, line := range slices.Backward(lines) {
+		var body struct {
+			Error *errorBody `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(line), &body); err == nil && body.Error != nil && body.Error.Code != "" {
+			return &envproto.ReplyError{Code: string(body.Error.Code), Message: body.Error.Message, Details: body.Error.Details}
+		}
 	}
-	if err := json.Unmarshal([]byte(line), &body); err == nil && body.Error != nil && body.Error.Code != "" {
-		return &envproto.ReplyError{Code: string(body.Error.Code), Message: body.Error.Message, Details: body.Error.Details}
+	for _, line := range lines {
+		if line = strings.TrimSpace(line); line != "" {
+			return &envproto.ReplyError{Code: string(codeInternal), Message: line}
+		}
 	}
-	return &envproto.ReplyError{Code: string(codeInternal), Message: line}
+	return &envproto.ReplyError{Code: string(codeInternal), Message: "the command failed"}
+}
+
+// checkKind is usage for a create of any kind but claude and runner.
+func checkKind(args any) error {
+	create, ok := args.(*envproto.CreateArgs)
+	if !ok || create.Kind == envproto.KindClaude || create.Kind == envproto.KindRunner {
+		return nil
+	}
+	return &envproto.ReplyError{Code: string(codeUsage), Message: "unknown kind " + create.Kind}
 }
 
 // cliPrefix is the global flags every operation's command line starts with.

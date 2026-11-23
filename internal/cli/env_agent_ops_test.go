@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,7 +81,9 @@ func TestCreateArgv(t *testing.T) {
 
 func TestAgentOperations_Run(t *testing.T) {
 	t.Run("workspace.list returns ws list --json --all's object", func(t *testing.T) {
-		entries := []lifetime.Entry{{Workspace: listedWorkspace("fix-login")}, {Workspace: listedWorkspace("api-bump")}}
+		hidden := listedWorkspace("api-bump")
+		hidden.Hidden = true
+		entries := []lifetime.Entry{{Workspace: listedWorkspace("fix-login")}, {Workspace: hidden}}
 		want := newListApp(entries, nil)
 		want.app.global.json = true
 		require.NoError(t, want.app.runList(t.Context(), &listOptions{all: true}))
@@ -87,6 +91,7 @@ func TestAgentOperations_Run(t *testing.T) {
 		got, err := opsFor(e.app).Run(t.Context(), envproto.OpWorkspaceList, &envproto.ListArgs{})
 		require.NoError(t, err)
 		assert.JSONEq(t, want.stdout.String(), string(got))
+		assert.Contains(t, string(got), "api-bump", "list --all includes the hidden workspace")
 	})
 	t.Run("workspace.rename returns renameJSON", func(t *testing.T) {
 		e := newRenameApp()
@@ -137,4 +142,145 @@ func TestAgentOperations_Run(t *testing.T) {
 		assert.Equal(t, "spec_invalid", re.Code)
 		assert.Empty(t, e.store.CreateCalls())
 	})
+	t.Run("the spec pre-check refuses before any App is built", func(t *testing.T) {
+		built := false
+		ops := &agentOperations{app: &App{paths: testPaths()}, name: "linux-server", newApp: func(io.Writer, io.Writer) *App {
+			built = true
+			return nil
+		}}
+		_, err := ops.Run(t.Context(), envproto.OpWorkspaceCreate, &envproto.CreateArgs{Kind: envproto.KindClaude, Specs: []string{"a b c@@"}})
+		re, ok := errors.AsType[*envproto.ReplyError](err)
+		require.True(t, ok)
+		assert.Equal(t, "spec_invalid", re.Code)
+		assert.False(t, built)
+	})
+	t.Run("a kind other than claude and runner is usage and runs nothing", func(t *testing.T) {
+		for _, kind := range []string{"shell", "other", ""} {
+			ops := &agentOperations{app: &App{paths: testPaths()}, name: "linux-server", newApp: func(io.Writer, io.Writer) *App {
+				t.Fatal("no App should be built")
+				return nil
+			}}
+			_, err := ops.Run(t.Context(), envproto.OpWorkspaceCreate, &envproto.CreateArgs{Kind: kind})
+			re, ok := errors.AsType[*envproto.ReplyError](err)
+			require.True(t, ok)
+			assert.Equal(t, "usage", re.Code)
+		}
+	})
+	t.Run("workspace.create for a runner stamps the environment", func(t *testing.T) {
+		e := newRunnerEnv(t, runnerToml)
+		var got workspace.CreateOptions
+		create := e.store.CreateFunc
+		e.store.CreateFunc = func(ctx context.Context, opts workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
+			got = opts
+			return create(ctx, opts)
+		}
+		e.app.newStores = func(config.Paths, config.Config) stores {
+			return stores{cache: e.app.cache, workspaces: e.store, lifetime: e.app.lifetime, loopData: e.app.loopData}
+		}
+		_, err := opsFor(e.app).Run(t.Context(), envproto.OpWorkspaceCreate, &envproto.CreateArgs{Kind: envproto.KindRunner, Specs: []string{}, Prompt: new("go")})
+		require.NoError(t, err)
+		assert.Equal(t, "linux-server", got.Environment)
+	})
+	t.Run("a dash-prefixed name is a name, not a flag", func(t *testing.T) {
+		e := newRenameApp()
+		got, err := opsFor(e.app).Run(t.Context(), envproto.OpWorkspaceRename, &envproto.RenameArgs{Workspace: renamedID, Name: "-x"})
+		require.NoError(t, err)
+		assert.Contains(t, string(got), `"name":"-x"`)
+	})
+	t.Run("a dash-prefixed workspace is a workspace, not a flag", func(t *testing.T) {
+		e := newRmApp("--dry-run")
+		_, err := opsFor(e.app).Run(t.Context(), envproto.OpWorkspaceRm, &envproto.RmArgs{Workspace: "--dry-run", KeepChildren: true})
+		require.NoError(t, err)
+		require.Len(t, e.lifetime.RemoveTreeCalls(), 1)
+		assert.False(t, e.lifetime.RemoveTreeCalls()[0].Opts.DryRun)
+		for _, hidden := range []bool{true, false} {
+			h := newHideApp()
+			h.store.FindFunc = func(arg string) (workspace.Workspace, error) {
+				return workspace.Workspace{ID: arg, Path: "/cfg/workspaces/x"}, nil
+			}
+			_, err := opsFor(h.app).Run(t.Context(), envproto.OpWorkspaceHide, &envproto.HideArgs{Workspace: "--help", Hidden: hidden})
+			require.NoError(t, err)
+			require.Len(t, h.store.SetHiddenCalls(), 1)
+			assert.Equal(t, "--help", h.store.SetHiddenCalls()[0].ID)
+		}
+	})
+}
+
+func TestNewAgentOperations_newApp(t *testing.T) {
+	app, _, _ := newTestApp()
+	ops := newAgentOperations(app, "linux-server")
+	var out, errb bytes.Buffer
+	got := ops.newApp(&out, &errb)
+	require.NotSame(t, app, got)
+	assert.Equal(t, "linux-server", got.environment)
+	assert.Empty(t, app.environment)
+	assert.False(t, isTerminal(got.stdin))
+	data, err := io.ReadAll(got.stdin)
+	require.NoError(t, err)
+	assert.Empty(t, data)
+	_, _ = got.stdout.Write([]byte("out"))
+	_, _ = got.stderr.Write([]byte("err"))
+	assert.Equal(t, "out", out.String())
+	assert.Equal(t, "err", errb.String())
+	assert.NotSame(t, ops.newApp(&out, &errb), got)
+}
+
+func TestAgentOperations_concurrent(t *testing.T) {
+	app, _, _ := newTestApp()
+	ops := newAgentOperations(app, "linux-server")
+	var wg sync.WaitGroup
+	var outs [2]bytes.Buffer
+	var errs [2]bytes.Buffer
+	for i := range outs {
+		wg.Go(func() {
+			n := ops.newApp(&outs[i], &errs[i])
+			n.Run(t.Context(), []string{"--json", "--config-dir", testPaths().Root, "rename", "--", "no-such-" + string(rune('a'+i)), "x"})
+		})
+	}
+	wg.Wait()
+	assert.Contains(t, errs[0].String(), "no-such-a")
+	assert.NotContains(t, errs[0].String(), "no-such-b")
+	assert.Contains(t, errs[1].String(), "no-such-b")
+	assert.NotContains(t, errs[1].String(), "no-such-a")
+	assert.Empty(t, outs[0].String()+outs[1].String())
+}
+
+func TestCliFailure(t *testing.T) {
+	tests := []struct {
+		name    string
+		stderr  string
+		code    string
+		message string
+	}{
+		{"a JSON error", `{"error":{"code":"workspace_not_found","message":"no"}}`, "workspace_not_found", "no"},
+		{"a warning line before the JSON line", "ws: couldn't remove workspace x: busy\n" + `{"error":{"code":"claude_untrusted","message":"untrusted","details":{"root":"/r"}}}` + "\n", "claude_untrusted", "untrusted"},
+		{"the last JSON error wins", `{"error":{"code":"a","message":"first"}}` + "\n" + `{"error":{"code":"b","message":"last"}}`, "b", "last"},
+		{"plain text is internal with its first line", "\nws: boom\nmore\n", "internal", "ws: boom"},
+		{"a JSON error with no code is internal", `{"error":{"message":"x"}}`, "internal", `{"error":{"message":"x"}}`},
+		{"empty stderr is internal", "", "internal", "the command failed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re, ok := errors.AsType[*envproto.ReplyError](cliFailure([]byte(tt.stderr)))
+			require.True(t, ok)
+			assert.Equal(t, tt.code, re.Code)
+			assert.Equal(t, tt.message, re.Message)
+		})
+	}
+	t.Run("details pass through", func(t *testing.T) {
+		re, _ := errors.AsType[*envproto.ReplyError](cliFailure([]byte("ws: warn\n" + `{"error":{"code":"c","message":"m","details":{"k":"v"}}}`)))
+		assert.Equal(t, map[string]any{"k": "v"}, re.Details)
+	})
+}
+
+func TestCommandObject(t *testing.T) {
+	for _, out := range []string{"null", `"x"`, "[]", "7", "", "{"} {
+		_, err := commandObject([]byte(out))
+		re, ok := errors.AsType[*envproto.ReplyError](err)
+		require.True(t, ok, out)
+		assert.Equal(t, "internal", re.Code, out)
+	}
+	got, err := commandObject([]byte("  {\"a\":1}\n"))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"a":1}`, string(got))
 }
