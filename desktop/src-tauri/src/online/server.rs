@@ -129,6 +129,7 @@ pub struct Notifier {
     hub: Arc<Hub>,
     runner: Runner,
     jobs_dir: Option<PathBuf>,
+    pr_links: Arc<crate::pr_links::PrLinks>,
 }
 
 impl Notifier {
@@ -156,7 +157,7 @@ impl Notifier {
             if !self.watcher.is_stale(commands::now_ms()) {
                 continue;
             }
-            match commands::list(&self.runner, self.jobs_dir.as_deref()).await {
+            match commands::list(&self.runner, self.jobs_dir.as_deref(), &self.pr_links).await {
                 Ok(listing) => self.observe(&listing.entries),
                 Err(e) => eprintln!("notify: listing failed: {}: {}", e.code, e.message),
             }
@@ -221,6 +222,9 @@ pub fn build(config: Config) -> Result<Arc<Online>, String> {
         runner: Runner::new(crate::env::fallback_path()),
         terminals: Terminals::default(),
         jobs_dir: crate::jobs::jobs_dir(),
+        pr_links: Arc::new(crate::pr_links::PrLinks::open(Some(
+            data_dir.join(crate::pr_links::FILE_NAME),
+        ))),
         store: Arc::clone(&store),
         reviews: Arc::new(Checker::default()),
         reports: report::Cache::default(),
@@ -239,6 +243,7 @@ pub fn build(config: Config) -> Result<Arc<Online>, String> {
         hub: Arc::new(Hub::default()),
         runner: state.runner.clone(),
         jobs_dir: state.jobs_dir.clone(),
+        pr_links: state.pr_links.clone(),
     });
     let credentials = Credentials::new(config.username.clone(), config.password.clone());
     let sessions = Sessions::load(
@@ -272,6 +277,7 @@ fn start_background(online: &Arc<Online>) {
         runner: state.runner.clone(),
         store: state.store.clone(),
         jobs_dir: state.jobs_dir.clone(),
+        pr_links: state.pr_links.clone(),
         http: Arc::new(crate::reviews::http::ReqwestHttp::new()),
     };
     tokio::spawn(state.reviews.clone().run(deps));
