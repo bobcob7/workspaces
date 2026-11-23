@@ -120,6 +120,14 @@ func (a *App) runEnvAgentEnroll(ctx context.Context, code string) error {
 // agentNotSentLowWater bounds the unsent data in the agent's socket send queue.
 const agentNotSentLowWater = 16384
 
+// agentOptions are the options of the agent that ws env agent run starts.
+func agentOptions(version string, renewDays int, workspacesRoot string) envagent.Options {
+	opts := envagent.DefaultOptions(version, renewDays)
+	opts.WorkspacesRoot = workspacesRoot
+	opts.NotSentLowWater = agentNotSentLowWater
+	return opts
+}
+
 // runEnvAgentRun runs the agent until SIGTERM or an interrupt, logging JSON
 // lines to stderr.
 func (a *App) runEnvAgentRun(ctx context.Context) error {
@@ -136,9 +144,7 @@ func (a *App) runEnvAgentRun(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	probe := agentClaude{claude: claude.New(log, "claude", a.environ)}
-	opts := envagent.DefaultOptions(a.version, a.config.Environments.RenewDays())
-	opts.WorkspacesRoot = a.paths.Workspaces
-	opts.NotSentLowWater = agentNotSentLowWater
+	opts := agentOptions(a.version, a.config.Environments.RenewDays(), a.paths.Workspaces)
 	agent := envagent.NewAgent(log, files, client, agentSnapshots{app: a}, probe, newAgentOperations(a, id.Name), rand.Reader, opts)
 	return agentError(agent.Run(ctx))
 }

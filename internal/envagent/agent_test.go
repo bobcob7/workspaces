@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"runtime"
@@ -409,4 +410,22 @@ func TestAgent_refreshSnapshot(t *testing.T) {
 		assert.Equal(t, 1, strings.Count(logs.String(), "snapshot too large"))
 		assert.Contains(t, logs.String(), `"bytes":`)
 	})
+}
+
+func TestAgent_connect_notSentLowWater(t *testing.T) {
+	t.Parallel()
+	for _, want := range []int{16384, 0} {
+		t.Run(fmt.Sprintf("passes %d to the client", want), func(t *testing.T) {
+			t.Parallel()
+			fx := startAgentFixture(t)
+			client := connectedMock(func(context.Context, envproto.Message) error { return nil })
+			opts := testOptions()
+			opts.NotSentLowWater = want
+			agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), NoOperations{}, rand.Reader, opts)
+			require.NoError(t, agent.connect(t.Context(), &fx.id))
+			calls := client.ConnectCalls()
+			require.Len(t, calls, 1)
+			assert.Equal(t, want, calls[0].Opts.NotSentLowWater)
+		})
+	}
 }

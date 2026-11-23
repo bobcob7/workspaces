@@ -293,3 +293,10 @@ func TestAgentSnapshots_Workspaces(t *testing.T) {
 		assert.NotContains(t, string(data), "stray")
 	})
 }
+
+func Test_agentOptions(t *testing.T) {
+	opts := agentOptions("v1", 30, "/ws")
+	assert.Equal(t, 16384, opts.NotSentLowWater)
+	assert.Equal(t, "/ws", opts.WorkspacesRoot)
+	assert.Equal(t, "v1", opts.Version)
+}

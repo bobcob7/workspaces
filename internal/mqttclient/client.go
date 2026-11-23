@@ -45,6 +45,9 @@ type Client struct {
 	conn     *paho.Client
 	done     chan struct{}
 	handlers []handler
+
+	// dialHook, set only by tests, receives the connection Connect dials.
+	dialHook func(net.Conn)
 }
 
 // handler is one filter and the function that receives its messages.
@@ -75,6 +78,9 @@ func (c *Client) Connect(ctx context.Context, opts envproto.ConnectOptions) erro
 	raw, err := dialer.DialContext(ctx, "tcp", opts.Address)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", opts.Address, err)
+	}
+	if c.dialHook != nil {
+		c.dialHook(raw)
 	}
 	conn := paho.NewClient(paho.ClientConfig{
 		Conn:              packets.NewThreadSafeConn(raw),
