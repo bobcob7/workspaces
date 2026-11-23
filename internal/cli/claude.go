@@ -148,7 +148,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if opts.runner == config.RunnerWS {
 		return a.runWSClaude(ctx, opts)
 	}
-	if err := a.claude.Check(ctx); err != nil {
+	if err = a.claude.Check(ctx); err != nil {
 		return domainError(err)
 	}
 	parent, err := a.enclosingOr(opts.parent)
@@ -189,7 +189,7 @@ func (a *App) runRemoteClaude(ctx context.Context, opts *claudeOptions, env, par
 		return err
 	}
 	var object map[string]json.RawMessage
-	if err := json.Unmarshal(result, &object); err != nil {
+	if err = json.Unmarshal(result, &object); err != nil {
 		return newError(codeInternal, fmt.Errorf("reading the result of %s: %w", env, err))
 	}
 	if !a.global.json {

@@ -1196,7 +1196,7 @@ func TestApp_runClaude_environment(t *testing.T) {
 			e := newRemoteClaudeEnv(t, remoteCreated, nil)
 			err := run(e, claudeOptions{env: "linux-server", claudeArgs: args})
 			requireUsageError(t, err)
-			assert.ErrorContains(t, err, "only a prompt and --model can be passed to an agent on an environment")
+			require.ErrorContains(t, err, "only a prompt and --model can be passed to an agent on an environment")
 			assert.Empty(t, e.caller.CallEnvironmentCalls())
 		}
 	})

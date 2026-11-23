@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/bobcob7/workspaces/internal/daemon"
@@ -99,9 +100,7 @@ func replyError(name string, remote *envproto.ReplyError) error {
 	}
 	code := errorCode(remote.Code)
 	details := map[string]any{}
-	for k, v := range remote.Details {
-		details[k] = v
-	}
+	maps.Copy(details, remote.Details)
 	if !code.known() {
 		code = codeInternal
 		details["remote_code"] = remote.Code
@@ -115,7 +114,7 @@ func replyError(name string, remote *envproto.ReplyError) error {
 // remoteParent applies D2's rules to --env and --parent and returns the
 // environment to run on ("" for local) and the parent to pass (an id on that
 // environment, or "" for none). It reads snapshots with remoteEntries.
-func (a *App) remoteParent(ctx context.Context, env, parent string) (runOn, parentID string, err error) {
+func (a *App) remoteParent(_ context.Context, env, parent string) (runOn, parentID string, err error) {
 	switch env {
 	case "", localEnvironment:
 		return a.parentWithoutEnv(env, parent)
@@ -124,7 +123,7 @@ func (a *App) remoteParent(ctx context.Context, env, parent string) (runOn, pare
 	if err != nil {
 		return "", "", err
 	}
-	return a.parentOnEnv(ctx, selected[0], parent)
+	return a.parentOnEnv(selected[0], parent)
 }
 
 // parentWithoutEnv is remoteParent for no --env, or --env local. A local
@@ -161,14 +160,14 @@ func (a *App) parentWithoutEnv(env, parent string) (runOn, parentID string, err 
 // parentOnEnv is remoteParent for --env naming a remote environment. The
 // default parent, the local workspace ws runs in, is dropped with a warning.
 // An explicit one must be in the environment's snapshot.
-func (a *App) parentOnEnv(ctx context.Context, name, parent string) (runOn, parentID string, err error) {
+func (a *App) parentOnEnv(name, parent string) (runOn, parentID string, err error) {
 	if parent == requesterNone {
 		return name, "", nil
 	}
 	if parent == "" {
-		enclosing, err := a.enclosingOr("")
-		if err != nil {
-			return "", "", err
+		enclosing, enclosingErr := a.enclosingOr("")
+		if enclosingErr != nil {
+			return "", "", enclosingErr
 		}
 		if enclosing != "" {
 			a.warned = append(a.warned, fmt.Sprintf("not a child of %s: it runs on %s", enclosing, name))

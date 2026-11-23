@@ -214,7 +214,9 @@ func TestApp_remoteParent(t *testing.T) {
 	})
 	t.Run("--env drops the default parent with a warning", func(t *testing.T) {
 		app := remoteParentApp(t, false)
-		app.workspaces.(*workspaceStoreMock).ContainingFunc = func(string) (workspace.Workspace, error) {
+		store, ok := app.workspaces.(*workspaceStoreMock)
+		require.True(t, ok)
+		store.ContainingFunc = func(string) (workspace.Workspace, error) {
 			return workspace.Workspace{ID: "local-ws"}, nil
 		}
 		runOn, parent, err := app.remoteParent(t.Context(), "linux-server", "")
