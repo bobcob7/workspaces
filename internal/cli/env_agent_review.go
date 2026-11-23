@@ -204,10 +204,15 @@ func (o *agentOperations) reviewList(ctx context.Context, args *envproto.ReviewL
 	return o.finishResult(mustMarshal(fields))
 }
 
+// reviewReportArgv is the ws review report command line: "--" then the id.
+func reviewReportArgv(root string, args *envproto.ReviewReportArgs) []string {
+	return append(cliPrefix(root), "review", "report", "--", args.Review)
+}
+
 // reviewReport is one page of one section of review report's output. The
 // whole report is redacted before it is measured and cut.
 func (o *agentOperations) reviewReport(ctx context.Context, args *envproto.ReviewReportArgs) (json.RawMessage, error) {
-	out, err := o.runCLI(ctx, append(cliPrefix(o.app.paths.Root), "review", "report", "--", args.Review))
+	out, err := o.runCLI(ctx, reviewReportArgv(o.app.paths.Root, args))
 	if err != nil {
 		return nil, err
 	}
