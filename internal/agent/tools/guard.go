@@ -97,7 +97,7 @@ func checkWS(words []string) error {
 			continue
 		}
 		if !isAllowedWS(words[i+1:]) {
-			return errors.New(`command refused: ws may only run "ws machine result" or "ws machine progress set|step|show"`)
+			return errors.New(`command refused: ws may only run "ws machine result", "ws machine progress set|step|show" or "ws machine artifact"`)
 		}
 	}
 	return nil
@@ -112,6 +112,9 @@ func isAllowedWS(args []string) bool {
 	if args[1] == "result" {
 		return true
 	}
+	if args[1] == "artifact" {
+		return isAllowedArtifact(args[2:])
+	}
 	if args[1] != "progress" || len(args) < 3 {
 		return false
 	}
@@ -120,6 +123,19 @@ func isAllowedWS(args []string) bool {
 		return true
 	}
 	return false
+}
+
+// isAllowedArtifact reports whether args, the words after "ws machine
+// artifact", name one of its commands: the file commands, and comment
+// list, add or resolve (ADR 0079).
+func isAllowedArtifact(args []string) bool {
+	switch {
+	case len(args) == 0:
+		return false
+	case args[0] == "comment":
+		return len(args) > 1 && slices.Contains([]string{"list", "add", "resolve"}, args[1])
+	}
+	return slices.Contains([]string{"add", "list", "show", "get", "put", "rm"}, args[0])
 }
 
 // checkPush applies the push rules to the words of one command segment,
