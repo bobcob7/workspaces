@@ -23,7 +23,7 @@ type topicRecorder struct {
 	recorder publishRecorder
 }
 
-func (c *topicRecorder) Publish(ctx context.Context, msg envproto.Message) error {
+func (c *topicRecorder) Publish(ctx context.Context, msg envproto.Message) error { //nolint:gocritic // hugeParam: Publish has the mqttClient signature.
 	c.recorder.add(&msg)
 	return c.Client.Publish(ctx, msg)
 }

@@ -103,7 +103,7 @@ func TestRequests_do(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		_, err := r.do(ctx, "a1", func() []byte { return nil })
-		assert.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, context.Canceled)
 		close(release)
 	})
 }
