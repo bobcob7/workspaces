@@ -22,9 +22,11 @@ import (
 const (
 	statusPending     = "pending"
 	enrollReadTimeout = 10 * time.Second
-	caUpdateExpiry    = 30 * time.Second
-	requestIDBytes    = 8
-	snapshotVersion   = 1
+	// enrollMaxHeaderBytes bounds a request's headers on the enrollment listener.
+	enrollMaxHeaderBytes = 8 << 10
+	caUpdateExpiry       = 30 * time.Second
+	requestIDBytes       = 8
+	snapshotVersion      = 1
 )
 
 // Settings are [environments] as the daemon read it.
@@ -77,6 +79,9 @@ type Controller struct {
 	settings Settings
 	now      func() time.Time
 	policy   *policy
+	// enrollTimeout bounds how long an enrollment connection may take to send
+	// a request, receive its reply, or sit idle.
+	enrollTimeout time.Duration
 
 	// lifecycle serializes Start, Reload and Close. mu is never held across
 	// a broker call, since the broker's handlers take mu.
@@ -100,12 +105,13 @@ type Controller struct {
 // effects.
 func NewController(log *slog.Logger, store *Store, b broker, settings Settings, now func() time.Time) *Controller {
 	c := &Controller{
-		log:      log,
-		store:    store,
-		broker:   b,
-		settings: settings,
-		now:      now,
-		presence: map[string]heard{},
+		log:           log,
+		store:         store,
+		broker:        b,
+		settings:      settings,
+		now:           now,
+		presence:      map[string]heard{},
+		enrollTimeout: enrollReadTimeout,
 	}
 	c.policy = &policy{store: store, trust: c.currentTrust}
 	return c
@@ -172,7 +178,14 @@ func (c *Controller) listenAll(ctx context.Context) error {
 		cancel()
 		return errors.Join(err, c.broker.Close(), enrollLn.Close())
 	}
-	srv := &http.Server{Handler: newEnrollHandler(c.log, c.enroll), ReadHeaderTimeout: enrollReadTimeout}
+	srv := &http.Server{
+		Handler:           newEnrollHandler(c.log, c.enroll),
+		ReadHeaderTimeout: c.enrollTimeout,
+		ReadTimeout:       c.enrollTimeout,
+		WriteTimeout:      c.enrollTimeout,
+		IdleTimeout:       c.enrollTimeout,
+		MaxHeaderBytes:    enrollMaxHeaderBytes,
+	}
 	c.publishListeners(&listeners{
 		cancel:      cancel,
 		srv:         srv,

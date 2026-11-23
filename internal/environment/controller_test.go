@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -854,4 +856,23 @@ func TestController_Reload_contextOutlivesRequest(t *testing.T) {
 	reply := replyOf(t, &replies[0])
 	mu.Unlock()
 	assert.True(t, reply.OK)
+}
+
+func TestController_enrollTimeouts(t *testing.T) {
+	store := newTestStore(t)
+	addEnvironment(t, store, "linux-server")
+	c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
+	c.enrollTimeout = 300 * time.Millisecond
+	require.NoError(t, c.Start(t.Context()))
+	tr, err := store.trust()
+	require.NoError(t, err)
+	conn, err := tls.Dial("tcp", c.Status().EnrollListen, clientTLS(tr.pool(), nil))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = conn.Write([]byte("POST " + envproto.EnrollPath + " HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"secret\":"))
+	require.NoError(t, err)
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = io.ReadAll(conn)
+	var netErr net.Error
+	assert.False(t, errors.As(err, &netErr) && netErr.Timeout(), "the connection stayed open: %v", err)
 }
