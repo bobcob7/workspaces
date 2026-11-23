@@ -53,8 +53,9 @@ listen, and `runners` is `[]`.
 environment with its `state` (`pending` or `enrolled`), its `status`
 (`pending`, `online` or `offline`), when it was last heard from, and its
 last hello (`null` until one). With no `[environments]` `public_name`,
-`listening` is `false` and `warnings` is `[]`. With a `public_name` but no
-broker, `listening` is `false` and `warnings` says why.
+`listening` is `false` and `warnings` is `[]`. With a `public_name`,
+`listening` is `false` and `warnings` says why only when the listeners fail
+to start.
 
 `origin` is `managed`, `transient` or `app` (started by the desktop app).
 `adopted` is `true` for a runner an earlier daemon started. A warning says when

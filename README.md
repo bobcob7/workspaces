@@ -250,8 +250,8 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **Remote environments, core**: `ws env`, enrollment, the CA, the broker
   in the daemon ([0073](docs/adrs/0073-environment-agent-is-ws.md),
   [0074](docs/adrs/0074-mqtt-transport-embedded-broker.md),
-  [0075](docs/adrs/0075-environment-enrollment-and-certificates.md)); checked
-  when the broker lands in the daemon
+  [0075](docs/adrs/0075-environment-enrollment-and-certificates.md)), and
+  `ws env agent`, which runs on the remote machine
 
 Longer term, `ws` aims to depend on no particular model, provider or
 agent harness, with Claude Code staying the default until measured runs

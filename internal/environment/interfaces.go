@@ -10,7 +10,7 @@ import (
 //go:generate go tool moq -out moq_test.go . broker
 
 // broker is the MQTT 5 broker the daemon embeds (ADR 0074). envtest.Broker
-// and T10's adapter implement it.
+// and internal/mqttbroker implement it.
 type broker interface {
 	// Start listens on addr for MQTT over TLS with tlsConfig, checks every
 	// client with rules, serves until Close, and returns the address it

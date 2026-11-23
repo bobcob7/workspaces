@@ -10,7 +10,7 @@ import (
 //go:generate go tool moq -out moq_test.go . mqttClient snapshotSource claudeProbe
 
 // mqttClient is the agent's MQTT 5 connection (envtest.Client in tests,
-// T10's paho adapter in ws). Connect may be called again after Done.
+// internal/mqttclient in ws). Connect may be called again after Done.
 type mqttClient interface {
 	Connect(ctx context.Context, opts envproto.ConnectOptions) error
 	Publish(ctx context.Context, msg envproto.Message) error
