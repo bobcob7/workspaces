@@ -30,6 +30,8 @@ const (
 	lockFile      = ".lock"
 	idBytes       = 4
 	snapshotFile  = "snapshot.json"
+	// maxPriorSerials is how many superseded serials a record keeps.
+	maxPriorSerials = 5
 )
 
 // namePattern is the environment name rule: a letter, then up to 31 of a-z,
@@ -58,6 +60,9 @@ type Record struct {
 	CertSerial   string `toml:"cert_serial"`
 	CertNotAfter string `toml:"cert_not_after"`
 	CertCA       string `toml:"cert_ca"`
+	// PriorSerials are the last certificates that renewal superseded, oldest
+	// first. Rotate and Remove revoke them with the current one.
+	PriorSerials []string `toml:"prior_serials,omitempty"`
 }
 
 // Store is the controller's environments: records, CA, revocations and snapshots.
@@ -152,6 +157,7 @@ func (s *Store) setCode(rec *Record, enrollHost string) (string, error) {
 	rec.CertSerial = ""
 	rec.CertNotAfter = ""
 	rec.CertCA = ""
+	rec.PriorSerials = nil
 	if err := s.writeRecord(rec); err != nil {
 		return "", err
 	}
@@ -206,16 +212,19 @@ func (s *Store) Remove(ctx context.Context, name string) (rec Record, revoked []
 	return rec, revoked, nil
 }
 
-// revokeCurrent revokes rec's certificate when it is enrolled and returns
-// the serials it revoked, never nil.
+// revokeCurrent revokes rec's certificate and the ones renewal superseded
+// when it is enrolled, and returns the serials it revoked, never nil.
 func (s *Store) revokeCurrent(rec *Record) ([]string, error) {
 	if rec.State != StateEnrolled {
 		return []string{}, nil
 	}
-	if err := s.revoke(rec.CertSerial, rec.ID); err != nil {
-		return nil, err
+	serials := append([]string{rec.CertSerial}, rec.PriorSerials...)
+	for _, serial := range serials {
+		if err := s.revoke(serial, rec.ID); err != nil {
+			return nil, err
+		}
 	}
-	return []string{rec.CertSerial}, nil
+	return serials, nil
 }
 
 // Get returns the environment called name, or ErrUnknown.
@@ -337,6 +346,8 @@ func (s *Store) Renew(ctx context.Context, id string, csrPEM []byte) (envproto.R
 	if rec.State != StateEnrolled {
 		return envproto.RenewResult{}, ErrUnknown
 	}
+	rec.PriorSerials = append(rec.PriorSerials, rec.CertSerial)
+	rec.PriorSerials = rec.PriorSerials[max(0, len(rec.PriorSerials)-maxPriorSerials):]
 	cert, err := s.signRecord(&rec, csrPEM)
 	if err != nil {
 		return envproto.RenewResult{}, err

@@ -512,3 +512,57 @@ cert_ca = ""
 func encodeCertString(cert *x509.Certificate) string {
 	return string(encodeCert(cert))
 }
+
+func TestStore_supersededSerials(t *testing.T) {
+	// renewTimes renews id n times and returns every serial it held, oldest first.
+	renewTimes := func(t *testing.T, store *Store, rec *Record, n int) []string {
+		t.Helper()
+		serials := []string{rec.CertSerial}
+		for range n {
+			_, err := store.Renew(t.Context(), rec.ID, newTestCSR(t, newTestKey(t)))
+			require.NoError(t, err)
+			cur, err := store.ByID(rec.ID)
+			require.NoError(t, err)
+			serials = append(serials, cur.CertSerial)
+		}
+		return serials
+	}
+	t.Run("Renew keeps the superseded serials unrevoked and bounded", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		enrolled := enrolledEnvironment(t, store)
+		serials := renewTimes(t, store, &enrolled, 7)
+		rec, err := store.ByID(enrolled.ID)
+		require.NoError(t, err)
+		assert.Equal(t, serials[len(serials)-6:len(serials)-1], rec.PriorSerials)
+		revokedSet, err := store.Revoked()
+		require.NoError(t, err)
+		assert.Empty(t, revokedSet)
+	})
+	t.Run("Rotate after renewals revokes every earlier serial", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		enrolled := enrolledEnvironment(t, store)
+		serials := renewTimes(t, store, &enrolled, 3)
+		_, _, revoked, err := store.Rotate(t.Context(), "linux-server", testBroker)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, serials, revoked)
+		revokedSet, err := store.Revoked()
+		require.NoError(t, err)
+		for _, serial := range serials {
+			assert.True(t, revokedSet[serial], serial)
+		}
+		rec, err := store.Get("linux-server")
+		require.NoError(t, err)
+		assert.Empty(t, rec.PriorSerials)
+	})
+	t.Run("Remove after renewals revokes every earlier serial", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		enrolled := enrolledEnvironment(t, store)
+		serials := renewTimes(t, store, &enrolled, 3)
+		_, revoked, err := store.Remove(t.Context(), "linux-server")
+		require.NoError(t, err)
+		assert.ElementsMatch(t, serials, revoked)
+	})
+}
