@@ -92,6 +92,7 @@ type Controller struct {
 	enrollServer   *http.Server
 	brokerEndpoint string // host:port that enrollment answers give agents
 	unsubscribe    []func()
+	cancel         context.CancelFunc // ends the context the handlers run on
 	startWarnings  []string
 }
 
@@ -145,7 +146,9 @@ func (c *Controller) start(ctx context.Context) error {
 }
 
 // listenAll binds the enrollment listener, starts the broker and its
-// subscriptions, then serves enrollment.
+// subscriptions, then serves enrollment. ctx only bounds the binding: the
+// handlers and the enrollment server run on a context the controller owns,
+// which lives until Close, so a Reload request that returns doesn't stop them.
 func (c *Controller) listenAll(ctx context.Context) error {
 	if err := c.loadState(); err != nil {
 		return err
@@ -163,24 +166,28 @@ func (c *Controller) listenAll(ctx context.Context) error {
 	if err != nil {
 		return errors.Join(err, c.broker.Close(), enrollLn.Close())
 	}
-	unsubscribe, err := c.subscribe(ctx)
+	life, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	unsubscribe, err := c.subscribe(ctx, life)
 	if err != nil {
+		cancel()
 		return errors.Join(err, c.broker.Close(), enrollLn.Close())
 	}
 	srv := &http.Server{Handler: newEnrollHandler(c.log, c.enroll), ReadHeaderTimeout: enrollReadTimeout}
 	c.publishListeners(&listeners{
+		cancel:      cancel,
 		srv:         srv,
 		enrollAddr:  enrollLn.Addr().String(),
 		brokerAddr:  brokerAddr,
 		endpoint:    endpoint,
 		unsubscribe: unsubscribe,
 	})
-	go c.serveEnrollment(ctx, srv, tls.NewListener(enrollLn, enrollTLS(c.currentState)))
+	go c.serveEnrollment(life, srv, tls.NewListener(enrollLn, enrollTLS(c.currentState)))
 	return nil
 }
 
 // listeners is what Start records once its listeners are up.
 type listeners struct {
+	cancel      context.CancelFunc
 	srv         *http.Server
 	enrollAddr  string
 	brokerAddr  string
@@ -199,6 +206,7 @@ func (c *Controller) publishListeners(l *listeners) {
 	c.enrollServer = l.srv
 	c.brokerEndpoint = l.endpoint
 	c.unsubscribe = l.unsubscribe
+	c.cancel = l.cancel
 	c.startWarnings = nil
 }
 
@@ -226,16 +234,17 @@ func (c *Controller) enroll(ctx context.Context, secret string, csrPEM []byte) (
 	return c.store.Enroll(ctx, secret, csrPEM, endpoint, c.settings.PublicName)
 }
 
-// subscribe takes the controller's subscriptions, which the broker doesn't check.
-func (c *Controller) subscribe(ctx context.Context) ([]func(), error) {
+// subscribe takes the controller's subscriptions, which the broker doesn't
+// check. ctx bounds the subscribing; the handlers run on life.
+func (c *Controller) subscribe(ctx, life context.Context) ([]func(), error) {
 	routes := []struct {
 		filter string
 		fn     func(envproto.Message)
 	}{
-		{envproto.Topic("+", envproto.LeafStatus), func(m envproto.Message) { c.onStatus(ctx, &m) }},
-		{envproto.Topic("+", envproto.LeafSnapshot), func(m envproto.Message) { c.onSnapshot(ctx, &m) }},
-		{envproto.Topic("+", envproto.LeafUp), func(m envproto.Message) { c.onUp(ctx, &m) }},
-		{envproto.Topic("+", envproto.LeafRes, "+"), func(m envproto.Message) { c.onRes(ctx, &m) }},
+		{envproto.Topic("+", envproto.LeafStatus), func(m envproto.Message) { c.onStatus(life, &m) }},
+		{envproto.Topic("+", envproto.LeafSnapshot), func(m envproto.Message) { c.onSnapshot(life, &m) }},
+		{envproto.Topic("+", envproto.LeafUp), func(m envproto.Message) { c.onUp(life, &m) }},
+		{envproto.Topic("+", envproto.LeafRes, "+"), func(m envproto.Message) { c.onRes(life, &m) }},
 	}
 	unsubscribe := make([]func(), 0, len(routes))
 	for _, r := range routes {
@@ -411,14 +420,16 @@ func (c *Controller) Close() error {
 		c.mu.Unlock()
 		return nil
 	}
-	srv, unsubscribe := c.enrollServer, c.unsubscribe
+	srv, unsubscribe, cancel := c.enrollServer, c.unsubscribe, c.cancel
 	c.listening = false
 	c.listenAddr = ""
 	c.enrollAddr = ""
 	c.enrollServer = nil
 	c.brokerEndpoint = ""
 	c.unsubscribe = nil
+	c.cancel = nil
 	c.mu.Unlock()
+	cancel()
 	for _, unsub := range unsubscribe {
 		unsub()
 	}

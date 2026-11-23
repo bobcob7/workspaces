@@ -784,3 +784,74 @@ func TestController_onRes(t *testing.T) {
 		assert.Contains(t, logs.String(), "reply refused")
 	})
 }
+
+// failingSubscribe is a broker whose first Subscribe fails.
+type failingSubscribe struct {
+	*envtest.Broker
+	once sync.Once
+}
+
+func (f *failingSubscribe) Subscribe(ctx context.Context, filter string, fn func(envproto.Message)) (func(), error) {
+	failed := false
+	f.once.Do(func() { failed = true })
+	if failed {
+		return nil, errors.New("subscribe failed")
+	}
+	return f.Broker.Subscribe(ctx, filter, fn)
+}
+
+func TestController_restart(t *testing.T) {
+	t.Run("Start works again after Close", func(t *testing.T) {
+		store := newTestStore(t)
+		addEnvironment(t, store, "linux-server")
+		c := startController(t, store, envtest.NewBroker())
+		require.NoError(t, c.Close())
+		require.NoError(t, c.Start(t.Context()))
+		assert.True(t, c.Status().Listening)
+	})
+	t.Run("Reload retries after a failed start", func(t *testing.T) {
+		store := newTestStore(t)
+		addEnvironment(t, store, "linux-server")
+		c := newController(t, store, &failingSubscribe{Broker: envtest.NewBroker()}, discardLog(), testSettings())
+		require.Error(t, c.Reload(t.Context()))
+		assert.False(t, c.Status().Listening)
+		require.NoError(t, c.Reload(t.Context()))
+		assert.True(t, c.Status().Listening)
+		assert.Empty(t, c.Warnings())
+	})
+}
+
+func TestController_Reload_contextOutlivesRequest(t *testing.T) {
+	store := newTestStore(t)
+	b := envtest.NewBroker()
+	rec, cert := enrollAgent(t, store, "linux-server")
+	c := newController(t, store, b, discardLog(), testSettings())
+	request, cancel := context.WithCancel(t.Context())
+	require.NoError(t, c.Reload(request))
+	cancel()
+	agent := connectAgent(t, store, b, rec.ID, &cert)
+	var mu sync.Mutex
+	var replies []envproto.Message
+	require.NoError(t, agent.Subscribe(t.Context(), envproto.Topic(rec.ID, envproto.LeafReq), func(msg envproto.Message) {
+		mu.Lock()
+		defer mu.Unlock()
+		replies = append(replies, msg)
+	}))
+	payload, err := marshalRequest(envproto.OpCertRenew, envproto.RenewArgs{CSR: string(newTestCSR(t, newTestKey(t)))})
+	require.NoError(t, err)
+	require.NoError(t, agent.Publish(t.Context(), envproto.Message{
+		Topic:           envproto.Topic(rec.ID, envproto.LeafUp),
+		Payload:         payload,
+		ResponseTopic:   envproto.Topic(rec.ID, envproto.LeafReq),
+		CorrelationData: []byte("abc"),
+	}))
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(replies) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	mu.Lock()
+	reply := replyOf(t, &replies[0])
+	mu.Unlock()
+	assert.True(t, reply.OK)
+}
