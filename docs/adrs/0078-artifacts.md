@@ -208,8 +208,7 @@ is the model's business.
    can't use artifacts until the follow-up ADR.
 
 It is also weak on cleanup: nothing expires, so a busy user fills the
-quota and must remove artifacts by hand (the desktop's list sorts by size
-on request).
+quota and must remove artifacts by hand.
 
 ## Alternatives
 
