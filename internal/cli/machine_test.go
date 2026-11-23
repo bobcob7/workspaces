@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/artifact"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lifetime"
@@ -297,6 +298,19 @@ func TestApp_caller(t *testing.T) {
 		_, err := e.app.caller()
 		assert.ErrorIs(t, err, errTest)
 	})
+}
+
+func TestApp_runMachineSpawn_artifactHints(t *testing.T) {
+	e := roleSpawnEnv(t)
+	e.app.now = testNow
+	rec, err := e.app.artifactStore().Add(t.Context(), &artifact.NewArtifact{Name: "login.txt", Data: []byte("hi"), By: artifact.Person()})
+	require.NoError(t, err)
+	opts := roleSpawnOptions()
+	opts.vars = []string{"TASK=fix @artifact:" + rec.ID, "TASKS=t.md", "BASE=feat/x", "BRANCH=feat/x-t1"}
+	require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+	args := e.claude.StartCalls()[0].Opts.Args
+	require.NotEmpty(t, args)
+	assert.True(t, strings.HasSuffix(args[0], artifact.HintLine([]string{rec.ID})), args[0])
 }
 
 func TestApp_runMachineSpawn(t *testing.T) {

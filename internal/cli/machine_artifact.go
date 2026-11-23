@@ -88,6 +88,7 @@ func (a *App) newMachineArtifactCmd() *cobra.Command {
 		a.newMachineArtifactGetCmd(),
 		a.newMachineArtifactPutCmd(),
 		a.newMachineArtifactRmCmd(),
+		a.newArtifactCommentCmd(false),
 	)
 	return cmd
 }

@@ -52,7 +52,7 @@ func TestErrorCode_exitCode(t *testing.T) {
 		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace, codeResultInvalid, codeRoleInvalid, codeMemoryInvalid, codeArtifactInvalid)
 	})
 	t.Run("not found or ambiguous exits 3", func(t *testing.T) {
-		assertExit(t, exitNotFound, codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound, codeRoleUnknown, codeMemoryNotFound, codeEnvironmentUnknown, codeArtifactUnknown)
+		assertExit(t, exitNotFound, codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound, codeRoleUnknown, codeMemoryNotFound, codeEnvironmentUnknown, codeArtifactUnknown, codeAnchorNotFound)
 	})
 	t.Run("refusals exit 4", func(t *testing.T) {
 		assertExit(t, exitRefused, codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch, codeNotDescendant, codeRoleExists, codeRoleBuiltin,

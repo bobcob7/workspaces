@@ -127,6 +127,9 @@ func artifactError(err error) error {
 	if conflict, ok := errors.AsType[*artifact.ConflictError](err); ok {
 		return &cliError{code: codeArtifactConflict, err: err, details: map[string]any{"latest": conflict.Latest}}
 	}
+	if anchor, ok := errors.AsType[*artifact.AnchorError](err); ok {
+		return anchorNotFound(err, anchor)
+	}
 	switch {
 	case errors.Is(err, artifact.ErrInvalid), errors.Is(err, artifact.ErrNewer):
 		return newError(codeArtifactInvalid, err)
@@ -405,7 +408,7 @@ func (a *App) newArtifactCmd() *cobra.Command {
 			return cmd.Help()
 		}),
 	}
-	cmd.AddCommand(a.newArtifactAddCmd(), a.newArtifactListCmd(), a.newArtifactShowCmd(), a.newArtifactCatCmd(), a.newArtifactRmCmd())
+	cmd.AddCommand(a.newArtifactAddCmd(), a.newArtifactListCmd(), a.newArtifactShowCmd(), a.newArtifactCatCmd(), a.newArtifactRmCmd(), a.newArtifactCommentCmd(true))
 	return cmd
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/artifact"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
@@ -241,6 +242,44 @@ func TestApp_newClaudeCmd(t *testing.T) {
 		assert.Equal(t, "o/api", opts.Specs[1].Raw)
 		require.Len(t, e.claude.StartCalls(), 1)
 		assert.Equal(t, []string{"--model", "opus", "fix it"}, e.claude.StartCalls()[0].Opts.Args)
+	})
+}
+
+// hintEnv is a claude test env whose artifact store is a temp dir, holding
+// one artifact, whose id it returns.
+func hintEnv(t *testing.T) (*claudeEnv, string) {
+	t.Helper()
+	e := newClaudeEnv(t)
+	e.app.paths = config.NewPaths(t.TempDir())
+	e.app.now = testNow
+	rec, err := e.app.artifactStore().Add(t.Context(), &artifact.NewArtifact{Name: "login.txt", Data: []byte("hi"), By: artifact.Person()})
+	require.NoError(t, err)
+	return e, rec.ID
+}
+
+func TestApp_artifactHints(t *testing.T) {
+	t.Run("a reference to an artifact gets the hint line after the prompt", func(t *testing.T) {
+		e, id := hintEnv(t)
+		prompt := "fix it @artifact:" + id
+		require.NoError(t, e.run(t, prompt))
+		assert.Equal(t, []string{prompt + "\n\n" + artifact.HintLine([]string{id})}, e.claude.StartCalls()[0].Opts.Args)
+	})
+	t.Run("an unknown reference is artifact_unknown, and creates no workspace", func(t *testing.T) {
+		e, _ := hintEnv(t)
+		requireCode(t, codeArtifactUnknown, e.run(t, "fix it @artifact:art-00000000"))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("a prompt without a reference is unchanged", func(t *testing.T) {
+		e, _ := hintEnv(t)
+		require.NoError(t, e.run(t, "fix it"))
+		assert.Equal(t, []string{"fix it"}, e.claude.StartCalls()[0].Opts.Args)
+	})
+	t.Run("on a remote environment the prompt is unchanged, with a warning", func(t *testing.T) {
+		e, id := hintEnv(t)
+		args, err := e.app.artifactHints([]string{"fix it @artifact:" + id}, "vega")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"fix it @artifact:" + id}, args)
+		assert.Equal(t, []string{"artifacts aren't reachable from vega yet; @artifact references were sent as plain text"}, e.app.warned)
 	})
 }
 

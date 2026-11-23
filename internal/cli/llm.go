@@ -132,6 +132,10 @@ func guideTopicsFromReview() []string {
 		"machine artifact get",
 		"machine artifact put",
 		"machine artifact rm",
+		"machine artifact comment",
+		"machine artifact comment list",
+		"machine artifact comment add",
+		"machine artifact comment resolve",
 		"llm",
 	}
 }

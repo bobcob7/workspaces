@@ -7,6 +7,9 @@ ws machine artifact show <ID>
 ws machine artifact get <ID> [--rev <n>] [--out <dir>]
 ws machine artifact put <ID> <PATH|-> [--base-rev <n>] [--note <text>]
 ws machine artifact rm <ID>...
+ws machine artifact comment list <ID> [--open]
+ws machine artifact comment add <ID> (--body <text> | --body-file <path|->) [--reply <thread> | --quote <text> [--line <n>]]
+ws machine artifact comment resolve <ID> <THREAD> [--reopen]
 ```
 
 Shares files with people. People upload screenshots and logs, and read what
@@ -34,6 +37,8 @@ stderr. Run inside your workspace: outside one, every command fails with
 - `get`: copy a revision into your workspace and print its path.
 - `put`: add a revision to an artifact, moving its comment anchors.
 - `rm`: remove an artifact your workspace tree created.
+- `comment`: read the threads people left, reply to them and resolve them
+  (`comment list`, `comment add`, `comment resolve`).
 
 Each takes an `<ID>` or a reference `@artifact:<id>` with an optional `/r<n>`.
 

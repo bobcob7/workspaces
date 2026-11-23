@@ -112,6 +112,8 @@ const (
 	codeArtifactFull        errorCode = "artifact_full"        // exit 4
 	codeArtifactForbidden   errorCode = "artifact_forbidden"   // exit 4
 	codeArtifactUnreachable errorCode = "artifact_unreachable" // exit 1
+	// ADR 0079: comment anchors.
+	codeAnchorNotFound errorCode = "anchor_not_found" // exit 3
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -165,7 +167,8 @@ func (c errorCode) exitCode() int {
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown,
-		codeMemoryNotFound, codeEndpointUnknown, codeModelNotServed, codeEnvironmentUnknown, codeArtifactUnknown:
+		codeMemoryNotFound, codeEndpointUnknown, codeModelNotServed, codeEnvironmentUnknown, codeArtifactUnknown,
+		codeAnchorNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
@@ -196,7 +199,8 @@ func (c errorCode) known() bool {
 		codeModelWithoutTools, codeRunnerFailed, codeEnvironmentUnknown, codeEnvironmentExists,
 		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
 		codeEnvironmentOutdated, codeEnvironmentMismatch, codeProgressInvalid, codeArtifactInvalid,
-		codeArtifactUnknown, codeArtifactConflict, codeArtifactFull, codeArtifactForbidden, codeArtifactUnreachable:
+		codeArtifactUnknown, codeArtifactConflict, codeArtifactFull, codeArtifactForbidden, codeArtifactUnreachable,
+		codeAnchorNotFound:
 		return true
 	}
 	return false
