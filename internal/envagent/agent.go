@@ -23,19 +23,19 @@ const inboxSize = 16
 
 // Options are the agent's intervals, its retry policy and its clock.
 type Options struct {
-	Version         string        // ws's version, for the hello
-	RenewBeforeDays int           // the agent's own [environments] renew_before_days
-	SnapshotCheck   time.Duration // rebuild the snapshot
-	SnapshotEvery   time.Duration // publish even if unchanged
-	RenewCheck      time.Duration // check whether the certificate is due for renewal
+	Version         string        // ws's version, for the hello.
+	RenewBeforeDays int           // the agent's own [environments] renew_before_days.
+	SnapshotCheck   time.Duration // rebuild the snapshot.
+	SnapshotEvery   time.Duration // publish even if unchanged.
+	RenewCheck      time.Duration // check whether the certificate is due for renewal.
 	KeepAlive       time.Duration
 	WillDelay       time.Duration
-	RequestTimeout  time.Duration // how long a request waits for its reply
+	RequestTimeout  time.Duration // how long a request waits for its reply.
 	BackoffMin      time.Duration
 	BackoffMax      time.Duration
 	Now             func() time.Time
 	After           func(time.Duration) <-chan time.Time
-	Jitter          func() float64 // in [0, 1)
+	Jitter          func() float64 // in [0, 1).
 }
 
 // DefaultOptions returns the intervals ADR 0075 asks for.

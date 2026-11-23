@@ -112,7 +112,7 @@ func (e *Enroller) exchangeEnrollment(ctx context.Context, code envproto.Code, c
 	if err != nil {
 		return envproto.EnrollResponse{}, fmt.Errorf("posting enrollment: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }() // a close error leaves nothing to act on
+	defer func() { _ = resp.Body.Close() }() // a close error leaves nothing to act on.
 	return decodeEnrollment(resp)
 }
 
