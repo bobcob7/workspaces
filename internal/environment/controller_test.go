@@ -866,13 +866,14 @@ func TestController_enrollTimeouts(t *testing.T) {
 	require.NoError(t, c.Start(t.Context()))
 	tr, err := store.trust()
 	require.NoError(t, err)
-	conn, err := tls.Dial("tcp", c.Status().EnrollListen, clientTLS(tr.pool(), nil))
+	dialer := &tls.Dialer{Config: clientTLS(tr.pool(), nil)}
+	raw, err := dialer.DialContext(t.Context(), "tcp", c.Status().EnrollListen)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	_, err = conn.Write([]byte("POST " + envproto.EnrollPath + " HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"secret\":"))
+	t.Cleanup(func() { _ = raw.Close() })
+	_, err = raw.Write([]byte("POST " + envproto.EnrollPath + " HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"secret\":"))
 	require.NoError(t, err)
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
-	_, err = io.ReadAll(conn)
+	require.NoError(t, raw.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = io.ReadAll(raw)
 	var netErr net.Error
 	assert.False(t, errors.As(err, &netErr) && netErr.Timeout(), "the connection stayed open: %v", err)
 }
