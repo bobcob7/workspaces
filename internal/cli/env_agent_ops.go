@@ -68,12 +68,11 @@ func (o *agentOperations) Run(ctx context.Context, op string, args any) (json.Ra
 }
 
 // runCLI runs argv in a new App and returns its stdout's one JSON object.
-// A non-zero exit with a {"error": {...}} line on stderr is that error as
-// *envproto.ReplyError; anything else is internal with stderr's first line.
+// A non-zero exit is commandFailure's error.
 func (o *agentOperations) runCLI(ctx context.Context, argv []string) (json.RawMessage, error) {
 	var stdout, stderr bytes.Buffer
 	if code := o.newApp(&stdout, &stderr).Run(ctx, argv); code != exitOK {
-		return nil, cliFailure(stderr.Bytes())
+		return nil, commandFailure(stdout.Bytes(), stderr.Bytes())
 	}
 	return commandObject(stdout.Bytes())
 }
@@ -87,10 +86,23 @@ func commandObject(out []byte) (json.RawMessage, error) {
 	return json.RawMessage(out), nil
 }
 
-// cliFailure is the error a failed command reported on stderr: the last
-// {"error": {...}} line with a code, since warning lines can precede it, or
-// internal with the first non-empty line.
-func cliFailure(stderr []byte) error {
+// commandFailure is the error of a command that exited non-zero: its
+// {"error": {...}} line on stderr, else the first failed item in its stdout
+// object (ws rm reports each workspace's error there), else internal with
+// stderr's first line.
+func commandFailure(stdout, stderr []byte) error {
+	if re := stderrError(stderr); re != nil {
+		return re
+	}
+	if re := itemError(stdout); re != nil {
+		return re
+	}
+	return &envproto.ReplyError{Code: string(codeInternal), Message: firstLine(stderr)}
+}
+
+// stderrError is the last {"error": {...}} line of stderr with a code, since
+// warning lines can precede it, or nil.
+func stderrError(stderr []byte) *envproto.ReplyError {
 	lines := strings.Split(strings.TrimSpace(string(stderr)), "\n")
 	for _, line := range slices.Backward(lines) {
 		var body struct {
@@ -100,12 +112,35 @@ func cliFailure(stderr []byte) error {
 			return &envproto.ReplyError{Code: string(body.Error.Code), Message: body.Error.Message, Details: body.Error.Details}
 		}
 	}
-	for _, line := range lines {
-		if line = strings.TrimSpace(line); line != "" {
-			return &envproto.ReplyError{Code: string(codeInternal), Message: line}
+	return nil
+}
+
+// itemError is the first failed workspace's error in a command's stdout
+// object, or nil.
+func itemError(stdout []byte) *envproto.ReplyError {
+	var body struct {
+		Workspaces []struct {
+			Error *itemErrorJSON `json:"error"`
+		} `json:"workspaces"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(stdout), &body) == nil {
+		for _, w := range body.Workspaces {
+			if w.Error != nil && w.Error.Code != "" {
+				return &envproto.ReplyError{Code: string(w.Error.Code), Message: w.Error.Message}
+			}
 		}
 	}
-	return &envproto.ReplyError{Code: string(codeInternal), Message: "the command failed"}
+	return nil
+}
+
+// firstLine is the first non-empty line of out, or "the command failed".
+func firstLine(out []byte) string {
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return "the command failed"
 }
 
 // checkKind is usage for a create of any kind but claude and runner.

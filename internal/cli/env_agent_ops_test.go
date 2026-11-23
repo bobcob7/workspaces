@@ -121,6 +121,14 @@ func TestAgentOperations_Run(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "workspace_not_found", re.Code)
 	})
+	t.Run("a rm of a missing workspace comes back workspace_not_found", func(t *testing.T) {
+		e := newMockedApp()
+		e.store.FindFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{}, workspace.ErrNotFound }
+		_, err := opsFor(e.app).Run(t.Context(), envproto.OpWorkspaceRm, &envproto.RmArgs{Workspace: "gone"})
+		re, ok := errors.AsType[*envproto.ReplyError](err)
+		require.True(t, ok)
+		assert.Equal(t, "workspace_not_found", re.Code)
+	})
 	t.Run("workspace.create stamps the environment", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		var got workspace.CreateOptions
@@ -245,7 +253,7 @@ func TestAgentOperations_concurrent(t *testing.T) {
 	assert.Empty(t, outs[0].String()+outs[1].String())
 }
 
-func TestCliFailure(t *testing.T) {
+func TestCommandFailure(t *testing.T) {
 	tests := []struct {
 		name    string
 		stderr  string
@@ -261,15 +269,28 @@ func TestCliFailure(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			re, ok := errors.AsType[*envproto.ReplyError](cliFailure([]byte(tt.stderr)))
+			re, ok := errors.AsType[*envproto.ReplyError](commandFailure(nil, []byte(tt.stderr)))
 			require.True(t, ok)
 			assert.Equal(t, tt.code, re.Code)
 			assert.Equal(t, tt.message, re.Message)
 		})
 	}
 	t.Run("details pass through", func(t *testing.T) {
-		re, _ := errors.AsType[*envproto.ReplyError](cliFailure([]byte("ws: warn\n" + `{"error":{"code":"c","message":"m","details":{"k":"v"}}}`)))
+		re, _ := errors.AsType[*envproto.ReplyError](commandFailure(nil, []byte("ws: warn\n"+`{"error":{"code":"c","message":"m","details":{"k":"v"}}}`)))
 		assert.Equal(t, map[string]any{"k": "v"}, re.Details)
+	})
+	t.Run("a failed item on stdout is its error when stderr has none", func(t *testing.T) {
+		stdout := `{"warnings":[],"workspaces":[{"id":"x","removed":false,"error":{"code":"workspace_not_found","message":"no"}}]}`
+		re, ok := errors.AsType[*envproto.ReplyError](commandFailure([]byte(stdout), nil))
+		require.True(t, ok)
+		assert.Equal(t, "workspace_not_found", re.Code)
+		assert.Equal(t, "no", re.Message)
+	})
+	t.Run("a stderr error beats a failed item on stdout", func(t *testing.T) {
+		stdout := `{"workspaces":[{"id":"x","removed":false,"error":{"code":"workspace_not_found","message":"no"}}]}`
+		re, ok := errors.AsType[*envproto.ReplyError](commandFailure([]byte(stdout), []byte(`{"error":{"code":"usage","message":"bad"}}`)))
+		require.True(t, ok)
+		assert.Equal(t, "usage", re.Code)
 	})
 }
 

@@ -283,9 +283,6 @@ func TestAgentSnapshots_Workspaces(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, "[]", string(data))
 	})
-}
-
-func TestAgentSnapshots_Workspaces_hidden(t *testing.T) {
 	t.Run("a hidden workspace is included and an unknown directory isn't", func(t *testing.T) {
 		hidden := listedWorkspace("quiet")
 		hidden.Hidden = true
