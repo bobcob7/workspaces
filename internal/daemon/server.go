@@ -107,7 +107,10 @@ type server struct {
 	opts        options
 	lastRequest atomic.Int64 // UnixNano of the last request
 	parentGone  atomic.Bool
-	stop        chan struct{}
+	// terminals counts the open terminals: one is no request in flight, but
+	// the daemon mustn't exit idle under it.
+	terminals atomic.Int64
+	stop      chan struct{}
 	// envStartErr is why the environments didn't start, or nil; the daemon
 	// keeps running and reports it as a warning.
 	envStartErr error
@@ -190,7 +193,7 @@ func (s *server) tick() time.Duration {
 }
 
 func (s *server) idleExit(ctx context.Context) bool {
-	if !s.actsTransient() || !s.sup.Idle() || s.envs.Status().Listening {
+	if !s.actsTransient() || !s.sup.Idle() || s.envs.Status().Listening || s.terminals.Load() > 0 {
 		return false
 	}
 	if time.Since(time.Unix(0, s.lastRequest.Load())) < s.opts.idle {
@@ -252,6 +255,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
 	mux.HandleFunc("POST /v1/environments/reload", s.handleReloadEnvironments)
 	mux.HandleFunc("POST /v1/environments/{name}/call", s.handleCallEnvironment)
+	mux.HandleFunc("POST /v1/environments/{name}/terminal", s.handleTerminal)
 	return mux
 }
 
@@ -284,6 +288,10 @@ func (s *server) handleReloadEnvironments(w http.ResponseWriter, r *http.Request
 func (s *server) handleCallEnvironment(w http.ResponseWriter, r *http.Request) {
 	var req CallRequest
 	if !readBodyUpTo(w, r, &req, callBodyBytes) {
+		return
+	}
+	if spec, known := envproto.LookupOp(req.Op); known && spec.Caller == envproto.CallerTerminal {
+		writeError(w, http.StatusBadRequest, "usage", req.Op+" isn't forwarded by call: open a terminal instead", nil)
 		return
 	}
 	if !envproto.ValidRequestID(req.RequestID) {

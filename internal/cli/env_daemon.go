@@ -79,6 +79,18 @@ func (h envHost) Call(ctx context.Context, name string, req daemon.CallRequest) 
 	return daemon.CallReply{Reply: data}, nil
 }
 
+// OpenTerminal opens a terminal on the environment called name. The stream is
+// nil on an error, not a typed nil.
+//
+//nolint:gocritic // hugeParam: the args value is the fixed API.
+func (h envHost) OpenTerminal(ctx context.Context, name string, args envproto.TerminalOpenArgs) (daemon.TerminalStream, envproto.TerminalOpenResult, error) {
+	term, result, err := h.ctrl.OpenTerminal(ctx, name, args)
+	if err != nil {
+		return nil, envproto.TerminalOpenResult{}, callHostError(err)
+	}
+	return term, result, nil
+}
+
 // callHostError is the daemon's HostError for a controller error that a call
 // can answer with. Any other error is returned as it is.
 func callHostError(err error) error {

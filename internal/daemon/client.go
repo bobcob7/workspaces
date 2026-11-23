@@ -68,7 +68,8 @@ type shutdownRequest struct {
 
 // Client talks to a running daemon over its socket.
 type Client struct {
-	http *http.Client
+	http   *http.Client
+	socket string
 }
 
 // Dial returns a client for the daemon at p's socket. Nothing is dialed
@@ -77,7 +78,7 @@ type Client struct {
 //nolint:gocritic // hugeParam: the contract takes Paths by value.
 func Dial(p Paths) *Client {
 	transport := &http.Transport{DialContext: dialSocket(p.Socket)}
-	return &Client{http: &http.Client{Transport: transport}}
+	return &Client{http: &http.Client{Transport: transport}, socket: p.Socket}
 }
 
 // dialSocket connects to the socket at path. A socket nothing listens on

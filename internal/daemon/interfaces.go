@@ -7,10 +7,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/machine"
 )
 
-//go:generate go tool moq -out moq_test.go . RunnerSupervisor processReader processStarter RunnerRecords EnvironmentHost
+//go:generate go tool moq -out moq_test.go . RunnerSupervisor processReader processStarter RunnerRecords EnvironmentHost TerminalStream
 
 // Errors the daemon's callers test with errors.Is.
 var (
@@ -51,7 +52,22 @@ type EnvironmentHost interface {
 	Warnings() []string
 	// Call sends one operation to an environment and waits for its reply (D8).
 	Call(ctx context.Context, name string, req CallRequest) (CallReply, error)
+	// OpenTerminal opens a terminal on an environment (T6's controller). The
+	// returned stream is nil when the error is not.
+	OpenTerminal(ctx context.Context, name string, args envproto.TerminalOpenArgs) (TerminalStream, envproto.TerminalOpenResult, error)
 	Close() error
+}
+
+// TerminalStream is an open terminal (environment.Terminal in ws).
+type TerminalStream interface {
+	// Output is the bytes to show, markers included; it closes when the
+	// terminal ends.
+	Output() <-chan []byte
+	// Exit is valid once Output has closed.
+	Exit() envproto.TerminalExit
+	Input(ctx context.Context, p []byte) error
+	Resize(ctx context.Context, cols, rows int) error
+	Close(ctx context.Context) error
 }
 
 // CallRequest is POST /v1/environments/{name}/call's body.

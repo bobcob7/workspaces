@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"time"
+
+	"github.com/bobcob7/workspaces/internal/envproto"
 )
 
 // EnvironmentsStatus is what GET /v1/status reports of remote environments
@@ -78,5 +80,15 @@ func (NopEnvironments) Call(_ context.Context, name string, req CallRequest) (Ca
 			"request_id":  req.RequestID,
 			"op":          req.Op,
 		},
+	}
+}
+
+// OpenTerminal is an unknown environment: nothing listens for one.
+//
+//nolint:gocritic // hugeParam: the args value is the fixed API.
+func (NopEnvironments) OpenTerminal(_ context.Context, name string, _ envproto.TerminalOpenArgs) (TerminalStream, envproto.TerminalOpenResult, error) {
+	return nil, envproto.TerminalOpenResult{}, &HostError{
+		Err:     ErrEnvironmentUnknown,
+		Message: "no environment " + name + ": the controller isn't listening",
 	}
 }
