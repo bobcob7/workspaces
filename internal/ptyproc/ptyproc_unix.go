@@ -3,7 +3,6 @@
 package ptyproc
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"os"
@@ -22,9 +21,14 @@ func Start(spec Spec) (*Proc, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(context.Background(), spec.Path, spec.Args...) //nolint:gosec // the path and args come from TerminalCommand, built from validated fields.
+	cmd := exec.Command(spec.Path, spec.Args...) //nolint:gosec // the path and args come from TerminalCommand, built from validated fields.
 	cmd.Dir = spec.Dir
-	cmd.Env = spec.Env
+	cmd.Env = append([]string{}, spec.Env...)
+	if err := setWinsize(control, spec.Cols, spec.Rows); err != nil {
+		control.Close()
+		tty.Close()
+		return nil, err
+	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	if err := cmd.Start(); err != nil {
@@ -33,11 +37,7 @@ func Start(spec Spec) (*Proc, error) {
 		return nil, fmt.Errorf("starting %s: %w", spec.Path, err)
 	}
 	tty.Close()
-	if err := setWinsize(control, spec.Cols, spec.Rows); err != nil {
-		control.Close()
-		return nil, err
-	}
-	p := &Proc{control: control, cmd: cmd, done: make(chan struct{})}
+	p := &Proc{control: control, cmd: cmd, done: make(chan struct{}), signal: signalGroup}
 	go p.wait()
 	return p, nil
 }

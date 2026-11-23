@@ -22,7 +22,7 @@ type Spec struct {
 	Path       string   // absolute program path
 	Args       []string // argv[1:]
 	Dir        string
-	Env        []string // the whole environment
+	Env        []string // the whole environment; nil or empty gives an empty one
 	Cols, Rows int
 }
 
@@ -32,6 +32,7 @@ type Proc struct {
 	cmd       *exec.Cmd
 	done      chan struct{}
 	exit      *int
+	signal    func(pid int, sig syscall.Signal) error
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -45,12 +46,15 @@ func (p *Proc) Read(b []byte) (int, error) {
 	return n, err
 }
 
-// Write sends b to the process's input.
+// Write sends b to the process's input. It succeeds after the process has
+// exited, until Close; after Close it returns an error.
 func (p *Proc) Write(b []byte) (int, error) {
 	return p.control.Write(b)
 }
 
 // Resize sets the terminal's size; the kernel sends the process SIGWINCH.
+// It succeeds after the process has exited, until Close; after Close it
+// returns an error.
 func (p *Proc) Resize(cols, rows int) error {
 	return setWinsize(p.control, cols, rows)
 }
@@ -80,12 +84,27 @@ func (p *Proc) wait() {
 }
 
 func (p *Proc) shutdown() error {
-	pid := p.cmd.Process.Pid
-	_ = signalGroup(pid, syscall.SIGHUP)
-	select {
-	case <-p.done:
-	case <-time.After(killGrace):
-		_ = signalGroup(pid, syscall.SIGKILL)
+	if !p.reaped() {
+		pid := p.cmd.Process.Pid
+		_ = p.signal(pid, syscall.SIGHUP)
+		select {
+		case <-p.done:
+		case <-time.After(killGrace):
+			if !p.reaped() {
+				_ = p.signal(pid, syscall.SIGKILL)
+			}
+		}
 	}
 	return p.control.Close()
+}
+
+// reaped reports whether the process has been waited for, after which its
+// pid may belong to another process and must not be signalled.
+func (p *Proc) reaped() bool {
+	select {
+	case <-p.done:
+		return true
+	default:
+		return false
+	}
 }

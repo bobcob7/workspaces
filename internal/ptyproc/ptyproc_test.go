@@ -6,6 +6,11 @@ import (
 	"bytes"
 	"io"
 	"math"
+	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -104,4 +109,99 @@ func readUntil(t *testing.T, p *Proc, want string) string {
 		}
 	}
 	return out.String()
+}
+
+func TestEnvironment(t *testing.T) {
+	t.Setenv("PTYPROC_SECRET", "leaked")
+	for name, env := range map[string][]string{"nil": nil, "empty": {}} {
+		t.Run(name+" env gives an empty environment", func(t *testing.T) {
+			p, err := Start(Spec{Path: "/usr/bin/env", Dir: t.TempDir(), Env: env, Cols: 80, Rows: 24})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = p.Close() })
+			out, err := io.ReadAll(p)
+			require.NoError(t, err)
+			assert.False(t, strings.Contains(string(out), "PTYPROC_SECRET"), "the parent environment leaked")
+		})
+	}
+}
+
+func TestInitialSize(t *testing.T) {
+	t.Parallel()
+	for i := 0; i < 50; i++ {
+		p, err := Start(Spec{Path: "/bin/sh", Args: []string{"-c", "stty size"}, Dir: t.TempDir(), Env: []string{"PATH=/usr/bin:/bin"}, Cols: 100, Rows: 40})
+		require.NoError(t, err)
+		out, err := io.ReadAll(p)
+		require.NoError(t, err)
+		_ = p.Close()
+		require.Contains(t, string(out), "40 100", "iteration %d", i)
+	}
+}
+
+func TestCloseAfterExit(t *testing.T) {
+	t.Parallel()
+	p := startProc(t, "/bin/sh", "-c", "exit 0")
+	require.NotNil(t, p.Wait())
+	var signals atomic.Int32
+	p.signal = func(int, syscall.Signal) error {
+		signals.Add(1)
+		return nil
+	}
+	require.NoError(t, p.Close())
+	assert.Zero(t, signals.Load(), "no signal may go to a reaped pid")
+}
+
+func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
+	t.Parallel()
+	p := startProc(t, "/bin/sleep", "60")
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = p.Close()
+		}()
+	}
+	wg.Wait()
+	assert.NoError(t, p.Close())
+}
+
+func TestCloseEscalatesToKill(t *testing.T) {
+	t.Parallel()
+	p := startProc(t, "/bin/sh", "-c", "trap '' HUP; echo ready; while :; do sleep 1; done")
+	readUntil(t, p, "ready")
+	started := time.Now()
+	require.NoError(t, p.Close())
+	assert.GreaterOrEqual(t, time.Since(started), killGrace-100*time.Millisecond)
+	assert.Nil(t, p.Wait(), "a signal ended it")
+}
+
+func TestNoDescriptorLeak(t *testing.T) {
+	before := openFDs(t)
+	for i := 0; i < 50; i++ {
+		p, err := Start(Spec{Path: "/bin/sh", Args: []string{"-c", "exit 0"}, Dir: t.TempDir(), Env: []string{}, Cols: 80, Rows: 24})
+		require.NoError(t, err)
+		p.Wait()
+		require.NoError(t, p.Close())
+	}
+	assert.LessOrEqual(t, openFDs(t), before)
+}
+
+func TestIOAfterExitAndClose(t *testing.T) {
+	t.Parallel()
+	p := startProc(t, "/bin/sh", "-c", "exit 0")
+	p.Wait()
+	assert.NoError(t, p.Resize(90, 30), "Resize after exit still works")
+	require.NoError(t, p.Close())
+	assert.Error(t, p.Resize(90, 30), "Resize after Close fails")
+	_, err := p.Write([]byte("x"))
+	assert.Error(t, err, "Write after Close fails")
+}
+
+func openFDs(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Skip("no /proc/self/fd")
+	}
+	return len(entries)
 }
