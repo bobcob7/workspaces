@@ -403,6 +403,17 @@ func TestServer_handleTerminal(t *testing.T) {
 		c.writeFrame(t, 'i', bytes.Repeat([]byte("k"), 64<<10))
 		require.Eventually(t, func() bool { return len(term.inputBytes()) == 64<<10 }, 5*time.Second, 5*time.Millisecond)
 	})
+	t.Run("an empty input frame isn't passed on", func(t *testing.T) {
+		term := newFakeTerminal()
+		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
+		c := openTerminalRaw(t, p)
+		c.writeFrame(t, 'i', nil)
+		c.writeFrame(t, 'r', envproto.ResizeBody(10, 10))
+		require.Eventually(t, func() bool { return len(term.resizeCalls()) == 1 }, 5*time.Second, 5*time.Millisecond)
+		term.mu.Lock()
+		defer term.mu.Unlock()
+		assert.Empty(t, term.inputs)
+	})
 	t.Run("input is delivered in order, one call at a time", func(t *testing.T) {
 		term := newFakeTerminal()
 		var active, overlap atomic.Int32
