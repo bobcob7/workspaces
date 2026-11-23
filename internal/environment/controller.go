@@ -452,7 +452,7 @@ func (c *Controller) Close() error {
 	c.cancel = nil
 	c.mu.Unlock()
 	cancel()
-	c.endTerminals("")
+	c.endTerminals("", true)
 	for _, unsub := range unsubscribe {
 		unsub()
 	}
@@ -497,7 +497,7 @@ func (c *Controller) onStatus(ctx context.Context, msg *envproto.Message) {
 	}
 	cameBack := c.recordStatus(id, &hello)
 	if hello.Status != envproto.StatusOnline {
-		c.endTerminals(id)
+		c.endTerminals(id, false)
 		return
 	}
 	if cameBack {

@@ -13,6 +13,9 @@ import (
 	"github.com/bobcob7/workspaces/internal/envproto"
 )
 
+// abandonedCloseWait bounds the close sent for a terminal OpenTerminal abandoned.
+const abandonedCloseWait = 5 * time.Second
+
 // ErrTerminalEnded is returned for input to a terminal that has ended.
 var ErrTerminalEnded = errors.New("the terminal has ended")
 
@@ -53,6 +56,7 @@ type Terminal struct {
 	queued   int
 	dropped  uint64 // bytes dropped that the next entry's marker announces
 	redrawAt time.Time
+	trailing *time.Timer // the redraw owed when a gap came within RedrawEvery of the last one.
 	exit     envproto.TerminalExit
 	ended    bool
 
@@ -66,7 +70,8 @@ type Terminal struct {
 }
 
 // OpenTerminal sends terminal.open to name and returns the terminal once
-// the agent answered. Errors are Call's (OfflineError, OutdatedError, ...) or
+// the agent answered. If ctx ends or the call times out after the agent
+// replied ok, the terminal is closed on the agent in the background. Errors are Call's (OfflineError, OutdatedError, ...) or
 // the agent's reply error.
 //
 // The terminal is registered when the reply is delivered, before the broker
@@ -87,6 +92,9 @@ func (c *Controller) OpenTerminal(ctx context.Context, name string, args envprot
 	term, result := opened.get()
 	if err != nil {
 		term.discard()
+		if term != nil && result.SID != "" {
+			go c.closeAbandoned(name, result.SID)
+		}
 		return nil, envproto.TerminalOpenResult{}, err
 	}
 	if !reply.OK {
@@ -97,6 +105,20 @@ func (c *Controller) OpenTerminal(ctx context.Context, name string, args envprot
 		return nil, envproto.TerminalOpenResult{}, fmt.Errorf("environment %s answered terminal.open without a usable terminal id", name)
 	}
 	return term, result, nil
+}
+
+// closeAbandoned asks the agent, best effort, to close a terminal it opened
+// but whose open call ended without handing it to the caller.
+func (c *Controller) closeAbandoned(name, sid string) {
+	ctx, cancel := context.WithTimeout(context.Background(), abandonedCloseWait)
+	defer cancel()
+	raw, err := json.Marshal(envproto.TerminalCloseArgs{SID: sid})
+	if err != nil {
+		return
+	}
+	if _, err := c.callTerminal(ctx, name, envproto.OpTerminalClose, raw, nil); err != nil {
+		c.log.DebugContext(ctx, "abandoned terminal not closed", "sid", sid, "error", err)
+	}
 }
 
 // replyFailure is the error for a reply that isn't ok.
@@ -204,9 +226,13 @@ func (c *Controller) terminalsOf(env string) []*Terminal {
 }
 
 // endTerminals ends the terminals of environment env ("" for all) as disconnected.
-func (c *Controller) endTerminals(env string) {
+// With stop it also cancels their contexts, which drops output not yet read.
+func (c *Controller) endTerminals(env string, stop bool) {
 	for _, term := range c.terminalsOf(env) {
 		term.finish(envproto.TerminalExit{Reason: "disconnected"})
+		if stop {
+			term.cancel()
+		}
 	}
 }
 
@@ -254,6 +280,9 @@ func (t *Terminal) receive(ctx context.Context, payload []byte) {
 }
 
 // apply queues what frame says to show and returns the exit it carries, if any.
+// A sequence number far ahead of the last one is taken at its word: the agent
+// is authenticated, but one huge number makes every later frame look like a
+// duplicate, so the stream stays dead until Close or the environment going offline.
 func (t *Terminal) apply(ctx context.Context, frame *envproto.Frame) *envproto.TerminalExit {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -309,13 +338,36 @@ func (t *Terminal) pushLocked(b []byte, data bool) {
 	}
 }
 
-// wantRedrawLocked asks keepAlive for a redraw, at most once per RedrawEvery. t.mu must be held.
+// wantRedrawLocked asks keepAlive for a redraw, at most once per RedrawEvery.
+// A gap inside the window gets one trailing redraw when the window ends, so a
+// storm followed by silence still ends in a repaired screen. t.mu must be held.
 func (t *Terminal) wantRedrawLocked() {
 	now := t.c.now()
 	if !t.redrawAt.IsZero() && now.Sub(t.redrawAt) < envproto.RedrawEvery {
+		if t.trailing == nil {
+			wait := envproto.RedrawEvery - now.Sub(t.redrawAt)
+			t.trailing = time.AfterFunc(wait, t.trailingRedraw)
+		}
 		return
 	}
 	t.redrawAt = now
+	t.signalRedraw()
+}
+
+// trailingRedraw asks for the redraw a suppressed gap is owed.
+func (t *Terminal) trailingRedraw() {
+	t.mu.Lock()
+	t.trailing = nil
+	if t.ended {
+		t.mu.Unlock()
+		return
+	}
+	t.redrawAt = t.c.now()
+	t.mu.Unlock()
+	t.signalRedraw()
+}
+
+func (t *Terminal) signalRedraw() {
 	select {
 	case t.redraw <- struct{}{}:
 	default:
@@ -433,6 +485,10 @@ func (t *Terminal) finish(exit envproto.TerminalExit) {
 	t.ended = true
 	t.exit = exit
 	close(t.endCh)
+	if t.trailing != nil {
+		t.trailing.Stop()
+		t.trailing = nil
+	}
 	t.mu.Unlock()
 	t.c.unregister(t)
 	select {
@@ -490,7 +546,9 @@ func (t *Terminal) sendLocked(ctx context.Context, kind envproto.FrameKind, body
 }
 
 // Input publishes one input frame per MaxInputBytes slice of p at QoS 1,
-// waiting for each publish. Concurrent calls don't interleave.
+// waiting for each publish. Concurrent calls don't interleave. A publish that
+// fails, including one cut short by ctx, ends the whole terminal, so callers
+// must pass a long-lived ctx, not a request-scoped one.
 func (t *Terminal) Input(ctx context.Context, p []byte) error {
 	t.inMu.Lock()
 	defer t.inMu.Unlock()
@@ -505,6 +563,7 @@ func (t *Terminal) Input(ctx context.Context, p []byte) error {
 }
 
 // Resize publishes a resize frame; a size outside 1 to MaxTermSize is refused.
+// Like Input, it ends the terminal when the publish fails, so ctx must be long-lived.
 func (t *Terminal) Resize(ctx context.Context, cols, rows int) error {
 	if cols < 1 || cols > envproto.MaxTermSize || rows < 1 || rows > envproto.MaxTermSize {
 		return fmt.Errorf("a terminal size is 1 to %d: %dx%d", envproto.MaxTermSize, cols, rows)
