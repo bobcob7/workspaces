@@ -188,9 +188,9 @@ func (a *App) runRemoteClaude(ctx context.Context, opts *claudeOptions, env, par
 	if err != nil {
 		return err
 	}
-	var object map[string]json.RawMessage
-	if err = json.Unmarshal(result, &object); err != nil {
-		return newError(codeInternal, fmt.Errorf("reading the result of %s: %w", env, err))
+	object, err := remoteObject(result, env)
+	if err != nil {
+		return err
 	}
 	if !a.global.json {
 		return a.printRemoteClaude(object, env)
@@ -200,23 +200,38 @@ func (a *App) runRemoteClaude(ctx context.Context, opts *claudeOptions, env, par
 		return fmt.Errorf("encoding the environment name: %w", err)
 	}
 	object["environment"] = name
-	if len(a.warned) > 0 {
-		if err := addWarnings(object, a.warned); err != nil {
-			return err
-		}
+	if err := addWarnings(object, a.warned); err != nil {
+		return err
 	}
 	return a.writeJSON(object)
 }
 
-// addWarnings appends warnings to the "warnings" list of the agent's result.
+// remoteObject reads an agent's result, which must be a JSON object.
+func remoteObject(result json.RawMessage, env string) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(result, &object); err != nil {
+		return nil, newError(codeInternal, fmt.Errorf("reading the result of %s: %w", env, err))
+	}
+	if object == nil {
+		return nil, newError(codeInternal, fmt.Errorf("reading the result of %s: not a JSON object", env))
+	}
+	return object, nil
+}
+
+// addWarnings appends warnings to the "warnings" list of the agent's result,
+// which is always a list.
 func addWarnings(object map[string]json.RawMessage, warnings []string) error {
-	var all []string
+	all := []string{}
 	if raw, ok := object["warnings"]; ok {
 		if err := json.Unmarshal(raw, &all); err != nil {
 			return newError(codeInternal, fmt.Errorf("reading the warnings of the result: %w", err))
 		}
 	}
-	data, err := json.Marshal(slices.Concat(all, warnings))
+	merged := slices.Concat(all, warnings)
+	if merged == nil {
+		merged = []string{}
+	}
+	data, err := json.Marshal(merged)
 	if err != nil {
 		return fmt.Errorf("encoding the warnings: %w", err)
 	}

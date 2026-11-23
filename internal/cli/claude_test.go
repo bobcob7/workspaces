@@ -1119,6 +1119,40 @@ func TestApp_runClaude_environment(t *testing.T) {
 		assert.Equal(t, "/srv/ws/fix-login-1", got["path"])
 		assert.Equal(t, []any{}, got["warnings"])
 	})
+	t.Run("--json merges the local warnings into the agent's", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1","warnings":["agent warning"]},"error":null}`, nil)
+		e.app.global.json = true
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
+		}
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		var got struct {
+			Warnings []string `json:"warnings"`
+		}
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Equal(t, []string{"agent warning", "not a child of fix-login-d8efb24f: it runs on linux-server"}, got.Warnings)
+	})
+	t.Run("--json lists the local warnings when the result has no warnings key", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1"},"error":null}`, nil)
+		e.app.global.json = true
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
+		}
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		var got struct {
+			Warnings []string `json:"warnings"`
+		}
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Equal(t, []string{"not a child of fix-login-d8efb24f: it runs on linux-server"}, got.Warnings)
+	})
+	t.Run("--json has an empty warnings list when there are none", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1"},"error":null}`, nil)
+		e.app.global.json = true
+		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		var got map[string]any
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		assert.Equal(t, []any{}, got["warnings"])
+	})
 	t.Run("without --json prints the line with the environment", func(t *testing.T) {
 		e := newRemoteClaudeEnv(t, remoteCreated, nil)
 		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
@@ -1135,6 +1169,13 @@ func TestApp_runClaude_environment(t *testing.T) {
 		err := run(e, claudeOptions{env: "linux-server"})
 		requireCode(t, codeInternal, err)
 		assert.Equal(t, "from_the_future", asCLIError(err).details["remote_code"])
+	})
+	t.Run("a null result is internal", func(t *testing.T) {
+		for _, asJSON := range []bool{false, true} {
+			e := newRemoteClaudeEnv(t, `{"ok":true,"result":null,"error":null}`, nil)
+			e.app.global.json = asJSON
+			requireCode(t, codeInternal, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		}
 	})
 	t.Run("offline maps to environment_offline with details", func(t *testing.T) {
 		e := newRemoteClaudeEnv(t, "", &daemon.RemoteError{Code: "environment_offline", Message: "offline", Details: map[string]any{"environment": "linux-server"}})
