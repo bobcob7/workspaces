@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -253,14 +254,19 @@ func decodeStrict(raw json.RawMessage, target any) error {
 }
 
 // Validate checks the fields of a decoded argument struct (ADR 0073) that
-// need no file system: Kind; Specs not starting with "-" (spec_invalid);
-// Name and RenameArgs.Name 1-64 bytes without control characters
-// (name_invalid); Model against modelPattern; Prompt 1..MaxPromptBytes,
-// required for KindRunner and refused with Endpoint for KindClaude;
-// Message 1..MaxMessageBytes; Tail 0..MaxTail; every workspace reference
-// and Parent non-empty and without a NUL byte. Paths are checked by the
-// agent.
+// need no file system: Kind; Specs not starting with "-" and without
+// surrounding whitespace or control characters (spec_invalid); Name and
+// RenameArgs.Name 1-64 bytes without control characters (name_invalid);
+// Model against modelPattern; Endpoint 1-128 bytes, not starting with "-",
+// without control characters; Prompt 1..MaxPromptBytes, required for
+// KindRunner and refused with Endpoint for KindClaude; Message
+// 1..MaxMessageBytes; Tail 0..MaxTail; every workspace reference and Parent
+// non-empty and without a NUL byte. A nil pointer is a usage error. Paths
+// are checked by the agent.
 func Validate(args any) error {
+	if isNilPointer(args) {
+		return usageError("missing operation arguments")
+	}
 	switch a := args.(type) {
 	case *CreateArgs:
 		return validateCreate(a)
@@ -287,6 +293,11 @@ func ValidRequestID(id string) bool {
 	return requestIDRegex.MatchString(id)
 }
 
+func isNilPointer(args any) bool {
+	v := reflect.ValueOf(args)
+	return v.Kind() == reflect.Pointer && v.IsNil()
+}
+
 func validateCreate(a *CreateArgs) error {
 	if err := validateKind(a); err != nil {
 		return err
@@ -309,7 +320,19 @@ func validateCreate(a *CreateArgs) error {
 	if a.Model != nil && !modelPattern.MatchString(*a.Model) {
 		return usageError("model " + strconv.Quote(*a.Model) + " is not a valid model name")
 	}
+	if a.Endpoint != nil {
+		if err := validateEndpoint(*a.Endpoint); err != nil {
+			return err
+		}
+	}
 	return validatePrompt(a)
+}
+
+func validateEndpoint(endpoint string) error {
+	if endpoint == "" || len(endpoint) > 128 || strings.HasPrefix(endpoint, "-") || strings.ContainsFunc(endpoint, unicode.IsControl) {
+		return usageError("an endpoint is 1 to 128 bytes, does not start with a dash and has no control characters")
+	}
+	return nil
 }
 
 func validateKind(a *CreateArgs) error {
@@ -341,7 +364,7 @@ func validatePrompt(a *CreateArgs) error {
 }
 
 func validateSpec(spec string) error {
-	if strings.HasPrefix(spec, "-") || spec == "" {
+	if spec == "" || strings.HasPrefix(spec, "-") || strings.TrimSpace(spec) != spec || strings.ContainsFunc(spec, unicode.IsControl) {
 		return &ArgsError{Code: "spec_invalid", Message: "spec " + strconv.Quote(spec) + " is not a workspace spec"}
 	}
 	return nil

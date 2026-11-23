@@ -92,6 +92,24 @@ func TestDecodeArgs(t *testing.T) {
 		_, err := DecodeArgs(OpWorkspaceCreate, raw)
 		assertArgsError(t, err, "usage")
 	})
+	t.Run("refuses an endpoint that starts with a dash with usage", func(t *testing.T) {
+		raw := json.RawMessage(`{"kind":"runner","specs":[],"prompt":"x","endpoint":"--foo"}`)
+		_, err := DecodeArgs(OpWorkspaceCreate, raw)
+		assertArgsError(t, err, "usage")
+	})
+	t.Run("refuses an empty endpoint with usage", func(t *testing.T) {
+		raw := json.RawMessage(`{"kind":"runner","specs":[],"prompt":"x","endpoint":""}`)
+		_, err := DecodeArgs(OpWorkspaceCreate, raw)
+		assertArgsError(t, err, "usage")
+	})
+	t.Run("decodes a runner with a valid endpoint", func(t *testing.T) {
+		raw := json.RawMessage(`{"kind":"runner","specs":[],"prompt":"x","endpoint":"lab-gpu"}`)
+		got, err := DecodeArgs(OpWorkspaceCreate, raw)
+		require.NoError(t, err)
+		args, ok := got.(*CreateArgs)
+		require.True(t, ok)
+		assert.Equal(t, "lab-gpu", *args.Endpoint)
+	})
 }
 
 func TestValidate(t *testing.T) {
@@ -135,6 +153,52 @@ func TestValidate(t *testing.T) {
 	})
 	t.Run("refuses an unknown kind with usage", func(t *testing.T) {
 		assertArgsError(t, Validate(&CreateArgs{Kind: "files"}), "usage")
+	})
+	t.Run("refuses an endpoint that starts with a dash with usage", func(t *testing.T) {
+		prompt, endpoint := "x", "--foo"
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindRunner, Prompt: &prompt, Endpoint: &endpoint}), "usage")
+	})
+	t.Run("refuses an empty endpoint with usage", func(t *testing.T) {
+		prompt, endpoint := "x", ""
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindRunner, Prompt: &prompt, Endpoint: &endpoint}), "usage")
+	})
+	t.Run("refuses an endpoint longer than 128 bytes with usage", func(t *testing.T) {
+		prompt, endpoint := "x", strings.Repeat("e", 129)
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindRunner, Prompt: &prompt, Endpoint: &endpoint}), "usage")
+	})
+	t.Run("refuses an endpoint with a control character with usage", func(t *testing.T) {
+		prompt, endpoint := "x", "lab\x00gpu"
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindRunner, Prompt: &prompt, Endpoint: &endpoint}), "usage")
+	})
+	t.Run("refuses a spec with leading whitespace with spec_invalid", func(t *testing.T) {
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindClaude, Specs: []string{" -x"}}), "spec_invalid")
+	})
+	t.Run("refuses an empty spec with spec_invalid", func(t *testing.T) {
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindClaude, Specs: []string{""}}), "spec_invalid")
+	})
+	t.Run("refuses a spec with a control character with spec_invalid", func(t *testing.T) {
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindClaude, Specs: []string{"buff\x00bear"}}), "spec_invalid")
+	})
+	t.Run("refuses a nil argument pointer with usage", func(t *testing.T) {
+		assertArgsError(t, Validate((*CreateArgs)(nil)), "usage")
+	})
+	t.Run("accepts a create with a valid name and parent", func(t *testing.T) {
+		assert.NoError(t, Validate(&CreateArgs{Kind: KindClaude, Name: new("new-name"), Parent: new("parent")}))
+	})
+	t.Run("refuses a create name with a control character with name_invalid", func(t *testing.T) {
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindClaude, Name: new("bad\nname")}), "name_invalid")
+	})
+	t.Run("refuses an empty parent with usage", func(t *testing.T) {
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindClaude, Parent: new("")}), "usage")
+	})
+	t.Run("refuses a parent with a NUL byte with usage", func(t *testing.T) {
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindClaude, Parent: new("a\x00b")}), "usage")
+	})
+	t.Run("refuses an empty prompt on a runner with usage", func(t *testing.T) {
+		assertArgsError(t, Validate(&CreateArgs{Kind: KindRunner, Prompt: new("")}), "usage")
+	})
+	t.Run("accepts a model that matches the model pattern", func(t *testing.T) {
+		assert.NoError(t, Validate(&CreateArgs{Kind: KindClaude, Model: new("claude-opus-5-5")}))
 	})
 }
 
