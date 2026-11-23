@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/x509"
+	"encoding/pem"
 	"sync"
 	"testing"
 	"time"
@@ -153,17 +154,19 @@ func privateKeyDER(t *testing.T, key *ecdsa.PrivateKey) []byte {
 	return der
 }
 
-// privateKeyForms are the encodings a leaked key could take on the wire: PKCS#8 DER, SEC1 DER and the raw scalar.
+// privateKeyForms are the encodings a leaked key could take on the wire: PKCS#8 DER and PEM, SEC1 DER and the raw scalar.
 func privateKeyForms(t *testing.T, key *ecdsa.PrivateKey) map[string][]byte {
 	t.Helper()
 	sec1, err := x509.MarshalECPrivateKey(key)
 	require.NoError(t, err)
 	scalar, err := key.Bytes()
 	require.NoError(t, err)
+	der := privateKeyDER(t, key)
 	return map[string][]byte{
-		"PKCS#8": privateKeyDER(t, key),
-		"SEC1":   sec1,
-		"scalar": scalar,
+		"PKCS#8":     der,
+		"PKCS#8 PEM": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}),
+		"SEC1":       sec1,
+		"scalar":     scalar,
 	}
 }
 
