@@ -7,8 +7,10 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Operation names of ADR 0078's loop rows.
@@ -234,6 +236,9 @@ func validateLoopSpec(a *LoopSpec) error {
 	if a.Script != nil && len(*a.Script) > MaxScriptBytes {
 		return usageError(fmt.Sprintf("a script is at most %d bytes", MaxScriptBytes))
 	}
+	if a.Script != nil && !validLoopText(*a.Script) {
+		return usageError("a script is UTF-8 text without NUL")
+	}
 	if a.Vars != nil {
 		return validateLoopVars(*a.Vars)
 	}
@@ -259,7 +264,27 @@ func validateLoopOptions(a *LoopSpec) error {
 	if a.PermissionMode != nil && !slices.Contains(PermissionModes(), *a.PermissionMode) {
 		return usageError("permission mode " + strconv.Quote(*a.PermissionMode) + " is not one of " + fmt.Sprint(PermissionModes()))
 	}
+	if err := validateLoopDuration("every", a.Every); err != nil {
+		return err
+	}
+	return validateLoopDuration("script_timeout", a.ScriptTimeout)
+}
+
+// validateLoopDuration checks a given duration argument: a positive Go duration
+// (so never a flag or text with control characters). ws checks the allowed range.
+func validateLoopDuration(field string, value *string) error {
+	if value == nil {
+		return nil
+	}
+	if d, err := time.ParseDuration(*value); err != nil || d <= 0 {
+		return usageError(field + " is a positive duration such as 15m")
+	}
 	return nil
+}
+
+// validLoopText reports whether s is valid UTF-8 without NUL.
+func validLoopText(s string) bool {
+	return utf8.ValidString(s) && !strings.Contains(s, "\x00")
 }
 
 func validateLoopTitle(title *string) error {
@@ -279,6 +304,9 @@ func validateLoopPrompt(prompt *string) error {
 	if *prompt == "" || len(*prompt) > MaxPromptBytes {
 		return usageError(fmt.Sprintf("a prompt is 1 to %d bytes", MaxPromptBytes))
 	}
+	if !validLoopText(*prompt) {
+		return usageError("a prompt is UTF-8 text without NUL")
+	}
 	return nil
 }
 
@@ -293,6 +321,9 @@ func validateLoopVars(vars map[string]string) error {
 		}
 		if len(value) > MaxVarValueBytes {
 			return usageError(fmt.Sprintf("a var value is at most %d bytes", MaxVarValueBytes))
+		}
+		if !validLoopText(value) {
+			return usageError("a var value is UTF-8 text without NUL")
 		}
 		total += len(key) + len(value)
 	}

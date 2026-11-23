@@ -194,3 +194,152 @@ func TestSnapshot_loops(t *testing.T) {
 		assert.Equal(t, in.Loops[0].NextRunAt.UTC(), out.Loops[0].NextRunAt.UTC())
 	})
 }
+
+func TestValidate_loopDurations(t *testing.T) {
+	t.Run("every that is not a duration is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Every: new("soon")}), "usage")
+	})
+	t.Run("every starting with a dash is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Every: new("--force")}), "usage")
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Every: new("-5m")}), "usage")
+	})
+	t.Run("an empty every is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Every: new("")}), "usage")
+	})
+	t.Run("a zero every is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Every: new("0s")}), "usage")
+	})
+	t.Run("every with a control character is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Every: new("5m\n")}), "usage")
+	})
+	t.Run("a valid every is accepted and ws keeps the range check", func(t *testing.T) {
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Every: new("15m")}))
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Every: new("1s")}))
+	})
+	t.Run("a script_timeout that is not a duration is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", ScriptTimeout: new("--x")}), "usage")
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", ScriptTimeout: new("")}), "usage")
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", ScriptTimeout: new("-1s")}), "usage")
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", ScriptTimeout: new("0s")}), "usage")
+	})
+	t.Run("a valid script_timeout is accepted", func(t *testing.T) {
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", ScriptTimeout: new("30s")}))
+	})
+}
+
+func TestValidate_loopText(t *testing.T) {
+	t.Run("a script with a NUL is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Script: new("a\x00b")}), "usage")
+	})
+	t.Run("a prompt with a NUL is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Prompt: new("\x00p")}), "usage")
+	})
+	t.Run("a var value with a NUL is refused", func(t *testing.T) {
+		vars := map[string]string{"A": "x\x00"}
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Vars: &vars}), "usage")
+	})
+	t.Run("a script, prompt or var value that is not UTF-8 is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Script: new("\xff")}), "usage")
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Prompt: new("\xff")}), "usage")
+		vars := map[string]string{"A": "\xff"}
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Vars: &vars}), "usage")
+	})
+	t.Run("newlines, tabs and carriage returns are allowed in a script and a prompt", func(t *testing.T) {
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Script: new("a\n\tb\r\n"), Prompt: new("p\nq")}))
+	})
+}
+
+func TestValidate_loopBounds(t *testing.T) {
+	t.Run("refuses a negative list offset and accepts 0", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopListArgs{Offset: -1}), "usage")
+		assert.NoError(t, Validate(&LoopListArgs{Offset: 0}))
+	})
+	t.Run("refuses a negative history limit and accepts 0 and the maximum", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopHistoryArgs{Name: "a", Limit: -1}), "usage")
+		assert.NoError(t, Validate(&LoopHistoryArgs{Name: "a", Limit: 0}))
+		assert.NoError(t, Validate(&LoopHistoryArgs{Name: "a", Limit: MaxHistoryLimit}))
+	})
+	t.Run("vars of exactly 32 KiB counting keys and values are accepted", func(t *testing.T) {
+		vars := map[string]string{}
+		for i := range 8 {
+			vars[fmt.Sprintf("V%d", i)] = strings.Repeat("v", MaxVarValueBytes-2)
+		}
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Vars: &vars}))
+	})
+	t.Run("vars one byte over 32 KiB are refused because keys count", func(t *testing.T) {
+		vars := map[string]string{}
+		for i := range 8 {
+			vars[fmt.Sprintf("V%d", i)] = strings.Repeat("v", MaxVarValueBytes-2)
+		}
+		vars["V0"] += "v"
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Vars: &vars}), "usage")
+	})
+	t.Run("32 vars are accepted", func(t *testing.T) {
+		vars := map[string]string{}
+		for i := range MaxVars {
+			vars[fmt.Sprintf("V%d", i)] = "x"
+		}
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Vars: &vars}))
+	})
+	t.Run("an empty prompt is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Prompt: new("")}), "usage")
+	})
+	t.Run("a title with a control character is refused", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Title: new("a\x07b")}), "usage")
+	})
+	t.Run("a title of exactly 80 bytes is accepted", func(t *testing.T) {
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Title: new(strings.Repeat("t", 80))}))
+	})
+	t.Run("accepts both runners", func(t *testing.T) {
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Runner: new("ws")}))
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Runner: new("claude")}))
+	})
+	t.Run("refuses an invalid model with usage", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Model: new("-x")}), "usage")
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Model: new("claude-sonnet-5-5")}))
+	})
+	t.Run("refuses an invalid endpoint with usage", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Endpoint: new("-x")}), "usage")
+		assertArgsError(t, Validate(&LoopSpec{Name: "a", Endpoint: new("")}), "usage")
+		assert.NoError(t, Validate(&LoopSpec{Name: "a", Endpoint: new("local")}))
+	})
+	t.Run("accepts a 40 character name and refuses 41", func(t *testing.T) {
+		require.NoError(t, Validate(&LoopName{Name: strings.Repeat("a", 40)}))
+		assertArgsError(t, Validate(&LoopName{Name: strings.Repeat("a", 41)}), "name_invalid")
+	})
+	t.Run("a snapshot carries at most 100 loops", func(t *testing.T) {
+		assert.Equal(t, 100, MaxSnapshotLoops)
+	})
+}
+
+func TestValidateOp_loopEdit(t *testing.T) {
+	t.Run("refuses loop.edit with a redacted value", func(t *testing.T) {
+		err := validateOp(OpLoopEdit, &LoopSpec{Name: "a", Prompt: new("token [redacted]")})
+		assertArgsError(t, err, "usage")
+		assert.ErrorContains(t, err, "redacted")
+	})
+	t.Run("refuses paused on loop.edit even with another field", func(t *testing.T) {
+		err := validateOp(OpLoopEdit, &LoopSpec{Name: "a", Paused: new(true), Keep: new(3)})
+		assertArgsError(t, err, "usage")
+		assert.ErrorContains(t, err, "paused")
+	})
+	for name, raw := range map[string]string{
+		"vars":           `{"name":"a","vars":{}}`,
+		"hidden":         `{"name":"a","hidden":true}`,
+		"script_timeout": `{"name":"a","script_timeout":"30s"}`,
+		"specs":          `{"name":"a","specs":[]}`,
+		"title":          `{"name":"a","title":"t"}`,
+		"every":          `{"name":"a","every":"15m"}`,
+		"prompt":         `{"name":"a","prompt":"p"}`,
+		"runner":         `{"name":"a","runner":"ws"}`,
+		"endpoint":       `{"name":"a","endpoint":"local"}`,
+		"model":          `{"name":"a","model":"m"}`,
+		"permission":     `{"name":"a","permission_mode":"plan"}`,
+		"script":         `{"name":"a","script":""}`,
+	} {
+		t.Run("a loop.edit that sets only "+name+" is a change", func(t *testing.T) {
+			_, err := DecodeArgs(OpLoopEdit, json.RawMessage(raw))
+			assert.NoError(t, err)
+		})
+	}
+}
