@@ -87,6 +87,7 @@
 
 @media (max-width: 720px) {
   .item button,
+  .itemActive button,
   .reply button,
   .actions button,
   .summary {
