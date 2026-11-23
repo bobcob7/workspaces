@@ -122,7 +122,7 @@ func TestAgent_dispatch(t *testing.T) {
 		require.NotNil(t, reply.Error)
 		assert.Equal(t, "internal", reply.Error.Code)
 	})
-	t.Run("a workspace outside the workspaces is refused before the runner runs", func(t *testing.T) {
+	t.Run("a workspace path outside workspaces/ is refused", func(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)
 		runner := listRunner()
@@ -134,7 +134,7 @@ func TestAgent_dispatch(t *testing.T) {
 		assert.Equal(t, "outside_workspace", reply.Error.Code)
 		assert.Empty(t, runner.RunCalls())
 	})
-	t.Run("an operation the controller doesn't send is refused", func(t *testing.T) {
+	t.Run("an operation the controller may not send is refused", func(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)
 		runner := listRunner()
@@ -156,14 +156,43 @@ func TestAgent_dispatch(t *testing.T) {
 		require.NotNil(t, reply.Error)
 		assert.Equal(t, "usage", reply.Error.Code)
 	})
-	t.Run("ca.update is still answered on the session loop", func(t *testing.T) {
+	t.Run("an operation without a request id is refused", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		reply := askAgent(t, fx, opRequest(t, "", envproto.OpWorkspaceList, envproto.ListArgs{}), "a10")
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "usage", reply.Error.Code)
+		assert.Empty(t, runner.RunCalls())
+	})
+	t.Run("ca.update still updates the roots", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		args := json.RawMessage(marshalTo(t, envproto.CAUpdateArgs{CABundle: pemCertificate(fx.id.Roots[0])}))
+		reply := askAgent(t, fx, marshalTo(t, envproto.Request{Op: envproto.OpCAUpdate, Args: args}), "a7")
+		require.True(t, reply.OK)
+		var result envproto.CAUpdateResult
+		require.NoError(t, json.Unmarshal(reply.Result, &result))
+		assert.Equal(t, fx.id.Fingerprints(), result.Fingerprints)
+		roots, err := fx.files.loadRoots()
+		require.NoError(t, err)
+		require.Len(t, roots, 1)
+		assert.True(t, roots[0].Equal(fx.id.Roots[0]))
+		assert.Empty(t, runner.RunCalls())
+	})
+	t.Run("ca.update refuses a bundle that isn't a certificate", func(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)
 		runner := listRunner()
 		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
 		awaitOnline(t, fx)
 		args := json.RawMessage(marshalTo(t, envproto.CAUpdateArgs{CABundle: "not a certificate"}))
-		reply := askAgent(t, fx, marshalTo(t, envproto.Request{Op: envproto.OpCAUpdate, Args: args}), "a7")
+		reply := askAgent(t, fx, marshalTo(t, envproto.Request{Op: envproto.OpCAUpdate, Args: args}), "a8")
 		require.NotNil(t, reply.Error)
 		assert.Equal(t, "usage", reply.Error.Code)
 		assert.Empty(t, runner.RunCalls())
@@ -195,6 +224,23 @@ func TestAgent_dispatch(t *testing.T) {
 			envproto.RenameArgs{Workspace: "fix-login", Name: "x"}), "a9")
 		assert.True(t, reply.OK)
 		require.Eventually(t, func() bool { return len(client.recorder.on(snapshot)) == 2 }, 5*time.Second, 10*time.Millisecond)
+	})
+	t.Run("an op that fails doesn't republish the snapshot", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		client := &topicRecorder{Client: fx.broker.NewClient()}
+		runner := &operationRunnerMock{RunFunc: func(context.Context, string, any) (json.RawMessage, error) {
+			return nil, &envproto.ReplyError{Code: "name_invalid", Message: "no such name"}
+		}}
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), runner, rand.Reader, opsOptions())
+		runAgent(t, agent)
+		awaitOnline(t, fx)
+		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
+		require.Eventually(t, func() bool { return len(client.recorder.on(snapshot)) == 1 }, 5*time.Second, 10*time.Millisecond)
+		reply := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceRename,
+			envproto.RenameArgs{Workspace: "fix-login", Name: "x"}), "a11")
+		require.NotNil(t, reply.Error)
+		require.Never(t, func() bool { return len(client.recorder.on(snapshot)) > 1 }, 300*time.Millisecond, 10*time.Millisecond)
 	})
 	t.Run("a request id seen before gets the stored reply", func(t *testing.T) {
 		t.Parallel()
