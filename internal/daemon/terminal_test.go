@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -163,9 +164,9 @@ func terminalDaemon(t *testing.T, host EnvironmentHost, origin string) (Paths, <
 const shellArgs = `{"kind":"shell","workspace":null,"name":"s","specs":[],"offline":false,"cols":80,"rows":24}`
 
 // upgradeRequest is a terminal.open request for body with headers.
-func upgradeRequest(name, body string, headers map[string]string) string {
+func upgradeRequest(body string, headers map[string]string) string {
 	var b strings.Builder
-	b.WriteString("POST /v1/environments/" + name + "/terminal HTTP/1.1\r\nHost: ws-daemon\r\nContent-Type: application/json\r\n")
+	b.WriteString("POST /v1/environments/linux/terminal HTTP/1.1\r\nHost: ws-daemon\r\nContent-Type: application/json\r\n")
 	for k, v := range headers {
 		b.WriteString(k + ": " + v + "\r\n")
 	}
@@ -181,9 +182,10 @@ type rawConn struct {
 	r *bufio.Reader
 }
 
-func dialRaw(t *testing.T, p Paths) *rawConn {
+func dialRaw(t *testing.T, socket string) *rawConn {
 	t.Helper()
-	conn, err := net.Dial("unix", p.Socket)
+	var d net.Dialer
+	conn, err := d.DialContext(t.Context(), "unix", socket)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
@@ -205,7 +207,7 @@ func (c *rawConn) writeFrame(t *testing.T, kind byte, body []byte) {
 	header := make([]byte, 5)
 	header[0] = kind
 	binary.BigEndian.PutUint32(header[1:], uint32(len(body)))
-	_, err := c.Write(append(header, body...))
+	_, err := c.Write(slices.Concat(header, body))
 	require.NoError(t, err)
 }
 
@@ -227,10 +229,10 @@ func (c *rawConn) assertEnds(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func openTerminalRaw(t *testing.T, p Paths) *rawConn {
+func openTerminalRaw(t *testing.T, socket string) *rawConn {
 	t.Helper()
-	c := dialRaw(t, p)
-	resp := c.send(t, upgradeRequest("linux", shellArgs, upgradeHeaders))
+	c := dialRaw(t, socket)
+	resp := c.send(t, upgradeRequest(shellArgs, upgradeHeaders))
 	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 	kind, _ := c.readFrame(t)
 	require.Equal(t, byte('o'), kind)
@@ -251,8 +253,8 @@ func TestServer_handleTerminal(t *testing.T) {
 		term := newFakeTerminal()
 		rec := &openRecord{}
 		p, _ := terminalDaemon(t, terminalHost(rec, term, nil), OriginManaged)
-		c := dialRaw(t, p)
-		resp := c.send(t, upgradeRequest("linux", shellArgs, upgradeHeaders))
+		c := dialRaw(t, p.Socket)
+		resp := c.send(t, upgradeRequest(shellArgs, upgradeHeaders))
 		require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 		assert.Equal(t, "Upgrade", resp.Header.Get("Connection"))
 		assert.Equal(t, "ws-terminal.v1", resp.Header.Get("Upgrade"))
@@ -299,7 +301,7 @@ func TestServer_handleTerminal(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				rec := &openRecord{}
 				p, _ := terminalDaemon(t, terminalHost(rec, newFakeTerminal(), nil), OriginManaged)
-				resp := dialRaw(t, p).send(t, upgradeRequest("linux", shellArgs, headers))
+				resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, headers))
 				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 				assert.Equal(t, "usage", errorCode(t, resp))
 				assert.Zero(t, rec.count())
@@ -309,7 +311,7 @@ func TestServer_handleTerminal(t *testing.T) {
 	t.Run("a connection header with several tokens upgrades", func(t *testing.T) {
 		rec := &openRecord{}
 		p, _ := terminalDaemon(t, terminalHost(rec, newFakeTerminal(), nil), OriginManaged)
-		resp := dialRaw(t, p).send(t, upgradeRequest("linux", shellArgs, map[string]string{"Connection": "keep-alive, Upgrade", "Upgrade": "ws-terminal.v1"}))
+		resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, map[string]string{"Connection": "keep-alive, Upgrade", "Upgrade": "ws-terminal.v1"}))
 		assert.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 	})
 	t.Run("a body that isn't valid, has an unknown member or is too large is usage and the host isn't called", func(t *testing.T) {
@@ -322,7 +324,7 @@ func TestServer_handleTerminal(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				rec := &openRecord{}
 				p, _ := terminalDaemon(t, terminalHost(rec, newFakeTerminal(), nil), OriginManaged)
-				resp := dialRaw(t, p).send(t, upgradeRequest("linux", body, upgradeHeaders))
+				resp := dialRaw(t, p.Socket).send(t, upgradeRequest(body, upgradeHeaders))
 				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 				assert.Equal(t, "usage", errorCode(t, resp))
 				assert.Zero(t, rec.count())
@@ -333,7 +335,7 @@ func TestServer_handleTerminal(t *testing.T) {
 		rec := &openRecord{}
 		host := terminalHost(rec, nil, &HostError{Err: ErrEnvironmentOffline, Message: "environment linux is offline", Details: map[string]any{"environment": "linux"}})
 		p, _ := terminalDaemon(t, host, OriginManaged)
-		resp := dialRaw(t, p).send(t, upgradeRequest("linux", shellArgs, upgradeHeaders))
+		resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, upgradeHeaders))
 		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 		assert.Equal(t, "environment_offline", errorCode(t, resp))
 	})
@@ -345,7 +347,7 @@ func TestServer_handleTerminal(t *testing.T) {
 			&envproto.ArgsError{Code: "spec_invalid", Message: "bad spec"}:             "spec_invalid",
 		} {
 			p, _ := terminalDaemon(t, terminalHost(&openRecord{}, nil, err), OriginManaged)
-			resp := dialRaw(t, p).send(t, upgradeRequest("linux", shellArgs, upgradeHeaders))
+			resp := dialRaw(t, p.Socket).send(t, upgradeRequest(shellArgs, upgradeHeaders))
 			assert.NotEqual(t, http.StatusSwitchingProtocols, resp.StatusCode)
 			assert.Equal(t, want, errorCode(t, resp))
 		}
@@ -353,7 +355,7 @@ func TestServer_handleTerminal(t *testing.T) {
 	t.Run("closing the socket closes the terminal", func(t *testing.T) {
 		term := newFakeTerminal()
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		require.NoError(t, c.Close())
 		term.assertClosed(t)
 		term.assertContextsLive(t)
@@ -361,7 +363,7 @@ func TestServer_handleTerminal(t *testing.T) {
 	t.Run("a close frame closes the terminal and the socket", func(t *testing.T) {
 		term := newFakeTerminal()
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		c.writeFrame(t, 'c', nil)
 		term.assertClosed(t)
 		c.assertEnds(t)
@@ -386,7 +388,7 @@ func TestServer_handleTerminal(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				term := newFakeTerminal()
 				p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-				c := openTerminalRaw(t, p)
+				c := openTerminalRaw(t, p.Socket)
 				_, err := c.Write(raw)
 				require.NoError(t, err)
 				term.assertClosed(t)
@@ -399,14 +401,14 @@ func TestServer_handleTerminal(t *testing.T) {
 	t.Run("an input frame of 64 KiB is passed on whole", func(t *testing.T) {
 		term := newFakeTerminal()
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		c.writeFrame(t, 'i', bytes.Repeat([]byte("k"), 64<<10))
 		require.Eventually(t, func() bool { return len(term.inputBytes()) == 64<<10 }, 5*time.Second, 5*time.Millisecond)
 	})
 	t.Run("an empty input frame isn't passed on", func(t *testing.T) {
 		term := newFakeTerminal()
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		c.writeFrame(t, 'i', nil)
 		c.writeFrame(t, 'r', envproto.ResizeBody(10, 10))
 		require.Eventually(t, func() bool { return len(term.resizeCalls()) == 1 }, 5*time.Second, 5*time.Millisecond)
@@ -429,7 +431,7 @@ func TestServer_handleTerminal(t *testing.T) {
 			return nil
 		}
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		var want strings.Builder
 		for i := range 40 {
 			s := string(rune('a' + i%26))
@@ -447,7 +449,7 @@ func TestServer_handleTerminal(t *testing.T) {
 			return nil
 		}
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		c.writeFrame(t, 'c', nil)
 		term.assertClosed(t)
 		c.assertEnds(t)
@@ -456,7 +458,7 @@ func TestServer_handleTerminal(t *testing.T) {
 		term := newFakeTerminal()
 		term.InputFunc = func(context.Context, []byte) error { return io.ErrClosedPipe }
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		c.writeFrame(t, 'i', []byte("x"))
 		term.assertClosed(t)
 		c.assertEnds(t)
@@ -464,7 +466,7 @@ func TestServer_handleTerminal(t *testing.T) {
 	t.Run("output the terminal ends with is flushed before the socket closes", func(t *testing.T) {
 		term := newFakeTerminal()
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		for range 5 {
 			term.out <- []byte("line")
 		}
@@ -482,7 +484,7 @@ func TestServer_handleTerminal(t *testing.T) {
 	t.Run("a chunk over 64 KiB is split into frames", func(t *testing.T) {
 		term := newFakeTerminal()
 		p, _ := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginManaged)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		term.out <- bytes.Repeat([]byte("z"), 64<<10+10)
 		_, first := c.readFrame(t)
 		_, second := c.readFrame(t)
@@ -492,7 +494,7 @@ func TestServer_handleTerminal(t *testing.T) {
 	t.Run("the daemon doesn't exit idle while a terminal is open", func(t *testing.T) {
 		term := newFakeTerminal()
 		p, done := terminalDaemon(t, terminalHost(&openRecord{}, term, nil), OriginTransient)
-		c := openTerminalRaw(t, p)
+		c := openTerminalRaw(t, p.Socket)
 		select {
 		case err := <-done:
 			t.Fatalf("exited with a terminal open: %v", err)
@@ -501,7 +503,8 @@ func TestServer_handleTerminal(t *testing.T) {
 		c.writeFrame(t, 'c', nil)
 		term.assertClosed(t)
 		select {
-		case <-done:
+		case err := <-done:
+			require.NoError(t, err)
 		case <-time.After(5 * time.Second):
 			t.Fatal("the daemon didn't exit once the terminal ended")
 		}
@@ -516,27 +519,11 @@ func TestServer_handleTerminal(t *testing.T) {
 		srv := &http.Server{Handler: s.routes(), ReadHeaderTimeout: time.Second}
 		go func() { _ = srv.Serve(peerListener{Listener: ln, uid: 1<<31 - 1, log: discardLog()}) }()
 		t.Cleanup(func() { _ = srv.Close() })
-		c := dialRaw(t, p)
-		_, _ = io.WriteString(c, upgradeRequest("linux", shellArgs, upgradeHeaders))
+		c := dialRaw(t, p.Socket)
+		_, _ = io.WriteString(c, upgradeRequest(shellArgs, upgradeHeaders))
 		_, err = http.ReadResponse(c.r, nil)
 		require.Error(t, err, "another user's connection was served")
 		assert.Zero(t, rec.count())
-	})
-}
-
-func TestServer_handleCallEnvironment_terminal(t *testing.T) {
-	t.Parallel()
-	t.Run("terminal.open isn't forwarded by call", func(t *testing.T) {
-		var called atomic.Bool
-		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
-			called.Store(true)
-			return CallReply{}, nil
-		})
-		for _, op := range []string{envproto.OpTerminalOpen, envproto.OpTerminalClose} {
-			_, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest(op))
-			assertRemoteCode(t, err, "usage")
-		}
-		assert.False(t, called.Load())
 	})
 }
 

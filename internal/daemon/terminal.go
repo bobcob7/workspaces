@@ -222,7 +222,7 @@ func (s *server) logFailure(ctx context.Context, what string, err error) bool {
 	if err == nil {
 		return true
 	}
-	s.log.DebugContext(ctx, what+" failed", "error", err)
+	s.log.DebugContext(ctx, "terminal frame failed", "frame", what, "error", err)
 	return false
 }
 

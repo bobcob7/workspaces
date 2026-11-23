@@ -517,4 +517,16 @@ func TestServer_handleCallEnvironment(t *testing.T) {
 			t.Fatal("the host's context wasn't cancelled with the request")
 		}
 	})
+	t.Run("terminal.open isn't forwarded by call", func(t *testing.T) {
+		var called atomic.Bool
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			called.Store(true)
+			return CallReply{}, nil
+		})
+		for _, op := range []string{envproto.OpTerminalOpen, envproto.OpTerminalClose} {
+			_, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest(op))
+			assertRemoteCode(t, err, "usage")
+		}
+		assert.False(t, called.Load())
+	})
 }
