@@ -36,6 +36,8 @@ lint:
 	@! grep -rnE '(syscall|unix)\.Exec\b' --include='*.go' . | grep -v '^\./internal/claude/'
 	@# ADR 0067: the fakes are imported only by themselves, cmd/fake-* and e2e/.
 	@! grep -rnE '"github.com/bobcob7/workspaces/internal/fake(ollama|mcp)' --include='*.go' . | grep -vE '^\./(internal/fake(ollama|mcp)|cmd/fake-[a-z]+|e2e)/' | grep -vE '^\./internal/mcp/[^:]*_test\.go:'
+	@# envtest is a test broker: imported only from _test.go files.
+	@! grep -rn '"github.com/bobcob7/workspaces/internal/environment/envtest"' --include='*.go' . | grep -v '_test\.go:'
 	@# ADR 0062: only the openai provider and the fake requests chat/completions.
 	@! grep -rn 'chat/completions' --include='*.go' . | grep -vE '^\./internal/(llm/openai|fakeollama)/' | grep -v '_test\.go:'
 	@# ADR 0069: the SDK's stdio transport is built in internal/mcp only.

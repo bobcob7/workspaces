@@ -90,6 +90,21 @@ linters:
           deny:
             - pkg: github.com/spf13/cobra
               desc: cobra is imported only by internal/cli and cmd/ws (ADR 0005)
+        mochi:
+          files:
+            - $all
+            - "!**/internal/mqttbroker/**"
+          deny:
+            - pkg: github.com/mochi-mqtt/server
+              desc: the MQTT broker module is imported only by internal/mqttbroker (ADR 0074)
+        paho:
+          files:
+            - $all
+            - "!**/internal/mqttclient/**"
+            - "!**/internal/mqttbroker/*_test.go"
+          deny:
+            - pkg: github.com/eclipse/paho.golang
+              desc: the MQTT client module is imported only by internal/mqttclient and the broker's tests (ADR 0074)
     errcheck:
       check-type-assertions: true
     exhaustive:

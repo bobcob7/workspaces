@@ -43,7 +43,7 @@ func serveDaemon(t *testing.T, app *App, version string) <-chan error {
 	done := make(chan error, 1)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	go func() {
-		done <- daemon.Serve(ctx, app.daemonPaths(), daemon.OriginManaged, daemon.NopSupervisor{}, log)
+		done <- daemon.Serve(ctx, app.daemonPaths(), daemon.OriginManaged, daemon.NopSupervisor{}, daemon.NopEnvironments{}, log)
 	}()
 	require.Eventually(t, func() bool {
 		_, err := daemon.Dial(app.daemonPaths()).Status(ctx)
@@ -206,5 +206,20 @@ func TestEnvironValue(t *testing.T) {
 	})
 	t.Run("returns empty for an unset variable", func(t *testing.T) {
 		assert.Empty(t, environValue(environ, "TMPDIR"))
+	})
+}
+
+func TestEnvironmentsSummary(t *testing.T) {
+	t.Run("off when the listeners are closed", func(t *testing.T) {
+		assert.Equal(t, "environments: off", environmentsSummary(daemon.EnvironmentsStatus{}))
+	})
+	t.Run("counts the environments by status", func(t *testing.T) {
+		env := daemon.EnvironmentsStatus{
+			Listening: true, Listen: "0.0.0.0:8883", EnrollListen: "0.0.0.0:8884",
+			Environments: []daemon.EnvironmentPresence{
+				{Status: "online"}, {Status: "offline"}, {Status: "pending"},
+			},
+		}
+		assert.Equal(t, "environments: listening on 0.0.0.0:8883, enroll on 0.0.0.0:8884; 1 online, 1 offline, 1 pending", environmentsSummary(env))
 	})
 }

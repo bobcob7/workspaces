@@ -871,3 +871,224 @@ func (mock *RunnerRecordsMock) WriteResultCalls() []struct {
 	mock.lockWriteResult.RUnlock()
 	return calls
 }
+
+// Ensure, that EnvironmentHostMock does implement EnvironmentHost.
+// If this is not the case, regenerate this file with moq.
+var _ EnvironmentHost = &EnvironmentHostMock{}
+
+// EnvironmentHostMock is a mock implementation of EnvironmentHost.
+//
+//	func TestSomethingThatUsesEnvironmentHost(t *testing.T) {
+//
+//		// make and configure a mocked EnvironmentHost
+//		mockedEnvironmentHost := &EnvironmentHostMock{
+//			CloseFunc: func() error {
+//				panic("mock out the Close method")
+//			},
+//			ReloadFunc: func(ctx context.Context) error {
+//				panic("mock out the Reload method")
+//			},
+//			StartFunc: func(ctx context.Context) error {
+//				panic("mock out the Start method")
+//			},
+//			StatusFunc: func() EnvironmentsStatus {
+//				panic("mock out the Status method")
+//			},
+//			WarningsFunc: func() []string {
+//				panic("mock out the Warnings method")
+//			},
+//		}
+//
+//		// use mockedEnvironmentHost in code that requires EnvironmentHost
+//		// and then make assertions.
+//
+//	}
+type EnvironmentHostMock struct {
+	// CloseFunc mocks the Close method.
+	CloseFunc func() error
+
+	// ReloadFunc mocks the Reload method.
+	ReloadFunc func(ctx context.Context) error
+
+	// StartFunc mocks the Start method.
+	StartFunc func(ctx context.Context) error
+
+	// StatusFunc mocks the Status method.
+	StatusFunc func() EnvironmentsStatus
+
+	// WarningsFunc mocks the Warnings method.
+	WarningsFunc func() []string
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Close holds details about calls to the Close method.
+		Close []struct {
+		}
+		// Reload holds details about calls to the Reload method.
+		Reload []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// Start holds details about calls to the Start method.
+		Start []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// Status holds details about calls to the Status method.
+		Status []struct {
+		}
+		// Warnings holds details about calls to the Warnings method.
+		Warnings []struct {
+		}
+	}
+	lockClose    sync.RWMutex
+	lockReload   sync.RWMutex
+	lockStart    sync.RWMutex
+	lockStatus   sync.RWMutex
+	lockWarnings sync.RWMutex
+}
+
+// Close calls CloseFunc.
+func (mock *EnvironmentHostMock) Close() error {
+	if mock.CloseFunc == nil {
+		panic("EnvironmentHostMock.CloseFunc: method is nil but EnvironmentHost.Close was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockClose.Lock()
+	mock.calls.Close = append(mock.calls.Close, callInfo)
+	mock.lockClose.Unlock()
+	return mock.CloseFunc()
+}
+
+// CloseCalls gets all the calls that were made to Close.
+// Check the length with:
+//
+//	len(mockedEnvironmentHost.CloseCalls())
+func (mock *EnvironmentHostMock) CloseCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockClose.RLock()
+	calls = mock.calls.Close
+	mock.lockClose.RUnlock()
+	return calls
+}
+
+// Reload calls ReloadFunc.
+func (mock *EnvironmentHostMock) Reload(ctx context.Context) error {
+	if mock.ReloadFunc == nil {
+		panic("EnvironmentHostMock.ReloadFunc: method is nil but EnvironmentHost.Reload was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockReload.Lock()
+	mock.calls.Reload = append(mock.calls.Reload, callInfo)
+	mock.lockReload.Unlock()
+	return mock.ReloadFunc(ctx)
+}
+
+// ReloadCalls gets all the calls that were made to Reload.
+// Check the length with:
+//
+//	len(mockedEnvironmentHost.ReloadCalls())
+func (mock *EnvironmentHostMock) ReloadCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockReload.RLock()
+	calls = mock.calls.Reload
+	mock.lockReload.RUnlock()
+	return calls
+}
+
+// Start calls StartFunc.
+func (mock *EnvironmentHostMock) Start(ctx context.Context) error {
+	if mock.StartFunc == nil {
+		panic("EnvironmentHostMock.StartFunc: method is nil but EnvironmentHost.Start was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockStart.Lock()
+	mock.calls.Start = append(mock.calls.Start, callInfo)
+	mock.lockStart.Unlock()
+	return mock.StartFunc(ctx)
+}
+
+// StartCalls gets all the calls that were made to Start.
+// Check the length with:
+//
+//	len(mockedEnvironmentHost.StartCalls())
+func (mock *EnvironmentHostMock) StartCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockStart.RLock()
+	calls = mock.calls.Start
+	mock.lockStart.RUnlock()
+	return calls
+}
+
+// Status calls StatusFunc.
+func (mock *EnvironmentHostMock) Status() EnvironmentsStatus {
+	if mock.StatusFunc == nil {
+		panic("EnvironmentHostMock.StatusFunc: method is nil but EnvironmentHost.Status was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockStatus.Lock()
+	mock.calls.Status = append(mock.calls.Status, callInfo)
+	mock.lockStatus.Unlock()
+	return mock.StatusFunc()
+}
+
+// StatusCalls gets all the calls that were made to Status.
+// Check the length with:
+//
+//	len(mockedEnvironmentHost.StatusCalls())
+func (mock *EnvironmentHostMock) StatusCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockStatus.RLock()
+	calls = mock.calls.Status
+	mock.lockStatus.RUnlock()
+	return calls
+}
+
+// Warnings calls WarningsFunc.
+func (mock *EnvironmentHostMock) Warnings() []string {
+	if mock.WarningsFunc == nil {
+		panic("EnvironmentHostMock.WarningsFunc: method is nil but EnvironmentHost.Warnings was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockWarnings.Lock()
+	mock.calls.Warnings = append(mock.calls.Warnings, callInfo)
+	mock.lockWarnings.Unlock()
+	return mock.WarningsFunc()
+}
+
+// WarningsCalls gets all the calls that were made to Warnings.
+// Check the length with:
+//
+//	len(mockedEnvironmentHost.WarningsCalls())
+func (mock *EnvironmentHostMock) WarningsCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockWarnings.RLock()
+	calls = mock.calls.Warnings
+	mock.lockWarnings.RUnlock()
+	return calls
+}

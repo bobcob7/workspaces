@@ -1,6 +1,6 @@
 # 0073. The environment agent is `ws` itself, run as `ws env agent run`; the controller sends it whole operations and it runs them with the same code as a local `ws`
 
-- Status: Proposed
+- Status: Accepted (2026-11-22)
 - Date: 2026-11-22
 
 ## Context

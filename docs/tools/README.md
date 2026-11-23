@@ -12,6 +12,7 @@ for people and the desktop app ([0046](../adrs/0046-ws-machine.md)).
 | [`ws continue`](ws-continue.md) | Tell agents stopped by a 5-hour or weekly usage limit to carry on once it resets |
 | [`ws loop`](ws-loop.md) | Start an agent with the same prompt in a new workspace every period; add, edit, list, pause, resume, and remove loops |
 | [`ws daemon`](ws-daemon.md) | Run, check, and stop ws's background service, which starts, watches and restarts runners |
+| [`ws env`](ws-env.md) | Enroll, list, rotate and remove remote environments, and rotate their CA; `ws env agent` runs on the remote |
 | [`ws restart`](ws-restart.md) | Restart Claude Code's background service and every running agent, to pick up new environment variables, MCP servers, or a Claude Code update |
 | [`ws list`](ws-list.md)       | List workspaces and their sessions                       |
 | [`ws rm`](ws-rm.md)           | Remove workspaces and their sessions now                 |

@@ -9,7 +9,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/machine"
 )
 
-//go:generate go tool moq -out moq_test.go . RunnerSupervisor processReader processStarter RunnerRecords
+//go:generate go tool moq -out moq_test.go . RunnerSupervisor processReader processStarter RunnerRecords EnvironmentHost
 
 // Errors the daemon's callers test with errors.Is.
 var (
@@ -36,6 +36,19 @@ type RunnerSupervisor interface {
 	Idle() bool // no live runner
 	// Warnings are the configuration problems the daemon reports in its status.
 	Warnings() []string
+}
+
+// EnvironmentHost is what serves remote environments in the daemon (ADR
+// 0074): the controller, or NopEnvironments.
+type EnvironmentHost interface {
+	// Start listens for environments until Close. A failure is kept as a
+	// warning; the daemon keeps running.
+	Start(ctx context.Context) error
+	// Reload rereads the environments' state.
+	Reload(ctx context.Context) error
+	Status() EnvironmentsStatus
+	Warnings() []string
+	Close() error
 }
 
 // processReader reads a process's start time, to tell a live runner from a

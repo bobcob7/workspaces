@@ -69,6 +69,6 @@ func TestHelperDaemon(t *testing.T) {
 		t.Skip("only runs as the helper daemon")
 	}
 	p := PathsFor(configDir, os.Getenv, os.Getuid())
-	err := serve(t.Context(), p, OriginTransient, NopSupervisor{}, discardLog(), options{idle: idleLimit, parentPoll: parentInterval, getppid: os.Getppid})
+	err := serve(t.Context(), p, OriginTransient, NopSupervisor{}, NopEnvironments{}, discardLog(), options{idle: idleLimit, parentPoll: parentInterval, getppid: os.Getppid})
 	require.NoError(t, err)
 }

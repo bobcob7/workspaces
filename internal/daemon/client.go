@@ -23,7 +23,9 @@ type Status struct {
 	Socket    string         `json:"socket"`
 	ConfigDir string         `json:"config_dir"`
 	Runners   []RunnerStatus `json:"runners"`
-	Warnings  []string       `json:"warnings"`
+	// Environments is null when no daemon answers.
+	Environments *EnvironmentsStatus `json:"environments"`
+	Warnings     []string            `json:"warnings"`
 }
 
 // ShutdownResult is what ws daemon stop reports.
@@ -96,6 +98,13 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	var st Status
 	err := c.do(ctx, http.MethodGet, "/v1/status", nil, &st)
 	return st, err
+}
+
+// ReloadEnvironments asks the daemon to reread the environments (POST
+// /v1/environments/reload). ErrNotRunning when nothing answers.
+func (c *Client) ReloadEnvironments(ctx context.Context) error {
+	var res reloadResponse
+	return c.do(ctx, http.MethodPost, "/v1/environments/reload", nil, &res)
 }
 
 // Preflight checks a model through the daemon.

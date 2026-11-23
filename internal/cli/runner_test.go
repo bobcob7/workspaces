@@ -294,7 +294,9 @@ func serveRunnerDaemon(t *testing.T, app *App) {
 	t.Cleanup(cancel)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	sup := daemon.NewSupervisor(app.supervisorConfig(os.Args[0]), proc.Reader{}, daemon.OSStarter{}, log)
-	go func() { _ = daemon.Serve(ctx, app.daemonPaths(), daemon.OriginManaged, sup, log) }()
+	go func() {
+		_ = daemon.Serve(ctx, app.daemonPaths(), daemon.OriginManaged, sup, daemon.NopEnvironments{}, log)
+	}()
 	require.Eventually(t, func() bool {
 		_, err := daemon.Dial(app.daemonPaths()).Status(ctx)
 		return err == nil

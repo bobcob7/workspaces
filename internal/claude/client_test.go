@@ -391,3 +391,33 @@ func TestClient_Check(t *testing.T) {
 		assert.ErrorIs(t, c.Check(t.Context()), ErrNotInstalled)
 	})
 }
+
+func TestClient_Version(t *testing.T) {
+	t.Parallel()
+	t.Run("returns the parsed version without the minimum", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, ""), []string{"FAKE_VERSION=2.1.84"})
+		version, err := c.Version(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, "2.1.84", version)
+	})
+	t.Run("drops a pre-release suffix", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, ""), []string{"FAKE_VERSION=2.1.304-beta.1"})
+		version, err := c.Version(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, "2.1.304", version)
+	})
+	t.Run("rejects unrecognized output", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, ""), []string{"FAKE_VERSION=banana"})
+		_, err := c.Version(t.Context())
+		assert.ErrorIs(t, err, ErrUnexpectedOutput)
+	})
+	t.Run("claude missing", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), filepath.Join(t.TempDir(), "claude"), nil)
+		_, err := c.Version(t.Context())
+		assert.ErrorIs(t, err, ErrNotInstalled)
+	})
+}

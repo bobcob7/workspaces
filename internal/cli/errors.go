@@ -93,6 +93,12 @@ const (
 	codeModelNotServed      errorCode = "model_not_served"
 	codeModelWithoutTools   errorCode = "model_without_tools"
 	codeRunnerFailed        errorCode = "runner_failed"
+	// From ADRs 0072 and 0075.
+	codeEnvironmentUnknown errorCode = "environment_unknown" // exit 3
+	codeEnvironmentExists  errorCode = "environment_exists"  // exit 4
+	codeEnrollmentFailed   errorCode = "enrollment_failed"   // exit 1
+	codeEnrollmentUsed     errorCode = "enrollment_used"     // exit 4
+	codeCAInUse            errorCode = "ca_in_use"           // exit 4
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -137,7 +143,7 @@ func (c errorCode) exitCode() int {
 		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable,
-		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed:
+		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
@@ -145,12 +151,12 @@ func (c errorCode) exitCode() int {
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown,
-		codeMemoryNotFound, codeEndpointUnknown, codeModelNotServed:
+		codeMemoryNotFound, codeEndpointUnknown, codeModelNotServed, codeEnvironmentUnknown:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
 		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
-		codeDaemonRunning:
+		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse:
 		return exitRefused
 	}
 	return exitFailed

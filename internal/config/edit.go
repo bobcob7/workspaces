@@ -77,6 +77,9 @@ func Settings(data []byte) ([]Setting, error) {
 	}
 	rules = append(rules, profileRules(&cfg)...)
 	rules = append(rules, entryRules(&cfg)...)
+	if meta.IsDefined("environments") {
+		rules = append(rules, environmentRules()...)
+	}
 	settings := make([]Setting, 0, len(rules))
 	for _, rule := range rules {
 		settings = append(settings, settingFor(rule, &cfg, meta))
@@ -410,6 +413,16 @@ func runnerFixedRules() []keyRule {
 	}
 }
 
+// environmentRules are [environments]'s keys, in ws config's order.
+func environmentRules() []keyRule {
+	return []keyRule{
+		{key: "environments.listen", typ: TypeString, table: "environments", leaf: "listen"},
+		{key: "environments.enroll_listen", typ: TypeString, table: "environments", leaf: "enroll_listen"},
+		{key: "environments.public_name", typ: TypeString, table: "environments", leaf: "public_name"},
+		{key: "environments.renew_before_days", typ: TypeInt, table: "environments", leaf: "renew_before_days"},
+	}
+}
+
 // profileRule is review.profiles.<name>.<leaf>.
 func profileRule(name, leaf string) keyRule {
 	table := "review.profiles." + name
@@ -429,7 +442,7 @@ func parseUnsetKey(key string) (keyRule, error) {
 
 // parseKeyWith is parseKey with the rule for profile names passed in.
 func parseKeyWith(key string, nameOK func(string) bool) (keyRule, error) {
-	for _, rule := range append(fixedRules(), runnerFixedRules()...) {
+	for _, rule := range slices.Concat(fixedRules(), runnerFixedRules(), environmentRules()) {
 		if rule.key == key {
 			return rule, nil
 		}
@@ -532,6 +545,9 @@ func valueOf(rule keyRule, cfg *Config) any {
 	case "daemon.resume_on_start":
 		return cfg.Daemon.ResumesOnStart()
 	}
+	if value, ok := environmentValue(rule, cfg); ok {
+		return value
+	}
 	if value, ok := entryValue(rule, cfg); ok {
 		return value
 	}
@@ -540,6 +556,22 @@ func valueOf(rule keyRule, cfg *Config) any {
 		return profile.When
 	}
 	return profile.Model
+}
+
+// environmentValue is the effective value of an [environments] key, and
+// whether rule is one of those keys.
+func environmentValue(rule keyRule, cfg *Config) (any, bool) {
+	switch rule.key {
+	case "environments.listen":
+		return cfg.Environments.ListenAddr(), true
+	case "environments.enroll_listen":
+		return cfg.Environments.EnrollAddr(), true
+	case "environments.public_name":
+		return cfg.Environments.PublicName, true
+	case "environments.renew_before_days":
+		return cfg.Environments.RenewDays(), true
+	}
+	return nil, false
 }
 
 // entryValue is the effective value of a key under an endpoint, model,
@@ -662,6 +694,14 @@ func defaultOf(rule keyRule) any {
 		return true
 	case "runner.user_instructions":
 		return false
+	case "environments.listen":
+		return defaultEnvListen
+	case "environments.enroll_listen":
+		return defaultEnvEnrollListen
+	case "environments.public_name":
+		return ""
+	case "environments.renew_before_days":
+		return defaultRenewBeforeDays
 	}
 	if value, ok := entryDefault(rule); ok {
 		return value
@@ -746,6 +786,9 @@ func normalizeOwners(values []string) ([]string, error) {
 
 // normalizeOne checks the single value of a key other than a list.
 func normalizeOne(rule keyRule, value string) (any, error) {
+	if rule.table == "environments" {
+		return normalizeEnvironment(rule, value)
+	}
 	switch rule.typ {
 	case TypeBool:
 		return normalizeBool(rule.key, value)
@@ -764,6 +807,31 @@ func normalizeOne(rule keyRule, value string) (any, error) {
 		return normalizeProfileValue(rule, value)
 	}
 	return value, nil
+}
+
+// normalizeEnvironment checks an [environments] value with the rules load
+// applies to it, so ws config set refuses what config.toml wouldn't load.
+func normalizeEnvironment(rule keyRule, value string) (any, error) {
+	var env Environments
+	var out any = value
+	switch rule.key {
+	case "environments.listen":
+		env.Listen = value
+	case "environments.enroll_listen":
+		env.EnrollListen = value
+	case "environments.public_name":
+		env.PublicName = value
+	case "environments.renew_before_days":
+		n, err := normalizeInt(rule, value)
+		if err != nil {
+			return nil, err
+		}
+		env.RenewBeforeDays, out = &n, n
+	}
+	if err := env.check(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValueInvalid, err)
+	}
+	return out, nil
 }
 
 func normalizeProfileValue(rule keyRule, value string) (any, error) {

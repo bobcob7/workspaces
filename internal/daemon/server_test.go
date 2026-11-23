@@ -46,6 +46,7 @@ type daemonRun struct {
 	origin  string
 	version string
 	sup     RunnerSupervisor
+	envs    EnvironmentHost // NopEnvironments{} when nil
 	opts    options
 }
 
@@ -58,7 +59,11 @@ func startDaemon(t *testing.T, p Paths, run daemonRun) <-chan error {
 	ctx, cancel := context.WithCancel(WithVersion(t.Context(), run.version))
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, p, run.origin, run.sup, discardLog(), run.opts) }()
+	envs := run.envs
+	if envs == nil {
+		envs = NopEnvironments{}
+	}
+	go func() { done <- serve(ctx, p, run.origin, run.sup, envs, discardLog(), run.opts) }()
 	require.Eventually(t, func() bool {
 		_, err := Dial(p).Status(ctx)
 		return err == nil
@@ -86,7 +91,7 @@ func TestServe(t *testing.T) {
 	t.Run("a second daemon for the same config directory is ErrRunning with the first's pid", func(t *testing.T) {
 		p := testPaths(t)
 		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, opts: fastOptions()})
-		err := serve(t.Context(), p, OriginManaged, NopSupervisor{}, discardLog(), fastOptions())
+		err := serve(t.Context(), p, OriginManaged, NopSupervisor{}, NopEnvironments{}, discardLog(), fastOptions())
 		require.ErrorIs(t, err, ErrRunning)
 		running, ok := errors.AsType[*RunningError](err)
 		require.True(t, ok)
@@ -109,7 +114,7 @@ func TestServe(t *testing.T) {
 		assert.Empty(t, st.Runners)
 	})
 	t.Run("refuses an unknown origin", func(t *testing.T) {
-		err := serve(t.Context(), testPaths(t), "bogus", NopSupervisor{}, discardLog(), fastOptions())
+		err := serve(t.Context(), testPaths(t), "bogus", NopSupervisor{}, NopEnvironments{}, discardLog(), fastOptions())
 		require.Error(t, err)
 	})
 }
@@ -249,3 +254,92 @@ func noopReconcile(context.Context) error { return nil }
 func noopWatch(context.Context) {}
 
 func noWarnings() []string { return []string{} }
+
+func TestServe_environments(t *testing.T) {
+	t.Parallel()
+	listening := func() *EnvironmentHostMock {
+		return &EnvironmentHostMock{
+			StartFunc:    func(context.Context) error { return nil },
+			CloseFunc:    func() error { return nil },
+			WarningsFunc: func() []string { return []string{"the CA expires soon"} },
+			StatusFunc: func() EnvironmentsStatus {
+				return EnvironmentsStatus{
+					Listening: true, Listen: "127.0.0.1:8883", EnrollListen: "127.0.0.1:8884",
+					Environments: []EnvironmentPresence{{ID: "env-1a2b3c4d", Name: "linux", State: "enrolled", Status: "offline"}},
+				}
+			},
+		}
+	}
+	t.Run("status carries the environments and their warnings", func(t *testing.T) {
+		p := testPaths(t)
+		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, envs: listening(), opts: fastOptions()})
+		st, err := Dial(p).Status(t.Context())
+		require.NoError(t, err)
+		require.NotNil(t, st.Environments)
+		assert.True(t, st.Environments.Listening)
+		assert.Equal(t, "127.0.0.1:8883", st.Environments.Listen)
+		require.Len(t, st.Environments.Environments, 1)
+		assert.Equal(t, "offline", st.Environments.Environments[0].Status)
+		assert.Equal(t, []string{"the CA expires soon"}, st.Warnings)
+	})
+	t.Run("status with no environments has an empty list and no warnings", func(t *testing.T) {
+		p := testPaths(t)
+		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, opts: fastOptions()})
+		st, err := Dial(p).Status(t.Context())
+		require.NoError(t, err)
+		require.NotNil(t, st.Environments)
+		assert.False(t, st.Environments.Listening)
+		assert.Empty(t, st.Environments.Environments)
+		assert.Equal(t, []string{}, st.Warnings)
+	})
+	t.Run("a start error is a warning and the daemon keeps running", func(t *testing.T) {
+		p := testPaths(t)
+		envs := &EnvironmentHostMock{
+			StartFunc:    func(context.Context) error { return errors.New("no public name") },
+			CloseFunc:    func() error { return nil },
+			WarningsFunc: func() []string { return []string{} },
+			StatusFunc:   func() EnvironmentsStatus { return EnvironmentsStatus{Environments: []EnvironmentPresence{}} },
+		}
+		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, envs: envs, opts: fastOptions()})
+		st, err := Dial(p).Status(t.Context())
+		require.NoError(t, err)
+		assert.True(t, st.Running)
+		assert.Equal(t, []string{"environments didn't start: no public name"}, st.Warnings)
+	})
+	t.Run("reload calls the environments' Reload", func(t *testing.T) {
+		p := testPaths(t)
+		var reloads atomic.Int32
+		envs := listening()
+		envs.ReloadFunc = func(context.Context) error { reloads.Add(1); return nil }
+		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, envs: envs, opts: fastOptions()})
+		require.NoError(t, Dial(p).ReloadEnvironments(t.Context()))
+		assert.Equal(t, int32(1), reloads.Load())
+	})
+	t.Run("a failed reload is the error envelope", func(t *testing.T) {
+		p := testPaths(t)
+		envs := listening()
+		envs.ReloadFunc = func(context.Context) error { return errors.New("reading the CA") }
+		startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, envs: envs, opts: fastOptions()})
+		assertRemoteCode(t, Dial(p).ReloadEnvironments(t.Context()), "internal")
+	})
+	t.Run("closing the environments when the daemon exits", func(t *testing.T) {
+		p := testPaths(t)
+		var closed atomic.Bool
+		envs := listening()
+		envs.CloseFunc = func() error { closed.Store(true); return nil }
+		done := startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, envs: envs, opts: fastOptions()})
+		_, err := Dial(p).Shutdown(t.Context(), false)
+		require.NoError(t, err)
+		require.NoError(t, awaitExit(t, done))
+		assert.True(t, closed.Load())
+	})
+	t.Run("a transient daemon with listening environments stays", func(t *testing.T) {
+		p := testPaths(t)
+		done := startDaemon(t, p, daemonRun{origin: OriginTransient, sup: NopSupervisor{}, envs: listening(), opts: fastOptions()})
+		select {
+		case err := <-done:
+			t.Fatalf("exited while its environments listened: %v", err)
+		case <-time.After(300 * time.Millisecond):
+		}
+	})
+}
