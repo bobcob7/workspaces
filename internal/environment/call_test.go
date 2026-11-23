@@ -237,6 +237,25 @@ func TestController_Call(t *testing.T) {
 		assert.Equal(t, 0, outdated.Protocol)
 		assert.Equal(t, "0.9.0", outdated.WSVersion)
 	})
+	t.Run("a protocol-2 agent is OutdatedError for review.profiles and still serves workspace.list", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, 2)
+		f.answerRequests(t, okReply)
+		_, err := f.c.Call(t.Context(), "linux-server", CallRequest{
+			Op:        envproto.OpReviewProfiles,
+			Args:      json.RawMessage(`{}`),
+			RequestID: callRequestID,
+			Deadline:  time.Now().Add(20 * time.Second),
+		})
+		var outdated *OutdatedError
+		require.ErrorAs(t, err, &outdated)
+		assert.Equal(t, envproto.OpReviewProfiles, outdated.Op)
+		assert.Equal(t, 3, outdated.Need)
+		assert.Equal(t, 2, outdated.Protocol)
+		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(20*time.Second))
+		require.NoError(t, err)
+		assert.True(t, reply.OK)
+	})
 	t.Run("the agent's ok reply is returned", func(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)

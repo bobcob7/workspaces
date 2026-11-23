@@ -57,7 +57,7 @@ type ReviewStartArgs struct {
 	Profiles       []string `json:"profiles"`        // "NAME[:MODEL]", [] for ws's choice
 	Auto           []string `json:"auto"`            // "NAME[:MODEL]"
 	Model          *string  `json:"model"`           // modelPattern
-	PermissionMode *string  `json:"permission_mode"` // one of PermissionModes
+	PermissionMode *string  `json:"permission_mode"` // one of ReviewPermissionModes
 	Focus          *string  `json:"focus"`           // 1..MaxFocusBytes, not starting with "-"
 }
 
@@ -163,6 +163,11 @@ func PermissionModes() []string {
 	return []string{"default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions", "manual"}
 }
 
+// ReviewPermissionModes are the permission modes review.start accepts: PermissionModes without bypassPermissions, which a review reading untrusted pull request content must never run with, and without manual, an alias of default.
+func ReviewPermissionModes() []string {
+	return []string{"default", "acceptEdits", "plan", "auto", "dontAsk"}
+}
+
 // ValidReviewID reports whether id names a review: its workspace id on the environment.
 func ValidReviewID(id string) bool {
 	return reviewIDPattern.MatchString(id)
@@ -197,8 +202,8 @@ func validateReviewStart(a *ReviewStartArgs) error {
 	if a.Model != nil && !modelPattern.MatchString(*a.Model) {
 		return usageError("model " + strconv.Quote(*a.Model) + " is not a valid model name")
 	}
-	if a.PermissionMode != nil && !slices.Contains(PermissionModes(), *a.PermissionMode) {
-		return usageError("permission mode " + strconv.Quote(*a.PermissionMode) + " is not one of " + strings.Join(PermissionModes(), ", "))
+	if a.PermissionMode != nil && !slices.Contains(ReviewPermissionModes(), *a.PermissionMode) {
+		return usageError("permission mode " + strconv.Quote(*a.PermissionMode) + " is not one of " + strings.Join(ReviewPermissionModes(), ", "))
 	}
 	if a.Focus != nil {
 		return validateFocus(*a.Focus)

@@ -96,6 +96,29 @@ func TestValidate_review(t *testing.T) {
 		{"refuses acted with both commented and fix_sent with usage", &ReviewActedArgs{Review: "r1", Findings: []string{"correctness:F1"}, Commented: new("https://example.com/x"), FixSent: new("fix-r-3")}, "usage"},
 		{"refuses acted with neither commented nor fix_sent with usage", &ReviewActedArgs{Review: "r1", Findings: []string{"correctness:F1"}}, "usage"},
 		{"refuses a fix_sent name with a control character with name_invalid", &ReviewActedArgs{Review: "r1", Findings: []string{"correctness:F1"}, FixSent: new("bad\nname")}, "name_invalid"},
+		{"refuses bypassPermissions for a review with usage", &ReviewStartArgs{Repo: "github.com/o/r", PR: new(1), PermissionMode: new("bypassPermissions")}, "usage"},
+		{"refuses manual for a review with usage", &ReviewStartArgs{Repo: "github.com/o/r", PR: new(1), PermissionMode: new("manual")}, "usage"},
+		{"refuses a head of 41 characters with usage", &ReviewStartArgs{Repo: "github.com/o/r", Head: new(strings.Repeat("a", 41))}, "usage"},
+		{"accepts 16 profiles", &ReviewStartArgs{Repo: "github.com/o/r", PR: new(1), Profiles: repeatNames(16)}, ""},
+		{"accepts 16 auto profiles", &ReviewStartArgs{Repo: "github.com/o/r", PR: new(1), Auto: repeatNames(16)}, ""},
+		{"refuses 17 valid profiles with usage", &ReviewStartArgs{Repo: "github.com/o/r", PR: new(1), Profiles: repeatNames(17)}, "usage"},
+		{"refuses 17 valid auto profiles with usage", &ReviewStartArgs{Repo: "github.com/o/r", PR: new(1), Auto: repeatNames(17)}, "usage"},
+		{"refuses a finding with an empty profile with usage", &ReviewDecideArgs{Review: "r1", Findings: []string{":F1"}, Decision: DecideSkip}, "usage"},
+		{"accepts a finding with a 40 character profile", &ReviewDecideArgs{Review: "r1", Findings: []string{strings.Repeat("a", 40) + ":F1"}, Decision: DecideSkip}, ""},
+		{"refuses a finding with a 41 character profile with usage", &ReviewDecideArgs{Review: "r1", Findings: []string{strings.Repeat("a", 41) + ":F1"}, Decision: DecideSkip}, "usage"},
+		{"accepts a finding with a 64 character id", &ReviewDecideArgs{Review: "r1", Findings: []string{"correctness:" + strings.Repeat("1", 64)}, Decision: DecideSkip}, ""},
+		{"refuses a finding with a 65 character id with usage", &ReviewDecideArgs{Review: "r1", Findings: []string{"correctness:" + strings.Repeat("1", 65)}, Decision: DecideSkip}, "usage"},
+		{"accepts a note of MaxMessageBytes", &ReviewDecideArgs{Review: "r1", Findings: []string{"correctness:F1"}, Decision: DecideSkip, Note: new(strings.Repeat("n", MaxMessageBytes))}, ""},
+		{"refuses a note above MaxMessageBytes with usage", &ReviewDecideArgs{Review: "r1", Findings: []string{"correctness:F1"}, Decision: DecideSkip, Note: new(strings.Repeat("n", MaxMessageBytes+1))}, "usage"},
+		{"accepts a commented URL of 2048 bytes", &ReviewActedArgs{Review: "r1", Findings: []string{"correctness:F1"}, Commented: new("https://" + strings.Repeat("a", 2048-len("https://")))}, ""},
+		{"refuses a commented URL of 2049 bytes with usage", &ReviewActedArgs{Review: "r1", Findings: []string{"correctness:F1"}, Commented: new("https://" + strings.Repeat("a", 2049-len("https://")))}, "usage"},
+		{"refuses a commented URL with a newline with usage", &ReviewActedArgs{Review: "r1", Findings: []string{"correctness:F1"}, Commented: new("https://example.com/a\nb")}, "usage"},
+		{"refuses a commented URL with a tab with usage", &ReviewActedArgs{Review: "r1", Findings: []string{"correctness:F1"}, Commented: new("https://example.com/a\tb")}, "usage"},
+		{"refuses a commented URL with a NUL with usage", &ReviewActedArgs{Review: "r1", Findings: []string{"correctness:F1"}, Commented: new("https://example.com/a\x00b")}, "usage"},
+		{"refuses a list pull request of 0 with usage", &ReviewListArgs{Repo: new("github.com/o/r"), PR: new(0)}, "usage"},
+		{"refuses a list pull request above 2^31-1 with usage", &ReviewListArgs{Repo: new("github.com/o/r"), PR: new(math.MaxInt32 + 1)}, "usage"},
+		{"accepts a list repo with a port", &ReviewListArgs{Repo: new("host:8080/o/r")}, ""},
+		{"refuses a list repo with an empty port with usage", &ReviewListArgs{Repo: new("host:/o/r")}, "usage"},
 		{"accepts review.profiles with no arguments", &ReviewProfilesArgs{}, ""},
 	}
 	for _, tc := range cases {
@@ -108,4 +131,13 @@ func TestValidate_review(t *testing.T) {
 			assertArgsError(t, err, tc.code)
 		})
 	}
+}
+
+// repeatNames returns n valid profile names.
+func repeatNames(n int) []string {
+	names := make([]string, n)
+	for i := range names {
+		names[i] = "security"
+	}
+	return names
 }

@@ -41,18 +41,21 @@ func TestLookupOp(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, OpSpec{Name: OpTerminalClose, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second}, got)
 	})
-	t.Run("review ops are controller ops since 3", func(t *testing.T) {
-		for _, name := range []string{OpReviewStart, OpReviewStatus, OpReviewList, OpReviewReport, OpReviewDecide, OpReviewActed, OpReviewProfiles} {
-			got, ok := LookupOp(name)
-			require.True(t, ok, name)
-			assert.Equal(t, CallerController, got.Caller, name)
-			assert.Equal(t, ProtocolReviewsLoops, got.Since, name)
+	t.Run("review ops have their full spec", func(t *testing.T) {
+		specs := []OpSpec{
+			{Name: OpReviewStart, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 10 * time.Minute, Changes: true},
+			{Name: OpReviewStatus, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewList, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewReport, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewDecide, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewActed, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewProfiles, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
 		}
-	})
-	t.Run("review.start has 10 min and changes", func(t *testing.T) {
-		got, ok := LookupOp(OpReviewStart)
-		require.True(t, ok)
-		assert.Equal(t, OpSpec{Name: OpReviewStart, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 10 * time.Minute, Changes: true}, got)
+		for _, want := range specs {
+			got, ok := LookupOp(want.Name)
+			require.True(t, ok, want.Name)
+			assert.Equal(t, want, got, want.Name)
+		}
 	})
 	t.Run("refuses names outside the table", func(t *testing.T) {
 		for _, name := range []string{"files.read", "", "workspace.create "} {
