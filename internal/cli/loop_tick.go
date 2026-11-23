@@ -19,6 +19,9 @@ import (
 // defaultLoopPoll is how often ws loop tick --watch runs a pass.
 const defaultLoopPoll = time.Minute
 
+// maxTickStarts is the largest --max-starts; 0 means no cap.
+const maxTickStarts = 100
+
 type loopAction string
 
 const (
@@ -40,6 +43,11 @@ type tickJSON struct {
 	NextRunAt *string        `json:"next_run_at"`
 	Error     *itemErrorJSON `json:"error"`
 	Gate      *gateJSON      `json:"gate"`
+}
+
+// loopTickOutput is ws loop tick's JSON output.
+type loopTickOutput struct {
+	Loops []tickJSON `json:"loops"`
 }
 
 // loopRunResult is ws loop run's output.
@@ -67,34 +75,41 @@ func (a *App) newLoopRunCmd() *cobra.Command {
 
 func (a *App) newLoopTickCmd() *cobra.Command {
 	var dryRun, watch bool
+	var maxStarts int
 	cmd := &cobra.Command{
-		Use:   "tick [--dry-run] [--watch]",
+		Use:   "tick [--dry-run] [--watch] [--max-starts N]",
 		Short: "Start every loop that is due",
 		Args:  cobra.NoArgs,
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, _ []string) error {
+			if maxStarts < 0 || maxStarts > maxTickStarts {
+				return usageErrorf("--max-starts must be 0 (no cap) or 1 to %d", maxTickStarts)
+			}
 			if !watch {
-				return a.runLoopTick(cmd.Context(), dryRun)
+				return a.runLoopTick(cmd.Context(), dryRun, maxStarts)
 			}
 			if a.global.json {
 				return usageErrorf("--watch prints text only; run ws loop tick --json without --watch")
 			}
-			return a.watchLoops(cmd.Context(), dryRun)
+			return a.watchLoops(cmd.Context(), dryRun, maxStarts)
 		})),
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "report what would start; start, write, and remove nothing")
 	cmd.Flags().BoolVar(&watch, "watch", false, "run a pass every minute until interrupted, printing what started or failed")
+	cmd.Flags().IntVar(&maxStarts, "max-starts", 0, "start at most N loops in one pass, the rest wait (0 for no cap, 1 to 100)")
 	return cmd
 }
 
 // loopPass is one pass of ws loop tick: what it learned about the machine
 // and the sessions, read once the first loop is due.
 type loopPass struct {
-	now     time.Time
-	dryRun  bool
-	read    bool
-	awake   bool
-	listing lifetime.Listing
-	check   claudeCheck
+	now       time.Time
+	dryRun    bool
+	maxStarts int
+	started   int
+	read      bool
+	awake     bool
+	listing   lifetime.Listing
+	check     claudeCheck
 }
 
 // claudeCheck is Claude Code's check, made once and kept for the starts
@@ -149,8 +164,8 @@ func (a *App) runLoopRun(ctx context.Context, name string, force bool) error {
 }
 
 // runLoopTick runs one pass and prints its items.
-func (a *App) runLoopTick(ctx context.Context, dryRun bool) error {
-	items, results, err := a.tick(ctx, dryRun)
+func (a *App) runLoopTick(ctx context.Context, dryRun bool, maxStarts int) error {
+	items, results, err := a.tick(ctx, dryRun, maxStarts)
 	if err != nil {
 		return domainError(err)
 	}
@@ -159,9 +174,10 @@ func (a *App) runLoopTick(ctx context.Context, dryRun bool) error {
 
 // tick runs one pass (ADR 0048, decision 4): it starts every due loop that
 // isn't asleep or busy, records each run, and returns one item per loop.
-// With dryRun it changes nothing. Its failures are per item; the error is
-// for a pass that couldn't read the loops or the sessions.
-func (a *App) tick(ctx context.Context, dryRun bool) ([]tickJSON, *itemResults, error) {
+// With dryRun it changes nothing. A non-zero maxStarts caps the loops it
+// starts, and the due loops past the cap wait. Its failures are per item;
+// the error is for a pass that couldn't read the loops or the sessions.
+func (a *App) tick(ctx context.Context, dryRun bool, maxStarts int) ([]tickJSON, *itemResults, error) {
 	lock := a.loops.Lock
 	if dryRun {
 		lock = a.loops.RLock
@@ -176,7 +192,7 @@ func (a *App) tick(ctx context.Context, dryRun bool) ([]tickJSON, *itemResults, 
 		return nil, nil, domainError(err)
 	}
 	a.warned = append(a.warned, warnings...)
-	p := &loopPass{now: a.now(), dryRun: dryRun}
+	p := &loopPass{now: a.now(), dryRun: dryRun, maxStarts: maxStarts}
 	if !dryRun && a.hasOpenEntries(loops) {
 		if err := a.readPass(ctx, p); err != nil {
 			return nil, nil, err
@@ -215,9 +231,18 @@ func (a *App) tickLoop(ctx context.Context, l *loop.Loop, p *loopPass, results *
 		return addTick(results, newTickJSON(l, loopAsleep), nil), nil
 	case p.busy(l):
 		return addTick(results, newTickJSON(l, loopBusy), nil), nil
+	case p.full():
+		return addTick(results, newTickJSON(l, loopWaiting), nil), nil
 	case p.dryRun:
+		p.started++
 		return addTick(results, newTickJSON(l, loopWouldStart), nil), nil
 	}
+	return a.startDue(ctx, l, p, results)
+}
+
+// startDue starts l's run, records it, and advances l's next run. It returns
+// l's item and the start's error, which is recorded in the item.
+func (a *App) startDue(ctx context.Context, l *loop.Loop, p *loopPass, results *itemResults) (tickJSON, error) {
 	prev := l.LastGate
 	run, _, startErr := a.attemptRun(ctx, l, &p.check, false)
 	skipped := errors.Is(startErr, loop.ErrSkipped)
@@ -241,6 +266,7 @@ func (a *App) tickLoop(ctx context.Context, l *loop.Loop, p *loopPass, results *
 		return addTick(results, item, nil), nil
 	}
 	if startErr == nil {
+		p.started++
 		a.pruneRuns(ctx, l, p.listing)
 	}
 	if startErr != nil {
@@ -269,6 +295,11 @@ func (a *App) readPass(ctx context.Context, p *loopPass) error {
 	}
 	p.listing = listing
 	return nil
+}
+
+// full reports whether the pass has started as many loops as its cap allows.
+func (p *loopPass) full() bool {
+	return p.maxStarts > 0 && p.started >= p.maxStarts
 }
 
 // busy reports whether l's newest run's agent is still working or starting.
@@ -443,10 +474,10 @@ func (a *App) removeRun(ctx context.Context, name string, h *loop.History, listi
 // watchLoops runs a pass every loopPoll until ctx ends. Each pass prints
 // only the loops it started or failed, and its failures, on stderr; a
 // failed pass doesn't end the watch.
-func (a *App) watchLoops(ctx context.Context, dryRun bool) error {
+func (a *App) watchLoops(ctx context.Context, dryRun bool, maxStarts int) error {
 	warned := 0
 	for {
-		items, _, err := a.tick(ctx, dryRun)
+		items, _, err := a.tick(ctx, dryRun, maxStarts)
 		select {
 		case <-ctx.Done():
 			return nil
