@@ -25,18 +25,20 @@ const ChildRow = ({ child }: { readonly child: Entry }): JSX.Element => {
       <span className={styles.muted}>{statusLabels[child.status]}</span>
       {child.hidden && <span className={styles.chip}>hidden</span>}
       {rollup !== null && (
-        <StepProgress
-          label={`${child.progress?.name ?? child.name} progress`}
-          done={rollup.done}
-          total={rollup.total}
-          failed={isFailed(child)}
-        />
+        <span className={styles.progress}>
+          <StepProgress
+            label={`${child.progress?.name ?? child.name} progress`}
+            done={rollup.done}
+            total={rollup.total}
+            failed={isFailed(child)}
+          />
+        </span>
       )}
       <span className={styles.spacer} />
-      <Button size="small" onClick={() => dispatch(selected(child.key))}>
+      <Button size="small" className={styles.action} onClick={() => dispatch(selected(child.key))}>
         Open
       </Button>
-      <Button size="small" color="error" disabled={busy} onClick={() => setConfirming(true)}>
+      <Button size="small" color="error" className={styles.action} disabled={busy} onClick={() => setConfirming(true)}>
         Remove
       </Button>
       <RemoveDialog entry={child} open={confirming} onClose={() => setConfirming(false)} />

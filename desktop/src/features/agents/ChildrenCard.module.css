@@ -72,3 +72,43 @@
 .spacer {
   flex: 1;
 }
+
+.progress {
+  display: flex;
+  flex: 1 1 160px;
+  min-width: 120px;
+}
+
+.progress > * {
+  flex: 1;
+}
+
+@media (max-width: 720px) {
+  .list {
+    max-height: 320px;
+  }
+
+  .row {
+    flex-wrap: wrap;
+  }
+
+  .name {
+    flex: 1 1 120px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .progress {
+    flex-basis: 100%;
+    order: 1;
+  }
+
+  .spacer,
+  .action {
+    order: 2;
+  }
+
+  .action {
+    min-height: 40px;
+  }
+}
