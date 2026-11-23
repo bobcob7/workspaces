@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/repo"
@@ -20,6 +22,8 @@ type agentOperations struct {
 	// empty and the given streams, environment set to name.
 	newApp func(stdout, stderr io.Writer) *App
 	name   string // the enrolled environment's name
+	locksMu   sync.Mutex             // guards sendLocks
+	sendLocks map[string]*sync.Mutex // the send lock of each Claude Code session id
 }
 
 // newAgentOperations returns the operations of the agent a, enrolled as name.
@@ -47,18 +51,43 @@ func (o *agentOperations) Run(ctx context.Context, op string, args any) (json.Ra
 
 // runAgent runs an agent.* operation on the Claude Code session of its workspace.
 func (o *agentOperations) runAgent(ctx context.Context, op string, args any) (json.RawMessage, error) {
+	out, err := o.dispatchAgent(ctx, op, args)
+	return out, replyError(err)
+}
+
+// dispatchAgent runs the agent.* operation op with its args.
+func (o *agentOperations) dispatchAgent(ctx context.Context, op string, args any) (json.RawMessage, error) {
 	switch a := args.(type) {
 	case *envproto.LogsArgs:
 		return o.agentLogs(ctx, a)
 	case *envproto.SendArgs:
 		return o.agentSend(ctx, a)
 	case *envproto.WorkspaceArgs:
-		if op == envproto.OpAgentStop {
+		switch op {
+		case envproto.OpAgentStatus:
+			return o.agentStatus(ctx, a)
+		case envproto.OpAgentStop:
 			return o.agentStop(ctx, a)
 		}
-		return o.agentStatus(ctx, a)
 	}
 	return nil, &envproto.ReplyError{Code: string(codeUsage), Message: "unknown operation " + op}
+}
+
+// replyError is err as an operation's reply error: a ReplyError as it is, and
+// an error with a code given the code the CLI gives it. Any other error is
+// returned unchanged, so its reply is internal.
+func replyError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := errors.AsType[*envproto.ReplyError](err); ok {
+		return err
+	}
+	ce := codedDomainError(err)
+	if ce == nil {
+		return err
+	}
+	return &envproto.ReplyError{Code: string(ce.code), Message: ce.Error(), Details: ce.details}
 }
 
 // runWorkspace runs a workspace operation with ws's own command.

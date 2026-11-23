@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -94,7 +95,8 @@ func (o *agentOperations) agentLogs(ctx context.Context, args *envproto.LogsArgs
 	return json.Marshal(result)
 }
 
-// tailLines is the last tail lines of text, DefaultTail when tail is 0.
+// tailLines is the last tail lines of text without their carriage returns,
+// DefaultTail when tail is 0.
 func tailLines(text string, tail int) []string {
 	if text == "" {
 		return []string{}
@@ -103,7 +105,11 @@ func tailLines(text string, tail int) []string {
 		tail = envproto.DefaultTail
 	}
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	return lines[max(0, len(lines)-tail):]
+	kept := lines[max(0, len(lines)-tail):]
+	for i := range kept {
+		kept[i] = strings.TrimSuffix(kept[i], "\r")
+	}
+	return kept
 }
 
 // fitLogs drops the fewest lines from the front of result that bring its
@@ -136,6 +142,8 @@ func (o *agentOperations) agentSend(ctx context.Context, args *envproto.SendArgs
 	if err != nil {
 		return nil, err
 	}
+	unlock := o.lockSession(s.ID)
+	defer unlock()
 	sessions, err := o.agentSessions(ctx)
 	if err != nil {
 		return nil, err
@@ -152,6 +160,27 @@ func (o *agentOperations) agentSend(ctx context.Context, args *envproto.SendArgs
 		return nil, err
 	}
 	return json.Marshal(envproto.AgentSendResult{Workspace: ws.ID, Session: s.ID, Sent: true})
+}
+
+// lockSession takes the send lock of the Claude Code session id, so messages
+// to one session are typed one at a time. It returns the unlock.
+func (o *agentOperations) lockSession(id string) func() {
+	mu := o.sessionLock(id)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// sessionLock is the send lock of the Claude Code session id, made on first use.
+func (o *agentOperations) sessionLock(id string) *sync.Mutex {
+	o.locksMu.Lock()
+	defer o.locksMu.Unlock()
+	if o.sendLocks == nil {
+		o.sendLocks = map[string]*sync.Mutex{}
+	}
+	if o.sendLocks[id] == nil {
+		o.sendLocks[id] = &sync.Mutex{}
+	}
+	return o.sendLocks[id]
 }
 
 // agentStop stops the workspace's Claude Code session. One that has already

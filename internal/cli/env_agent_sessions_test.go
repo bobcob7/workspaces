@@ -51,10 +51,15 @@ func claudeSession() *lifetime.Session {
 // agentTestOps is the agent's operations over a mocked App whose lifetime
 // lists entries and whose claude is client.
 func agentTestOps(entries []lifetime.Entry, client *claudeClientMock) *agentOperations {
-	e := newMockedApp()
-	e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) {
+	return agentTestOpsList(func(context.Context) (lifetime.Listing, error) {
 		return lifetime.Listing{Workspaces: entries}, nil
-	}
+	}, client)
+}
+
+// agentTestOpsList is agentTestOps with lifetime.List answered by list.
+func agentTestOpsList(list func(context.Context) (lifetime.Listing, error), client *claudeClientMock) *agentOperations {
+	e := newMockedApp()
+	e.lifetime.ListFunc = list
 	e.store.FindFunc = func(arg string) (workspace.Workspace, error) {
 		if arg == agentWS {
 			return listedWorkspace(agentWS), nil
@@ -150,6 +155,26 @@ func TestAgentOperations_agentLogs(t *testing.T) {
 		assert.LessOrEqual(t, len(got), envproto.MaxLogBytes)
 		assert.Contains(t, string(got), `"truncated":true`)
 	})
+	t.Run("CRLF line endings lose their carriage returns", func(t *testing.T) {
+		ops := agentTestOps(agentEntries(claudeSession()), logsOf("one\r\ntwo\r\n"))
+		got, err := ops.Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"workspace":"fix-login-d8efb24f","session":"ab12cd34","lines":["one","two"],"truncated":false}`, string(got))
+	})
+	t.Run("an escape-heavy log keeps MaxLogBytes and no line ends in a carriage return", func(t *testing.T) {
+		redraw := "\x1b[2K\r\x1b[32m" + strings.Repeat("\x1b[0m\x1b[1m", 300) + "working\r\n"
+		ops := agentTestOps(agentEntries(claudeSession()), logsOf(strings.Repeat(redraw, 1000)))
+		got, err := ops.Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS})
+		require.NoError(t, err)
+		assert.LessOrEqual(t, len(got), envproto.MaxLogBytes)
+		assert.Contains(t, string(got), `"truncated":true`)
+		var result envproto.AgentLogsResult
+		require.NoError(t, json.Unmarshal(got, &result))
+		require.NotEmpty(t, result.Lines)
+		for _, line := range result.Lines {
+			assert.False(t, strings.HasSuffix(line, "\r"), "line %q keeps its carriage return", line)
+		}
+	})
 	t.Run("a short log isn't truncated", func(t *testing.T) {
 		ops := agentTestOps(agentEntries(claudeSession()), logsOf("one\ntwo\n"))
 		got, err := ops.Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS})
@@ -184,6 +209,94 @@ func TestAgentOperations_agentSend(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "claude_failed", re.Code)
 	})
+	t.Run("a workspace with no Claude Code agent is never sent to", func(t *testing.T) {
+		for _, c := range notAgentCases() {
+			t.Run(c.name, func(t *testing.T) {
+				client := listingAgents(claudeAgent())
+				_, err := agentTestOps(agentEntries(c.session), client).Run(t.Context(), envproto.OpAgentSend, &envproto.SendArgs{Workspace: agentWS, Message: "hi"})
+				requireNoAgent(t, err)
+				assert.Empty(t, client.SendCalls())
+			})
+		}
+	})
+	t.Run("sends to one session take turns", func(t *testing.T) {
+		release := make(chan struct{})
+		typed := make(chan string, 2)
+		client := listingAgents(claudeAgent())
+		client.SendFunc = func(_ context.Context, _ *claude.Session, message string) error {
+			typed <- message
+			if message == "first" {
+				<-release
+			}
+			return nil
+		}
+		ops := agentTestOps(agentEntries(claudeSession()), client)
+		done := make(chan error, 2)
+		send := func(message string) {
+			_, err := ops.Run(t.Context(), envproto.OpAgentSend, &envproto.SendArgs{Workspace: agentWS, Message: message})
+			done <- err
+		}
+		go send("first")
+		require.Equal(t, "first", <-typed)
+		go send("second")
+		var overlapped bool
+		select {
+		case <-typed:
+			overlapped = true
+		case <-time.After(100 * time.Millisecond):
+		}
+		close(release)
+		require.NoError(t, <-done)
+		require.NoError(t, <-done)
+		assert.False(t, overlapped, "the second message was typed while the first was still being sent")
+	})
+	t.Run("a claude that isn't installed is claude_missing", func(t *testing.T) {
+		client := listingAgents(claudeAgent())
+		client.SendFunc = func(context.Context, *claude.Session, string) error { return claude.ErrNotInstalled }
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentSend, &envproto.SendArgs{Workspace: agentWS, Message: "hi"})
+		assertReplyCode(t, err, "claude_missing")
+	})
+	t.Run("a failing claude is claude_failed", func(t *testing.T) {
+		client := listingAgents(claudeAgent())
+		client.SendFunc = func(context.Context, *claude.Session, string) error {
+			return &claude.CommandError{Args: []string{"attach"}, ExitCode: 1}
+		}
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentSend, &envproto.SendArgs{Workspace: agentWS, Message: "hi"})
+		assertReplyCode(t, err, "claude_failed")
+	})
+}
+
+// notAgentCases are the sessions a workspace can have that aren't a Claude
+// Code agent, and so can't be sent to or stopped.
+func notAgentCases() []struct {
+	name    string
+	session *lifetime.Session
+} {
+	return []struct {
+		name    string
+		session *lifetime.Session
+	}{
+		{name: "no session", session: nil},
+		{name: "a shell", session: &lifetime.Session{Kind: lifetime.KindShell}},
+		{name: "a ws runner session", session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS}},
+	}
+}
+
+// requireNoAgent asserts err is usage "<agentWS> has no Claude Code agent".
+func requireNoAgent(t *testing.T, err error) {
+	t.Helper()
+	re, ok := errors.AsType[*envproto.ReplyError](err)
+	require.True(t, ok, "got %v", err)
+	assert.Equal(t, "usage", re.Code)
+	assert.Equal(t, agentWS+" has no Claude Code agent", re.Message)
+}
+
+// assertReplyCode asserts err is a ReplyError with code.
+func assertReplyCode(t *testing.T, err error, code string) {
+	t.Helper()
+	re, ok := errors.AsType[*envproto.ReplyError](err)
+	require.True(t, ok, "got %v", err)
+	assert.Equal(t, code, re.Code)
 }
 
 func TestAgentOperations_agentStop(t *testing.T) {
@@ -205,6 +318,64 @@ func TestAgentOperations_agentStop(t *testing.T) {
 		got, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentStop, &envproto.WorkspaceArgs{Workspace: agentWS})
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"workspace":"fix-login-d8efb24f","session":"ab12cd34","stopped":false}`, string(got))
+	})
+	t.Run("a workspace with no Claude Code agent is never stopped", func(t *testing.T) {
+		for _, c := range notAgentCases() {
+			t.Run(c.name, func(t *testing.T) {
+				client := listingAgents(claudeAgent())
+				_, err := agentTestOps(agentEntries(c.session), client).Run(t.Context(), envproto.OpAgentStop, &envproto.WorkspaceArgs{Workspace: agentWS})
+				requireNoAgent(t, err)
+				assert.Empty(t, client.StopCalls())
+			})
+		}
+	})
+	t.Run("a claude that isn't installed is claude_missing", func(t *testing.T) {
+		client := listingAgents(claudeAgent())
+		client.StopFunc = func(context.Context, string) error { return claude.ErrNotInstalled }
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentStop, &envproto.WorkspaceArgs{Workspace: agentWS})
+		assertReplyCode(t, err, "claude_missing")
+	})
+	t.Run("a failing claude is claude_failed", func(t *testing.T) {
+		client := listingAgents(claudeAgent())
+		client.StopFunc = func(context.Context, string) error { return &claude.CommandError{Args: []string{"stop"}, ExitCode: 1} }
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentStop, &envproto.WorkspaceArgs{Workspace: agentWS})
+		assertReplyCode(t, err, "claude_failed")
+	})
+}
+
+func TestAgentOperations_runAgent(t *testing.T) {
+	t.Run("a claude that isn't installed is claude_missing", func(t *testing.T) {
+		client := &claudeClientMock{AgentsFunc: func(context.Context, claude.ListOptions) ([]claude.Session, error) {
+			return nil, claude.ErrNotInstalled
+		}}
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentStatus, &envproto.WorkspaceArgs{Workspace: agentWS})
+		assertReplyCode(t, err, "claude_missing")
+	})
+	t.Run("a claude too old is claude_failed", func(t *testing.T) {
+		client := &claudeClientMock{AgentsFunc: func(context.Context, claude.ListOptions) ([]claude.Session, error) {
+			return nil, claude.ErrTooOld
+		}}
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentStatus, &envproto.WorkspaceArgs{Workspace: agentWS})
+		assertReplyCode(t, err, "claude_failed")
+	})
+	t.Run("logs of an unknown session are claude_failed", func(t *testing.T) {
+		client := listingAgents(claudeAgent())
+		client.LogsFunc = func(context.Context, string) (string, error) { return "", claude.ErrNoSession }
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS})
+		assertReplyCode(t, err, "claude_failed")
+	})
+	t.Run("a failing lifetime service is claude_failed", func(t *testing.T) {
+		ops := agentTestOpsList(func(context.Context) (lifetime.Listing, error) {
+			return lifetime.Listing{}, lifetime.ErrServiceFailed
+		}, listingAgents(claudeAgent()))
+		_, err := ops.Run(t.Context(), envproto.OpAgentStatus, &envproto.WorkspaceArgs{Workspace: agentWS})
+		assertReplyCode(t, err, "claude_failed")
+	})
+	t.Run("an unknown agent op is usage, not a status", func(t *testing.T) {
+		client := listingAgents(claudeAgent())
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), "agent.bogus", &envproto.WorkspaceArgs{Workspace: agentWS})
+		assertReplyCode(t, err, "usage")
+		assert.Empty(t, client.AgentsCalls())
 	})
 }
 
