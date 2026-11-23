@@ -4,9 +4,11 @@ package ptyproc
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -70,6 +72,40 @@ func TestStart(t *testing.T) {
 	})
 }
 
+// TestStartSetWinsizeError swaps a package variable, so it must not run in parallel.
+func TestStartSetWinsizeError(t *testing.T) {
+	before := childPIDs(t)
+	setWinsizeFn = func(*os.File, int, int) error { return errors.New("no window size") }
+	t.Cleanup(func() { setWinsizeFn = setWinsize })
+	p, err := Start(Spec{Path: "/bin/sh", Args: []string{"-c", "exit 0"}, Dir: t.TempDir(), Env: []string{"PATH=/usr/bin:/bin"}, Cols: 80, Rows: 24})
+	require.Error(t, err)
+	assert.Nil(t, p)
+	assert.Subset(t, before, childPIDs(t), "a child ran after the window size failed")
+}
+
+// childPIDs lists the pids of this process's children, read from /proc.
+func childPIDs(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		t.Skip("no /proc")
+	}
+	self := strconv.Itoa(os.Getpid())
+	var pids []string
+	for _, entry := range entries {
+		stat, err := os.ReadFile("/proc/" + entry.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		// The command name is in parentheses and may hold spaces, so the fields follow the last ')'.
+		fields := strings.Fields(string(stat[strings.LastIndexByte(string(stat), ')')+1:]))
+		if len(fields) > 1 && fields[1] == self {
+			pids = append(pids, entry.Name())
+		}
+	}
+	return pids
+}
+
 func TestWinsizeField(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, uint16(0), winsizeField(-1))
@@ -120,14 +156,14 @@ func TestEnvironment(t *testing.T) {
 			t.Cleanup(func() { _ = p.Close() })
 			out, err := io.ReadAll(p)
 			require.NoError(t, err)
-			assert.False(t, strings.Contains(string(out), "PTYPROC_SECRET"), "the parent environment leaked")
+			assert.NotContains(t, string(out), "PTYPROC_SECRET", "the parent environment leaked")
 		})
 	}
 }
 
 func TestInitialSize(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		p, err := Start(Spec{Path: "/bin/sh", Args: []string{"-c", "stty size"}, Dir: t.TempDir(), Env: []string{"PATH=/usr/bin:/bin"}, Cols: 100, Rows: 40})
 		require.NoError(t, err)
 		out, err := io.ReadAll(p)
@@ -154,12 +190,8 @@ func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
 	t.Parallel()
 	p := startProc(t, "/bin/sleep", "60")
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = p.Close()
-		}()
+	for range 8 {
+		wg.Go(func() { _ = p.Close() })
 	}
 	wg.Wait()
 	assert.NoError(t, p.Close())
@@ -177,7 +209,7 @@ func TestCloseEscalatesToKill(t *testing.T) {
 
 func TestNoDescriptorLeak(t *testing.T) {
 	before := openFDs(t)
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		p, err := Start(Spec{Path: "/bin/sh", Args: []string{"-c", "exit 0"}, Dir: t.TempDir(), Env: []string{}, Cols: 80, Rows: 24})
 		require.NoError(t, err)
 		p.Wait()
@@ -192,9 +224,9 @@ func TestIOAfterExitAndClose(t *testing.T) {
 	p.Wait()
 	assert.NoError(t, p.Resize(90, 30), "Resize after exit still works")
 	require.NoError(t, p.Close())
-	assert.Error(t, p.Resize(90, 30), "Resize after Close fails")
+	require.Error(t, p.Resize(90, 30), "Resize after Close fails")
 	_, err := p.Write([]byte("x"))
-	assert.Error(t, err, "Write after Close fails")
+	require.Error(t, err, "Write after Close fails")
 }
 
 func openFDs(t *testing.T) int {

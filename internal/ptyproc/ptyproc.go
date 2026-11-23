@@ -61,6 +61,9 @@ func (p *Proc) Resize(cols, rows int) error {
 
 // Close sends SIGHUP to the process group, then SIGKILL after 2 s if it
 // still runs, and closes the pty. It is safe to call more than once.
+// Once the leader has been reaped, Close sends no signal at all, because its
+// pid, and with it the process group id, may have been reused by another
+// process. Background members the leader left in the group are not signalled.
 func (p *Proc) Close() error {
 	p.closeOnce.Do(func() { p.closeErr = p.shutdown() })
 	return p.closeErr

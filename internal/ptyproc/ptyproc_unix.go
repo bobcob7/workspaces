@@ -3,6 +3,7 @@
 package ptyproc
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -11,6 +12,11 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+// setWinsizeFn sets the initial window size; tests replace it to make it fail.
+//
+//nolint:gochecknoglobals // a test replaces it to make the window size fail.
+var setWinsizeFn = setWinsize
 
 // Start opens a pty sized Cols×Rows, starts the process as the session
 // leader with the pty as its controlling terminal, and returns once it runs.
@@ -21,10 +27,10 @@ func Start(spec Spec) (*Proc, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(spec.Path, spec.Args...) //nolint:gosec // the path and args come from TerminalCommand, built from validated fields.
+	cmd := exec.CommandContext(context.Background(), spec.Path, spec.Args...) //nolint:gosec // the path and args come from TerminalCommand, built from validated fields.
 	cmd.Dir = spec.Dir
 	cmd.Env = append([]string{}, spec.Env...)
-	if err := setWinsize(control, spec.Cols, spec.Rows); err != nil {
+	if err := setWinsizeFn(control, spec.Cols, spec.Rows); err != nil {
 		control.Close()
 		tty.Close()
 		return nil, err
