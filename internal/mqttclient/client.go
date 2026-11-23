@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"slices"
 	"sync"
@@ -60,7 +61,7 @@ func New(log *slog.Logger) *Client {
 
 // Connect dials opts.Address over TLS and sends CONNECT. It may be called
 // again after Done has closed.
-func (c *Client) Connect(ctx context.Context, opts envproto.ConnectOptions) error { //nolint:gocritic // hugeParam: the envproto.ConnectOptions value is the fixed API.
+func (c *Client) Connect(ctx context.Context, opts envproto.ConnectOptions) error {
 	if opts.TLS == nil {
 		return errNoTLSConfig
 	}
@@ -77,10 +78,12 @@ func (c *Client) Connect(ctx context.Context, opts envproto.ConnectOptions) erro
 		return fmt.Errorf("dial %s: %w", opts.Address, err)
 	}
 	conn := paho.NewClient(paho.ClientConfig{
-		Conn:               packets.NewThreadSafeConn(raw),
-		OnPublishReceived:  []func(paho.PublishReceived) (bool, error){c.receive},
-		OnServerDisconnect: func(d *paho.Disconnect) { c.log.Debug("server disconnected the client", "reason_code", d.ReasonCode) },
-		OnClientError:      func(err error) { c.log.Debug("mqtt client error", "error", err) },
+		Conn:              packets.NewThreadSafeConn(raw),
+		OnPublishReceived: []func(paho.PublishReceived) (bool, error){c.receive},
+		OnServerDisconnect: func(d *paho.Disconnect) {
+			c.log.DebugContext(ctx, "server disconnected the client", "reason_code", d.ReasonCode)
+		},
+		OnClientError: func(err error) { c.log.DebugContext(ctx, "mqtt client error", "error", err) },
 	})
 	if _, err := conn.Connect(ctx, connectPacket(opts)); err != nil {
 		_ = raw.Close()
@@ -210,7 +213,7 @@ func isClosed(ch <-chan struct{}) bool {
 // connectPacket is the CONNECT for opts: Clean Start, a Session Expiry
 // Interval of at least minSessionExpiry (and the will delay), the keep-alive
 // and the will with its Will Delay.
-func connectPacket(opts envproto.ConnectOptions) *paho.Connect { //nolint:gocritic // hugeParam: the envproto.ConnectOptions value is the fixed API.
+func connectPacket(opts envproto.ConnectOptions) *paho.Connect {
 	expiry := seconds(max(minSessionExpiry, opts.WillDelay))
 	pc := &paho.Connect{
 		ClientID:   opts.ClientID,
@@ -279,5 +282,5 @@ func seconds(d time.Duration) uint32 {
 	if d <= 0 {
 		return 0
 	}
-	return uint32((d + time.Second - 1) / time.Second)
+	return uint32(min((d+time.Second-1)/time.Second, math.MaxUint32))
 }

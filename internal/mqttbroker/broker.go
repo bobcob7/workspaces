@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"slices"
 	"sync"
@@ -144,7 +145,7 @@ func (b *Broker) Publish(ctx context.Context, msg envproto.Message) error { //no
 		Properties: packets.Properties{
 			ResponseTopic:         msg.ResponseTopic,
 			CorrelationData:       msg.CorrelationData,
-			MessageExpiryInterval: uint32((msg.Expiry + time.Second - 1) / time.Second),
+			MessageExpiryInterval: expirySeconds(msg.Expiry),
 		},
 	}
 	if err := srv.InjectPacket(ctl, pk); err != nil {
@@ -294,17 +295,17 @@ type hook struct {
 }
 
 // ID names the hook.
-func (h *hook) ID() string { return "ws-environments" }
+func (*hook) ID() string { return "ws-environments" }
 
 // Provides lists the hook points this hook implements.
-func (h *hook) Provides(point byte) bool {
+func (*hook) Provides(point byte) bool {
 	return slices.Contains([]byte{mqtt.OnConnect, mqtt.OnConnectAuthenticate, mqtt.OnACLCheck, mqtt.OnDisconnect}, point)
 }
 
 // OnConnect checks the will topic with the publish ACL: mochi publishes a
 // will without asking, so a client could otherwise set one on another
 // environment's status. An error closes the connection.
-func (h *hook) OnConnect(cl *mqtt.Client, pk packets.Packet) error {
+func (h *hook) OnConnect(cl *mqtt.Client, pk packets.Packet) error { //nolint:gocritic // hugeParam: the module fixes the hook signature.
 	if !pk.Connect.WillFlag {
 		return nil
 	}
@@ -321,7 +322,7 @@ func (h *hook) OnConnect(cl *mqtt.Client, pk packets.Packet) error {
 
 // OnConnectAuthenticate sets the client id to the certificate CN, ignores the
 // claimed id, username and password, and asks rules.Connect.
-func (h *hook) OnConnectAuthenticate(cl *mqtt.Client, _ packets.Packet) bool {
+func (h *hook) OnConnectAuthenticate(cl *mqtt.Client, _ packets.Packet) bool { //nolint:gocritic // hugeParam: the module fixes the hook signature.
 	peer, err := peerOfConn(cl)
 	if err != nil {
 		h.b.log.Warn("connection refused", "error", err)
@@ -374,4 +375,13 @@ func peerOfConn(cl *mqtt.Client) (envproto.Peer, error) {
 	}
 	peer.ClientID = peer.CN
 	return peer, nil
+}
+
+// expirySeconds is d in whole seconds, rounded up, for a Message Expiry
+// Interval; 0 means none.
+func expirySeconds(d time.Duration) uint32 {
+	if d <= 0 {
+		return 0
+	}
+	return uint32(min((d+time.Second-1)/time.Second, math.MaxUint32))
 }

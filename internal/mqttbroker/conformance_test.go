@@ -76,7 +76,7 @@ func (s *stack) enroll(t *testing.T, name string) enrolled {
 }
 
 // dial connects a bare client as e, with the offline will and a 1 s Will Delay.
-func (s *stack) dial(t *testing.T, e *enrolled, tlsConfig *tls.Config, addr string) (*mqttclient.Client, error) {
+func dial(t *testing.T, e *enrolled, tlsConfig *tls.Config, addr string) (*mqttclient.Client, error) {
 	t.Helper()
 	client := mqttclient.New(discardLog())
 	t.Cleanup(func() { assert.NoError(t, client.Close()) })
@@ -120,7 +120,7 @@ func (noClaude) Probe(context.Context) (string, *string) {
 }
 
 // runAgent runs the real agent over the paho client until the test ends.
-func (s *stack) runAgent(t *testing.T, e *enrolled, mutate func(*envagent.Options)) {
+func runAgent(t *testing.T, e *enrolled, mutate func(*envagent.Options)) {
 	t.Helper()
 	opts := envagent.DefaultOptions("test", 30)
 	opts.WillDelay = time.Second
@@ -142,9 +142,12 @@ func (s *stack) runAgent(t *testing.T, e *enrolled, mutate func(*envagent.Option
 // serverRoots is the certificates the broker presents above its leaf.
 func serverRoots(t *testing.T, addr string) (roots *x509.CertPool, leafIssuer string) {
 	t.Helper()
-	conn, err := tls.Dial("tcp", addr, &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true}) //nolint:gosec // The test reads the chain to learn the roots.
+	dialer := tls.Dialer{Config: &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true}}
+	raw, err := dialer.DialContext(t.Context(), "tcp", addr)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer raw.Close()
+	conn, ok := raw.(*tls.Conn)
+	require.True(t, ok)
 	chain := conn.ConnectionState().PeerCertificates
 	require.GreaterOrEqual(t, len(chain), 2)
 	roots = x509.NewCertPool()
@@ -156,6 +159,7 @@ func serverRoots(t *testing.T, addr string) (roots *x509.CertPool, leafIssuer st
 
 // killableProxy forwards TCP to target and can reset every connection.
 type killableProxy struct {
+	ctx    context.Context //nolint:containedctx // The proxy's accept loop runs for the test's lifetime.
 	ln     net.Listener
 	mu     sync.Mutex
 	conns  []net.Conn
@@ -166,7 +170,7 @@ func newKillableProxy(t *testing.T, target string) *killableProxy {
 	t.Helper()
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	p := &killableProxy{ln: ln, target: target}
+	p := &killableProxy{ctx: t.Context(), ln: ln, target: target}
 	t.Cleanup(func() { _ = ln.Close(); p.Kill() })
 	go p.serve()
 	return p
@@ -180,7 +184,7 @@ func (p *killableProxy) serve() {
 		if err != nil {
 			return
 		}
-		out, err := net.Dial("tcp", p.target)
+		out, err := (&net.Dialer{}).DialContext(p.ctx, "tcp", p.target)
 		if err != nil {
 			_ = in.Close()
 			continue
@@ -212,14 +216,14 @@ func TestConformance_certificates(t *testing.T) {
 		e := s.enroll(t, "linux")
 		bare := e.identity.TLSConfig()
 		bare.Certificates = nil
-		_, err := s.dial(t, &e, bare, s.brokerAddr)
-		assert.Error(t, err)
+		_, err := dial(t, &e, bare, s.brokerAddr)
+		require.Error(t, err)
 		other := newTestCA(t, "other ca")
 		foreign := other.issue(t, e.identity.ID, x509.ExtKeyUsageClientAuth)
 		withForeign := e.identity.TLSConfig()
 		withForeign.Certificates = []tls.Certificate{foreign}
-		_, err = s.dial(t, &e, withForeign, s.brokerAddr)
-		assert.Error(t, err)
+		_, err = dial(t, &e, withForeign, s.brokerAddr)
+		require.Error(t, err)
 		assert.Empty(t, s.broker.Clients())
 	})
 }
@@ -228,7 +232,7 @@ func TestConformance_agent(t *testing.T) {
 	t.Run("an enrolled agent connects, is online, then its snapshot arrives", func(t *testing.T) {
 		s := newStack(t)
 		e := s.enroll(t, "linux")
-		s.runAgent(t, &e, nil)
+		runAgent(t, &e, nil)
 		s.waitStatus(t, "linux", "online")
 		_, err := s.store.ReadSnapshot("linux")
 		require.Eventually(t, func() bool { _, err = s.store.ReadSnapshot("linux"); return err == nil }, eventually, 20*time.Millisecond)
@@ -240,10 +244,11 @@ func TestConformance_agent(t *testing.T) {
 		s := newStack(t)
 		e := s.enroll(t, "linux")
 		other := s.enroll(t, "mac")
-		client, err := s.dial(t, &e, e.identity.TLSConfig(), s.brokerAddr)
+		client, err := dial(t, &e, e.identity.TLSConfig(), s.brokerAddr)
 		require.NoError(t, err)
 		_ = client.Publish(t.Context(), envproto.Message{Topic: envproto.Topic(other.identity.ID, envproto.LeafStatus), Payload: envproto.OfflinePayload(), QoS: 1, Retain: true})
 		waitClosed(t, client.Done())
+		s.waitStatus(t, "mac", "offline")
 		fn, got := receiver()
 		_, err = s.broker.Subscribe(t.Context(), envproto.Topic(other.identity.ID, envproto.LeafStatus), fn)
 		require.NoError(t, err)
@@ -264,14 +269,14 @@ func TestConformance_agent(t *testing.T) {
 			ClientID: e.identity.ID,
 			Will:     &envproto.Message{Topic: envproto.Topic(other.identity.ID, envproto.LeafStatus), Payload: envproto.OfflinePayload(), QoS: 1},
 		})
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Empty(t, s.broker.Clients())
 	})
 	t.Run("a killed connection turns the environment offline after the will delay", func(t *testing.T) {
 		s := newStack(t)
 		e := s.enroll(t, "linux")
 		proxy := newKillableProxy(t, s.brokerAddr)
-		client, err := s.dial(t, &e, e.identity.TLSConfig(), proxy.Addr())
+		client, err := dial(t, &e, e.identity.TLSConfig(), proxy.Addr())
 		require.NoError(t, err)
 		hello, err := json.Marshal(envproto.Hello{Status: envproto.StatusOnline, At: time.Now().UTC(), CAFingerprints: e.identity.Fingerprints()})
 		require.NoError(t, err)
@@ -286,7 +291,7 @@ func TestConformance_agent(t *testing.T) {
 	t.Run("a clean close sends no will", func(t *testing.T) {
 		s := newStack(t)
 		e := s.enroll(t, "linux")
-		client, err := s.dial(t, &e, e.identity.TLSConfig(), s.brokerAddr)
+		client, err := dial(t, &e, e.identity.TLSConfig(), s.brokerAddr)
 		require.NoError(t, err)
 		hello, err := json.Marshal(envproto.Hello{Status: envproto.StatusOnline, At: time.Now().UTC(), CAFingerprints: e.identity.Fingerprints()})
 		require.NoError(t, err)
@@ -302,14 +307,14 @@ func TestConformance_revocation(t *testing.T) {
 	t.Run("a revoked serial is disconnected and then refused", func(t *testing.T) {
 		s := newStack(t)
 		e := s.enroll(t, "linux")
-		client, err := s.dial(t, &e, e.identity.TLSConfig(), s.brokerAddr)
+		client, err := dial(t, &e, e.identity.TLSConfig(), s.brokerAddr)
 		require.NoError(t, err)
 		_, _, err = s.store.Remove(t.Context(), "linux")
 		require.NoError(t, err)
 		require.NoError(t, s.ctrl.Reload(t.Context()))
 		waitClosed(t, client.Done())
-		_, err = s.dial(t, &e, e.identity.TLSConfig(), s.brokerAddr)
-		assert.Error(t, err)
+		_, err = dial(t, &e, e.identity.TLSConfig(), s.brokerAddr)
+		require.Error(t, err)
 	})
 }
 
@@ -317,7 +322,7 @@ func TestConformance_caRotation(t *testing.T) {
 	t.Run("a rotation keeps the agent connected; after a disconnect it reconnects to the new server certificate", func(t *testing.T) {
 		s := newStack(t)
 		e := s.enroll(t, "linux")
-		s.runAgent(t, &e, nil)
+		runAgent(t, &e, nil)
 		s.waitStatus(t, "linux", "online")
 		rotation, err := s.store.RotateCA(t.Context())
 		require.NoError(t, err)
@@ -342,7 +347,7 @@ func TestConformance_caRotation(t *testing.T) {
 		roots, _ := serverRoots(t, s.brokerAddr)
 		tlsConfig := e.identity.TLSConfig()
 		tlsConfig.RootCAs = roots
-		client, err := s.dial(t, &e, tlsConfig, s.brokerAddr)
+		client, err := dial(t, &e, tlsConfig, s.brokerAddr)
 		require.NoError(t, err)
 		_, err = s.store.FinishCA(t.Context(), true)
 		require.NoError(t, err)
@@ -350,8 +355,8 @@ func TestConformance_caRotation(t *testing.T) {
 		waitClosed(t, client.Done())
 		roots, _ = serverRoots(t, s.brokerAddr)
 		tlsConfig.RootCAs = roots
-		_, err = s.dial(t, &e, tlsConfig, s.brokerAddr)
-		assert.Error(t, err)
+		_, err = dial(t, &e, tlsConfig, s.brokerAddr)
+		require.Error(t, err)
 	})
 }
 
@@ -360,7 +365,7 @@ func TestConformance_renewal(t *testing.T) {
 		s := newStack(t)
 		e := s.enroll(t, "linux")
 		before := e.identity.Cert.SerialNumber
-		s.runAgent(t, &e, func(o *envagent.Options) {
+		runAgent(t, &e, func(o *envagent.Options) {
 			o.RenewBeforeDays = 3650
 			o.RenewCheck = 50 * time.Millisecond
 		})

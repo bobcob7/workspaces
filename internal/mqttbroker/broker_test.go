@@ -230,7 +230,7 @@ func TestBroker_Start(t *testing.T) {
 			TLS:      &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: f.ca.pool, ServerName: "127.0.0.1"},
 			ClientID: "a",
 		})
-		assert.Error(t, err)
+		require.Error(t, err)
 		other := newTestCA(t, "other ca")
 		foreign := other.issue(t, "a", x509.ExtKeyUsageClientAuth)
 		_, err = f.connectWith(t, &foreign, "a", nil)
@@ -254,7 +254,7 @@ func TestBroker_connect(t *testing.T) {
 	t.Run("rules.Connect refusing a client keeps it out", func(t *testing.T) {
 		f := startBroker(t)
 		_, err := f.connect(t, "bad", "bad", nil)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Empty(t, f.broker.Clients())
 	})
 	t.Run("a will on another client's topic is refused and logged", func(t *testing.T) {
@@ -433,7 +433,7 @@ func TestBroker_Close(t *testing.T) {
 		require.NoError(t, f.broker.Close())
 		waitClosed(t, client.Done())
 		_, err = f.connect(t, "a", "a", nil)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Error(t, f.broker.Publish(t.Context(), envproto.Message{Topic: "env/a/req"}))
 	})
 	t.Run("a second Close is harmless", func(t *testing.T) {
