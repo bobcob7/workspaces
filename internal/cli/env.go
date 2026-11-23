@@ -37,7 +37,7 @@ func (a *App) newEnvAddCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "add <NAME>",
 		Short: "Add a remote environment and print its enrollment code",
-		Args:  exactArgs(1, "an environment name"),
+		Args:  exactArgs(1, "environment name"),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			return a.runEnvAdd(cmd.Context(), args[0])
 		})),
@@ -59,7 +59,7 @@ func (a *App) newEnvRmCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rm <NAME>",
 		Short: "Remove a remote environment and revoke its certificate",
-		Args:  exactArgs(1, "an environment name"),
+		Args:  exactArgs(1, "environment name"),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			return a.runEnvRemove(cmd.Context(), args[0])
 		})),
@@ -70,7 +70,7 @@ func (a *App) newEnvRotateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rotate <NAME>",
 		Short: "Give a remote environment a new enrollment code",
-		Args:  exactArgs(1, "an environment name"),
+		Args:  exactArgs(1, "environment name"),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			return a.runEnvRotate(cmd.Context(), args[0])
 		})),
@@ -312,8 +312,8 @@ func (a *App) snapshotCount(name string) *int {
 	return &count
 }
 
-// snapshotWorkspaces is the length of the workspaces array in a snapshot.
-// A snapshot without a workspaces key is an error, not zero workspaces.
+// snapshotWorkspaces counts the entries in a snapshot's workspaces array.
+// A snapshot with no workspaces key fails to parse rather than counting as zero.
 func snapshotWorkspaces(data []byte) (int, error) {
 	var snap envproto.Snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {

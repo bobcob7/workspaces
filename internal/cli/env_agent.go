@@ -42,7 +42,7 @@ func (a *App) newEnvAgentEnrollCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "enroll <CODE>",
 		Short: "Enroll this machine with the code that ws env add printed",
-		Args:  exactArgs(1, "an enrollment code"),
+		Args:  exactArgs(1, "enrollment code"),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			return a.runEnvAgentEnroll(cmd.Context(), args[0])
 		})),
