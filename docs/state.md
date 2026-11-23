@@ -45,11 +45,12 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `artifacts/<id>/comments.json` | threads on the artifact, with anchors ([0079](adrs/0079-artifact-comments-and-anchors.md)); absent until the first comment | by the comment commands and by `put` (moved anchors), under `<id>/.lock`; deleted with `<id>/` |
 | `artifacts/<id>/.lock` | exclusive for every write to the artifact; readers take none | by the writers |
 | `artifacts/.tmp/` | temporary files; a write deletes leftovers older than 1 h; `rm` renames `<id>/` here before deleting it | by the writers |
-| `<workspace>/.ws-artifacts/<id>/r<n>` | a revision an agent asked for with `ws machine artifact get`, copied out of the store | by `ws machine artifact get`, which creates the directory 0700 and the file 0600 |
+| `<workspace>/.ws-artifacts/<id>/r<n>` | a revision an agent asked for with `ws machine artifact get`, copied out of the store | by `ws machine artifact get`, which creates the directory 0700 and the file 0600; with `--out`, the file goes to that directory instead |
 
 - **Workspace contents.** Nothing `ws` writes goes inside
   `workspaces/<id>/`, except `.ws-artifacts/`, which `ws machine artifact
-  get` writes when an agent asks.
+  get` writes when an agent asks, and the `--out` directory an agent names
+  with it.
 - **Hidden names.** A name in `state/` that starts with `.` is never a
   workspace.
 - **Unrecorded directories.** A directory under `workspaces/` without a
