@@ -174,6 +174,7 @@ func TestAgent_hello(t *testing.T) {
 		id := fx.id
 		hello := agent.hello(t.Context(), &id)
 		assert.Equal(t, envproto.StatusOnline, hello.Status)
+		assert.Equal(t, envproto.Protocol, hello.Protocol)
 		assert.Equal(t, "test", hello.WSVersion)
 		assert.Equal(t, runtime.GOOS, hello.OS)
 		assert.Equal(t, runtime.GOARCH, hello.Arch)

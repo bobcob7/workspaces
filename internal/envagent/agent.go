@@ -251,6 +251,8 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 	}
 	if len(payload) > envproto.MaxRequestBytes {
 		a.log.WarnContext(ctx, "snapshot too large", "bytes", len(payload))
+		// Remember it, so the unchanged checks don't warn again until SnapshotEvery.
+		a.workspaces, a.snapshotAt = raw, now
 		return
 	}
 	err = a.client.Publish(ctx, envproto.Message{

@@ -60,6 +60,9 @@ func (a *Agent) admit(req *envproto.Request) (envproto.OpSpec, any, error) {
 	if req.Deadline == nil {
 		return envproto.OpSpec{}, nil, &envproto.ReplyError{Code: "usage", Message: req.Op + " needs a deadline"}
 	}
+	if req.Deadline.After(a.opts.Now().Add(spec.Timeout + envproto.Grace)) {
+		return envproto.OpSpec{}, nil, &envproto.ReplyError{Code: "usage", Message: req.Op + " has a deadline too far away"}
+	}
 	if req.RequestID != "" && !envproto.ValidRequestID(req.RequestID) {
 		return envproto.OpSpec{}, nil, &envproto.ReplyError{Code: "usage", Message: "malformed request id"}
 	}
@@ -154,8 +157,13 @@ func refusalReply(err error) []byte {
 	return envproto.ErrorReply("internal", "the operation failed")
 }
 
-// acquire takes one of the MaxOps slots, reporting false when ctx ends first.
+// acquire takes one of the MaxOps slots, reporting false when ctx has ended
+// or ends first. A done ctx is checked first, since select picks a ready case
+// at random.
 func (a *Agent) acquire(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	select {
 	case a.slots <- struct{}{}:
 		return true

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -41,10 +42,16 @@ func newOpsAgent(fx *agentFixture, ops operationRunner, opts Options) *Agent { /
 	return NewAgent(discardLog(), fx.files, fx.broker.NewClient(), testSnapshots("[]"), testProbe(), ops, rand.Reader, opts)
 }
 
-// opRequest is a request for op with args, due in a minute, with a request id of its own.
+// opRequest is a request for op with args, due within op's timeout, with a request id of its own.
 func opRequest(t *testing.T, requestID, op string, args any) []byte {
 	t.Helper()
-	deadline := time.Now().Add(time.Minute)
+	spec, _ := envproto.LookupOp(op)
+	return opRequestDue(t, requestID, op, args, time.Now().Add(spec.Timeout))
+}
+
+// opRequestDue is a request for op with args, due at deadline.
+func opRequestDue(t *testing.T, requestID, op string, args any, deadline time.Time) []byte {
+	t.Helper()
 	return marshalTo(t, envproto.Request{
 		Op:        op,
 		Args:      json.RawMessage(marshalTo(t, args)),
@@ -229,6 +236,128 @@ func TestAgent_dispatch(t *testing.T) {
 		assert.Empty(t, slowReplies.all())
 		close(release)
 		require.Eventually(t, func() bool { return len(slowReplies.all()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	})
+	t.Run("an unknown operation is refused", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		reply := askAgent(t, fx, opRequest(t, "0123456789abcdef", "files.read", struct{}{}), "d1")
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "usage", reply.Error.Code)
+		assert.Equal(t, "unknown operation files.read", reply.Error.Message)
+		assert.Empty(t, runner.RunCalls())
+	})
+	t.Run("unknown argument keys are refused", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		cases := []struct {
+			op   string
+			args string
+		}{
+			{op: envproto.OpWorkspaceList, args: `{"foo":1}`},
+			{op: envproto.OpWorkspaceRename, args: `{"workspace":"fix-login","name":"x","foo":1}`},
+		}
+		for i, tt := range cases {
+			reply := askAgent(t, fx, opRequest(t, fmt.Sprintf("%016x", i+1), tt.op, json.RawMessage(tt.args)), fmt.Sprintf("d%d", i+2))
+			require.NotNil(t, reply.Error, tt.op)
+			assert.Equal(t, "usage", reply.Error.Code, tt.op)
+			assert.Contains(t, reply.Error.Message, "foo", tt.op)
+		}
+		assert.Empty(t, runner.RunCalls())
+	})
+	t.Run("a spec that starts with - is refused", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		reply := askAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceCreate,
+			envproto.CreateArgs{Kind: envproto.KindClaude, Specs: []string{"-x"}}), "d4")
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "spec_invalid", reply.Error.Code)
+		assert.Empty(t, runner.RunCalls())
+	})
+	t.Run("a request whose deadline has passed never reaches the runner", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		for i := range 20 {
+			deadline := time.Now().Add(-time.Second)
+			reply := askAgent(t, fx, opRequestDue(t, fmt.Sprintf("%016x", i+1), envproto.OpWorkspaceList, envproto.ListArgs{}, deadline), fmt.Sprintf("e%d", i))
+			require.NotNil(t, reply.Error)
+			assert.Equal(t, "internal", reply.Error.Code)
+			assert.Equal(t, "the agent was busy until the deadline", reply.Error.Message)
+		}
+		assert.Empty(t, runner.RunCalls())
+	})
+	t.Run("the operation's context has the request's deadline", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		deadlines := make(chan time.Time, 1)
+		runner := &operationRunnerMock{RunFunc: func(ctx context.Context, _ string, _ any) (json.RawMessage, error) {
+			deadline, _ := ctx.Deadline()
+			deadlines <- deadline
+			return json.RawMessage(`[]`), nil
+		}}
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		deadline := time.Now().Add(20 * time.Second)
+		reply := askAgent(t, fx, opRequestDue(t, "0123456789abcdef", envproto.OpWorkspaceList, envproto.ListArgs{}, deadline), "e20")
+		assert.True(t, reply.OK)
+		assert.True(t, deadline.Equal(<-deadlines))
+	})
+	t.Run("a request waiting for a busy agent is refused at its deadline", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		started := make(chan struct{})
+		release := make(chan struct{})
+		var calls atomic.Int32
+		runner := &operationRunnerMock{RunFunc: func(context.Context, string, any) (json.RawMessage, error) {
+			if calls.Add(1) == 1 {
+				close(started)
+				<-release
+			}
+			return json.RawMessage(`[]`), nil
+		}}
+		opts := opsOptions()
+		opts.MaxOps = 1
+		runAgent(t, newOpsAgent(fx, runner, opts))
+		awaitOnline(t, fx)
+		slow := envproto.Topic(fx.id.ID, envproto.LeafRes, "f1")
+		slowReplies := captureMessages(t, fx.broker, slow)
+		sendToAgent(t, fx, opRequest(t, "1111111111111111", envproto.OpWorkspaceList, envproto.ListArgs{}), slow, "f1")
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the slow operation never started")
+		}
+		busy := askAgent(t, fx, opRequestDue(t, "2222222222222222", envproto.OpWorkspaceList, envproto.ListArgs{},
+			time.Now().Add(200*time.Millisecond)), "f2")
+		require.NotNil(t, busy.Error)
+		assert.Equal(t, "internal", busy.Error.Code)
+		assert.Equal(t, "the agent was busy until the deadline", busy.Error.Message)
+		assert.Equal(t, int32(1), calls.Load())
+		close(release)
+		require.Eventually(t, func() bool { return len(slowReplies.all()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	})
+	t.Run("a deadline further away than the timeout and grace is refused", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runner := listRunner()
+		runAgent(t, newOpsAgent(fx, runner, opsOptions()))
+		awaitOnline(t, fx)
+		reply := askAgent(t, fx, opRequestDue(t, "0123456789abcdef", envproto.OpWorkspaceList, envproto.ListArgs{},
+			time.Now().Add(time.Hour)), "d5")
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "usage", reply.Error.Code)
+		assert.Empty(t, runner.RunCalls())
 	})
 }
 

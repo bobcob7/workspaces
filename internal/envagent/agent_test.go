@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -340,5 +341,24 @@ func TestAgent_Run(t *testing.T) {
 		assert.JSONEq(t, "[]", string(got.Workspaces))
 		assert.Equal(t, envproto.Protocol, got.Protocol)
 		assert.Contains(t, string(payload), `"agents":[]`)
+	})
+}
+
+func TestAgent_refreshSnapshot(t *testing.T) {
+	t.Parallel()
+	t.Run("an oversized snapshot isn't published and is warned about once", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		oversized := `["` + strings.Repeat("x", envproto.MaxRequestBytes) + `"]`
+		client := &mqttClientMock{PublishFunc: func(context.Context, envproto.Message) error { return nil }}
+		var logs bytes.Buffer
+		log := slog.New(slog.NewJSONHandler(&logs, nil))
+		agent := NewAgent(log, fx.files, client, testSnapshots(oversized), testProbe(), NoOperations{}, rand.Reader, testOptions())
+		id := fx.id
+		agent.refreshSnapshot(t.Context(), &id, false)
+		agent.refreshSnapshot(t.Context(), &id, false)
+		assert.Empty(t, client.PublishCalls())
+		assert.Equal(t, 1, strings.Count(logs.String(), "snapshot too large"))
+		assert.Contains(t, logs.String(), `"bytes":`)
 	})
 }
