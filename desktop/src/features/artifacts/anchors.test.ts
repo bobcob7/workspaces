@@ -120,7 +120,7 @@ describe("rehypeAnchors", () => {
       position: position(3),
       children: [{ type: "text", value: "Today the " }, strong, { type: "text", value: " is shared." }],
     };
-    const root = run(tree(block), [openThread("t5", "is shared", 3)]);
+    run(tree(block), [openThread("t5", "is shared", 3)]);
 
     expect(block.children).toContainEqual({ type: "element", tagName: "mark", properties: { dataThread: "t5" }, children: [{ type: "text", value: "is shared" }] });
     expect(strong.properties).not.toHaveProperty("dataThread");

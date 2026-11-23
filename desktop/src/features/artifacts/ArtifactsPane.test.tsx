@@ -92,7 +92,7 @@ describe("ArtifactsPane", () => {
   it("reads the revision chosen in the picker", async () => {
     const revisions = [revision(1, "image/png"), revision(2, "image/png")];
     vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact({ ...image, latest: 2 }, revisions));
-    const read = vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) => content({ rev }));
+    const read = vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) => content({ rev: rev ?? 1 }));
     renderPane([image], image.id);
     await screen.findByRole("img", { name: "login-error.png" });
 
