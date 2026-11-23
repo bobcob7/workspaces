@@ -19,7 +19,7 @@ commit as the code that changes it.
 | `internal/cli/llm_test.go`, `TestGuideTopics` / "the overview lists every error code under its exit code" | each declared code must be in the row `\| <exit> ` of the table under `## Output and exit codes` in `internal/cli/guides/ws.md` | a new code isn't in that row |
 | `llm_test.go`, "exit code sections name only real error codes" | every `` `snake_code` `` in a guide's `## Exit codes` must be declared | a guide names a code before its constant exists; declare codes in the same task as the first guide that names them |
 | `internal/cli/errors.go`: unused constants | `unused` linter | a code declared in one task and used only in a later one; declare each code in the task that first returns it |
-| `docs/adrs/0016-output-contract.md`, the `Status:` line | lists each ADR that added codes | append "; `artifact_invalid`, `artifact_unknown`, `artifact_conflict`, `artifact_full`, `artifact_forbidden`, `artifact_unreachable` added by [0078](0078-artifacts.md), `anchor_not_found` by [0079](0079-artifact-comments-and-anchors.md) (2026-11-23)" |
+| `docs/adrs/0016-output-contract.md`, the `Status:` line | lists each ADR that added codes | append ``; `artifact_invalid`, `artifact_unknown`, `artifact_conflict`, `artifact_full`, `artifact_forbidden` and `artifact_unreachable` added by [0078](0078-artifacts.md) (T3), `anchor_not_found` by [0079](0079-artifact-comments-and-anchors.md) (T4)`` |
 
 Which task declares which code: **T3** declares `artifact_invalid` (2),
 `artifact_unknown` (3), `artifact_conflict` (4), `artifact_full` (4),
@@ -67,7 +67,7 @@ No `config.toml` key is added: limits are constants in `internal/artifact`.
 | `guard.go`, the refusal message in `checkWS` | `ws may only run "ws machine result" or "ws machine progress set|step|show"` | update to name `ws machine artifact` too; `guard_test.go` matches `"command refused"` only |
 | `internal/agent/tools/guard_test.go` table near line 87 | allow/refuse cases | add "allows ws machine artifact get", "refuses bare ws machine artifact", "refuses ws machine artifact comment" (bare) |
 | `internal/agent/preamble.md` line 9 | "Do not run ws (except `ws machine result` and `ws machine progress`)" | add `ws machine artifact`; check for a golden of the preamble: `grep -rn "except \`ws machine result\`" internal/` |
-| `docs/adrs/0066-runner-security-boundaries.md` | lists the allowed `ws` commands (0077 amended it) | add a line "`ws machine artifact` allowed by [0078](0078-artifacts.md)" |
+| `docs/adrs/0066-runner-security-boundaries.md` | lists the allowed `ws` commands (0077 amended it) | add a line ``` `ws machine artifact` allowed by [0078](0078-artifacts.md) ``` |
 
 ### Lint rules (`.golangci.yml`, `Makefile`) — C5
 
@@ -96,7 +96,7 @@ over `t.TempDir()`, as it uses `*machine.Store`.
 
 | File | What to add (T5) |
 | --- | --- |
-| `docs/tools/README.md` command table | a row `[\`ws artifact\`](ws-artifact.md)` after `ws env`: "Share files with agents and comment on them; used by the desktop app; hidden from `ws --help`" |
+| `docs/tools/README.md` command table | a row ``[`ws artifact`](ws-artifact.md)`` after `ws env`: "Share files with agents and comment on them; used by the desktop app; hidden from `ws --help`" |
 | `docs/tools/ws-artifact.md` | new page: the people commands, JSON, errors, layout |
 | `docs/tools/ws-machine.md` | `## ws machine artifact` section before `## Errors`, the synopsis lines in `## Synopsis`, the new codes in `## Errors` |
 | `docs/state.md` `## Layout` | rows for `artifacts/<id>/artifact.json`, `r<n>`, `comments.json`, `.lock`, `artifacts/.tmp/`, and `<workspace>/.ws-artifacts/` (written by `get` on an agent's request); and the "Workspace contents" bullet amended: "except `.ws-artifacts/`, which `ws machine artifact get` writes when an agent asks" |

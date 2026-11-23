@@ -850,8 +850,7 @@ Create `docs/tools/ws-artifact.md`. Change `docs/tools/README.md`,
 - `README.md`: in `## Commands`, one line ("Share screenshots and
   documents with agents: the desktop app's Artifacts section, or `ws
   artifact add`; agents use `ws machine artifact`"); in `## Roadmap`, an
-  entry "Artifacts ([0078](docs/adrs/0078-artifacts.md),
-  [0079](docs/adrs/0079-artifact-comments-and-anchors.md)): done"; and,
+  entry ``Artifacts ([0078](docs/adrs/0078-artifacts.md), [0079](docs/adrs/0079-artifact-comments-and-anchors.md)): done``; and,
   if `desktop/docs/artifacts-*.png` exist on the branch, link them from
   `desktop/README.md` (otherwise leave a `TODO(screenshots)` line out —
   don't link missing files).
