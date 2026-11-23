@@ -877,3 +877,23 @@ func TestController_enrollTimeouts(t *testing.T) {
 	var netErr net.Error
 	assert.False(t, errors.As(err, &netErr) && netErr.Timeout(), "the connection stayed open: %v", err)
 }
+
+func TestController_enrollMaxHeaderBytes(t *testing.T) {
+	store := newTestStore(t)
+	addEnvironment(t, store, "linux-server")
+	c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
+	require.NoError(t, c.Start(t.Context()))
+	tr, err := store.trust()
+	require.NoError(t, err)
+	dialer := &tls.Dialer{Config: clientTLS(tr.pool(), nil)}
+	raw, err := dialer.DialContext(t.Context(), "tcp", c.Status().EnrollListen)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = raw.Close() })
+	oversized := strings.Repeat("a", 2*enrollMaxHeaderBytes)
+	_, err = raw.Write([]byte("POST " + envproto.EnrollPath + " HTTP/1.1\r\nHost: x\r\nX-Pad: " + oversized + "\r\n\r\n"))
+	require.NoError(t, err)
+	require.NoError(t, raw.SetReadDeadline(time.Now().Add(5*time.Second)))
+	reply, err := io.ReadAll(raw)
+	require.NoError(t, err)
+	assert.Contains(t, string(reply), "431 Request Header Fields Too Large")
+}
