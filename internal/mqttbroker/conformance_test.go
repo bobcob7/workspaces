@@ -599,7 +599,6 @@ func TestConformance_terminals(t *testing.T) {
 		assert.Equal(t, "disconnected", term.Exit().Reason)
 	})
 	t.Run("a connection that comes back inside the will delay still ends the terminal", func(t *testing.T) {
-		t.Skip("product bug: the will never fires when the agent reconnects within its 10 s will delay, and the agent's disconnected exit frame has no connection to travel on; the online hello that follows doesn't end the controller's terminals (onStatus ends them only on offline), so the terminal hangs with no output until the user closes it. Fix needs a per-connection marker the controller can compare (a session counter in the hello), which touches T2, T4 and T6.")
 		s := newStack(t)
 		proxy := newKillableProxy(t, s.brokerAddr)
 		startCLIAgent(t, s, proxy.Addr())

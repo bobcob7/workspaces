@@ -68,6 +68,16 @@ func (f *termFixture) addOtherEnvironment(t *testing.T) {
 	f.otherID = rec.ID
 }
 
+// hearConn makes the controller hear an online hello of environment id that names connection conn.
+func (f *termFixture) hearConn(t *testing.T, id, conn string) {
+	t.Helper()
+	tr, err := f.store.trust()
+	require.NoError(t, err)
+	payload, err := json.Marshal(envproto.Hello{Status: envproto.StatusOnline, At: f.store.now().UTC(), CAFingerprints: tr.fingerprints(), Protocol: envproto.Protocol, Conn: conn})
+	require.NoError(t, err)
+	f.c.onStatus(t.Context(), &envproto.Message{Topic: envproto.Topic(id, envproto.LeafStatus), Payload: payload})
+}
+
 func (f *termFixture) answer(t *testing.T) func(envproto.Message) {
 	t.Helper()
 	return func(msg envproto.Message) {
@@ -418,6 +428,50 @@ func TestController_OpenTerminal(t *testing.T) {
 		assert.Equal(t, "disconnected", term.Exit().Reason)
 		assert.Zero(t, f.c.terminalCount())
 		assert.ErrorIs(t, term.Resize(t.Context(), 100, 30), ErrTerminalEnded)
+	})
+	t.Run("a hello on a new connection ends the terminal as disconnected", func(t *testing.T) {
+		f := newTermFixture(t)
+		f.hearConn(t, f.id, "conn-a")
+		term := f.open(t)
+		f.data(t, 1, "last")
+		f.hearConn(t, f.id, "conn-b")
+		assert.Equal(t, "last", string(next(t, term)))
+		closedWithin(t, term)
+		assert.Equal(t, "disconnected", term.Exit().Reason)
+		assert.Zero(t, f.c.terminalCount())
+	})
+	t.Run("the same hello again leaves the terminal open", func(t *testing.T) {
+		f := newTermFixture(t)
+		f.hearConn(t, f.id, "conn-a")
+		term := f.open(t)
+		f.hearConn(t, f.id, "conn-a")
+		f.data(t, 1, "still here")
+		assert.Equal(t, "still here", string(next(t, term)))
+	})
+	t.Run("a hello without a connection id leaves the terminal open", func(t *testing.T) {
+		f := newTermFixture(t)
+		f.hearConn(t, f.id, "conn-a")
+		term := f.open(t)
+		f.hearConn(t, f.id, "")
+		f.data(t, 1, "still here")
+		assert.Equal(t, "still here", string(next(t, term)))
+	})
+	t.Run("the first hello with a connection id after an older agent's ends the terminal", func(t *testing.T) {
+		f := newTermFixture(t)
+		term := f.open(t)
+		f.hearConn(t, f.id, "conn-a")
+		closedWithin(t, term)
+		assert.Equal(t, "disconnected", term.Exit().Reason)
+	})
+	t.Run("another environment's new connection leaves the terminal open", func(t *testing.T) {
+		f := newTermFixture(t)
+		f.addOtherEnvironment(t)
+		f.hearConn(t, f.otherID, "conn-a")
+		f.hearConn(t, f.id, "conn-a")
+		term := f.open(t)
+		f.hearConn(t, f.otherID, "conn-b")
+		f.data(t, 1, "still here")
+		assert.Equal(t, "still here", string(next(t, term)))
 	})
 	t.Run("another environment going offline leaves the terminal open", func(t *testing.T) {
 		f := newTermFixture(t)

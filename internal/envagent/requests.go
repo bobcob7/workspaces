@@ -102,5 +102,6 @@ func (a *Agent) hello(ctx context.Context, id *Identity) envproto.Hello {
 		CertSerial:     id.Cert.SerialNumber.Text(16),
 		CertNotAfter:   id.Cert.NotAfter.UTC(),
 		CAFingerprints: id.Fingerprints(),
+		Conn:           a.connID,
 	}
 }

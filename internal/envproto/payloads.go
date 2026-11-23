@@ -50,6 +50,10 @@ type Hello struct {
 	CertNotAfter   time.Time `json:"cert_not_after"`
 	CAFingerprints []string  `json:"ca_fingerprints"`
 	Protocol       int       `json:"protocol"` // 0 from an agent older than PR 3
+	// Conn is a random id the agent makes on each connect and repeats in every
+	// hello of that connection. A controller that sees it change knows the
+	// agent's terminals died with the old connection. Empty from an older agent.
+	Conn string `json:"conn,omitempty"`
 }
 
 // OfflinePayload is the Last Will: exactly {"status":"offline"}.

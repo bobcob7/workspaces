@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -347,6 +348,67 @@ func TestAgent_Run(t *testing.T) {
 		assert.JSONEq(t, "[]", string(got.Workspaces))
 		assert.Equal(t, envproto.Protocol, got.Protocol)
 		assert.Contains(t, string(payload), `"agents":[]`)
+	})
+}
+
+func TestAgent_connect(t *testing.T) {
+	t.Parallel()
+	connectOnce := func(t *testing.T) (*Agent, *Identity, *publishRecorder) {
+		t.Helper()
+		fx := startAgentFixture(t)
+		recorder := &publishRecorder{}
+		client := connectedMock(func(_ context.Context, msg envproto.Message) error {
+			recorder.add(&msg)
+			return nil
+		})
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), NoOperations{}, rand.Reader, testOptions())
+		return agent, &fx.id, recorder
+	}
+	hellos := func(t *testing.T, recorder *publishRecorder, id *Identity) []envproto.Hello {
+		t.Helper()
+		var out []envproto.Hello
+		for _, msg := range recorder.on(envproto.Topic(id.ID, envproto.LeafStatus)) {
+			var hello envproto.Hello
+			require.NoError(t, json.Unmarshal(msg.Payload, &hello))
+			out = append(out, hello)
+		}
+		return out
+	}
+	t.Run("the hello names the connection", func(t *testing.T) {
+		t.Parallel()
+		agent, id, recorder := connectOnce(t)
+		require.NoError(t, agent.connect(t.Context(), id))
+		got := hellos(t, recorder, id)
+		require.Len(t, got, 1)
+		assert.Len(t, got[0].Conn, 16)
+	})
+	t.Run("every connect makes a new connection id", func(t *testing.T) {
+		t.Parallel()
+		agent, id, recorder := connectOnce(t)
+		require.NoError(t, agent.connect(t.Context(), id))
+		require.NoError(t, agent.connect(t.Context(), id))
+		got := hellos(t, recorder, id)
+		require.Len(t, got, 2)
+		assert.NotEmpty(t, got[0].Conn)
+		assert.NotEqual(t, got[0].Conn, got[1].Conn)
+	})
+	t.Run("a hello sent again on the same connection repeats its id", func(t *testing.T) {
+		t.Parallel()
+		agent, id, recorder := connectOnce(t)
+		require.NoError(t, agent.connect(t.Context(), id))
+		require.NoError(t, agent.publishHello(t.Context(), id))
+		got := hellos(t, recorder, id)
+		require.Len(t, got, 2)
+		assert.Equal(t, got[0].Conn, got[1].Conn)
+	})
+	t.Run("a failing random source fails the connect before dialing", func(t *testing.T) {
+		t.Parallel()
+		agent, id, _ := connectOnce(t)
+		agent.random = iotest.ErrReader(errors.New("no entropy"))
+		client, ok := agent.client.(*mqttClientMock)
+		require.True(t, ok)
+		require.ErrorContains(t, agent.connect(t.Context(), id), "connection id")
+		assert.Empty(t, client.ConnectCalls())
 	})
 }
 

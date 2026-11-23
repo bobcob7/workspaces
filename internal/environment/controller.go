@@ -498,9 +498,11 @@ func (c *Controller) onStatus(ctx context.Context, msg *envproto.Message) {
 		c.log.DebugContext(ctx, "status ignored", "id", id)
 		return
 	}
-	cameBack := c.recordStatus(id, &hello)
-	if hello.Status != envproto.StatusOnline {
+	cameBack, reconnected := c.recordStatus(id, &hello)
+	if hello.Status != envproto.StatusOnline || reconnected {
 		c.endTerminals(id, false)
+	}
+	if hello.Status != envproto.StatusOnline {
 		return
 	}
 	if cameBack {
@@ -512,19 +514,22 @@ func (c *Controller) onStatus(ctx context.Context, msg *envproto.Message) {
 }
 
 // recordStatus stores what a status message says about the environment id,
-// and reports whether it came back online from offline.
-func (c *Controller) recordStatus(id string, hello *envproto.Hello) bool {
+// and reports whether it came back online from offline, and whether its hello
+// names a different connection than the last one held (the agent reconnected
+// inside its will delay, so the will never fired and its terminals are gone).
+func (c *Controller) recordStatus(id string, hello *envproto.Hello) (cameBack, reconnected bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	h := c.presence[id]
-	cameBack := hello.Status == envproto.StatusOnline && !h.online
+	reconnected = hello.Status == envproto.StatusOnline && hello.Conn != "" && h.hello != nil && h.hello.Conn != hello.Conn
+	cameBack = hello.Status == envproto.StatusOnline && !h.online
 	h.lastSeen = c.now().UTC()
 	h.online = hello.Status == envproto.StatusOnline
 	if h.online {
 		h.hello = hello
 	}
 	c.presence[id] = h
-	return cameBack
+	return cameBack, reconnected
 }
 
 // onSnapshot writes the environment's snapshot to state/.environments/<name>/snapshot.json.

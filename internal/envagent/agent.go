@@ -86,6 +86,7 @@ type Agent struct {
 	running   sync.WaitGroup                   // the operation goroutines
 	terms     *terminals                       // nil when ops can't build terminal commands
 	changed   chan struct{}                    // an operation changed the workspaces
+	connID    string                           // the current connection's id, in every hello it sends
 	// The last snapshot published, for deciding when to publish again.
 	workspaces []byte
 	agents     []byte
@@ -162,7 +163,12 @@ func checkExpiry(id *Identity, now time.Time) error {
 // connect dials the broker as id, subscribes to the requests for id, and
 // announces the agent with its hello and a snapshot.
 func (a *Agent) connect(ctx context.Context, id *Identity) error {
-	err := a.client.Connect(ctx, envproto.ConnectOptions{
+	connID, err := newCorrelation(a.random)
+	if err != nil {
+		return fmt.Errorf("making the connection id: %w", err)
+	}
+	a.connID = connID
+	err = a.client.Connect(ctx, envproto.ConnectOptions{
 		Address:         id.Broker,
 		TLS:             id.TLSConfig(),
 		ClientID:        id.ID,

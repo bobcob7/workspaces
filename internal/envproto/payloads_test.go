@@ -60,6 +60,22 @@ func TestHello_MarshalJSON(t *testing.T) {
 	})
 }
 
+func TestHello_Conn(t *testing.T) {
+	t.Run("is the conn key, and is left out when empty", func(t *testing.T) {
+		body, err := json.Marshal(Hello{Status: StatusOnline, Conn: "abc"})
+		require.NoError(t, err)
+		assert.Contains(t, string(body), `"conn":"abc"`)
+		body, err = json.Marshal(Hello{Status: StatusOnline})
+		require.NoError(t, err)
+		assert.NotContains(t, string(body), "conn")
+	})
+	t.Run("an older agent's hello decodes with no connection id", func(t *testing.T) {
+		var hello Hello
+		require.NoError(t, json.Unmarshal([]byte(`{"status":"online","protocol":3}`), &hello))
+		assert.Empty(t, hello.Conn)
+	})
+}
+
 func TestRequest_Unmarshal(t *testing.T) {
 	t.Run("reads op and args", func(t *testing.T) {
 		var req Request
