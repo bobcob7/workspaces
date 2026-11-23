@@ -1,6 +1,6 @@
 import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { isSidebarShortcut, SidebarToggle } from "./SidebarToggle";
@@ -12,6 +12,22 @@ const key = (k: string, mods: Partial<KeyboardEvent> = {}) => ({
   shiftKey: false,
   ctrlKey: false,
   ...mods,
+});
+
+describe("SidebarToggle shortcut hint", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows Ctrl+B off Mac", () => {
+    vi.stubGlobal("navigator", { platform: "Linux x86_64", userAgent: "X11; Linux" });
+    renderWithStore(<SidebarToggle />, testStore());
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toHaveAttribute("title", "Collapse sidebar (Ctrl+B)");
+  });
+
+  it("shows ⌘B on Mac", () => {
+    vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Macintosh" });
+    renderWithStore(<SidebarToggle />, testStore());
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toHaveAttribute("title", "Collapse sidebar (⌘B)");
+  });
 });
 
 describe("SidebarToggle", () => {

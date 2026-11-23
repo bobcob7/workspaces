@@ -9,6 +9,8 @@ const typingSelector = "input, textarea, select, [contenteditable='true'], .xter
 export const isSidebarShortcut = (event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">): boolean =>
   (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "b";
 
+const isMac = (): boolean => /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
+
 const isTyping = (target: EventTarget | null): boolean => target instanceof Element && target.closest(typingSelector) !== null;
 
 /** Hides or shows the section sidebar on wide screens; the button is hidden on phone widths. */
@@ -36,7 +38,7 @@ export const SidebarToggle = (): JSX.Element => {
       className={styles.toggle}
       aria-label={label}
       aria-expanded={!collapsed}
-      title={`${label} (⌘B)`}
+      title={`${label} (${isMac() ? "⌘B" : "Ctrl+B"})`}
       onClick={() => dispatch(sidebarToggled())}
     >
       <svg className={styles.icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
