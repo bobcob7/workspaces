@@ -70,6 +70,22 @@ func TestCheck(t *testing.T) {
 		got := checkSource(t, "package x\n\nfunc Run() {\n\tf := func() {\n\t\ta := 1\n\n\t\t_ = a\n\t}\n\tf()\n}\n")
 		assert.Equal(t, []finding{{Line: 6, Func: "Run"}}, got)
 	})
+	t.Run("a blank line in a package-level function literal is found", func(t *testing.T) {
+		got := checkSource(t, "package x\n\nvar f = func() {\n\t_ = 1\n\n\t_ = 2\n}\n")
+		assert.Equal(t, []finding{{Line: 5, Func: "f"}}, got)
+	})
+	t.Run("a blank line in a function literal in a package-level composite literal is named by its var", func(t *testing.T) {
+		got := checkSource(t, "package x\n\nvar tests = []struct{ fn func() }{{fn: func() {\n\t_ = 1\n\n\t_ = 2\n}}}\n")
+		assert.Equal(t, []finding{{Line: 5, Func: "tests"}}, got)
+	})
+	t.Run("a blank line in a nested function literal is reported once", func(t *testing.T) {
+		got := checkSource(t, "package x\n\nvar f = func() func() {\n\treturn func() {\n\t\t_ = 1\n\n\t\t_ = 2\n\t}\n}\n")
+		assert.Equal(t, []finding{{Line: 6, Func: "f"}}, got)
+	})
+	t.Run("a blank line in a method with a parenthesised receiver is named Recv.Name", func(t *testing.T) {
+		got := checkSource(t, "package x\n\nfunc (s (*Store)) Save() {\n\ta := 1\n\n\t_ = a\n}\n")
+		assert.Equal(t, []finding{{Line: 5, Func: "Store.Save"}}, got)
+	})
 	t.Run("a blank line between functions isn't", func(t *testing.T) {
 		got := checkSource(t, "package x\n\nfunc A() {\n\t_ = 1\n}\n\nfunc B() {\n\t_ = 2\n}\n")
 		assert.Empty(t, got)
