@@ -245,7 +245,7 @@ func boolText(b bool) string {
 
 func (r *Redactor) walkContainer(dec *json.Decoder, out *bytes.Buffer, count *int, open json.Delim) error {
 	isObject := open == '{'
-	out.WriteByte(byte(open))
+	out.WriteString(open.String())
 	for first := true; dec.More(); first = false {
 		if !first {
 			out.WriteByte(',')
