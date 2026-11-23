@@ -190,7 +190,7 @@ func (h *termHarness) blockData() (release func()) {
 	return func() { once.Do(func() { close(gate) }) }
 }
 
-func newTermHarness(t *testing.T, opts *Options) *termHarness {
+func newTermHarness(t *testing.T) *termHarness {
 	t.Helper()
 	h := &termHarness{
 		t:     t,
@@ -211,9 +211,6 @@ func newTermHarness(t *testing.T, opts *Options) *termHarness {
 		return nil
 	})
 	o := testOptions()
-	if opts != nil {
-		o = *opts
-	}
 	o.Now = h.clock.Now
 	o.After = func(d time.Duration) <-chan time.Time {
 		if d == idleCheck {
@@ -305,7 +302,7 @@ func TestTerminal_output(t *testing.T) {
 	t.Parallel()
 	t.Run("output is sent in frames of at most 16 KiB with increasing sequence numbers", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		_, err := proc.out.Write(bytes.Repeat([]byte("x"), 40000))
 		require.NoError(t, err)
@@ -320,7 +317,7 @@ func TestTerminal_output(t *testing.T) {
 	})
 	t.Run("a full queue drops the oldest output and sends one dropped frame", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		release := h.blockData()
 		sid, proc := h.open()
 		const total = 3 << 20
@@ -351,7 +348,7 @@ func TestTerminal_output(t *testing.T) {
 	})
 	t.Run("a drop is followed by one redraw", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		release := h.blockData()
 		_, proc := h.open()
 		chunk := bytes.Repeat([]byte("z"), envproto.MaxChunkBytes)
@@ -367,7 +364,7 @@ func TestTerminal_output(t *testing.T) {
 	})
 	t.Run("a process that exits ends the terminal after its output with its code", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		_, err := proc.out.Write([]byte("bye"))
 		require.NoError(t, err)
@@ -408,7 +405,7 @@ func TestTerminal_input(t *testing.T) {
 	t.Parallel()
 	t.Run("input is written to the pty", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.send(sid, envproto.FrameInput, 1, []byte("ls"))
 		h.send(sid, envproto.FrameInput, 2, []byte(" -l"))
@@ -416,7 +413,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("an oversized frame closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.sendRaw(sid, rawInput(1, bytes.Repeat([]byte("a"), envproto.MaxInputBytes+1)))
 		assert.Equal(t, "input_limit", h.exit(sid).Reason)
@@ -425,21 +422,21 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("a frame that isn't an input kind closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, _ := h.open()
 		h.send(sid, envproto.FrameData, 1, []byte("x"))
 		assert.Equal(t, "input_limit", h.exit(sid).Reason)
 	})
 	t.Run("garbage closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, _ := h.open()
 		h.sendRaw(sid, []byte("nope"))
 		assert.Equal(t, "input_limit", h.exit(sid).Reason)
 	})
 	t.Run("input over the rate closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		for i := 1; i <= envproto.InputLimitFrames; i++ {
 			h.send(sid, envproto.FrameInput, uint64(i), []byte("a"))
@@ -451,7 +448,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("input over the byte rate closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, _ := h.open()
 		body := bytes.Repeat([]byte("a"), envproto.MaxInputBytes)
 		for i := 1; i <= envproto.InputLimitBytes/envproto.MaxInputBytes+1; i++ {
@@ -461,7 +458,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("input within the rate is accepted as time passes", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		seq := uint64(0)
 		for range 3 {
@@ -476,7 +473,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("a gap in input closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.send(sid, envproto.FrameInput, 1, []byte("a"))
 		h.send(sid, envproto.FrameInput, 3, []byte("rm -rf"))
@@ -485,7 +482,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("a repeated sequence number closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, _ := h.open()
 		h.send(sid, envproto.FrameInput, 1, []byte("a"))
 		h.send(sid, envproto.FrameInput, 1, []byte("a"))
@@ -493,7 +490,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("resize resizes the pty", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.send(sid, envproto.FrameResize, 1, envproto.ResizeBody(100, 40))
 		require.Eventually(t, func() bool { return len(proc.sizes()) == 1 }, 5*time.Second, 5*time.Millisecond)
@@ -501,14 +498,14 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("a resize to size zero closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, _ := h.open()
 		h.send(sid, envproto.FrameResize, 1, []byte{0, 0, 0, 24})
 		assert.Equal(t, "input_limit", h.exit(sid).Reason)
 	})
 	t.Run("redraw resizes by one row and back", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.send(sid, envproto.FrameResize, 1, envproto.ResizeBody(100, 40))
 		h.send(sid, envproto.FrameRedraw, 2, nil)
@@ -517,7 +514,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("a second redraw within a second is ignored", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.send(sid, envproto.FrameRedraw, 1, nil)
 		require.Eventually(t, func() bool { return len(proc.sizes()) == 2 }, 5*time.Second, 5*time.Millisecond)
@@ -531,7 +528,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("no frame for 60 s closes the terminal", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.clock.advance(envproto.IdleClose - time.Second)
 		h.send(sid, envproto.FramePing, 1, nil)
@@ -546,7 +543,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("close sends an exit frame with the reason", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.send(sid, envproto.FrameClose, 1, nil)
 		exit := h.exit(sid)
@@ -555,7 +552,7 @@ func TestTerminal_input(t *testing.T) {
 	})
 	t.Run("input after the terminal ended is dropped", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sid, proc := h.open()
 		h.send(sid, envproto.FrameClose, 1, nil)
 		h.exit(sid)
@@ -569,7 +566,7 @@ func TestTerminals_closeAll(t *testing.T) {
 	t.Parallel()
 	t.Run("every terminal gets an exit frame with reason disconnected", func(t *testing.T) {
 		t.Parallel()
-		h := newTermHarness(t, nil)
+		h := newTermHarness(t)
 		sidA, procA := h.open()
 		sidB, procB := h.open()
 		h.m.closeAll()

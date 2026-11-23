@@ -2,6 +2,7 @@ package envagent
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -85,6 +86,8 @@ func newTerminals(log *slog.Logger, client mqttClient, commands terminalCommands
 type ptyprocStarter struct{}
 
 // Start runs spec on a new pseudo-terminal.
+//
+//nolint:gocritic // hugeParam: Start has the ptyStarter signature.
 func (ptyprocStarter) Start(spec ptyproc.Spec) (ptyProcess, error) {
 	p, err := ptyproc.Start(spec)
 	if err != nil {
@@ -200,7 +203,7 @@ func (m *terminals) open(ctx context.Context, args *envproto.TerminalOpenArgs) (
 	m.mu.Lock()
 	m.byID[t.sid] = t
 	m.mu.Unlock()
-	t.run()
+	t.run() //nolint:contextcheck // the terminal outlives the request that opened it.
 	return json.Marshal(envproto.TerminalOpenResult{SID: t.sid, Workspace: cmd.Workspace, Session: cmd.Session})
 }
 
@@ -413,7 +416,7 @@ func (t *terminal) admit(payload []byte) string {
 
 // inputKind reports whether kind is one a controller may send.
 func inputKind(kind envproto.FrameKind) bool {
-	switch kind {
+	switch kind { //nolint:exhaustive // every other kind is an output kind.
 	case envproto.FrameInput, envproto.FrameResize, envproto.FrameRedraw, envproto.FramePing, envproto.FrameClose:
 		return true
 	}
@@ -435,7 +438,7 @@ func (t *terminal) write() {
 
 // apply carries out one validated input frame.
 func (t *terminal) apply(f envproto.Frame) {
-	switch f.Kind {
+	switch f.Kind { //nolint:exhaustive // admit refused every output kind.
 	case envproto.FrameInput:
 		if _, err := t.proc.Write(f.Body); err != nil {
 			t.close(reasonExited)
@@ -592,9 +595,7 @@ func (t *terminal) flush(seq *uint64, redrawWanted bool) bool {
 // dropBody is a dropped frame's body: the count as a big-endian uint64.
 func dropBody(n uint64) []byte {
 	b := make([]byte, 8)
-	for i := range 8 {
-		b[7-i] = byte(n >> (8 * i))
-	}
+	binary.BigEndian.PutUint64(b, n)
 	return b
 }
 
