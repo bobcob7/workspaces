@@ -214,12 +214,16 @@ func progressTreeOf(store *machine.Store, root string, list []workspace.Workspac
 }
 
 // childProgress is a child's own progress and rollup for ws machine wait and
-// children; both are nil when the tree can't be read, with a warning.
+// children. The rollup is nil until a step is planned, and both are nil when
+// the tree can't be read, with a warning.
 func (a *App) childProgress(store *machine.Store, root string, list []workspace.Workspace, id string) (*progressJSON, *rollupJSON) {
 	tree, err := progressTreeOf(store, root, list, id)
 	if err != nil {
 		a.warned = append(a.warned, fmt.Sprintf("couldn't read %s's progress: %v", id, err))
 		return nil, nil
+	}
+	if tree.Rollup.Total == 0 {
+		return progressInfo(tree.Progress), nil
 	}
 	rollup := rollupInfo(tree.Rollup)
 	return progressInfo(tree.Progress), &rollup

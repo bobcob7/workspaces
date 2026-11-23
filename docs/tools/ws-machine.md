@@ -454,7 +454,7 @@ steps of that workspace plus its descendants': `total` and `done` are sums,
 and `fraction` is `done / total`, or `null` while no step is planned. A
 workspace that never reported has null fields and no steps of its own, and
 passes its children's up. `wait` and `children` add the same `progress` and
-`rollup` to each child's item. A passing `ws machine result` sets `done` to
+`rollup` to each child's item, with `rollup` `null` until a step is planned. A passing `ws machine result` sets `done` to
 `total` when a total was declared, and a finished child with a result but no
 record counts as one step, done only if it passed
 ([0077](../adrs/0077-agent-progress-reporting.md)). Every command prints the same object, and an agent

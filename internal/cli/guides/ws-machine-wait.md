@@ -67,7 +67,8 @@ records one.
 `progress` is the child's own `ws machine progress` record (all fields `null`
 if it never reported), and `rollup` sums its steps and its descendants':
 `{"total", "done", "fraction"}`. A finished child with no record counts as one
-step, done if it passed. See `ws llm machine progress`.
+step, done if it passed. `rollup` is `null` until a step is planned. See
+`ws llm machine progress`.
 
 `runner` is `claude` or `ws`, and `model` the model the child runs (for
 a Claude child, the one its last answer came from), or `null` when not

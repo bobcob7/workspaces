@@ -623,6 +623,21 @@ func TestApp_runMachineChildren(t *testing.T) {
 		assert.Equal(t, 3, a.Rollup.Total)
 		assert.Equal(t, 1, a.Rollup.Done)
 	})
+	t.Run("a child with no record and no result has null progress fields and a null rollup", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Workspaces, 2)
+		b := got.Workspaces[1]
+		assert.Equal(t, "b", *b.ID)
+		require.NotNil(t, b.Progress)
+		assert.Nil(t, b.Progress.Name)
+		assert.Nil(t, b.Progress.Note)
+		assert.Nil(t, b.Progress.UpdatedAt)
+		assert.Nil(t, b.Rollup)
+	})
 	t.Run("none is an empty list", func(t *testing.T) {
 		e := newMachineApp(t)
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return machineTree()[5], nil }

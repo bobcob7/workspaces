@@ -58,7 +58,8 @@ root's `rollup`.
 told.
 
 **Joined to results.** `ws machine wait` and `children` add each child's
-`progress` and `rollup` to its item. `ws machine result` with a passing
+`progress` and `rollup` to its item; the `rollup` is `null` until a step is
+planned, as `ws list --json` already gives it. `ws machine result` with a passing
 outcome sets `done = total` when a total was declared, so a finished task
 isn't left at 3 of 4; any other outcome leaves the record alone. A workspace
 with a result but no progress record counts as one step, done only when it
