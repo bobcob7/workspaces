@@ -294,6 +294,14 @@ func (s *server) handleCallEnvironment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "usage", "the call has no deadline", nil)
 		return
 	}
+	if len(req.Args) > envproto.MaxRequestBytes {
+		writeError(w, http.StatusBadRequest, "usage", "the call's args are too large", nil)
+		return
+	}
+	if spec, known := envproto.LookupOp(req.Op); known && time.Until(req.Deadline) > spec.Timeout+envproto.Grace {
+		writeError(w, http.StatusBadRequest, "usage", "the call's deadline is too far away", nil)
+		return
+	}
 	reply, err := s.envs.Call(r.Context(), r.PathValue("name"), req)
 	if err != nil {
 		writeCallFailure(w, err)

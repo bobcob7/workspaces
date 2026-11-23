@@ -29,7 +29,9 @@ type pendingCall struct {
 // Call sends req to the environment called name and waits for its reply
 // until req.Deadline + the grace period or ctx ends. In order: ErrUnknown for
 // no enrolled environment called name; ErrNotForwarded (wrapped with the op)
-// unless the op's caller is the controller; an invalid request id; an
+// unless the op's caller is the controller; an invalid request id;
+// ErrCallInvalid (wrapped) for args over envproto.MaxRequestBytes or a
+// deadline further than the op's Timeout plus the grace period from now; an
 // *OfflineError with reason "not_listening" when the controller isn't
 // listening, or "offline" when the environment isn't online; an
 // *OutdatedError when the agent's protocol is below the op's Since, and
@@ -52,6 +54,12 @@ func (c *Controller) Call(ctx context.Context, name string, req CallRequest) (en
 	}
 	if !envproto.ValidRequestID(req.RequestID) {
 		return envproto.Reply{}, fmt.Errorf("request id %q isn't valid", req.RequestID)
+	}
+	if len(req.Args) > envproto.MaxRequestBytes {
+		return envproto.Reply{}, fmt.Errorf("%w: the args are over %d bytes", ErrCallInvalid, envproto.MaxRequestBytes)
+	}
+	if far := spec.Timeout + c.callGrace; time.Until(req.Deadline) > far {
+		return envproto.Reply{}, fmt.Errorf("%w: the deadline is more than %s away", ErrCallInvalid, far)
 	}
 	if !c.isListening() {
 		return envproto.Reply{}, offlineFor(name, &req, reasonNotListening, nil)

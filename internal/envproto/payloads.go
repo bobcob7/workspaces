@@ -30,7 +30,8 @@ const (
 // EnrollPath is the enrollment listener's route.
 const EnrollPath = "/v1/enroll"
 
-// MaxRequestBytes caps a request body on the enrollment listener.
+// MaxRequestBytes is the general payload ceiling: it caps enrollment bodies,
+// daemon call bodies, MQTT broker packets, and snapshot and reply sizes.
 const MaxRequestBytes = 256 << 10
 
 // Hello is the retained status an agent publishes on connect (ADR 0073).

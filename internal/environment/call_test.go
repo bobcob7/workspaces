@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -171,19 +172,19 @@ func TestController_Call(t *testing.T) {
 	okReply := envproto.Reply{OK: true, Result: json.RawMessage(`{"workspaces":[]}`)}
 	t.Run("an unknown name is ErrUnknown", func(t *testing.T) {
 		f := newCallFixture(t)
-		_, err := f.c.Call(t.Context(), "nope", listRequest(time.Minute))
+		_, err := f.c.Call(t.Context(), "nope", listRequest(20*time.Second))
 		assert.ErrorIs(t, err, ErrUnknown)
 	})
 	t.Run("an agent-only op is ErrNotForwarded", func(t *testing.T) {
 		f := newCallFixture(t)
-		req := listRequest(time.Minute)
+		req := listRequest(20 * time.Second)
 		req.Op = envproto.OpCertRenew
 		_, err := f.c.Call(t.Context(), "linux-server", req)
 		assert.ErrorIs(t, err, ErrNotForwarded)
 	})
 	t.Run("a request id that isn't valid is refused", func(t *testing.T) {
 		f := newCallFixture(t)
-		req := listRequest(time.Minute)
+		req := listRequest(20 * time.Second)
 		req.RequestID = "not-an-id"
 		rc := f.captureRequests(t)
 		_, err := f.c.Call(t.Context(), "linux-server", req)
@@ -194,7 +195,7 @@ func TestController_Call(t *testing.T) {
 		store := newTestStore(t)
 		enrollAgent(t, store, "linux-server")
 		c := newController(t, store, envtest.NewBroker(), discardLog(), testSettings())
-		_, err := c.Call(t.Context(), "linux-server", listRequest(time.Minute))
+		_, err := c.Call(t.Context(), "linux-server", listRequest(20*time.Second))
 		var offline *OfflineError
 		require.ErrorAs(t, err, &offline)
 		require.ErrorIs(t, err, ErrOffline)
@@ -205,7 +206,7 @@ func TestController_Call(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOffline, envproto.Protocol)
 		rc := f.captureRequests(t)
-		_, err := f.c.Call(t.Context(), "linux-server", listRequest(time.Minute))
+		_, err := f.c.Call(t.Context(), "linux-server", listRequest(20*time.Second))
 		var offline *OfflineError
 		require.ErrorAs(t, err, &offline)
 		assert.Equal(t, "offline", offline.Reason)
@@ -216,7 +217,7 @@ func TestController_Call(t *testing.T) {
 	t.Run("a protocol-0 agent is OutdatedError for workspace.list", func(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, 0)
-		_, err := f.c.Call(t.Context(), "linux-server", listRequest(time.Minute))
+		_, err := f.c.Call(t.Context(), "linux-server", listRequest(20*time.Second))
 		var outdated *OutdatedError
 		require.ErrorAs(t, err, &outdated)
 		assert.Equal(t, envproto.OpWorkspaceList, outdated.Op)
@@ -228,7 +229,7 @@ func TestController_Call(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
 		f.answerRequests(t, okReply)
-		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(time.Minute))
+		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(20*time.Second))
 		require.NoError(t, err)
 		assert.True(t, reply.OK)
 		assert.JSONEq(t, `{"workspaces":[]}`, string(reply.Result))
@@ -238,7 +239,7 @@ func TestController_Call(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
 		f.answerRequests(t, envproto.Reply{OK: false, Error: &envproto.ReplyError{Code: "usage", Message: "bad"}})
-		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(time.Minute))
+		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(20*time.Second))
 		require.NoError(t, err)
 		assert.False(t, reply.OK)
 		require.NotNil(t, reply.Error)
@@ -256,12 +257,59 @@ func TestController_Call(t *testing.T) {
 		assert.Equal(t, envproto.OpWorkspaceList, offline.Op)
 		assert.Zero(t, pendingCount(f.c))
 	})
+	t.Run("a failing publish leaves no pending call and the request id can be retried", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		cancelled, cancel := context.WithCancel(t.Context())
+		cancel()
+		_, err := f.c.Call(cancelled, "linux-server", listRequest(20*time.Second))
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Contains(t, err.Error(), "sending workspace.list to linux-server")
+		assert.Zero(t, pendingCount(f.c))
+		f.answerRequests(t, okReply)
+		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(20*time.Second))
+		require.NoError(t, err)
+		assert.True(t, reply.OK)
+	})
+	t.Run("a deadline that has passed is offline/timeout and nothing is published", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		rc := f.captureRequests(t)
+		_, err := f.c.Call(t.Context(), "linux-server", listRequest(-time.Second))
+		var offline *OfflineError
+		require.ErrorAs(t, err, &offline)
+		assert.Equal(t, "timeout", offline.Reason)
+		assert.Empty(t, rc.messages())
+		assert.Zero(t, pendingCount(f.c))
+	})
+	t.Run("a deadline further than the op's timeout plus grace is refused and nothing is published", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		rc := f.captureRequests(t)
+		spec, ok := envproto.LookupOp(envproto.OpWorkspaceList)
+		require.True(t, ok)
+		_, err := f.c.Call(t.Context(), "linux-server", listRequest(spec.Timeout+f.c.callGrace+time.Minute))
+		require.ErrorIs(t, err, ErrCallInvalid)
+		assert.Empty(t, rc.messages())
+		assert.Zero(t, pendingCount(f.c))
+	})
+	t.Run("args over the payload ceiling are refused and nothing is published", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		rc := f.captureRequests(t)
+		req := listRequest(20 * time.Second)
+		req.Args = json.RawMessage(`"` + strings.Repeat("x", envproto.MaxRequestBytes) + `"`)
+		_, err := f.c.Call(t.Context(), "linux-server", req)
+		require.ErrorIs(t, err, ErrCallInvalid)
+		assert.Empty(t, rc.messages())
+		assert.Zero(t, pendingCount(f.c))
+	})
 	t.Run("a second call with a pending request id is refused and the first gets its reply", func(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
 		rc := f.captureRequests(t)
 		f.c.callGrace = 10 * time.Millisecond
-		first := f.callAsync(t.Context(), listRequest(time.Minute))
+		first := f.callAsync(t.Context(), listRequest(20*time.Second))
 		require.Eventually(t, func() bool { return len(rc.messages()) == 1 }, time.Second, time.Millisecond)
 		_, err := f.c.Call(t.Context(), "linux-server", listRequest(10*time.Millisecond))
 		require.ErrorIs(t, err, ErrRequestPending)
@@ -278,8 +326,8 @@ func TestController_Call(t *testing.T) {
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
 		rc := f.captureRequests(t)
 		const otherID = "fedcba9876543210"
-		first := f.callAsync(t.Context(), listRequest(time.Minute))
-		second := f.callAsync(t.Context(), listRequestWithID(otherID, time.Minute))
+		first := f.callAsync(t.Context(), listRequest(20*time.Second))
+		second := f.callAsync(t.Context(), listRequestWithID(otherID, 20*time.Second))
 		require.Eventually(t, func() bool { return len(rc.messages()) == 2 }, time.Second, time.Millisecond)
 		f.c.onRes(t.Context(), replyMessage(t, f.id, otherID, envproto.Reply{OK: true, Result: json.RawMessage(`{"workspaces":["b"]}`)}))
 		res := awaitCall(t, second)
@@ -300,7 +348,7 @@ func TestController_Call(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
 		rc := f.captureRequests(t)
-		done := f.callAsync(t.Context(), listRequest(time.Minute))
+		done := f.callAsync(t.Context(), listRequest(20*time.Second))
 		require.Eventually(t, func() bool { return len(rc.messages()) == 1 }, time.Second, time.Millisecond)
 		f.c.onRes(t.Context(), replyMessage(t, "env-0a1b2c3d", callRequestID, okReply))
 		select {
@@ -315,7 +363,7 @@ func TestController_Call(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
 		f.answerRequests(t, okReply)
-		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(time.Minute))
+		reply, err := f.c.Call(t.Context(), "linux-server", listRequest(20*time.Second))
 		require.NoError(t, err)
 		assert.True(t, reply.OK)
 		f.c.onRes(t.Context(), replyMessage(t, f.id, callRequestID, envproto.Reply{OK: false, Error: &envproto.ReplyError{Code: "usage", Message: "late"}}))
@@ -325,7 +373,7 @@ func TestController_Call(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
 		rc := f.captureRequests(t)
-		done := f.callAsync(t.Context(), listRequest(time.Minute))
+		done := f.callAsync(t.Context(), listRequest(20*time.Second))
 		require.Eventually(t, func() bool { return len(rc.messages()) == 1 }, time.Second, time.Millisecond)
 		f.hear(t, envproto.StatusOffline, envproto.Protocol)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
@@ -347,7 +395,7 @@ func TestController_Call(t *testing.T) {
 		f := newCallFixture(t)
 		f.hear(t, envproto.StatusOnline, envproto.Protocol)
 		rc := f.captureRequests(t)
-		done := f.callAsync(t.Context(), listRequest(time.Minute))
+		done := f.callAsync(t.Context(), listRequest(20*time.Second))
 		require.Eventually(t, func() bool { return len(rc.messages()) == 1 }, time.Second, time.Millisecond)
 		f.c.onRes(t.Context(), replyMessage(t, f.id, "fedcba9876543210", okReply))
 		select {
@@ -364,7 +412,7 @@ func TestController_Call(t *testing.T) {
 		rc := f.captureRequests(t)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		done := f.callAsync(ctx, listRequest(time.Minute))
+		done := f.callAsync(ctx, listRequest(20*time.Second))
 		require.Eventually(t, func() bool { return len(rc.messages()) == 1 }, time.Second, time.Millisecond)
 		cancel()
 		require.ErrorIs(t, awaitCall(t, done).err, context.Canceled)

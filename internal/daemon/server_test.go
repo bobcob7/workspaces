@@ -16,6 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bobcob7/workspaces/internal/envproto"
 )
 
 // testPaths returns a config directory's daemon paths, with the socket under
@@ -352,7 +354,7 @@ func callRequest(op string) CallRequest {
 		Op:        op,
 		Args:      json.RawMessage(`{}`),
 		RequestID: "0123456789abcdef",
-		Deadline:  time.Now().Add(time.Minute),
+		Deadline:  time.Now().Add(20 * time.Second),
 	}
 }
 
@@ -470,6 +472,30 @@ func TestServer_handleCallEnvironment(t *testing.T) {
 		})
 		req := callRequest("workspace.list")
 		req.Deadline = time.Time{}
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", req)
+		assertRemoteCode(t, err, "usage")
+		assert.False(t, called.Load())
+	})
+	t.Run("a deadline beyond the op's timeout plus grace is 400 usage and the host isn't called", func(t *testing.T) {
+		var called atomic.Bool
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			called.Store(true)
+			return CallReply{}, nil
+		})
+		req := callRequest("workspace.list")
+		req.Deadline = time.Now().Add(time.Hour)
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", req)
+		assertRemoteCode(t, err, "usage")
+		assert.False(t, called.Load())
+	})
+	t.Run("args over the payload ceiling are 400 usage and the host isn't called", func(t *testing.T) {
+		var called atomic.Bool
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			called.Store(true)
+			return CallReply{}, nil
+		})
+		req := callRequest("workspace.list")
+		req.Args = json.RawMessage(`"` + strings.Repeat("x", envproto.MaxRequestBytes) + `"`)
 		_, err := Dial(p).CallEnvironment(t.Context(), "linux", req)
 		assertRemoteCode(t, err, "usage")
 		assert.False(t, called.Load())

@@ -175,7 +175,7 @@ func TestEnvironmentsStatus(t *testing.T) {
 
 func TestEnvHost_Call(t *testing.T) {
 	callOf := func(op string) daemon.CallRequest {
-		return daemon.CallRequest{Op: op, Args: []byte("{}"), RequestID: "0123456789abcdef", Deadline: time.Now().Add(time.Minute)}
+		return daemon.CallRequest{Op: op, Args: []byte("{}"), RequestID: "0123456789abcdef", Deadline: time.Now().Add(20 * time.Second)}
 	}
 	newHost := func(t *testing.T) (daemon.EnvironmentHost, environment.Record) {
 		t.Helper()

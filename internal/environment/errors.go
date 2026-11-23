@@ -37,6 +37,8 @@ var (
 	ErrNotForwarded = errors.New("operation not forwarded")
 	// ErrRequestPending is returned when a call's request id is already waiting for a reply.
 	ErrRequestPending = errors.New("the request id is already pending")
+	// ErrCallInvalid is returned for a call whose deadline or args are out of bounds.
+	ErrCallInvalid = errors.New("the call is out of bounds")
 )
 
 // OutdatedError is an environment whose agent speaks too old a protocol for an op.
