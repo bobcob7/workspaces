@@ -1,16 +1,19 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -304,4 +307,33 @@ func (c agentClaude) Probe(ctx context.Context) (string, *string) {
 		return envproto.ClaudePresent, nil
 	}
 	return envproto.ClaudePresent, &version
+}
+
+// agentLoops ticks the agent's loops in fresh Apps, as the desktop's tick_forever does (ADR 0078).
+type agentLoops struct {
+	newApp func(stdout, stderr io.Writer) *App
+	root   string
+}
+
+// agentLoopStarts caps the loops the agent starts in one pass.
+const agentLoopStarts = 2
+
+// Tick runs one pass of ws loop tick and reports whether any item started or
+// failed, so the snapshot refreshes. A pass whose output isn't a loop listing
+// is an error.
+func (l agentLoops) Tick(ctx context.Context) (bool, error) {
+	var stdout, stderr bytes.Buffer
+	app := l.newApp(&stdout, &stderr)
+	args := []string{"--json", "--config-dir", l.root, "loop", "tick", "--quiet", "--max-starts", strconv.Itoa(agentLoopStarts)}
+	app.Run(ctx, args)
+	var out loopTickOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		return false, fmt.Errorf("reading the loop pass: %w: %s", err, stderr.String())
+	}
+	for _, item := range out.Loops {
+		if item.Action == loopStarted || item.Action == loopFailed {
+			return true, nil
+		}
+	}
+	return false, nil
 }

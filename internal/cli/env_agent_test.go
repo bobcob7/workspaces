@@ -300,3 +300,19 @@ func Test_agentOptions(t *testing.T) {
 	assert.Equal(t, "/ws", opts.WorkspacesRoot)
 	assert.Equal(t, "v1", opts.Version)
 }
+
+func TestAgentLoops_Tick(t *testing.T) {
+	t.Run("started is true when an item started", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.True(t, started)
+	})
+	t.Run("false when nothing is due", func(t *testing.T) {
+		e := newTickEnv(t)
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.False(t, started)
+	})
+}
