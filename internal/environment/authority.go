@@ -40,9 +40,10 @@ const (
 )
 
 var (
-	errNoCA       = errors.New("no environments CA")
-	errCSRInvalid = errors.New("invalid certificate request")
-	errEmptyCN    = errors.New("empty common name")
+	errNoCA            = errors.New("no environments CA")
+	errCSRInvalid      = errors.New("invalid certificate request")
+	errEmptyCN         = errors.New("empty common name")
+	errPendingMismatch = errors.New("pending CA certificate does not match its key")
 )
 
 // authority keeps the environments CA in dir and issues certificates from it.
@@ -144,6 +145,9 @@ func (a *authority) ensure() (bool, error) {
 	if pending {
 		return false, a.installPending()
 	}
+	if err := removeIfExists(a.path(pendingKeyFile)); err != nil {
+		return false, fmt.Errorf("removing a stale pending CA key: %w", err)
+	}
 	if _, err := a.writeCA(caKeyFile, caCertFile); err != nil {
 		return false, err
 	}
@@ -193,8 +197,12 @@ func (a *authority) promote() error {
 // installPending moves the pending CA into place and removes the listeners'
 // certificate, so the next serverCertificate is signed by the new CA. The key
 // goes first, so ca.crt is never new while ca.key is still old. A key that an
-// interrupted rotation already moved is skipped.
+// interrupted rotation already moved is skipped. The pending certificate must
+// match the key that will be installed, or nothing moves.
 func (a *authority) installPending() error {
+	if err := a.checkPending(); err != nil {
+		return err
+	}
 	if err := renameIfExists(a.path(pendingKeyFile), a.path(caKeyFile)); err != nil {
 		return fmt.Errorf("replacing the CA key: %w", err)
 	}
@@ -202,6 +210,27 @@ func (a *authority) installPending() error {
 		return fmt.Errorf("replacing the CA certificate: %w", err)
 	}
 	return a.removeServer()
+}
+
+// checkPending errors unless the pending certificate is for the key that
+// installPending installs: ca.key.new, or ca.key when an interrupted rotation
+// already moved it.
+func (a *authority) checkPending() error {
+	key, err := readKey(a.path(pendingKeyFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		key, err = readKey(a.path(caKeyFile))
+	}
+	if err != nil {
+		return fmt.Errorf("reading the pending CA key: %w", err)
+	}
+	cert, err := readCert(a.path(pendingCertFile))
+	if err != nil {
+		return fmt.Errorf("reading the pending CA certificate: %w", err)
+	}
+	if !key.PublicKey.Equal(cert.PublicKey) {
+		return errPendingMismatch
+	}
+	return nil
 }
 
 // renameIfExists renames from to, or does nothing when from is missing.
@@ -213,9 +242,18 @@ func renameIfExists(from, to string) error {
 	return err
 }
 
+// removeIfExists removes name, or does nothing when it is missing.
+func removeIfExists(name string) error {
+	err := os.Remove(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 func (a *authority) removeServer() error {
 	for _, name := range []string{serverKeyFile, serverCertFile} {
-		if err := os.Remove(a.path(name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := removeIfExists(a.path(name)); err != nil {
 			return fmt.Errorf("removing %s: %w", name, err)
 		}
 	}

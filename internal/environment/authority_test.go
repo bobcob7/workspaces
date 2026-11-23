@@ -150,6 +150,19 @@ func TestAuthority_ensure(t *testing.T) {
 		_, err = os.Stat(a.path(pendingCertFile))
 		assert.ErrorIs(t, err, fs.ErrNotExist)
 	})
+	t.Run("removes a stale pending key when there is no CA", func(t *testing.T) {
+		t.Parallel()
+		a := newTestAuthority(t, fixedClock())
+		require.NoError(t, os.MkdirAll(a.dir, 0o700))
+		stale, err := encodeKey(newTestKey(t))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(a.path(pendingKeyFile), stale, 0o600))
+		created, err := a.ensure()
+		require.NoError(t, err)
+		assert.True(t, created)
+		_, err = os.Stat(a.path(pendingKeyFile))
+		assert.ErrorIs(t, err, fs.ErrNotExist)
+	})
 	t.Run("makes a CA valid for 365 days", func(t *testing.T) {
 		t.Parallel()
 		a := newTestAuthority(t, fixedClock())
@@ -162,6 +175,31 @@ func TestAuthority_ensure(t *testing.T) {
 		assert.True(t, ca.IsCA)
 		assert.True(t, ca.MaxPathLenZero)
 		assert.Equal(t, x509.KeyUsageCertSign|x509.KeyUsageCRLSign, ca.KeyUsage)
+	})
+}
+
+func TestAuthority_installPending(t *testing.T) {
+	t.Run("refuses a pending certificate for another key and moves nothing", func(t *testing.T) {
+		t.Parallel()
+		a := newTestAuthority(t, fixedClock())
+		_, err := a.ensure()
+		require.NoError(t, err)
+		_, err = a.writeCA(pendingKeyFile, pendingCertFile)
+		require.NoError(t, err)
+		other, err := encodeKey(newTestKey(t))
+		require.NoError(t, err)
+		require.NoError(t, writeFileAtomic(a.path(pendingKeyFile), other, 0o600))
+		before, err := os.ReadFile(a.path(caCertFile))
+		require.NoError(t, err)
+		err = a.installPending()
+		require.ErrorIs(t, err, errPendingMismatch)
+		after, err := os.ReadFile(a.path(caCertFile))
+		require.NoError(t, err)
+		assert.Equal(t, before, after)
+		_, err = os.Stat(a.path(pendingCertFile))
+		assert.NoError(t, err)
+		_, err = os.Stat(a.path(pendingKeyFile))
+		assert.NoError(t, err)
 	})
 }
 
