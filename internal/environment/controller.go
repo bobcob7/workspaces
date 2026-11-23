@@ -80,6 +80,8 @@ type Controller struct {
 	enrollTimeout time.Duration
 	// callGrace is how long after its deadline a call still waits for a reply.
 	callGrace time.Duration
+	// newTicker returns a channel that ticks every d and a func that stops it.
+	newTicker func(d time.Duration) (<-chan time.Time, func())
 
 	// lifecycle serializes Start, Reload and Close. mu is never held across
 	// a broker call, since the broker's handlers take mu.
@@ -91,6 +93,7 @@ type Controller struct {
 	presence       map[string]heard
 	calls          map[string]*pendingCall
 	updates        map[string]string // ca.update request id to the environment it waits on
+	terminals      map[termKey]*Terminal
 	listening      bool
 	listenAddr     string
 	enrollAddr     string
@@ -113,6 +116,8 @@ func NewController(log *slog.Logger, store *Store, b broker, settings Settings, 
 		presence:      map[string]heard{},
 		calls:         map[string]*pendingCall{},
 		updates:       map[string]string{},
+		terminals:     map[termKey]*Terminal{},
+		newTicker:     realTicker,
 		enrollTimeout: enrollReadTimeout,
 		callGrace:     envproto.Grace,
 	}
@@ -261,6 +266,7 @@ func (c *Controller) subscribe(ctx, life context.Context) ([]func(), error) {
 		{envproto.Topic("+", envproto.LeafSnapshot), func(m envproto.Message) { c.onSnapshot(life, &m) }},
 		{envproto.Topic("+", envproto.LeafUp), func(m envproto.Message) { c.onUp(life, &m) }},
 		{envproto.Topic("+", envproto.LeafRes, "+"), func(m envproto.Message) { c.onRes(life, &m) }},
+		{envproto.Topic("+", envproto.LeafStream, "+", "out"), func(m envproto.Message) { c.onStreamOut(life, &m) }},
 	}
 	unsubscribe := make([]func(), 0, len(routes))
 	for _, r := range routes {
@@ -446,6 +452,7 @@ func (c *Controller) Close() error {
 	c.cancel = nil
 	c.mu.Unlock()
 	cancel()
+	c.endTerminals("")
 	for _, unsub := range unsubscribe {
 		unsub()
 	}
@@ -490,6 +497,7 @@ func (c *Controller) onStatus(ctx context.Context, msg *envproto.Message) {
 	}
 	cameBack := c.recordStatus(id, &hello)
 	if hello.Status != envproto.StatusOnline {
+		c.endTerminals(id)
 		return
 	}
 	if cameBack {
@@ -707,4 +715,10 @@ func newRequestID() (string, error) {
 		return "", fmt.Errorf("reading a request id: %w", err)
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+// realTicker is a time.Ticker as newTicker's result.
+func realTicker(d time.Duration) (<-chan time.Time, func()) {
+	ticker := time.NewTicker(d)
+	return ticker.C, ticker.Stop
 }

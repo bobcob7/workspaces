@@ -182,6 +182,18 @@ func TestController_Call(t *testing.T) {
 		_, err := f.c.Call(t.Context(), "linux-server", req)
 		assert.ErrorIs(t, err, ErrNotForwarded)
 	})
+	t.Run("terminal.open isn't sent through Call", func(t *testing.T) {
+		f := newCallFixture(t)
+		f.hear(t, envproto.StatusOnline, envproto.Protocol)
+		rc := f.captureRequests(t)
+		for _, op := range []string{envproto.OpTerminalOpen, envproto.OpTerminalClose} {
+			req := listRequest(20 * time.Second)
+			req.Op = op
+			_, err := f.c.Call(t.Context(), "linux-server", req)
+			assert.ErrorIs(t, err, ErrNotForwarded, op)
+		}
+		assert.Empty(t, rc.messages())
+	})
 	t.Run("a request id that isn't valid is refused", func(t *testing.T) {
 		f := newCallFixture(t)
 		req := listRequest(20 * time.Second)
