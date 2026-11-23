@@ -256,3 +256,53 @@ use for the 'Progress bars' section; add the four image links to it.
 - Report the measured widths before and after, and any layout problem you see
   that you did not fix.
 - Verify: `cd desktop && npm run typecheck && npm test -- --maxWorkers=2`.
+
+## T7. Fixes from the whole-branch review
+
+The `ws review` of PR 79 had no must-fix finding. Fix these, each with a
+failing-first test where code changes. Go and TypeScript; keep each fix small.
+
+1. **`internal/machine/progress_test.go`**: the over-long name case builds 41 NUL
+   runes, which `Check` rejects as control characters, so the length rule is
+   untested. Use `strings.Repeat("x", MaxProgressName+1)`, and add the same for
+   the note. Also assert the accepted edges: `Done == Total`, `Total == MaxProgressStep`,
+   `Total == 0 && Done == 0`, name of exactly `MaxProgressName` characters; and use
+   `require.ErrorContains` so each case proves its own rule.
+2. **`ReadProgress` validates.** A record that fails `Check` (hand-edited: control
+   characters, huge note, negative or overflowing steps) is `ErrInvalid` wrapped
+   with the path, so it can't reach the rollup. Callers already treat a read error
+   as a warning (`ws list`, `wait`, `children`). In `updateProgress`
+   (`internal/cli/machine_progress.go`) an `ErrInvalid` record is replaced, not an
+   error, so an agent can recover by writing again. Tests for both.
+3. **`runMachineResult`** (`internal/cli/machine_result.go`): once the result is
+   written, a failure in `completeProgress` must not fail the command. Append a
+   warning to `a.warned` (`couldn't finish <id>'s progress: ...`) and carry on.
+   Test with an unreadable `progress.toml` (`ErrInvalid`): result is recorded,
+   exit 0, the warning is in `warnings`.
+4. **`childProgress`** returns a nil `progress` when the workspace has no record,
+   like `ws list`, instead of an object of zeros. `ws machine progress show`'s
+   per-node `progress` objects stay as they are. Update the wait and children
+   tests, guides (`ws-machine-wait.md`, `ws-machine-children.md`),
+   `docs/tools/ws-machine.md` and ADR 0077: `progress` is `null` if it never
+   reported. Add a test that an unreadable progress file is a warning with both
+   fields null in `ws machine children` and in `ws machine wait`.
+5. **CLI tests** (`internal/cli/machine_progress_test.go`): `set --total` below the
+   current `done` and `set --done` above `total` are both `progress_invalid` and
+   leave the record unchanged; `set --name ""` clears the name and `set --note ""`
+   clears the note while other fields keep their values.
+6. **`desktop/src/features/agents/StepProgress.tsx`**: clamp `done` into
+   `[0, total]` before computing the value and `aria-valuenow`, and treat a
+   non-finite or non-positive `total` as no bar (render nothing). Tests for
+   `done > total`, negative, `NaN`, and `total` 0.
+7. **Docs and comments only**: `RootProgress.tsx`'s doc comment (it is the bar of a
+   root workspace, which may have children: the main case); the `failVerdicts`
+   comment in `progress.ts` (a desktop heuristic matching the default fail
+   verdicts, not the CLI's own list); in ADR 0077 and `docs/tools/ws-machine.md`
+   qualify "a workspace with no record contributes no steps" with "unless it has a
+   result"; `docs/tools/ws-list.md` and its guide: rollup includes the implicit
+   one-step rule; and drop the ADR sentence that the handbook procedure says the
+   same (the handbook isn't in this repo).
+- Files: only those the items name, plus their tests.
+- Verify: `go test ./internal/...`, `gofmt -l internal`,
+  `go tool golangci-lint run ./internal/...`; `cd desktop && npm run typecheck &&
+  npm test -- --maxWorkers=2` with Node 24 as in the rules above.
