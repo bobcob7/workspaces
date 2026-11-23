@@ -730,7 +730,7 @@ type ReviewDecideArgs struct {
 	Review     string   `json:"review"`
 	Findings   []string `json:"findings"` // 1..MaxFindings ValidFindingID
 	Decision   string   `json:"decision"` // DecideComment, DecideFix, DecideSkip, DecideClear
-	Suggestion *int     `json:"suggestion"` // fix only, >= 1
+	Suggestion *int     `json:"suggestion"` // fix only, >= 0, counting from 0 like the CLI
 	Note       *string  `json:"note"`       // 1..MaxMessageBytes; not with clear
 }
 

@@ -85,7 +85,7 @@ type ReviewDecideArgs struct {
 	Review     string   `json:"review"`
 	Findings   []string `json:"findings"`   // 1..MaxFindings ValidFindingID
 	Decision   string   `json:"decision"`   // DecideComment, DecideFix, DecideSkip, DecideClear
-	Suggestion *int     `json:"suggestion"` // fix only, >= 1
+	Suggestion *int     `json:"suggestion"` // fix only, >= 0, counting from 0 like ws review decide
 	Note       *string  `json:"note"`       // 1..MaxMessageBytes; not with clear
 }
 
@@ -296,8 +296,8 @@ func validateReviewDecide(a *ReviewDecideArgs) error {
 	if !slices.Contains([]string{DecideComment, DecideFix, DecideSkip, DecideClear}, a.Decision) {
 		return usageError("decision " + strconv.Quote(a.Decision) + " is not comment, fix, skip or clear")
 	}
-	if a.Suggestion != nil && (a.Decision != DecideFix || *a.Suggestion < 1) {
-		return usageError("a suggestion needs fix and a number of 1 or more")
+	if a.Suggestion != nil && (a.Decision != DecideFix || *a.Suggestion < 0) {
+		return usageError("a suggestion needs fix and a number of 0 or more (counting from 0)")
 	}
 	if a.Note != nil && (a.Decision == DecideClear || *a.Note == "" || len(*a.Note) > MaxMessageBytes) {
 		return usageError(fmt.Sprintf("a note is 1 to %d bytes and not allowed with clear", MaxMessageBytes))
