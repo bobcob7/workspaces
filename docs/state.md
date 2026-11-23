@@ -40,9 +40,16 @@ Under `CONFIG_DIR` ([config](config.md)):
 | `environments/.lock` | held while the environments, the CA or the revocations are written | by the environment store |
 | `state/.environments/<name>/snapshot.json` | the last workspace snapshot an agent sent, which `ws env list` counts and `ws list --env` reads ([Remote environments](#remote-environments)) | by the daemon, as snapshots arrive; removed by `ws env rm` |
 | `environment/` on an agent: `agent.toml`, `key.pem` (mode 0600), `cert.pem`, `ca.pem` | the agent's identity: its environment, its key and certificate, and the CA certificates it verifies the broker with ([0075](adrs/0075-environment-enrollment-and-certificates.md)) | by `ws env agent enroll`; `cert.pem` by a renewal and `ca.pem` by a CA update in `ws env agent run`; removed by `ws env agent unenroll` |
+| `artifacts/<id>/artifact.json` | an artifact's record: name, title, kind, creator, and its revisions ([0078](adrs/0078-artifacts.md)) | by `ws artifact add` and `ws machine artifact add`, and by `put`; written through `artifacts/.tmp/` and renamed into place under `<id>/.lock` |
+| `artifacts/<id>/r<n>` | revision `n`'s bytes, never rewritten | by `add` and `put`, through `artifacts/.tmp/` and a rename under `<id>/.lock`; deleted with `<id>/` by `rm` |
+| `artifacts/<id>/comments.json` | threads on the artifact, with anchors ([0079](adrs/0079-artifact-comments-and-anchors.md)); absent until the first comment | by the comment commands and by `put` (moved anchors), under `<id>/.lock`; deleted with `<id>/` |
+| `artifacts/<id>/.lock` | exclusive for every write to the artifact; readers take none | by the writers |
+| `artifacts/.tmp/` | temporary files; a write deletes leftovers older than 1 h; `rm` renames `<id>/` here before deleting it | by the writers |
+| `<workspace>/.ws-artifacts/<id>/r<n>` | a revision an agent asked for with `ws machine artifact get`, copied out of the store | by `ws machine artifact get`, which creates the directory 0700 and the file 0600 |
 
 - **Workspace contents.** Nothing `ws` writes goes inside
-  `workspaces/<id>/`.
+  `workspaces/<id>/`, except `.ws-artifacts/`, which `ws machine artifact
+  get` writes when an agent asks.
 - **Hidden names.** A name in `state/` that starts with `.` is never a
   workspace.
 - **Unrecorded directories.** A directory under `workspaces/` without a
