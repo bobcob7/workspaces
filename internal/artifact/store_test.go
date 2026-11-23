@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,6 +116,15 @@ func TestStore_Add(t *testing.T) {
 		s, _ := newTestStore(t, fixedClock(testBase))
 		s.maxStoreBytes = 10
 		addText(t, s, "a.txt", "abcdef")
+		_, err := s.Add(t.Context(), &NewArtifact{Name: "b.txt", Data: []byte("ghijkl"), By: Person()})
+		require.ErrorIs(t, err, ErrFull)
+	})
+	t.Run("counts the revisions of an unreadable record against the quota", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t, fixedClock(testBase))
+		s.maxStoreBytes = 10
+		rec := addText(t, s, "a.txt", "abcdef")
+		require.NoError(t, os.WriteFile(filepath.Join(dir, rec.ID, recordFile), []byte("{"), 0o600))
 		_, err := s.Add(t.Context(), &NewArtifact{Name: "b.txt", Data: []byte("ghijkl"), By: Person()})
 		require.ErrorIs(t, err, ErrFull)
 	})
@@ -319,6 +329,42 @@ func TestStore_Remove(t *testing.T) {
 		s, _ := newTestStore(t, fixedClock(testBase))
 		err := s.Remove(t.Context(), "art-00000000")
 		require.ErrorIs(t, err, ErrNotFound)
+	})
+	t.Run("leaves no directory when the artifact is gone under its lock", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "notes.txt", "one\n")
+		artifactDir := filepath.Join(dir, rec.ID)
+		require.NoError(t, s.Remove(t.Context(), rec.ID))
+		_, err := s.lockArtifact(t.Context(), artifactDir)
+		require.ErrorIs(t, err, ErrNotFound)
+		assert.NoDirExists(t, artifactDir)
+	})
+	t.Run("concurrent removes leave no artifact directory", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "notes.txt", "one\n")
+		errs := make(chan error, 8)
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() { errs <- s.Remove(t.Context(), rec.ID) })
+		}
+		wg.Wait()
+		close(errs)
+		removed := 0
+		for err := range errs {
+			if err == nil {
+				removed++
+				continue
+			}
+			require.ErrorIs(t, err, ErrNotFound)
+		}
+		assert.Equal(t, 1, removed)
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		for _, e := range entries {
+			assert.False(t, strings.HasPrefix(e.Name(), "art-"), "left %s", e.Name())
+		}
 	})
 }
 

@@ -106,7 +106,7 @@ func (s *Store) Put(ctx context.Context, id string, n *NewRevision) (PutResult, 
 	if err = CheckLine("note", n.Note); err != nil {
 		return PutResult{}, err
 	}
-	unlock, err := lockfile.Exclusive(ctx, filepath.Join(dir, lockFileName))
+	unlock, err := s.lockArtifact(ctx, dir)
 	if err != nil {
 		return PutResult{}, err
 	}
@@ -192,7 +192,7 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 	if err = s.prepare(); err != nil {
 		return err
 	}
-	unlock, err := lockfile.Exclusive(ctx, filepath.Join(dir, lockFileName))
+	unlock, err := s.lockArtifact(ctx, dir)
 	if err != nil {
 		return err
 	}
@@ -203,6 +203,32 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 		return fmt.Errorf("removing %s: %w", id, err)
 	}
 	return os.RemoveAll(trash)
+}
+
+// lockArtifact takes the lock in dir. Taking it recreates dir, so a Remove
+// that renamed the artifact away after dirOf would leave a directory holding
+// only the lock: the record is checked under the lock, and such a directory
+// is cleared with ErrNotFound.
+func (s *Store) lockArtifact(ctx context.Context, dir string) (func(), error) {
+	unlock, err := lockfile.Exclusive(ctx, filepath.Join(dir, lockFileName))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, filepath.Base(dir))
+	}
+	if err != nil {
+		return nil, err
+	}
+	_, err = os.Stat(filepath.Join(dir, recordFile))
+	switch {
+	case err == nil:
+		return unlock, nil
+	case errors.Is(err, fs.ErrNotExist):
+		_ = os.RemoveAll(dir)
+		unlock()
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, filepath.Base(dir))
+	default:
+		unlock()
+		return nil, fmt.Errorf("reading %s: %w", dir, err)
+	}
 }
 
 // Threads is the artifact's threads (for T2 and the CLI).
@@ -352,8 +378,8 @@ func (s *Store) checkQuota(extra int64) error {
 	return nil
 }
 
-// storedBytes sums the sizes of every revision in the store. Records that
-// can't be read count as empty; List reports them.
+// storedBytes sums the revision files in the store. They count whether or
+// not their record can be read; List reports unreadable records.
 func (s *Store) storedBytes() (int64, error) {
 	ids, err := s.ids()
 	if err != nil {
@@ -361,15 +387,30 @@ func (s *Store) storedBytes() (int64, error) {
 	}
 	var total int64
 	for _, id := range ids {
-		rec, err := readRecord(filepath.Join(s.dir, id))
+		total += revisionBytes(filepath.Join(s.dir, id))
+	}
+	return total, nil
+}
+
+// revisionBytes sums the sizes of dir's revision files; a dir that can't be
+// read counts as empty.
+func revisionBytes(dir string) int64 {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	var total int64
+	for _, e := range entries {
+		if !isRevisionName(e.Name()) {
+			continue
+		}
+		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		for _, rev := range rec.Revisions {
-			total += rev.Size
-		}
+		total += info.Size()
 	}
-	return total, nil
+	return total
 }
 
 func validateNew(n *NewArtifact) (Kind, string, error) {

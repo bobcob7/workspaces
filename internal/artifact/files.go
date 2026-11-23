@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -127,4 +128,14 @@ func writeThreads(tmpDir, dir string, threads []Thread) error {
 // revisionPath is where revision rev's bytes live in dir.
 func revisionPath(dir string, rev int) string {
 	return filepath.Join(dir, revisionFile+strconv.Itoa(rev))
+}
+
+// isRevisionName reports whether name is a revision file, r<n>.
+func isRevisionName(name string) bool {
+	digits, ok := strings.CutPrefix(name, revisionFile)
+	if !ok {
+		return false
+	}
+	_, err := strconv.ParseUint(digits, 10, 0)
+	return err == nil
 }
