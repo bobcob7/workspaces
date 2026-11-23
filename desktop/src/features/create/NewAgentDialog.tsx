@@ -75,7 +75,7 @@ export const NewAgentDialog = (): JSX.Element => {
   const hint = error === null ? null : errorHint(error);
   return (
     <Dialog open={open} onClose={creating ? undefined : close} fullWidth maxWidth="sm">
-      <form onSubmit={(e) => void submit(e)}>
+      <form className={styles.form} onSubmit={(e) => void submit(e)}>
         <DialogTitle>New agent</DialogTitle>
         <DialogContent className={styles.content}>
           <TextField

@@ -118,3 +118,10 @@
 .error {
   color: var(--danger);
 }
+
+@media (max-width: 720px) {
+  .chip,
+  .search {
+    min-height: 40px;
+  }
+}

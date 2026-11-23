@@ -1,0 +1,6 @@
+@media (max-width: 720px) {
+  .upload {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}

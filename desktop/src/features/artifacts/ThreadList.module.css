@@ -59,7 +59,7 @@
   font-size: 0.9em;
 }
 
-.resolved summary {
+.summary {
   cursor: pointer;
   color: var(--muted, inherit);
 }
@@ -88,7 +88,10 @@
 @media (max-width: 720px) {
   .item button,
   .reply button,
-  .actions button {
+  .actions button,
+  .summary {
     min-height: 40px;
+    display: flex;
+    align-items: center;
   }
 }

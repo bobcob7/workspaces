@@ -160,7 +160,7 @@ export const ThreadList = ({
       )}
       {groups.resolved.length > 0 && (
         <details className={styles.resolved}>
-          <summary>Resolved ({groups.resolved.length})</summary>
+          <summary className={styles.summary}>Resolved ({groups.resolved.length})</summary>
           <ul className={styles.list}>{groups.resolved.map(itemFor)}</ul>
         </details>
       )}

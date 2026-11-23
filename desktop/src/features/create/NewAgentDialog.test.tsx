@@ -98,6 +98,17 @@ describe("NewAgentDialog", () => {
     await waitFor(() => expect(screen.getByLabelText("Task")).toHaveValue("@artifact:art-00000009 "));
   });
 
+  it("keeps Start agent in the dialog, with the fields in the scrolling content", () => {
+    openDialog(fakeApi());
+    const dialog = screen.getByRole("dialog");
+    const content = dialog.querySelector(".content");
+
+    expect(dialog.querySelector("form")).toHaveClass("form");
+    expect(content).toHaveClass("content");
+    expect(content).toContainElement(screen.getByLabelText("Task"));
+    expect(content).not.toContainElement(screen.getByRole("button", { name: "Start agent" }));
+  });
+
   it("holds Start agent while a file uploads", async () => {
     let finish: (value: Artifact) => void = () => undefined;
     vi.spyOn(api, "artifactAdd").mockImplementation(() => new Promise<Artifact>((resolve) => (finish = resolve)));

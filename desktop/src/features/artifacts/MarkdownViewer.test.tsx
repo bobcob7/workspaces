@@ -101,6 +101,20 @@ describe("MarkdownViewer", () => {
     );
   });
 
+  it("places the selection Comment button in the viewer's box, with the class that positions it", async () => {
+    const { container } = renderViewer({ source: "Today the cache is shared.\n", onComment: vi.fn() });
+    const range = document.createRange();
+    range.selectNodeContents(container.querySelector("p") as HTMLParagraphElement);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+
+    fireEvent.mouseUp(screen.getByRole("article", { name: "Document" }));
+    const button = await screen.findByRole("button", { name: "Comment" });
+
+    expect(button).toHaveClass("comment");
+    expect(button.parentElement).toHaveClass("root");
+  });
+
   it("anchors the whole paragraph when the selection crosses bold markup", async () => {
     const onComment = vi.fn();
     const { container } = renderViewer({ source: "**Bold** text\n", onComment });

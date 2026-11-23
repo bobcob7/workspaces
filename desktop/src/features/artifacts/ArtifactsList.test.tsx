@@ -92,6 +92,20 @@ describe("ArtifactsList", () => {
     expect(screen.queryByText("Pitch: cache sharing")).not.toBeInTheDocument();
   });
 
+  it("gives the chips and the search field the class the phone layout sizes", async () => {
+    renderList([pitch]);
+    await screen.findByRole("button", { name: /Pitch: cache sharing/ });
+
+    expect(screen.getByRole("button", { name: "Text" })).toHaveClass("chip");
+    expect(screen.getByRole("searchbox", { name: "Search artifacts" })).toHaveClass("search");
+  });
+
+  it("gives the Upload button the class the phone layout sizes", () => {
+    renderWithStore(<ArtifactsActions />, testStore());
+
+    expect(screen.getByRole("button", { name: "Upload" })).toHaveClass("upload");
+  });
+
   it("selects a row when it is clicked", async () => {
     const store = renderList([pitch]);
     await userEvent.click(await screen.findByRole("button", { name: /Pitch: cache sharing/ }));

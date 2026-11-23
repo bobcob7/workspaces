@@ -43,8 +43,16 @@
   outline-offset: 2px;
 }
 
-.comment {
+/* Two classes, so the MUI button's own `position: relative` does not win. */
+.root .comment {
   position: absolute;
   transform: translateY(6px);
   z-index: 1;
+}
+
+@media (max-width: 720px) {
+  .root .comment {
+    min-height: 40px;
+    min-width: 40px;
+  }
 }

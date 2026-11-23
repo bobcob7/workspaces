@@ -2,6 +2,7 @@ import { Button } from "@mui/material";
 import { useRef, type ChangeEvent, type JSX } from "react";
 import { useAppDispatch } from "../../store";
 import { uploadArtifacts } from "./artifactsSlice";
+import styles from "./ArtifactsActions.module.css";
 
 /** The file types the picker offers; the same list the drop zone takes. */
 export const artifactAccept =
@@ -20,7 +21,12 @@ export const ArtifactsActions = (): JSX.Element => {
   };
   return (
     <>
-      <Button size="small" variant="contained" onClick={() => input.current?.click()}>
+      <Button
+        size="small"
+        variant="contained"
+        className={styles.upload}
+        onClick={() => input.current?.click()}
+      >
         Upload
       </Button>
       <input ref={input} type="file" multiple accept={artifactAccept} hidden onChange={onChange} />

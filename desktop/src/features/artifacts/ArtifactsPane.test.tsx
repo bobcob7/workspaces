@@ -155,6 +155,15 @@ describe("ArtifactsPane", () => {
     expect(document.querySelector('mark[data-thread="t1"]')).toHaveTextContent("cache is shared");
   });
 
+  it("offers the whole-artifact comment with the class the phone layout sizes", async () => {
+    const markdown = "text/markdown; charset=utf-8";
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(pitch, [revision(1, markdown), revision(2, markdown)]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 2, contentType: markdown, dataBase64: btoa("# Pitch\n") }));
+    renderPane([pitch], pitch.id);
+
+    expect(await screen.findByRole("button", { name: "Comment on the whole artifact" })).toHaveClass("wholeComment");
+  });
+
   it("removes the artifact after the user confirms the delete", async () => {
     vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
     vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));

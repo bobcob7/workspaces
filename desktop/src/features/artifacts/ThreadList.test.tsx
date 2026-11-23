@@ -84,7 +84,7 @@ describe("ThreadList", () => {
   it("keeps resolved threads collapsed", () => {
     const { container } = renderList();
 
-    expect(screen.getByText("Resolved (1)")).toBeInTheDocument();
+    expect(screen.getByText("Resolved (1)")).toHaveClass("summary");
     expect(container.querySelector("details")).not.toHaveAttribute("open");
   });
 

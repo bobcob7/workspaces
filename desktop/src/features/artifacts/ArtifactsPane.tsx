@@ -88,7 +88,11 @@ const ArtifactBody = ({
         <aside className={styles.margin}>
           {onLatest && draft !== null && composer}
           {onLatest && draft === null && (
-            <Button size="small" onClick={() => setDraft({ anchor: null, wholeBlock: false })}>
+            <Button
+              size="small"
+              className={styles.wholeComment}
+              onClick={() => setDraft({ anchor: null, wholeBlock: false })}
+            >
               Comment on the whole artifact
             </Button>
           )}
