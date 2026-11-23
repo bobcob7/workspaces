@@ -160,23 +160,28 @@ pub async fn environments_ca_rotate(
         .await
 }
 
+/// `ws env list --json`.
 pub fn env_list_args() -> Vec<String> {
     ["env", "list", "--json"].map(str::to_string).to_vec()
 }
 
-/// The name goes after `--`, so a name that starts with a hyphen isn't a flag.
+/// `ws env add --json -- <name>`. The name goes after `--`, so a name that
+/// starts with a hyphen isn't a flag.
 pub fn env_add_args(name: &str) -> Vec<String> {
     named_args("add", name)
 }
 
+/// `ws env rotate --json -- <name>`.
 pub fn env_rotate_args(name: &str) -> Vec<String> {
     named_args("rotate", name)
 }
 
+/// `ws env rm --json -- <name>`.
 pub fn env_rm_args(name: &str) -> Vec<String> {
     named_args("rm", name)
 }
 
+/// `ws env ca status --json`.
 pub fn env_ca_status_args() -> Vec<String> {
     ["env", "ca", "status", "--json"]
         .map(str::to_string)
@@ -288,6 +293,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(added.code, "ENRL-SECRET-1234");
-        assert!(!format!("{runner:?}").contains(&added.code));
+        assert!(
+            !format!("{runner:?}").contains(&added.code),
+            "the runner must not keep the enrollment code"
+        );
     }
 }
