@@ -453,7 +453,7 @@ so a child spawned by the caller needs no link. A node's **rollup** is the
 steps of that workspace plus its descendants': `total` and `done` are sums,
 and `fraction` is `done / total`, or `null` while no step is planned. A
 workspace that never reported has no steps of its own, unless it has a result
-(below), and passes its children's up. `wait` and `children` add the same
+(below), and passes its children's up. `set` and `step` print the caller's own `progress` and `rollup`; only `show` adds the `tree` of descendants. `wait` and `children` add the same
 `progress` and `rollup` to each child's item: `progress` is `null` if the child
 never reported, and `rollup` is `null` until a step is planned. A passing `ws machine result` sets `done` to
 `total` when a total was declared, and a finished child with a result but no
@@ -464,7 +464,10 @@ writes only its own record.
 ```console
 $ ws machine progress set --name "build auth" --total 4
 $ ws machine progress step --note "design done"
-{"id":"plan","progress":{"name":"build auth","total":4,"done":1,"note":"design done","updated_at":"2026-11-22T20:00:00Z"},"tree":{"id":"plan","progress":{…},"rollup":{"total":7,"done":3,"fraction":0.4286},"children":[{"id":"t1-impl-d8efb24f","progress":{…},"rollup":{…},"children":[]}]},"warnings":[]}
+{"id":"plan","progress":{"name":"build auth","total":4,"done":1,"note":"design done","updated_at":"2026-11-22T20:00:00Z"},"rollup":{"total":7,"done":3,"fraction":0.4286},"warnings":[]}
+
+$ ws machine progress show
+{"id":"plan","progress":{…},"rollup":{…},"tree":{"id":"plan","progress":{…},"rollup":{…},"children":[{"id":"t1-impl-d8efb24f","progress":{…},"rollup":{…},"children":[]}]},"warnings":[]}
 ```
 
 ## Errors

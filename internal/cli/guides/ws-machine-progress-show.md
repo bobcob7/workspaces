@@ -11,9 +11,12 @@ Output is always JSON; `--json` changes nothing.
 
 ## JSON output
 
+The same `id`, `progress`, `rollup` and `warnings` as `set` and `step` print, plus the `tree`:
+
 ```json
 {"id": "plan-1a2b3c4d",
  "progress": {"name": "build auth", "total": 4, "done": 1, "note": "waiting on t1", "updated_at": "2026-11-22T20:00:00Z"},
+ "rollup": {"total": 7, "done": 3, "fraction": 0.4286},
  "tree": {"id": "plan-1a2b3c4d",
           "progress": {"name": "build auth", "total": 4, "done": 1, "note": "waiting on t1", "updated_at": "2026-11-22T20:00:00Z"},
           "rollup": {"total": 7, "done": 3, "fraction": 0.4286},

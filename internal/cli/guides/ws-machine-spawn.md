@@ -30,8 +30,13 @@ soon as Claude Code has accepted the session; the agent keeps working in
 the background.
 
 Without `--role`, the prompt is required. Ask the child to finish with
-`ws machine result PASS` or `FAIL`, and a report, so `ws machine wait`
-can tell you how it went.
+`ws machine result PASS --file -` (the report on stdin) or `--file <path>`,
+or `FAIL` in place of `PASS`, so `ws machine wait` can tell you how it went.
+Copy this into the prompt: "As your last step run
+`printf '<one-line report>\n' | ws machine result PASS --file -`, or `FAIL` if
+you could not finish." The report is never an argument. For a child that runs
+long, also ask it to run `ws machine progress set --name <short name> --total <n>`
+and `ws machine progress step`, so `ws machine wait` and `children` show its progress.
 
 ## Roles
 
