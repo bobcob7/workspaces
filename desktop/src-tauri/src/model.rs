@@ -898,6 +898,42 @@ mod tests {
         assert_eq!(entries[0].status, Status::Idle);
     }
 
+    fn remote_list_with(environment: &str, status_field: &str, stale: &str) -> WsList {
+        ws_list(&format!(
+            r#"{{"workspaces":[{{"id":"fix","path":"/r/fix","environment":"{environment}"{status_field}{stale},
+            "session":{{"kind":"agent","id":"s1","state":"idle"}}}}]}}"#
+        ))
+    }
+
+    #[test]
+    fn remote_entry_is_offline_unless_the_status_is_online() {
+        for status_field in [
+            r#","environment_status":"offline""#,
+            r#","environment_status":"unknown""#,
+            "",
+        ] {
+            let list = remote_list_with("linux-server", status_field, "");
+            let entries = merge(Some(list), &[], &|_| None, NOW);
+            assert!(!entries[0].environment_online, "{status_field}");
+        }
+    }
+
+    #[test]
+    fn remote_entry_reads_a_stale_snapshot() {
+        let list = remote_list_with("linux-server", "", r#","stale":true"#);
+        let entries = merge(Some(list), &[], &|_| None, NOW);
+        assert!(entries[0].snapshot_stale);
+    }
+
+    #[test]
+    fn local_entry_ignores_a_stray_stale_flag() {
+        let list = remote_list_with("local", "", r#","stale":true"#);
+        let entries = merge(Some(list), &[], &|_| None, NOW);
+        assert_eq!(entries[0].environment, "local");
+        assert!(!entries[0].snapshot_stale);
+        assert!(entries[0].environment_online);
+    }
+
     #[test]
     fn missing_environment_is_local() {
         let entries = merge(Some(ws_list(ONE_AGENT)), &[], &|_| None, NOW);

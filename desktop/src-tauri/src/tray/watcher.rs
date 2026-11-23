@@ -257,6 +257,30 @@ mod tests {
     }
 
     #[test]
+    fn a_held_state_survives_an_offline_listing() {
+        let watcher = Watcher::default();
+        let key = "env:linux-server:a";
+        assert!(watcher
+            .observe(&[remote(Status::Working, true, false)], 0)
+            .events
+            .is_empty());
+        let offline = [remote(Status::NeedsInput, false, false)];
+        assert!(watcher.observe(&offline, 4_000).events.is_empty());
+        let held = watcher
+            .inner
+            .lock()
+            .unwrap()
+            .snapshot
+            .tracked
+            .contains_key(key);
+        assert!(held);
+        let back = [remote(Status::NeedsInput, true, false)];
+        assert!(watcher.observe(&back, 8_000).events.is_empty());
+        let third = watcher.observe(&back, 12_000);
+        assert_eq!(third.events, vec![event(key, Attention::NeedsInput)]);
+    }
+
+    #[test]
     fn first_seen_needs_input_does_not_notify() {
         let watcher = Watcher::default();
         let observed = watcher.observe(&[entry("a", Status::NeedsInput)], 0);

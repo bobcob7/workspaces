@@ -763,11 +763,39 @@ impl Drop for Claim<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{Kind, ReviewRecord, Status};
     use crate::reviews::http::FakeHttp;
     use crate::reviews::merge::MergeStatus;
     use crate::reviews::store::{ProfileSetting, RepoWatch, Runs};
     use crate::reviews::tokens::TOKENS_FILE;
     use std::os::unix::fs::PermissionsExt;
+
+    fn review_workspace(id: &str, environment: &str) -> Entry {
+        let record = ReviewRecord {
+            repo: "github.com/o/r".into(),
+            git_ref: "abc".into(),
+            requester: String::new(),
+            profiles: vec![],
+            pr: None,
+        };
+        Entry {
+            review: Some(record),
+            environment: environment.to_string(),
+            ..crate::tray::attention::testing::entry(id, Status::Working)
+        }
+    }
+
+    #[test]
+    fn set_entries_drops_remote_entries_and_keeps_a_removed_local_review() {
+        let checker = Checker::default();
+        checker.set_entries(vec![review_workspace("a", "local")]);
+        checker.set_entries(vec![review_workspace("a", "linux-server")]);
+        let listed = checker.review_entries();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].kind, Kind::Removed);
+        assert_eq!(listed[0].environment, "local");
+        assert!(checker.entries().is_empty());
+    }
 
     #[test]
     fn next_delay_is_interval_without_backoff() {

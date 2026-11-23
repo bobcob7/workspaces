@@ -795,7 +795,99 @@ mod tests {
         let Err(DispatchError::App(err)) = err else {
             panic!("expected the fake ws's failure, got {err:?}");
         };
-        assert_eq!(err.message, "rm --json --env linux-server -- fix-1");
+        assert_eq!(err.message, "rm --json --env=linux-server -- fix-1");
+    }
+
+    /// A context whose fake `ws` and `claude` log that they ran, and the log.
+    fn logging_ctx() -> (tempfile::TempDir, Ctx, PathBuf) {
+        let log = tempfile::tempdir().unwrap().keep().join("ran.log");
+        let body = format!("echo ran >> {}", log.display());
+        let (dir, ctx) = ctx_with(&body, &body, Box::new(|_| {}));
+        (dir, ctx, log)
+    }
+
+    async fn app_error(ctx: &Ctx, command: &str, args: Value) -> AppError {
+        match dispatch(ctx, command, args, None).await {
+            Err(DispatchError::App(err)) => err,
+            other => panic!("expected an app error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn local_only_commands_refuse_a_remote_environment_without_running_anything() {
+        let (_dir, ctx, log) = logging_ctx();
+        let calls = [
+            (
+                "read_transcript",
+                serde_json::json!({"sessionId": "s", "offset": 0, "workspaceId": "w", "environment": "linux-server"}),
+            ),
+            (
+                "runner_stop",
+                serde_json::json!({"id": "w", "environment": "linux-server"}),
+            ),
+            (
+                "remove_entry",
+                serde_json::json!({"sessionId": "s", "environment": "linux-server"}),
+            ),
+        ];
+        for (command, args) in calls {
+            let err = app_error(&ctx, command, args).await;
+            assert_eq!(err.code, "local_only", "{command}");
+        }
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn set_workspace_hidden_passes_the_environment() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"workspaceId": "fix-1", "hidden": true, "environment": "linux-server"});
+        let err = app_error(&ctx, "set_workspace_hidden", args).await;
+        assert_eq!(err.message, "hide --json --env=linux-server -- fix-1");
+    }
+
+    #[tokio::test]
+    async fn rename_workspace_passes_the_environment() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args =
+            serde_json::json!({"workspaceId": "fix-1", "name": "n", "environment": "linux-server"});
+        let err = app_error(&ctx, "rename_workspace", args).await;
+        assert_eq!(err.message, "rename --json --env=linux-server -- fix-1 n");
+    }
+
+    #[tokio::test]
+    async fn stop_agent_passes_the_environment_and_workspace() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"sessionId": "s", "workspaceId": "fix-1", "environment": "linux-server"});
+        let err = app_error(&ctx, "stop_agent", args).await;
+        assert_eq!(err.message, "stop --json --env=linux-server -- fix-1");
+    }
+
+    #[tokio::test]
+    async fn stop_agent_reports_an_agent_that_had_already_ended() {
+        let ended = r#"echo '{"stopped":[{"workspace":"fix-1","session":"s","stopped":false,"environment":"linux-server"}]}'"#;
+        let (_dir, ctx) = ctx_with(ended, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"sessionId": "s", "workspaceId": "fix-1", "environment": "linux-server"});
+        assert_eq!(
+            app_error(&ctx, "stop_agent", args).await.code,
+            "not_stopped"
+        );
+    }
+
+    #[tokio::test]
+    async fn stop_agent_succeeds_when_the_remote_agent_stopped() {
+        let stopped = r#"echo '{"stopped":[{"workspace":"fix-1","session":"s","stopped":true,"environment":"linux-server"}]}'"#;
+        let (_dir, ctx) = ctx_with(stopped, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"sessionId": "s", "workspaceId": "fix-1", "environment": "linux-server"});
+        assert!(dispatch(&ctx, "stop_agent", args, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn stop_agent_with_a_blank_workspace_id_is_bad_args() {
+        let (_dir, ctx, log) = logging_ctx();
+        let args =
+            serde_json::json!({"sessionId": "s", "workspaceId": "", "environment": "linux-server"});
+        assert_eq!(app_error(&ctx, "stop_agent", args).await.code, "bad_args");
+        assert!(!log.exists());
     }
 
     #[tokio::test]

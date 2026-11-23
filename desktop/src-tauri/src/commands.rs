@@ -143,7 +143,7 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
     let ws = non_empty(req.runner.as_ref()) == Some("ws");
     let mut args = vec!["claude".to_string()];
     if let Some(env) = remote_env(req.environment.as_deref()) {
-        args.extend(["--env".to_string(), env.to_string()]);
+        args.push(format!("--env={env}"));
     }
     if let Some(name) = non_empty(req.name.as_ref()) {
         args.extend(["--name".to_string(), name.to_string()]);
@@ -245,10 +245,11 @@ pub fn rm_args(workspace_id: &str, keep_children: bool, environment: Option<&str
     args
 }
 
-/// `--env <name>` for a remote environment, nothing for local or none.
+/// `--env=<name>`, one argument so a name that starts with `-` can't become
+/// a flag, for a remote environment; nothing for local or none.
 fn env_args(environment: Option<&str>) -> Vec<String> {
     remote_env(environment)
-        .map(|env| vec!["--env".to_string(), env.to_string()])
+        .map(|env| vec![format!("--env={env}")])
         .unwrap_or_default()
 }
 
@@ -363,7 +364,7 @@ pub async fn versions(
     Ok(crate::about::versions(&state.runner, crate::about::app_version(&version)).await)
 }
 
-/// The program and arguments that stop an agent: `ws stop --env <name> --
+/// The program and arguments that stop an agent: `ws stop --env=<name> --
 /// <id>` for a remote one, `claude stop <session>` otherwise.
 pub fn stop_args(
     session_id: &str,
@@ -376,10 +377,19 @@ pub fn stop_args(
     let id = workspace_id.filter(|id| !id.is_empty()).ok_or_else(|| {
         AppError::new("bad_args", "stopping a remote agent needs its workspace id")
     })?;
-    Ok(("ws", strings(&["stop", "--env", env, "--", id])))
+    Ok((
+        "ws",
+        vec![
+            "stop".to_string(),
+            format!("--env={env}"),
+            "--".to_string(),
+            id.to_string(),
+        ],
+    ))
 }
 
-/// Stops an agent: `claude stop`, or `ws stop` on a remote environment.
+/// Stops an agent: `claude stop`, or `ws stop` on a remote environment,
+/// which answers `not_stopped` when the agent had already ended.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn stop_agent(
     state: State<'_, AppState>,
@@ -391,11 +401,25 @@ pub async fn stop_agent(
     if program == "claude" {
         return state.runner.claude(&args).await.map(|_| ());
     }
-    let outcome = state.runner.run(program, &args).await?;
-    if outcome.success {
+    let result: StopResult = state.runner.ws_json(&args).await?;
+    if result.stopped.iter().all(|item| item.stopped) {
         return Ok(());
     }
-    Err(runner::ws_error(&outcome.stderr))
+    Err(AppError::new(
+        "not_stopped",
+        "The agent had already ended, so there was nothing to stop",
+    ))
+}
+
+/// What `ws stop --json` answers.
+#[derive(Debug, Deserialize)]
+struct StopResult {
+    stopped: Vec<StopItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StopItem {
+    stopped: bool,
 }
 
 /// Respawns every stopped agent workspace: `ws restore`. Returns the ids
@@ -677,7 +701,7 @@ mod tests {
     fn rm_args_with_env() {
         assert_eq!(
             rm_args("x", true, Some("linux-server")),
-            ["rm", "--env", "linux-server", "--keep-children", "--", "x"]
+            ["rm", "--env=linux-server", "--keep-children", "--", "x"]
         );
     }
 
@@ -685,7 +709,7 @@ mod tests {
     fn set_hidden_args_with_env() {
         assert_eq!(
             set_hidden_args("x", true, Some("win-rig")),
-            ["hide", "--env", "win-rig", "--", "x"]
+            ["hide", "--env=win-rig", "--", "x"]
         );
     }
 
@@ -788,7 +812,7 @@ mod tests {
             environment: Some("linux-server".into()),
             ..request()
         };
-        assert_eq!(new_agent_args(&req), ["claude", "--env", "linux-server"]);
+        assert_eq!(new_agent_args(&req), ["claude", "--env=linux-server"]);
         let local = NewAgent {
             environment: Some("local".into()),
             ..request()
@@ -800,7 +824,7 @@ mod tests {
     fn rename_args_with_env() {
         assert_eq!(
             rename_args("x", "-n", Some("win-rig")),
-            ["rename", "--env", "win-rig", "--", "x", "-n"]
+            ["rename", "--env=win-rig", "--", "x", "-n"]
         );
         assert_eq!(rename_args("x", "n", None), ["rename", "--", "x", "n"]);
     }
@@ -809,7 +833,7 @@ mod tests {
     fn stop_args_remote_uses_ws_stop() {
         let (program, args) = stop_args("s1", Some("fix-1"), Some("linux-server")).unwrap();
         assert_eq!(program, "ws");
-        assert_eq!(args, ["stop", "--env", "linux-server", "--", "fix-1"]);
+        assert_eq!(args, ["stop", "--env=linux-server", "--", "fix-1"]);
         let (program, args) = stop_args("s1", Some("fix-1"), None).unwrap();
         assert_eq!((program, args), ("claude", strings(&["stop", "s1"])));
         assert_eq!(
@@ -817,6 +841,44 @@ mod tests {
                 .unwrap_err()
                 .code,
             "bad_args"
+        );
+    }
+
+    #[test]
+    fn stop_args_with_a_blank_workspace_id_is_bad_args() {
+        let err = stop_args("s1", Some(""), Some("linux-server")).unwrap_err();
+        assert_eq!(err.code, "bad_args");
+        assert_eq!(
+            stop_args("s1", None, Some("linux-server"))
+                .unwrap_err()
+                .code,
+            "bad_args"
+        );
+    }
+
+    #[test]
+    fn stop_args_for_a_local_agent_ignore_a_blank_environment() {
+        let (program, args) = stop_args("s1", None, Some("")).unwrap();
+        assert_eq!((program, args), ("claude", strings(&["stop", "s1"])));
+    }
+
+    #[test]
+    fn a_blank_environment_adds_no_env_flag() {
+        assert_eq!(rm_args("x", false, Some("")), ["rm", "--", "x"]);
+        assert_eq!(rename_args("x", "n", Some("")), ["rename", "--", "x", "n"]);
+        assert_eq!(set_hidden_args("x", true, Some("")), ["hide", "--", "x"]);
+        let req = NewAgent {
+            environment: Some(String::new()),
+            ..request()
+        };
+        assert_eq!(new_agent_args(&req), ["claude"]);
+    }
+
+    #[test]
+    fn an_environment_that_starts_with_a_dash_stays_one_argument() {
+        assert_eq!(
+            rm_args("x", false, Some("-v")),
+            ["rm", "--env=-v", "--", "x"]
         );
     }
 

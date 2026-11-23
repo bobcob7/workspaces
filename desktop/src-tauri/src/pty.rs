@@ -23,8 +23,9 @@ pub enum TermSpec {
     /// On a remote environment it is `ws attach --env <name> -- <workspace_id>`.
     Attach {
         session_id: String,
+        /// The session's directory; a local attach needs it.
         #[serde(default)]
-        cwd: String,
+        cwd: Option<String>,
         #[serde(default)]
         environment: Option<String>,
         #[serde(default)]
@@ -116,10 +117,16 @@ fn command_for(spec: &TermSpec) -> Result<Command, AppError> {
             workspace_id,
         } => {
             let Some(env) = remote_env(environment.as_deref()) else {
+                let cwd = cwd
+                    .as_deref()
+                    .filter(|cwd| !cwd.is_empty())
+                    .ok_or_else(|| {
+                        AppError::new("bad_args", "attaching to an agent needs its directory")
+                    })?;
                 return Ok((
                     "claude".to_string(),
                     vec!["attach".to_string(), session_id.clone()],
-                    Some(cwd.clone()),
+                    Some(cwd.to_string()),
                 ));
             };
             let id = workspace_id
@@ -131,7 +138,7 @@ fn command_for(spec: &TermSpec) -> Result<Command, AppError> {
                         "attaching to a remote agent needs its workspace id",
                     )
                 })?;
-            let args = ["attach", "--env", env, "--", id];
+            let args = ["attach", &format!("--env={env}"), "--", id];
             Ok(("ws".to_string(), args.map(str::to_string).to_vec(), None))
         }
         TermSpec::Shell {
@@ -142,7 +149,7 @@ fn command_for(spec: &TermSpec) -> Result<Command, AppError> {
             let mut args = vec!["shell".to_string()];
             let remote = remote_env(environment.as_deref());
             if let Some(env) = remote {
-                args.extend(["--env".to_string(), env.to_string()]);
+                args.push(format!("--env={env}"));
             }
             if let Some(name) = name.as_ref().filter(|n| !n.is_empty()) {
                 args.extend(["--name".to_string(), name.clone()]);
@@ -382,7 +389,7 @@ mod tests {
         .unwrap();
         let (program, args, cwd) = command_for(&spec).unwrap();
         assert_eq!((program.as_str(), cwd), ("ws", None));
-        assert_eq!(args, ["attach", "--env", "linux-server", "--", "fix-1"]);
+        assert_eq!(args, ["attach", "--env=linux-server", "--", "fix-1"]);
     }
 
     #[test]
@@ -398,8 +405,7 @@ mod tests {
             args,
             [
                 "shell",
-                "--env",
-                "linux-server",
+                "--env=linux-server",
                 "--name",
                 "try",
                 "--",
@@ -415,6 +421,45 @@ mod tests {
         )
         .unwrap();
         assert_eq!(command_for(&spec).unwrap_err().code, "bad_args");
+    }
+
+    #[test]
+    fn remote_attach_with_a_blank_workspace_id_is_bad_args() {
+        let spec: TermSpec = serde_json::from_str(
+            r#"{"kind":"attach","sessionId":"s","environment":"linux-server","workspaceId":""}"#,
+        )
+        .unwrap();
+        assert_eq!(command_for(&spec).unwrap_err().code, "bad_args");
+    }
+
+    #[test]
+    fn local_attach_needs_a_directory() {
+        for json in [
+            r#"{"kind":"attach","sessionId":"s"}"#,
+            r#"{"kind":"attach","sessionId":"s","cwd":""}"#,
+        ] {
+            let spec: TermSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(command_for(&spec).unwrap_err().code, "bad_args", "{json}");
+        }
+    }
+
+    #[test]
+    fn a_blank_environment_is_not_remote() {
+        assert_eq!(remote_env(Some("")), None);
+        assert_eq!(remote_env(Some("local")), None);
+        assert_eq!(remote_env(None), None);
+        assert_eq!(remote_env(Some("linux-server")), Some("linux-server"));
+    }
+
+    #[test]
+    fn a_shell_with_a_blank_environment_adds_no_env_flag() {
+        let spec = TermSpec::Shell {
+            name: None,
+            specs: vec!["api".into()],
+            environment: Some(String::new()),
+        };
+        let (_, args, _) = command_for(&spec).unwrap();
+        assert_eq!(args, ["shell", "api"]);
     }
 
     #[test]
@@ -585,7 +630,7 @@ mod tests {
         let terminals = Terminals::default();
         let spec = TermSpec::Attach {
             session_id: id,
-            cwd: "/".into(),
+            cwd: Some("/".into()),
             environment: None,
             workspace_id: None,
         };

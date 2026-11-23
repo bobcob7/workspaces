@@ -239,7 +239,7 @@ pub fn loop_step(
         notified: prev.notified.clone(),
     };
     let mut events = Vec::new();
-    for entry in entries {
+    for entry in entries.iter().filter(|entry| !is_unreliable(entry)) {
         let Some(attention) = loop_attention(entry) else {
             continue;
         };
@@ -404,6 +404,22 @@ mod tests {
         let keys: Vec<String> = candidates(&entries).into_iter().map(|c| c.key).collect();
         assert_eq!(keys, ["env:linux-server:b"]);
         assert_eq!(held_keys(&entries), ["env:linux-server:a"]);
+    }
+
+    #[test]
+    fn unreliable_remote_loop_run_never_notifies() {
+        for (online, stale) in [(false, false), (true, true)] {
+            let mut raised = loop_entry("env:linux-server:a", Some("blocked"));
+            raised.environment = "linux-server".to_string();
+            raised.environment_online = online;
+            raised.snapshot_stale = stale;
+            let entries = [raised];
+            let (s0, _) = loop_step(&seeded(), &entries, 0);
+            let (s1, events) = loop_step(&s0, &entries, DWELL_MS);
+            assert!(events.is_empty());
+            assert!(s1.pending.is_empty());
+            assert!(s1.notified.is_empty());
+        }
     }
 
     #[test]

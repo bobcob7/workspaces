@@ -372,21 +372,36 @@ pub async fn workspace_open(
     repos: Vec<String>,
     environment: Option<String>,
 ) -> Result<Opened, AppError> {
-    crate::commands::refuse_remote(environment.as_deref(), "Opening the files")?;
     let settings = state.store.get().settings.open;
     let path_env = state.runner.path().to_string();
     tokio::task::spawn_blocking(move || {
-        open(
+        open_local(
             &SystemLauncher::default(),
             &path_env,
             &settings,
             with,
             &path,
             &repos,
+            environment.as_deref(),
         )
     })
     .await
     .map_err(|err| AppError::new("internal", err.to_string()))?
+}
+
+/// `open`, after refusing a workspace on a remote environment: its files
+/// aren't on this machine (ADR 0076, D3).
+fn open_local(
+    launcher: &dyn Launch,
+    path_env: &str,
+    settings: &OpenSettings,
+    with: OpenWith,
+    path: &str,
+    repos: &[String],
+    environment: Option<&str>,
+) -> Result<Opened, AppError> {
+    crate::commands::refuse_remote(environment, "Opening the files")?;
+    open(launcher, path_env, settings, with, path, repos)
 }
 
 /// The platform defaults for the open commands.
@@ -651,6 +666,45 @@ mod tests {
             launcher.calls.lock().unwrap().as_slice(),
             [words(&["open", "-a", "Visual Studio Code", &path])]
         );
+    }
+
+    #[test]
+    fn workspace_open_refuses_a_remote_environment_without_launching() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().display().to_string();
+        let launcher = FakeLauncher::default();
+        let err = open_local(
+            &launcher,
+            "",
+            &settings("fm", ""),
+            OpenWith::FileManager,
+            &path,
+            &[],
+            Some("linux-server"),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "local_only");
+        assert!(launcher.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn workspace_open_runs_for_local_environments() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().display().to_string();
+        for environment in [None, Some("local")] {
+            let launcher = FakeLauncher::default();
+            open_local(
+                &launcher,
+                "",
+                &settings("fm", ""),
+                OpenWith::FileManager,
+                &path,
+                &[],
+                environment,
+            )
+            .unwrap();
+            assert_eq!(launcher.calls.lock().unwrap().len(), 1);
+        }
     }
 
     #[test]
