@@ -96,9 +96,14 @@ func testProbe() *claudeProbeMock {
 
 // testSnapshots reports workspaces as the workspaces array.
 func testSnapshots(workspaces string) *snapshotSourceMock {
-	return &snapshotSourceMock{WorkspacesFunc: func(context.Context) (json.RawMessage, error) {
-		return json.RawMessage(workspaces), nil
-	}}
+	return &snapshotSourceMock{
+		WorkspacesFunc: func(context.Context) (json.RawMessage, error) {
+			return json.RawMessage(workspaces), nil
+		},
+		AgentsFunc: func(context.Context) ([]envproto.SnapshotAgent, error) {
+			return []envproto.SnapshotAgent{}, nil
+		},
+	}
 }
 
 // runningAgent is an agent whose Run is in a goroutine.
@@ -346,6 +351,49 @@ func TestAgent_Run(t *testing.T) {
 
 func TestAgent_refreshSnapshot(t *testing.T) {
 	t.Parallel()
+	t.Run("the snapshot carries the agents", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		recorder := &publishRecorder{}
+		client := connectedMock(func(_ context.Context, msg envproto.Message) error {
+			recorder.add(&msg)
+			return nil
+		})
+		snapshots := testSnapshots("[]")
+		snapshots.AgentsFunc = func(context.Context) ([]envproto.SnapshotAgent, error) {
+			return []envproto.SnapshotAgent{{ID: "ab12cd34", SessionID: "s-1", Name: "fix", State: "working", Status: "busy", PID: new(42)}}, nil
+		}
+		agent := NewAgent(discardLog(), fx.files, client, snapshots, testProbe(), NoOperations{}, rand.Reader, testOptions())
+		runAgent(t, agent)
+		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
+		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) > 0 }, 5*time.Second, 10*time.Millisecond)
+		var got envproto.Snapshot
+		require.NoError(t, json.Unmarshal(recorder.on(snapshot)[0].Payload, &got))
+		require.Len(t, got.Agents, 1)
+		assert.Equal(t, "ab12cd34", got.Agents[0].ID)
+	})
+	t.Run("a failing Agents still publishes the workspaces with agents []", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		recorder := &publishRecorder{}
+		client := connectedMock(func(_ context.Context, msg envproto.Message) error {
+			recorder.add(&msg)
+			return nil
+		})
+		snapshots := testSnapshots(`[{"id":"api"}]`)
+		snapshots.AgentsFunc = func(context.Context) ([]envproto.SnapshotAgent, error) {
+			return nil, errors.New("claude is missing")
+		}
+		agent := NewAgent(discardLog(), fx.files, client, snapshots, testProbe(), NoOperations{}, rand.Reader, testOptions())
+		runAgent(t, agent)
+		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
+		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) > 0 }, 5*time.Second, 10*time.Millisecond)
+		payload := recorder.on(snapshot)[0].Payload
+		var got envproto.Snapshot
+		require.NoError(t, json.Unmarshal(payload, &got))
+		assert.JSONEq(t, `[{"id":"api"}]`, string(got.Workspaces))
+		assert.Contains(t, string(payload), `"agents":[]`)
+	})
 	t.Run("an oversized snapshot isn't published and is warned about once", func(t *testing.T) {
 		t.Parallel()
 		fx := startAgentFixture(t)

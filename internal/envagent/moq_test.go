@@ -272,6 +272,9 @@ var _ snapshotSource = &snapshotSourceMock{}
 //
 //		// make and configure a mocked snapshotSource
 //		mockedsnapshotSource := &snapshotSourceMock{
+//			AgentsFunc: func(ctx context.Context) ([]envproto.SnapshotAgent, error) {
+//				panic("mock out the Agents method")
+//			},
 //			WorkspacesFunc: func(ctx context.Context) (json.RawMessage, error) {
 //				panic("mock out the Workspaces method")
 //			},
@@ -282,18 +285,59 @@ var _ snapshotSource = &snapshotSourceMock{}
 //
 //	}
 type snapshotSourceMock struct {
+	// AgentsFunc mocks the Agents method.
+	AgentsFunc func(ctx context.Context) ([]envproto.SnapshotAgent, error)
+
 	// WorkspacesFunc mocks the Workspaces method.
 	WorkspacesFunc func(ctx context.Context) (json.RawMessage, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Agents holds details about calls to the Agents method.
+		Agents []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// Workspaces holds details about calls to the Workspaces method.
 		Workspaces []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
 	}
+	lockAgents     sync.RWMutex
 	lockWorkspaces sync.RWMutex
+}
+
+// Agents calls AgentsFunc.
+func (mock *snapshotSourceMock) Agents(ctx context.Context) ([]envproto.SnapshotAgent, error) {
+	if mock.AgentsFunc == nil {
+		panic("snapshotSourceMock.AgentsFunc: method is nil but snapshotSource.Agents was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockAgents.Lock()
+	mock.calls.Agents = append(mock.calls.Agents, callInfo)
+	mock.lockAgents.Unlock()
+	return mock.AgentsFunc(ctx)
+}
+
+// AgentsCalls gets all the calls that were made to Agents.
+// Check the length with:
+//
+//	len(mockedsnapshotSource.AgentsCalls())
+func (mock *snapshotSourceMock) AgentsCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockAgents.RLock()
+	calls = mock.calls.Agents
+	mock.lockAgents.RUnlock()
+	return calls
 }
 
 // Workspaces calls WorkspacesFunc.

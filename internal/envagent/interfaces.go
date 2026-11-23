@@ -19,9 +19,12 @@ type mqttClient interface {
 	Close() error
 }
 
-// snapshotSource is ws list --json's "workspaces" array on this machine.
+// snapshotSource is ws list --json's "workspaces" array on this machine, and
+// the Claude Code sessions on it.
 type snapshotSource interface {
 	Workspaces(ctx context.Context) (json.RawMessage, error)
+	// Agents is this machine's Claude Code sessions, [] when there are none.
+	Agents(ctx context.Context) ([]envproto.SnapshotAgent, error)
 }
 
 // claudeProbe reports envproto.ClaudeMissing or ClaudePresent, and the version when present.

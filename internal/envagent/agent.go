@@ -78,6 +78,7 @@ type Agent struct {
 	changed   chan struct{}                    // an operation changed the workspaces
 	// The last snapshot published, for deciding when to publish again.
 	workspaces []byte
+	agents     []byte
 	snapshotAt time.Time
 }
 
@@ -223,9 +224,9 @@ func (a *Agent) closeClient(ctx context.Context) {
 	}
 }
 
-// refreshSnapshot publishes the workspaces when they changed or SnapshotEvery
-// has passed since the last snapshot, or always when force is set. A failure
-// is logged; the next check tries again.
+// refreshSnapshot publishes the workspaces and agents when they changed or
+// SnapshotEvery has passed since the last snapshot, or always when force is
+// set. A failure is logged; the next check tries again.
 func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 	raw, err := a.snapshots.Workspaces(ctx)
 	if err != nil {
@@ -235,15 +236,21 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		raw = json.RawMessage("[]")
 	}
+	agents := a.snapshotAgents(ctx)
+	agentsJSON, err := json.Marshal(agents)
+	if err != nil {
+		a.log.ErrorContext(ctx, "snapshot agents not encoded", "error", err)
+		return
+	}
 	now := a.opts.Now().UTC()
-	if !force && bytes.Equal(raw, a.workspaces) && now.Sub(a.snapshotAt) < a.opts.SnapshotEvery {
+	if !force && bytes.Equal(raw, a.workspaces) && bytes.Equal(agentsJSON, a.agents) && now.Sub(a.snapshotAt) < a.opts.SnapshotEvery {
 		return
 	}
 	payload, err := json.Marshal(envproto.Snapshot{
 		At:         now,
 		Protocol:   envproto.Protocol,
 		Workspaces: raw,
-		Agents:     []envproto.SnapshotAgent{},
+		Agents:     agents,
 	})
 	if err != nil {
 		a.log.ErrorContext(ctx, "snapshot not encoded", "error", err)
@@ -252,7 +259,7 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 	if len(payload) > envproto.MaxRequestBytes {
 		a.log.WarnContext(ctx, "snapshot too large", "bytes", len(payload))
 		// Remember it, so the unchanged checks don't warn again until SnapshotEvery.
-		a.workspaces, a.snapshotAt = raw, now
+		a.workspaces, a.agents, a.snapshotAt = raw, agentsJSON, now
 		return
 	}
 	err = a.client.Publish(ctx, envproto.Message{
@@ -265,7 +272,21 @@ func (a *Agent) refreshSnapshot(ctx context.Context, id *Identity, force bool) {
 		a.log.WarnContext(ctx, "snapshot not published", "error", err)
 		return
 	}
-	a.workspaces, a.snapshotAt = raw, now
+	a.workspaces, a.agents, a.snapshotAt = raw, agentsJSON, now
+}
+
+// snapshotAgents is the Claude Code sessions to publish. A failing read is
+// logged and publishes none, so the workspaces still go out.
+func (a *Agent) snapshotAgents(ctx context.Context) []envproto.SnapshotAgent {
+	agents, err := a.snapshots.Agents(ctx)
+	if err != nil {
+		a.log.WarnContext(ctx, "snapshot agents not read", "error", err)
+		return []envproto.SnapshotAgent{}
+	}
+	if agents == nil {
+		return []envproto.SnapshotAgent{}
+	}
+	return agents
 }
 
 // publishHello publishes the retained online hello for id.

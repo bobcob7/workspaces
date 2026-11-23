@@ -113,6 +113,10 @@ func (emptySnapshots) Workspaces(context.Context) (json.RawMessage, error) {
 	return json.RawMessage("[]"), nil
 }
 
+func (emptySnapshots) Agents(context.Context) ([]envproto.SnapshotAgent, error) {
+	return []envproto.SnapshotAgent{}, nil
+}
+
 type noClaude struct{}
 
 func (noClaude) Probe(context.Context) (string, *string) {
