@@ -107,6 +107,17 @@ func (c *Client) ReloadEnvironments(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/v1/environments/reload", nil, &res)
 }
 
+// CallEnvironment sends one operation to the environment called name and
+// returns its reply (POST /v1/environments/{name}/call). An error answer is a
+// *RemoteError with the code the server maps it to.
+//
+//nolint:gocritic // hugeParam: the CallRequest value is the fixed API.
+func (c *Client) CallEnvironment(ctx context.Context, name string, req CallRequest) (CallReply, error) {
+	var res CallReply
+	err := c.do(ctx, http.MethodPost, "/v1/environments/"+url.PathEscape(name)+"/call", req, &res)
+	return res, err
+}
+
 // Preflight checks a model through the daemon.
 func (c *Client) Preflight(ctx context.Context, req PreflightRequest) (PreflightResponse, error) {
 	var res PreflightResponse

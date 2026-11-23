@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"syscall"
 	"time"
@@ -48,8 +49,51 @@ type EnvironmentHost interface {
 	Reload(ctx context.Context) error
 	Status() EnvironmentsStatus
 	Warnings() []string
+	// Call sends one operation to an environment and waits for its reply (D8).
+	Call(ctx context.Context, name string, req CallRequest) (CallReply, error)
 	Close() error
 }
+
+// CallRequest is POST /v1/environments/{name}/call's body.
+type CallRequest struct {
+	Op        string          `json:"op"`
+	Args      json.RawMessage `json:"args"`
+	RequestID string          `json:"request_id"`
+	Deadline  time.Time       `json:"deadline"`
+}
+
+// CallReply is its 200 answer: the agent's reply as it sent it.
+type CallReply struct {
+	Reply json.RawMessage `json:"reply"`
+}
+
+// Errors an EnvironmentHost returns for a call; the server maps each to its
+// code and status.
+var (
+	ErrEnvironmentUnknown  = errors.New("no such environment")
+	ErrEnvironmentOffline  = errors.New("the environment is offline")
+	ErrEnvironmentOutdated = errors.New("the environment's ws is too old")
+	ErrNotForwarded        = errors.New("operation not forwarded")
+)
+
+// HostError carries one of those sentinels and the details the error
+// envelope reports.
+type HostError struct {
+	Err     error
+	Message string
+	Details map[string]any
+}
+
+// Error is Message, or the sentinel's text when Message is empty.
+func (e *HostError) Error() string {
+	if e.Message == "" {
+		return e.Err.Error()
+	}
+	return e.Message
+}
+
+// Unwrap returns the sentinel.
+func (e *HostError) Unwrap() error { return e.Err }
 
 // processReader reads a process's start time, to tell a live runner from a
 // reused pid.

@@ -143,3 +143,25 @@ func TestClient_ReloadEnvironments(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotRunning)
 	})
 }
+
+func TestClient_CallEnvironment(t *testing.T) {
+	t.Parallel()
+	t.Run("a 200 answer decodes the reply", func(t *testing.T) {
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			return CallReply{Reply: []byte(`{"ok":true,"result":null,"error":null}`)}, nil
+		})
+		res, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest("workspace.list"))
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"ok":true,"result":null,"error":null}`, string(res.Reply))
+	})
+	t.Run("a 503 is a RemoteError with environment_offline and its details", func(t *testing.T) {
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			return CallReply{}, &HostError{Err: ErrEnvironmentOffline, Details: map[string]any{"reason": "timeout"}}
+		})
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest("workspace.list"))
+		assertRemoteCode(t, err, "environment_offline")
+		remote, ok := errors.AsType[*RemoteError](err)
+		require.True(t, ok)
+		assert.Equal(t, "timeout", remote.Details["reason"])
+	})
+}

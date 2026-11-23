@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"io"
 	"log/slog"
 	"sync/atomic"
@@ -88,6 +89,11 @@ func (r *reloadRecorder) Reload(context.Context) error {
 	return nil
 }
 
+// Call is offline: the recorder serves no environment.
+func (*reloadRecorder) Call(context.Context, string, daemon.CallRequest) (daemon.CallReply, error) {
+	return daemon.CallReply{}, daemon.ErrEnvironmentOffline
+}
+
 // serveRecordingEnvDaemon runs an in-process managed daemon whose host
 // records the reload requests, and returns the host.
 func serveRecordingEnvDaemon(t *testing.T, app *App) *reloadRecorder {
@@ -163,5 +169,38 @@ func TestEnvironmentsStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(data), `"hello":null`)
 		assert.Nil(t, environmentHello(nil))
+	})
+}
+
+func TestEnvHost_Call(t *testing.T) {
+	callOf := func(op string) daemon.CallRequest {
+		return daemon.CallRequest{Op: op, Args: []byte("{}"), RequestID: "0123456789abcdef", Deadline: time.Now().Add(time.Minute)}
+	}
+	newHost := func(t *testing.T) (daemon.EnvironmentHost, environment.Record) {
+		t.Helper()
+		app, _, _ := newDaemonTestApp(t)
+		app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
+		app.config.Environments = config.Environments{PublicName: "127.0.0.1"}
+		rec := enrollTestEnvironment(t, app)
+		return app.daemonEnvironments(discardDaemonLog()), rec
+	}
+	t.Run("a controller that isn't listening is offline, not listening", func(t *testing.T) {
+		host, rec := newHost(t)
+		_, err := host.Call(t.Context(), rec.Name, callOf(envproto.OpWorkspaceList))
+		require.ErrorIs(t, err, daemon.ErrEnvironmentOffline)
+		hostErr, ok := errors.AsType[*daemon.HostError](err)
+		require.True(t, ok)
+		assert.Equal(t, "not_listening", hostErr.Details["reason"])
+		assert.Equal(t, rec.Name, hostErr.Details["environment"])
+	})
+	t.Run("an unknown environment is ErrEnvironmentUnknown", func(t *testing.T) {
+		host, _ := newHost(t)
+		_, err := host.Call(t.Context(), "nope", callOf(envproto.OpWorkspaceList))
+		require.ErrorIs(t, err, daemon.ErrEnvironmentUnknown)
+	})
+	t.Run("an operation the controller doesn't send is ErrNotForwarded", func(t *testing.T) {
+		host, rec := newHost(t)
+		_, err := host.Call(t.Context(), rec.Name, callOf(envproto.OpCertRenew))
+		require.ErrorIs(t, err, daemon.ErrNotForwarded)
 	})
 }

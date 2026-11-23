@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -56,6 +57,67 @@ func (h envHost) Warnings() []string { return h.ctrl.Warnings() }
 
 // Close stops the listeners.
 func (h envHost) Close() error { return h.ctrl.Close() }
+
+// Call sends one operation to the environment called name and answers its
+// reply.
+//
+//nolint:gocritic // hugeParam: the CallRequest value is the fixed API.
+func (h envHost) Call(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error) {
+	reply, err := h.ctrl.Call(ctx, name, environment.CallRequest{
+		Op:        req.Op,
+		Args:      req.Args,
+		RequestID: req.RequestID,
+		Deadline:  req.Deadline,
+	})
+	if err != nil {
+		return daemon.CallReply{}, callHostError(err)
+	}
+	data, err := json.Marshal(reply)
+	if err != nil {
+		return daemon.CallReply{}, fmt.Errorf("encoding the reply: %w", err)
+	}
+	return daemon.CallReply{Reply: data}, nil
+}
+
+// callHostError is the daemon's HostError for a controller error that a call
+// can answer with. Any other error is returned as it is.
+func callHostError(err error) error {
+	if errors.Is(err, environment.ErrUnknown) {
+		return &daemon.HostError{Err: daemon.ErrEnvironmentUnknown, Message: err.Error()}
+	}
+	if offline, ok := errors.AsType[*environment.OfflineError](err); ok {
+		return &daemon.HostError{Err: daemon.ErrEnvironmentOffline, Message: err.Error(), Details: offlineDetails(offline)}
+	}
+	if outdated, ok := errors.AsType[*environment.OutdatedError](err); ok {
+		return &daemon.HostError{Err: daemon.ErrEnvironmentOutdated, Message: err.Error(), Details: map[string]any{
+			"environment":   outdated.Environment,
+			"op":            outdated.Op,
+			"ws_version":    outdated.WSVersion,
+			"protocol":      outdated.Protocol,
+			"need_protocol": outdated.Need,
+		}}
+	}
+	if errors.Is(err, environment.ErrNotForwarded) {
+		return &daemon.HostError{Err: daemon.ErrNotForwarded, Message: err.Error()}
+	}
+	return err
+}
+
+// offlineDetails is an offline call's details: when the environment was last
+// seen is null when never.
+func offlineDetails(offline *environment.OfflineError) map[string]any {
+	var lastSeen any
+	if offline.LastSeen != nil {
+		lastSeen = offline.LastSeen.UTC().Format(time.RFC3339)
+	}
+	return map[string]any{
+		"environment": offline.Environment,
+		"reason":      offline.Reason,
+		"last_seen":   lastSeen,
+		"request_id":  offline.RequestID,
+		"op":          offline.Op,
+	}
+}
 
 // environmentsStatus is the daemon's view of st.
 func environmentsStatus(st environment.Status) daemon.EnvironmentsStatus {

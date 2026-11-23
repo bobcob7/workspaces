@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -340,6 +341,131 @@ func TestServe_environments(t *testing.T) {
 		case err := <-done:
 			t.Fatalf("exited while its environments listened: %v", err)
 		case <-time.After(300 * time.Millisecond):
+		}
+	})
+}
+
+// callRequest is a valid call of op.
+func callRequest(op string) CallRequest {
+	return CallRequest{
+		Op:        op,
+		Args:      json.RawMessage(`{}`),
+		RequestID: "0123456789abcdef",
+		Deadline:  time.Now().Add(time.Minute),
+	}
+}
+
+// callDaemon runs a daemon whose environments answer calls with fn, and
+// returns its paths.
+func callDaemon(t *testing.T, fn func(context.Context, string, CallRequest) (CallReply, error)) Paths {
+	t.Helper()
+	p := testPaths(t)
+	host := &EnvironmentHostMock{
+		StartFunc:    func(context.Context) error { return nil },
+		CloseFunc:    func() error { return nil },
+		WarningsFunc: func() []string { return []string{} },
+		StatusFunc:   func() EnvironmentsStatus { return EnvironmentsStatus{Environments: []EnvironmentPresence{}} },
+		CallFunc:     fn,
+	}
+	startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, envs: host, opts: fastOptions()})
+	return p
+}
+
+func TestServer_handleCallEnvironment(t *testing.T) {
+	t.Parallel()
+	t.Run("a reply is passed through unchanged", func(t *testing.T) {
+		const reply = `{"ok":true,"result":{"workspaces":[]},"error":null}`
+		var got struct {
+			name string
+			req  CallRequest
+		}
+		p := callDaemon(t, func(_ context.Context, name string, req CallRequest) (CallReply, error) {
+			got.name, got.req = name, req
+			return CallReply{Reply: json.RawMessage(reply)}, nil
+		})
+		res, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest("workspace.list"))
+		require.NoError(t, err)
+		assert.JSONEq(t, reply, string(res.Reply))
+		assert.Equal(t, "linux", got.name)
+		assert.Equal(t, "workspace.list", got.req.Op)
+		assert.Equal(t, "0123456789abcdef", got.req.RequestID)
+	})
+	t.Run("an unknown environment is 404 environment_unknown", func(t *testing.T) {
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			return CallReply{}, &HostError{Err: ErrEnvironmentUnknown, Message: "no such environment"}
+		})
+		_, err := Dial(p).CallEnvironment(t.Context(), "nope", callRequest("workspace.list"))
+		assertRemoteCode(t, err, "environment_unknown")
+	})
+	t.Run("offline is 503 environment_offline with its details", func(t *testing.T) {
+		details := map[string]any{"environment": "linux", "reason": "offline", "last_seen": nil, "request_id": "0123456789abcdef", "op": "workspace.list"}
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			return CallReply{}, &HostError{Err: ErrEnvironmentOffline, Message: "environment linux is offline", Details: details}
+		})
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest("workspace.list"))
+		assertRemoteCode(t, err, "environment_offline")
+		remote, ok := errors.AsType[*RemoteError](err)
+		require.True(t, ok)
+		assert.Equal(t, details, remote.Details)
+	})
+	t.Run("outdated is 409 environment_outdated with its details", func(t *testing.T) {
+		details := map[string]any{"environment": "linux", "op": "workspace.create", "ws_version": "v0.30.0", "protocol": 1, "need_protocol": 2}
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			return CallReply{}, &HostError{Err: ErrEnvironmentOutdated, Message: "too old", Details: details}
+		})
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest("workspace.create"))
+		assertRemoteCode(t, err, "environment_outdated")
+		remote, ok := errors.AsType[*RemoteError](err)
+		require.True(t, ok)
+		assert.Equal(t, "v0.30.0", remote.Details["ws_version"])
+		assert.EqualValues(t, 2, remote.Details["need_protocol"])
+	})
+	t.Run("an operation the daemon doesn't forward is 400 usage", func(t *testing.T) {
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			return CallReply{}, &HostError{Err: ErrNotForwarded, Message: "cert.renew: operation not forwarded"}
+		})
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest("cert.renew"))
+		assertRemoteCode(t, err, "usage")
+	})
+	t.Run("a bad request id is 400 usage and the host isn't called", func(t *testing.T) {
+		var called atomic.Bool
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			called.Store(true)
+			return CallReply{}, nil
+		})
+		req := callRequest("workspace.list")
+		req.RequestID = "not-a-request-id"
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", req)
+		assertRemoteCode(t, err, "usage")
+		assert.False(t, called.Load())
+	})
+	t.Run("a zero deadline is 400 usage and the host isn't called", func(t *testing.T) {
+		var called atomic.Bool
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			called.Store(true)
+			return CallReply{}, nil
+		})
+		req := callRequest("workspace.list")
+		req.Deadline = time.Time{}
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", req)
+		assertRemoteCode(t, err, "usage")
+		assert.False(t, called.Load())
+	})
+	t.Run("the host's context is the request's", func(t *testing.T) {
+		cancelled := make(chan struct{})
+		p := callDaemon(t, func(ctx context.Context, _ string, _ CallRequest) (CallReply, error) {
+			<-ctx.Done()
+			close(cancelled)
+			return CallReply{}, ctx.Err()
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		time.AfterFunc(50*time.Millisecond, cancel)
+		_, err := Dial(p).CallEnvironment(ctx, "linux", callRequest("workspace.list"))
+		require.Error(t, err)
+		select {
+		case <-cancelled:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the host's context wasn't cancelled with the request")
 		}
 	})
 }
