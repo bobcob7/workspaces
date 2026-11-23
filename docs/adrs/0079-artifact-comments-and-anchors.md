@@ -110,8 +110,8 @@ resolved, from its current anchor to the new revision:
    is older than the latest);
 3. one: moved there;
 4. several: the highest context score against the old `prefix` and
-   `suffix`; a tie goes to the occurrence whose relative position
-   (`start / len`) is closest to the old one, then the earliest.
+   `suffix`; a tie goes to the occurrence whose line is closest to the
+   old `line_start`, then the earliest.
 
 A moved anchor's `prefix`, `suffix`, lines and `rev` are recomputed from
 the new revision. `put` prints how many threads were anchored and detached.

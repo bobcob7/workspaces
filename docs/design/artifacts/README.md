@@ -99,7 +99,7 @@ artifacts/                    0700
  "created_by": {"kind": "agent", "workspace": "pitch-ab12cd34", "name": "pitch"},
  "root": "plan-1a2b3c4d",
  "revisions": [
-   {"rev": 1, "size": 2048, "sha256": "9f86d0…", "created_at": "2026-11-23T18:00:00Z",
+   {"rev": 1, "content_type": "text/markdown; charset=utf-8", "size": 2048, "sha256": "9f86d0…", "created_at": "2026-11-23T18:00:00Z",
     "created_by": {"kind": "agent", "workspace": "pitch-ab12cd34", "name": "pitch"}, "note": null}]}
 ```
 
@@ -151,8 +151,9 @@ lists, a `warnings` array on every top-level object.
 whose anchor `state` is `detached` (open or not).
 
 **Artifact** (`add`, `show`, `put`): the summary plus `"revisions":
-[{"rev", "size", "sha256", "created_at", "created_by", "note"}]`, oldest
-first.
+[{"rev", "content_type", "size", "sha256", "created_at", "created_by",
+"note"}]`, oldest first. The summary's `content_type` is the latest
+revision's; a revision may change type (PNG to JPEG) but never kind.
 
 **Thread**:
 
@@ -310,7 +311,7 @@ export interface ArtifactSummary {
   readonly kind: ArtifactKind; readonly contentType: string; readonly latest: number; readonly size: number;
   readonly createdAt: string; readonly updatedAt: string; readonly createdBy: Actor; readonly threads: ThreadCounts;
 }
-export interface Revision { readonly rev: number; readonly size: number; readonly sha256: string; readonly createdAt: string; readonly createdBy: Actor; readonly note: string | null }
+export interface Revision { readonly rev: number; readonly contentType: string; readonly size: number; readonly sha256: string; readonly createdAt: string; readonly createdBy: Actor; readonly note: string | null }
 export interface Artifact extends ArtifactSummary { readonly revisions: readonly Revision[] }
 export interface ArtifactContent { readonly rev: number; readonly contentType: string; readonly size: number; readonly dataBase64: string }
 export interface Anchor {
