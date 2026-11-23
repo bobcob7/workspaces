@@ -197,9 +197,9 @@ func TestAuthority_installPending(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, before, after)
 		_, err = os.Stat(a.path(pendingCertFile))
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		_, err = os.Stat(a.path(pendingKeyFile))
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 }
 

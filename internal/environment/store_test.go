@@ -351,7 +351,7 @@ func TestStore_Enroll(t *testing.T) {
 				succeeded++
 				continue
 			}
-			assert.ErrorIs(t, err, ErrEnrollmentUsed)
+			require.ErrorIs(t, err, ErrEnrollmentUsed)
 		}
 		assert.Equal(t, 1, succeeded)
 	})
