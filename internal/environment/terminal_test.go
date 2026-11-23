@@ -36,6 +36,8 @@ type termFixture struct {
 	clock     atomic.Int64
 	tick      chan time.Time
 	tickEvery atomic.Int64
+	// afterOpen runs in the agent's handler right after it published the open reply.
+	afterOpen func()
 	other     *envtest.Client
 	otherID   string
 }
@@ -85,6 +87,9 @@ func (f *termFixture) answer(t *testing.T) func(envproto.Message) {
 			QoS:             1,
 			CorrelationData: msg.CorrelationData,
 		}))
+		if req.Op == envproto.OpTerminalOpen && f.afterOpen != nil {
+			f.afterOpen()
+		}
 	}
 }
 
@@ -197,6 +202,12 @@ func TestController_OpenTerminal(t *testing.T) {
 		assert.Equal(t, "two", string(next(t, term)))
 		assert.Equal(t, "three", string(next(t, term)))
 		assert.Equal(t, []string{envproto.OpTerminalOpen}, f.sentOps())
+	})
+	t.Run("output published right after the open reply is not lost", func(t *testing.T) {
+		f := newTermFixture(t)
+		f.afterOpen = func() { f.data(t, 1, "$ ") }
+		term := f.open(t)
+		assert.Equal(t, "$ ", string(next(t, term)))
 	})
 	t.Run("an agent on protocol 1 is outdated", func(t *testing.T) {
 		f := newTermFixture(t)
