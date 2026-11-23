@@ -63,7 +63,7 @@ func (a *Agent) admit(req *envproto.Request) (envproto.OpSpec, any, error) {
 	if req.Deadline.After(a.opts.Now().Add(spec.Timeout + envproto.Grace)) {
 		return envproto.OpSpec{}, nil, &envproto.ReplyError{Code: "usage", Message: req.Op + " has a deadline too far away"}
 	}
-	if req.RequestID != "" && !envproto.ValidRequestID(req.RequestID) {
+	if !envproto.ValidRequestID(req.RequestID) {
 		return envproto.OpSpec{}, nil, &envproto.ReplyError{Code: "usage", Message: "malformed request id"}
 	}
 	args, err := envproto.DecodeArgs(req.Op, req.Args)
@@ -105,7 +105,8 @@ func workspaceRefs(args any) []string {
 // replies internal "the agent was busy until the deadline"), runs the
 // operation under context.WithDeadline(ctx, deadline) through the dedupe
 // store, replies on msg's response topic, and when the op's spec has
-// Changes, signals a.changed (buffered 1, non-blocking send).
+// Changes and the reply is ok, signals a.changed (buffered 1, non-blocking
+// send).
 func (a *Agent) runOp(ctx context.Context, id *Identity, msg *envproto.Message, req *envproto.Request, spec envproto.OpSpec, args any) {
 	opCtx, cancel := context.WithDeadline(ctx, *req.Deadline)
 	defer cancel()
@@ -120,9 +121,15 @@ func (a *Agent) runOp(ctx context.Context, id *Identity, msg *envproto.Message, 
 		return
 	}
 	a.reply(ctx, id, msg, reply)
-	if spec.Changes {
+	if spec.Changes && replyOK(reply) {
 		a.signalChanged()
 	}
+}
+
+// replyOK reports whether reply is a successful reply.
+func replyOK(reply []byte) bool {
+	var r envproto.Reply
+	return json.Unmarshal(reply, &r) == nil && r.OK
 }
 
 // execute runs one operation and returns its reply, which must fit a message.
