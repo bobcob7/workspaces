@@ -119,7 +119,7 @@ func (a *App) runMachineResult(verdict, file string) error {
 		return fmt.Errorf("recording %s's result: %w", caller, err)
 	}
 	if err = a.completeProgress(store, root, caller, machine.OutcomeOf(rec.Spawn, v)); err != nil {
-		return err
+		a.warned = append(a.warned, fmt.Sprintf("couldn't finish %s's progress: %v", caller, err))
 	}
 	rec, err = store.Read(root, caller)
 	if err != nil {
