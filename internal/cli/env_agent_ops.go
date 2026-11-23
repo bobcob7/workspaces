@@ -33,12 +33,37 @@ func newAgentOperations(a *App, name string) *agentOperations {
 	return o
 }
 
-// Run implements envagent's operationRunner for the workspace operations.
+// Run implements envagent's operationRunner: agent.* drives the workspace's
+// Claude Code session, and the workspace operations run ws's own commands.
 func (o *agentOperations) Run(ctx context.Context, op string, args any) (json.RawMessage, error) {
-	root := o.app.paths.Root
 	if err := checkKind(args); err != nil {
 		return nil, err
 	}
+	if strings.HasPrefix(op, "agent.") {
+		return o.runAgent(ctx, op, args)
+	}
+	return o.runWorkspace(ctx, op, args)
+}
+
+// runAgent runs an agent.* operation on the Claude Code session of its workspace.
+func (o *agentOperations) runAgent(ctx context.Context, op string, args any) (json.RawMessage, error) {
+	switch a := args.(type) {
+	case *envproto.LogsArgs:
+		return o.agentLogs(ctx, a)
+	case *envproto.SendArgs:
+		return o.agentSend(ctx, a)
+	case *envproto.WorkspaceArgs:
+		if op == envproto.OpAgentStop {
+			return o.agentStop(ctx, a)
+		}
+		return o.agentStatus(ctx, a)
+	}
+	return nil, &envproto.ReplyError{Code: string(codeUsage), Message: "unknown operation " + op}
+}
+
+// runWorkspace runs a workspace operation with ws's own command.
+func (o *agentOperations) runWorkspace(ctx context.Context, op string, args any) (json.RawMessage, error) {
+	root := o.app.paths.Root
 	switch a := args.(type) {
 	case *envproto.CreateArgs:
 		for _, spec := range a.Specs {

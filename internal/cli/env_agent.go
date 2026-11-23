@@ -254,6 +254,20 @@ func (s agentSnapshots) Workspaces(ctx context.Context) (json.RawMessage, error)
 	return json.Marshal(s.app.listWorkspaces(entries, nil, loopRuns))
 }
 
+// Agents is this machine's Claude Code sessions, finished ones included, [] when
+// there are none.
+func (s agentSnapshots) Agents(ctx context.Context) ([]envproto.SnapshotAgent, error) {
+	sessions, err := s.app.claude.Agents(ctx, claude.ListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	agents := make([]envproto.SnapshotAgent, 0, len(sessions))
+	for i := range sessions {
+		agents = append(agents, snapshotAgent(&sessions[i]))
+	}
+	return agents, nil
+}
+
 // agentClaude is the agent's probe of claude: its version, or missing, or
 // present without a version when claude can't say what it is.
 type agentClaude struct{ claude *claude.Client }
