@@ -100,6 +100,9 @@ func callHostError(err error) error {
 	if errors.Is(err, environment.ErrNotForwarded) {
 		return &daemon.HostError{Err: daemon.ErrNotForwarded, Message: err.Error()}
 	}
+	if errors.Is(err, environment.ErrRequestPending) {
+		return &daemon.HostError{Err: daemon.ErrRequestPending, Message: err.Error()}
+	}
 	return err
 }
 

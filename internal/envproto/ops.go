@@ -43,6 +43,8 @@ const (
 	MaxLogBytes     = 192 << 10
 	MaxTail         = 2000
 	DefaultTail     = 200
+	// MaxSnapshotAgents caps the Claude Code sessions in a snapshot, newest first.
+	MaxSnapshotAgents = 200
 )
 
 // Caller is who may send an operation.

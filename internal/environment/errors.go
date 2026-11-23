@@ -35,6 +35,8 @@ var (
 	ErrOffline = errors.New("the environment is offline")
 	// ErrNotForwarded is returned for an operation the controller doesn't send for a caller.
 	ErrNotForwarded = errors.New("operation not forwarded")
+	// ErrRequestPending is returned when a call's request id is already waiting for a reply.
+	ErrRequestPending = errors.New("the request id is already pending")
 )
 
 // OutdatedError is an environment whose agent speaks too old a protocol for an op.

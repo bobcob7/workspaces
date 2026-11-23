@@ -74,6 +74,7 @@ var (
 	ErrEnvironmentOffline  = errors.New("the environment is offline")
 	ErrEnvironmentOutdated = errors.New("the environment's ws is too old")
 	ErrNotForwarded        = errors.New("operation not forwarded")
+	ErrRequestPending      = errors.New("the request id is already pending")
 )
 
 // HostError carries one of those sentinels and the details the error
@@ -84,12 +85,16 @@ type HostError struct {
 	Details map[string]any
 }
 
-// Error is Message, or the sentinel's text when Message is empty.
+// Error is Message, or the sentinel's text when Message is empty, or a
+// generic text when there is no sentinel either.
 func (e *HostError) Error() string {
-	if e.Message == "" {
+	switch {
+	case e.Message != "":
+		return e.Message
+	case e.Err != nil:
 		return e.Err.Error()
 	}
-	return e.Message
+	return "the environment call failed"
 }
 
 // Unwrap returns the sentinel.

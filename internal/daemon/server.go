@@ -380,11 +380,16 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 // readBodyUpTo decodes the request body into v, refusing one over limit bytes.
 func readBodyUpTo(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	if err := json.UnmarshalRead(r.Body, v); err != nil {
-		writeError(w, http.StatusBadRequest, "usage", "the request body isn't valid JSON", nil)
+	err := json.UnmarshalRead(r.Body, v)
+	if err == nil {
+		return true
+	}
+	if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+		writeError(w, http.StatusBadRequest, "usage", "the request body is too large", nil)
 		return false
 	}
-	return true
+	writeError(w, http.StatusBadRequest, "usage", "the request body isn't valid JSON", nil)
+	return false
 }
 
 func writeFailure(w http.ResponseWriter, err error) {
@@ -420,7 +425,7 @@ func callCode(err error) (int, string) {
 		return http.StatusServiceUnavailable, "environment_offline"
 	case errors.Is(err, ErrEnvironmentOutdated):
 		return http.StatusConflict, "environment_outdated"
-	case errors.Is(err, ErrNotForwarded):
+	case errors.Is(err, ErrNotForwarded), errors.Is(err, ErrRequestPending):
 		return http.StatusBadRequest, "usage"
 	}
 	return http.StatusInternalServerError, "internal"

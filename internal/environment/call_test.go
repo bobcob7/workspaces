@@ -264,7 +264,7 @@ func TestController_Call(t *testing.T) {
 		first := f.callAsync(t.Context(), listRequest(time.Minute))
 		require.Eventually(t, func() bool { return len(rc.messages()) == 1 }, time.Second, time.Millisecond)
 		_, err := f.c.Call(t.Context(), "linux-server", listRequest(10*time.Millisecond))
-		require.Error(t, err)
+		require.ErrorIs(t, err, ErrRequestPending)
 		assert.Len(t, rc.messages(), 1)
 		assert.Equal(t, 1, pendingCount(f.c))
 		f.c.onRes(t.Context(), replyMessage(t, f.id, callRequestID, okReply))

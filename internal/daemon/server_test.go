@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -437,6 +438,28 @@ func TestServer_handleCallEnvironment(t *testing.T) {
 		req.RequestID = "not-a-request-id"
 		_, err := Dial(p).CallEnvironment(t.Context(), "linux", req)
 		assertRemoteCode(t, err, "usage")
+		assert.False(t, called.Load())
+	})
+	t.Run("a request id already pending is 400 usage", func(t *testing.T) {
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			return CallReply{}, &HostError{Err: ErrRequestPending, Message: "the request id is already pending: \"0123456789abcdef\""}
+		})
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", callRequest("workspace.list"))
+		assertRemoteCode(t, err, "usage")
+	})
+	t.Run("a body over the call limit is 400 usage with its size message and the host isn't called", func(t *testing.T) {
+		var called atomic.Bool
+		p := callDaemon(t, func(context.Context, string, CallRequest) (CallReply, error) {
+			called.Store(true)
+			return CallReply{}, nil
+		})
+		req := callRequest("workspace.list")
+		req.Args = json.RawMessage(`"` + strings.Repeat("x", int(callBodyBytes)) + `"`)
+		_, err := Dial(p).CallEnvironment(t.Context(), "linux", req)
+		assertRemoteCode(t, err, "usage")
+		remote, ok := errors.AsType[*RemoteError](err)
+		require.True(t, ok)
+		assert.Equal(t, "the request body is too large", remote.Message)
 		assert.False(t, called.Load())
 	})
 	t.Run("a zero deadline is 400 usage and the host isn't called", func(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -254,8 +255,9 @@ func (s agentSnapshots) Workspaces(ctx context.Context) (json.RawMessage, error)
 	return json.Marshal(s.app.listWorkspaces(entries, nil, loopRuns))
 }
 
-// Agents is this machine's Claude Code sessions, finished ones included, [] when
-// there are none.
+// Agents is this machine's Claude Code sessions, finished ones included, newest
+// started first and at most envproto.MaxSnapshotAgents, [] when there are none.
+// A session with no start time sorts last.
 func (s agentSnapshots) Agents(ctx context.Context) ([]envproto.SnapshotAgent, error) {
 	sessions, err := s.app.claude.Agents(ctx, claude.ListOptions{All: true})
 	if err != nil {
@@ -265,7 +267,17 @@ func (s agentSnapshots) Agents(ctx context.Context) ([]envproto.SnapshotAgent, e
 	for i := range sessions {
 		agents = append(agents, snapshotAgent(&sessions[i]))
 	}
-	return agents, nil
+	sort.SliceStable(agents, func(i, j int) bool { return startedAfter(agents[i].StartedAt, agents[j].StartedAt) })
+	return agents[:min(len(agents), envproto.MaxSnapshotAgents)], nil
+}
+
+// startedAfter reports whether a session started at a is newer than one at b;
+// a nil start time is the oldest.
+func startedAfter(a, b *time.Time) bool {
+	if a == nil {
+		return false
+	}
+	return b == nil || a.After(*b)
 }
 
 // agentClaude is the agent's probe of claude: its version, or missing, or

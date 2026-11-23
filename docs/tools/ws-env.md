@@ -186,6 +186,13 @@ guide shows, or text without `--json`.
 (the count in its last snapshot). Every field is always present: a value that
 isn't known is `null`, and a list is `[]`.
 
+## Limits
+
+An agent's snapshot lists its Claude Code sessions, `agents`, newest started
+first and at most 200. A session with no start time comes last, and the
+sessions past the 200th are left out of the snapshot. Each snapshot and each
+reply is at most 256 KiB.
+
 ## Operations
 
 Once enrolled and connected, the controller runs work on the environment

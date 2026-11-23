@@ -32,7 +32,8 @@ type pendingCall struct {
 // unless the op's caller is the controller; an invalid request id; an
 // *OfflineError with reason "not_listening" when the controller isn't
 // listening, or "offline" when the environment isn't online; an
-// *OutdatedError when the agent's protocol is below the op's Since. Then it
+// *OutdatedError when the agent's protocol is below the op's Since, and
+// ErrRequestPending when req.RequestID is already waiting for a reply. Then it
 // publishes the request on env/<id>/req with QoS 1, its response topic and
 // its correlation data, and waits. If the environment goes offline and back
 // online while it waits, the request is republished once. No reply in time
@@ -105,7 +106,7 @@ func (c *Controller) admitCall(name string, req *CallRequest, since int, pc *pen
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, pending := c.calls[req.RequestID]; pending {
-		return fmt.Errorf("request id %q is already pending", req.RequestID)
+		return fmt.Errorf("%w: %q", ErrRequestPending, req.RequestID)
 	}
 	h := c.presence[pc.env]
 	if !h.online {

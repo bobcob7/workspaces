@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -398,6 +399,20 @@ func TestAgentSnapshots_Agents(t *testing.T) {
 		assert.Nil(t, agents[1].PID, "a session without a process has a null pid")
 		assert.Nil(t, agents[1].StartedAt, "a zero start time is null")
 	})
+	t.Run("newest started first, a session with no start time last, at most MaxSnapshotAgents", func(t *testing.T) {
+		base := time.Date(2026, 11, 22, 9, 0, 0, 0, time.UTC)
+		sessions := []claude.Session{{ID: "nostart0"}}
+		for i := range envproto.MaxSnapshotAgents + 50 {
+			sessions = append(sessions, claude.Session{ID: fmt.Sprintf("s%07d", i), StartedAt: base.Add(time.Duration(i) * time.Minute)})
+		}
+		app := newMockedApp().app
+		app.claude = listingAgents(sessions...)
+		agents, err := agentSnapshots{app: app}.Agents(t.Context())
+		require.NoError(t, err)
+		require.Len(t, agents, envproto.MaxSnapshotAgents)
+		assert.Equal(t, fmt.Sprintf("s%07d", envproto.MaxSnapshotAgents+49), agents[0].ID)
+		assert.Equal(t, fmt.Sprintf("s%07d", 50), agents[len(agents)-1].ID)
+	})
 	t.Run("no sessions is an empty list", func(t *testing.T) {
 		app := newMockedApp().app
 		app.claude = listingAgents()
@@ -413,5 +428,29 @@ func TestAgentSnapshots_Agents(t *testing.T) {
 		}}
 		_, err := agentSnapshots{app: app}.Agents(t.Context())
 		assert.Error(t, err)
+	})
+}
+
+func TestFitLogs(t *testing.T) {
+	t.Run("a single line over MaxLogBytes keeps its end, at a rune boundary", func(t *testing.T) {
+		result := envproto.AgentLogsResult{Workspace: agentWS, Session: "ab12cd34", Lines: []string{strings.Repeat("é", envproto.MaxLogBytes) + "end"}}
+		fitLogs(&result)
+		require.Len(t, result.Lines, 1)
+		assert.True(t, result.Truncated)
+		assert.LessOrEqual(t, encodedLen(result), envproto.MaxLogBytes)
+		assert.True(t, strings.HasSuffix(result.Lines[0], "end"))
+		assert.True(t, utf8.ValidString(result.Lines[0]))
+	})
+	t.Run("earlier lines are dropped before the last line is cut", func(t *testing.T) {
+		result := envproto.AgentLogsResult{Workspace: agentWS, Session: "ab12cd34", Lines: []string{"first", "second"}}
+		fitLogs(&result)
+		assert.Equal(t, []string{"first", "second"}, result.Lines)
+		assert.False(t, result.Truncated)
+	})
+	t.Run("no lines stay no lines", func(t *testing.T) {
+		result := envproto.AgentLogsResult{Workspace: agentWS, Session: "ab12cd34", Lines: []string{}}
+		fitLogs(&result)
+		assert.Empty(t, result.Lines)
+		assert.False(t, result.Truncated)
 	})
 }

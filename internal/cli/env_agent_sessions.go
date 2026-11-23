@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -113,16 +114,34 @@ func tailLines(text string, tail int) []string {
 }
 
 // fitLogs drops the fewest lines from the front of result that bring its
-// JSON within MaxLogBytes, and sets Truncated when it drops any.
+// JSON within MaxLogBytes, and sets Truncated when it drops any. A last line
+// that is too long on its own is cut from its front instead, at a rune
+// boundary, so the result keeps its end.
 func fitLogs(result *envproto.AgentLogsResult) {
-	fits := func(drop int) bool {
-		trial := *result
-		trial.Lines = result.Lines[drop:]
-		return encodedLen(trial) <= envproto.MaxLogBytes
+	lines := result.Lines
+	if len(lines) == 0 {
+		return
 	}
-	drop := sort.Search(len(result.Lines), fits)
-	result.Truncated = drop > 0
-	result.Lines = result.Lines[drop:]
+	drop := sort.Search(len(lines), func(drop int) bool { return fitsLines(result, lines[drop:]) })
+	if drop < len(lines) {
+		result.Truncated = drop > 0
+		result.Lines = lines[drop:]
+		return
+	}
+	last := lines[len(lines)-1]
+	cut := sort.Search(len(last), func(i int) bool { return fitsLines(result, []string{last[i:]}) })
+	for cut < len(last) && !utf8.RuneStart(last[cut]) {
+		cut++
+	}
+	result.Truncated = true
+	result.Lines = []string{last[cut:]}
+}
+
+// fitsLines reports whether result with lines as its lines is within MaxLogBytes.
+func fitsLines(result *envproto.AgentLogsResult, lines []string) bool {
+	trial := *result
+	trial.Lines = lines
+	return encodedLen(trial) <= envproto.MaxLogBytes
 }
 
 // encodedLen is the length of result's JSON. A result of strings always
