@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -371,7 +372,8 @@ func TestAgent_dispatch(t *testing.T) {
 		}}
 		opts := opsOptions()
 		opts.MaxOps = 1
-		runAgent(t, newOpsAgent(fx, runner, opts))
+		agent := newOpsAgent(fx, runner, opts)
+		runAgent(t, agent)
 		awaitOnline(t, fx)
 		slow := envproto.Topic(fx.id.ID, envproto.LeafRes, "f1")
 		slowReplies := captureMessages(t, fx.broker, slow)
@@ -515,7 +517,10 @@ func TestAgent_dedupe(t *testing.T) {
 		runner := blockingRunner(started, release)
 		opts := opsOptions()
 		opts.MaxOps = 2
-		runAgent(t, newOpsAgent(fx, runner, opts))
+		agent := newOpsAgent(fx, runner, opts)
+		runAgent(t, agent)
+		releaseOnce := sync.OnceFunc(func() { close(release) })
+		t.Cleanup(releaseOnce)
 		awaitOnline(t, fx)
 		slow := envproto.Topic(fx.id.ID, envproto.LeafRes, "g1")
 		slowReplies := captureMessages(t, fx.broker, slow)
@@ -526,9 +531,11 @@ func TestAgent_dedupe(t *testing.T) {
 		for range 3 {
 			sendToAgent(t, fx, opRequest(t, "1111111111111111", envproto.OpWorkspaceHide, hide), dup, "g2")
 		}
+		require.Eventually(t, func() bool { return len(agent.queue) == 4 }, 5*time.Second, time.Millisecond)
+		assert.Never(t, func() bool { return len(agent.slots) > 1 }, 200*time.Millisecond, time.Millisecond)
 		other := askAgent(t, fx, opRequest(t, "2222222222222222", envproto.OpWorkspaceHide, hide), "g3")
 		assert.True(t, other.OK)
-		close(release)
+		releaseOnce()
 		require.Eventually(t, func() bool { return len(slowReplies.all()) == 1 && len(dupReplies.all()) == 3 }, 5*time.Second, 10*time.Millisecond)
 		assert.Len(t, runner.RunCalls(), 2)
 	})
@@ -605,6 +612,32 @@ func TestAgent_dedupe(t *testing.T) {
 	})
 }
 
+// closeTracker is an agent's client that counts connects and the publishes made after Close.
+type closeTracker struct {
+	*envtest.Client
+	connects atomic.Int32
+	closed   atomic.Bool
+	late     atomic.Int32
+}
+
+func (c *closeTracker) Connect(ctx context.Context, opts envproto.ConnectOptions) error {
+	c.connects.Add(1)
+	c.closed.Store(false)
+	return c.Client.Connect(ctx, opts)
+}
+
+func (c *closeTracker) Publish(ctx context.Context, msg envproto.Message) error { //nolint:gocritic // hugeParam: Publish has the mqttClient signature.
+	if c.closed.Load() {
+		c.late.Add(1)
+	}
+	return c.Client.Publish(ctx, msg)
+}
+
+func (c *closeTracker) Close() error {
+	c.closed.Store(true)
+	return c.Client.Close()
+}
+
 func TestAgent_operationGoroutines(t *testing.T) {
 	t.Parallel()
 	hide := envproto.HideArgs{Workspace: "fix-login", Hidden: true}
@@ -627,6 +660,47 @@ func TestAgent_operationGoroutines(t *testing.T) {
 		<-started
 		require.NoError(t, run.stop())
 		assert.True(t, finished.Load())
+	})
+	t.Run("a lost connection cancels running operations", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		started := make(chan struct{})
+		cancelled := make(chan struct{})
+		runner := &operationRunnerMock{RunFunc: func(ctx context.Context, _ string, _ any) (json.RawMessage, error) {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			return nil, ctx.Err()
+		}}
+		client := &closeTracker{Client: fx.broker.NewClient()}
+		agent := NewAgent(discardLog(), fx.files, client, testSnapshots("[]"), testProbe(), runner, rand.Reader, opsOptions())
+		runAgent(t, agent)
+		awaitOnline(t, fx)
+		res := envproto.Topic(fx.id.ID, envproto.LeafRes, "n1")
+		sendToAgent(t, fx, opRequest(t, "0123456789abcdef", envproto.OpWorkspaceHide, hide), res, "n1")
+		<-started
+		require.Equal(t, 1, fx.broker.Disconnect(fx.id.Cert.SerialNumber.Text(16)))
+		select {
+		case <-cancelled:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the operation kept running after the connection was lost")
+		}
+		require.Eventually(t, func() bool { return client.connects.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
+		assert.Zero(t, client.late.Load())
+	})
+	t.Run("operations one after another never fill the queue", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		opts := opsOptions()
+		opts.MaxOps = 1
+		agent := newOpsAgent(fx, listRunner(), opts)
+		runAgent(t, agent)
+		awaitOnline(t, fx)
+		for i := range queueFactor + 3 {
+			reply := askAgent(t, fx, opRequest(t, fmt.Sprintf("%016d", i), envproto.OpWorkspaceHide, hide), fmt.Sprintf("o%d", i))
+			require.True(t, reply.OK, "request %d", i)
+		}
+		assert.Eventually(t, func() bool { return len(agent.queue) == 0 }, 5*time.Second, time.Millisecond)
 	})
 	t.Run("a burst beyond the queue is refused at once", func(t *testing.T) {
 		t.Parallel()

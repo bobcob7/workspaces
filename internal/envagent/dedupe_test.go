@@ -15,6 +15,15 @@ type fakeClock struct{ now time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.now }
 
+func TestNewRequests(t *testing.T) {
+	t.Run("keeps 512 replies, 8 MiB of them, for 15 minutes", func(t *testing.T) {
+		r := newRequests(time.Now)
+		assert.Equal(t, 15*time.Minute, r.keep)
+		assert.Equal(t, 512, r.max)
+		assert.Equal(t, 8<<20, r.budget)
+	})
+}
+
 func TestRequests_do(t *testing.T) {
 	t.Run("runs fn once for two concurrent calls with one id", func(t *testing.T) {
 		r := newRequests(time.Now)
