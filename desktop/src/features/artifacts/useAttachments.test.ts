@@ -19,6 +19,25 @@ describe("insertAtCaret", () => {
 
     expect(insertAtCaret("fix it", element, "@artifact:art-00000001 ")).toBe("fix @artifact:art-00000001 it");
   });
+
+  it("separates the reference from a word the caret follows", () => {
+    const element = document.createElement("textarea");
+    element.value = "login error";
+    element.setSelectionRange(11, 11);
+
+    expect(insertAtCaret("login error", element, "@artifact:art-00000004 ")).toBe(
+      "login error @artifact:art-00000004 ",
+    );
+  });
+
+  it("adds no separator after a space or at the start of the text", () => {
+    const element = document.createElement("textarea");
+    element.value = "fix ";
+    element.setSelectionRange(4, 4);
+
+    expect(insertAtCaret("fix ", element, "@artifact:art-00000001 ")).toBe("fix @artifact:art-00000001 ");
+    expect(insertAtCaret("", null, "@artifact:art-00000001 ")).toBe("@artifact:art-00000001 ");
+  });
 });
 
 describe("removeReference", () => {

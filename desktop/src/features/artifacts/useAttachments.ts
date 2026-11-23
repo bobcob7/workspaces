@@ -10,11 +10,19 @@ import { imagesFromClipboard, uploadFiles } from "./upload";
 export const insertAt = (value: string, start: number, end: number, inserted: string): string =>
   value.slice(0, start) + inserted + value.slice(end);
 
+const separatorFor = (before: string, inserted: string): string => {
+  if (before === "" || /\s$/.test(before) || /^\s/.test(inserted)) {
+    return "";
+  }
+  return " ";
+};
+
 /** `value` with `inserted` at the element's caret, or at the end when there is no caret. */
 export const insertAtCaret = (value: string, element: HTMLTextAreaElement | null, inserted: string): string => {
   const start = element?.selectionStart ?? value.length;
   const end = element?.selectionEnd ?? start;
-  return insertAt(value, start, end, inserted);
+  const separator = separatorFor(value.slice(0, start), inserted);
+  return insertAt(value, start, end, separator + inserted);
 };
 
 /** The text without its `@artifact:<id>` reference (and the `/rN` and space after it). */
