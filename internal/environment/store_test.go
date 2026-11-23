@@ -91,6 +91,14 @@ func TestStore_Add(t *testing.T) {
 		assert.Equal(t, envproto.Fingerprint(ca), parsed.Fingerprint)
 		assert.Equal(t, envproto.HashSecret(parsed.Secret), rec.SecretHash)
 	})
+	t.Run("writes the record 0600 in a 0700 environments directory", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		rec, _, _, err := store.Add(t.Context(), "linux-server", testBroker)
+		require.NoError(t, err)
+		assertMode(t, store.recordPath(rec.ID), 0o600)
+		assertMode(t, store.dir, 0o700)
+	})
 	t.Run("reports no new CA when one exists", func(t *testing.T) {
 		t.Parallel()
 		store := newTestStore(t)
@@ -341,7 +349,9 @@ func TestStore_Enroll(t *testing.T) {
 		for _, err := range errs {
 			if err == nil {
 				succeeded++
+				continue
 			}
+			assert.ErrorIs(t, err, ErrEnrollmentUsed)
 		}
 		assert.Equal(t, 1, succeeded)
 	})
@@ -373,6 +383,9 @@ func TestStore_Renew(t *testing.T) {
 		require.NoError(t, err)
 		assert.NoError(t, parseCertPEM(t, result.Cert).CheckSignatureFrom(current))
 		assert.Contains(t, result.CABundle, encodeCertString(current))
+		rec, err := store.ByID(enrolled.ID)
+		require.NoError(t, err)
+		assert.Equal(t, envproto.Fingerprint(current), rec.CertCA)
 	})
 	t.Run("is ErrUnknown for a pending or missing id", func(t *testing.T) {
 		t.Parallel()
