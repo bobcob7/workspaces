@@ -797,6 +797,99 @@ mod tests {
         assert_eq!(err.status(), 400);
     }
 
+    /// A fake `ws` that logs each call's arguments (one line per call, joined
+    /// by spaces) and stdin, and answers each artifact verb with valid JSON.
+    fn artifact_ws(log: &std::path::Path) -> String {
+        let artifact = r#"{"artifact":{"id":"art-1a2b3c4d","reference":"@artifact:art-1a2b3c4d","name":"a.txt","title":null,"kind":"text","content_type":"text/plain","latest":1,"size":2,"created_at":"t","updated_at":"t","created_by":{"kind":"person","workspace":null,"name":null},"threads":{"open":0,"resolved":0,"detached":0},"revisions":[{"rev":1,"content_type":"text/plain","size":2,"sha256":"x","created_at":"t","created_by":{"kind":"person","workspace":null,"name":null},"note":null}]},"warnings":[]}"#;
+        let thread = r#"{"id":"t1","anchor":null,"resolved":false,"resolved_at":null,"resolved_by":null,"comments":[]}"#;
+        let comment = r#"{"id":"c1","author":{"kind":"person","workspace":null,"name":null},"body":"b","created_at":"t"}"#;
+        format!(
+            r#"echo "$*" >> "{log}.args"
+/bin/cat >> "{log}.stdin"
+case "$2" in
+list) echo '{{"artifacts":[],"warnings":[]}}' ;;
+show|add) echo '{artifact}' ;;
+cat) printf hi ;;
+rm) echo '{{"artifacts":[{{"id":"art-1a2b3c4d","removed":true,"error":null}}],"warnings":[]}}' ;;
+comment) case "$3" in
+list) echo '{{"artifact_id":"art-1a2b3c4d","latest":1,"threads":[{thread}],"warnings":[]}}' ;;
+add) echo '{{"artifact_id":"art-1a2b3c4d","thread":{thread},"comment":{comment},"warnings":[]}}' ;;
+resolve) echo '{{"artifact_id":"art-1a2b3c4d","thread":{thread},"warnings":[]}}' ;;
+esac ;;
+esac"#,
+            log = log.display()
+        )
+    }
+
+    #[tokio::test]
+    async fn artifact_commands_reach_ws_with_their_camel_case_args() {
+        let log = tempfile::tempdir().unwrap();
+        let path = log.path().join("calls");
+        let (_dir, ctx) = ctx_with(&artifact_ws(&path), "exit 1", Box::new(|_| {}));
+        let id = "art-1a2b3c4d";
+        let calls = [
+            (
+                "artifact_list",
+                serde_json::json!({"kind": "image", "workspace": "w-1"}),
+            ),
+            ("artifact_show", serde_json::json!({"id": id})),
+            ("artifact_read", serde_json::json!({"id": id, "rev": 1})),
+            (
+                "artifact_add",
+                serde_json::json!({"name": "a.txt", "title": "T", "dataBase64": "aGVsbG8="}),
+            ),
+            ("artifact_remove", serde_json::json!({"id": id})),
+            ("artifact_comments", serde_json::json!({"id": id})),
+            (
+                "artifact_comment_add",
+                serde_json::json!({
+                    "id": id,
+                    "body": "Why?",
+                    "reply": "t1",
+                    "anchor": {"quote": "q", "line": 7, "prefix": "p", "suffix": "s"},
+                }),
+            ),
+            (
+                "artifact_comment_resolve",
+                serde_json::json!({"id": id, "thread": "t1", "reopen": true}),
+            ),
+        ];
+        assert_eq!(calls.len(), 8);
+        for (command, args) in calls {
+            dispatch(&ctx, command, args, None)
+                .await
+                .unwrap_or_else(|e| panic!("{command}: {e:?}"));
+        }
+        let recorded = std::fs::read_to_string(log.path().join("calls.args")).unwrap();
+        let lines: Vec<&str> = recorded.lines().collect();
+        assert_eq!(
+            lines,
+            [
+                "artifact list --json --kind image --workspace w-1 --limit 1000",
+                "artifact show --json -- art-1a2b3c4d",
+                "artifact cat --rev 1 -- art-1a2b3c4d",
+                "artifact show --json -- art-1a2b3c4d",
+                "artifact add - --json --name a.txt --title T",
+                "artifact rm --json -- art-1a2b3c4d",
+                "artifact comment list --json -- art-1a2b3c4d",
+                "artifact comment add --json --body-file - --reply t1 --quote q --line 7 --prefix p --suffix s -- art-1a2b3c4d",
+                "artifact comment resolve --json --reopen -- art-1a2b3c4d t1",
+            ]
+        );
+        let stdin = std::fs::read_to_string(log.path().join("calls.stdin")).unwrap();
+        assert_eq!(stdin, "helloWhy?");
+    }
+
+    #[tokio::test]
+    async fn artifact_add_rejects_snake_case_data_key() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"name": "a.txt", "data_base64": "aGk="});
+        let err = dispatch(&ctx, "artifact_add", args, None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DispatchError::BadArgs(_)));
+    }
+
     #[tokio::test]
     async fn list_entries_hands_listing_to_notifier() {
         let calls = Arc::new(Mutex::new(Vec::new()));
