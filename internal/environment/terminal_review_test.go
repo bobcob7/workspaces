@@ -49,7 +49,7 @@ type failBroker struct {
 	err error
 }
 
-func (b *failBroker) Publish(ctx context.Context, msg envproto.Message) error {
+func (b *failBroker) Publish(ctx context.Context, msg envproto.Message) error { //nolint:gocritic // hugeParam: the broker interface fixes the signature.
 	if frame, err := envproto.UnmarshalFrame(msg.Payload); err == nil && frame.Kind == envproto.FrameClose {
 		return b.err
 	}

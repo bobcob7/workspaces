@@ -602,9 +602,9 @@ func (t *Terminal) Resize(ctx context.Context, cols, rows int) error {
 func (t *Terminal) Close(ctx context.Context) error {
 	t.closeOnce.Do(func() {
 		t.cancelClosing()
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), t.c.abandonedCloseWait)
+		bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), t.c.abandonedCloseWait)
 		defer cancel()
-		t.closeErr = t.closeNow(ctx)
+		t.closeErr = t.closeNow(bounded)
 	})
 	return t.closeErr
 }

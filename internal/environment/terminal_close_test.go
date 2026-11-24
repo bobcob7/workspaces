@@ -20,7 +20,7 @@ type stallBroker struct {
 	waiting chan struct{}
 }
 
-func (s *stallBroker) Publish(ctx context.Context, msg envproto.Message) error {
+func (s *stallBroker) Publish(ctx context.Context, msg envproto.Message) error { //nolint:gocritic // hugeParam: the broker interface fixes the signature.
 	if s.stalled.Load() {
 		frame, err := envproto.UnmarshalFrame(msg.Payload)
 		if err == nil && frame.Kind == envproto.FrameInput {
