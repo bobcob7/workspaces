@@ -18,6 +18,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 // Client runs claude with a fixed environment.
@@ -76,7 +78,7 @@ func (c *Client) runApart(ctx context.Context, args ...string) ([]byte, error) {
 	if err := c.ensureVersion(ctx); err != nil {
 		return nil, err
 	}
-	return c.execWith(ctx, "", args, &syscall.SysProcAttr{Setpgid: true})
+	return c.execWith(ctx, "", args, procgroup.OwnGroup())
 }
 
 // Check checks, once per Client, that claude is on PATH and new enough

@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"syscall"
 	"time"
 )
 
@@ -68,7 +67,7 @@ func (c *Client) Send(ctx context.Context, s *Session, message string) error {
 	cmd := exec.CommandContext(ctx, c.path, "attach", s.ID)
 	cmd.Env = append(append([]string{}, c.environ...), "TERM=xterm-256color")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	cmd.SysProcAttr = attachProcAttr()
 	err = cmd.Start()
 	tty.Close()
 	if err != nil {

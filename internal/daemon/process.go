@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 // OSStarter starts and signals runner processes with the operating system.
@@ -22,7 +24,7 @@ func (OSStarter) Start(exe string, args []string, dir, logPath string, env []str
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stderr = log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = procgroup.Detached()
 	if err := cmd.Start(); err != nil {
 		return 0, fmt.Errorf("starting %s: %w", exe, err)
 	}
@@ -33,7 +35,7 @@ func (OSStarter) Start(exe string, args []string, dir, logPath string, env []str
 // Signal sends sig to the process group pgid. A runner is its own group
 // leader, so its pid is its group id.
 func (OSStarter) Signal(pgid int, sig syscall.Signal) error {
-	if err := syscall.Kill(-pgid, sig); err != nil {
+	if err := procgroup.Signal(pgid, sig); err != nil {
 		return fmt.Errorf("signalling process group %d: %w", pgid, err)
 	}
 	return nil

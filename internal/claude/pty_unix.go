@@ -5,9 +5,15 @@ package claude
 import (
 	"fmt"
 	"os"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
+
+// attachProcAttr starts claude attach with the pty as its controlling terminal.
+func attachProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{Setsid: true, Setctty: true}
+}
 
 // ptyRows and ptyCols are the terminal's size: room for Claude Code to
 // draw its prompt.

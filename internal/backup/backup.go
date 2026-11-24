@@ -5,7 +5,8 @@ import (
 	"log/slog"
 	"os/exec"
 	"runtime"
-	"syscall"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 // starter starts cmd and returns a function that waits for it to finish.
@@ -30,7 +31,7 @@ func startExclusion(log *slog.Logger, goos string, start starter, dir string) <-
 	}
 	//nolint:noctx // tmutil must outlive ws, so no context may cancel it.
 	cmd := exec.Command("tmutil", "addexclusion", dir)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = procgroup.OwnGroup()
 	wait, err := start(cmd)
 	if err != nil {
 		log.Debug("couldn't start tmutil", slog.String("dir", dir), slog.Any("error", err))

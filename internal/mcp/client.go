@@ -13,13 +13,14 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	json "encoding/json/v2"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 const (
@@ -249,8 +250,8 @@ func newStdioTransport(ctx context.Context, def *ServerDef, opts StartOptions) (
 	cmd := exec.CommandContext(ctx, def.Command, def.Args...) //nolint:gosec // the command is the server's definition, run on purpose (ADR 0069)
 	cmd.Dir = opts.Dir
 	cmd.Env = stdioEnv(opts.Environ, def.Env)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.SysProcAttr = procgroup.OwnGroup()
+	cmd.Cancel = func() error { return procgroup.KillTree(cmd.Process.Pid) }
 	tail := &tailWriter{limit: stderrTailBytes}
 	cmd.Stderr = io.MultiWriter(orDiscard(opts.Stderr), tail)
 	return &mcp.CommandTransport{Command: cmd}, &serverProcess{cmd: cmd, stderr: tail}, nil

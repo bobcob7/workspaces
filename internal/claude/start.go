@@ -8,7 +8,8 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
-	"syscall"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 // noWorktreeSettings makes a background session edit the workspace's repos
@@ -70,7 +71,7 @@ func (c *Client) Start(ctx context.Context, opts StartOptions) (Started, error) 
 		args = append(args, "-n", opts.Name)
 	}
 	args = append(args, "--settings", noWorktreeSettings)
-	out, err := c.execWith(ctx, opts.Dir, append(args, opts.Args...), &syscall.SysProcAttr{Setpgid: true})
+	out, err := c.execWith(ctx, opts.Dir, append(args, opts.Args...), procgroup.OwnGroup())
 	if err != nil {
 		return Started{}, err
 	}

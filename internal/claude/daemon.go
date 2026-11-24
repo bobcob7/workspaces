@@ -10,8 +10,9 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 // notRunningLine is the first line of `claude daemon status`'s output, which
@@ -68,7 +69,7 @@ func (c *Client) RunDaemon(ctx context.Context) (int, error) {
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), c.path, "daemon", "run")
 	cmd.Env = append([]string{}, c.environ...)
 	cmd.Dir = c.daemonDir()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = procgroup.Detached()
 	if err := cmd.Start(); err != nil {
 		if notInstalled(err) {
 			return 0, fmt.Errorf("%w: %w", ErrNotInstalled, err)

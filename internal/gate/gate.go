@@ -9,8 +9,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 // MaxOutput is how many bytes of stdout, and of stderr, Run keeps.
@@ -61,8 +62,8 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd := exec.CommandContext(tctx, "/bin/sh", "-c", req.Script) //nolint:gosec // the script is the point: ADR 0049 runs it through this package only
 	cmd.Dir = req.Dir
 	cmd.Env = mergeEnv(r.environ, req.Env)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.SysProcAttr = procgroup.OwnGroup()
+	cmd.Cancel = func() error { return procgroup.KillTree(cmd.Process.Pid) }
 	cmd.WaitDelay = waitDelay
 	stdout := &capWriter{limit: MaxOutput}
 	stderr := &capWriter{limit: MaxOutput}
