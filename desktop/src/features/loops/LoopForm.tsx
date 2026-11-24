@@ -1,6 +1,10 @@
 import { Alert, Button, FormControlLabel, FormHelperText, Switch, TextField } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
 import type { AppError, Loop, NewLoop } from "../../api";
+import { EnvironmentField, useEnvironmentPick } from "../create/EnvironmentField";
+import { lastChoiceSet } from "../environments/environmentsSlice";
+import { useAppDispatch } from "../../store";
+import { ConfirmRemoteCodeDialog } from "./ConfirmRemoteCodeDialog";
 import { RepoSpecsField } from "../create/RepoSpecsField";
 import { RunnerModelFields, type RunnerModelValues } from "../create/RunnerModelFields";
 import { useRunnerSettings } from "../create/useRunnerSettings";
@@ -30,6 +34,8 @@ const errorFields: Readonly<Record<keyof LoopFormErrors, keyof LoopFormValues>> 
   vars: "vars",
 };
 
+const bypassMode = "bypassPermissions";
+
 export interface LoopFormProps {
   /** The loop to edit; absent for a new loop. */
   readonly loop?: Loop;
@@ -39,13 +45,25 @@ export interface LoopFormProps {
   readonly onCancel: () => void;
 }
 
+/** A remote loop whose script is new or changed, or whose agent bypasses permissions, needs the person's confirmation (R3). */
+const needsConfirmation = (request: NewLoop, loop: Loop | undefined): boolean => {
+  const script = request.script ?? "";
+  const scriptChanged = script !== "" && script !== (loop?.script ?? "");
+  const bypassChanged = request.permissionMode === bypassMode && request.permissionMode !== (loop?.permissionMode ?? "");
+  return scriptChanged || bypassChanged;
+};
+
 /** The loop form for add and edit: sections for schedule, prompt, repos, agent, gate script, and variables. */
 export const LoopForm = (props: LoopFormProps): JSX.Element => {
   const { loop, error, submitting, onSubmit, onCancel } = props;
   const [values, setValues] = useState<LoopFormValues>(() => (loop === undefined ? emptyValues : valuesOf(loop)));
   const [touched, setTouched] = useState<ReadonlySet<keyof LoopFormValues>>(new Set());
   const [submitted, setSubmitted] = useState(false);
+  const dispatch = useAppDispatch();
+  const pick = useEnvironmentPick();
+  const [pending, setPending] = useState<NewLoop | null>(null);
   const runnerSettings = useRunnerSettings(true);
+  const environment = loop === undefined ? pick.environment : loop.environment;
   const errors = formErrors(values);
   const hasScript = values.script.trim() !== "";
   const slug = slugOf(values.title);
@@ -65,11 +83,37 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
     if (!isValid(values)) {
       return;
     }
-    onSubmit(requestOf(values));
+    const request = requestOf(values);
+    if (environment === "local") {
+      onSubmit(request);
+      return;
+    }
+    const remote: NewLoop = {
+      ...request,
+      environment,
+      ...(loop === undefined ? {} : { previous: { ...requestOf(valuesOf(loop)), environment } }),
+    };
+    if (needsConfirmation(request, loop)) {
+      setPending(remote);
+      return;
+    }
+    onSubmit(remote);
+  };
+  const confirm = (request: NewLoop): void => {
+    setPending(null);
+    if (loop === undefined) {
+      dispatch(lastChoiceSet(environment));
+    }
+    onSubmit({ ...request, confirmed: true });
   };
   return (
     <form className={styles.form} onSubmit={submit} aria-label={loop ? "Edit loop" : "New loop"} noValidate>
       <h2 className={styles.formTitle}>{loop ? `Edit ${loopLabel(loop)}` : "New loop"}</h2>
+      {loop === undefined ? (
+        <EnvironmentField pick={pick} />
+      ) : (
+        loop.environment !== "local" && <p className={styles.muted}>{`Environment: ${loop.environment}`}</p>
+      )}
       <fieldset className={styles.section}>
         <legend className={styles.legend}>Schedule</legend>
         <TextField
@@ -171,6 +215,16 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
         <VarsEditor rows={values.vars} onChange={(vars) => patch("vars", vars)} />
         {messageFor("vars") !== undefined && <FormHelperText error>{messageFor("vars")}</FormHelperText>}
       </fieldset>
+      {pending !== null && (
+        <ConfirmRemoteCodeDialog
+          environment={environment}
+          every={pending.every}
+          script={pending.script ?? ""}
+          bypass={pending.permissionMode === bypassMode}
+          onConfirm={() => confirm(pending)}
+          onCancel={() => setPending(null)}
+        />
+      )}
       {error !== null && <Alert severity="error">{error.message}</Alert>}
       <div className={styles.formButtons}>
         <Button onClick={onCancel}>Cancel</Button>

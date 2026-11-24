@@ -1,8 +1,8 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
-import { loop, testStore, wsLoop } from "../../test/fixtures";
+import { loop, remoteEnvironment, testStore, wsLoop } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { LoopForm, type LoopFormProps } from "./LoopForm";
 
@@ -227,5 +227,126 @@ describe("LoopForm", () => {
     renderWithStore(<LoopForm error={null} submitting={false} onSubmit={vi.fn()} onCancel={onCancel} />, testStore());
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+});
+
+const renderRemote = (props: Partial<LoopFormProps> = {}) => {
+  const onSubmit = vi.fn();
+  const base = testStore();
+  const store = testStore({ state: { environments: { ...base.getState().environments, items: [remoteEnvironment()] } } });
+  renderWithStore(<LoopForm error={null} submitting={false} onCancel={vi.fn()} onSubmit={onSubmit} {...props} />, store);
+  return { onSubmit };
+};
+
+const chooseRemote = async (): Promise<void> => {
+  await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+  await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+};
+
+const typeScript = async (): Promise<void> => {
+  await userEvent.type(screen.getByRole("textbox", { name: "Script" }), "make check");
+};
+
+describe("LoopForm on a remote environment", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("a new script on a remote loop asks for confirmation", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(screen.getByText("Run code on linux-server?")).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("cancelling the confirmation sends nothing", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel", description: "" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.queryByText("Run code on linux-server?")).not.toBeInTheDocument();
+  });
+
+  it("confirming sends the environment and confirmed", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    await userEvent.click(screen.getByRole("button", { name: "Run on linux-server" }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ environment: "linux-server", confirmed: true, script: "make check" }));
+  });
+
+  it("bypassPermissions on a remote loop asks for confirmation", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await userEvent.click(screen.getByRole("combobox", { name: "Permission mode" }));
+    await userEvent.click(screen.getByRole("option", { name: "bypassPermissions" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(screen.getByText(/with every permission \(bypassPermissions\)/)).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("a remote loop without a script or bypass sends no confirmed", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    const sent = onSubmit.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({ environment: "linux-server" });
+    expect(sent).not.toHaveProperty("confirmed");
+  });
+
+  it("a local loop with a script never asks", async () => {
+    const { onSubmit } = renderRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(screen.queryByText(/Run code on/)).not.toBeInTheDocument();
+    const sent = onSubmit.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({ script: "make check" });
+    expect(sent).not.toHaveProperty("confirmed");
+    expect(sent).not.toHaveProperty("environment");
+  });
+
+  it("editing a remote script confirms, then sends confirmed and the previous values", async () => {
+    const existing = loop({ environment: "linux-server", script: "true", scriptTimeout: "1m" });
+    const { onSubmit } = renderRemote({ loop: existing });
+    const script = screen.getByRole("textbox", { name: "Script" });
+    await userEvent.clear(script);
+    await userEvent.type(script, "make check");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Run on linux-server" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: "linux-server",
+        confirmed: true,
+        script: "make check",
+        previous: expect.objectContaining({ script: "true", name: "deps" }),
+      }),
+    );
+  });
+
+  it("editing a remote loop's title leaves its script alone and asks nothing", async () => {
+    const existing = loop({ environment: "linux-server", script: "true", scriptTimeout: "1m" });
+    const { onSubmit } = renderRemote({ loop: existing });
+    const name = screen.getByRole("textbox", { name: /Name/ });
+    await userEvent.clear(name);
+    await userEvent.type(name, "Renamed");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.queryByText(/Run code on/)).not.toBeInTheDocument();
+    const sent = onSubmit.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({ environment: "linux-server", title: "Renamed", previous: expect.objectContaining({ script: "true" }) });
+    expect(sent).not.toHaveProperty("confirmed");
   });
 });

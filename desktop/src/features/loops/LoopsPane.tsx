@@ -3,6 +3,7 @@ import { useState, type JSX } from "react";
 import type { Loop } from "../../api";
 import { age, until } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
+import { EnvBadge } from "../agents/EnvBadge";
 import { sectionChosen, selected } from "../ui/uiSlice";
 import { Card, CodeBlock } from "./Card";
 import { HistoryCard } from "./HistoryCard";
@@ -19,6 +20,7 @@ import {
   removeLoop,
   runLoopNow,
   selectLoopBusy,
+  selectLoopGroups,
   setLoopPaused,
 } from "./loopsSlice";
 import styles from "./LoopsPane.module.css";
@@ -181,7 +183,10 @@ const VarsCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
 /** One loop: its header actions and a card per setting group, with Pause/Resume, Run now, and Delete. */
 const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   const dispatch = useAppDispatch();
-  const busy = useAppSelector((s) => selectLoopBusy(s, loop.name, loop.environment));
+  const unavailable = useAppSelector((s) => selectLoopBusy(s, loop.name, loop.environment));
+  const online = useAppSelector((s) => selectLoopGroups(s).find((g) => g.environment === loop.environment)?.online !== false);
+  const reason = useAppSelector((s) => selectLoopGroups(s).find((g) => g.environment === loop.environment)?.reason ?? "");
+  const busy = unavailable || !online;
   const [confirming, setConfirming] = useState(false);
   return (
     <section className={styles.root} aria-label={loopLabel(loop)}>
@@ -189,6 +194,8 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
         <h1 className={styles.title}>{loopLabel(loop)}</h1>
         {loop.title.trim() !== "" && <span className={styles.muted}>{loop.name}</span>}
         <Chip size="small" label={loop.paused ? "Paused" : "Active"} />
+        {loop.environment !== "local" && <EnvBadge label={loop.environment} />}
+        {loop.stale && online && <EnvBadge label="stale" warn />}
         <span className={styles.spacer} />
         <Button size="small" disabled={busy} onClick={() => dispatch(editingStarted())}>
           Edit
@@ -207,6 +214,11 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
           Delete
         </Button>
       </header>
+      {!online && (
+        <p className={styles.muted} role="status">
+          {`${reason}. Loops on ${loop.environment} don't run while it is offline; missed runs are skipped, not made up`}
+        </p>
+      )}
       <div className={styles.body}>
         <ScheduleCard loop={loop} busy={busy} />
         <PromptCard loop={loop} />
@@ -214,8 +226,16 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
         <AgentCard loop={loop} />
         <GateCard loop={loop} />
         <VarsCard loop={loop} />
-        <MemoryCard loop={loop} />
-        <HistoryCard loop={loop} />
+        {online ? (
+          <>
+            <MemoryCard loop={loop} />
+            <HistoryCard loop={loop} />
+          </>
+        ) : (
+          <Card title="History and memory">
+            <p className={styles.muted}>{reason}</p>
+          </Card>
+        )}
       </div>
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
         <DialogTitle>Delete loop {loopLabel(loop)}?</DialogTitle>
@@ -228,7 +248,7 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
             color="error"
             onClick={() => {
               setConfirming(false);
-              void dispatch(removeLoop({ name: loop.name, environment: loop.environment }));
+              void dispatch(removeLoop({ name: loop.name, environment: loop.environment, confirmed: true }));
             }}
           >
             Delete

@@ -137,7 +137,24 @@ describe("HistoryCard", () => {
     renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
     await userEvent.click(await screen.findByRole("button", { name: "Clear history" }));
     await userEvent.click(screen.getByRole("button", { name: "Clear history" }));
-    expect(api.loopsHistoryClear).toHaveBeenCalledWith("deps", false, "local");
+    expect(api.loopsHistoryClear).toHaveBeenCalledWith("deps", true, "local");
+  });
+
+  it("sends no clear until the dialog is confirmed", async () => {
+    const api = fakeApi({ loopsHistory: vi.fn(async () => history()) });
+    renderWithStore(<HistoryCard loop={loop({ environment: "linux-server" })} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: "Clear history" }));
+    expect(api.loopsHistoryClear).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(api.loopsHistoryClear).not.toHaveBeenCalled();
+  });
+
+  it("clears a remote history with confirmed from the confirm click", async () => {
+    const api = fakeApi({ loopsHistory: vi.fn(async () => history()) });
+    renderWithStore(<HistoryCard loop={loop({ environment: "linux-server" })} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: "Clear history" }));
+    await userEvent.click(screen.getByRole("button", { name: "Clear history" }));
+    expect(api.loopsHistoryClear).toHaveBeenCalledWith("deps", true, "linux-server");
   });
 
   it("selects the workspace of a run in the agents section", async () => {

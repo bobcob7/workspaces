@@ -105,4 +105,25 @@ describe("MemoryCard", () => {
     expect(screen.getByText("Start with a letter or _, then letters, digits or _ (64 at most).")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
+
+  it("clears the memory only from the confirm click, with confirmed", async () => {
+    const api = apiWith();
+    renderWithStore(<MemoryCard loop={loop({ environment: "linux-server" })} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: "Clear memory" }));
+    expect(api.loopsMemoryClear).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(api.loopsMemoryClear).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Clear memory" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Clear memory" }));
+    expect(api.loopsMemoryClear).toHaveBeenCalledWith("deps", true, "linux-server");
+  });
+
+  it("a redacted memory value is read-only", async () => {
+    const api = apiWith({ loopsMemory: vi.fn(async () => memory({ entries: [loopMemoryEntry({ key: "token", value: "key [redacted]", rev: 2 })] })) });
+    renderWithStore(<MemoryCard loop={loop({ environment: "linux-server" })} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: "Edit token" }));
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveAttribute("readonly");
+    expect(screen.getByText("This value holds a secret and is hidden; set a new value to replace it")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
 });

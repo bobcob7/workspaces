@@ -119,7 +119,7 @@ export const MemoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
             color="error"
             onClick={() => {
               setConfirming(false);
-              void dispatch(clearLoopMemory({ name: loop.name, environment: loop.environment }));
+              void dispatch(clearLoopMemory({ name: loop.name, environment: loop.environment, confirmed: true }));
             }}
           >
             Clear memory

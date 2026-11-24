@@ -68,3 +68,17 @@
 .error {
   color: var(--danger, inherit);
 }
+
+.groups {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  min-height: 0;
+}
+
+.plain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}

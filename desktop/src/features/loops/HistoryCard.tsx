@@ -149,7 +149,7 @@ export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
             color="error"
             onClick={() => {
               setConfirming(false);
-              void dispatch(clearLoopHistory({ name: loop.name, environment: loop.environment }));
+              void dispatch(clearLoopHistory({ name: loop.name, environment: loop.environment, confirmed: true }));
             }}
           >
             Clear history

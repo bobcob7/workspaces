@@ -2,7 +2,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Loop } from "../../api";
-import { fakeApi, loop, testStore } from "../../test/fixtures";
+import { fakeApi, loop, remoteEnvironment, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { LoopsList } from "./LoopsList";
 import { creatingStarted, fetchLoops, loopSelected } from "./loopsSlice";
@@ -15,6 +15,18 @@ const storeWithLoop = (api = fakeApi(), overrides: Partial<Loop> = {}) => {
   const store = testStore({ api });
   store.dispatch(fetchLoops.fulfilled(fetched([loop(overrides)]), "req"));
   store.dispatch(loopSelected("deps"));
+  return store;
+};
+
+const remoteLoop = (overrides: Partial<Loop> = {}): Loop => loop({ environment: "linux-server", ...overrides });
+
+const remoteStore = (api = fakeApi(), loops: Loop[] = [], env: Partial<ReturnType<typeof remoteEnvironment>> = {}) => {
+  const base = testStore({ api });
+  const store = testStore({ api, state: { environments: { ...base.getState().environments, items: [remoteEnvironment(env)] } } });
+  store.dispatch(
+    fetchLoops.fulfilled({ results: [{ environment: "linux-server", listing: listing(loops), error: null }], at: 1 }, "req"),
+  );
+  store.dispatch(loopSelected("deps", "linux-server"));
   return store;
 };
 
@@ -91,7 +103,52 @@ describe("LoopsPane", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Its runs' workspaces stay.")).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    expect(api.loopsRemove).toHaveBeenCalledWith("deps", false, "local");
+    expect(api.loopsRemove).toHaveBeenCalledWith("deps", true, "local");
+  });
+
+  it("sends no remove until the delete is confirmed, and cancelling sends nothing", async () => {
+    const api = fakeApi();
+    renderWithStore(<LoopsPane />, storeWithLoop(api));
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(api.loopsRemove).not.toHaveBeenCalled();
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(api.loopsRemove).not.toHaveBeenCalled();
+  });
+
+  it("deletes a remote loop with confirmed from the confirm click", async () => {
+    const api = fakeApi();
+    const store = remoteStore(api, [remoteLoop()]);
+    renderWithStore(<LoopsPane />, store);
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+    expect(api.loopsRemove).toHaveBeenCalledWith("deps", true, "linux-server");
+  });
+
+  it("disables the actions of a loop on an offline environment and says why", () => {
+    const store = remoteStore(fakeApi(), [remoteLoop({ stale: true })], { status: "offline", lastSeen: "2026-11-23T14:02:00Z" });
+    renderWithStore(<LoopsPane />, store);
+    for (const name of ["Edit", "Pause", "Run now", "Delete"]) {
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    }
+    expect(screen.getAllByText(/linux-server is offline \(last seen/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("table", { name: "Memory" })).not.toBeInTheDocument();
+    expect(screen.getByText(/missed runs are skipped, not made up/)).toBeInTheDocument();
+  });
+
+  it("edit shows the environment read-only", async () => {
+    const store = remoteStore(fakeApi(), [remoteLoop()]);
+    renderWithStore(<LoopsPane />, store);
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.queryByRole("combobox", { name: "Environment" })).not.toBeInTheDocument();
+    expect(screen.getByText("Environment: linux-server")).toBeInTheDocument();
+  });
+
+  it("new loop asks for the environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api, state: { environments: { ...testStore().getState().environments, items: [remoteEnvironment()] } } });
+    store.dispatch(creatingStarted());
+    renderWithStore(<LoopsPane />, store);
+    expect(screen.getByRole("combobox", { name: "Environment" })).toBeInTheDocument();
   });
 
   it("adds a loop with a script and variables", async () => {

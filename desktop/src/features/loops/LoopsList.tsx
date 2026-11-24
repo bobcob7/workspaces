@@ -1,62 +1,58 @@
 import type { JSX } from "react";
-import { useEffect } from "react";
-import type { Loop } from "../../api";
-import { until } from "../../format";
+import { useEffect, useState } from "react";
 import { useAppDispatch, useAppSelector } from "../../store";
-import { loopLabel } from "./formValues";
-import { fetchLoops, loopSelected } from "./loopsSlice";
+import { EnvFilter } from "../agents/EnvFilter";
+import { LoopGroup } from "./LoopGroup";
+import { fetchLoops, loopSelected, selectLoopGroups, type LoopGroup as LoopGroupData } from "./loopsSlice";
 import styles from "./LoopsList.module.css";
 
 /** How often the list is refreshed while it's shown. */
 export const loopsPollInterval = 10_000;
 
-const nextText = (loop: Loop): string => {
-  const next = until(loop.nextRunAt);
-  return next === "" ? "—" : `next ${next}`;
-};
+const sameGroups = (a: readonly LoopGroupData[], b: readonly LoopGroupData[]): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-const noLoops: readonly Loop[] = [];
-
-/** The agent loops of this machine, one row each, refreshed while shown. */
+/** The agent loops of this machine and of each enrolled environment, grouped, refreshed while shown. */
 export const LoopsList = (): JSX.Element => {
   const dispatch = useAppDispatch();
-  const loops = useAppSelector((s) => s.loops.byEnvironment["local"]?.items ?? noLoops);
-  const selected = useAppSelector((s) => (s.loops.selectedEnvironment === "local" ? s.loops.selected : null));
-  const error = useAppSelector((s) => s.loops.byEnvironment["local"]?.error ?? null);
+  const groups = useAppSelector((s) => selectLoopGroups(s), sameGroups);
+  const environments = useAppSelector((s) => s.environments.items.filter((env) => env.state === "enrolled"));
+  const selected = useAppSelector((s) => s.loops.selected);
+  const selectedEnvironment = useAppSelector((s) => s.loops.selectedEnvironment);
+  const errors = useAppSelector((s) =>
+    Object.entries(s.loops.byEnvironment).flatMap(([name, held]) => (held.error === null ? [] : [{ name, message: held.error }])),
+    (a, b) => JSON.stringify(a) === JSON.stringify(b),
+  );
+  const [filter, setFilter] = useState<string | null>(null);
   useEffect(() => {
     void dispatch(fetchLoops());
     const timer = window.setInterval(() => void dispatch(fetchLoops()), loopsPollInterval);
     return () => window.clearInterval(timer);
   }, [dispatch]);
+  const grouped = groups.length > 1;
+  const shown = grouped && filter !== null ? groups.filter((g) => g.environment === filter) : groups;
+  const local = groups[0];
   return (
     <div className={styles.root}>
-      {error !== null && (
-        <p className={styles.error} role="status">
-          {error}
+      {grouped && <EnvFilter environments={environments} value={filter} onChange={setFilter} />}
+      {errors.map(({ name, message }) => (
+        <p key={name} className={styles.error} role="status">
+          {grouped ? `${name}: ${message}` : message}
         </p>
-      )}
-      {loops.length === 0 ? (
+      ))}
+      {!grouped && local !== undefined && local.items.length === 0 ? (
         <p className={styles.empty}>No loops yet.</p>
       ) : (
-        <ul className={styles.list} aria-label="Loops">
-          {loops.map((loop) => (
-            <li key={loop.name}>
-              <button
-                type="button"
-                className={styles.item}
-                aria-current={loop.name === selected ? "true" : undefined}
-                onClick={() => dispatch(loopSelected(loop.name))}
-              >
-                <span className={styles.name}>{loopLabel(loop)}</span>
-                <span className={styles.meta}>
-                  every {loop.every}
-                  {loop.paused && <span className={styles.paused}> · Paused</span>}
-                </span>
-                {!loop.paused && <span className={styles.next}>{nextText(loop)}</span>}
-              </button>
-            </li>
+        <div className={grouped ? styles.groups : styles.plain}>
+          {shown.map((group) => (
+            <LoopGroup
+              key={group.environment}
+              group={group}
+              heading={grouped}
+              selected={group.environment === selectedEnvironment ? selected : null}
+              onSelect={(name, environment) => dispatch(loopSelected(name, environment))}
+            />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
