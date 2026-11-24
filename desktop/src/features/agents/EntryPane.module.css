@@ -64,6 +64,8 @@
 .detail {
   margin: 10px 0 0;
   font-weight: 500;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 .intent {
@@ -90,6 +92,8 @@
   border-left: 3px solid var(--status-done);
   background: var(--panel-raised);
   border-radius: 0 6px 6px 0;
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .links {
@@ -108,8 +112,23 @@
   text-align: center;
 }
 
-.collapsed {
-  display: none;
+.details {
+  max-height: 40vh;
+  overflow-y: auto;
+  flex: none;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.facts {
+  padding: 0 18px;
+}
+
+@media (max-width: 720px) {
+  .facts {
+    padding: 0 10px;
+  }
 }
 
 @media (max-width: 720px) {

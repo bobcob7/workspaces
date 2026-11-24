@@ -1,11 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { artifactSelected } from "../artifacts/artifactsSlice";
 import { creatingStarted, loopSelected } from "../loops/loopsSlice";
 import { repoSelected } from "../repos/reposSlice";
 import { reviewSelected } from "../reviews/reviewsSlice";
 import { groupChosen } from "../settings/settingsSlice";
 import { windowChosen } from "../stats/statsSlice";
-import { agentFocused, dialogClosed, dialogOpened, narrowBack, sectionChosen, selected, uiReducer, type UiState } from "./uiSlice";
+import {
+  agentFocused,
+  dialogClosed,
+  dialogOpened,
+  narrowBack,
+  readSidebarCollapsed,
+  sectionChosen,
+  selected,
+  sidebarToggled,
+  uiReducer,
+  writeSidebarCollapsed,
+  type UiState,
+} from "./uiSlice";
 
 const initial = (): UiState => uiReducer(undefined, { type: "init" });
 
@@ -91,5 +103,65 @@ describe("uiReducer", () => {
   ])("shows the list pane when %s clears the selection", (_name, action, type) => {
     expect(action.type).toBe(type);
     expect(uiReducer({ ...initial(), narrowPane: "detail" }, action).narrowPane).toBe("list");
+  });
+
+  it("shows the sidebar initially", () => {
+    expect(initial().sidebarCollapsed).toBe(false);
+  });
+
+  it("collapses the sidebar when toggled", () => {
+    expect(uiReducer(initial(), sidebarToggled()).sidebarCollapsed).toBe(true);
+  });
+
+  it("expands the sidebar when toggled again", () => {
+    const collapsed = uiReducer(initial(), sidebarToggled());
+    expect(uiReducer(collapsed, sidebarToggled()).sidebarCollapsed).toBe(false);
+  });
+
+  it("keeps the sidebar state when the section changes", () => {
+    const state = uiReducer({ ...initial(), sidebarCollapsed: true }, sectionChosen("repos"));
+    expect(state.sidebarCollapsed).toBe(true);
+  });
+});
+
+describe("sidebar storage", () => {
+  it("reads collapsed when the saved value is true", () => {
+    window.localStorage.setItem("ws.sidebarCollapsed", "true");
+    expect(readSidebarCollapsed()).toBe(true);
+    window.localStorage.removeItem("ws.sidebarCollapsed");
+  });
+
+  it("reads expanded when nothing is saved", () => {
+    window.localStorage.removeItem("ws.sidebarCollapsed");
+    expect(readSidebarCollapsed()).toBe(false);
+  });
+
+  it("reads expanded when the saved value is not true", () => {
+    window.localStorage.setItem("ws.sidebarCollapsed", "garbage");
+    expect(readSidebarCollapsed()).toBe(false);
+    window.localStorage.removeItem("ws.sidebarCollapsed");
+  });
+
+  it("writes the collapsed state so it survives a reload", () => {
+    writeSidebarCollapsed(true);
+    expect(window.localStorage.getItem("ws.sidebarCollapsed")).toBe("true");
+    writeSidebarCollapsed(false);
+    expect(window.localStorage.getItem("ws.sidebarCollapsed")).toBe("false");
+  });
+
+  it("reads expanded when storage throws", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    expect(readSidebarCollapsed()).toBe(false);
+    getItem.mockRestore();
+  });
+
+  it("does not throw when storage refuses writes", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    expect(() => writeSidebarCollapsed(true)).not.toThrow();
+    setItem.mockRestore();
   });
 });

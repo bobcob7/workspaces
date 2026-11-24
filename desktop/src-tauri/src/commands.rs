@@ -22,6 +22,8 @@ pub struct AppState {
     pub runner: Runner,
     pub terminals: Terminals,
     pub jobs_dir: Option<PathBuf>,
+    /// PR links seen per session, kept after Claude Code drops them.
+    pub pr_links: Arc<crate::pr_links::PrLinks>,
     pub store: Arc<Store>,
     pub reviews: Arc<Checker>,
     /// Review reports read this session (ADR 0040).
@@ -49,7 +51,7 @@ pub(crate) fn now_ms() -> i64 {
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn list_entries(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdResult<Listing> {
-    let listing = list(&state.runner, state.jobs_dir.as_deref()).await?;
+    let listing = list(&state.runner, state.jobs_dir.as_deref(), &state.pr_links).await?;
     state.reviews.set_entries(listing.entries.clone());
     let observed = state.watcher.observe(&listing.entries, now_ms());
     crate::tray::publish(&app, &observed);
@@ -60,7 +62,11 @@ pub async fn list_entries(app: tauri::AppHandle, state: State<'_, AppState>) -> 
 /// are listed too, and the frontend keeps them out of the default views
 /// (ADR 0043). Either failing becomes a
 /// warning as long as the other one answers.
-pub async fn list(runner: &Runner, jobs_dir: Option<&Path>) -> CmdResult<Listing> {
+pub async fn list(
+    runner: &Runner,
+    jobs_dir: Option<&Path>,
+    pr_links: &crate::pr_links::PrLinks,
+) -> CmdResult<Listing> {
     let ws_args = strings(&["list", "--all"]);
     let claude_args = strings(&["agents", "--json", "--all"]);
     let (ws, agents) = tokio::join!(
@@ -83,7 +89,13 @@ pub async fn list(runner: &Runner, jobs_dir: Option<&Path>) -> CmdResult<Listing
     if let Some(list) = &ws {
         warnings.extend(list.warnings.iter().map(model::warning_text));
     }
-    let job_for = |id: &str| -> Option<JobState> { jobs::read_job(jobs_dir?, id) };
+    // A session without its state file still gets the PR links kept for it.
+    let job_for = |id: &str| -> Option<JobState> {
+        let job = jobs_dir
+            .and_then(|dir| jobs::read_job(dir, id))
+            .unwrap_or_default();
+        Some(pr_links.augment(id, job))
+    };
     let entries = model::merge(ws, &agents.unwrap_or_default(), &job_for, now_ms());
     Ok(Listing { entries, warnings })
 }
@@ -503,7 +515,9 @@ mod tests {
             r#"echo '[{"id":"s2","sessionId":"u","cwd":"/x","kind":"background","status":"busy","pid":2,"startedAt":1}]'"#,
         );
         let runner = Runner::new(dir.path().display().to_string());
-        let listing = list(&runner, None).await.unwrap();
+        let listing = list(&runner, None, &crate::pr_links::PrLinks::default())
+            .await
+            .unwrap();
         let keys: Vec<_> = listing.entries.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, ["w", "session:s2"]);
         assert_eq!(listing.warnings, ["careful"]);
@@ -516,7 +530,9 @@ mod tests {
             "echo 'daemon down' >&2; exit 1",
         );
         let runner = Runner::new(dir.path().display().to_string());
-        let listing = list(&runner, None).await.unwrap();
+        let listing = list(&runner, None, &crate::pr_links::PrLinks::default())
+            .await
+            .unwrap();
         assert_eq!(listing.warnings, ["claude agents: daemon down"]);
     }
 
@@ -527,7 +543,9 @@ mod tests {
             "exit 1",
         );
         let runner = Runner::new(dir.path().display().to_string());
-        let err = list(&runner, None).await.unwrap_err();
+        let err = list(&runner, None, &crate::pr_links::PrLinks::default())
+            .await
+            .unwrap_err();
         assert_eq!(err.code, "config");
     }
 
@@ -635,7 +653,13 @@ mod tests {
     #[ignore = "runs the installed ws and claude"]
     async fn list_live() {
         let runner = Runner::new(crate::env::resolve_path());
-        let listing = list(&runner, jobs::jobs_dir().as_deref()).await.unwrap();
+        let listing = list(
+            &runner,
+            jobs::jobs_dir().as_deref(),
+            &crate::pr_links::PrLinks::default(),
+        )
+        .await
+        .unwrap();
         for entry in &listing.entries {
             println!(
                 "{:<28} {:?} {:?} {:?}",

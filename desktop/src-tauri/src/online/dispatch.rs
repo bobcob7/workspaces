@@ -594,9 +594,13 @@ pub async fn dispatch(
 }
 
 async fn list_entries(ctx: &Ctx) -> Result<Value, DispatchError> {
-    let listing = commands::list(&ctx.state.runner, ctx.state.jobs_dir.as_deref())
-        .await
-        .map_err(DispatchError::App)?;
+    let listing = commands::list(
+        &ctx.state.runner,
+        ctx.state.jobs_dir.as_deref(),
+        &ctx.state.pr_links,
+    )
+    .await
+    .map_err(DispatchError::App)?;
     ctx.state.reviews.set_entries(listing.entries.clone());
     (ctx.on_listing)(&listing.entries);
     json(listing)
@@ -689,6 +693,7 @@ mod tests {
             runner: crate::runner::Runner::new(programs.path().display().to_string()),
             terminals: Terminals::default(),
             jobs_dir: None,
+            pr_links: Arc::new(crate::pr_links::PrLinks::default()),
             store: Arc::new(Store::open(None)),
             reviews: Arc::new(Checker::default()),
             reports: report::Cache::default(),

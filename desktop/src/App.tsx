@@ -36,6 +36,7 @@ import { StatsPane } from "./features/stats/StatsPane";
 import { TerminalView } from "./features/terminals/TerminalView";
 import { closeTerminal } from "./features/terminals/terminalsSlice";
 import { followTray } from "./features/ui/tray";
+import { SidebarToggle } from "./features/ui/SidebarToggle";
 import { narrowBack, noticeDismissed, sectionChosen, selected, type NoticeAction, type Section } from "./features/ui/uiSlice";
 import { useAppDispatch, useAppSelector } from "./store";
 import styles from "./App.module.css";
@@ -185,6 +186,7 @@ export const App = (): JSX.Element => {
   const attention = useAppSelector((s) => s.agents.entries.filter(needsAttention).length);
   const notice = useAppSelector((s) => s.ui.notice);
   const narrowPane = useAppSelector((s) => s.ui.narrowPane);
+  const sidebarCollapsed = useAppSelector((s) => s.ui.sidebarCollapsed);
   const view = sectionViews[section] ?? agentsView;
   useEffect(() => {
     const poll = async (): Promise<void> => {
@@ -208,6 +210,7 @@ export const App = (): JSX.Element => {
   return (
     <div className={styles.root} data-narrow-pane={narrowPane}>
       <header className={styles.topBar}>
+        <SidebarToggle />
         <span className={styles.brand}>Workspaces</span>
         {attention > 0 && <span className={styles.badge}>{attention} waiting for you</span>}
         <span className={styles.spacer} />
@@ -216,7 +219,7 @@ export const App = (): JSX.Element => {
       <Warnings section={section} />
       <div className={styles.body} data-narrow-pane={narrowPane}>
         <Rail />
-        <aside className={styles.sidebar} data-section={section}>
+        <aside className={styles.sidebar} data-section={section} data-collapsed={sidebarCollapsed}>
           <view.list />
         </aside>
         <main className={styles.main}>

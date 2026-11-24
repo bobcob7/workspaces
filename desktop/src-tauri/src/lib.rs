@@ -20,6 +20,7 @@ mod model;
 #[cfg(feature = "online")]
 pub mod online;
 mod open;
+mod pr_links;
 mod pty;
 mod reviews;
 mod roles;
@@ -53,10 +54,15 @@ pub fn run() {
                 .app_config_dir()
                 .ok()
                 .map(|d| d.join(store::FILE_NAME));
+            let pr_links_path = path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|dir| dir.join(pr_links::FILE_NAME));
             let state = AppState {
                 runner: runner::Runner::new(env::resolve_path()),
                 terminals: pty::Terminals::default(),
                 jobs_dir: jobs::jobs_dir(),
+                pr_links: Arc::new(pr_links::PrLinks::open(pr_links_path)),
                 store: Arc::new(Store::open(path)),
                 reviews: Arc::new(Checker::default()),
                 reports: reviews::report::Cache::default(),
@@ -67,6 +73,7 @@ pub fn run() {
                 runner: state.runner.clone(),
                 store: state.store.clone(),
                 jobs_dir: state.jobs_dir.clone(),
+                pr_links: state.pr_links.clone(),
                 http: Arc::new(reviews::http::ReqwestHttp::new()),
             };
             tauri::async_runtime::spawn(state.reviews.clone().run(deps));

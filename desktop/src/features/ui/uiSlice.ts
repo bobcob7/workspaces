@@ -34,6 +34,26 @@ export interface Notice {
 /** Which pane shows below the narrow breakpoint: the section's list or the picked item. */
 export type NarrowPane = "list" | "detail";
 
+const sidebarStorageKey = "ws.sidebarCollapsed";
+
+/** The sidebar's saved state; a missing or unreadable store means expanded. */
+export const readSidebarCollapsed = (): boolean => {
+  try {
+    return window.localStorage.getItem(sidebarStorageKey) === "true";
+  } catch {
+    return false;
+  }
+};
+
+/** Saves the sidebar's state for the next launch; a store that refuses writes is skipped. */
+export const writeSidebarCollapsed = (collapsed: boolean): void => {
+  try {
+    window.localStorage.setItem(sidebarStorageKey, String(collapsed));
+  } catch {
+    return;
+  }
+};
+
 export interface UiState {
   readonly section: Section;
   readonly selectedKey: string | null;
@@ -43,6 +63,8 @@ export interface UiState {
   readonly notice: Notice | null;
   readonly agentView: AgentView;
   readonly narrowPane: NarrowPane;
+  /** On wide screens, whether the section's list sidebar is hidden (Ctrl/⌘B). */
+  readonly sidebarCollapsed: boolean;
 }
 
 const initialState: UiState = {
@@ -53,6 +75,7 @@ const initialState: UiState = {
   notice: null,
   agentView: "conversation",
   narrowPane: "list",
+  sidebarCollapsed: readSidebarCollapsed(),
 };
 
 const paneFor = (key: string | null): NarrowPane => (key === null ? "list" : "detail");
@@ -89,6 +112,9 @@ const uiSlice = createSlice({
     },
     noticeDismissed: (state) => {
       state.notice = null;
+    },
+    sidebarToggled: (state) => {
+      state.sidebarCollapsed = !state.sidebarCollapsed;
     },
     agentViewChosen: (state, action: PayloadAction<AgentView>) => {
       state.agentView = action.payload;
@@ -127,5 +153,6 @@ export const {
   noticeDismissed,
   agentViewChosen,
   agentFocused,
+  sidebarToggled,
 } = uiSlice.actions;
 export const uiReducer = uiSlice.reducer;
