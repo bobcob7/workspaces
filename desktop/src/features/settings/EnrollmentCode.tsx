@@ -31,7 +31,7 @@ const Line = ({ label, text, onCopyFailed }: LineProps): JSX.Element => {
           {text}
         </code>
         {canCopy() && (
-          <Button size="small" aria-label={`Copy ${label}`} onClick={() => void copy()}>
+          <Button size="small" className={styles.copy} aria-label={`Copy ${label}`} onClick={() => void copy()}>
             Copy
           </Button>
         )}
