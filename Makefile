@@ -14,16 +14,20 @@ build:
 test:
 	go test ./...
 
-# Runs on windows-latest in Git Bash (CI's windows job).
+# Runs on windows-latest in Git Bash (CI's windows job). Every line runs even
+# when an earlier one fails, so one run shows all the failures; the target
+# exits nonzero if any failed.
 test-windows:
-	go test -p 2 $(WINDOWS_TESTS)
-	go test -p 2 -run 'TestSocketBaseDir|TestPrepareSocketDir' ./internal/daemon
-	go test -p 2 -run TestHasPathPrefix ./internal/envagent
-	go test -p 2 -run TestFindSh ./internal/gate
-	go test -p 2 -run TestUserBaseDir ./internal/config
-	go test -p 2 -run TestRunner_program ./internal/shell
-	go test -p 2 -run TestUserHome ./internal/claude
-	go test -p 2 -run TestTerminalSignals ./internal/cli
+	rc=0; \
+	go test -p 2 $(WINDOWS_TESTS) || rc=1; \
+	go test -p 2 -run 'TestSocketBaseDir|TestPrepareSocketDir' ./internal/daemon || rc=1; \
+	go test -p 2 -run TestHasPathPrefix ./internal/envagent || rc=1; \
+	go test -p 2 -run TestFindSh ./internal/gate || rc=1; \
+	go test -p 2 -run TestUserBaseDir ./internal/config || rc=1; \
+	go test -p 2 -run TestRunner_program ./internal/shell || rc=1; \
+	go test -p 2 -run TestUserHome ./internal/claude || rc=1; \
+	go test -p 2 -run TestTerminalSignals ./internal/cli || rc=1; \
+	exit $$rc
 
 # The fakes (ADR 0067) are test tools, built here and never shipped.
 fakes:
