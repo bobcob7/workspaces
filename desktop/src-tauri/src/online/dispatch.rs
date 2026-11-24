@@ -1154,6 +1154,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_remote_loop_list_tags_each_loop_with_its_environment() {
+        let body = r#"echo '{"loops":[{"name":"d","every":"1h","prompt":null,"specs":null,"model":null,"permission_mode":null,"keep":null,"paused":false,"created_at":null,"next_run_at":null,"last_run":null,"summary":true}],"warnings":[],"environment_status":"online","loops_unknown":false}'"#;
+        let (_dir, ctx) = ctx_with(body, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"environment": "linux-server"});
+        let listed = dispatch(&ctx, "loops_list", args, None).await.unwrap();
+        assert_eq!(listed["loops"][0]["environment"], "linux-server");
+        assert_eq!(listed["loops"][0]["summary"], true);
+        assert_eq!(listed["environmentStatus"], "online");
+        let local = dispatch(&ctx, "loops_list", serde_json::json!({}), None)
+            .await
+            .unwrap();
+        assert!(local["loops"][0]["environment"].is_null());
+    }
+
+    #[tokio::test]
     async fn loops_list_without_environment_is_local() {
         let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
         let err = app_error(&ctx, "loops_list", serde_json::json!({})).await;
