@@ -332,7 +332,7 @@ describe("LoopForm on a remote environment", () => {
         environment: "linux-server",
         confirmed: true,
         script: "make check",
-        previous: expect.objectContaining({ script: "true", name: "deps" }),
+        previous: expect.objectContaining({ script: "true", name: "deps", environment: "linux-server" }),
       }),
     );
   });
