@@ -237,7 +237,11 @@ func TestApp_runListEnvironments(t *testing.T) {
 // pending on it; see acceptDialled.
 func listenDaemon(t *testing.T, app *App) *net.UnixListener {
 	t.Helper()
-	dir := t.TempDir()
+	// Not t.TempDir: its name embeds the test name, and a socket path over
+	// 104 bytes (macOS) fails to bind.
+	dir, err := os.MkdirTemp("", "wsd") //nolint:usetesting // t.TempDir is too long for a socket path
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "ws"), 0o700))
 	app.environ = append(app.environ, "XDG_RUNTIME_DIR="+dir)
 	var lc net.ListenConfig
