@@ -4,7 +4,7 @@
 
 use super::github::split_repo;
 use super::names;
-use super::report::{self, Acted, Cache};
+use super::report::{self, Acted, Cache, Origin};
 use crate::commands::{new_agent_args, Created, NewAgent};
 use crate::model::{Entry, Status};
 use crate::runner::{AppError, Runner};
@@ -307,12 +307,14 @@ pub struct StartFix {
 }
 
 /// Starts the fix agent with the message as its task, then records the
-/// findings as sent to it.
+/// findings as sent to it. The agent is always local, even for a review on
+/// an environment, which only records it (R1).
 pub async fn start_agent(
     runner: &Runner,
     cache: &Cache,
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
     req: &StartFix,
     settings: &AgentSettings<'_>,
 ) -> Result<FixStarted, AppError> {
@@ -329,6 +331,7 @@ pub async fn start_agent(
         cache,
         repo,
         git_ref,
+        origin,
         &req.findings,
         Acted::FixSent(&created.id),
     )
@@ -604,6 +607,7 @@ esac"#,
             &Cache::default(),
             REPO,
             REF,
+            Origin::LOCAL,
             &start_request(),
             &DEFAULTS,
         )
@@ -632,6 +636,7 @@ esac"#,
             &Cache::default(),
             REPO,
             REF,
+            Origin::LOCAL,
             &start_request(),
             &DEFAULTS,
         )
@@ -653,11 +658,41 @@ esac"#;
             &Cache::default(),
             REPO,
             REF,
+            Origin::LOCAL,
             &start_request(),
             &DEFAULTS,
         )
         .await
         .unwrap();
         assert!(started.warning.unwrap().contains("not decided fix"));
+    }
+
+    #[tokio::test]
+    async fn fix_agent_starts_local_for_remote_review() {
+        let script = r#"case "$1" in
+  claude) echo '{"id":"fix-1","session":"s","path":"/w"}' ;;
+  review) echo '{"decisions":{},"warnings":[]}' ;;
+esac"#;
+        let (dir, runner) = fake_ws(script);
+        let origin = Origin::new(Some("linux-server"), Some("review-1")).unwrap();
+        let started = start_agent(
+            &runner,
+            &Cache::default(),
+            REPO,
+            REF,
+            origin,
+            &start_request(),
+            &DEFAULTS,
+        )
+        .await
+        .unwrap();
+        assert_eq!(started.agent, "fix-1");
+        let log = calls(&dir);
+        assert!(log[0].starts_with("claude --json --name"), "{log:?}");
+        assert!(!log[0].contains("--env"), "{log:?}");
+        assert_eq!(
+            log[1],
+            "review acted --json --env=linux-server --fix-sent fix-1 -- review-1 security:spoofable-client-ip-1"
+        );
     }
 }

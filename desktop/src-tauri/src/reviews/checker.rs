@@ -12,8 +12,10 @@ use super::runs;
 use super::store::{AutoStarted, Store};
 use super::tokens::{TokenSource, TokenStore};
 use super::view::{self, CheckState, CompareKey, HostState, RepoCheck};
-use crate::commands::{self, Created};
+use crate::commands;
+use crate::environments::{env_list_args, EnvironmentListing};
 use crate::model::Entry;
+use crate::pty::remote_env;
 use crate::runner::{AppError, Runner};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -52,6 +54,12 @@ struct CacheRepo {
     id: String,
 }
 
+/// What `ws review start` prints that the checker reads.
+#[derive(Deserialize)]
+struct StartedWs {
+    id: String,
+}
+
 /// What the checker needs to run commands and keep state.
 pub struct Deps {
     pub runner: Runner,
@@ -68,6 +76,10 @@ pub struct Checker {
     /// Reviews `ws` removed once finished, from `ws review list`, and any
     /// that left the listing since (ADR 0045).
     removed: Mutex<Vec<Entry>>,
+    /// The runs `ws review list --env` found on each environment named by a
+    /// watched repo. An environment that couldn't be read keeps its
+    /// previous runs, marked stale.
+    remote: Mutex<BTreeMap<String, Vec<Entry>>>,
     /// Names of reviews whose `ws review start` is running, so starting one twice
     /// at once starts it once: `ws` no longer refuses a name used twice
     /// (ADR 0036).
@@ -105,7 +117,7 @@ impl Checker {
         };
         let gone: Vec<Entry> = current
             .iter()
-            .filter(|old| !runs::has_local_workspace(&entries, &old.workspace_id))
+            .filter(|old| !runs::has_workspace(&entries, "local", &old.workspace_id))
             .filter_map(runs::removed_from)
             .collect();
         *current = entries;
@@ -129,8 +141,11 @@ impl Checker {
     /// Reviews view and auto-review.
     pub fn review_entries(&self) -> Vec<Entry> {
         let entries = self.entries();
-        let removed = self.removed.lock().map(|r| r.clone()).unwrap_or_default();
-        runs::merge(&entries, &removed)
+        let mut runs = self.removed.lock().map(|r| r.clone()).unwrap_or_default();
+        if let Ok(remote) = self.remote.lock() {
+            runs.extend(remote.values().flatten().cloned());
+        }
+        runs::merge(&entries, &runs)
     }
 
     /// Starts a review with `ws review start`, unless the latest listing
@@ -145,13 +160,17 @@ impl Checker {
         if let Some(id) = self.existing(plan) {
             return Ok(Started { id, already: true });
         }
-        let Some(_claim) = Claim::take(&self.starting, &plan.name) else {
+        let claim_name = match remote_env(plan.environment.as_deref()) {
+            Some(env) => format!("{env}:{}", plan.name),
+            None => plan.name.clone(),
+        };
+        let Some(_claim) = Claim::take(&self.starting, &claim_name) else {
             return Ok(Started {
                 id: plan.name.clone(),
                 already: true,
             });
         };
-        let created = runner.ws_json_as_given::<Created>(&args).await?;
+        let created = runner.ws_json_as_given::<StartedWs>(&args).await?;
         Ok(Started {
             id: created.id,
             already: false,
@@ -162,8 +181,10 @@ impl Checker {
     /// review record has the plan's pull request and head, if any.
     fn existing(&self, plan: &ReviewPlan) -> Option<String> {
         let entries = self.review_entries();
+        let environment = remote_env(plan.environment.as_deref()).unwrap_or("local");
         entries
             .iter()
+            .filter(|e| e.environment == environment)
             .find(|e| {
                 let named = e
                     .workspace_id
@@ -341,13 +362,17 @@ impl Checker {
         });
         let listing = commands::list(&deps.runner, deps.jobs_dir.as_deref()).await?;
         self.set_entries(listing.entries.clone());
-        match runs::removed(&deps.runner).await {
+        match runs::removed(&deps.runner, None).await {
             Ok(removed) => self.set_removed(removed),
             Err(err) => warnings.push(format!("ws review list: {}", err.message)),
         }
+        let skipped = self
+            .read_remote_runs(deps, &listing.entries, &mut warnings)
+            .await;
         let entries = self.review_entries();
-        self.compare_out_of_date(&deps.runner, &entries).await;
-        warnings.extend(self.auto_review(deps, &entries).await);
+        self.compare_out_of_date(&deps.runner, &entries, &state)
+            .await;
+        warnings.extend(self.auto_review(deps, &entries, &skipped).await);
         self.with_state(|s| s.warnings = warnings);
         let all_github = !watched.is_empty()
             && watched
@@ -509,7 +534,12 @@ impl Checker {
 
     /// Counts the commits pushed since each out-of-date review, once per
     /// pair of commits.
-    async fn compare_out_of_date(&self, runner: &Runner, entries: &[Entry]) {
+    async fn compare_out_of_date(
+        &self,
+        runner: &Runner,
+        entries: &[Entry],
+        state: &super::store::StateFile,
+    ) {
         let wanted: Vec<CompareKey> = self
             .with_state(|s| {
                 s.repos
@@ -519,7 +549,8 @@ impl Checker {
                     })
                     .flat_map(|(repo, r)| r.prs.iter().map(move |p| (repo, p)))
                     .filter_map(|(repo, pr)| {
-                        let sha = view::out_of_date_sha(entries, repo, pr)?;
+                        let environment = view::repo_environment(state, repo);
+                        let sha = view::out_of_date_sha(entries, repo, pr, &environment)?;
                         let key = (repo.clone(), sha, pr.head_ref_oid.clone());
                         (!s.compares.contains_key(&key)).then_some(key)
                     })
@@ -533,15 +564,95 @@ impl Checker {
         }
     }
 
+    /// Reads the runs of each environment a watched repo names, and returns
+    /// those auto-review must skip: offline, or without Claude Code. An
+    /// environment that can't be read keeps its last runs, marked stale.
+    /// `ws env list` runs only when some repo names an environment.
+    async fn read_remote_runs(
+        &self,
+        deps: &Deps,
+        listing: &[Entry],
+        warnings: &mut Vec<String>,
+    ) -> BTreeSet<String> {
+        let envs = view::watched_environments(&deps.store.get());
+        if let Ok(mut remote) = self.remote.lock() {
+            remote.retain(|env, _| envs.contains(env));
+        }
+        let mut skipped = BTreeSet::new();
+        if envs.is_empty() {
+            return skipped;
+        }
+        let known = match deps
+            .runner
+            .ws_json_as_given::<EnvironmentListing>(&env_list_args())
+            .await
+        {
+            Ok(known) => known.environments,
+            Err(err) => {
+                warnings.push(format!("ws env list: {}", err.message));
+                Vec::new()
+            }
+        };
+        for env in &envs {
+            let info = known.iter().find(|k| &k.name == env);
+            let online = listing
+                .iter()
+                .find(|e| &e.environment == env)
+                .map(|e| e.environment_online)
+                .or_else(|| info.map(|k| k.status == "online"))
+                .unwrap_or(true);
+            if info.is_some_and(|k| k.hello.as_ref().is_some_and(|h| h.claude == "missing"))
+                || !online
+            {
+                skipped.insert(env.clone());
+            }
+            if !online {
+                self.mark_stale(env, false);
+                continue;
+            }
+            match runs::removed(&deps.runner, Some(env)).await {
+                Ok(found) => {
+                    if let Ok(mut remote) = self.remote.lock() {
+                        remote.insert(env.clone(), found);
+                    }
+                }
+                Err(err) => {
+                    warnings.push(format!("ws review list --env {env}: {}", err.message));
+                    self.mark_stale(env, true);
+                }
+            }
+        }
+        skipped
+    }
+
+    /// Keeps an environment's previous runs, marked stale, and whether it
+    /// is connected.
+    fn mark_stale(&self, env: &str, online: bool) {
+        let Ok(mut remote) = self.remote.lock() else {
+            return;
+        };
+        for run in remote.entry(env.to_string()).or_default() {
+            run.snapshot_stale = true;
+            run.environment_online = online;
+        }
+    }
+
     /// Starts the reviews auto-review selects, and records each. Returns a
-    /// warning for each that failed to start.
-    async fn auto_review(&self, deps: &Deps, entries: &[Entry]) -> Vec<String> {
+    /// warning for each that failed to start. A repo on an environment in
+    /// `skipped` is left for the next check.
+    async fn auto_review(
+        &self,
+        deps: &Deps,
+        entries: &[Entry],
+        skipped: &BTreeSet<String>,
+    ) -> Vec<String> {
         let state = deps.store.get();
         let (prs, logins) = self
             .with_state(|s| {
                 let watched = view::watched_repos(s, &state);
                 let prs: Vec<(String, PullRequest)> = watched
                     .iter()
+                    .filter(|repo| !skipped.contains(&view::repo_environment(&state, repo)))
                     .filter_map(|repo| Some((repo, s.repos.get(repo)?)))
                     .flat_map(|(repo, r)| r.prs.iter().map(move |p| (repo.clone(), p.clone())))
                     .collect();
@@ -554,20 +665,26 @@ impl Checker {
             return Vec::new();
         }
         let settings = &state.settings.reviews;
-        let choices = if settings.profiles.is_empty() {
-            Vec::new()
-        } else {
-            match profiles::list(&deps.runner)
-                .await
-                .and_then(|listed| profiles::choices(&listed, &settings.profiles))
-            {
-                Ok(choices) => choices,
-                Err(err) => return vec![format!("auto-review: {}", err.message)],
+        let mut choices: BTreeMap<String, Vec<profiles::ProfileChoice>> = BTreeMap::new();
+        for (repo, _) in &selected {
+            let environment = view::repo_environment(&state, repo);
+            if choices.contains_key(&environment) || settings.profiles.is_empty() {
+                continue;
             }
-        };
+            let found = profiles::list(&deps.runner, remote_env(Some(&environment)))
+                .await
+                .and_then(|listed| profiles::choices(&listed, &settings.profiles));
+            match found {
+                Ok(found) => choices.insert(environment, found),
+                Err(err) => return vec![format!("auto-review: {}", err.message)],
+            };
+        }
         let mut warnings = Vec::new();
         for (repo, pr) in selected {
-            let mut plan = plan::plan(repo, pr, settings, choices.clone());
+            let environment = view::repo_environment(&state, repo);
+            let chosen = choices.get(&environment).cloned().unwrap_or_default();
+            let mut plan = plan::plan(repo, pr, settings, chosen);
+            plan.environment = remote_env(Some(&environment)).map(str::to_string);
             plan.forge = self.forge_of(repo).unwrap_or_default();
             match self.start_review(&deps.runner, &plan).await {
                 Ok(started) if started.already => {}
@@ -919,6 +1036,7 @@ esac"#
                         RepoWatch {
                             watch: true,
                             auto_review,
+                            ..RepoWatch::default()
                         },
                     );
                 }
@@ -1184,6 +1302,7 @@ esac"#
                     RepoWatch {
                         watch: true,
                         auto_review: false,
+                        ..RepoWatch::default()
                     },
                 )
             })

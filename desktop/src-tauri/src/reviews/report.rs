@@ -2,6 +2,8 @@
 //! `ws review report --json`, cached by repo and commit for the session, and
 //! `ws review decide`.
 
+use crate::commands::env_args;
+use crate::pty::remote_env;
 use crate::runner::{AppError, Runner};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -9,8 +11,60 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// A review's repo id and full commit.
-pub type ReportKey = (String, String);
+/// A review's cache key: `repo@ref`, or `env:<name>:repo@ref` on an
+/// environment, so two machines' reviews never share a report.
+pub type ReportKey = String;
+
+/// Where a review lives: this machine, found by repo and commit, or an
+/// environment, found by its review id there (RL8).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Origin<'a> {
+    environment: Option<&'a str>,
+    review_id: Option<&'a str>,
+}
+
+impl<'a> Origin<'a> {
+    /// This machine.
+    pub const LOCAL: Origin<'static> = Origin {
+        environment: None,
+        review_id: None,
+    };
+
+    /// The origin the command's arguments name. A remote one needs the
+    /// review's id, which `ws` takes in place of `--repo` and `--ref`.
+    pub fn new(
+        environment: Option<&'a str>,
+        review_id: Option<&'a str>,
+    ) -> Result<Origin<'a>, AppError> {
+        let Some(environment) = remote_env(environment) else {
+            return Ok(Origin::LOCAL);
+        };
+        let review_id = review_id.map(str::trim).filter(|id| !id.is_empty());
+        let Some(review_id) = review_id else {
+            return Err(AppError::new(
+                "bad_args",
+                format!("a review on {environment} needs its review id"),
+            ));
+        };
+        Ok(Origin {
+            environment: Some(environment),
+            review_id: Some(review_id),
+        })
+    }
+
+    /// The environment, when it isn't this machine.
+    pub fn environment(&self) -> Option<&'a str> {
+        self.environment
+    }
+
+    /// The cache key of the review's report.
+    pub fn key(&self, repo: &str, git_ref: &str) -> ReportKey {
+        match self.environment {
+            Some(env) => format!("env:{env}:{repo}@{git_ref}"),
+            None => format!("{repo}@{git_ref}"),
+        }
+    }
+}
 
 /// Reports as `ws review report --json` printed them, by repo and commit,
 /// for the session.
@@ -75,23 +129,56 @@ fn subject_args(repo: &str, git_ref: &str) -> [String; 4] {
     ]
 }
 
-/// `ws review report --json --repo R --ref SHA`.
-pub fn report_args(repo: &str, git_ref: &str) -> Vec<String> {
-    let mut args = vec!["review", "report", "--json"]
-        .into_iter()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    args.extend(subject_args(repo, git_ref));
+fn strings(parts: &[&str]) -> Vec<String> {
+    parts.iter().map(|p| (*p).to_string()).collect()
+}
+
+/// The start of a `ws review <op>` command: its words, then `--env=<name>`
+/// on an environment, else `--repo R --ref SHA` when `subject` is set.
+fn command(
+    words: &[&str],
+    repo: &str,
+    git_ref: &str,
+    origin: Origin<'_>,
+    subject: bool,
+) -> Vec<String> {
+    let mut args = strings(words);
+    args.extend(env_args(origin.environment));
+    if subject && origin.environment.is_none() {
+        args.extend(subject_args(repo, git_ref));
+    }
     args
 }
 
-/// `ws review report --format html --repo R --ref SHA`.
-pub fn html_args(repo: &str, git_ref: &str) -> Vec<String> {
-    let mut args = vec!["review", "report", "--format", "html"]
-        .into_iter()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    args.extend(subject_args(repo, git_ref));
+/// What names the review: `--repo R --ref SHA` here, or `-- <id>` on an
+/// environment, after `findings`. The `--` keeps an id that starts with a
+/// dash from becoming a flag.
+fn name_review(args: &mut Vec<String>, origin: Origin<'_>, findings: &[String]) {
+    if let Some(id) = origin.review_id {
+        args.extend(["--".to_string(), id.to_string()]);
+    }
+    args.extend(findings.iter().cloned());
+}
+
+/// `ws review report --json --repo R --ref SHA`, or `ws review report
+/// --json --env=E -- <id>` on an environment.
+pub fn report_args(repo: &str, git_ref: &str, origin: Origin<'_>) -> Vec<String> {
+    let mut args = command(&["review", "report", "--json"], repo, git_ref, origin, true);
+    name_review(&mut args, origin, &[]);
+    args
+}
+
+/// `ws review report --format html --repo R --ref SHA`, or with
+/// `--env=E -- <id>`.
+pub fn html_args(repo: &str, git_ref: &str, origin: Origin<'_>) -> Vec<String> {
+    let mut args = command(
+        &["review", "report", "--format", "html"],
+        repo,
+        git_ref,
+        origin,
+        true,
+    );
+    name_review(&mut args, origin, &[]);
     args
 }
 
@@ -101,17 +188,16 @@ pub fn html_args(repo: &str, git_ref: &str) -> Vec<String> {
 pub fn decide_args(
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
     req: &DecideRequest,
 ) -> Result<Vec<String>, AppError> {
     if req.findings.is_empty() {
         return Err(AppError::new("usage", "no findings to decide"));
     }
-    let mut args = vec!["review", "decide", "--json"]
-        .into_iter()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    args.extend(subject_args(repo, git_ref));
-    args.extend(req.findings.iter().cloned());
+    let mut args = command(&["review", "decide", "--json"], repo, git_ref, origin, true);
+    if origin.environment.is_none() {
+        args.extend(req.findings.iter().cloned());
+    }
     let flag = match req.decision {
         Decision::Comment => "--comment",
         Decision::Fix => "--fix",
@@ -125,6 +211,9 @@ pub fn decide_args(
     let note = req.note.trim();
     if req.decision != Decision::Clear && !note.is_empty() {
         args.extend(["--note".to_string(), note.to_string()]);
+    }
+    if origin.environment.is_some() {
+        name_review(&mut args, origin, &req.findings);
     }
     Ok(args)
 }
@@ -152,15 +241,18 @@ pub async fn read(
     cache: &Cache,
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
     refresh: bool,
 ) -> Result<Value, AppError> {
-    let key = (repo.to_string(), git_ref.to_string());
+    let key = origin.key(repo, git_ref);
     if !refresh {
         if let Some(report) = cache.get(&key) {
             return Ok(report);
         }
     }
-    let report: Value = runner.ws_json_as_given(&report_args(repo, git_ref)).await?;
+    let report: Value = runner
+        .ws_json_as_given(&report_args(repo, git_ref, origin))
+        .await?;
     cache.put(key, report.clone());
     Ok(report)
 }
@@ -177,16 +269,11 @@ pub async fn decide(
     cache: &Cache,
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
     req: &DecideRequest,
 ) -> Result<Value, AppError> {
-    record(
-        runner,
-        cache,
-        repo,
-        git_ref,
-        &decide_args(repo, git_ref, req)?,
-    )
-    .await
+    let args = decide_args(repo, git_ref, origin, req)?;
+    record(runner, cache, repo, git_ref, origin, &args).await
 }
 
 /// How decided findings were acted on (ADR 0041).
@@ -199,26 +286,29 @@ pub enum Acted<'a> {
 }
 
 /// `ws review acted --json --repo R --ref SHA <finding>... (--commented URL
-/// | --fix-sent AGENT)`.
+/// | --fix-sent AGENT)`, or `--env=E (--commented URL | --fix-sent AGENT)
+/// -- <id> <finding>...` on an environment.
 pub fn acted_args(
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
     findings: &[String],
     acted: Acted<'_>,
 ) -> Result<Vec<String>, AppError> {
     if findings.is_empty() {
         return Err(AppError::new("usage", "no findings were acted on"));
     }
-    let mut args = vec!["review", "acted", "--json"]
-        .into_iter()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    args.extend(subject_args(repo, git_ref));
-    args.extend(findings.iter().cloned());
+    let mut args = command(&["review", "acted", "--json"], repo, git_ref, origin, true);
     let (flag, value) = match acted {
         Acted::Commented(url) => ("--commented", url),
         Acted::FixSent(agent) => ("--fix-sent", agent),
     };
+    if origin.environment.is_some() {
+        args.extend([flag.to_string(), value.to_string()]);
+        name_review(&mut args, origin, findings);
+        return Ok(args);
+    }
+    args.extend(findings.iter().cloned());
     args.extend([flag.to_string(), value.to_string()]);
     Ok(args)
 }
@@ -229,11 +319,12 @@ pub async fn acted(
     cache: &Cache,
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
     findings: &[String],
     how: Acted<'_>,
 ) -> Result<Value, AppError> {
-    let args = acted_args(repo, git_ref, findings, how)?;
-    record(runner, cache, repo, git_ref, &args).await
+    let args = acted_args(repo, git_ref, origin, findings, how)?;
+    record(runner, cache, repo, git_ref, origin, &args).await
 }
 
 /// Runs a `ws review` command that prints decisions, and applies them to
@@ -243,13 +334,14 @@ async fn record(
     cache: &Cache,
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
     args: &[String],
 ) -> Result<Value, AppError> {
     let decided: Decided = runner.ws_json_as_given(args).await?;
-    let key = (repo.to_string(), git_ref.to_string());
+    let key = origin.key(repo, git_ref);
     match cache.apply(&key, &decided.decisions) {
         Some(report) => Ok(report),
-        None => read(runner, cache, repo, git_ref, true).await,
+        None => read(runner, cache, repo, git_ref, origin, true).await,
     }
 }
 
@@ -283,8 +375,9 @@ pub async fn write_html(
     dir: &Path,
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
 ) -> Result<PathBuf, AppError> {
-    let outcome = runner.run("ws", &html_args(repo, git_ref)).await?;
+    let outcome = runner.run("ws", &html_args(repo, git_ref, origin)).await?;
     if !outcome.success {
         return Err(crate::runner::ws_error(&outcome.stderr));
     }
@@ -350,14 +443,20 @@ mod tests {
     #[test]
     fn report_args_name_the_review_by_repo_and_commit() {
         assert_eq!(
-            report_args(REPO, REF).join(" "),
+            report_args(REPO, REF, Origin::LOCAL).join(" "),
             format!("review report --json --repo {REPO} --ref {REF}")
         );
     }
 
     #[test]
     fn decide_args_batch_findings_into_one_call() {
-        let args = decide_args(REPO, REF, &request(Decision::Comment, None, "")).unwrap();
+        let args = decide_args(
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(Decision::Comment, None, ""),
+        )
+        .unwrap();
         assert_eq!(
             args.join(" "),
             format!(
@@ -371,6 +470,7 @@ mod tests {
         let args = decide_args(
             REPO,
             REF,
+            Origin::LOCAL,
             &request(Decision::Fix, Some(1), "trusted proxies only"),
         )
         .unwrap();
@@ -381,13 +481,25 @@ mod tests {
 
     #[test]
     fn decide_args_drop_a_suggestion_without_fix() {
-        let args = decide_args(REPO, REF, &request(Decision::Skip, Some(1), "")).unwrap();
+        let args = decide_args(
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(Decision::Skip, Some(1), ""),
+        )
+        .unwrap();
         assert!(!args.contains(&"--suggestion".to_string()));
     }
 
     #[test]
     fn decide_args_leave_the_note_off_clear() {
-        let args = decide_args(REPO, REF, &request(Decision::Clear, None, "keep")).unwrap();
+        let args = decide_args(
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(Decision::Clear, None, "keep"),
+        )
+        .unwrap();
         assert_eq!(args.last().unwrap(), "--clear");
     }
 
@@ -395,13 +507,25 @@ mod tests {
     fn decide_args_refuse_no_findings() {
         let mut req = request(Decision::Skip, None, "");
         req.findings.clear();
-        assert_eq!(decide_args(REPO, REF, &req).unwrap_err().code, "usage");
+        assert_eq!(
+            decide_args(REPO, REF, Origin::LOCAL, &req)
+                .unwrap_err()
+                .code,
+            "usage"
+        );
     }
 
     #[test]
     fn acted_args_name_the_review_url() {
         let ids = vec!["security:a-1".to_string()];
-        let args = acted_args(REPO, REF, &ids, Acted::Commented("https://x/pull/42#r1")).unwrap();
+        let args = acted_args(
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &ids,
+            Acted::Commented("https://x/pull/42#r1"),
+        )
+        .unwrap();
         assert_eq!(
             args.join(" "),
             format!(
@@ -413,7 +537,14 @@ mod tests {
     #[test]
     fn acted_args_name_the_fix_agent() {
         let ids = vec!["security:a-1".to_string(), "tests:b-1".to_string()];
-        let args = acted_args(REPO, REF, &ids, Acted::FixSent("fix-login-rate")).unwrap();
+        let args = acted_args(
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &ids,
+            Acted::FixSent("fix-login-rate"),
+        )
+        .unwrap();
         assert!(args
             .join(" ")
             .ends_with("security:a-1 tests:b-1 --fix-sent fix-login-rate"));
@@ -421,7 +552,7 @@ mod tests {
 
     #[test]
     fn acted_args_refuse_no_findings() {
-        let err = acted_args(REPO, REF, &[], Acted::FixSent("a")).unwrap_err();
+        let err = acted_args(REPO, REF, Origin::LOCAL, &[], Acted::FixSent("a")).unwrap_err();
         assert_eq!(err.code, "usage");
     }
 
@@ -448,8 +579,12 @@ mod tests {
     async fn read_caches_by_repo_and_commit() {
         let (dir, runner) = fake_ws(&format!("echo '{}'", report()));
         let cache = Cache::default();
-        let first = read(&runner, &cache, REPO, REF, false).await.unwrap();
-        let again = read(&runner, &cache, REPO, REF, false).await.unwrap();
+        let first = read(&runner, &cache, REPO, REF, Origin::LOCAL, false)
+            .await
+            .unwrap();
+        let again = read(&runner, &cache, REPO, REF, Origin::LOCAL, false)
+            .await
+            .unwrap();
         assert_eq!(first, again);
         assert_eq!(calls(&dir).len(), 1);
     }
@@ -458,8 +593,12 @@ mod tests {
     async fn read_with_refresh_runs_ws_again() {
         let (dir, runner) = fake_ws(&format!("echo '{}'", report()));
         let cache = Cache::default();
-        read(&runner, &cache, REPO, REF, true).await.unwrap();
-        read(&runner, &cache, REPO, REF, true).await.unwrap();
+        read(&runner, &cache, REPO, REF, Origin::LOCAL, true)
+            .await
+            .unwrap();
+        read(&runner, &cache, REPO, REF, Origin::LOCAL, true)
+            .await
+            .unwrap();
         assert_eq!(calls(&dir).len(), 2);
     }
 
@@ -467,8 +606,10 @@ mod tests {
     async fn read_keeps_other_commits_apart() {
         let (dir, runner) = fake_ws(&format!("echo '{}'", report()));
         let cache = Cache::default();
-        read(&runner, &cache, REPO, REF, false).await.unwrap();
-        read(&runner, &cache, REPO, &"a".repeat(40), false)
+        read(&runner, &cache, REPO, REF, Origin::LOCAL, false)
+            .await
+            .unwrap();
+        read(&runner, &cache, REPO, &"a".repeat(40), Origin::LOCAL, false)
             .await
             .unwrap();
         assert_eq!(calls(&dir).len(), 2);
@@ -479,7 +620,7 @@ mod tests {
         let (_dir, runner) = fake_ws(
             r#"echo '{"error":{"code":"review_not_found","message":"no review"}}' >&2; exit 3"#,
         );
-        let err = read(&runner, &Cache::default(), REPO, REF, true)
+        let err = read(&runner, &Cache::default(), REPO, REF, Origin::LOCAL, true)
             .await
             .unwrap_err();
         assert_eq!(err.code, "review_not_found");
@@ -496,21 +637,21 @@ esac"#,
         );
         let (dir, runner) = fake_ws(&script);
         let cache = Cache::default();
-        read(&runner, &cache, REPO, REF, false).await.unwrap();
+        read(&runner, &cache, REPO, REF, Origin::LOCAL, false)
+            .await
+            .unwrap();
         let updated = decide(
             &runner,
             &cache,
             REPO,
             REF,
+            Origin::LOCAL,
             &request(Decision::Comment, None, ""),
         )
         .await
         .unwrap();
         assert_eq!(updated["comments"][0]["decision"]["decision"], "comment");
-        assert_eq!(
-            cache.get(&(REPO.to_string(), REF.to_string())).unwrap(),
-            updated
-        );
+        assert_eq!(cache.get(&format!("{REPO}@{REF}")).unwrap(), updated);
         let log = calls(&dir);
         assert_eq!(log.len(), 2);
         assert!(log[1].starts_with("review decide --json"));
@@ -531,6 +672,7 @@ esac"#,
             &Cache::default(),
             REPO,
             REF,
+            Origin::LOCAL,
             &request(Decision::Skip, None, ""),
         )
         .await
@@ -543,7 +685,9 @@ esac"#,
     async fn write_html_saves_the_report_in_the_cache_dir() {
         let (dir, runner) = fake_ws("echo '<html>report</html>'");
         let out = tempfile::tempdir().unwrap();
-        let path = write_html(&runner, out.path(), REPO, REF).await.unwrap();
+        let path = write_html(&runner, out.path(), REPO, REF, Origin::LOCAL)
+            .await
+            .unwrap();
         assert_eq!(
             path,
             out.path().join("reviews/review-buff-bear-3f2a9c1.html")
@@ -556,5 +700,121 @@ esac"#,
             calls(&dir)[0],
             format!("review report --format html --repo {REPO} --ref {REF}")
         );
+    }
+
+    fn remote() -> Origin<'static> {
+        Origin::new(Some("linux-server"), Some("review-buff-bear-42-3f2a9c1")).unwrap()
+    }
+
+    #[test]
+    fn remote_report_args_use_env_and_id() {
+        assert_eq!(
+            report_args(REPO, REF, remote()).join(" "),
+            "review report --json --env=linux-server -- review-buff-bear-42-3f2a9c1"
+        );
+        assert_eq!(
+            html_args(REPO, REF, remote()).join(" "),
+            "review report --format html --env=linux-server -- review-buff-bear-42-3f2a9c1"
+        );
+    }
+
+    #[test]
+    fn remote_cache_key_has_environment() {
+        assert_eq!(
+            remote().key(REPO, REF),
+            format!("env:linux-server:{REPO}@{REF}")
+        );
+        assert_eq!(Origin::LOCAL.key(REPO, REF), format!("{REPO}@{REF}"));
+    }
+
+    #[test]
+    fn remote_decide_args_name_the_review_after_the_flags() {
+        let args =
+            decide_args(REPO, REF, remote(), &request(Decision::Fix, Some(1), "why")).unwrap();
+        assert_eq!(
+            args.join(" "),
+            "review decide --json --env=linux-server --fix --suggestion 1 --note why -- review-buff-bear-42-3f2a9c1 security:a-1 tests:b-1"
+        );
+    }
+
+    #[test]
+    fn remote_acted_args_name_the_review_after_the_flags() {
+        let ids = vec!["security:a-1".to_string()];
+        let args = acted_args(REPO, REF, remote(), &ids, Acted::FixSent("fix-1")).unwrap();
+        assert_eq!(
+            args.join(" "),
+            "review acted --json --env=linux-server --fix-sent fix-1 -- review-buff-bear-42-3f2a9c1 security:a-1"
+        );
+    }
+
+    #[test]
+    fn a_remote_review_id_that_starts_with_a_dash_stays_after_the_dashes() {
+        let origin = Origin::new(Some("linux-server"), Some("--repo")).unwrap();
+        let args = report_args(REPO, REF, origin);
+        assert_eq!(args[args.len() - 2..], ["--", "--repo"]);
+    }
+
+    #[test]
+    fn origin_without_a_review_id_is_bad_args_when_remote() {
+        for id in [None, Some(""), Some("  ")] {
+            let err = Origin::new(Some("linux-server"), id).unwrap_err();
+            assert_eq!(err.code, "bad_args");
+        }
+    }
+
+    #[test]
+    fn origin_for_local_ignores_the_review_id() {
+        for env in [None, Some(""), Some("local")] {
+            let origin = Origin::new(env, Some("review-1")).unwrap();
+            assert_eq!(origin, Origin::LOCAL);
+            assert!(report_args(REPO, REF, origin).contains(&"--repo".to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_and_local_reports_are_cached_apart() {
+        let (dir, runner) = fake_ws(&format!("echo '{}'", report()));
+        let cache = Cache::default();
+        read(&runner, &cache, REPO, REF, Origin::LOCAL, false)
+            .await
+            .unwrap();
+        read(&runner, &cache, REPO, REF, remote(), false)
+            .await
+            .unwrap();
+        read(&runner, &cache, REPO, REF, remote(), false)
+            .await
+            .unwrap();
+        let log = calls(&dir);
+        assert_eq!(log.len(), 2);
+        assert!(log[1].contains("--env=linux-server"));
+    }
+
+    #[tokio::test]
+    async fn remote_decide_updates_the_remote_cached_report() {
+        let script = format!(
+            r#"case "$2" in
+  report) echo '{}' ;;
+  decide) echo '{{"decisions":{{"security:a-1":{{"decision":"skip","suggestion":null,"note":"","at":"t","done":null}}}},"warnings":[]}}' ;;
+esac"#,
+            report()
+        );
+        let (dir, runner) = fake_ws(&script);
+        let cache = Cache::default();
+        read(&runner, &cache, REPO, REF, remote(), false)
+            .await
+            .unwrap();
+        let updated = decide(
+            &runner,
+            &cache,
+            REPO,
+            REF,
+            remote(),
+            &request(Decision::Skip, None, ""),
+        )
+        .await
+        .unwrap();
+        assert_eq!(updated["comments"][0]["decision"]["decision"], "skip");
+        assert!(cache.get(&format!("{REPO}@{REF}")).is_none());
+        assert_eq!(calls(&dir).len(), 2);
     }
 }

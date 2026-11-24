@@ -68,7 +68,10 @@ pub fn select<'a>(
                 .reviews
                 .was_auto_started(repo, pr.number, &pr.head_ref_oid)
         })
-        .filter(|(repo, pr)| !view::has_review_at_head(entries, repo, pr))
+        .filter(|(repo, pr)| {
+            let environment = view::repo_environment(state, repo);
+            !view::has_review_at_head(entries, repo, pr, &environment)
+        })
         .filter(|(repo, pr)| passes_rules(repo, pr, state, logins))
         .collect();
     candidates.sort_by(|a, b| {
@@ -94,6 +97,7 @@ mod tests {
             RepoWatch {
                 watch: true,
                 auto_review: true,
+                ..RepoWatch::default()
             },
         );
         state
@@ -124,6 +128,7 @@ mod tests {
             RepoWatch {
                 watch: true,
                 auto_review: false,
+                ..RepoWatch::default()
             },
         );
         assert!(numbers(&[pr(1)], &[], &state).is_empty());

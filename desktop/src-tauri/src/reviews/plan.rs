@@ -7,6 +7,7 @@ use super::github::PullRequest;
 use super::names;
 use super::profiles::{self, ProfileChoice};
 use super::store::ReviewSettings;
+use crate::pty::remote_env;
 use crate::runner::{AppError, Runner};
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +30,9 @@ pub struct ReviewPlan {
     /// The repo's forge, which decides how `ws` finds the pull request.
     #[serde(default)]
     pub forge: ForgeKind,
+    /// The environment the review runs on; `None` is this machine.
+    #[serde(default)]
+    pub environment: Option<String>,
 }
 
 pub fn plan(
@@ -47,23 +51,28 @@ pub fn plan(
         permission_mode: settings.permission_mode.clone(),
         focus: String::new(),
         forge: ForgeKind::Github,
+        environment: None,
     }
 }
 
 /// The plan with Settings' profiles, which needs `ws review profiles` only
-/// when the table was changed.
+/// when the table was changed. A remote plan reads the environment's.
 pub async fn build(
     runner: &Runner,
     repo_id: &str,
     pr: &PullRequest,
     settings: &ReviewSettings,
+    environment: Option<&str>,
 ) -> Result<ReviewPlan, AppError> {
     let choices = if settings.profiles.is_empty() {
         Vec::new()
     } else {
-        profiles::choices(&profiles::list(runner).await?, &settings.profiles)?
+        let listed = profiles::list(runner, environment).await?;
+        profiles::choices(&listed, &settings.profiles)?
     };
-    Ok(plan(repo_id, pr, settings, choices))
+    let mut plan = plan(repo_id, pr, settings, choices);
+    plan.environment = remote_env(environment).map(str::to_string);
+    Ok(plan)
 }
 
 fn non_empty(value: &str) -> Option<&str> {
@@ -90,7 +99,7 @@ fn target_args(plan: &ReviewPlan, name: &str) -> Vec<String> {
     }
 }
 
-/// `ws review start --json --pr <n> [--name N] <repo> [--profile …]…
+/// `ws review start [--env=E] --json --pr <n> [--name N] <repo> [--profile …]…
 /// [--auto …]… -- [--model=M] [--permission-mode=P] [focus]`. Options
 /// after `--` carry their value with `=`, since `ws` takes the last
 /// argument there for the focus unless it starts with `-`. A Forgejo
@@ -100,7 +109,9 @@ pub fn start_args(plan: &ReviewPlan) -> Result<Vec<String>, AppError> {
     if name.is_empty() {
         return Err(AppError::new("usage", "the review needs a workspace name"));
     }
-    let mut args: Vec<String> = ["review", "start", "--json"].map(str::to_string).to_vec();
+    let mut args: Vec<String> = ["review", "start"].map(str::to_string).to_vec();
+    args.extend(crate::commands::env_args(plan.environment.as_deref()));
+    args.push("--json".to_string());
     args.extend(target_args(plan, name));
     args.extend(plan.profiles.iter().flat_map(ProfileChoice::args));
     let mut after = Vec::new();
@@ -228,6 +239,62 @@ mod tests {
             ..default_plan()
         };
         assert_eq!(start_args(&plan).unwrap_err().code, "usage");
+    }
+
+    fn remote_plan() -> ReviewPlan {
+        ReviewPlan {
+            environment: Some("linux-server".to_string()),
+            ..default_plan()
+        }
+    }
+
+    #[test]
+    fn remote_start_args_put_env_after_start() {
+        assert_eq!(
+            start_args(&remote_plan()).unwrap(),
+            [
+                "review",
+                "start",
+                "--env=linux-server",
+                "--json",
+                "--pr",
+                "42",
+                REPO
+            ]
+        );
+        let local = ReviewPlan {
+            environment: Some("local".to_string()),
+            ..default_plan()
+        };
+        assert_eq!(
+            start_args(&local).unwrap(),
+            start_args(&default_plan()).unwrap()
+        );
+    }
+
+    #[test]
+    fn remote_start_args_drop_other_claude_flags() {
+        let plan = ReviewPlan {
+            model: "sonnet".to_string(),
+            permission_mode: "plan".to_string(),
+            focus: "the SQL".to_string(),
+            ..remote_plan()
+        };
+        let args = start_args(&plan).unwrap();
+        let dash = args.iter().position(|a| a == "--").unwrap();
+        assert_eq!(
+            args[dash + 1..],
+            ["--model=sonnet", "--permission-mode=plan", "the SQL"]
+        );
+        assert_eq!(args.iter().filter(|a| a.starts_with("--env")).count(), 1);
+    }
+
+    #[test]
+    fn plan_json_without_environment_is_local() {
+        let mut json = serde_json::to_value(default_plan()).unwrap();
+        json.as_object_mut().unwrap().remove("environment");
+        let plan: ReviewPlan = serde_json::from_value(json).unwrap();
+        assert_eq!(plan.environment, None);
     }
 
     #[test]

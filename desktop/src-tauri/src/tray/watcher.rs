@@ -343,4 +343,83 @@ mod tests {
         assert!(wanted(&events, &settings(true, false, true)).is_empty());
         assert!(wanted(&events, &settings(false, true, true)).is_empty());
     }
+
+    fn remote_loop_run(attention: Option<&str>, online: bool) -> Entry {
+        Entry {
+            loop_run: Some(WsLoopRun {
+                loop_name: "deps-bump".to_string(),
+                attention: attention.map(str::to_string),
+            }),
+            status: if attention.is_some() {
+                Status::NeedsInput
+            } else {
+                Status::Working
+            },
+            ..remote(Status::Working, online, false)
+        }
+    }
+
+    #[test]
+    fn remote_blocked_loop_run_notifies() {
+        let watcher = Watcher::default();
+        let quiet = [remote_loop_run(None, true)];
+        let blocked = [remote_loop_run(Some("blocked"), true)];
+        assert!(watcher.observe(&quiet, 0).events.is_empty());
+        assert!(watcher.observe(&blocked, 4_000).events.is_empty());
+        let third = watcher.observe(&blocked, 8_000);
+        let loops: Vec<_> = third
+            .events
+            .iter()
+            .filter(|e| e.attention == Attention::Blocked)
+            .collect();
+        assert_eq!(loops.len(), 1, "{:?}", third.events);
+        assert_eq!(loops[0].key, "env:linux-server:a");
+        assert!(watcher.observe(&blocked, 12_000).events.is_empty());
+    }
+
+    #[test]
+    fn offline_remote_loop_run_does_not_notify() {
+        let watcher = Watcher::default();
+        let quiet = [remote_loop_run(None, true)];
+        let offline = [remote_loop_run(Some("blocked"), false)];
+        assert!(watcher.observe(&quiet, 0).events.is_empty());
+        for now in [4_000, 8_000, 12_000] {
+            let loops = watcher
+                .observe(&offline, now)
+                .events
+                .into_iter()
+                .filter(|e| e.attention == Attention::Blocked)
+                .count();
+            assert_eq!(loops, 0);
+        }
+    }
+
+    #[test]
+    fn remote_finished_review_notifies_done() {
+        let watcher = Watcher::default();
+        let record = crate::model::ReviewRecord {
+            repo: "github.com/o/r".to_string(),
+            git_ref: "abc".to_string(),
+            requester: String::new(),
+            profiles: vec![],
+            pr: None,
+        };
+        let review = |status| Entry {
+            review: Some(record.clone()),
+            ..remote(status, true, false)
+        };
+        assert!(watcher
+            .observe(&[review(Status::Working)], 0)
+            .events
+            .is_empty());
+        assert!(watcher
+            .observe(&[review(Status::Done)], 4_000)
+            .events
+            .is_empty());
+        let third = watcher.observe(&[review(Status::Done)], 8_000);
+        assert_eq!(
+            third.events,
+            vec![event("env:linux-server:a", Attention::Done)]
+        );
+    }
 }

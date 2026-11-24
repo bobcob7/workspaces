@@ -166,11 +166,14 @@ pub struct Settings {
     pub forges: ForgeSettings,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RepoWatch {
     pub watch: bool,
     pub auto_review: bool,
+    /// The environment the repo's reviews run on; `None` is this machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
 }
 
 /// A pull request at one head commit.
@@ -199,13 +202,14 @@ pub struct ReviewsState {
 
 impl ReviewsState {
     pub fn watch(&self, repo: &str) -> RepoWatch {
-        self.repos.get(repo).copied().unwrap_or_default()
+        self.repos.get(repo).cloned().unwrap_or_default()
     }
 
     pub fn set_watch(&mut self, repo: &str, watch: RepoWatch) {
         let watch = RepoWatch {
             watch: watch.watch,
             auto_review: watch.watch && watch.auto_review,
+            environment: watch.environment,
         };
         if watch == RepoWatch::default() {
             self.repos.remove(repo);
@@ -456,6 +460,34 @@ mod tests {
     }
 
     #[test]
+    fn repo_watch_environment_round_trips() {
+        let mut state = ReviewsState::default();
+        state.set_watch(
+            REPO,
+            RepoWatch {
+                watch: true,
+                auto_review: true,
+                environment: Some("linux-server".to_string()),
+            },
+        );
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains(r#""environment":"linux-server""#), "{json}");
+        let back: ReviewsState = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            back.watch(REPO).environment.as_deref(),
+            Some("linux-server")
+        );
+    }
+
+    #[test]
+    fn old_desktop_json_has_no_environment() {
+        let old = r#"{"repos":{"github.com/bobcob7/buff-bear":{"watch":true,"autoReview":false}},"dismissed":[],"autoStarted":[]}"#;
+        let state: ReviewsState = serde_json::from_str(old).unwrap();
+        assert_eq!(state.watch(REPO).environment, None);
+        assert_eq!(serde_json::to_string(&state).unwrap(), old);
+    }
+
+    #[test]
     fn auto_review_needs_watch() {
         let mut state = ReviewsState::default();
         state.set_watch(
@@ -463,6 +495,7 @@ mod tests {
             RepoWatch {
                 watch: false,
                 auto_review: true,
+                ..RepoWatch::default()
             },
         );
         assert_eq!(state.watch(REPO), RepoWatch::default());

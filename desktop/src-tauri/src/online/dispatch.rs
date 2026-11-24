@@ -330,13 +330,18 @@ pub async fn dispatch(
         "reviews_check_now" => json(reviews::reviews_check_now(State::new(&ctx.state))),
         "reviews_load_repos" => result(reviews::reviews_load_repos(State::new(&ctx.state)).await),
         "reviews_set_watch" => {
-            let (repo, watch, auto_review) =
-                args!(args, { repo: String, watch: bool, auto_review: bool });
+            let (repo, watch, auto_review, environment) = args!(args, {
+                repo: String,
+                watch: bool,
+                auto_review: bool,
+                environment: Option<String>,
+            });
             result(reviews::reviews_set_watch(
                 State::new(&ctx.state),
                 repo,
                 watch,
                 auto_review,
+                environment,
             ))
         }
         "reviews_set_hosts" => {
@@ -369,14 +374,18 @@ pub async fn dispatch(
             ))
         }
         "reviews_plan" => {
-            let (repo, number) = args!(args, { repo: String, number: u64 });
-            result(reviews::reviews_plan(State::new(&ctx.state), repo, number).await)
+            let (repo, number, environment) =
+                args!(args, { repo: String, number: u64, environment: Option<String> });
+            result(reviews::reviews_plan(State::new(&ctx.state), repo, number, environment).await)
         }
         "reviews_ask" => {
             let (repo, number) = args!(args, { repo: String, number: u64 });
             result(reviews::reviews_ask(State::new(&ctx.state), repo, number).await)
         }
-        "reviews_profiles" => result(reviews::reviews_profiles(State::new(&ctx.state)).await),
+        "reviews_profiles" => {
+            let environment = args!(args, { environment: Option<String> });
+            result(reviews::reviews_profiles(State::new(&ctx.state), environment).await)
+        }
         "reviews_profile_show" => {
             let name = args!(args, { name: String });
             result(reviews::reviews_profile_show(State::new(&ctx.state), name).await)
@@ -400,58 +409,163 @@ pub async fn dispatch(
             result(reviews::reviews_start(State::new(&ctx.state), plan).await)
         }
         "review_report" => {
-            let (repo, git_ref, refresh) =
-                args!(args, { repo: String, git_ref: String, refresh: bool });
-            result(reviews::review_report(State::new(&ctx.state), repo, git_ref, refresh).await)
+            let (repo, git_ref, refresh, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                refresh: bool,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
+            result(
+                reviews::review_report(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    refresh,
+                    environment,
+                    review_id,
+                )
+                .await,
+            )
         }
         "review_decide" => {
-            let (repo, git_ref, request) = args!(args, { repo: String, git_ref: String, request: reviews::report::DecideRequest });
-            result(reviews::review_decide(State::new(&ctx.state), repo, git_ref, request).await)
+            let (repo, git_ref, request, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                request: reviews::report::DecideRequest,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
+            result(
+                reviews::review_decide(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    request,
+                    environment,
+                    review_id,
+                )
+                .await,
+            )
         }
         "review_open_report" => {
-            let (repo, git_ref) = args!(args, { repo: String, git_ref: String });
-            open_report(ctx, &repo, &git_ref).await
+            let (repo, git_ref, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
+            open_report(
+                ctx,
+                &repo,
+                &git_ref,
+                environment.as_deref(),
+                review_id.as_deref(),
+            )
+            .await
         }
         "review_comment_plan" => {
-            let (repo, git_ref, number) =
-                args!(args, { repo: String, git_ref: String, number: u64 });
+            let (repo, git_ref, number, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                number: u64,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
             result(
-                reviews::review_comment_plan(State::new(&ctx.state), repo, git_ref, number).await,
+                reviews::review_comment_plan(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    number,
+                    environment,
+                    review_id,
+                )
+                .await,
             )
         }
         "review_comment_post" => {
-            let (repo, git_ref, request) = args!(args, { repo: String, git_ref: String, request: reviews::comment::PostRequest });
+            let (repo, git_ref, request, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                request: reviews::comment::PostRequest,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
             result(
-                reviews::review_comment_post(State::new(&ctx.state), repo, git_ref, request).await,
+                reviews::review_comment_post(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    request,
+                    environment,
+                    review_id,
+                )
+                .await,
             )
         }
         "review_fix_plan" => {
-            let (repo, git_ref, review, findings) = args!(args, {
+            let (repo, git_ref, review, findings, environment, review_id) = args!(args, {
                 repo: String,
                 git_ref: String,
                 review: String,
                 findings: Vec<reviews::fix::FixFinding>,
+                environment: Option<String>,
+                review_id: Option<String>,
             });
             result(
-                reviews::review_fix_plan(State::new(&ctx.state), repo, git_ref, review, findings)
-                    .await,
+                reviews::review_fix_plan(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    review,
+                    findings,
+                    environment,
+                    review_id,
+                )
+                .await,
             )
         }
         "review_fix_start" => {
-            let (repo, git_ref, request) =
-                args!(args, { repo: String, git_ref: String, request: reviews::fix::StartFix });
-            result(reviews::review_fix_start(State::new(&ctx.state), repo, git_ref, request).await)
+            let (repo, git_ref, request, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                request: reviews::fix::StartFix,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
+            result(
+                reviews::review_fix_start(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    request,
+                    environment,
+                    review_id,
+                )
+                .await,
+            )
         }
         "review_fix_sent" => {
-            let (repo, git_ref, findings, agent) = args!(args, {
+            let (repo, git_ref, findings, agent, environment, review_id) = args!(args, {
                 repo: String,
                 git_ref: String,
                 findings: Vec<String>,
                 agent: String,
+                environment: Option<String>,
+                review_id: Option<String>,
             });
             result(
-                reviews::review_fix_sent(State::new(&ctx.state), repo, git_ref, findings, agent)
-                    .await,
+                reviews::review_fix_sent(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    findings,
+                    agent,
+                    environment,
+                    review_id,
+                )
+                .await,
             )
         }
         "settings_get" => json(reviews::settings_get(State::new(&ctx.state))),
@@ -622,10 +736,19 @@ async fn versions(ctx: &Ctx) -> Result<Value, DispatchError> {
     json(about::versions(&ctx.state.runner, app).await)
 }
 
-async fn open_report(ctx: &Ctx, repo: &str, git_ref: &str) -> Result<Value, DispatchError> {
-    let path = reviews::report::write_html(&ctx.state.runner, &ctx.reports_dir, repo, git_ref)
-        .await
-        .map_err(DispatchError::App)?;
+async fn open_report(
+    ctx: &Ctx,
+    repo: &str,
+    git_ref: &str,
+    environment: Option<&str>,
+    review_id: Option<&str>,
+) -> Result<Value, DispatchError> {
+    let origin =
+        reviews::report::Origin::new(environment, review_id).map_err(DispatchError::App)?;
+    let path =
+        reviews::report::write_html(&ctx.state.runner, &ctx.reports_dir, repo, git_ref, origin)
+            .await
+            .map_err(DispatchError::App)?;
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -887,6 +1010,77 @@ mod tests {
         let args =
             serde_json::json!({"sessionId": "s", "workspaceId": "", "environment": "linux-server"});
         assert_eq!(app_error(&ctx, "stop_agent", args).await.code, "bad_args");
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn reviews_set_watch_accepts_environment() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let repo = "github.com/o/r";
+        let args = serde_json::json!({"repo": repo, "watch": true, "autoReview": true, "environment": "linux-server"});
+        assert!(dispatch(&ctx, "reviews_set_watch", args, None)
+            .await
+            .is_ok());
+        let watch = ctx.state.store.get().reviews.watch(repo);
+        assert_eq!(watch.environment.as_deref(), Some("linux-server"));
+        assert!(watch.auto_review);
+        let old = serde_json::json!({"repo": repo, "watch": true, "autoReview": false});
+        assert!(dispatch(&ctx, "reviews_set_watch", old, None).await.is_ok());
+        assert_eq!(ctx.state.store.get().reviews.watch(repo).environment, None);
+        let local = serde_json::json!({"repo": repo, "watch": true, "autoReview": false, "environment": "local"});
+        assert!(dispatch(&ctx, "reviews_set_watch", local, None)
+            .await
+            .is_ok());
+        assert_eq!(ctx.state.store.get().reviews.watch(repo).environment, None);
+    }
+
+    #[tokio::test]
+    async fn review_report_without_environment_is_local() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"repo": "github.com/o/r", "gitRef": "abc", "refresh": true});
+        let err = app_error(&ctx, "review_report", args).await;
+        assert_eq!(
+            err.message,
+            "review report --json --repo github.com/o/r --ref abc"
+        );
+    }
+
+    #[tokio::test]
+    async fn review_report_with_environment_names_the_review() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"repo": "github.com/o/r", "gitRef": "abc", "refresh": true, "environment": "linux-server", "reviewId": "review-1"});
+        let err = app_error(&ctx, "review_report", args).await;
+        assert_eq!(
+            err.message,
+            "review report --json --env=linux-server -- review-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_remote_review_call_without_a_review_id_is_bad_args() {
+        let (_dir, ctx, log) = logging_ctx();
+        let calls = [
+            (
+                "review_report",
+                serde_json::json!({"repo": "r", "gitRef": "a", "refresh": false, "environment": "linux-server"}),
+            ),
+            (
+                "review_decide",
+                serde_json::json!({"repo": "r", "gitRef": "a", "request": {"findings": ["a"], "decision": "skip"}, "environment": "linux-server"}),
+            ),
+            (
+                "review_open_report",
+                serde_json::json!({"repo": "r", "gitRef": "a", "environment": "linux-server"}),
+            ),
+            (
+                "review_fix_sent",
+                serde_json::json!({"repo": "r", "gitRef": "a", "findings": ["a"], "agent": "x", "environment": "linux-server"}),
+            ),
+        ];
+        for (command, args) in calls {
+            let err = app_error(&ctx, command, args).await;
+            assert_eq!(err.code, "bad_args", "{command}");
+        }
         assert!(!log.exists());
     }
 

@@ -247,7 +247,7 @@ pub fn rm_args(workspace_id: &str, keep_children: bool, environment: Option<&str
 
 /// `--env=<name>`, one argument so a name that starts with `-` can't become
 /// a flag, for a remote environment; nothing for local or none.
-fn env_args(environment: Option<&str>) -> Vec<String> {
+pub fn env_args(environment: Option<&str>) -> Vec<String> {
     remote_env(environment)
         .map(|env| vec![format!("--env={env}")])
         .unwrap_or_default()
