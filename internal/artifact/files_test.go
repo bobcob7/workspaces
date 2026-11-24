@@ -37,6 +37,19 @@ func TestWriteAtomic(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "new", string(data))
 	})
+	t.Run("syncs the destination directory after the rename", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "r1")
+		var synced []string
+		sync := func(d string) error {
+			_, err := os.Stat(path)
+			require.NoError(t, err, "the rename comes before the sync")
+			synced = append(synced, d)
+			return nil
+		}
+		require.NoError(t, writeAtomicSync(dir, path, []byte("x"), sync))
+		assert.Equal(t, []string{dir}, synced)
+	})
 	t.Run("fails when the temporary directory is missing", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()

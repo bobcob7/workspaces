@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -25,8 +26,13 @@ type threadsDocument struct {
 }
 
 // writeAtomic writes data to a new file in tmpDir, syncs it, sets mode
-// 0600, and renames it to path.
+// 0600, renames it to path, and syncs path's directory so the rename
+// survives a crash.
 func writeAtomic(tmpDir, path string, data []byte) error {
+	return writeAtomicSync(tmpDir, path, data, syncDirectory)
+}
+
+func writeAtomicSync(tmpDir, path string, data []byte, syncDir func(string) error) error {
 	tmp, err := os.CreateTemp(tmpDir, "write-*")
 	if err != nil {
 		return fmt.Errorf("creating a temporary file for %s: %w", path, err)
@@ -38,6 +44,21 @@ func writeAtomic(tmpDir, path string, data []byte) error {
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		_ = os.Remove(tmp.Name())
 		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	return syncDir(filepath.Dir(path))
+}
+
+// syncDirectory fsyncs dir. Filesystems that can't sync a directory are
+// not an error: the rename is already as durable as they allow.
+func syncDirectory(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("opening %s to sync it: %w", dir, err)
+	}
+	err = d.Sync()
+	_ = d.Close()
+	if err != nil && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, errors.ErrUnsupported) {
+		return fmt.Errorf("syncing %s: %w", dir, err)
 	}
 	return nil
 }
