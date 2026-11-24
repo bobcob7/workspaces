@@ -124,6 +124,31 @@ const withEnvironments = (...items: ReturnType<typeof remoteEnvironment>[]): { e
   environments: { items },
 });
 
+describe("overlapping fetches", () => {
+  it("ignores an older listing that settles after a newer one", async () => {
+    const releases: (() => void)[] = [];
+    const loopsList = vi.fn(
+      (_environment?: string) =>
+        new Promise<Awaited<ReturnType<ReturnType<typeof fakeApi>["loopsList"]>>>((resolve) => {
+          const index = releases.length;
+          releases.push(() =>
+            resolve({ loops: index === 0 ? [loop()] : [], warnings: [], environmentStatus: null, loopsUnknown: false }),
+          );
+        }),
+    );
+    const store = testStore({ api: fakeApi({ loopsList }) });
+    store.dispatch(loopSelected("deps"));
+    const older = store.dispatch(fetchLoops());
+    const newer = store.dispatch(fetchLoops());
+    releases[1]?.();
+    await newer;
+    releases[0]?.();
+    await older;
+    expect(store.getState().loops.byEnvironment["local"]?.items).toEqual([]);
+    expect(store.getState().loops.selected).toBeNull();
+  });
+});
+
 describe("loops by environment", () => {
   const stateWith = (...items: ReturnType<typeof remoteEnvironment>[]): Parameters<typeof testStore>[0] => ({
     state: withEnvironments(...items) as never,

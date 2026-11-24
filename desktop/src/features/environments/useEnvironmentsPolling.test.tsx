@@ -82,6 +82,34 @@ describe("useEnvironmentsPolling", () => {
     expect(api.environmentsList).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps skipping ticks until every overlapping fetch has settled", async () => {
+    const api = fakeApi();
+    const releases: (() => void)[] = [];
+    api.environmentsList = vi.fn(
+      () =>
+        new Promise<{ environments: never[]; warnings: never[] }>((resolve) => {
+          releases.push(() => resolve({ environments: [], warnings: [] }));
+        }),
+    );
+    const store = testStore({ api });
+    const wrapper = ({ children }: { children: ReactNode }): JSX.Element => <Provider store={store}>{children}</Provider>;
+    const { result } = renderHook(() => useEnvironmentsPolling(), { wrapper });
+    await act(async () => {
+      result.current.refresh();
+    });
+    expect(api.environmentsList).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      releases[0]?.();
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(api.environmentsList).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      releases[1]?.();
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(api.environmentsList).toHaveBeenCalledTimes(3);
+  });
+
   describe("visibility", () => {
     let hidden = false;
     const setHidden = (value: boolean): void => {

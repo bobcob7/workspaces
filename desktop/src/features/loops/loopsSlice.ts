@@ -42,6 +42,8 @@ export interface LoopsState {
   readonly formError: AppError | null;
   /** The `loopKey` of the loop an action is running on. */
   readonly busy: string | null;
+  /** The request id of the newest fetch; an older fetch that settles later is ignored. */
+  readonly latestRequestId: string | null;
 }
 
 const emptyEnvironment: EnvironmentLoops = { items: [], loadedAt: null, error: null, loopsUnknown: false };
@@ -56,6 +58,7 @@ const initialState: LoopsState = {
   submitting: false,
   formError: null,
   busy: null,
+  latestRequestId: null,
 };
 
 /** One environment's listing, or why it failed. */
@@ -230,7 +233,13 @@ const loopsSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      .addCase(fetchLoops.pending, (state, action) => {
+        state.latestRequestId = action.meta.requestId;
+      })
       .addCase(fetchLoops.fulfilled, (state, action): LoopsState => {
+        if (state.latestRequestId !== null && action.meta.requestId !== state.latestRequestId) {
+          return state;
+        }
         const { results, at } = action.payload;
         const byEnvironment = Object.fromEntries(
           results.map(({ environment, listing, error }): [string, EnvironmentLoops] => {

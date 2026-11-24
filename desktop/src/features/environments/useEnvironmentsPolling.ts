@@ -11,17 +11,17 @@ export const environmentsPollInterval = 10_000;
  */
 export const useEnvironmentsPolling = (intervalMs: number = environmentsPollInterval): { readonly refresh: () => void } => {
   const dispatch = useAppDispatch();
-  const inFlight = useRef(false);
+  const inFlight = useRef(0);
   const refresh = useCallback((): void => {
-    inFlight.current = true;
+    inFlight.current += 1;
     void dispatch(fetchEnvironments()).finally(() => {
-      inFlight.current = false;
+      inFlight.current -= 1;
     });
   }, [dispatch]);
   useEffect(() => {
     refresh();
     const timer = window.setInterval(() => {
-      if (document.hidden || inFlight.current) {
+      if (document.hidden || inFlight.current > 0) {
         return;
       }
       refresh();
