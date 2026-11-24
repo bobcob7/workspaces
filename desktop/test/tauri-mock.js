@@ -262,7 +262,10 @@
       number: 7,
       title: "Cache the edge config",
       group: "reviewed",
-      reviews: [remoteRun("linux-server", edgeReviewId, "9b1d2c3e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c", false)],
+      reviews: [
+        remoteRun("linux-server", edgeReviewId, "9b1d2c3e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c", false),
+        remoteRun("win-rig", "review-edge-7-9b1d2c3-77aa88bb", "9b1d2c3e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c", true),
+      ],
       merge: { status: "ready", reasons: [], checks: checks(1, 0, 0) },
     }),
     pullRequest({
@@ -1307,17 +1310,53 @@
       profile({ name: "go", description: "Go idioms, concurrency, and error handling", when: "auto", patterns: ["**/*.go"] }),
       profile({ name: "security", description: "Security: injection, secrets, and authorization", when: "always" }),
     ],
-    review_report: ({ environment, reviewId }) => ({
-      repo: environment ? edge : buffBear,
-      ref: head,
-      review: null,
-      agent: null,
-      profiles: [],
-      comments: [],
-      superseded: [],
-      warnings: [],
-      ...(environment ? { environment, reviewId, redacted: 0 } : {}),
-    }),
+    review_report: ({ environment, reviewId }) =>
+      environment === "linux-server"
+        ? {
+            repo: edge,
+            ref: "9b1d2c3e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c",
+            review: { requester: "none", pr: { number: 7, url: `https://${edge}/pull/7` } },
+            agent: { workspace: reviewId ?? edgeReviewId, status: "done" },
+            profiles: [
+              { name: "go", model: "sonnet-5-5", verdict: "request_changes", severity: { max: 7, must_fix: 0, should_fix: 1, worth_fixing: 0, optional: 0 }, missing: false },
+              { name: "security", model: "sonnet-5-5", verdict: "comment", severity: { max: 5, must_fix: 0, should_fix: 0, worth_fixing: 1, optional: 0 }, missing: false },
+            ],
+            comments: [
+              {
+                id: "go:1", profile: "go", priority: 7, category: "correctness",
+                body: "The cache is read without the lock that guards writes, so a concurrent refresh can return a half-built config.",
+                code: null,
+                anchors: [{ file: "internal/edge/cache.go", line: 48, end_line: 61 }],
+                suggestions: [{ summary: "Read through the same RWMutex the writer takes", effort: "small", scope: "local", pros: ["No new state"], cons: [], code: null }],
+                decision: null,
+              },
+              {
+                id: "security:1", profile: "security", priority: 5, category: "secrets",
+                body: "The cached config includes the upstream token and is written world-readable, so any local user can read it. The modes the store sets on the directory and the file are",
+                code: null,
+                anchors: [{ file: "internal/edge/store.go", line: 22, end_line: null }],
+                suggestions: [],
+                decision: null,
+                truncated: true,
+              },
+            ],
+            superseded: [],
+            warnings: [],
+            environment,
+            reviewId: reviewId ?? edgeReviewId,
+            redacted: 1,
+          }
+        : {
+            repo: environment ? edge : buffBear,
+            ref: head,
+            review: null,
+            agent: null,
+            profiles: [],
+            comments: [],
+            superseded: [],
+            warnings: [],
+            ...(environment ? { environment, reviewId, redacted: 0 } : {}),
+          },
     settings_get: () => data.settings,
     settings_set_reviews: ({ reviews }) => {
       data.settings = { ...data.settings, reviews };
