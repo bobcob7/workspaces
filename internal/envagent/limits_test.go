@@ -172,6 +172,29 @@ func TestLimiter_allow(t *testing.T) {
 	})
 }
 
+func TestLimiter_allowReportsTheLongestWait(t *testing.T) {
+	t.Parallel()
+	seed := func(globalTokens, nameTokens float64) time.Duration {
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		l.buckets["loop.run"] = &tokenBucket{tokens: globalTokens, at: clock.Now()}
+		l.buckets["loop.run:nightly"] = &tokenBucket{tokens: nameTokens, at: clock.Now()}
+		ok, retry := l.allow(envproto.OpLoopRun, &envproto.LoopRunArgs{Name: "nightly"})
+		require.False(t, ok)
+		return retry
+	}
+	t.Run("the global wait is longer than the name wait", func(t *testing.T) {
+		t.Parallel()
+		retry := seed(0, 0.5)
+		assert.InDelta(t, float64(2*time.Minute), float64(retry), float64(time.Millisecond))
+	})
+	t.Run("the name wait is longer than the global wait", func(t *testing.T) {
+		t.Parallel()
+		retry := seed(0.75, 0)
+		assert.InDelta(t, float64(time.Minute), float64(retry), float64(time.Millisecond))
+	})
+}
+
 func TestLimitedError(t *testing.T) {
 	t.Parallel()
 	t.Run("a wait of 58.5 s is reported as 59 seconds", func(t *testing.T) {
@@ -225,6 +248,26 @@ func TestLimiter_forgetFull(t *testing.T) {
 		ok, _ := l.allow(envproto.OpLoopAdd, nil)
 		require.True(t, ok)
 		assert.Len(t, l.buckets, 101)
+	})
+	t.Run("exactly maxBuckets stale buckets are kept", func(t *testing.T) {
+		t.Parallel()
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		seed(l, maxBuckets, clock.Now())
+		clock.advance(2 * time.Minute)
+		ok, _ := l.allow(envproto.OpLoopAdd, nil)
+		require.True(t, ok)
+		assert.Len(t, l.buckets, maxBuckets+1)
+	})
+	t.Run("maxBuckets plus one stale buckets are dropped", func(t *testing.T) {
+		t.Parallel()
+		clock := newLimitClock()
+		l := newLimiter(clock.Now)
+		seed(l, maxBuckets+1, clock.Now())
+		clock.advance(2 * time.Minute)
+		ok, _ := l.allow(envproto.OpLoopAdd, nil)
+		require.True(t, ok)
+		assert.Len(t, l.buckets, 1)
 	})
 	t.Run("per-loop buckets that are not yet full again are kept", func(t *testing.T) {
 		t.Parallel()

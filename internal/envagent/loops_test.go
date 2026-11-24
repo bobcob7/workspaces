@@ -120,7 +120,7 @@ func TestAgent_tickLoops(t *testing.T) {
 	t.Run("a pass still running skips the next timer", func(t *testing.T) {
 		t.Parallel()
 		opts := testOptions()
-		ticks, _ := loopTimer(&opts)
+		ticks, asked := loopTimer(&opts)
 		gate := make(chan struct{})
 		ticker := tickerMock(func(ctx context.Context) (bool, error) {
 			select {
@@ -136,11 +136,14 @@ func TestAgent_tickLoops(t *testing.T) {
 		fire(t, ticks)
 		fire(t, ticks)
 		fire(t, ticks)
+		require.Eventually(t, func() bool { return asked.Load() == 5 }, 5*time.Second, 5*time.Millisecond, "the ticker has handled every skipped timer")
 		assert.Len(t, ticker.TickCalls(), 1)
 		close(gate)
 		require.Eventually(t, func() bool { return !agent.ticking.Load() }, 5*time.Second, 5*time.Millisecond)
 		fire(t, ticks)
 		require.Eventually(t, func() bool { return len(ticker.TickCalls()) == 2 }, 5*time.Second, 5*time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
+		assert.Len(t, ticker.TickCalls(), 2)
 	})
 	t.Run("a pass that changed something republishes the snapshot", func(t *testing.T) {
 		t.Parallel()
@@ -153,6 +156,42 @@ func TestAgent_tickLoops(t *testing.T) {
 		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) == 1 }, 5*time.Second, 5*time.Millisecond)
 		fire(t, ticks)
 		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) == 2 }, 5*time.Second, 5*time.Millisecond)
+	})
+	t.Run("a pass that fails after changing something does not republish", func(t *testing.T) {
+		t.Parallel()
+		opts := testOptions()
+		ticks, _ := loopTimer(&opts)
+		ticker := tickerMock(func(context.Context) (bool, error) { return true, errors.New("the pass failed") })
+		agent, recorder, fx := loopAgent(t, ticker, opts)
+		runAgent(t, agent)
+		snapshot := envproto.Topic(fx.id.ID, envproto.LeafSnapshot)
+		require.Eventually(t, func() bool { return len(recorder.on(snapshot)) == 1 }, 5*time.Second, 5*time.Millisecond)
+		fire(t, ticks)
+		require.Eventually(t, func() bool { return len(ticker.TickCalls()) == 1 && !agent.ticking.Load() }, 5*time.Second, 5*time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
+		assert.Len(t, recorder.on(snapshot), 1)
+	})
+	t.Run("a cancelled context with a timer ready never starts a pass", func(t *testing.T) {
+		t.Parallel()
+		opts := testOptions()
+		opts.LoopTick = testLoopTick
+		ready := make(chan time.Time, 1)
+		opts.After = func(time.Duration) <-chan time.Time {
+			select {
+			case ready <- time.Now():
+			default:
+			}
+			return ready
+		}
+		ticker := tickerMock(func(context.Context) (bool, error) { return false, nil })
+		agent, _, _ := loopAgent(t, ticker, opts)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		for range 50 {
+			agent.tickLoops(ctx)
+			agent.passes.Wait()
+		}
+		assert.Empty(t, ticker.TickCalls())
 	})
 	t.Run("a pass that changed nothing does not republish", func(t *testing.T) {
 		t.Parallel()
