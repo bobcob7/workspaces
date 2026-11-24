@@ -1135,3 +1135,36 @@ func TestApp_runClaude_environment(t *testing.T) {
 		assert.Len(t, e.store.CreateCalls(), 1)
 	})
 }
+
+// assertNoWorkspace checks that no workspace, and no state, is left with
+// an id made from a --name sanitized to base.
+func assertNoWorkspace(t *testing.T, paths *config.Paths, base string) {
+	t.Helper()
+	for _, dir := range []string{paths.Workspaces, paths.State} {
+		matches, err := filepath.Glob(filepath.Join(dir, base+"-*"))
+		require.NoError(t, err)
+		assert.Empty(t, matches)
+	}
+}
+
+// locked reports whether the workspace's lock is held.
+func (e *claudeEnv) locked(t *testing.T) bool {
+	t.Helper()
+	unlock, ok, err := lockfile.TryExclusive(e.lockPath)
+	require.NoError(t, err)
+	if ok {
+		unlock()
+	}
+	return !ok
+}
+
+func (e *claudeEnv) run(t *testing.T, args ...string) error {
+	t.Helper()
+	return e.app.runClaude(t.Context(), &claudeOptions{specs: []string{"buff-bear"}, claudeArgs: args})
+}
+
+// trustedDirs are the directories Claude Code's config trusts.
+func (e *claudeE2E) trustedDirs(t *testing.T) []string {
+	t.Helper()
+	return trustedDirsIn(t, e.claudeJSON)
+}

@@ -627,17 +627,6 @@ func workspaceID(t *testing.T, stateDir, base string) string {
 	return filepath.Base(matches[0])
 }
 
-// assertNoWorkspace checks that no workspace, and no state, is left with
-// an id made from a --name sanitized to base.
-func assertNoWorkspace(t *testing.T, paths *config.Paths, base string) {
-	t.Helper()
-	for _, dir := range []string{paths.Workspaces, paths.State} {
-		matches, err := filepath.Glob(filepath.Join(dir, base+"-*"))
-		require.NoError(t, err)
-		assert.Empty(t, matches)
-	}
-}
-
 // start creates a workspace named name with ws claude, as session id,
 // which Claude Code then lists, idle, in the workspace, and returns its
 // path.
@@ -832,22 +821,6 @@ func (e *claudeEnv) idle() {
 	}
 }
 
-// locked reports whether the workspace's lock is held.
-func (e *claudeEnv) locked(t *testing.T) bool {
-	t.Helper()
-	unlock, ok, err := lockfile.TryExclusive(e.lockPath)
-	require.NoError(t, err)
-	if ok {
-		unlock()
-	}
-	return !ok
-}
-
-func (e *claudeEnv) run(t *testing.T, args ...string) error {
-	t.Helper()
-	return e.app.runClaude(t.Context(), &claudeOptions{specs: []string{"buff-bear"}, claudeArgs: args})
-}
-
 // termFrame is one answer of a scripted terminal's Next.
 type termFrame struct {
 	data []byte
@@ -1000,12 +973,6 @@ func (e *claudeE2E) trustRoot(t *testing.T, trusted bool) {
 		return
 	}
 	writeClaudeJSON(t, e.claudeJSON)
-}
-
-// trustedDirs are the directories Claude Code's config trusts.
-func (e *claudeE2E) trustedDirs(t *testing.T) []string {
-	t.Helper()
-	return trustedDirsIn(t, e.claudeJSON)
 }
 
 // fakeClaudeScript writes an executable sh script standing in for claude
