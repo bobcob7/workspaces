@@ -219,9 +219,10 @@ export const startReview = createAppThunk<Started, StartRequest>(
   "reviews/start",
   async ({ pr, plan }, { extra, dispatch, getState, rejectWithValue }) => {
     try {
-      const started = await extra.api.reviewsStart(
-        plan ?? (await extra.api.reviewsPlan(pr.repo, pr.number, selectReviewEnvironment(getState(), pr.repo))),
-      );
+      const environment = selectReviewEnvironment(getState(), pr.repo);
+      const planned = plan ?? (await extra.api.reviewsPlan(pr.repo, pr.number, environment));
+      const quickRemote = plan === undefined && environment !== "local" && planned.permissionMode === "bypassPermissions";
+      const started = await extra.api.reviewsStart(quickRemote ? { ...planned, permissionMode: "" } : planned);
       const message = started.already ? `${started.id} is already reviewing it` : `Started ${started.id}`;
       dispatch(noticeShown({ severity: started.already ? "info" : "success", message }));
       await dispatch(fetchEntries());

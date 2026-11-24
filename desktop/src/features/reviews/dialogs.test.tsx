@@ -1,8 +1,8 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Api, RemoteEnvironment } from "../../api";
-import { fakeApi, pullRequest, remoteEnvironment, reviewPlan, reviewsView, testStore } from "../../test/fixtures";
+import { fakeApi, listedProfile, pullRequest, remoteEnvironment, reviewPlan, reviewsView, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { fetchReviews, openStartDialog, watchedOpened } from "./reviewsSlice";
 import { StartReviewDialog } from "./StartReviewDialog";
@@ -77,6 +77,27 @@ describe("WatchedReposDialog", () => {
     renderWithStore(<WatchedReposDialog />, store);
     await userEvent.click(screen.getByLabelText("Auto-review github.com/bobcob7/buff-bear"));
     expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", true, true, "linux-server");
+  });
+
+  it("offers only enrolled environments", async () => {
+    const pending = remoteEnvironment({ id: "p", name: "pending-box", state: "pending", status: "pending" });
+    const store = withEnvironments([remoteEnvironment(), pending]);
+    store.dispatch(fetchReviews.fulfilled(reviewsView(), "req"));
+    store.dispatch(watchedOpened());
+    renderWithStore(<WatchedReposDialog />, store);
+    await userEvent.click(screen.getByRole("combobox", { name: "Environment for github.com/bobcob7/buff-bear" }));
+    expect(screen.getByRole("option", { name: "linux-server" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /pending-box/ })).not.toBeInTheDocument();
+  });
+
+  it("hides the Environment column when no environment is enrolled", () => {
+    const pending = remoteEnvironment({ id: "p", name: "pending-box", state: "pending", status: "pending" });
+    const store = withEnvironments([pending]);
+    store.dispatch(fetchReviews.fulfilled(reviewsView(), "req"));
+    store.dispatch(watchedOpened());
+    renderWithStore(<WatchedReposDialog />, store);
+    expect(screen.queryByRole("columnheader", { name: "Environment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
   it("has no environment select when none is enrolled", () => {
@@ -195,6 +216,47 @@ describe("StartReviewDialog", () => {
       await openRemote([remoteEnvironment({ hello })], api);
       expect(await screen.findByRole("button", { name: "Start review" })).toBeDisabled();
       expect(screen.getByText(/claude isn't installed on linux-server/)).toBeInTheDocument();
+    });
+
+    const submitForm = (): void => {
+      const form = screen.getByLabelText("Focus").closest("form");
+      expect(form).not.toBeNull();
+      fireEvent.submit(form as HTMLFormElement);
+    };
+
+    it("does not start from Enter in the Focus field while the environment is offline", async () => {
+      const api = fakeApi({ reviewsPlan: vi.fn(async () => reviewPlan({ environment: "win-rig" })) });
+      await openRemote([offlineEnv()], api, "win-rig");
+      await screen.findByText(/win-rig is offline/);
+      submitForm();
+      expect(api.reviewsStart).not.toHaveBeenCalled();
+    });
+
+    it("does not start from a form submit while claude is missing on the environment", async () => {
+      const api = remoteApi();
+      const hello = { ...remoteEnvironment().hello!, claude: "missing" as const };
+      await openRemote([remoteEnvironment({ hello })], api);
+      await screen.findByText(/claude isn't installed on linux-server/);
+      submitForm();
+      expect(api.reviewsStart).not.toHaveBeenCalled();
+    });
+
+    it("does not show the previous environment's reviewers under the new environment", async () => {
+      let release: (items: ReturnType<typeof listedProfile>[]) => void = () => undefined;
+      const deferred = new Promise<ReturnType<typeof listedProfile>[]>((resolve) => {
+        release = resolve;
+      });
+      const reviewsProfiles = vi.fn(async (environment: string) => (environment === "mac-mini" ? deferred : [listedProfile({ name: "alpha-reviewer" })]));
+      const api = remoteApi({ reviewsProfiles });
+      await openRemote([remoteEnvironment(), second()], api);
+      expect(await screen.findByText(/Reviewers on linux-server: alpha-reviewer/)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+      await userEvent.click(screen.getByRole("option", { name: "mac-mini" }));
+      await waitFor(() => expect(reviewsProfiles).toHaveBeenCalledWith("mac-mini"));
+      expect(screen.queryByText(/Reviewers on mac-mini/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/alpha-reviewer/)).not.toBeInTheDocument();
+      release([listedProfile({ name: "beta-reviewer" })]);
+      expect(await screen.findByText(/Reviewers on mac-mini: beta-reviewer/)).toBeInTheDocument();
     });
 
     it("does not offer bypassPermissions on a remote review", async () => {

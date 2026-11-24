@@ -221,4 +221,22 @@ describe("review environments", () => {
     await remoteStore(api).dispatch(startReview({ pr: pullRequest() }));
     expect(api.reviewsPlan).toHaveBeenCalledWith(repoId, 42, "linux-server");
   });
+
+  it("quick-starts a remote review without bypassPermissions", async () => {
+    const api = fakeApi({ reviewsPlan: vi.fn(async () => reviewPlan({ permissionMode: "bypassPermissions", environment: "linux-server" })) });
+    await remoteStore(api).dispatch(startReview({ pr: pullRequest() }));
+    expect(api.reviewsStart).toHaveBeenCalledWith(reviewPlan({ permissionMode: "", environment: "linux-server" }));
+  });
+
+  it("keeps the planned permission mode of a remote quick start", async () => {
+    const api = fakeApi({ reviewsPlan: vi.fn(async () => reviewPlan({ permissionMode: "plan", environment: "linux-server" })) });
+    await remoteStore(api).dispatch(startReview({ pr: pullRequest() }));
+    expect(api.reviewsStart).toHaveBeenCalledWith(reviewPlan({ permissionMode: "plan", environment: "linux-server" }));
+  });
+
+  it("keeps bypassPermissions on a local quick start", async () => {
+    const api = fakeApi({ reviewsPlan: vi.fn(async () => reviewPlan({ permissionMode: "bypassPermissions" })) });
+    await testStore({ api, state: { reviews: { ...initial(), view: reviewsView() } } }).dispatch(startReview({ pr: pullRequest() }));
+    expect(api.reviewsStart).toHaveBeenCalledWith(reviewPlan({ permissionMode: "bypassPermissions" }));
+  });
 });

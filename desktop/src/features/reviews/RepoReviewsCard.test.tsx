@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fakeApi, reviewsView, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { RepoReviewsCard } from "./RepoReviewsCard";
@@ -24,6 +24,20 @@ describe("RepoReviewsCard", () => {
     renderCard("github.com/bobcob7/buff-bear", api);
     await userEvent.click(screen.getByRole("switch", { name: /Review new pull requests automatically/ }));
     expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", true, true, "local");
+  });
+
+  it("keeps the environment when either switch is toggled on a remote repo's card", async () => {
+    const view = reviewsView();
+    const [first, ...rest] = view.repos;
+    const remote = { ...view, repos: [{ ...first!, environment: "linux-server" }, ...rest] };
+    const api = fakeApi({ reviewsSetWatch: vi.fn(async () => remote) });
+    const store = testStore({ api });
+    store.dispatch(fetchReviews.fulfilled(remote, "req"));
+    renderWithStore(<RepoReviewsCard repoId="github.com/bobcob7/buff-bear" />, store);
+    await userEvent.click(screen.getByRole("switch", { name: /Watch pull requests/ }));
+    expect(api.reviewsSetWatch).toHaveBeenLastCalledWith("github.com/bobcob7/buff-bear", false, false, "linux-server");
+    await userEvent.click(screen.getByRole("switch", { name: /Review new pull requests automatically/ }));
+    expect(api.reviewsSetWatch).toHaveBeenLastCalledWith("github.com/bobcob7/buff-bear", true, true, "linux-server");
   });
 
   it("shows the repo's pull requests in Reviews", async () => {
