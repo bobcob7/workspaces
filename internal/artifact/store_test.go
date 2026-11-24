@@ -496,3 +496,75 @@ func TestStore_Put_allOrNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, res.Record.Revisions, 2)
 }
+
+const racers = 8
+
+func TestStore_Put_concurrentSameBase(t *testing.T) {
+	t.Parallel()
+	s, _ := newTestStore(t, fixedClock(testBase))
+	rec := addText(t, s, "notes.txt", "one\n")
+	errs := make([]error, racers)
+	var wg sync.WaitGroup
+	for i := range racers {
+		wg.Go(func() {
+			_, errs[i] = s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("two\n"), BaseRev: 1, By: Person()})
+		})
+	}
+	wg.Wait()
+	succeeded := 0
+	for _, err := range errs {
+		if err == nil {
+			succeeded++
+			continue
+		}
+		require.ErrorIs(t, err, ErrConflict)
+	}
+	assert.Equal(t, 1, succeeded)
+	_, _, _, err := s.Read(rec.ID, 0)
+	require.NoError(t, err)
+	stored, err := s.Show(rec.ID)
+	require.NoError(t, err)
+	assert.Len(t, stored.Record.Revisions, 2)
+}
+
+func TestStore_AddThread_concurrent(t *testing.T) {
+	t.Parallel()
+	s, _ := newTestStore(t, fixedClock(testBase))
+	rec := addText(t, s, "notes.txt", "one\n")
+	var wg sync.WaitGroup
+	for range racers {
+		wg.Go(func() {
+			_, _, err := s.AddThread(t.Context(), rec.ID, &NewThread{Body: "hi", By: Person()})
+			assert.NoError(t, err)
+		})
+	}
+	wg.Wait()
+	threads, err := s.Threads(rec.ID)
+	require.NoError(t, err)
+	ids := map[string]bool{}
+	for _, th := range threads {
+		ids[th.ID] = true
+	}
+	assert.Len(t, threads, racers)
+	assert.Len(t, ids, racers)
+}
+
+func TestStore_Put_concurrentRemove(t *testing.T) {
+	t.Parallel()
+	for range 20 {
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "notes.txt", "one\n")
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("two\n"), By: Person()})
+			if err != nil {
+				assert.ErrorIs(t, err, ErrNotFound)
+			}
+		})
+		wg.Go(func() {
+			assert.NoError(t, s.Remove(t.Context(), rec.ID))
+		})
+		wg.Wait()
+		assert.NoDirExists(t, filepath.Join(dir, rec.ID))
+	}
+}
