@@ -37,7 +37,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/mqttclient"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/review/record"
-	"github.com/bobcob7/workspaces/internal/review/store"
+	reviewstore "github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -699,7 +699,7 @@ const (
 func seedReview(t *testing.T, a *cliAgent, id string, comments []string) {
 	t.Helper()
 	paths := config.NewPaths(a.dir)
-	reviews := store.New(paths.Reviews)
+	reviews := reviewstore.New(paths.Reviews)
 	rec := record.Record{
 		Repo: "github.com/bobcob7/buff-bear", Ref: reviewCommit, StartedAt: time.Now().UTC(),
 		Profiles: []record.Profile{{Name: "security", Model: "opus"}},
