@@ -390,7 +390,7 @@ func (s *Store) appendRevision(dir string, rec *Record, n *NewRevision) (PutResu
 // record write is the commit point: the revision file and the moved anchors
 // are written first, and undone if the record can't be written.
 func (s *Store) commitRevision(dir string, rec *Record, data []byte) (PutResult, error) {
-	old, threads, anchored, detached, err := s.moveAnchors(dir, rec, data)
+	old, threads, anchored, detached, err := moveAnchors(dir, rec, data)
 	if err != nil {
 		return PutResult{}, err
 	}
@@ -418,7 +418,7 @@ func (s *Store) commitRevision(dir string, rec *Record, data []byte) (PutResult,
 // to the latest revision of rec, whose bytes are data. Nothing is written;
 // the moved threads are nil when there is nothing to write. A quote that is
 // gone leaves the thread detached at its last anchor.
-func (s *Store) moveAnchors(dir string, rec *Record, data []byte) ([]Thread, []Thread, int, int, error) {
+func moveAnchors(dir string, rec *Record, data []byte) ([]Thread, []Thread, int, int, error) {
 	if rec.Kind == KindImage {
 		return nil, nil, 0, 0, nil
 	}
