@@ -1,6 +1,6 @@
 import { Alert, Button } from "@mui/material";
 import { useEffect, useState, type JSX } from "react";
-import type { RemoteEnvironment } from "../../api";
+import { api as backend, type Api, type RemoteEnvironment } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { statusIsOld } from "../environments/environments";
 import { fetchEnvironments } from "../environments/environmentsSlice";
@@ -86,8 +86,13 @@ const EnvironmentRow = ({ env, onRotate, onRemove }: RowProps): JSX.Element => {
 
 type Dialog = { readonly kind: "add" } | { readonly kind: "rotate"; readonly name: string } | { readonly kind: "remove"; readonly env: RemoteEnvironment };
 
+interface EnvironmentsGroupProps {
+  /** The calls that handle the enrollment code and the CA; a test passes a fake. */
+  readonly client?: Pick<Api, "environmentAdd" | "environmentRotate" | "environmentsCaStatus">;
+}
+
 /** Settings › Environments: the machines this one controls, enrolling them, and the CA and keys behind that (ADRs 0072, 0075). */
-export const EnvironmentsGroup = (): JSX.Element => {
+export const EnvironmentsGroup = ({ client = backend }: EnvironmentsGroupProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const { items, loadedAt, error, warnings } = useAppSelector((s) => s.environments);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -129,10 +134,10 @@ export const EnvironmentsGroup = (): JSX.Element => {
           Add environment
         </Button>
       </div>
-      <CaCard />
+      <CaCard client={client} />
       <EnvironmentSettingsCard />
-      {dialog?.kind === "add" && <AddEnvironmentDialog onClose={() => setDialog(null)} />}
-      {dialog?.kind === "rotate" && <AddEnvironmentDialog rotate={dialog.name} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "add" && <AddEnvironmentDialog client={client} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "rotate" && <AddEnvironmentDialog client={client} rotate={dialog.name} onClose={() => setDialog(null)} />}
       {dialog?.kind === "remove" && <RemoveEnvironmentDialog environment={dialog.env} onClose={() => setDialog(null)} />}
     </section>
   );
