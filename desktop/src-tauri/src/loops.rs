@@ -393,13 +393,12 @@ fn clean_script(req: &NewLoop) -> Option<&str> {
 /// that differ are sent, so a value the agent redacted is never written back
 /// over the secret (R3). A local loop always sends every field.
 pub fn edit_args(req: &NewLoop) -> Vec<String> {
-    let previous = remote_env(req.environment.as_deref()).and_then(|_| req.previous.as_deref());
+    let previous = remote_env(req.environment.as_deref()).and(req.previous.as_deref());
     let changed =
-        |differs: fn(&NewLoop, &NewLoop) -> bool| previous.map_or(true, |prev| differs(prev, req));
+        |differs: fn(&NewLoop, &NewLoop) -> bool| previous.is_none_or(|prev| differs(prev, req));
     let mut args = base(&["edit"], req.environment.as_deref(), req.confirmed);
-    let title = |r: &NewLoop| non_blank(r.title.as_deref()).unwrap_or("").to_string();
     if changed(|a, b| title_of(a) != title_of(b)) {
-        args.push(format!("--title={}", title(req)));
+        args.push(format!("--title={}", title_of(req)));
     }
     if changed(|a, b| a.every.trim() != b.every.trim()) {
         args.push(format!("--every={}", req.every.trim()));
