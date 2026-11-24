@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -203,9 +204,17 @@ func TestApp_runLoopEnv(t *testing.T) {
 		_, args = sentArgs(t, caller)
 		assert.InDelta(t, 0, args["limit"], 0)
 	})
+	t.Run("history --env accepts the largest limit", func(t *testing.T) {
+		reply := `{"loop":"deps","runs":[],"total":0,"warnings":[]}`
+		code, e, caller := loopEnvRun(t, reply, "history", "deps", "--limit", strconv.Itoa(envproto.MaxHistoryLimit), "--env", "linux-server")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		op, args := sentArgs(t, caller)
+		assert.Equal(t, envproto.OpLoopHistory, op)
+		assert.Equal(t, map[string]any{"name": "deps", "limit": float64(envproto.MaxHistoryLimit)}, args)
+	})
 	t.Run("history --env refuses a limit the environment would", func(t *testing.T) {
-		code, _, caller := loopEnvRun(t, `{}`, "history", "deps", "--limit", "101", "--env", "linux-server")
-		assert.Equal(t, exitUsage, code)
+		code, e, caller := loopEnvRun(t, `{}`, "history", "deps", "--limit", strconv.Itoa(envproto.MaxHistoryLimit+1), "--env", "linux-server")
+		assert.Equal(t, exitUsage, code, e.stderr.String())
 		assert.Empty(t, caller.CallEnvironmentCalls())
 	})
 	t.Run("history --run --env sends loop.history_run", func(t *testing.T) {
@@ -588,7 +597,7 @@ func TestApp_runLoopList(t *testing.T) {
 		useCaller(e.app, caller)
 		code := e.app.Run(t.Context(), []string{"loop", "list", "--env", "linux-server", "--json"})
 		assert.NotEqual(t, exitOK, code)
-		assert.Len(t, caller.CallEnvironmentCalls(), maxRemoteLoopPages)
+		assert.Len(t, caller.CallEnvironmentCalls(), 1000)
 	})
 	t.Run("--cached reads the snapshot and asks nobody", func(t *testing.T) {
 		e, caller, rec := newEnvOpApp(t, `{}`)
