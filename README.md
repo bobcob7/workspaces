@@ -273,6 +273,11 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   Not yet: a remote agent's conversation view, stopping a `ws` runner agent
   on a remote, and Windows
 - [x] **Artifacts** ([0078](docs/adrs/0078-artifacts.md), [0079](docs/adrs/0079-artifact-comments-and-anchors.md)): done
+- [ ] **Windows environment agent** ([0081](docs/adrs/0081-windows-environment-agent.md),
+  proposed): `ws env agent run` built natively for Windows, with terminals and
+  `agent.send` refused (`platform_unsupported`) until ConPTY
+  ([design](docs/design/env-windows/tasks.md)). Not built yet; `ws` doesn't
+  compile for Windows today, and nothing has been run on a Windows machine
 
 Longer term, `ws` aims to depend on no particular model, provider or
 agent harness, with Claude Code staying the default until measured runs

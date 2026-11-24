@@ -1,6 +1,6 @@
 # 0076. Remote environments ship Linux and macOS first; Windows follows a spike that decides the session model; the build is four stacked PRs
 
-- Status: Accepted (2026-11-23); phase 1 (Linux and macOS agents, the four PRs) is done
+- Status: Accepted (2026-11-23); phase 1 (Linux and macOS agents, the four PRs) is done; "Until then" amended by [0081](0081-windows-environment-agent.md) (proposed)
 - Date: 2026-11-22
 
 ## Context
@@ -115,6 +115,18 @@ sessions work there.
 - Conformance: CI cross-compiles `GOOS=linux,darwin` agents for
   `amd64,arm64`; a `windows` job is added with the spike's outcome.
 - **Unverified:** everything about Windows above.
+
+## Amendments (ADR 0081, Windows)
+
+Proposed in [0081](0081-windows-environment-agent.md), 2026-11-24.
+
+- **"Until then" never shipped.** No `unsupported` exit was built: `ws`
+  didn't compile for Windows at all, so there was nothing to refuse. 0081
+  replaces the sentence: `ws env agent run` runs on Windows, and only
+  terminals and `agent.send` refuse, with `platform_unsupported`.
+- **Spike question 2 is answered** from cross-compiling, in
+  [constraints.md](../design/env-windows/constraints.md). Questions 1 and
+  3-5 are still open: nothing has been run on a Windows machine.
 
 ## References
 
