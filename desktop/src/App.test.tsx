@@ -17,6 +17,12 @@ describe("App", () => {
     expect(api.onTraySelect).toHaveBeenCalledTimes(1);
   });
 
+  it("starts polling the environments on mount", () => {
+    const api = fakeApi();
+    renderWithStore(<App />, testStore({ api }));
+    expect(api.environmentsList).toHaveBeenCalledTimes(1);
+  });
+
   it("opens on Agents with its actions", () => {
     renderWithStore(<App />, testStore());
     expect(screen.getByRole("button", { name: "Restore stopped" })).toBeInTheDocument();

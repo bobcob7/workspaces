@@ -3,7 +3,6 @@ import { fakeApi, remoteEnvironment, testStore } from "../../test/fixtures";
 import {
   environmentsReducer,
   fetchEnvironments,
-  lastChoiceKey,
   lastChoiceSet,
   removeEnvironment,
   rotateCa,
@@ -30,8 +29,13 @@ describe("environmentsReducer", () => {
   });
 
   it("reads the last choice from localStorage", () => {
-    window.localStorage.setItem(lastChoiceKey, "win-rig");
+    window.localStorage.setItem("ws.environment.last", "win-rig");
     expect(environmentsReducer(undefined, { type: "@@init" }).lastChoice).toBe("win-rig");
+  });
+
+  it("falls back to local when the stored choice is empty", () => {
+    window.localStorage.setItem("ws.environment.last", "");
+    expect(environmentsReducer(undefined, { type: "@@init" }).lastChoice).toBe("local");
   });
 
   it("falls back to local when storage throws", () => {
@@ -112,7 +116,7 @@ describe("environmentsReducer", () => {
   it("remembers the last choice and writes it to localStorage", () => {
     const next = environmentsReducer(initial, lastChoiceSet("linux-server"));
     expect(next.lastChoice).toBe("linux-server");
-    expect(window.localStorage.getItem(lastChoiceKey)).toBe("linux-server");
+    expect(window.localStorage.getItem("ws.environment.last")).toBe("linux-server");
   });
 
   it("keeps the choice when storage throws on write", () => {

@@ -25,6 +25,16 @@ describe("offlineReason", () => {
     expect(offlineReason(env, now)).toMatch(/^win-rig is offline \(last seen 2026-11-\d\d \d\d:\d\d\)$/);
   });
 
+  it("adds the date when it was last seen on the same day of another month", () => {
+    const env = remoteEnvironment({ name: "win-rig", status: "offline", lastSeen: "2026-10-23T12:00:00Z" });
+    expect(offlineReason(env, now)).toMatch(/^win-rig is offline \(last seen 2026-10-\d\d \d\d:\d\d\)$/);
+  });
+
+  it("says a pending environment hasn't enrolled yet", () => {
+    const env = remoteEnvironment({ name: "fresh", state: "pending", status: "pending" });
+    expect(offlineReason(env, now)).toBe("fresh hasn't enrolled yet");
+  });
+
   it("says the daemon isn't running when the status is unknown", () => {
     const env = remoteEnvironment({ name: "win-rig", status: "unknown" });
     expect(offlineReason(env, now)).toBe("win-rig is offline (the ws daemon isn't running)");
