@@ -2092,6 +2092,13 @@ esac"#,
         deps.store
             .update(|d| {
                 d.settings.reviews.permission_mode = "bypassPermissions".to_string();
+                d.settings.reviews.profiles.insert(
+                    "security".to_string(),
+                    ProfileSetting {
+                        runs: Runs::Always,
+                        model: "opus".to_string(),
+                    },
+                );
                 d.reviews.auto_started.clear();
             })
             .unwrap();
