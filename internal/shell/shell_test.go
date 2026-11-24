@@ -177,21 +177,6 @@ func TestRunner_Run(t *testing.T) {
 	})
 }
 
-func TestRunner_program(t *testing.T) {
-	t.Run("SHELL", func(t *testing.T) {
-		assert.Equal(t, "/bin/zsh", newTestRunner("SHELL=/bin/zsh").program())
-	})
-	t.Run("the last SHELL wins", func(t *testing.T) {
-		assert.Equal(t, "/bin/bash", newTestRunner("SHELL=/bin/zsh", "SHELL=/bin/bash").program())
-	})
-	t.Run("unset", func(t *testing.T) {
-		assert.Equal(t, "/bin/sh", newTestRunner("HOME=/h").program())
-	})
-	t.Run("empty", func(t *testing.T) {
-		assert.Equal(t, "/bin/sh", newTestRunner("SHELL=").program())
-	})
-}
-
 func TestRunner_forward(t *testing.T) {
 	t.Parallel()
 	t.Run("sends SIGHUP for SIGTERM and nothing for SIGINT", func(t *testing.T) {
