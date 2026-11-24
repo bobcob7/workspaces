@@ -14,6 +14,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/proc"
+	"github.com/bobcob7/workspaces/internal/procgroup"
 	"github.com/bobcob7/workspaces/internal/runner"
 )
 
@@ -67,7 +68,7 @@ func TestOSStarter_Signal(t *testing.T) {
 	t.Parallel()
 	t.Run("interrupts the process group", func(t *testing.T) {
 		cmd := exec.CommandContext(t.Context(), "sleep", "30")
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		cmd.SysProcAttr = procgroup.Detached()
 		require.NoError(t, cmd.Start())
 		done := make(chan struct{})
 		go func() {
