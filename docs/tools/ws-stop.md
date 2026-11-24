@@ -33,5 +33,6 @@ a `ws` runner agent on a remote isn't supported yet.
 ## Output
 
 With `--json`, `{"stopped": [{"workspace", "session", "stopped", "environment"}]}`,
-one item per workspace. `session` is `null` without an agent; `stopped` is
-`false` when the agent had already ended. The full guide is `ws llm stop`.
+one item per workspace. `session` is `null` for a local stop of a workspace without an
+agent; a remote stop (`--env`) always returns the session, and errors if the
+workspace has no agent. `stopped` is `false` when the agent had already ended. The full guide is `ws llm stop`.

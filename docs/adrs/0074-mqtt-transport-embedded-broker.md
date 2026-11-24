@@ -215,7 +215,10 @@ Each one replaces the text above it.
   the terminal on an input gap rather than guess. Output stays QoS 0.
 - **Frames, not requests.** `terminal.input`, `terminal.resize`,
   `terminal.redraw` and the ping are binary frames on `stream/<sid>/in`, not
-  requests on `req`. Only `terminal.open` and `terminal.close` are requests.
+  requests on `req`. Only `terminal.open` and `terminal.close` are requests. Closing a
+  terminal does both: the controller sends a close frame (`c`) on
+  `stream/<sid>/in` and the `terminal.close` request, so the agent ends the
+  pty whichever arrives first.
   A frame is a version byte, a kind byte, a big-endian 64-bit sequence number
   and a body (`internal/envproto/terminal.go`). Output kinds are data (`d`),
   dropped (`g`) and exit (`x`); input kinds are input (`i`), resize (`r`),

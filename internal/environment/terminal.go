@@ -42,6 +42,9 @@ type Terminal struct {
 	// ctx ends when Close is called; the goroutines publish on it.
 	ctx    context.Context //nolint:containedctx // it bounds the terminal's goroutines, like a server's base context.
 	cancel context.CancelFunc
+	// closing ends when Close starts, which releases publishes stuck on a caller's ctx.
+	closing       context.Context //nolint:containedctx // it only releases publishes that hold inMu.
+	cancelClosing context.CancelFunc
 	// endCh closes when the terminal ends, and stopped when its goroutines have returned.
 	endCh   chan struct{}
 	stopped chan struct{}
@@ -169,19 +172,22 @@ func (o *openedTerminal) get() (*Terminal, envproto.TerminalOpenResult) {
 // newTerminal returns a terminal of environment env that isn't registered or running.
 func (c *Controller) newTerminal(env, name, sid string) *Terminal {
 	ctx, cancel := context.WithCancel(context.Background())
+	closing, cancelClosing := context.WithCancel(context.Background())
 	return &Terminal{
-		c:       c,
-		log:     c.log,
-		env:     env,
-		name:    name,
-		sid:     sid,
-		ctx:     ctx,
-		cancel:  cancel,
-		endCh:   make(chan struct{}),
-		stopped: make(chan struct{}),
-		wake:    make(chan struct{}, 1),
-		redraw:  make(chan struct{}, 1),
-		out:     make(chan []byte),
+		c:             c,
+		log:           c.log,
+		env:           env,
+		name:          name,
+		sid:           sid,
+		ctx:           ctx,
+		cancel:        cancel,
+		closing:       closing,
+		cancelClosing: cancelClosing,
+		endCh:         make(chan struct{}),
+		stopped:       make(chan struct{}),
+		wake:          make(chan struct{}, 1),
+		redraw:        make(chan struct{}, 1),
+		out:           make(chan []byte),
 	}
 }
 
@@ -504,6 +510,7 @@ func (t *Terminal) discard() {
 	}
 	t.finish(envproto.TerminalExit{Reason: "closed"})
 	t.cancel()
+	t.cancelClosing()
 }
 
 // isEnded reports whether the terminal has ended.
@@ -518,9 +525,22 @@ func (t *Terminal) isEnded() bool {
 // frame would look like a gap, which the agent answers by closing the terminal
 // rather than run lost keystrokes; so a failure ends the terminal here too.
 func (t *Terminal) send(ctx context.Context, kind envproto.FrameKind, body []byte) error {
+	ctx, release := t.releasedByClose(ctx)
+	defer release()
 	t.inMu.Lock()
 	defer t.inMu.Unlock()
 	return t.sendLocked(ctx, kind, body)
+}
+
+// releasedByClose returns a ctx that also ends when Close starts, so a publish
+// holding inMu never keeps Close waiting.
+func (t *Terminal) releasedByClose(ctx context.Context) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(t.closing, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // sendLocked is send with t.inMu held.
@@ -539,7 +559,9 @@ func (t *Terminal) sendLocked(ctx context.Context, kind envproto.FrameKind, body
 		QoS:     1,
 	})
 	if err != nil {
-		t.finish(envproto.TerminalExit{Reason: "disconnected"})
+		if t.closing.Err() == nil {
+			t.finish(envproto.TerminalExit{Reason: "disconnected"})
+		}
 		return fmt.Errorf("sending to terminal %s: %w", t.sid, err)
 	}
 	return nil
@@ -550,6 +572,8 @@ func (t *Terminal) sendLocked(ctx context.Context, kind envproto.FrameKind, body
 // fails, including one cut short by ctx, ends the whole terminal, so callers
 // must pass a long-lived ctx, not a request-scoped one.
 func (t *Terminal) Input(ctx context.Context, p []byte) error {
+	ctx, release := t.releasedByClose(ctx)
+	defer release()
 	t.inMu.Lock()
 	defer t.inMu.Unlock()
 	for len(p) > 0 {
@@ -572,9 +596,16 @@ func (t *Terminal) Resize(ctx context.Context, cols, rows int) error {
 }
 
 // Close sends a close frame and terminal.close, and ends the terminal. It is
-// safe to call twice. A terminal that already ended sends nothing.
+// safe to call twice. A terminal that already ended sends nothing. The sends
+// don't depend on ctx's cancellation, since a closed ctx is the usual reason
+// to close; they are bounded by the abandoned-close wait instead.
 func (t *Terminal) Close(ctx context.Context) error {
-	t.closeOnce.Do(func() { t.closeErr = t.closeNow(ctx) })
+	t.closeOnce.Do(func() {
+		t.cancelClosing()
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), t.c.abandonedCloseWait)
+		defer cancel()
+		t.closeErr = t.closeNow(ctx)
+	})
 	return t.closeErr
 }
 
@@ -590,7 +621,9 @@ func (t *Terminal) closeNow(ctx context.Context) error {
 
 // notifyClose sends the close frame and the terminal.close request.
 func (t *Terminal) notifyClose(ctx context.Context) error {
-	frameErr := t.send(ctx, envproto.FrameClose, nil)
+	t.inMu.Lock()
+	frameErr := t.sendLocked(ctx, envproto.FrameClose, nil)
+	t.inMu.Unlock()
 	if errors.Is(frameErr, ErrTerminalEnded) {
 		return nil
 	}

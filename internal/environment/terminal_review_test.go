@@ -3,6 +3,7 @@ package environment
 import (
 	"bytes"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -38,6 +39,21 @@ func (t *Terminal) seen() uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.lastSeq
+}
+
+var errPublish = errors.New("publish refused")
+
+// failBroker refuses every close frame.
+type failBroker struct {
+	broker
+	err error
+}
+
+func (b *failBroker) Publish(ctx context.Context, msg envproto.Message) error {
+	if frame, err := envproto.UnmarshalFrame(msg.Payload); err == nil && frame.Kind == envproto.FrameClose {
+		return b.err
+	}
+	return b.broker.Publish(ctx, msg)
 }
 
 func TestController_deliver(t *testing.T) {
@@ -156,13 +172,12 @@ func TestTerminal_Hardening(t *testing.T) {
 	})
 	t.Run("a close whose frame cannot be published still reports it", func(t *testing.T) {
 		f := newTermFixture(t)
+		f.c.broker = &failBroker{broker: f.c.broker, err: errPublish}
 		term := f.open(t)
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel()
-		err := term.Close(ctx)
+		err := term.Close(t.Context())
 		require.Error(t, err)
 		require.ErrorContains(t, err, "sending to terminal "+testSID)
-		assert.ErrorIs(t, err, context.Canceled)
+		assert.ErrorIs(t, err, errPublish)
 	})
 	t.Run("a gap inside RedrawEvery gets a trailing redraw when the window ends", func(t *testing.T) {
 		f := newTermFixture(t)
