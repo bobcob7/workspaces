@@ -272,19 +272,6 @@ func (o *agentOperations) loopMemorySet(ctx context.Context, a *envproto.LoopMem
 	return o.runLoopCLIStdin(ctx, strings.NewReader(a.Value), loopMemorySetArgv(o.app.paths.Root, a))
 }
 
-// loopFields runs ws loop list and returns its object's fields.
-func (o *agentOperations) loopFields(ctx context.Context, argv []string) (map[string]json.RawMessage, error) {
-	out, err := o.runCLI(ctx, argv)
-	if err != nil {
-		return nil, err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(out, &fields); err != nil {
-		return nil, &envproto.ReplyError{Code: string(codeInternal), Message: "the loop command printed an unexpected object"}
-	}
-	return fields, nil
-}
-
 // redactedFields is the stdout object of argv with every string redacted,
 // and the number of replacements.
 func (o *agentOperations) redactedFields(ctx context.Context, argv []string) (map[string]json.RawMessage, int, error) {
@@ -380,8 +367,10 @@ func loopSnapshotOf(item json.RawMessage) json.RawMessage {
 	if err := json.Unmarshal(item, &l); err != nil {
 		return mustMarshal(map[string]any{"truncated": true})
 	}
-	small := envproto.SnapshotLoop{Name: l.Name, Title: l.Title, Every: l.Every, Paused: l.Paused, Hidden: l.Hidden,
-		Runner: l.Runner, NextRunAt: l.NextRunAt, LastRun: nullIfEmpty(l.LastRun), LastGate: nullIfEmpty(l.LastGate)}
+	small := envproto.SnapshotLoop{
+		Name: l.Name, Title: l.Title, Every: l.Every, Paused: l.Paused, Hidden: l.Hidden, Runner: l.Runner,
+		NextRunAt: l.NextRunAt, LastRun: nullIfEmpty(l.LastRun), LastGate: nullIfEmpty(l.LastGate),
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(mustMarshal(small), &fields); err != nil {
 		return mustMarshal(map[string]any{"truncated": true})

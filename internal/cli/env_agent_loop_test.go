@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func (e *loopEnv) call(t *testing.T, op, raw string) (map[string]any, error) {
 	return callReview(t, e.ops, op, raw)
 }
 
-func (e *loopEnv) get(t *testing.T, name string) loop.Loop {
+func (e *loopEnv) get(t *testing.T, name string) loop.Loop { //nolint:unparam // Every test reads loop deps today.
 	t.Helper()
 	l, err := e.loops.Get(name)
 	require.NoError(t, err)
@@ -259,7 +260,8 @@ func TestAgentOperations_loop(t *testing.T) {
 		for _, entry := range entries {
 			m, isMap := entry.(map[string]any)
 			require.True(t, isMap)
-			byKey[m["key"].(string)] = m
+			key, _ := m["key"].(string)
+			byKey[key] = m
 		}
 		big, _ := byKey["big"]["value"].(string)
 		assert.LessOrEqual(t, len(big), envproto.MaxMemoryPreview)
@@ -458,8 +460,7 @@ func TestAgentOperations_loop(t *testing.T) {
 }
 
 func itoa(n int) string {
-	b, _ := json.Marshal(n)
-	return string(b)
+	return strconv.Itoa(n)
 }
 
 // writeHistory gives loop deps one succeeded run, run 1, with report.
