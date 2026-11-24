@@ -372,6 +372,22 @@
     builtins[2],
   ];
 
+  // What `ws loop list --env <name> --cached` reads from the snapshot: no
+  // prompt, script or vars (a summary), and stale when offline.
+  const remoteLoops = (environment) => {
+    const offline = environment === "win-rig";
+    const summary = (name, title, every, paused, nextRunAt, hasScript) => ({
+      name, title, every, prompt: null, specs: null, model: null, permissionMode: null, keep: null,
+      paused, createdAt: null, nextRunAt, lastRun: null, script: hasScript ? "" : null, scriptTimeout: null, vars: null,
+      lastGate: hasScript ? { at: "2026-11-23T08:00:02Z", outcome: "passed", exitCode: 0, message: null } : null,
+      hidden: true, runner: "claude", endpoint: null, summary: true, environment, stale: offline,
+    });
+    const loops = offline
+      ? [summary("rig-nightly", "Nightly build", "24h", false, null, false)]
+      : [summary("disk-watch", "Disk watch", "1h", false, "2026-11-23T09:00:00Z", true), summary("log-triage", "", "6h", true, null, false)];
+    return { loops, warnings: [], environmentStatus: offline ? "offline" : "online", loopsUnknown: false };
+  };
+
   const data = {
     roles: initialRoles(),
     environments: [
@@ -1409,7 +1425,12 @@
       data.roles = restored ? data.roles.map((role) => (role.name === name ? builtin : role)) : data.roles.filter((role) => role.name !== name);
       return { name, path: `${roleDir}/${name}.md`, restored };
     },
-    loops_list: () => ({ loops: data.loops.map((loop) => ({ runner: "claude", endpoint: null, ...loop })), warnings: [] }),
+    loops_list: ({ environment } = {}) => {
+      if (environment === "linux-server" || environment === "win-rig") {
+        return remoteLoops(environment);
+      }
+      return { loops: data.loops.map((loop) => ({ runner: "claude", endpoint: null, ...loop })), warnings: [] };
+    },
     loops_add: ({ request }) => {
       const added = { ...loopFields(request), name: request.name, paused: false, createdAt: "2026-10-24T12:00:00Z", nextRunAt: "2026-10-24T13:00:00Z", lastRun: null, lastGate: null };
       data.loops = [...data.loops, added];

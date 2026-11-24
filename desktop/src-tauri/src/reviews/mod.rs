@@ -185,6 +185,12 @@ pub async fn reviews_plan(
     number: u64,
     environment: Option<String>,
 ) -> CmdResult<ReviewPlan> {
+    let environment = environment
+        .filter(|e| !e.is_empty())
+        .or_else(|| state.store.get().reviews.watch(&repo).environment);
+    if let Some(name) = remote_env(environment.as_deref()) {
+        crate::pty::check_env_name(name)?;
+    }
     let pr = state.reviews.pull_request(&repo, number).ok_or_else(|| {
         AppError::new(
             "pr_not_found",
@@ -192,9 +198,6 @@ pub async fn reviews_plan(
         )
     })?;
     let settings = state.store.get().settings.reviews;
-    let environment = environment
-        .filter(|e| !e.is_empty())
-        .or_else(|| state.store.get().reviews.watch(&repo).environment);
     let mut plan =
         plan::build(&state.runner, &repo, &pr, &settings, environment.as_deref()).await?;
     plan.forge = state.reviews.forge_of(&repo).unwrap_or_default();
@@ -234,6 +237,9 @@ pub async fn reviews_profiles(
     state: State<'_, AppState>,
     environment: Option<String>,
 ) -> CmdResult<Vec<ListedProfile>> {
+    if let Some(name) = remote_env(environment.as_deref()) {
+        crate::pty::check_env_name(name)?;
+    }
     profiles::list(&state.runner, environment.as_deref()).await
 }
 
@@ -300,6 +306,9 @@ pub async fn reviews_profile_remove(
 /// exists isn't an error.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_start(state: State<'_, AppState>, plan: ReviewPlan) -> CmdResult<Started> {
+    if let Some(name) = remote_env(plan.environment.as_deref()) {
+        crate::pty::check_env_name(name)?;
+    }
     state.reviews.start_review(&state.runner, &plan).await
 }
 

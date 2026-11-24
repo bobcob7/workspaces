@@ -1,8 +1,9 @@
 //! Agent loops (ADR 0048): `ws loop … --json`, and a `ws loop tick` every
 //! minute while the app is open.
 
-use crate::commands::AppState;
+use crate::commands::{env_args, AppState};
 use crate::ipc::State;
+use crate::pty::remote_env;
 use crate::runner::{AppError, Runner};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,12 +47,17 @@ pub struct Loop {
     #[serde(default)]
     pub title: String,
     pub every: String,
+    /// Null in a summary loop read from a snapshot.
+    #[serde(default, deserialize_with = "null_default")]
     pub prompt: String,
+    #[serde(default, deserialize_with = "null_default")]
     pub specs: Vec<String>,
     pub model: Option<String>,
     pub permission_mode: Option<String>,
+    #[serde(default, deserialize_with = "null_default")]
     pub keep: u32,
     pub paused: bool,
+    #[serde(default, deserialize_with = "null_default")]
     pub created_at: String,
     pub next_run_at: Option<String>,
     pub last_run: Option<LoopRun>,
@@ -59,7 +65,7 @@ pub struct Loop {
     pub script: Option<String>,
     #[serde(default)]
     pub script_timeout: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub vars: BTreeMap<String, String>,
     #[serde(default)]
     pub last_gate: Option<LoopGate>,
@@ -72,16 +78,40 @@ pub struct Loop {
     /// The endpoint a `ws` loop's runs use instead of the model's.
     #[serde(default)]
     pub endpoint: Option<String>,
+    /// The environment a remote loop lives on; None for a local one.
+    #[serde(default)]
+    pub environment: Option<String>,
+    /// The snapshot is old or the environment offline (`ws loop list --env`).
+    #[serde(default)]
+    pub stale: bool,
+    /// Read from a snapshot: no prompt, script or vars.
+    #[serde(default)]
+    pub summary: bool,
 }
 
 fn default_true() -> bool {
     true
 }
 
+/// A JSON null, or a missing value, becomes the type's default.
+fn null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all(deserialize = "snake_case", serialize = "camelCase"))]
 pub struct Loops {
     pub loops: Vec<Loop>,
+    #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub environment_status: Option<String>,
+    #[serde(default)]
+    pub loops_unknown: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -230,23 +260,57 @@ pub struct NewLoop {
     pub runner: Option<String>,
     #[serde(default)]
     pub endpoint: Option<String>,
+    /// The environment the loop lives on; None or `local` is this machine.
+    #[serde(default)]
+    pub environment: Option<String>,
+    /// The user confirmed what a remote loop runs; sends `--yes`.
+    #[serde(default)]
+    pub confirmed: bool,
+    /// The loop's values before the edit; a remote edit sends only the
+    /// fields that differ (R3's round-trip rule).
+    #[serde(default)]
+    pub previous: Option<Box<NewLoop>>,
 }
 
 fn non_blank(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
 }
 
+/// The loop's environment when it names a remote one, checked so `ws` can't
+/// take it for an option or several arguments.
+fn target(environment: Option<&str>) -> CmdResult<Option<&str>> {
+    let Some(name) = remote_env(environment) else {
+        return Ok(None);
+    };
+    crate::pty::check_env_name(name)?;
+    Ok(Some(name))
+}
+
+/// `["loop", <sub>…, ("--env=<name>"), ("--yes")]`: the flags come right
+/// after the subcommand.
+fn base(sub: &[&str], environment: Option<&str>, confirmed: bool) -> Vec<String> {
+    let mut args = vec!["loop".to_string()];
+    args.extend(sub.iter().map(|s| s.to_string()));
+    args.extend(env_args(environment));
+    if confirmed {
+        args.push("--yes".to_string());
+    }
+    args
+}
+
 /// `ws loop add` without `--json`, which the runner adds:
-/// ["loop", "add", ("--title=<t>"), "--every=<every>", "--prompt=<prompt>",
-///  ("--keep=<n>"), ("--runner=ws"), ("--endpoint=<e>"), ("--model=<m>"),
-///  ("--permission-mode=<p>"), ("--hidden=<b>"), ("--script=<s>"),
-///  ("--script-timeout=<t>"), ("--var=<k>=<v>")..., "--", <name>, <specs...>].
+/// ["loop", "add", ("--env=<e>"), ("--yes"), ("--title=<t>"), "--every=<every>",
+///  "--prompt=<prompt>", ("--keep=<n>"), ("--runner=ws"), ("--endpoint=<e>"),
+///  ("--model=<m>"), ("--permission-mode=<p>"), ("--hidden=<b>"),
+///  ("--script=<s>"), ("--script-timeout=<t>"), ("--var=<k>=<v>")...,
+///  "--", <name>, <specs...>].
+/// `--yes` is sent only when the request is confirmed.
 /// Blank optional values, and blank specs, are left out; values are trimmed,
 /// except the script (whose whitespace matters) and a var's value.
 /// A script timeout needs a script; a var needs a non-blank key. The claude
 /// runner adds no runner flag.
 pub fn add_args(req: &NewLoop) -> Vec<String> {
-    let mut args = vec!["loop".to_string(), "add".to_string()];
+    let mut args = base(&["add"], req.environment.as_deref(), req.confirmed);
     if let Some(title) = non_blank(req.title.as_deref()) {
         args.push(format!("--title={title}"));
     }
@@ -292,12 +356,32 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
     args
 }
 
+fn clean_specs(req: &NewLoop) -> Vec<String> {
+    req.specs
+        .iter()
+        .filter_map(|s| non_blank(Some(s)).map(str::to_string))
+        .collect()
+}
+
+fn clean_vars(req: &NewLoop) -> Vec<String> {
+    req.vars
+        .iter()
+        .filter_map(|var| {
+            non_blank(Some(var.key.as_str())).map(|key| format!("--var={key}={}", var.value))
+        })
+        .collect()
+}
+
+fn clean_script(req: &NewLoop) -> Option<&str> {
+    req.script.as_deref().filter(|s| !s.trim().is_empty())
+}
+
 /// `ws loop edit` without `--json`, which the runner adds. Every field is
 /// sent, so the request replaces the loop's editable fields (ADR 0052):
-/// ["loop", "edit", "--title=<t>", "--every=<every>", "--prompt=<prompt>",
-///  ("--keep=<n>"), ("--runner=<r>", "--endpoint=<e or "">"), "--model=<m>",
-///  ("--permission-mode=<p>" unless the runner is ws), ("--hidden=<b>"),
-///  ("--script=<s>", ("--script-timeout=<t>")) | "--no-script",
+/// ["loop", "edit", ("--env=<e>"), ("--yes"), "--title=<t>", "--every=<every>",
+///  "--prompt=<prompt>", ("--keep=<n>"), ("--runner=<r>", "--endpoint=<e or "">"),
+///  "--model=<m>", ("--permission-mode=<p>" unless the runner is ws),
+///  ("--hidden=<b>"), ("--script=<s>", ("--script-timeout=<t>")) | "--no-script",
 ///  ("--var=<k>=<v>")... | "--no-vars", ("--no-specs"),
 ///  "--", <name>, <specs...>].
 /// The runner and endpoint are sent only when the request has a runner, which
@@ -305,201 +389,226 @@ pub fn add_args(req: &NewLoop) -> Vec<String> {
 /// runner is set back to claude (ADR 0070).
 /// Values are trimmed as in add_args (not the script or a var's value);
 /// a blank title, model or permission mode is sent as "" to clear it.
+/// For a remote loop whose request has its `previous` values, only the fields
+/// that differ are sent, so a value the agent redacted is never written back
+/// over the secret (R3). A local loop always sends every field.
 pub fn edit_args(req: &NewLoop) -> Vec<String> {
-    let title = non_blank(req.title.as_deref()).unwrap_or("");
-    let mut args = vec![
-        "loop".to_string(),
-        "edit".to_string(),
-        format!("--title={title}"),
-        format!("--every={}", req.every.trim()),
-        format!("--prompt={}", req.prompt.trim()),
-    ];
+    let previous = remote_env(req.environment.as_deref()).and_then(|_| req.previous.as_deref());
+    let changed =
+        |differs: fn(&NewLoop, &NewLoop) -> bool| previous.map_or(true, |prev| differs(prev, req));
+    let mut args = base(&["edit"], req.environment.as_deref(), req.confirmed);
+    let title = |r: &NewLoop| non_blank(r.title.as_deref()).unwrap_or("").to_string();
+    if changed(|a, b| title_of(a) != title_of(b)) {
+        args.push(format!("--title={}", title(req)));
+    }
+    if changed(|a, b| a.every.trim() != b.every.trim()) {
+        args.push(format!("--every={}", req.every.trim()));
+    }
+    if changed(|a, b| a.prompt.trim() != b.prompt.trim()) {
+        args.push(format!("--prompt={}", req.prompt.trim()));
+    }
     if let Some(keep) = req.keep {
-        args.push(format!("--keep={keep}"));
+        if changed(|a, b| a.keep != b.keep) {
+            args.push(format!("--keep={keep}"));
+        }
     }
     let runner = non_blank(req.runner.as_deref());
     if let Some(runner) = runner {
-        args.push(format!("--runner={runner}"));
-        let endpoint = non_blank(req.endpoint.as_deref()).unwrap_or("");
-        args.push(format!("--endpoint={endpoint}"));
+        if changed(|a, b| runner_of(a) != runner_of(b) || endpoint_of(a) != endpoint_of(b)) {
+            args.push(format!("--runner={runner}"));
+            args.push(format!("--endpoint={}", endpoint_of(req)));
+        }
     }
-    let model = non_blank(req.model.as_deref()).unwrap_or("");
-    args.push(format!("--model={model}"));
-    if runner != Some("ws") {
-        let mode = non_blank(req.permission_mode.as_deref()).unwrap_or("");
-        args.push(format!("--permission-mode={mode}"));
+    if changed(|a, b| model_of(a) != model_of(b)) {
+        args.push(format!("--model={}", model_of(req)));
+    }
+    if runner != Some("ws") && changed(|a, b| mode_of(a) != mode_of(b)) {
+        args.push(format!("--permission-mode={}", mode_of(req)));
     }
     if let Some(hidden) = req.hidden {
-        args.push(format!("--hidden={hidden}"));
+        if changed(|a, b| a.hidden != b.hidden) {
+            args.push(format!("--hidden={hidden}"));
+        }
     }
-    match req.script.as_deref().filter(|s| !s.trim().is_empty()) {
-        Some(script) => {
-            args.push(format!("--script={script}"));
+    if changed(|a, b| clean_script(a) != clean_script(b)) {
+        match clean_script(req) {
+            Some(script) => {
+                args.push(format!("--script={script}"));
+                if let Some(timeout) = non_blank(req.script_timeout.as_deref()) {
+                    args.push(format!("--script-timeout={timeout}"));
+                }
+            }
+            None => args.push("--no-script".to_string()),
+        }
+    } else if let (Some(prev), Some(_)) = (previous, clean_script(req)) {
+        if non_blank(prev.script_timeout.as_deref()) != non_blank(req.script_timeout.as_deref()) {
             if let Some(timeout) = non_blank(req.script_timeout.as_deref()) {
                 args.push(format!("--script-timeout={timeout}"));
             }
         }
-        None => args.push("--no-script".to_string()),
     }
-    let vars: Vec<String> = req
-        .vars
-        .iter()
-        .filter_map(|var| {
-            non_blank(Some(var.key.as_str())).map(|key| format!("--var={key}={}", var.value))
-        })
-        .collect();
-    if vars.is_empty() {
-        args.push("--no-vars".to_string());
+    let vars = clean_vars(req);
+    if changed(|a, b| clean_vars(a) != clean_vars(b)) {
+        if vars.is_empty() {
+            args.push("--no-vars".to_string());
+        }
+        args.extend(vars);
     }
-    args.extend(vars);
-    let specs: Vec<String> = req
-        .specs
-        .iter()
-        .filter_map(|s| non_blank(Some(s)).map(str::to_string))
-        .collect();
-    if specs.is_empty() {
+    let specs = clean_specs(req);
+    let send_specs = changed(|a, b| clean_specs(a) != clean_specs(b));
+    if send_specs && specs.is_empty() {
         args.push("--no-specs".to_string());
     }
     args.push("--".to_string());
     args.push(req.name.trim().to_string());
-    args.extend(specs);
+    if send_specs {
+        args.extend(specs);
+    }
     args
 }
 
-/// ["loop", "pause" | "resume", "--", <name>]
-pub fn pause_args(name: &str, paused: bool) -> Vec<String> {
+fn title_of(r: &NewLoop) -> &str {
+    non_blank(r.title.as_deref()).unwrap_or("")
+}
+
+fn runner_of(r: &NewLoop) -> &str {
+    non_blank(r.runner.as_deref()).unwrap_or("")
+}
+
+fn endpoint_of(r: &NewLoop) -> &str {
+    non_blank(r.endpoint.as_deref()).unwrap_or("")
+}
+
+fn model_of(r: &NewLoop) -> &str {
+    non_blank(r.model.as_deref()).unwrap_or("")
+}
+
+fn mode_of(r: &NewLoop) -> &str {
+    non_blank(r.permission_mode.as_deref()).unwrap_or("")
+}
+
+/// `ws loop list [--env=<e> --cached]`; a remote list reads the snapshot, so
+/// it is cheap and works offline (R4).
+pub fn list_args(environment: Option<&str>) -> Vec<String> {
+    let mut args = base(&["list"], environment, false);
+    if remote_env(environment).is_some() {
+        args.push("--cached".to_string());
+    }
+    args
+}
+
+/// ["loop", "pause" | "resume", ("--env=<e>"), "--", <name>]
+pub fn pause_args(name: &str, paused: bool, environment: Option<&str>) -> Vec<String> {
     let action = if paused { "pause" } else { "resume" };
-    vec![
-        "loop".to_string(),
-        action.to_string(),
-        "--".to_string(),
-        name.to_string(),
-    ]
+    let mut args = base(&[action], environment, false);
+    args.extend(["--".to_string(), name.to_string()]);
+    args
 }
 
-/// ["loop", "rm", "--", <name>]
-fn rm_args(name: &str) -> Vec<String> {
-    vec![
-        "loop".to_string(),
-        "rm".to_string(),
-        "--".to_string(),
-        name.to_string(),
-    ]
+/// ["loop", "rm", ("--env=<e>"), ("--yes"), "--", <name>]
+fn rm_args(name: &str, environment: Option<&str>, confirmed: bool) -> Vec<String> {
+    let mut args = base(&["rm"], environment, confirmed);
+    args.extend(["--".to_string(), name.to_string()]);
+    args
 }
 
-/// ["loop", "run", "--", <name>]
-fn run_args(name: &str) -> Vec<String> {
-    vec![
-        "loop".to_string(),
-        "run".to_string(),
-        "--".to_string(),
-        name.to_string(),
-    ]
+/// ["loop", "run", ("--env=<e>"), "--", <name>]
+fn run_args(name: &str, environment: Option<&str>) -> Vec<String> {
+    let mut args = base(&["run"], environment, false);
+    args.extend(["--".to_string(), name.to_string()]);
+    args
 }
 
 /// `ws loop history` without `--json`, which the runner adds:
-/// ["loop", "history", ("--limit=<n>"), "--", <name>].
-pub fn history_args(name: &str, limit: Option<u32>) -> Vec<String> {
-    let mut args = vec!["loop".to_string(), "history".to_string()];
+/// ["loop", "history", ("--env=<e>"), ("--limit=<n>"), "--", <name>].
+pub fn history_args(name: &str, limit: Option<u32>, environment: Option<&str>) -> Vec<String> {
+    let mut args = base(&["history"], environment, false);
     if let Some(limit) = limit {
         args.push(format!("--limit={limit}"));
     }
-    args.push("--".to_string());
-    args.push(name.to_string());
+    args.extend(["--".to_string(), name.to_string()]);
     args
 }
 
-/// ["loop", "history", "--run=<seq>", "--", <name>]
-pub fn history_run_args(name: &str, seq: u32) -> Vec<String> {
-    vec![
-        "loop".to_string(),
-        "history".to_string(),
-        format!("--run={seq}"),
-        "--".to_string(),
-        name.to_string(),
-    ]
+/// ["loop", "history", ("--env=<e>"), "--run=<seq>", "--", <name>]
+pub fn history_run_args(name: &str, seq: u32, environment: Option<&str>) -> Vec<String> {
+    let mut args = base(&["history"], environment, false);
+    args.push(format!("--run={seq}"));
+    args.extend(["--".to_string(), name.to_string()]);
+    args
 }
 
-/// ["loop", "history", "--clear", "--", <name>]
-pub fn history_clear_args(name: &str) -> Vec<String> {
-    vec![
-        "loop".to_string(),
-        "history".to_string(),
-        "--clear".to_string(),
-        "--".to_string(),
-        name.to_string(),
-    ]
+/// ["loop", "history", ("--env=<e>"), ("--yes"), "--clear", "--", <name>]
+pub fn history_clear_args(name: &str, environment: Option<&str>, confirmed: bool) -> Vec<String> {
+    let mut args = base(&["history"], environment, confirmed);
+    args.extend(["--clear".to_string(), "--".to_string(), name.to_string()]);
+    args
 }
 
-/// ["loop", "memory", "list", "--", <name>]
-pub fn memory_list_args(name: &str) -> Vec<String> {
-    vec![
-        "loop".to_string(),
-        "memory".to_string(),
-        "list".to_string(),
-        "--".to_string(),
-        name.to_string(),
-    ]
+/// ["loop", "memory", "list", ("--env=<e>"), "--", <name>]
+pub fn memory_list_args(name: &str, environment: Option<&str>) -> Vec<String> {
+    let mut args = base(&["memory", "list"], environment, false);
+    args.extend(["--".to_string(), name.to_string()]);
+    args
 }
 
 /// The value goes on stdin, so the args name `--file=-` and carry `--json`
-/// themselves: ["loop", "memory", "set", "--json", ("--expect-rev=<n>"),
-/// "--file=-", "--", <name>, <key>].
-pub fn memory_set_args(name: &str, key: &str, expect_rev: Option<i64>) -> Vec<String> {
-    let mut args = vec![
-        "loop".to_string(),
-        "memory".to_string(),
-        "set".to_string(),
-        "--json".to_string(),
-    ];
+/// themselves: ["loop", "memory", "set", ("--env=<e>"), "--json",
+/// ("--expect-rev=<n>"), "--file=-", "--", <name>, <key>].
+pub fn memory_set_args(
+    name: &str,
+    key: &str,
+    expect_rev: Option<i64>,
+    environment: Option<&str>,
+) -> Vec<String> {
+    let mut args = base(&["memory", "set"], environment, false);
+    args.push("--json".to_string());
     if let Some(rev) = expect_rev {
         args.push(format!("--expect-rev={rev}"));
     }
     args.push("--file=-".to_string());
-    args.push("--".to_string());
-    args.push(name.to_string());
-    args.push(key.to_string());
+    args.extend(["--".to_string(), name.to_string(), key.to_string()]);
     args
 }
 
-/// ["loop", "memory", "rm", "--", <name>, <key>]
-pub fn memory_remove_args(name: &str, key: &str) -> Vec<String> {
-    vec![
-        "loop".to_string(),
-        "memory".to_string(),
-        "rm".to_string(),
-        "--".to_string(),
-        name.to_string(),
-        key.to_string(),
-    ]
+/// ["loop", "memory", "rm", ("--env=<e>"), "--", <name>, <key>]
+pub fn memory_remove_args(name: &str, key: &str, environment: Option<&str>) -> Vec<String> {
+    let mut args = base(&["memory", "rm"], environment, false);
+    args.extend(["--".to_string(), name.to_string(), key.to_string()]);
+    args
 }
 
-/// ["loop", "memory", "clear", "--", <name>]
-pub fn memory_clear_args(name: &str) -> Vec<String> {
-    vec![
-        "loop".to_string(),
-        "memory".to_string(),
-        "clear".to_string(),
-        "--".to_string(),
-        name.to_string(),
-    ]
+/// ["loop", "memory", "clear", ("--env=<e>"), ("--yes"), "--", <name>]
+pub fn memory_clear_args(name: &str, environment: Option<&str>, confirmed: bool) -> Vec<String> {
+    let mut args = base(&["memory", "clear"], environment, confirmed);
+    args.extend(["--".to_string(), name.to_string()]);
+    args
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
-pub async fn loops_list(state: State<'_, AppState>) -> CmdResult<Loops> {
-    state
-        .runner
-        .ws_json(&["loop".to_string(), "list".to_string()])
-        .await
+pub async fn loops_list(
+    state: State<'_, AppState>,
+    environment: Option<String>,
+) -> CmdResult<Loops> {
+    let env = target(environment.as_deref())?;
+    let mut loops: Loops = state.runner.ws_json(&list_args(env)).await?;
+    if let Some(name) = env {
+        for item in &mut loops.loops {
+            item.environment.get_or_insert_with(|| name.to_string());
+        }
+    }
+    Ok(loops)
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_add(state: State<'_, AppState>, request: NewLoop) -> CmdResult<Loop> {
+    target(request.environment.as_deref())?;
     state.runner.ws_json(&add_args(&request)).await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_edit(state: State<'_, AppState>, request: NewLoop) -> CmdResult<Loop> {
+    target(request.environment.as_deref())?;
     state.runner.ws_json(&edit_args(&request)).await
 }
 
@@ -508,18 +617,34 @@ pub async fn loops_set_paused(
     state: State<'_, AppState>,
     name: String,
     paused: bool,
+    environment: Option<String>,
 ) -> CmdResult<Loop> {
-    state.runner.ws_json(&pause_args(&name, paused)).await
+    let env = target(environment.as_deref())?;
+    state.runner.ws_json(&pause_args(&name, paused, env)).await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
-pub async fn loops_remove(state: State<'_, AppState>, name: String) -> CmdResult<Loop> {
-    state.runner.ws_json(&rm_args(&name)).await
+pub async fn loops_remove(
+    state: State<'_, AppState>,
+    name: String,
+    environment: Option<String>,
+    confirmed: Option<bool>,
+) -> CmdResult<Loop> {
+    let env = target(environment.as_deref())?;
+    state
+        .runner
+        .ws_json(&rm_args(&name, env, confirmed.unwrap_or(false)))
+        .await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
-pub async fn loops_run_now(state: State<'_, AppState>, name: String) -> CmdResult<LoopStarted> {
-    state.runner.ws_json(&run_args(&name)).await
+pub async fn loops_run_now(
+    state: State<'_, AppState>,
+    name: String,
+    environment: Option<String>,
+) -> CmdResult<LoopStarted> {
+    let env = target(environment.as_deref())?;
+    state.runner.ws_json(&run_args(&name, env)).await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
@@ -527,8 +652,10 @@ pub async fn loops_history(
     state: State<'_, AppState>,
     name: String,
     limit: Option<u32>,
+    environment: Option<String>,
 ) -> CmdResult<LoopHistory> {
-    state.runner.ws_json(&history_args(&name, limit)).await
+    let env = target(environment.as_deref())?;
+    state.runner.ws_json(&history_args(&name, limit, env)).await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
@@ -536,21 +663,37 @@ pub async fn loops_history_run(
     state: State<'_, AppState>,
     name: String,
     seq: u32,
+    environment: Option<String>,
 ) -> CmdResult<LoopRunDetail> {
-    state.runner.ws_json(&history_run_args(&name, seq)).await
+    let env = target(environment.as_deref())?;
+    state
+        .runner
+        .ws_json(&history_run_args(&name, seq, env))
+        .await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_history_clear(
     state: State<'_, AppState>,
     name: String,
+    environment: Option<String>,
+    confirmed: Option<bool>,
 ) -> CmdResult<LoopCleared> {
-    state.runner.ws_json(&history_clear_args(&name)).await
+    let env = target(environment.as_deref())?;
+    state
+        .runner
+        .ws_json(&history_clear_args(&name, env, confirmed.unwrap_or(false)))
+        .await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
-pub async fn loops_memory(state: State<'_, AppState>, name: String) -> CmdResult<LoopMemory> {
-    state.runner.ws_json(&memory_list_args(&name)).await
+pub async fn loops_memory(
+    state: State<'_, AppState>,
+    name: String,
+    environment: Option<String>,
+) -> CmdResult<LoopMemory> {
+    let env = target(environment.as_deref())?;
+    state.runner.ws_json(&memory_list_args(&name, env)).await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
@@ -560,11 +703,13 @@ pub async fn loops_memory_set(
     key: String,
     value: String,
     expect_rev: Option<i64>,
+    environment: Option<String>,
 ) -> CmdResult<LoopMemorySet> {
+    let env = target(environment.as_deref())?;
     state
         .runner
         .ws_json_with_input(
-            &memory_set_args(&name, &key, expect_rev),
+            &memory_set_args(&name, &key, expect_rev, env),
             Some(value.as_bytes()),
         )
         .await
@@ -575,16 +720,35 @@ pub async fn loops_memory_remove(
     state: State<'_, AppState>,
     name: String,
     key: String,
+    environment: Option<String>,
 ) -> CmdResult<LoopMemoryRemoved> {
-    state.runner.ws_json(&memory_remove_args(&name, &key)).await
+    let env = target(environment.as_deref())?;
+    state
+        .runner
+        .ws_json(&memory_remove_args(&name, &key, env))
+        .await
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn loops_memory_clear(
     state: State<'_, AppState>,
     name: String,
+    environment: Option<String>,
+    confirmed: Option<bool>,
 ) -> CmdResult<LoopCleared> {
-    state.runner.ws_json(&memory_clear_args(&name)).await
+    let env = target(environment.as_deref())?;
+    state
+        .runner
+        .ws_json(&memory_clear_args(&name, env, confirmed.unwrap_or(false)))
+        .await
+}
+
+/// The args of the local tick: it never takes `--env`, since a remote
+/// environment's agent ticks its own loops (R2).
+pub fn tick_args() -> Vec<String> {
+    ["loop", "tick", "--quiet", "--json"]
+        .map(str::to_string)
+        .to_vec()
 }
 
 /// Runs `ws loop tick --quiet --json` now and then every TICK_INTERVAL,
@@ -592,12 +756,7 @@ pub async fn loops_memory_clear(
 pub async fn tick_forever(runner: Runner) {
     let mut interval = tokio::time::interval(TICK_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let args = [
-        "loop".to_string(),
-        "tick".to_string(),
-        "--quiet".to_string(),
-        "--json".to_string(),
-    ];
+    let args = tick_args();
     loop {
         interval.tick().await;
         if let Err(err) = runner.ws_json_as_given::<Value>(&args).await {
@@ -636,6 +795,9 @@ mod tests {
             hidden: None,
             runner: None,
             endpoint: None,
+            environment: None,
+            confirmed: false,
+            previous: None,
         }
     }
 
@@ -1093,8 +1255,14 @@ EOF"#,
 
     #[test]
     fn pause_args_pause_or_resume() {
-        assert_eq!(pause_args("deps", true), ["loop", "pause", "--", "deps"]);
-        assert_eq!(pause_args("deps", false), ["loop", "resume", "--", "deps"]);
+        assert_eq!(
+            pause_args("deps", true, None),
+            ["loop", "pause", "--", "deps"]
+        );
+        assert_eq!(
+            pause_args("deps", false, None),
+            ["loop", "resume", "--", "deps"]
+        );
     }
 
     #[tokio::test]
@@ -1161,11 +1329,11 @@ EOF"#,
     #[test]
     fn history_args_takes_optional_limit() {
         assert_eq!(
-            history_args("deps", Some(20)),
+            history_args("deps", Some(20), None),
             ["loop", "history", "--limit=20", "--", "deps"]
         );
         assert_eq!(
-            history_args("deps", None),
+            history_args("deps", None, None),
             ["loop", "history", "--", "deps"]
         );
     }
@@ -1173,7 +1341,7 @@ EOF"#,
     #[test]
     fn history_run_args_names_the_seq() {
         assert_eq!(
-            history_run_args("deps", 56),
+            history_run_args("deps", 56, None),
             ["loop", "history", "--run=56", "--", "deps"]
         );
     }
@@ -1181,7 +1349,7 @@ EOF"#,
     #[test]
     fn history_clear_args_clears_history() {
         assert_eq!(
-            history_clear_args("deps"),
+            history_clear_args("deps", None, false),
             ["loop", "history", "--clear", "--", "deps"]
         );
     }
@@ -1189,7 +1357,7 @@ EOF"#,
     #[test]
     fn memory_list_args_lists_the_loop() {
         assert_eq!(
-            memory_list_args("deps"),
+            memory_list_args("deps", None),
             ["loop", "memory", "list", "--", "deps"]
         );
     }
@@ -1197,7 +1365,7 @@ EOF"#,
     #[test]
     fn memory_set_args_reads_the_value_from_stdin() {
         assert_eq!(
-            memory_set_args("deps", "seen", Some(3)),
+            memory_set_args("deps", "seen", Some(3), None),
             [
                 "loop",
                 "memory",
@@ -1211,7 +1379,7 @@ EOF"#,
             ]
         );
         assert_eq!(
-            memory_set_args("deps", "seen", None),
+            memory_set_args("deps", "seen", None, None),
             ["loop", "memory", "set", "--json", "--file=-", "--", "deps", "seen",]
         );
     }
@@ -1219,7 +1387,7 @@ EOF"#,
     #[test]
     fn memory_remove_args_removes_one_key() {
         assert_eq!(
-            memory_remove_args("deps", "seen"),
+            memory_remove_args("deps", "seen", None),
             ["loop", "memory", "rm", "--", "deps", "seen"]
         );
     }
@@ -1227,7 +1395,7 @@ EOF"#,
     #[test]
     fn memory_clear_args_clears_the_loop() {
         assert_eq!(
-            memory_clear_args("deps"),
+            memory_clear_args("deps", None, false),
             ["loop", "memory", "clear", "--", "deps"]
         );
     }
@@ -1249,5 +1417,380 @@ EOF"#,
             value["runs"][0]["verdict"]["recordedAt"],
             "2026-11-10T08:14:30Z"
         );
+    }
+
+    fn remote_request() -> NewLoop {
+        NewLoop {
+            environment: Some("linux-server".into()),
+            ..request()
+        }
+    }
+
+    #[test]
+    fn remote_list_args_are_cached() {
+        assert_eq!(
+            list_args(Some("linux-server")),
+            ["loop", "list", "--env=linux-server", "--cached"]
+        );
+        assert_eq!(list_args(None), ["loop", "list"]);
+        assert_eq!(list_args(Some("local")), ["loop", "list"]);
+    }
+
+    #[test]
+    fn add_args_with_env_and_confirm_pass_yes() {
+        let req = NewLoop {
+            confirmed: true,
+            script: Some("exit 0".into()),
+            ..remote_request()
+        };
+        assert_eq!(
+            add_args(&req),
+            [
+                "loop",
+                "add",
+                "--env=linux-server",
+                "--yes",
+                "--every=24h",
+                "--prompt=hi",
+                "--script=exit 0",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn add_args_without_confirm_have_no_yes() {
+        let args = add_args(&remote_request());
+        assert_eq!(
+            args,
+            [
+                "loop",
+                "add",
+                "--env=linux-server",
+                "--every=24h",
+                "--prompt=hi",
+                "--",
+                "deps",
+            ]
+        );
+        assert!(!add_args(&request()).contains(&"--yes".to_string()));
+    }
+
+    #[test]
+    fn remote_edit_args_send_only_changed_fields() {
+        let previous = NewLoop {
+            title: Some("Deps".into()),
+            script: Some("exit 0".into()),
+            script_timeout: Some("1m".into()),
+            vars: vec![LoopVar {
+                key: "A".into(),
+                value: "1".into(),
+            }],
+            specs: vec!["api".into()],
+            model: Some("opus".into()),
+            permission_mode: Some("acceptEdits".into()),
+            keep: Some(5),
+            hidden: Some(true),
+            runner: Some("claude".into()),
+            ..remote_request()
+        };
+        let same = NewLoop {
+            previous: Some(Box::new(clone(&previous))),
+            ..clone(&previous)
+        };
+        assert_eq!(
+            edit_args(&same),
+            ["loop", "edit", "--env=linux-server", "--", "deps"]
+        );
+        let changed = NewLoop {
+            prompt: "new".into(),
+            confirmed: true,
+            previous: Some(Box::new(clone(&previous))),
+            ..clone(&previous)
+        };
+        assert_eq!(
+            edit_args(&changed),
+            [
+                "loop",
+                "edit",
+                "--env=linux-server",
+                "--yes",
+                "--prompt=new",
+                "--",
+                "deps"
+            ]
+        );
+        let cleared = NewLoop {
+            script: None,
+            vars: vec![],
+            specs: vec![],
+            model: None,
+            previous: Some(Box::new(clone(&previous))),
+            ..clone(&previous)
+        };
+        assert_eq!(
+            edit_args(&cleared),
+            [
+                "loop",
+                "edit",
+                "--env=linux-server",
+                "--model=",
+                "--no-script",
+                "--no-vars",
+                "--no-specs",
+                "--",
+                "deps"
+            ]
+        );
+        let timeout = NewLoop {
+            script_timeout: Some("5m".into()),
+            previous: Some(Box::new(clone(&previous))),
+            ..clone(&previous)
+        };
+        assert_eq!(
+            edit_args(&timeout),
+            [
+                "loop",
+                "edit",
+                "--env=linux-server",
+                "--script-timeout=5m",
+                "--",
+                "deps"
+            ]
+        );
+        let specs = NewLoop {
+            specs: vec!["api".into(), "web".into()],
+            previous: Some(Box::new(clone(&previous))),
+            ..clone(&previous)
+        };
+        assert_eq!(
+            edit_args(&specs),
+            [
+                "loop",
+                "edit",
+                "--env=linux-server",
+                "--",
+                "deps",
+                "api",
+                "web"
+            ]
+        );
+    }
+
+    fn clone(req: &NewLoop) -> NewLoop {
+        NewLoop {
+            name: req.name.clone(),
+            title: req.title.clone(),
+            every: req.every.clone(),
+            prompt: req.prompt.clone(),
+            specs: req.specs.clone(),
+            model: req.model.clone(),
+            permission_mode: req.permission_mode.clone(),
+            keep: req.keep,
+            script: req.script.clone(),
+            script_timeout: req.script_timeout.clone(),
+            vars: req
+                .vars
+                .iter()
+                .map(|v| LoopVar {
+                    key: v.key.clone(),
+                    value: v.value.clone(),
+                })
+                .collect(),
+            hidden: req.hidden,
+            runner: req.runner.clone(),
+            endpoint: req.endpoint.clone(),
+            environment: req.environment.clone(),
+            confirmed: req.confirmed,
+            previous: None,
+        }
+    }
+
+    #[test]
+    fn local_edit_args_ignore_previous() {
+        let local = NewLoop {
+            previous: Some(Box::new(request())),
+            ..request()
+        };
+        assert_eq!(edit_args(&local), edit_args(&request()));
+        assert!(edit_args(&local).contains(&"--prompt=hi".to_string()));
+    }
+
+    #[test]
+    fn local_edit_args_are_unchanged() {
+        assert_eq!(
+            edit_args(&request()),
+            [
+                "loop",
+                "edit",
+                "--title=",
+                "--every=24h",
+                "--prompt=hi",
+                "--model=",
+                "--permission-mode=",
+                "--no-script",
+                "--no-vars",
+                "--no-specs",
+                "--",
+                "deps",
+            ]
+        );
+    }
+
+    #[test]
+    fn remove_args_with_env_pass_yes() {
+        assert_eq!(
+            rm_args("deps", Some("linux-server"), true),
+            ["loop", "rm", "--env=linux-server", "--yes", "--", "deps"]
+        );
+        assert_eq!(rm_args("deps", None, false), ["loop", "rm", "--", "deps"]);
+        assert_eq!(
+            history_clear_args("deps", Some("linux-server"), true),
+            [
+                "loop",
+                "history",
+                "--env=linux-server",
+                "--yes",
+                "--clear",
+                "--",
+                "deps"
+            ]
+        );
+        assert_eq!(
+            memory_clear_args("deps", Some("linux-server"), true),
+            [
+                "loop",
+                "memory",
+                "clear",
+                "--env=linux-server",
+                "--yes",
+                "--",
+                "deps"
+            ]
+        );
+        assert!(
+            !memory_clear_args("deps", Some("linux-server"), false).contains(&"--yes".to_string())
+        );
+        assert!(
+            !history_clear_args("deps", Some("linux-server"), false).contains(&"--yes".to_string())
+        );
+    }
+
+    #[test]
+    fn env_goes_right_after_the_subcommand() {
+        let env = Some("linux-server");
+        assert_eq!(
+            pause_args("deps", true, env),
+            ["loop", "pause", "--env=linux-server", "--", "deps"]
+        );
+        assert_eq!(
+            run_args("deps", env),
+            ["loop", "run", "--env=linux-server", "--", "deps"]
+        );
+        assert_eq!(
+            history_args("deps", Some(5), env),
+            [
+                "loop",
+                "history",
+                "--env=linux-server",
+                "--limit=5",
+                "--",
+                "deps"
+            ]
+        );
+        assert_eq!(
+            history_run_args("deps", 3, env),
+            [
+                "loop",
+                "history",
+                "--env=linux-server",
+                "--run=3",
+                "--",
+                "deps"
+            ]
+        );
+        assert_eq!(
+            memory_list_args("deps", env),
+            ["loop", "memory", "list", "--env=linux-server", "--", "deps"]
+        );
+        assert_eq!(
+            memory_remove_args("deps", "k", env),
+            [
+                "loop",
+                "memory",
+                "rm",
+                "--env=linux-server",
+                "--",
+                "deps",
+                "k"
+            ]
+        );
+    }
+
+    #[test]
+    fn memory_set_with_env_keeps_stdin() {
+        assert_eq!(
+            memory_set_args("deps", "seen", Some(3), Some("linux-server")),
+            [
+                "loop",
+                "memory",
+                "set",
+                "--env=linux-server",
+                "--json",
+                "--expect-rev=3",
+                "--file=-",
+                "--",
+                "deps",
+                "seen",
+            ]
+        );
+    }
+
+    #[test]
+    fn tick_forever_args_have_no_env() {
+        assert_eq!(tick_args(), ["loop", "tick", "--quiet", "--json"]);
+    }
+
+    #[test]
+    fn target_refuses_names_ws_would_misread() {
+        for name in ["-x", "--env=a", "a b"] {
+            assert_eq!(target(Some(name)).unwrap_err().code, "bad_args", "{name:?}");
+        }
+        assert_eq!(target(Some("local")).unwrap(), None);
+        assert_eq!(target(Some("")).unwrap(), None);
+        assert_eq!(target(None).unwrap(), None);
+        assert_eq!(target(Some("linux-server")).unwrap(), Some("linux-server"));
+    }
+
+    #[test]
+    fn summary_loop_from_a_snapshot_parses() {
+        let json = r#"{"name":"deps","title":"Deps","every":"1h","prompt":null,"specs":null,
+            "model":null,"permission_mode":null,"keep":null,"paused":false,"created_at":null,
+            "next_run_at":"2026-11-23T10:00:00Z","last_run":null,"script":null,"vars":null,
+            "hidden":true,"runner":"claude","endpoint":null,"summary":true,
+            "environment":"linux-server","stale":true}"#;
+        let item: Loop = serde_json::from_str(json).unwrap();
+        assert!(item.summary && item.stale);
+        assert_eq!(item.environment.as_deref(), Some("linux-server"));
+        assert_eq!(item.prompt, "");
+        assert!(item.vars.is_empty());
+        let local: Loop = serde_json::from_str(
+            r#"{"name":"a","every":"1h","prompt":"p","specs":[],"model":null,"permission_mode":null,
+            "keep":3,"paused":false,"created_at":"x","next_run_at":null,"last_run":null}"#,
+        )
+        .unwrap();
+        assert!(!local.summary && !local.stale && local.environment.is_none());
+    }
+
+    #[test]
+    fn loops_serialize_environment_status_in_camel_case() {
+        let json = r#"{"loops":[],"warnings":[],"environment":"w","environment_status":"offline","loops_unknown":true}"#;
+        let loops: Loops = serde_json::from_str(json).unwrap();
+        assert_eq!(loops.environment_status.as_deref(), Some("offline"));
+        assert!(loops.loops_unknown);
+        let out = serde_json::to_value(&loops).unwrap();
+        assert_eq!(out["environmentStatus"], "offline");
+        assert_eq!(out["loopsUnknown"], true);
     }
 }
