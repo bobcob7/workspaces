@@ -10,6 +10,8 @@ export interface EnvironmentsState {
   /** When the listing last loaded (ms since the epoch), null before the first load. */
   readonly loadedAt: number | null;
   readonly error: string | null;
+  /** The listing's own warnings, shown above the environments in Settings. */
+  readonly warnings: readonly string[];
   /** The environment last chosen in the New agent or New shell picker; "local" by default. */
   readonly lastChoice: string;
   /** The request id of the newest fetch; an older fetch that settles later is ignored. */
@@ -37,6 +39,7 @@ const initialState = (): EnvironmentsState => ({
   items: [],
   loadedAt: null,
   error: null,
+  warnings: [],
   lastChoice: readLastChoice(),
   latestRequestId: null,
 });
@@ -134,6 +137,7 @@ const environmentsSlice = createSlice({
           return;
         }
         state.items = action.payload.listing.environments.map(toEnvironment);
+        state.warnings = [...action.payload.listing.warnings];
         state.loadedAt = action.payload.at;
         state.error = null;
       })

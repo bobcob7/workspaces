@@ -73,6 +73,7 @@ describe("selectEnvironmentChoices", () => {
             remoteEnvironment({ id: "c", name: "fresh", state: "pending", status: "pending" }),
           ],
           loadedAt: now,
+          warnings: [],
           error: null,
           latestRequestId: null,
           lastChoice: "local",
