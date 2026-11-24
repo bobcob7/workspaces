@@ -36,7 +36,7 @@ describe("EntryPane", () => {
     await userEvent.clear(field);
     await userEvent.type(field, "  Login fix ");
     await userEvent.click(screen.getByRole("button", { name: "Rename" }));
-    expect(api.renameWorkspace).toHaveBeenCalledWith("this-is-a-test-d8efb24f", "Login fix");
+    expect(api.renameWorkspace).toHaveBeenCalledWith("this-is-a-test-d8efb24f", "Login fix", "local");
   });
 
   it("doesn't rename to an empty name", async () => {
@@ -59,7 +59,7 @@ describe("EntryPane", () => {
     renderWithStore(<EntryPane entry={shellWorkspace} />, testStore({ api }));
     expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Hide" }));
-    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true);
+    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true, "local");
   });
 
   it("marks a hidden workspace and unhides it", async () => {
@@ -67,7 +67,7 @@ describe("EntryPane", () => {
     renderWithStore(<EntryPane entry={{ ...shellWorkspace, hidden: true }} />, testStore({ api }));
     expect(screen.getByText("Hidden")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Unhide" }));
-    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", false);
+    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", false, "local");
   });
 
   it("offers no Hide outside a workspace", () => {
@@ -145,7 +145,7 @@ describe("EntryPane", () => {
       expect(within(dialog).getByText("Remove fix-login and 3 workspaces it started?")).toBeInTheDocument();
       expect(within(dialog).getByText(/its findings are kept/)).toBeInTheDocument();
       await userEvent.click(within(dialog).getByRole("button", { name: "Remove 4 workspaces" }));
-      expect(api.removeEntry).toHaveBeenCalledWith("root", "e8cdf5d8", false);
+      expect(api.removeEntry).toHaveBeenCalledWith("root", "e8cdf5d8", false, "local");
     });
 
     it("can keep what it started", async () => {
@@ -155,7 +155,7 @@ describe("EntryPane", () => {
       const dialog = screen.getByRole("dialog");
       await userEvent.click(within(dialog).getByRole("checkbox", { name: /Keep the workspaces it started/ }));
       await userEvent.click(within(dialog).getByRole("button", { name: "Remove 1 workspace" }));
-      expect(api.removeEntry).toHaveBeenCalledWith("root", "e8cdf5d8", true);
+      expect(api.removeEntry).toHaveBeenCalledWith("root", "e8cdf5d8", true, "local");
     });
 
     it("has no children card without children", () => {
@@ -229,7 +229,7 @@ describe("EntryPane opening a workspace", () => {
       expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "More actions" }));
       await userEvent.click(screen.getByRole("menuitem", { name: "Hide" }));
-      expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true);
+      expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true, "local");
     });
 
     it("lists the open actions first in More actions", async () => {

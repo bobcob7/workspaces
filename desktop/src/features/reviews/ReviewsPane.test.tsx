@@ -135,7 +135,7 @@ describe("ReviewsPane", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Review agent" }));
     await userEvent.click(screen.getByRole("button", { name: "Remove" }));
     await userEvent.click(screen.getAllByRole("button", { name: "Remove" }).at(-1) as HTMLElement);
-    expect(api.removeEntry).toHaveBeenCalledWith("review-buff-bear-42-3f2a9c1", "e8cdf5d8", false);
+    expect(api.removeEntry).toHaveBeenCalledWith("review-buff-bear-42-3f2a9c1", "e8cdf5d8", false, "local");
   });
 
   it("asks Claude about the pull request", async () => {
