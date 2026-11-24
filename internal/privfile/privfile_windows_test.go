@@ -55,7 +55,7 @@ func TestCheckPrivate(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "inherited")
 		require.NoError(t, os.Mkdir(dir, 0o700))
 		err := CheckPrivate(dir)
-		assert.ErrorIs(t, err, ErrNotPrivate)
+		require.ErrorIs(t, err, ErrNotPrivate)
 	})
 	t.Run("a directory restricted by RestrictDir is private", func(t *testing.T) {
 		t.Parallel()
@@ -99,7 +99,7 @@ func TestCheckDACL(t *testing.T) {
 		}}, nil)
 		require.NoError(t, err)
 		err = checkDACL("deny", user, dacl)
-		assert.ErrorIs(t, err, ErrNotPrivate)
+		require.ErrorIs(t, err, ErrNotPrivate)
 		assert.ErrorContains(t, err, "not an allow entry")
 	})
 }

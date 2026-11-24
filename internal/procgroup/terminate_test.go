@@ -33,16 +33,16 @@ func TestTerminateAll(t *testing.T) {
 		})
 		assert.Equal(t, []uint32{300, 200, 100}, got)
 		require.Error(t, err)
-		assert.ErrorIs(t, err, errDenied)
-		assert.ErrorContains(t, err, "process 200")
+		require.ErrorIs(t, err, errDenied)
+		require.ErrorContains(t, err, "process 200")
 	})
 	t.Run("joins every failure", func(t *testing.T) {
 		t.Parallel()
-		err := terminateAll([]uint32{1, 2}, func(pid uint32) error {
+		err := terminateAll([]uint32{1, 2}, func(uint32) error {
 			return errors.New("failed")
 		})
-		assert.ErrorContains(t, err, "process 1")
-		assert.ErrorContains(t, err, "process 2")
+		require.ErrorContains(t, err, "process 1")
+		require.ErrorContains(t, err, "process 2")
 	})
 }
 
