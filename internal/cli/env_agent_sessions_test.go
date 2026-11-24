@@ -265,6 +265,14 @@ func TestAgentOperations_agentSend(t *testing.T) {
 		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentSend, &envproto.SendArgs{Workspace: agentWS, Message: "hi"})
 		assertReplyCode(t, err, "claude_failed")
 	})
+	t.Run("a platform without pseudo-terminals is platform_unsupported", func(t *testing.T) {
+		client := listingAgents(claudeAgent())
+		client.SendFunc = func(context.Context, *claude.Session, string) error {
+			return fmt.Errorf("opening a terminal: %w", errors.ErrUnsupported)
+		}
+		_, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentSend, &envproto.SendArgs{Workspace: agentWS, Message: "hi"})
+		assertReplyCode(t, err, "platform_unsupported")
+	})
 }
 
 // notAgentCases are the sessions a workspace can have that aren't a Claude

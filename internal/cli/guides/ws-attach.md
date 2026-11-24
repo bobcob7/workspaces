@@ -48,6 +48,7 @@ agent.
 | Environment offline, or it went offline       | `environment_offline` | 1    |
 | The agent doesn't speak terminals yet         | `environment_outdated` | 1   |
 | The agent already has 8 terminals open        | `terminal_limit`      | 4    |
+| The environment runs Windows: terminals aren't supported yet | `platform_unsupported` | 1 |
 | `claude attach` failed                        | `claude_failed`       | 1    |
 
 When the terminal closes normally, `ws attach` exits 0.

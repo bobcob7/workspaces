@@ -55,7 +55,8 @@ apply (`usage`, `spec_invalid`, `name_invalid`, `repo_not_found`, `repo_ambiguou
 `ref_not_found`, `workspace_exists`, `fetch_failed`, `clone_failed`,
 `git_failed`), and `internal` (exit 1) if the shell can't be started.
 With `--env`: `environment_unknown` (exit 3), `environment_offline` and
-`environment_outdated` (exit 1), and `terminal_limit` (exit 4).
+`environment_outdated` and `platform_unsupported` (exit 1, when the environment
+runs Windows: terminals aren't supported yet), and `terminal_limit` (exit 4).
 Once the shell has started, `ws shell` exits with the shell's exit code, or
 128+N when signal N killed it.
 

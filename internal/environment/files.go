@@ -11,6 +11,8 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+
+	"github.com/bobcob7/workspaces/internal/privfile"
 )
 
 // writeFileAtomic writes data to a temp file in path's directory with
@@ -27,6 +29,9 @@ func writeFileAtomic(path string, data []byte, perm fs.FileMode) error {
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		_ = os.Remove(tmp.Name())
 		return fmt.Errorf("renaming into %s: %w", path, err)
+	}
+	if err := privfile.RestrictFile(path); err != nil {
+		return fmt.Errorf("protecting %s: %w", path, err)
 	}
 	return nil
 }

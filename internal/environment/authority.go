@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/privfile"
 )
 
 const (
@@ -133,6 +134,9 @@ func (a *authority) ensure() (bool, error) {
 	}
 	if err := os.Chmod(a.dir, 0o700); err != nil { //nolint:gosec // the CA directory is 0700 by design (G302 expects file modes).
 		return false, fmt.Errorf("securing %s: %w", a.dir, err)
+	}
+	if err := privfile.RestrictDir(a.dir); err != nil {
+		return false, fmt.Errorf("protecting %s: %w", a.dir, err)
 	}
 	exists, err := a.exists()
 	if err != nil || exists {

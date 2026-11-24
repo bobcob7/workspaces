@@ -400,6 +400,7 @@ the fallback.
 | A name already taken, an enrollment on a machine already enrolled | `environment_exists` | 4 |
 | A code already used | `enrollment_used` | 4 |
 | The agent already has 8 terminals open | `terminal_limit` | 4 |
+| The agent's OS doesn't support terminals or sending to agents yet (ADR 0081) | `platform_unsupported` | 1 |
 | `--finish` while environments hold old-CA certificates | `ca_in_use` | 4 |
 | Enrollment refused, or a certificate has expired | `enrollment_failed` | 1 |
 
