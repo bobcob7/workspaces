@@ -22,8 +22,9 @@ func Detached() *syscall.SysProcAttr {
 }
 
 // KillTree terminates pid and every descendant of it that started after
-// its parent did. Windows has no signals between processes, so Signal
-// kills too.
+// its parent did, leaves first. A process that can't be ended doesn't stop
+// the rest; the failures come back joined. Windows has no signals between
+// processes, so Signal kills too.
 func KillTree(pid int) error {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
@@ -35,12 +36,7 @@ func KillTree(pid int) error {
 		return fmt.Errorf("listing processes: %w", err)
 	}
 	root := uint32(pid) //nolint:gosec // Windows process ids fit in 32 bits
-	for _, target := range append([]uint32{root}, descendants(root, entries, creationTime)...) {
-		if err := terminate(target); err != nil {
-			return fmt.Errorf("terminating process %d: %w", target, err)
-		}
-	}
-	return nil
+	return terminateAll(killOrder(root, descendants(root, entries, creationTime)), terminate)
 }
 
 // Signal kills pgid's process tree: Windows has no graceful stop between

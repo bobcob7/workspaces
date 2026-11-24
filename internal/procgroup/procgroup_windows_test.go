@@ -1,6 +1,7 @@
 package procgroup
 
 import (
+	"errors"
 	"os/exec"
 	"testing"
 	"time"
@@ -43,18 +44,32 @@ func TestDescendants(t *testing.T) {
 	})
 }
 
-// hasDescendant reports whether pid has a child in a fresh process snapshot.
-func hasDescendant(pid int) (bool, error) {
+// descendantsOf lists the descendants of pid in a fresh process snapshot.
+func descendantsOf(pid int) ([]uint32, error) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer func() { _ = windows.CloseHandle(snapshot) }()
 	entries, err := processEntries(snapshot)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return len(descendants(uint32(pid), entries, creationTime)) > 0, nil
+	return descendants(uint32(pid), entries, creationTime), nil
+}
+
+// exited reports whether pid has ended, waiting up to five seconds for it.
+func exited(t *testing.T, pid uint32) bool {
+	t.Helper()
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		return true
+	}
+	require.NoError(t, err)
+	defer func() { _ = windows.CloseHandle(h) }()
+	event, err := windows.WaitForSingleObject(h, 5000)
+	require.NoError(t, err)
+	return event == windows.WAIT_OBJECT_0
 }
 
 func TestKillTree(t *testing.T) {
@@ -65,9 +80,11 @@ func TestKillTree(t *testing.T) {
 		cmd.SysProcAttr = OwnGroup()
 		require.NoError(t, cmd.Start())
 		t.Cleanup(func() { _ = KillTree(cmd.Process.Pid) })
+		var children []uint32
 		require.Eventually(t, func() bool {
-			found, err := hasDescendant(cmd.Process.Pid)
-			return err == nil && found
+			found, err := descendantsOf(cmd.Process.Pid)
+			children = found
+			return err == nil && len(found) > 0
 		}, 5*time.Second, 50*time.Millisecond, "cmd.exe never started a child")
 		require.NoError(t, KillTree(cmd.Process.Pid))
 		done := make(chan struct{})
@@ -79,6 +96,9 @@ func TestKillTree(t *testing.T) {
 		case <-done:
 		case <-time.After(5 * time.Second):
 			t.Fatal("process tree still running after KillTree")
+		}
+		for _, child := range children {
+			assert.True(t, exited(t, child), "descendant %d still running after KillTree", child)
 		}
 	})
 }
