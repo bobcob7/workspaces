@@ -295,6 +295,8 @@ mod tests {
         );
         std::fs::write(&path, script).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_support::wait_until_executable(&path);
+        let _ = std::fs::remove_file(dir.path().join("args"));
         let runner = Runner::new(dir.path().display().to_string());
         (dir, runner)
     }
