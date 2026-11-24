@@ -248,7 +248,7 @@ func projectsDir(environ []string) string {
 	if dir := lookup(environ, "CLAUDE_CONFIG_DIR"); dir != "" {
 		return filepath.Join(dir, "projects")
 	}
-	if home := lookup(environ, "HOME"); home != "" {
+	if home := userHome(environ); home != "" {
 		return filepath.Join(home, ".claude", "projects")
 	}
 	return ""

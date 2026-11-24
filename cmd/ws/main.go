@@ -23,7 +23,7 @@ func main() {
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	configs := config.NewLoader(os.Getenv, os.UserConfigDir)
+	configs := config.NewLoader(os.Getenv, config.UserBaseDir)
 	return cli.New(buildVersion(version, debug.ReadBuildInfo), os.Stdin, stdout, stderr, configs, os.Environ()).Run(ctx, args)
 }
 

@@ -19,7 +19,7 @@ type Loader struct {
 
 // NewLoader returns a Loader that reads the environment with getenv and
 // finds the platform config directory with userConfigDir, normally
-// os.Getenv and os.UserConfigDir.
+// os.Getenv and UserBaseDir.
 func NewLoader(getenv func(string) string, userConfigDir func() (string, error)) *Loader {
 	return &Loader{getenv: getenv, userConfigDir: userConfigDir}
 }
@@ -48,7 +48,8 @@ func (l *Loader) Load(configDir string) (Paths, Config, error) {
 }
 
 // root picks CONFIG_DIR: the flag, then WS_CONFIG_DIR, then
-// os.UserConfigDir()/workspaces. The result is absolute.
+// UserBaseDir()/workspaces (os.UserConfigDir() on unix, %LocalAppData% on
+// Windows). The result is absolute.
 func (l *Loader) root(configDir string) (string, error) {
 	dir := configDir
 	if dir == "" {
