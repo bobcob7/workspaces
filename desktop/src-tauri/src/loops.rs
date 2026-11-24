@@ -1577,6 +1577,40 @@ EOF"#,
         );
     }
 
+    #[test]
+    fn remote_edit_args_send_hidden_only_when_changed() {
+        let previous = NewLoop {
+            hidden: Some(true),
+            ..remote_request()
+        };
+        let req = NewLoop {
+            hidden: Some(false),
+            previous: Some(Box::new(clone(&previous))),
+            ..clone(&previous)
+        };
+        assert!(
+            edit_args(&req).contains(&"--hidden=false".to_string()),
+            "a remote edit that only changes hidden must send it"
+        );
+    }
+
+    #[test]
+    fn remote_edit_args_send_keep_only_when_changed() {
+        let previous = NewLoop {
+            keep: Some(5),
+            ..remote_request()
+        };
+        let req = NewLoop {
+            keep: Some(7),
+            previous: Some(Box::new(clone(&previous))),
+            ..clone(&previous)
+        };
+        assert!(
+            edit_args(&req).contains(&"--keep=7".to_string()),
+            "a remote edit that only changes keep must send it"
+        );
+    }
+
     fn clone(req: &NewLoop) -> NewLoop {
         NewLoop {
             name: req.name.clone(),
