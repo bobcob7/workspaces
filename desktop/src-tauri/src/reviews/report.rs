@@ -424,26 +424,10 @@ mod tests {
         let path = dir.path().join("ws");
         std::fs::write(&path, body).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        wait_until_executable(&path);
+        crate::test_support::wait_until_executable(&path);
         let _ = std::fs::remove_file(&log);
         let runner = Runner::new(dir.path().display().to_string());
         (dir, runner)
-    }
-
-    /// Runs the script once until the kernel stops answering "text file busy".
-    /// A `fork` on another test thread can hold the script's write descriptor
-    /// open until its child execs, so the first `exec` of a fresh script may
-    /// fail with ETXTBSY. Once it succeeds no descriptor can inherit the write
-    /// end any more.
-    fn wait_until_executable(path: &std::path::Path) {
-        for _ in 0..500 {
-            match std::process::Command::new(path).arg("probe").output() {
-                Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                _ => return,
-            }
-        }
     }
 
     fn calls(dir: &tempfile::TempDir) -> Vec<String> {

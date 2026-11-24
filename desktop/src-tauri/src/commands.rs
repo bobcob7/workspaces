@@ -595,6 +595,7 @@ mod tests {
             let path = dir.path().join(name);
             std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::test_support::wait_until_executable(&path);
         }
         dir
     }

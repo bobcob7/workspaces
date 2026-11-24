@@ -27,6 +27,8 @@ mod runner;
 mod runner_service;
 mod secrets;
 mod stats;
+#[cfg(test)]
+mod test_support;
 mod transcript;
 mod tray;
 mod ws_config;
