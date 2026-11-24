@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { entry, fakeApi, fakeHost, remoteEnvironment, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { clock } from "../environments/environments";
+import { agentViewChosen } from "../ui/uiSlice";
 import { fetchEntries } from "./agentsSlice";
 import { EntryPane } from "./EntryPane";
 
@@ -336,7 +337,7 @@ describe("EntryPane for a ws runner child", () => {
   it("offers no Attach, Resume or view toggle", () => {
     renderWithStore(<EntryPane entry={wsChild} />, testStore());
     expect(screen.queryByRole("button", { name: "Attach" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Attach" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "View" })).not.toBeInTheDocument();
   });
 
@@ -487,6 +488,66 @@ describe("EntryPane for a remote entry", () => {
   it("a remote entry without a parent says nothing about one", () => {
     renderWithStore(<EntryPane entry={remoteAgent} />, storeFor());
     expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
+  });
+
+  it("a remote agent never reads its transcript, even when the persisted view is shell", async () => {
+    const api = fakeApi();
+    const host = fakeHost();
+    const store = storeFor({ api, host });
+    store.dispatch(agentViewChosen("shell"));
+    renderWithStore(<EntryPane entry={remoteAgent} />, store);
+    expect(await screen.findByTestId("terminal")).toHaveTextContent("attach:s1");
+    expect(api.readTranscript).not.toHaveBeenCalled();
+  });
+
+  it("a remote child doesn't claim a local parent with the same id", () => {
+    const parent = entry({ key: "parent", workspaceId: "parent", name: "parent" });
+    const child = { ...remoteAgent, parentId: "parent" };
+    renderWithStore(<EntryPane entry={child} />, storeFor({ entries: [parent, child] }));
+    expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
+  });
+
+  describe("on a phone", () => {
+    const original = window.matchMedia;
+    beforeEach(() => {
+      window.matchMedia = ((query: string) => ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+    });
+    afterEach(() => {
+      window.matchMedia = original;
+    });
+
+    it("disables Stop of a remote ws runner in the menu with its reason", async () => {
+      const runner = { ...remoteAgent, runner: "ws" as const, sessionId: "rn-1", status: "working" as const };
+      const api = fakeApi();
+      renderWithStore(<EntryPane entry={runner} />, storeFor({ api }));
+      await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+      const stop = screen.getByRole("menuitem", { name: "Stop" });
+      expect(stop).toHaveAttribute("aria-disabled", "true");
+      expect(stop).toHaveAttribute("title", "Stopping a ws runner on linux-server isn't supported yet");
+      expect(api.runnerStop).not.toHaveBeenCalled();
+    });
+
+    it("disables every menu action of an offline remote entry with the offline reason", async () => {
+      renderWithStore(<EntryPane entry={offlineAgent} />, storeFor({ env: offlineEnv }));
+      const reason = `linux-server is offline (last seen ${clock("2026-11-23T14:02:00Z", Date.now())})`;
+      expect(screen.getByRole("button", { name: "Attach" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Attach" })).toHaveAttribute("title", reason);
+      await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+      for (const name of ["Stop", "Rename", "Hide", "Remove"]) {
+        const item = screen.getByRole("menuitem", { name });
+        expect(item).toHaveAttribute("aria-disabled", "true");
+        expect(item).toHaveAttribute("title", reason);
+      }
+    });
   });
 
   it("shows the environment badge in the header of a remote entry only", () => {

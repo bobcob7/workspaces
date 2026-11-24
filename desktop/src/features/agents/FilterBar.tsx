@@ -36,40 +36,40 @@ export const FilterBar = (props: FilterBarProps): JSX.Element => {
   } = props;
   return (
     <>
-    <div role="search" aria-label="Filter workspaces" className={styles.bar}>
-      <TextField
-        size="small"
-        type="search"
-        label="Search"
-        value={query}
-        onChange={(e) => onQueryChange(e.target.value)}
-        className={styles.search}
-        autoComplete="off"
-      />
-      <TextField
-        select
-        size="small"
-        label="Status"
-        slotProps={{ select: { native: true } }}
-        value={status}
-        onChange={(e) => onStatusChange(e.target.value as StatusFilter)}
-        className={styles.status}
-      >
-        {statusFilterOptions.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </TextField>
-      <FormControlLabel
-        control={<Switch size="small" checked={showHidden} onChange={(e) => onShowHiddenChange(e.target.checked)} />}
-        label={`Show hidden (${hiddenCount})`}
-        className={styles.hidden}
-      />
-    </div>
-    {environments.length > 0 && (
-      <EnvFilter environments={environments} value={environmentFilter} onChange={onEnvironmentChange} />
-    )}
+      <div role="search" aria-label="Filter workspaces" className={styles.bar}>
+        <TextField
+          size="small"
+          type="search"
+          label="Search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          className={styles.search}
+          autoComplete="off"
+        />
+        <TextField
+          select
+          size="small"
+          label="Status"
+          slotProps={{ select: { native: true } }}
+          value={status}
+          onChange={(e) => onStatusChange(e.target.value as StatusFilter)}
+          className={styles.status}
+        >
+          {statusFilterOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </TextField>
+        <FormControlLabel
+          control={<Switch size="small" checked={showHidden} onChange={(e) => onShowHiddenChange(e.target.checked)} />}
+          label={`Show hidden (${hiddenCount})`}
+          className={styles.hidden}
+        />
+      </div>
+      {environments.length > 0 && (
+        <EnvFilter environments={environments} value={environmentFilter} onChange={onEnvironmentChange} />
+      )}
     </>
   );
 };

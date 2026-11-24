@@ -6,7 +6,8 @@ import { selected } from "../ui/uiSlice";
 import {
   environmentFilterChanged,
   filtersCleared,
-  hiddenShown,   nodeToggled,
+  hiddenShown,
+  nodeToggled,
   queryChanged,
   statusFilterChanged,
 } from "./agentsSlice";

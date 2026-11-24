@@ -164,7 +164,9 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
     s.reviews.view?.prs.find((pr) => pr.reviews.some((r) => r.workspaceId === entry.workspaceId)),
   );
   const parent = useAppSelector((s) =>
-    entry.parentId === null ? undefined : s.agents.entries.find((e) => e.workspaceId === entry.parentId),
+    entry.parentId === null
+      ? undefined
+      : s.agents.entries.find((e) => e.workspaceId === entry.parentId && e.environment === entry.environment),
   );
   const environment = useAppSelector((s) => s.environments.items.find((env) => env.name === entry.environment));
   const remote = entry.environment !== "local";
@@ -225,10 +227,12 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const isAgent = entry.kind === "agent" && entry.sessionId !== null;
   // Without a shell terminal for this entry, the shell view falls back to the conversation.
   // A remote agent's conversation isn't read here, so its pane opens on Terminal.
-  const requestedView: AgentView = isRunner && view === "terminal" ? "conversation" : remote && view === "conversation" ? "terminal" : view;
-  const shownView: AgentView = requestedView === "shell" && dirTerminal === undefined ? "conversation" : requestedView;
+  const requestedView: AgentView =
+    isRunner && view === "terminal" ? "conversation" : remote && view === "conversation" ? "terminal" : view;
+  const fallbackView: AgentView = remote ? "terminal" : "conversation";
+  const shownView: AgentView = requestedView === "shell" && dirTerminal === undefined ? fallbackView : requestedView;
   const shellShown = shownView === "shell" && dirTerminal !== undefined;
-  const showConversation = isAgent && shownView === "conversation";
+  const showConversation = isAgent && !remote && shownView === "conversation";
   // The conversation types into the hidden terminal, so it counts as shown
   // and isn't the one detached to make room for another.
   useEffect(() => {
