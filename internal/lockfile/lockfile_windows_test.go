@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 )
 
 // openLock opens path the way the lock functions do. The handle is closed
@@ -100,5 +101,17 @@ func TestHeldExclusivelyLockModes(t *testing.T) {
 		held, err = HeldExclusively(path)
 		require.NoError(t, err)
 		assert.False(t, held)
+	})
+}
+
+func TestBusy(t *testing.T) {
+	t.Parallel()
+	t.Run("a lock violation means another holder has it", func(t *testing.T) {
+		t.Parallel()
+		assert.True(t, busy(windows.ERROR_LOCK_VIOLATION))
+	})
+	t.Run("a pending I/O is an error, not a held lock", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, busy(windows.ERROR_IO_PENDING))
 	})
 }
