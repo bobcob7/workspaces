@@ -377,6 +377,9 @@ func validateLoopMemorySet(a *LoopMemorySetArgs) error {
 	if len(a.Value) > MaxMemoryValue {
 		return usageError(fmt.Sprintf("a memory value is at most %d bytes", MaxMemoryValue))
 	}
+	if !validLoopText(a.Value) {
+		return usageError("a memory value is UTF-8 text without NUL")
+	}
 	return validateExpectRev(a.ExpectRev)
 }
 

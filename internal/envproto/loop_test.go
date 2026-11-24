@@ -81,6 +81,10 @@ func TestValidate_loop(t *testing.T) {
 		err := Validate(&LoopMemorySetArgs{Name: "a", Key: "K", Value: strings.Repeat("v", MaxMemoryValue+1)})
 		assertArgsError(t, err, "usage")
 	})
+	t.Run("refuses a memory value with NUL or invalid UTF-8 with usage", func(t *testing.T) {
+		assertArgsError(t, Validate(&LoopMemorySetArgs{Name: "a", Key: "K", Value: "a\x00b"}), "usage")
+		assertArgsError(t, Validate(&LoopMemorySetArgs{Name: "a", Key: "K", Value: "a\xffb"}), "usage")
+	})
 	t.Run("refuses a negative expect_rev with usage", func(t *testing.T) {
 		assertArgsError(t, Validate(&LoopMemoryKey{Name: "a", Key: "K", ExpectRev: new(-1)}), "usage")
 	})
