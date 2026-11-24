@@ -9,7 +9,9 @@ use crate::open;
 use crate::pty::TermSpec;
 use crate::reviews;
 use crate::runner::AppError;
-use crate::{artifacts, cache, environments, loops, roles, runner_service, secrets, stats, ws_config};
+use crate::{
+    artifacts, cache, environments, loops, roles, runner_service, secrets, stats, ws_config,
+};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
