@@ -7,6 +7,9 @@
   const buffBear = "github.com/bobcob7/buff-bear";
   const api = "github.com/bobcob7/api";
   const workspaces = "github.com/bobcob7/workspaces";
+  const edge = "github.com/bobcob7/edge";
+  const rig = "github.com/bobcob7/rig";
+  const edgeReviewId = "review-edge-7-9b1d2c3-4e5f6a7b";
 
   const defaultSettings = () => ({
     reviews: {
@@ -215,12 +218,16 @@
       ...pr,
     }));
 
+  /** The environment each watched repo's reviews run on. */
+  const repoEnvironments = { [edge]: "linux-server", [rig]: "win-rig" };
+
   const repoRow = (id, watch) => {
     const host = id.split("/")[0];
     const forge = hosts[host]?.forge ?? null;
     const open = pullRequests().filter((pr) => pr.repo === id).length;
     return {
       id,
+      environment: repoEnvironments[id] ?? null,
       github: forge === "github",
       forge,
       watch,
@@ -230,6 +237,43 @@
       error: null,
     };
   };
+
+  /** A review run on a remote environment, as the Reviews view lists it. */
+  const remoteRun = (environment, workspaceId, sha, stale) => ({
+    workspaceId,
+    sessionId: null,
+    sha,
+    status: "done",
+    createdAt: "2026-10-24T09:30:00Z",
+    detail: null,
+    result: "2 findings",
+    links: [],
+    auto: false,
+    recorded: true,
+    requester: null,
+    removed: true,
+    environment,
+    stale,
+  });
+
+  const remotePullRequests = () => [
+    pullRequest({
+      repo: edge,
+      number: 7,
+      title: "Cache the edge config",
+      group: "reviewed",
+      reviews: [remoteRun("linux-server", edgeReviewId, "9b1d2c3e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c", false)],
+      merge: { status: "ready", reasons: [], checks: checks(1, 0, 0) },
+    }),
+    pullRequest({
+      repo: rig,
+      number: 3,
+      title: "Pin the rig toolchain",
+      group: "reviewed",
+      reviews: [remoteRun("win-rig", "review-rig-3-1a2b3c4-5d6e7f80", "1a2b3c4e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c", true)],
+      merge: { status: "ready", reasons: [], checks: checks(1, 0, 0) },
+    }),
+  ].map((pr) => ({ key: `${pr.repo}#${pr.number}`, url: `https://${pr.repo}/pull/${pr.number}`, ...pr }));
 
   const reviewsView = () => ({
     checking: false,
@@ -241,9 +285,11 @@
       repoRow("ghe.example.com/team/api", true),
       repoRow("git.example.com/team/svc", true),
       repoRow("gitlab.example.com/team/web", true),
+      repoRow(edge, true),
+      repoRow(rig, true),
     ],
     hosts: hostsView(),
-    prs: pullRequests(),
+    prs: [...pullRequests(), ...remotePullRequests()],
     warnings: [],
   });
 
@@ -936,6 +982,8 @@
     model: "",
     permissionMode: "",
     focus: "",
+    forge: "github",
+    environment: null,
   });
 
   const cachedRepo = (id, path, upstream, branches, tags, sizeBytes) => ({
@@ -1243,8 +1291,8 @@
       profile({ name: "go", description: "Go idioms, concurrency, and error handling", when: "auto", patterns: ["**/*.go"] }),
       profile({ name: "security", description: "Security: injection, secrets, and authorization", when: "always" }),
     ],
-    review_report: () => ({
-      repo: buffBear,
+    review_report: ({ environment, reviewId }) => ({
+      repo: environment ? edge : buffBear,
       ref: head,
       review: null,
       agent: null,
@@ -1252,6 +1300,7 @@
       comments: [],
       superseded: [],
       warnings: [],
+      ...(environment ? { environment, reviewId, redacted: 0 } : {}),
     }),
     settings_get: () => data.settings,
     settings_set_reviews: ({ reviews }) => {

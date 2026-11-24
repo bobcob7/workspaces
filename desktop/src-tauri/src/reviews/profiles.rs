@@ -257,6 +257,16 @@ pub fn choices(
 mod tests {
     use super::*;
 
+    #[test]
+    fn list_args_name_the_environment_only_when_remote() {
+        assert_eq!(list_args(None), ["review", "profiles", "--json"]);
+        assert_eq!(list_args(Some("local")), ["review", "profiles", "--json"]);
+        assert_eq!(
+            list_args(Some("linux-server")),
+            ["review", "profiles", "--json", "--env=linux-server"]
+        );
+    }
+
     fn listed(name: &str, when: Runs, patterns: &[&str], model: &str) -> ListedProfile {
         ListedProfile {
             name: name.to_string(),

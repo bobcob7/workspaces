@@ -216,7 +216,7 @@ mod tests {
             ..entry("a", record.clone(), None)
         };
         let remote_run = entry_in("linux-server", "a", record, None);
-        let merged = merge(&[local], &[remote_run.clone()]);
+        let merged = merge(&[local], std::slice::from_ref(&remote_run));
         assert_eq!(merged.len(), 2);
         assert_eq!(merged[1].environment, "linux-server");
         let listed = Entry {
