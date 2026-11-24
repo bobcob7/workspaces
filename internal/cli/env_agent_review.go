@@ -20,8 +20,8 @@ const resultSlack = 4 << 10
 const truncatedFieldCap = 64 << 10
 
 // runReview runs a review.* operation with ws review's own command. Every
-// The review.start rate limit is applied by the agent's limiter before this runs.
-// belong to the RL5 limiter, which is not merged yet.
+// result and every error goes through the redactor before it leaves. The
+// review.start rate limit is applied by the agent's limiter before this runs.
 func (o *agentOperations) runReview(ctx context.Context, op string, args any) (json.RawMessage, error) {
 	out, err := o.dispatchReview(ctx, op, args)
 	if err != nil {
