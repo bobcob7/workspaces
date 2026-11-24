@@ -25,7 +25,7 @@ afterEach(() => {
 
 describe("environmentsReducer", () => {
   it("starts empty with local chosen", () => {
-    expect(initial).toEqual({ items: [], loadedAt: null, error: null, lastChoice: "local", latestRequestId: null });
+    expect(initial).toEqual({ items: [], loadedAt: null, error: null, warnings: [], lastChoice: "local", latestRequestId: null });
   });
 
   it("reads the last choice from localStorage", () => {
@@ -52,6 +52,19 @@ describe("environmentsReducer", () => {
       fetchEnvironments.fulfilled({ listing: { environments: [env], warnings: [] }, at: 1234 }, "r", undefined),
     );
     expect(next).toMatchObject({ items: [env], loadedAt: 1234, error: null });
+  });
+
+  it("stores the listing's warnings and replaces them on the next listing", () => {
+    const first = environmentsReducer(
+      started(initial, "r"),
+      fetchEnvironments.fulfilled({ listing: { environments: [], warnings: ["the CA expires in 12 days"] }, at: 1 }, "r", undefined),
+    );
+    expect(first.warnings).toEqual(["the CA expires in 12 days"]);
+    const second = environmentsReducer(
+      started(first, "r2"),
+      fetchEnvironments.fulfilled({ listing: { environments: [], warnings: [] }, at: 2 }, "r2", undefined),
+    );
+    expect(second.warnings).toEqual([]);
   });
 
   it("keeps the last listing and records the error when a fetch fails", () => {
