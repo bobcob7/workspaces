@@ -1,18 +1,19 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Switch } from "@mui/material";
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Select, Switch } from "@mui/material";
 import { useEffect, type JSX } from "react";
-import type { WatchRepo } from "../../api";
+import type { RemoteEnvironment, WatchRepo } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { sectionChosen } from "../ui/uiSlice";
 import { loadRepos, setWatch, watchedClosed } from "./reviewsSlice";
 import styles from "./WatchedReposDialog.module.css";
 
-const RepoRow = ({ repo }: { readonly repo: WatchRepo }): JSX.Element => {
+const RepoRow = ({ repo, environments }: { readonly repo: WatchRepo; readonly environments: readonly RemoteEnvironment[] }): JSX.Element => {
   const dispatch = useAppDispatch();
+  const environment = repo.environment ?? "local";
   if (repo.forge === null) {
     return (
       <tr className={styles.other}>
         <td className={styles.id}>{repo.id}</td>
-        <td colSpan={2} className={styles.note}>
+        <td colSpan={environments.length > 0 ? 3 : 2} className={styles.note}>
           Choose its forge in Settings › Forges
         </td>
       </tr>
@@ -21,11 +22,28 @@ const RepoRow = ({ repo }: { readonly repo: WatchRepo }): JSX.Element => {
   return (
     <tr>
       <td className={styles.id}>{repo.id}</td>
+      {environments.length > 0 && (
+        <td>
+          <Select
+            size="small"
+            value={environment}
+            SelectDisplayProps={{ "aria-label": `Environment for ${repo.id}` }}
+            onChange={(e) => void dispatch(setWatch({ repo: repo.id, watch: repo.watch, autoReview: repo.autoReview, environment: e.target.value }))}
+          >
+            <MenuItem value="local">local</MenuItem>
+            {environments.map((env) => (
+              <MenuItem key={env.name} value={env.name}>
+                {env.status === "online" ? env.name : `${env.name} (offline)`}
+              </MenuItem>
+            ))}
+          </Select>
+        </td>
+      )}
       <td className={styles.switch}>
         <Switch
           checked={repo.watch}
           slotProps={{ input: { "aria-label": `Watch ${repo.id}` } }}
-          onChange={(e) => void dispatch(setWatch({ repo: repo.id, watch: e.target.checked, autoReview: repo.autoReview }))}
+          onChange={(e) => void dispatch(setWatch({ repo: repo.id, watch: e.target.checked, autoReview: repo.autoReview, environment }))}
         />
       </td>
       <td className={styles.switch}>
@@ -33,7 +51,7 @@ const RepoRow = ({ repo }: { readonly repo: WatchRepo }): JSX.Element => {
           checked={repo.autoReview}
           disabled={!repo.watch}
           slotProps={{ input: { "aria-label": `Auto-review ${repo.id}` } }}
-          onChange={(e) => void dispatch(setWatch({ repo: repo.id, watch: repo.watch, autoReview: e.target.checked }))}
+          onChange={(e) => void dispatch(setWatch({ repo: repo.id, watch: repo.watch, autoReview: e.target.checked, environment }))}
         />
       </td>
     </tr>
@@ -46,6 +64,8 @@ export const WatchedReposDialog = (): JSX.Element => {
   const open = useAppSelector((s) => s.reviews.watchedOpen);
   const view = useAppSelector((s) => s.reviews.view);
   const repos = view?.repos ?? [];
+  const items = useAppSelector((s) => s.environments.items);
+  const environments = items.filter((env) => env.state === "enrolled");
   useEffect(() => {
     if (open) {
       void dispatch(loadRepos());
@@ -67,13 +87,14 @@ export const WatchedReposDialog = (): JSX.Element => {
             <thead>
               <tr>
                 <th>Repo</th>
+                {environments.length > 0 && <th>Environment</th>}
                 <th>Watch</th>
                 <th>Auto-review</th>
               </tr>
             </thead>
             <tbody>
               {sorted.map((repo) => (
-                <RepoRow key={repo.id} repo={repo} />
+                <RepoRow key={repo.id} repo={repo} environments={environments} />
               ))}
             </tbody>
           </table>

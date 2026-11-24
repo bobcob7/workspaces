@@ -3,11 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Api, FindingDecision, PullRequest, ReviewReport } from "../../api";
-import { fakeApi, head, pullRequest, reviewRun, reviewsView, testStore } from "../../test/fixtures";
+import { fakeApi, head, pullRequest, remoteEnvironment, reviewRun, reviewsView, testStore } from "../../test/fixtures";
 import { realReport, reportComment, reviewReport } from "../../test/reportFixture";
 import { renderWithStore } from "../../test/render";
+import { clock } from "../environments/environments";
 import { ReviewsList } from "./ReviewsList";
 import { ReviewsPane } from "./ReviewsPane";
+import { fetchReport } from "./reportsSlice";
 import { fetchReviews, reviewSelected } from "./reviewsSlice";
 import { reportInterval } from "./useReports";
 
@@ -343,5 +345,98 @@ describe("ReviewsList with reports", () => {
       await vi.advanceTimersByTimeAsync(reportInterval * 2);
     });
     expect(api.reviewReport).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("ReportView on an environment", () => {
+  const seen = "2026-11-23T14:02:00Z";
+  const reviewId = "review-remote-1";
+  const remoteRun = () => reviewRun({ workspaceId: reviewId, environment: "linux-server" });
+
+  const renderRemote = (options: { offline?: boolean; report?: ReviewReport; load?: boolean } = {}) => {
+    const report = options.report ?? realReport;
+    const api = fakeApi({ reviewReport: vi.fn(async () => report), reviewDecide: vi.fn(async () => report) });
+    const env = options.offline === true ? remoteEnvironment({ status: "offline", lastSeen: seen }) : remoteEnvironment();
+    const store = testStore({
+      api,
+      state: { environments: { items: [env], loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } },
+    });
+    const pr = pullRequest({ group: "reviewed", reviews: [remoteRun()] });
+    store.dispatch(fetchReviews.fulfilled(reviewsView({ prs: [pr] }), "req"));
+    store.dispatch(reviewSelected(pr.key));
+    if (options.load === true) {
+      store.dispatch(fetchReport.fulfilled(report, "req", { repo: ws.repo, ref: ws.ref, refresh: false, environment: "linux-server", reviewId }));
+    }
+    renderWithStore(<ReviewsPane />, store);
+    return { store, api };
+  };
+
+  it("reads the report from the environment", async () => {
+    const { api } = renderRemote();
+    await screen.findByRole("tab", { name: "Findings3" });
+    expect(api.reviewReport).toHaveBeenCalledWith(ws.repo, ws.ref, true, "linux-server", reviewId);
+  });
+
+  it("decides on a remote report with the environment and review id", async () => {
+    const { api } = renderRemote();
+    await userEvent.click(within(await screen.findByRole("group", { name: "Decision for security:retry-after-zero-1" })).getByRole("button", { name: "Comment" }));
+    expect(api.reviewDecide).toHaveBeenCalledWith(ws.repo, ws.ref, expect.objectContaining({ decision: "comment" }), "linux-server", reviewId);
+  });
+
+  it("opens the full report of a remote review on its environment", async () => {
+    const { api } = renderRemote();
+    await userEvent.click(await screen.findByRole("button", { name: "Open full report" }));
+    expect(api.reviewOpenReport).toHaveBeenCalledWith(ws.repo, ws.ref, "linux-server", reviewId);
+  });
+
+  it("shows a remote run with its environment badge", async () => {
+    renderRemote();
+    await userEvent.click(await screen.findByRole("tab", { name: "Review agent" }));
+    expect(within(screen.getByRole("region", { name: reviewId })).getByText("linux-server")).toBeInTheDocument();
+  });
+
+  it("shows no environment badge on a local run", async () => {
+    renderReport();
+    await userEvent.click(await screen.findByRole("tab", { name: "Review agent" }));
+    expect(screen.queryByText("linux-server")).not.toBeInTheDocument();
+  });
+
+  it("dims an offline remote run and disables its report actions", async () => {
+    const { api } = renderRemote({ offline: true, load: true });
+    const reason = `linux-server is offline (last seen ${clock(seen, Date.now())})`;
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open full report" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Comment…" })).toBeDisabled();
+    expect(within(screen.getByLabelText("Actions")).getByRole("button", { name: /^Fix/ })).toBeDisabled();
+    for (const name of ["Comment", "Fix", "Skip"]) {
+      expect(within(screen.getByRole("group", { name: "Decision for security:retry-after-zero-1" })).getByRole("button", { name })).toBeDisabled();
+    }
+    expect(screen.getByLabelText("Findings").closest("[data-dimmed]")).not.toBeNull();
+    expect(api.reviewReport).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("tab", { name: "Review agent" }));
+    expect(screen.getByRole("region", { name: reviewId })).toHaveAttribute("data-dimmed", "true");
+  });
+
+  it("keeps the actions enabled for an online remote run", async () => {
+    renderRemote();
+    await screen.findByRole("tab", { name: "Findings3" });
+    expect(screen.getByRole("button", { name: "Open full report" })).toBeEnabled();
+    expect(screen.queryByText(/is offline/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/as of/)).not.toBeInTheDocument();
+  });
+
+  it("shows a kept report as of the time it was read", async () => {
+    renderRemote({ offline: true, load: true });
+    expect(await screen.findByText(/as of \d\d:\d\d/)).toBeInTheDocument();
+  });
+
+  it("says a truncated finding was cut to fit", async () => {
+    const cut = reviewReport({ comments: realReport.comments.map((c, i) => (i === 0 ? { ...c, truncated: true } : c)) });
+    renderRemote({ report: cut });
+    await screen.findByRole("tab", { name: "Findings3" });
+    const toggle = document.getElementById(`toggle-${cut.comments[0]?.id}`);
+    expect(toggle).not.toBeNull();
+    await userEvent.click(toggle as HTMLElement);
+    expect(screen.getByText("This finding was cut to fit; open the full report on linux-server")).toBeInTheDocument();
   });
 });

@@ -12,6 +12,8 @@ export interface ReportEntry {
   readonly report: ReviewReport | null;
   readonly error: AppError | null;
   readonly loading: boolean;
+  /** When the report was last read (ms since the epoch); absent before it was. */
+  readonly loadedAt?: number;
 }
 
 export type DetailTab = "findings" | "description" | "agent";
@@ -182,7 +184,12 @@ const reportsSlice = createSlice({
       action: PayloadAction<{ readonly repo: string; readonly ref: string; readonly report: ReviewReport; readonly environment?: string }>,
     ): ReportsState => {
       const key = reportKey(action.payload.repo, action.payload.ref, action.payload.environment);
-      return withReport(state, key, { report: action.payload.report, error: null, loading: state.byKey[key]?.loading ?? false });
+      return withReport(state, key, {
+        report: action.payload.report,
+        error: null,
+        loading: state.byKey[key]?.loading ?? false,
+        loadedAt: Date.now(),
+      });
     },
     noteDrafted: (state, action: PayloadAction<ForPr<{ readonly id: string; readonly text: string }>>): ReportsState =>
       withTriage(state, action.payload.pr, (t) => ({
@@ -194,13 +201,19 @@ const reportsSlice = createSlice({
       .addCase(fetchReport.pending, (state, action): ReportsState => {
         const key = reportKey(action.meta.arg.repo, action.meta.arg.ref, action.meta.arg.environment);
         const entry = state.byKey[key];
-        return withReport(state, key, { report: entry?.report ?? null, error: entry?.error ?? null, loading: true });
+        return withReport(state, key, {
+          report: entry?.report ?? null,
+          error: entry?.error ?? null,
+          loading: true,
+          loadedAt: entry?.loadedAt,
+        });
       })
       .addCase(fetchReport.fulfilled, (state, action): ReportsState =>
         withReport(state, reportKey(action.meta.arg.repo, action.meta.arg.ref, action.meta.arg.environment), {
           report: action.payload,
           error: null,
           loading: false,
+          loadedAt: Date.now(),
         }),
       )
       .addCase(fetchReport.rejected, (state, action): ReportsState => {
@@ -209,6 +222,7 @@ const reportsSlice = createSlice({
           report: state.byKey[key]?.report ?? null,
           error: action.payload ?? { code: "internal", message: action.error.message ?? "reading the report failed" },
           loading: false,
+          loadedAt: state.byKey[key]?.loadedAt,
         });
       })
       .addCase(decideFindings.pending, (state, action): ReportsState => ({
@@ -218,7 +232,12 @@ const reportsSlice = createSlice({
       .addCase(decideFindings.fulfilled, (state, action): ReportsState => {
         const ids = action.meta.arg.findings.map((f) => f.id);
         const key = reportKey(action.meta.arg.repo, action.meta.arg.ref, action.meta.arg.environment);
-        const next = withReport(state, key, { report: action.payload, error: null, loading: state.byKey[key]?.loading ?? false });
+        const next = withReport(state, key, {
+          report: action.payload,
+          error: null,
+          loading: state.byKey[key]?.loading ?? false,
+          loadedAt: Date.now(),
+        });
         const triage = Object.fromEntries(
           Object.entries(next.triage).map(([pr, t]) => [
             pr,

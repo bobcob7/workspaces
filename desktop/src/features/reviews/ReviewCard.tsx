@@ -4,11 +4,13 @@ import type { PullRequest, ReviewRun } from "../../api";
 import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { removeEntry } from "../agents/agentsSlice";
+import { EnvBadge } from "../agents/EnvBadge";
 import { StatusDot } from "../agents/StatusDot";
 import { conversationClosed, fetchConversation } from "../conversation/conversationSlice";
 import { MarkdownText } from "../conversation/ConversationView";
 import { sectionChosen, selected } from "../ui/uiSlice";
 import { isReviewing, shortSha } from "./groups";
+import { useEnvironmentBlock } from "./remote";
 import styles from "./ReviewCard.module.css";
 
 /** How often a running review's reply is re-read. */
@@ -54,17 +56,21 @@ export const ReviewCard = ({ review, pr, collapsed = false }: ReviewCardProps): 
   const [open, setOpen] = useState(!collapsed);
   const [confirming, setConfirming] = useState(false);
   const atHead = review.sha !== "" && pr.headRefOid.startsWith(review.sha.slice(0, 7));
+  const remote = review.environment !== "local";
+  const block = useEnvironmentBlock(review.environment);
+  const note = block !== "" ? block : remote && review.stale ? `${review.environment}'s data may be out of date` : "";
   const openAgent = (): void => {
     dispatch(sectionChosen("agents"));
     dispatch(selected(review.workspaceId));
   };
   return (
-    <section className={styles.root} aria-label={review.workspaceId}>
+    <section className={styles.root} aria-label={review.workspaceId} data-dimmed={note !== "" || undefined}>
       <header className={styles.header}>
         <button type="button" className={styles.toggle} aria-expanded={open} onClick={() => setOpen(!open)}>
           <StatusDot status={review.status} />
           <span className={styles.name}>{review.workspaceId}</span>
         </button>
+        {remote && <EnvBadge label={review.environment} warn={note !== ""} />}
         {review.auto && <span className={styles.auto}>auto</span>}
         <span className={styles.muted}>
           {isReviewing(review.status) ? "reviewing" : "reviewed"}{" "}
@@ -88,6 +94,7 @@ export const ReviewCard = ({ review, pr, collapsed = false }: ReviewCardProps): 
           </>
         )}
       </header>
+      {note !== "" && <p className={styles.note}>{note}</p>}
       {open && (
         <div className={styles.body}>
           {review.detail !== null && review.status === "working" && <p className={styles.detail}>{review.detail}</p>}

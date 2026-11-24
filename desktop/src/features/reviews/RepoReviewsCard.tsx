@@ -2,8 +2,10 @@ import { Button, Switch } from "@mui/material";
 import type { JSX } from "react";
 import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
+import { EnvBadge } from "../agents/EnvBadge";
 import { sectionChosen } from "../ui/uiSlice";
 import { repoName } from "./groups";
+import { useEnvironmentBlock } from "./remote";
 import { filterChanged, setWatch } from "./reviewsSlice";
 import styles from "./RepoReviewsCard.module.css";
 
@@ -20,6 +22,8 @@ export const RepoReviewsCard = ({ repoId }: RepoReviewsCardProps): JSX.Element |
   const dispatch = useAppDispatch();
   const repo = useAppSelector((s) => s.reviews.view?.repos.find((r) => r.id === repoId));
   const interval = useAppSelector((s) => s.settings.settings?.reviews.checkIntervalMinutes ?? 5);
+  const environment = repo?.environment ?? "local";
+  const block = useEnvironmentBlock(environment);
   if (repo === undefined || repo.forge === null) {
     return null;
   }
@@ -32,9 +36,10 @@ export const RepoReviewsCard = ({ repoId }: RepoReviewsCardProps): JSX.Element |
     dispatch(sectionChosen("reviews"));
   };
   return (
-    <section className={styles.root} aria-label="Pull request reviews">
+    <section className={styles.root} aria-label="Pull request reviews" data-dimmed={block !== "" || undefined}>
       <header className={styles.header}>
         <h2>Pull request reviews</h2>
+        {environment !== "local" && <EnvBadge label={environment} warn={block !== ""} title={block === "" ? undefined : block} />}
         <span className={styles.spacer} />
         {repo.watch && status.length > 0 && <span className={styles.muted}>{status.join(" · ")}</span>}
         {repo.watch && (
@@ -43,6 +48,7 @@ export const RepoReviewsCard = ({ repoId }: RepoReviewsCardProps): JSX.Element |
           </Button>
         )}
       </header>
+      {block !== "" && <p className={styles.muted}>{block}</p>}
       {repo.error !== null && repo.watch && <p className={styles.error}>{repo.error}</p>}
       <label className={styles.row}>
         <span className={styles.text}>
@@ -54,7 +60,7 @@ export const RepoReviewsCard = ({ repoId }: RepoReviewsCardProps): JSX.Element |
         </span>
         <Switch
           checked={repo.watch}
-          onChange={(e) => void dispatch(setWatch({ repo: repoId, watch: e.target.checked, autoReview: repo.autoReview }))}
+          onChange={(e) => void dispatch(setWatch({ repo: repoId, watch: e.target.checked, autoReview: repo.autoReview, environment }))}
         />
       </label>
       <label className={styles.row}>
@@ -65,7 +71,7 @@ export const RepoReviewsCard = ({ repoId }: RepoReviewsCardProps): JSX.Element |
         <Switch
           checked={repo.autoReview}
           disabled={!repo.watch}
-          onChange={(e) => void dispatch(setWatch({ repo: repoId, watch: repo.watch, autoReview: e.target.checked }))}
+          onChange={(e) => void dispatch(setWatch({ repo: repoId, watch: repo.watch, autoReview: e.target.checked, environment }))}
         />
       </label>
     </section>

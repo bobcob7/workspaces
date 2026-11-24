@@ -10,12 +10,14 @@ import {
   MenuItem,
   TextField,
 } from "@mui/material";
-import { useState, type FormEvent, type JSX } from "react";
+import { useEffect, useState, type FormEvent, type JSX } from "react";
 import type { ReviewPlan } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { models, permissionModes } from "../create/NewAgentDialog";
+import { EnvironmentField, useEnvironmentPick, type EnvironmentPick } from "../create/EnvironmentField";
 import { ownerRepo, shortSha } from "./groups";
-import { startDialogClosed, startReview } from "./reviewsSlice";
+import { reviewPermissionModes, useClaudeMissing, useEnvironmentBlock } from "./remote";
+import { fetchStartProfiles, selectReviewEnvironment, startDialogClosed, startReview } from "./reviewsSlice";
 import styles from "./StartReviewDialog.module.css";
 
 const PlanForm = ({ plan, prKey }: { readonly plan: ReviewPlan; readonly prKey: string }): JSX.Element => {
@@ -27,11 +29,31 @@ const PlanForm = ({ plan, prKey }: { readonly plan: ReviewPlan; readonly prKey: 
   const [focus, setFocus] = useState(plan.focus);
   const [model, setModel] = useState(plan.model);
   const [permissionMode, setPermissionMode] = useState(plan.permissionMode);
+  const planned = plan.environment ?? "local";
+  const repoEnvironment = useAppSelector((s) => selectReviewEnvironment(s, plan.repo));
+  const [environment, setEnvironment] = useState(plan.environment ?? repoEnvironment);
+  const base = useEnvironmentPick();
+  const block = useEnvironmentBlock(environment);
+  const claudeMissing = useClaudeMissing(environment);
+  const profiles = useAppSelector((s) => s.reviews.startDialog?.profiles);
+  const remote = environment !== "local";
+  const modes = reviewPermissionModes(permissionModes, environment);
+  const shownMode = remote && permissionMode === "bypassPermissions" ? "" : permissionMode;
+  const pick: EnvironmentPick = { ...base, environment, note: null, claudeMissing, choose: setEnvironment };
+  useEffect(() => {
+    if (base.visible) {
+      void dispatch(fetchStartProfiles(environment));
+    }
+  }, [dispatch, base.visible, environment]);
+  const reviewers = profiles?.environment === environment ? profiles : undefined;
+  const reason = block !== "" ? block : claudeMissing ? `claude isn't installed on ${environment}` : "";
   const submit = (event: FormEvent): void => {
     event.preventDefault();
-    if (pr !== undefined) {
-      void dispatch(startReview({ pr, plan: { ...plan, name, focus, model, permissionMode } }));
+    if (pr === undefined || reason !== "") {
+      return;
     }
+    const moved = environment === planned ? {} : { environment, profiles: [] };
+    void dispatch(startReview({ pr, plan: { ...plan, name, focus, model, permissionMode: shownMode, ...moved } }));
   };
   return (
     <form onSubmit={submit}>
@@ -59,6 +81,17 @@ const PlanForm = ({ plan, prKey }: { readonly plan: ReviewPlan; readonly prKey: 
             <span className={styles.muted}>PR head, detached</span>
           </span>
         </div>
+        <EnvironmentField pick={pick} />
+        {base.visible && reviewers !== undefined && reviewers.error === null && (
+          <span className={styles.muted}>
+            Reviewers on {environment}:{" "}
+            {reviewers.items
+              .filter((p) => p.when !== "off")
+              .map((p) => p.name)
+              .join(", ")}
+          </span>
+        )}
+        {reason !== "" && <Alert severity="warning">{reason}</Alert>}
         <TextField
           label="Focus"
           placeholder="Optional: what this review should look at hardest"
@@ -89,11 +122,11 @@ const PlanForm = ({ plan, prKey }: { readonly plan: ReviewPlan; readonly prKey: 
             select
             label="Permission mode"
             slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-            value={permissionMode}
+            value={shownMode}
             onChange={(e) => setPermissionMode(e.target.value)}
             fullWidth
           >
-            {permissionModes.map((m) => (
+            {modes.map((m) => (
               <MenuItem key={m} value={m}>
                 {m === "" ? "default" : m}
               </MenuItem>
@@ -106,7 +139,7 @@ const PlanForm = ({ plan, prKey }: { readonly plan: ReviewPlan; readonly prKey: 
         <Button onClick={() => dispatch(startDialogClosed())} disabled={starting}>
           Cancel
         </Button>
-        <Button type="submit" variant="contained" disabled={starting || pr === undefined || name.trim() === ""}>
+        <Button type="submit" variant="contained" disabled={starting || pr === undefined || name.trim() === "" || reason !== ""}>
           {starting ? "Starting…" : "Start review"}
         </Button>
       </DialogActions>

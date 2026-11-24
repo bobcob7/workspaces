@@ -703,6 +703,8 @@ export interface ReportComment {
   readonly anchors: readonly ReportAnchor[];
   readonly suggestions: readonly ReportSuggestion[];
   readonly decision: FindingDecision | null;
+  /** A remote report cut this finding to fit the page; the full text is on the environment. */
+  readonly truncated?: boolean;
 }
 
 export type Verdict = "approve" | "request_changes" | "comment";

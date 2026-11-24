@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { PullRequest } from "../../api";
 import { useAppDispatch, useAppStore } from "../../store";
 import { isReviewing } from "./groups";
+import { environmentBlock } from "./remote";
 import { fetchReport, reportKey } from "./reportsSlice";
 
 /** How often a working review's report is read again (ADR 0040). */
@@ -11,12 +12,25 @@ interface Newest {
   readonly repo: string;
   readonly ref: string;
   readonly working: boolean;
+  readonly environment: string;
+  /** The review's id on its environment; absent for a local one. */
+  readonly reviewId: string | undefined;
 }
 
 const newestReviews = (prs: readonly PullRequest[]): readonly Newest[] =>
   prs.flatMap((pr) => {
     const review = pr.reviews[0];
-    return review?.recorded === true ? [{ repo: pr.repo, ref: review.sha, working: isReviewing(review.status) }] : [];
+    return review?.recorded === true
+      ? [
+          {
+            repo: pr.repo,
+            ref: review.sha,
+            working: isReviewing(review.status),
+            environment: review.environment,
+            reviewId: review.environment === "local" ? undefined : review.workspaceId,
+          },
+        ]
+      : [];
   });
 
 /**
@@ -29,15 +43,16 @@ export const useReports = (prs: readonly PullRequest[]): void => {
   const store = useAppStore();
   const wasWorking = useRef(new Map<string, boolean>());
   const newest = newestReviews(prs);
-  const signature = newest.map((n) => `${reportKey(n.repo, n.ref)}:${String(n.working)}`).join(",");
+  const signature = newest.map((n) => `${reportKey(n.repo, n.ref, n.environment)}:${String(n.working)}`).join(",");
 
   useEffect(() => {
     const loaded = store.getState().reports.byKey;
     for (const n of newest) {
-      const key = reportKey(n.repo, n.ref);
+      const key = reportKey(n.repo, n.ref, n.environment);
       const stopped = wasWorking.current.get(key) === true && !n.working;
-      if (loaded[key] === undefined || stopped) {
-        void dispatch(fetchReport({ repo: n.repo, ref: n.ref, refresh: stopped }));
+      const offline = environmentBlock(store.getState().environments.items, n.environment) !== "";
+      if (!offline && (loaded[key] === undefined || stopped)) {
+        void dispatch(fetchReport({ repo: n.repo, ref: n.ref, refresh: stopped, environment: n.environment, reviewId: n.reviewId }));
       }
       wasWorking.current.set(key, n.working);
     }
@@ -50,9 +65,11 @@ export const useReports = (prs: readonly PullRequest[]): void => {
     }
     const timer = window.setInterval(() => {
       for (const n of working) {
-        void dispatch(fetchReport({ repo: n.repo, ref: n.ref, refresh: true }));
+        if (environmentBlock(store.getState().environments.items, n.environment) === "") {
+          void dispatch(fetchReport({ repo: n.repo, ref: n.ref, refresh: true, environment: n.environment, reviewId: n.reviewId }));
+        }
       }
     }, reportInterval);
     return () => window.clearInterval(timer);
-  }, [dispatch, signature]);
+  }, [dispatch, store, signature]);
 };

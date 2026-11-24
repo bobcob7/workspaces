@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { describe, expect, it, vi } from "vitest";
 import type { Api, FindingDecision, ReviewReport } from "../../api";
-import { commentPlan, fakeApi, fakeHost, fixPlan, head, pullRequest, reviewRun, reviewsView, testStore, type FakeHost } from "../../test/fixtures";
+import { commentPlan, fakeApi, fakeHost, fixPlan, head, pullRequest, remoteEnvironment, reviewRun, reviewsView, testStore, type FakeHost } from "../../test/fixtures";
 import { realReport, reviewReport } from "../../test/reportFixture";
 import { renderWithStore } from "../../test/render";
 import { attachKey, messageKeys, openTerminal } from "../terminals/terminalsSlice";
@@ -222,5 +222,48 @@ describe("FixDialog", () => {
     await userEvent.click(await within(dialog).findByRole("button", { name: "Start fix agent" }));
     expect(await within(dialog).findByText("not trusted")).toBeInTheDocument();
     expect(store.getState().actions.fix).not.toBeNull();
+  });
+});
+
+describe("Comment and Fix of a remote review", () => {
+  const reviewId = "review-remote-1";
+  const renderRemote = (overrides: Partial<Api> = {}) => {
+    const api = fakeApi({ reviewReport: vi.fn(async () => decided()), ...overrides });
+    const store = testStore({
+      api,
+      state: { environments: { items: [remoteEnvironment()], loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } },
+    });
+    const pr = pullRequest({ group: "reviewed", reviews: [reviewRun({ workspaceId: reviewId, environment: "linux-server" })] });
+    store.dispatch(fetchReviews.fulfilled(reviewsView({ prs: [pr] }), "req"));
+    store.dispatch(reviewSelected(pr.key));
+    renderWithStore(
+      <>
+        <ReviewsPane />
+        <CommentDialog />
+        <FixDialog />
+      </>,
+      store,
+    );
+    return { store, api };
+  };
+
+  it("previews the comment from the environment's review", async () => {
+    const { api } = renderRemote();
+    await userEvent.click(await screen.findByRole("button", { name: "Comment on 1…" }));
+    await screen.findByRole("dialog", { name: "Post a review on bobcob7/buff-bear#42" });
+    expect(api.reviewCommentPlan).toHaveBeenCalledWith(repo, head, 42, "linux-server", reviewId);
+  });
+
+  it("plans a fix with the environment and review id, and says the fix agent runs on this machine", async () => {
+    const { api } = renderRemote();
+    await userEvent.click(await screen.findByRole("button", { name: "Fix 1…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Fix 1 finding" });
+    expect(api.reviewFixPlan).toHaveBeenCalledWith(repo, head, reviewId, expect.anything(), "linux-server", reviewId);
+    expect(within(dialog).getByText("The fix agent runs on this machine")).toBeInTheDocument();
+  });
+
+  it("does not say it for a local review", async () => {
+    const { dialog } = await openFix();
+    expect(within(dialog).queryByText("The fix agent runs on this machine")).not.toBeInTheDocument();
   });
 });
