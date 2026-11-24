@@ -1,3 +1,5 @@
+//go:build unix
+
 package cli
 
 import (
@@ -5,7 +7,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -16,111 +17,6 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/envproto"
 )
-
-// termFrame is one answer of a scripted terminal's Next.
-type termFrame struct {
-	data []byte
-	exit *envproto.TerminalExit
-	err  error
-}
-
-// termEnv is an App wired to a scripted remote terminal, a stdin pipe, and
-// fake raw-mode, size, signal and pause seams.
-type termEnv struct {
-	app      *App
-	stdout   *bytes.Buffer
-	term     *remoteTerminalMock
-	frames   chan termFrame
-	stdinW   *io.PipeWriter
-	mu       sync.Mutex
-	inputs   [][]byte
-	resizes  [][2]int
-	closed   int
-	raw      int
-	restored int
-	pauses   []time.Duration
-	winch    chan<- os.Signal
-	opened   []envproto.TerminalOpenArgs
-	size     [2]int
-	notified []os.Signal
-	stopped  int
-}
-
-func newTermEnv(t *testing.T) *termEnv {
-	t.Helper()
-	e := &termEnv{frames: make(chan termFrame, 16), size: [2]int{100, 30}}
-	stdinR, stdinW := io.Pipe()
-	e.stdinW = stdinW
-	t.Cleanup(func() { _ = stdinW.Close() })
-	m := newMockedApp()
-	e.app, e.stdout = m.app, m.stdout
-	e.app.stdin = stdinR
-	e.term = &remoteTerminalMock{
-		NextFunc: func() ([]byte, *envproto.TerminalExit, error) {
-			f := <-e.frames
-			return f.data, f.exit, f.err
-		},
-		InputFunc: func(p []byte) error {
-			e.mu.Lock()
-			defer e.mu.Unlock()
-			e.inputs = append(e.inputs, bytes.Clone(p))
-			return nil
-		},
-		ResizeFunc: func(cols, rows int) error {
-			e.mu.Lock()
-			defer e.mu.Unlock()
-			e.resizes = append(e.resizes, [2]int{cols, rows})
-			return nil
-		},
-		CloseFunc: func() error {
-			e.mu.Lock()
-			e.closed++
-			e.mu.Unlock()
-			e.frames <- termFrame{exit: &envproto.TerminalExit{Reason: "closed"}}
-			return nil
-		},
-	}
-	opener := &terminalOpenerMock{OpenTerminalFunc: func(_ context.Context, _ string, args envproto.TerminalOpenArgs) (remoteTerminal, envproto.TerminalOpenResult, error) {
-		e.mu.Lock()
-		e.opened = append(e.opened, args)
-		e.mu.Unlock()
-		return e.term, envproto.TerminalOpenResult{SID: "0123456789abcdef"}, nil
-	}}
-	e.app.dialTerminals = func(context.Context) (terminalOpener, error) { return opener, nil }
-	e.app.stdinTerminal = func() bool { return true }
-	e.app.rawMode = func() (func(), error) {
-		e.mu.Lock()
-		e.raw++
-		e.mu.Unlock()
-		return func() {
-			e.mu.Lock()
-			e.restored++
-			e.mu.Unlock()
-		}, nil
-	}
-	e.app.termSize = func() (int, int, error) {
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		return e.size[0], e.size[1], nil
-	}
-	e.app.pause = func(_ context.Context, d time.Duration) {
-		e.mu.Lock()
-		e.pauses = append(e.pauses, d)
-		e.mu.Unlock()
-	}
-	e.app.notify = func(c chan<- os.Signal, sigs ...os.Signal) {
-		e.mu.Lock()
-		e.winch = c
-		e.notified = append([]os.Signal(nil), sigs...)
-		e.mu.Unlock()
-	}
-	e.app.stopNotify = func(chan<- os.Signal) {
-		e.mu.Lock()
-		e.stopped++
-		e.mu.Unlock()
-	}
-	return e
-}
 
 func (e *termEnv) snapshot() (inputs [][]byte, resizes [][2]int, closed, raw, restored int) {
 	e.mu.Lock()
@@ -135,10 +31,6 @@ func slicesCloneBytes(in [][]byte) [][]byte {
 func (e *termEnv) inputBytes() []byte {
 	inputs, _, _, _, _ := e.snapshot()
 	return bytes.Join(inputs, nil)
-}
-
-func exited(code int) *envproto.TerminalExit {
-	return &envproto.TerminalExit{Code: &code, Reason: "exited"}
 }
 
 func terminalShellArgs() envproto.TerminalOpenArgs {

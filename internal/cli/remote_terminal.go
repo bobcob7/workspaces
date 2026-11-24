@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/daemon"
@@ -115,7 +114,7 @@ func (a *App) runRemoteTerminal(ctx context.Context, env string, args envproto.T
 	closeTerm := func() { closeOnce.Do(func() { _ = term.Close() }) }
 	defer closeTerm()
 	sigs := make(chan os.Signal, 4)
-	a.notify(sigs, syscall.SIGWINCH, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
+	a.notify(sigs, terminalSignals()...)
 	defer a.stopNotify(sigs)
 	restore, err := a.rawMode()
 	if err != nil {
@@ -218,7 +217,7 @@ func (r *terminalRun) watchSignals(ctx context.Context, sigs <-chan os.Signal) {
 			return
 		case sig = <-sigs:
 		}
-		if sig != syscall.SIGWINCH {
+		if !isResize(sig) {
 			r.cancel(context.Canceled)
 			return
 		}
@@ -242,7 +241,7 @@ func drainsToStop(sigs <-chan os.Signal) bool {
 	for {
 		select {
 		case sig := <-sigs:
-			if sig != syscall.SIGWINCH {
+			if !isResize(sig) {
 				stop = true
 			}
 		default:

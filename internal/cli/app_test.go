@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/exectest"
 	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/gittest"
@@ -759,6 +761,263 @@ func fakeLifetimeClaude(t *testing.T, dir string) string {
 		`  esac ;;` + "\n" +
 		`*) exit 1 ;;` + "\n" +
 		"esac\n"
+	exectest.WriteScript(t, path, script)
+	return path
+}
+
+// claudeEnv is an App for ws claude whose workspace store creates
+// workspace x with a real, held lock, and whose claude client starts
+// session e8cdf5d8 with a prompt.
+type claudeEnv struct {
+	app      *App
+	stdout   *bytes.Buffer
+	stderr   *bytes.Buffer
+	store    *workspaceStoreMock
+	claude   *claudeClientMock
+	ws       workspace.Workspace
+	lockPath string
+}
+
+func newClaudeEnv(t *testing.T) *claudeEnv {
+	t.Helper()
+	app, stdout, stderr := newTestApp()
+	e := &claudeEnv{
+		app:    app,
+		stdout: stdout,
+		stderr: stderr,
+		ws: workspace.Workspace{ID: "x", Path: "/cfg/workspaces/x", Repos: []workspace.Repo{
+			{ID: "github.com/bobcob7/buff-bear", Path: "buff-bear", Ref: "main", RefKind: "branch", Commit: "3f2a9c1e"},
+		}},
+		lockPath: filepath.Join(t.TempDir(), "lock"),
+	}
+	e.store = &workspaceStoreMock{
+		CreateFunc: func(context.Context, workspace.CreateOptions) (workspace.Workspace, *lockfile.Lock, error) {
+			lock, ok, err := lockfile.TryExclusiveLock(e.lockPath)
+			require.NoError(t, err)
+			require.True(t, ok)
+			return e.ws, lock, nil
+		},
+		RecordSessionFunc: func(string, workspace.SessionKind, string) error { return nil },
+		RemoveFunc:        func(string, workspace.RemoveOptions) error { return nil },
+		WarningsFunc:      func() []string { return nil },
+		ContainingFunc: func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{}, workspace.ErrNotFound
+		},
+		FindFunc: func(arg string) (workspace.Workspace, error) {
+			if arg == "fix-login-d8efb24f" {
+				return workspace.Workspace{ID: arg}, nil
+			}
+			return workspace.Workspace{}, workspace.ErrNotFound
+		},
+	}
+	e.claude = &claudeClientMock{
+		CheckFunc: func(context.Context) error { return nil },
+		StartFunc: func(context.Context, claude.StartOptions) (claude.Started, error) {
+			return claude.Started{ID: "e8cdf5d8"}, nil
+		},
+		TrustFunc:  func(context.Context, string, string, func(string, bool) error) error { return nil },
+		AttachFunc: func(context.Context, string) error { return nil },
+		RemoveFunc: func(context.Context, string) error { return nil },
+	}
+	app.cache, app.workspaces, app.claude = stubCache(), e.store, e.claude
+	app.paths = testPaths()
+	app.getwd = func() (string, error) { return "/somewhere", nil }
+	return e
+}
+
+// idle makes the session start without a prompt.
+func (e *claudeEnv) idle() {
+	e.claude.StartFunc = func(context.Context, claude.StartOptions) (claude.Started, error) {
+		return claude.Started{ID: "e8cdf5d8", Idle: true}, nil
+	}
+}
+
+// locked reports whether the workspace's lock is held.
+func (e *claudeEnv) locked(t *testing.T) bool {
+	t.Helper()
+	unlock, ok, err := lockfile.TryExclusive(e.lockPath)
+	require.NoError(t, err)
+	if ok {
+		unlock()
+	}
+	return !ok
+}
+
+func (e *claudeEnv) run(t *testing.T, args ...string) error {
+	t.Helper()
+	return e.app.runClaude(t.Context(), &claudeOptions{specs: []string{"buff-bear"}, claudeArgs: args})
+}
+
+// termFrame is one answer of a scripted terminal's Next.
+type termFrame struct {
+	data []byte
+	exit *envproto.TerminalExit
+	err  error
+}
+
+// termEnv is an App wired to a scripted remote terminal, a stdin pipe, and
+// fake raw-mode, size, signal and pause seams.
+type termEnv struct {
+	app      *App
+	stdout   *bytes.Buffer
+	term     *remoteTerminalMock
+	frames   chan termFrame
+	stdinW   *io.PipeWriter
+	mu       sync.Mutex
+	inputs   [][]byte
+	resizes  [][2]int
+	closed   int
+	raw      int
+	restored int
+	pauses   []time.Duration
+	winch    chan<- os.Signal
+	opened   []envproto.TerminalOpenArgs
+	size     [2]int
+	notified []os.Signal
+	stopped  int
+}
+
+func newTermEnv(t *testing.T) *termEnv {
+	t.Helper()
+	e := &termEnv{frames: make(chan termFrame, 16), size: [2]int{100, 30}}
+	stdinR, stdinW := io.Pipe()
+	e.stdinW = stdinW
+	t.Cleanup(func() { _ = stdinW.Close() })
+	m := newMockedApp()
+	e.app, e.stdout = m.app, m.stdout
+	e.app.stdin = stdinR
+	e.term = &remoteTerminalMock{
+		NextFunc: func() ([]byte, *envproto.TerminalExit, error) {
+			f := <-e.frames
+			return f.data, f.exit, f.err
+		},
+		InputFunc: func(p []byte) error {
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			e.inputs = append(e.inputs, bytes.Clone(p))
+			return nil
+		},
+		ResizeFunc: func(cols, rows int) error {
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			e.resizes = append(e.resizes, [2]int{cols, rows})
+			return nil
+		},
+		CloseFunc: func() error {
+			e.mu.Lock()
+			e.closed++
+			e.mu.Unlock()
+			e.frames <- termFrame{exit: &envproto.TerminalExit{Reason: "closed"}}
+			return nil
+		},
+	}
+	opener := &terminalOpenerMock{OpenTerminalFunc: func(_ context.Context, _ string, args envproto.TerminalOpenArgs) (remoteTerminal, envproto.TerminalOpenResult, error) {
+		e.mu.Lock()
+		e.opened = append(e.opened, args)
+		e.mu.Unlock()
+		return e.term, envproto.TerminalOpenResult{SID: "0123456789abcdef"}, nil
+	}}
+	e.app.dialTerminals = func(context.Context) (terminalOpener, error) { return opener, nil }
+	e.app.stdinTerminal = func() bool { return true }
+	e.app.rawMode = func() (func(), error) {
+		e.mu.Lock()
+		e.raw++
+		e.mu.Unlock()
+		return func() {
+			e.mu.Lock()
+			e.restored++
+			e.mu.Unlock()
+		}, nil
+	}
+	e.app.termSize = func() (int, int, error) {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.size[0], e.size[1], nil
+	}
+	e.app.pause = func(_ context.Context, d time.Duration) {
+		e.mu.Lock()
+		e.pauses = append(e.pauses, d)
+		e.mu.Unlock()
+	}
+	e.app.notify = func(c chan<- os.Signal, sigs ...os.Signal) {
+		e.mu.Lock()
+		e.winch = c
+		e.notified = append([]os.Signal(nil), sigs...)
+		e.mu.Unlock()
+	}
+	e.app.stopNotify = func(chan<- os.Signal) {
+		e.mu.Lock()
+		e.stopped++
+		e.mu.Unlock()
+	}
+	return e
+}
+
+func exited(code int) *envproto.TerminalExit {
+	return &envproto.TerminalExit{Code: &code, Reason: "exited"}
+}
+
+// claudeE2E is a real App with local upstreams, configured in a temp dir,
+// whose claude is fakeClaudeScript.
+type claudeE2E struct {
+	app     *App
+	paths   config.Paths
+	scratch string
+	// claudeJSON is Claude Code's global config, in its own temp
+	// CLAUDE_CONFIG_DIR; it trusts the workspace root.
+	claudeJSON string
+	stdout     *bytes.Buffer
+	stderr     *bytes.Buffer
+	// up holds the upstream repo o/n.
+	up *gittest.Upstream
+}
+
+func newClaudeE2E(t *testing.T, bgBody string) *claudeE2E {
+	t.Helper()
+	up := gittest.NewUpstream(t)
+	up.Repo(t, "o", "n")
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	e := &claudeE2E{paths: config.NewPaths(filepath.Join(root, "cfg")), scratch: filepath.Join(root, "scratch"), claudeJSON: filepath.Join(root, "claude-config", ".claude.json"), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, up: up}
+	require.NoError(t, os.MkdirAll(e.scratch, 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Dir(e.claudeJSON), 0o700))
+	e.trustRoot(t, true)
+	environ := append(slices.Clone(up.Environ), "CLAUDE_CONFIG_DIR="+filepath.Dir(e.claudeJSON))
+	configs := &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
+		return e.paths, config.Config{Defaults: config.Defaults{Host: gittest.Host, Owners: []string{"o"}}}, nil
+	}}
+	e.app = New("test", nil, e.stdout, e.stderr, configs, environ)
+	e.app.claude = claude.New(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeClaudeScript(t, e.scratch, bgBody), environ)
+	return e
+}
+
+// trustRoot writes Claude Code's config with the workspace root trusted
+// or not.
+func (e *claudeE2E) trustRoot(t *testing.T, trusted bool) {
+	t.Helper()
+	if trusted {
+		writeClaudeJSON(t, e.claudeJSON, e.paths.Workspaces)
+		return
+	}
+	writeClaudeJSON(t, e.claudeJSON)
+}
+
+// trustedDirs are the directories Claude Code's config trusts.
+func (e *claudeE2E) trustedDirs(t *testing.T) []string {
+	t.Helper()
+	return trustedDirsIn(t, e.claudeJSON)
+}
+
+// fakeClaudeScript writes an executable sh script standing in for claude
+// 2.1.303. For --bg it records its arguments, working directory, and
+// whether fd 3 is open in dir/out, then runs bgBody.
+func fakeClaudeScript(t *testing.T, dir, bgBody string) string {
+	t.Helper()
+	path := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\n" +
+		`if [ "$1" = --version ]; then echo "2.1.303 (Claude Code)"; exit 0; fi` + "\n" +
+		`{ printf '%s\n' "$@"; echo "pwd=$(pwd -P)"; [ -e /dev/fd/3 ] && echo "fd3=open"; } > "` + dir + `/out"` + "\n" +
+		bgBody + "\n"
 	exectest.WriteScript(t, path, script)
 	return path
 }
