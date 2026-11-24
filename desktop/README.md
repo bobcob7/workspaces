@@ -222,6 +222,20 @@ rows, and its buttons are at least 40 px tall.
 
 The screenshots use sample data.
 
+## Artifacts
+
+The Artifacts section ([ADR 0078](../docs/adrs/0078-artifacts.md), [ADR 0079](../docs/adrs/0079-artifact-comments-and-anchors.md)) holds files that people and agents upload: screenshots as evidence for a bug, or a Markdown design pitch. Upload with the button, drag and drop, or paste. Attach an artifact to a new agent or a reply; the prompt gets an `@artifact:<id>` reference. Select text in a Markdown artifact to comment on it; the comment stays attached to that passage across revisions.
+
+| **List and upload** | **Image viewer** |
+| --- | --- |
+| ![](docs/artifacts-list.png) | ![](docs/artifacts-image.png) |
+| **Markdown with comment threads** | **Detached and resolved threads** |
+| ![](docs/artifacts-markdown-threads.png) | ![](docs/artifacts-markdown-threads-resolved.png) |
+| **Attaching to a new agent** | **A Markdown artifact on a phone** |
+| ![](docs/artifacts-new-agent.png) | ![](docs/artifacts-phone.png) |
+
+The screenshots use sample data.
+
 ## Workspace Online
 
 The same backend can run on a server and serve the frontend to a browser
