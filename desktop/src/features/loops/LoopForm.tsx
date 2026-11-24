@@ -45,13 +45,23 @@ export interface LoopFormProps {
   readonly onCancel: () => void;
 }
 
-/** A remote loop whose script is new or changed, or whose agent bypasses permissions, needs the person's confirmation (R3). */
-const needsConfirmation = (request: NewLoop, loop: Loop | undefined): boolean => {
+interface Changes {
+  readonly scriptChanged: boolean;
+  readonly bypassChanged: boolean;
+}
+
+/** What in a remote loop needs the person's confirmation: a new or changed script, or a newly bypassed agent (R3). */
+const changesOf = (request: NewLoop, loop: Loop | undefined): Changes => {
   const script = request.script ?? "";
-  const scriptChanged = script !== "" && script !== (loop?.script ?? "");
-  const bypassChanged = request.permissionMode === bypassMode && request.permissionMode !== (loop?.permissionMode ?? "");
-  return scriptChanged || bypassChanged;
+  return {
+    scriptChanged: script !== "" && script !== (loop?.script ?? ""),
+    bypassChanged: request.permissionMode === bypassMode && request.permissionMode !== (loop?.permissionMode ?? ""),
+  };
 };
+
+interface Pending extends Changes {
+  readonly request: NewLoop;
+}
 
 /** The loop form for add and edit: sections for schedule, prompt, repos, agent, gate script, and variables. */
 export const LoopForm = (props: LoopFormProps): JSX.Element => {
@@ -60,10 +70,13 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
   const [touched, setTouched] = useState<ReadonlySet<keyof LoopFormValues>>(new Set());
   const [submitted, setSubmitted] = useState(false);
   const dispatch = useAppDispatch();
-  const pick = useEnvironmentPick();
-  const [pending, setPending] = useState<NewLoop | null>(null);
+  const basePick = useEnvironmentPick();
+  const [chosen, setChosen] = useState<string | null>(null);
+  const pick = { ...basePick, choose: (name: string): void => { setChosen(name); basePick.choose(name); } };
+  const [pending, setPending] = useState<Pending | null>(null);
   const runnerSettings = useRunnerSettings(true);
   const environment = loop === undefined ? pick.environment : loop.environment;
+  const unavailable = loop === undefined && chosen !== null && chosen !== environment;
   const errors = formErrors(values);
   const hasScript = values.script.trim() !== "";
   const slug = slugOf(values.title);
@@ -83,6 +96,9 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
     if (!isValid(values)) {
       return;
     }
+    if (unavailable) {
+      return;
+    }
     const request = requestOf(values);
     if (environment === "local") {
       onSubmit(request);
@@ -93,13 +109,14 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
       environment,
       ...(loop === undefined ? {} : { previous: { ...requestOf(valuesOf(loop)), environment } }),
     };
-    if (needsConfirmation(request, loop)) {
-      setPending(remote);
+    const changes = changesOf(request, loop);
+    if (changes.scriptChanged || changes.bypassChanged) {
+      setPending({ ...changes, request: remote });
       return;
     }
     onSubmit(remote);
   };
-  const confirm = (request: NewLoop): void => {
+  const confirm = ({ request }: Pending): void => {
     setPending(null);
     if (loop === undefined) {
       dispatch(lastChoiceSet(environment));
@@ -218,13 +235,15 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
       {pending !== null && (
         <ConfirmRemoteCodeDialog
           environment={environment}
-          every={pending.every}
-          script={pending.script ?? ""}
-          bypass={pending.permissionMode === bypassMode}
+          every={pending.request.every}
+          script={pending.scriptChanged ? (pending.request.script ?? "") : ""}
+          scriptChanged={pending.scriptChanged}
+          bypassChanged={pending.bypassChanged}
           onConfirm={() => confirm(pending)}
           onCancel={() => setPending(null)}
         />
       )}
+      {unavailable && <Alert severity="warning">{`${chosen} is no longer available; pick an environment to continue`}</Alert>}
       {error !== null && <Alert severity="error">{error.message}</Alert>}
       <div className={styles.formButtons}>
         <Button onClick={onCancel}>Cancel</Button>

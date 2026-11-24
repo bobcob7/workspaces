@@ -9,7 +9,7 @@ const renderDialog = (props: Partial<Parameters<typeof ConfirmRemoteCodeDialog>[
   const onConfirm = vi.fn();
   const onCancel = vi.fn();
   renderWithStore(
-    <ConfirmRemoteCodeDialog environment="linux-server" every="1h" script="make check" bypass={false} onConfirm={onConfirm} onCancel={onCancel} {...props} />,
+    <ConfirmRemoteCodeDialog environment="linux-server" every="1h" script="make check" scriptChanged bypassChanged={false} onConfirm={onConfirm} onCancel={onCancel} {...props} />,
     testStore(),
   );
   return { onConfirm, onCancel };
@@ -28,7 +28,7 @@ describe("ConfirmRemoteCodeDialog", () => {
   });
 
   it("says every permission for a bypass mode", () => {
-    renderDialog({ bypass: true, script: "" });
+    renderDialog({ bypassChanged: true, scriptChanged: false, script: "" });
     expect(screen.getByText("This loop's agent runs on linux-server with every permission (bypassPermissions)")).toBeInTheDocument();
   });
 
@@ -41,5 +41,27 @@ describe("ConfirmRemoteCodeDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Run on linux-server" }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows both texts when the script and the bypass mode changed", () => {
+    renderDialog({ bypassChanged: true });
+    expect(screen.getByText(/This script runs as the agent's user on linux-server/)).toBeInTheDocument();
+    expect(screen.getByText(/with every permission \(bypassPermissions\)/)).toBeInTheDocument();
+  });
+
+  it("Escape cancels and never confirms", async () => {
+    const { onConfirm, onCancel } = renderDialog();
+    await userEvent.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("a click on the backdrop cancels and never confirms", async () => {
+    const { onConfirm, onCancel } = renderDialog();
+    const backdrop = document.querySelector(".MuiBackdrop-root");
+    expect(backdrop).not.toBeNull();
+    await userEvent.click(backdrop as Element);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });

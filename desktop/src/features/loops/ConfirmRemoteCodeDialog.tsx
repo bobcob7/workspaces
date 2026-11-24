@@ -6,10 +6,12 @@ export interface ConfirmRemoteCodeDialogProps {
   readonly environment: string;
   /** The loop's period, as `1h`. */
   readonly every: string;
-  /** The gate script to show; empty for a bypass-only change. */
+  /** The gate script to show; empty when the script is not part of what is confirmed. */
   readonly script: string;
-  /** The loop's agent runs with bypassPermissions. */
-  readonly bypass: boolean;
+  /** The script is new or changed. */
+  readonly scriptChanged: boolean;
+  /** The loop's agent newly runs with bypassPermissions. */
+  readonly bypassChanged: boolean;
   /** Called only from the Run button. */
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
@@ -17,15 +19,15 @@ export interface ConfirmRemoteCodeDialogProps {
 
 /** Asks the person to confirm code that will run on a remote environment (R3). Cancel has the focus. */
 export const ConfirmRemoteCodeDialog = (props: ConfirmRemoteCodeDialogProps): JSX.Element => {
-  const { environment, every, script, bypass, onConfirm, onCancel } = props;
-  const body = bypass
-    ? `This loop's agent runs on ${environment} with every permission (bypassPermissions)`
-    : `This script runs as the agent's user on ${environment} every ${every}, outside Claude Code's permissions. Anyone who can use this app can run code there.`;
+  const { environment, every, script, scriptChanged, bypassChanged, onConfirm, onCancel } = props;
+  const bypassText = `This loop's agent runs on ${environment} with every permission (bypassPermissions)`;
+  const scriptText = `This script runs as the agent's user on ${environment} every ${every}, outside Claude Code's permissions. Anyone who can use this app can run code there.`;
   return (
     <Dialog open onClose={onCancel} fullWidth maxWidth="sm">
       <DialogTitle>Run code on {environment}?</DialogTitle>
       <DialogContent>
-        <DialogContentText>{body}</DialogContentText>
+        {scriptChanged && <DialogContentText>{scriptText}</DialogContentText>}
+        {bypassChanged && <DialogContentText>{bypassText}</DialogContentText>}
         {script !== "" && (
           <pre className={styles.script} aria-label="Script" tabIndex={0}>
             {script}

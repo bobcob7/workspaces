@@ -29,6 +29,12 @@ export const LoopsList = (): JSX.Element => {
     return () => window.clearInterval(timer);
   }, [dispatch]);
   const grouped = groups.length > 1;
+  const filterGone = filter !== null && !groups.some((g) => g.environment === filter);
+  useEffect(() => {
+    if (filterGone) {
+      setFilter(null);
+    }
+  }, [filterGone]);
   const shown = grouped && filter !== null ? groups.filter((g) => g.environment === filter) : groups;
   const local = groups[0];
   return (

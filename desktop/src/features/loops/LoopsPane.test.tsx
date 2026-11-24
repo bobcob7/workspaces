@@ -135,6 +135,18 @@ describe("LoopsPane", () => {
     expect(screen.getByText(/missed runs are skipped, not made up/)).toBeInTheDocument();
   });
 
+  it("an offline loop's header shows no stale badge", () => {
+    const store = remoteStore(fakeApi(), [remoteLoop({ stale: true })], { status: "offline", lastSeen: "2026-11-23T14:02:00Z" });
+    renderWithStore(<LoopsPane />, store);
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+  });
+
+  it("an online loop's header shows the stale badge", () => {
+    const store = remoteStore(fakeApi(), [remoteLoop({ stale: true })]);
+    renderWithStore(<LoopsPane />, store);
+    expect(screen.getByText("stale")).toBeInTheDocument();
+  });
+
   it("edit shows the environment read-only", async () => {
     const store = remoteStore(fakeApi(), [remoteLoop()]);
     renderWithStore(<LoopsPane />, store);
