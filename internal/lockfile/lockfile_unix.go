@@ -9,6 +9,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// InheritableLocks reports whether a child given a Lock's File holds the lock
+// too: flock belongs to the open file, so it does.
+const InheritableLocks = true
+
 // tryLock takes f's lock without waiting. held is true, with a nil error,
 // when another holder has it.
 func tryLock(f *os.File, m mode) (held bool, err error) {

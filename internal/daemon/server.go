@@ -497,6 +497,9 @@ func (l peerListener) Accept() (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
+		// On unix peerUID is the peer's uid (SO_PEERCRED). On Windows it always
+		// passes, and the socket directory's DACL, checked by prepareSocketDir
+		// before listening, is the guard.
 		if uid, err := peerUID(conn); err == nil && uid == l.uid {
 			return conn, nil
 		}
