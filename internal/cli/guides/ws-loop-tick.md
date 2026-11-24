@@ -1,8 +1,8 @@
 # ws loop tick
 
 ```
-ws loop tick [--json] [--dry-run]
-ws loop tick [--dry-run] --watch
+ws loop tick [--json] [--dry-run] [--max-starts N]
+ws loop tick [--dry-run] [--max-starts N] --watch
 ```
 
 Runs one pass of the scheduler: starts a run of every loop that is due,
@@ -35,6 +35,7 @@ period.
 | ----------- | ----------- |
 | `--dry-run` | Report what would start, as `would_start`; start, write, and remove nothing, and run no script |
 | `--watch`   | Run a pass every minute until interrupted, printing only the runs it started and the failures it had. Text only: `--json` with `--watch` is a usage error |
+| `--max-starts N` | Start at most `N` loops in one pass, and leave the due loops past the cap as `waiting`, with `next_run_at` unchanged. `0` (the default) is no cap; `N` is 1 to 100, and anything else is a usage error. A `would_start` counts against the cap under `--dry-run`. `ws env agent run` uses `--max-starts 2` |
 
 ## JSON output
 

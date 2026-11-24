@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/machine"
 	"sync"
 	"syscall"
@@ -888,6 +889,9 @@ var _ EnvironmentHost = &EnvironmentHostMock{}
 //			CloseFunc: func() error {
 //				panic("mock out the Close method")
 //			},
+//			OpenTerminalFunc: func(ctx context.Context, name string, args envproto.TerminalOpenArgs) (TerminalStream, envproto.TerminalOpenResult, error) {
+//				panic("mock out the OpenTerminal method")
+//			},
 //			ReloadFunc: func(ctx context.Context) error {
 //				panic("mock out the Reload method")
 //			},
@@ -912,6 +916,9 @@ type EnvironmentHostMock struct {
 
 	// CloseFunc mocks the Close method.
 	CloseFunc func() error
+
+	// OpenTerminalFunc mocks the OpenTerminal method.
+	OpenTerminalFunc func(ctx context.Context, name string, args envproto.TerminalOpenArgs) (TerminalStream, envproto.TerminalOpenResult, error)
 
 	// ReloadFunc mocks the Reload method.
 	ReloadFunc func(ctx context.Context) error
@@ -939,6 +946,15 @@ type EnvironmentHostMock struct {
 		// Close holds details about calls to the Close method.
 		Close []struct {
 		}
+		// OpenTerminal holds details about calls to the OpenTerminal method.
+		OpenTerminal []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Name is the name argument value.
+			Name string
+			// Args is the args argument value.
+			Args envproto.TerminalOpenArgs
+		}
 		// Reload holds details about calls to the Reload method.
 		Reload []struct {
 			// Ctx is the ctx argument value.
@@ -956,12 +972,13 @@ type EnvironmentHostMock struct {
 		Warnings []struct {
 		}
 	}
-	lockCall     sync.RWMutex
-	lockClose    sync.RWMutex
-	lockReload   sync.RWMutex
-	lockStart    sync.RWMutex
-	lockStatus   sync.RWMutex
-	lockWarnings sync.RWMutex
+	lockCall         sync.RWMutex
+	lockClose        sync.RWMutex
+	lockOpenTerminal sync.RWMutex
+	lockReload       sync.RWMutex
+	lockStart        sync.RWMutex
+	lockStatus       sync.RWMutex
+	lockWarnings     sync.RWMutex
 }
 
 // Call calls CallFunc.
@@ -1028,6 +1045,46 @@ func (mock *EnvironmentHostMock) CloseCalls() []struct {
 	mock.lockClose.RLock()
 	calls = mock.calls.Close
 	mock.lockClose.RUnlock()
+	return calls
+}
+
+// OpenTerminal calls OpenTerminalFunc.
+func (mock *EnvironmentHostMock) OpenTerminal(ctx context.Context, name string, args envproto.TerminalOpenArgs) (TerminalStream, envproto.TerminalOpenResult, error) {
+	if mock.OpenTerminalFunc == nil {
+		panic("EnvironmentHostMock.OpenTerminalFunc: method is nil but EnvironmentHost.OpenTerminal was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Name string
+		Args envproto.TerminalOpenArgs
+	}{
+		Ctx:  ctx,
+		Name: name,
+		Args: args,
+	}
+	mock.lockOpenTerminal.Lock()
+	mock.calls.OpenTerminal = append(mock.calls.OpenTerminal, callInfo)
+	mock.lockOpenTerminal.Unlock()
+	return mock.OpenTerminalFunc(ctx, name, args)
+}
+
+// OpenTerminalCalls gets all the calls that were made to OpenTerminal.
+// Check the length with:
+//
+//	len(mockedEnvironmentHost.OpenTerminalCalls())
+func (mock *EnvironmentHostMock) OpenTerminalCalls() []struct {
+	Ctx  context.Context
+	Name string
+	Args envproto.TerminalOpenArgs
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Name string
+		Args envproto.TerminalOpenArgs
+	}
+	mock.lockOpenTerminal.RLock()
+	calls = mock.calls.OpenTerminal
+	mock.lockOpenTerminal.RUnlock()
 	return calls
 }
 
@@ -1146,5 +1203,251 @@ func (mock *EnvironmentHostMock) WarningsCalls() []struct {
 	mock.lockWarnings.RLock()
 	calls = mock.calls.Warnings
 	mock.lockWarnings.RUnlock()
+	return calls
+}
+
+// Ensure, that TerminalStreamMock does implement TerminalStream.
+// If this is not the case, regenerate this file with moq.
+var _ TerminalStream = &TerminalStreamMock{}
+
+// TerminalStreamMock is a mock implementation of TerminalStream.
+//
+//	func TestSomethingThatUsesTerminalStream(t *testing.T) {
+//
+//		// make and configure a mocked TerminalStream
+//		mockedTerminalStream := &TerminalStreamMock{
+//			CloseFunc: func(ctx context.Context) error {
+//				panic("mock out the Close method")
+//			},
+//			ExitFunc: func() envproto.TerminalExit {
+//				panic("mock out the Exit method")
+//			},
+//			InputFunc: func(ctx context.Context, p []byte) error {
+//				panic("mock out the Input method")
+//			},
+//			OutputFunc: func() <-chan []byte {
+//				panic("mock out the Output method")
+//			},
+//			ResizeFunc: func(ctx context.Context, cols int, rows int) error {
+//				panic("mock out the Resize method")
+//			},
+//		}
+//
+//		// use mockedTerminalStream in code that requires TerminalStream
+//		// and then make assertions.
+//
+//	}
+type TerminalStreamMock struct {
+	// CloseFunc mocks the Close method.
+	CloseFunc func(ctx context.Context) error
+
+	// ExitFunc mocks the Exit method.
+	ExitFunc func() envproto.TerminalExit
+
+	// InputFunc mocks the Input method.
+	InputFunc func(ctx context.Context, p []byte) error
+
+	// OutputFunc mocks the Output method.
+	OutputFunc func() <-chan []byte
+
+	// ResizeFunc mocks the Resize method.
+	ResizeFunc func(ctx context.Context, cols int, rows int) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Close holds details about calls to the Close method.
+		Close []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// Exit holds details about calls to the Exit method.
+		Exit []struct {
+		}
+		// Input holds details about calls to the Input method.
+		Input []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// P is the p argument value.
+			P []byte
+		}
+		// Output holds details about calls to the Output method.
+		Output []struct {
+		}
+		// Resize holds details about calls to the Resize method.
+		Resize []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Cols is the cols argument value.
+			Cols int
+			// Rows is the rows argument value.
+			Rows int
+		}
+	}
+	lockClose  sync.RWMutex
+	lockExit   sync.RWMutex
+	lockInput  sync.RWMutex
+	lockOutput sync.RWMutex
+	lockResize sync.RWMutex
+}
+
+// Close calls CloseFunc.
+func (mock *TerminalStreamMock) Close(ctx context.Context) error {
+	if mock.CloseFunc == nil {
+		panic("TerminalStreamMock.CloseFunc: method is nil but TerminalStream.Close was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockClose.Lock()
+	mock.calls.Close = append(mock.calls.Close, callInfo)
+	mock.lockClose.Unlock()
+	return mock.CloseFunc(ctx)
+}
+
+// CloseCalls gets all the calls that were made to Close.
+// Check the length with:
+//
+//	len(mockedTerminalStream.CloseCalls())
+func (mock *TerminalStreamMock) CloseCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockClose.RLock()
+	calls = mock.calls.Close
+	mock.lockClose.RUnlock()
+	return calls
+}
+
+// Exit calls ExitFunc.
+func (mock *TerminalStreamMock) Exit() envproto.TerminalExit {
+	if mock.ExitFunc == nil {
+		panic("TerminalStreamMock.ExitFunc: method is nil but TerminalStream.Exit was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockExit.Lock()
+	mock.calls.Exit = append(mock.calls.Exit, callInfo)
+	mock.lockExit.Unlock()
+	return mock.ExitFunc()
+}
+
+// ExitCalls gets all the calls that were made to Exit.
+// Check the length with:
+//
+//	len(mockedTerminalStream.ExitCalls())
+func (mock *TerminalStreamMock) ExitCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockExit.RLock()
+	calls = mock.calls.Exit
+	mock.lockExit.RUnlock()
+	return calls
+}
+
+// Input calls InputFunc.
+func (mock *TerminalStreamMock) Input(ctx context.Context, p []byte) error {
+	if mock.InputFunc == nil {
+		panic("TerminalStreamMock.InputFunc: method is nil but TerminalStream.Input was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		P   []byte
+	}{
+		Ctx: ctx,
+		P:   p,
+	}
+	mock.lockInput.Lock()
+	mock.calls.Input = append(mock.calls.Input, callInfo)
+	mock.lockInput.Unlock()
+	return mock.InputFunc(ctx, p)
+}
+
+// InputCalls gets all the calls that were made to Input.
+// Check the length with:
+//
+//	len(mockedTerminalStream.InputCalls())
+func (mock *TerminalStreamMock) InputCalls() []struct {
+	Ctx context.Context
+	P   []byte
+} {
+	var calls []struct {
+		Ctx context.Context
+		P   []byte
+	}
+	mock.lockInput.RLock()
+	calls = mock.calls.Input
+	mock.lockInput.RUnlock()
+	return calls
+}
+
+// Output calls OutputFunc.
+func (mock *TerminalStreamMock) Output() <-chan []byte {
+	if mock.OutputFunc == nil {
+		panic("TerminalStreamMock.OutputFunc: method is nil but TerminalStream.Output was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockOutput.Lock()
+	mock.calls.Output = append(mock.calls.Output, callInfo)
+	mock.lockOutput.Unlock()
+	return mock.OutputFunc()
+}
+
+// OutputCalls gets all the calls that were made to Output.
+// Check the length with:
+//
+//	len(mockedTerminalStream.OutputCalls())
+func (mock *TerminalStreamMock) OutputCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockOutput.RLock()
+	calls = mock.calls.Output
+	mock.lockOutput.RUnlock()
+	return calls
+}
+
+// Resize calls ResizeFunc.
+func (mock *TerminalStreamMock) Resize(ctx context.Context, cols int, rows int) error {
+	if mock.ResizeFunc == nil {
+		panic("TerminalStreamMock.ResizeFunc: method is nil but TerminalStream.Resize was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Cols int
+		Rows int
+	}{
+		Ctx:  ctx,
+		Cols: cols,
+		Rows: rows,
+	}
+	mock.lockResize.Lock()
+	mock.calls.Resize = append(mock.calls.Resize, callInfo)
+	mock.lockResize.Unlock()
+	return mock.ResizeFunc(ctx, cols, rows)
+}
+
+// ResizeCalls gets all the calls that were made to Resize.
+// Check the length with:
+//
+//	len(mockedTerminalStream.ResizeCalls())
+func (mock *TerminalStreamMock) ResizeCalls() []struct {
+	Ctx  context.Context
+	Cols int
+	Rows int
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Cols int
+		Rows int
+	}
+	mock.lockResize.RLock()
+	calls = mock.calls.Resize
+	mock.lockResize.RUnlock()
 	return calls
 }

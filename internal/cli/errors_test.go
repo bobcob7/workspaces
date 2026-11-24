@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func TestErrorCode_exitCode(t *testing.T) {
 	t.Run("failures exit 1", func(t *testing.T) {
 		assertExit(t, exitFailed, codeFetchFailed, codeCloneFailed, codeGitFailed,
 			codeClaudeMissing, codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
-			codeChildFailed, codeWaitTimeout, codeEnrollmentFailed, codeEnvironmentOffline, codeEnvironmentOutdated, codeArtifactUnreachable)
+			codeChildFailed, codeWaitTimeout, codeEnrollmentFailed, codeEnvironmentOffline, codeEnvironmentOutdated, codeOperationLimited, codeArtifactUnreachable)
 	})
 	t.Run("usage errors exit 2", func(t *testing.T) {
 		assertExit(t, exitUsage, codeUsage, codeSpecInvalid, codeNameInvalid, codeOutsideWorkspace, codeResultInvalid, codeRoleInvalid, codeMemoryInvalid, codeArtifactInvalid)
@@ -56,7 +57,7 @@ func TestErrorCode_exitCode(t *testing.T) {
 	})
 	t.Run("refusals exit 4", func(t *testing.T) {
 		assertExit(t, exitRefused, codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch, codeNotDescendant, codeRoleExists, codeRoleBuiltin,
-			codeMemoryConflict, codeMemoryFull, codeNotLoopRun, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch,
+			codeMemoryConflict, codeMemoryFull, codeNotLoopRun, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch, codeTerminalLimit,
 			codeArtifactConflict, codeArtifactFull, codeArtifactForbidden)
 	})
 	t.Run("unknown code exits 1", func(t *testing.T) {
@@ -186,4 +187,37 @@ func caseNames(body *ast.BlockStmt) []string {
 		return true
 	})
 	return names
+}
+
+// TestErrorCode_exitCode_operationLimitedListed reads the exit-1 case of the
+// table, since exit 1 is also the default and a behaviour test can't tell
+// a listed code from an unlisted one.
+func TestErrorCode_exitCode_operationLimitedListed(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "errors.go", nil, 0)
+	require.NoError(t, err)
+	var listed bool
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "exitCode" || fn.Recv == nil {
+			return true
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			clause, ok := n.(*ast.CaseClause)
+			if !ok {
+				return true
+			}
+			var names []string
+			for _, expr := range clause.List {
+				if id, ok := expr.(*ast.Ident); ok {
+					names = append(names, id.Name)
+				}
+			}
+			if slices.Contains(names, "codeFetchFailed") && slices.Contains(names, "codeOperationLimited") {
+				listed = true
+			}
+			return true
+		})
+		return false
+	})
+	assert.True(t, listed, "codeOperationLimited must be in the exit-1 case")
 }

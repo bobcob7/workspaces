@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { theme } from "../../theme";
+import { remoteEnvironment } from "../../test/fixtures";
 import { FilterBar, type FilterBarProps } from "./FilterBar";
 
 const renderBar = (overrides: Partial<FilterBarProps> = {}): Readonly<FilterBarProps> => {
@@ -11,6 +12,9 @@ const renderBar = (overrides: Partial<FilterBarProps> = {}): Readonly<FilterBarP
     status: "all",
     showHidden: false,
     hiddenCount: 0,
+    environments: [],
+    environmentFilter: null,
+    onEnvironmentChange: vi.fn(),
     onQueryChange: vi.fn(),
     onStatusChange: vi.fn(),
     onShowHiddenChange: vi.fn(),
@@ -57,5 +61,17 @@ describe("FilterBar", () => {
   it("is a search landmark named Filter workspaces", () => {
     renderBar();
     expect(screen.getByRole("search", { name: "Filter workspaces" })).toBeInTheDocument();
+  });
+
+  it("shows no environment chips without an environment", () => {
+    renderBar();
+    expect(screen.queryByRole("group", { name: "Environment" })).not.toBeInTheDocument();
+  });
+
+  it("shows the environment chips with one environment and reports a choice", async () => {
+    const props = renderBar({ environments: [remoteEnvironment()] });
+    expect(screen.getByRole("group", { name: "Environment" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /linux-server/ }));
+    expect(props.onEnvironmentChange).toHaveBeenCalledWith("linux-server");
   });
 });

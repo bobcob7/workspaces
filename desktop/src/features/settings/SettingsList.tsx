@@ -12,6 +12,7 @@ const groups: readonly { readonly id: SettingsGroup; readonly title: string }[] 
   { id: "roles", title: "Agent roles" },
   { id: "notifications", title: "Notifications" },
   { id: "workspaces", title: "Workspaces" },
+  { id: "environments", title: "Environments" },
   { id: "about", title: "About" },
 ];
 

@@ -9,7 +9,9 @@ use crate::open;
 use crate::pty::TermSpec;
 use crate::reviews;
 use crate::runner::AppError;
-use crate::{artifacts, cache, loops, roles, runner_service, secrets, stats, ws_config};
+use crate::{
+    artifacts, cache, environments, loops, roles, runner_service, secrets, stats, ws_config,
+};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -166,6 +168,12 @@ pub const COMMANDS: &[&str] = &[
     "loops_memory_remove",
     "loops_memory_clear",
     "stats_get",
+    "environments_list",
+    "environment_add",
+    "environment_rotate",
+    "environment_remove",
+    "environments_ca_status",
+    "environments_ca_rotate",
     "artifact_list",
     "artifact_show",
     "artifact_read",
@@ -217,10 +225,11 @@ pub async fn dispatch(
             result(commands::create_agent(State::new(&ctx.state), request).await)
         }
         "remove_entry" => {
-            let (workspace_id, session_id, keep_children) = args!(args, {
+            let (workspace_id, session_id, keep_children, environment) = args!(args, {
                 workspace_id: Option<String>,
                 session_id: Option<String>,
                 keep_children: Option<bool>,
+                environment: Option<String>,
             });
             result(
                 commands::remove_entry(
@@ -228,41 +237,78 @@ pub async fn dispatch(
                     workspace_id,
                     session_id,
                     keep_children,
+                    environment,
                 )
                 .await,
             )
         }
         "rename_workspace" => {
-            let (workspace_id, name) = args!(args, { workspace_id: String, name: String });
-            result(commands::rename_workspace(State::new(&ctx.state), workspace_id, name).await)
+            let (workspace_id, name, environment) = args!(args, {
+                workspace_id: String,
+                name: String,
+                environment: Option<String>,
+            });
+            result(
+                commands::rename_workspace(State::new(&ctx.state), workspace_id, name, environment)
+                    .await,
+            )
         }
         "versions" => versions(ctx).await,
         "set_workspace_hidden" => {
-            let (workspace_id, hidden) = args!(args, { workspace_id: String, hidden: bool });
+            let (workspace_id, hidden, environment) = args!(args, {
+                workspace_id: String,
+                hidden: bool,
+                environment: Option<String>,
+            });
             result(
-                commands::set_workspace_hidden(State::new(&ctx.state), workspace_id, hidden).await,
+                commands::set_workspace_hidden(
+                    State::new(&ctx.state),
+                    workspace_id,
+                    hidden,
+                    environment,
+                )
+                .await,
             )
         }
         "stop_agent" => {
-            let session_id = args!(args, { session_id: String });
-            result(commands::stop_agent(State::new(&ctx.state), session_id).await)
+            let (session_id, workspace_id, environment) = args!(args, {
+                session_id: String,
+                workspace_id: Option<String>,
+                environment: Option<String>,
+            });
+            result(
+                commands::stop_agent(
+                    State::new(&ctx.state),
+                    session_id,
+                    workspace_id,
+                    environment,
+                )
+                .await,
+            )
         }
         "restore_agents" => result(commands::restore_agents(State::new(&ctx.state)).await),
         "open_external" => unsupported("open_external"),
         "read_transcript" => {
-            let (session_id, offset, workspace_id) = args!(args, {
+            let (session_id, offset, workspace_id, environment) = args!(args, {
                 session_id: String,
                 offset: u64,
                 workspace_id: Option<String>,
+                environment: Option<String>,
             });
             result(
-                commands::read_transcript(State::new(&ctx.state), session_id, offset, workspace_id)
-                    .await,
+                commands::read_transcript(
+                    State::new(&ctx.state),
+                    session_id,
+                    offset,
+                    workspace_id,
+                    environment,
+                )
+                .await,
             )
         }
         "runner_stop" => {
-            let id = args!(args, { id: String });
-            result(commands::runner_stop(State::new(&ctx.state), id).await)
+            let (id, environment) = args!(args, { id: String, environment: Option<String> });
+            result(commands::runner_stop(State::new(&ctx.state), id, environment).await)
         }
         "terminal_open" => {
             let (spec, cols, rows, on_event) = args!(args, {
@@ -294,13 +340,18 @@ pub async fn dispatch(
         "reviews_check_now" => json(reviews::reviews_check_now(State::new(&ctx.state))),
         "reviews_load_repos" => result(reviews::reviews_load_repos(State::new(&ctx.state)).await),
         "reviews_set_watch" => {
-            let (repo, watch, auto_review) =
-                args!(args, { repo: String, watch: bool, auto_review: bool });
+            let (repo, watch, auto_review, environment) = args!(args, {
+                repo: String,
+                watch: bool,
+                auto_review: bool,
+                environment: Option<String>,
+            });
             result(reviews::reviews_set_watch(
                 State::new(&ctx.state),
                 repo,
                 watch,
                 auto_review,
+                environment,
             ))
         }
         "reviews_set_hosts" => {
@@ -333,14 +384,18 @@ pub async fn dispatch(
             ))
         }
         "reviews_plan" => {
-            let (repo, number) = args!(args, { repo: String, number: u64 });
-            result(reviews::reviews_plan(State::new(&ctx.state), repo, number).await)
+            let (repo, number, environment) =
+                args!(args, { repo: String, number: u64, environment: Option<String> });
+            result(reviews::reviews_plan(State::new(&ctx.state), repo, number, environment).await)
         }
         "reviews_ask" => {
             let (repo, number) = args!(args, { repo: String, number: u64 });
             result(reviews::reviews_ask(State::new(&ctx.state), repo, number).await)
         }
-        "reviews_profiles" => result(reviews::reviews_profiles(State::new(&ctx.state)).await),
+        "reviews_profiles" => {
+            let environment = args!(args, { environment: Option<String> });
+            result(reviews::reviews_profiles(State::new(&ctx.state), environment).await)
+        }
         "reviews_profile_show" => {
             let name = args!(args, { name: String });
             result(reviews::reviews_profile_show(State::new(&ctx.state), name).await)
@@ -364,58 +419,163 @@ pub async fn dispatch(
             result(reviews::reviews_start(State::new(&ctx.state), plan).await)
         }
         "review_report" => {
-            let (repo, git_ref, refresh) =
-                args!(args, { repo: String, git_ref: String, refresh: bool });
-            result(reviews::review_report(State::new(&ctx.state), repo, git_ref, refresh).await)
+            let (repo, git_ref, refresh, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                refresh: bool,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
+            result(
+                reviews::review_report(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    refresh,
+                    environment,
+                    review_id,
+                )
+                .await,
+            )
         }
         "review_decide" => {
-            let (repo, git_ref, request) = args!(args, { repo: String, git_ref: String, request: reviews::report::DecideRequest });
-            result(reviews::review_decide(State::new(&ctx.state), repo, git_ref, request).await)
+            let (repo, git_ref, request, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                request: reviews::report::DecideRequest,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
+            result(
+                reviews::review_decide(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    request,
+                    environment,
+                    review_id,
+                )
+                .await,
+            )
         }
         "review_open_report" => {
-            let (repo, git_ref) = args!(args, { repo: String, git_ref: String });
-            open_report(ctx, &repo, &git_ref).await
+            let (repo, git_ref, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
+            open_report(
+                ctx,
+                &repo,
+                &git_ref,
+                environment.as_deref(),
+                review_id.as_deref(),
+            )
+            .await
         }
         "review_comment_plan" => {
-            let (repo, git_ref, number) =
-                args!(args, { repo: String, git_ref: String, number: u64 });
+            let (repo, git_ref, number, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                number: u64,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
             result(
-                reviews::review_comment_plan(State::new(&ctx.state), repo, git_ref, number).await,
+                reviews::review_comment_plan(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    number,
+                    environment,
+                    review_id,
+                )
+                .await,
             )
         }
         "review_comment_post" => {
-            let (repo, git_ref, request) = args!(args, { repo: String, git_ref: String, request: reviews::comment::PostRequest });
+            let (repo, git_ref, request, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                request: reviews::comment::PostRequest,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
             result(
-                reviews::review_comment_post(State::new(&ctx.state), repo, git_ref, request).await,
+                reviews::review_comment_post(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    request,
+                    environment,
+                    review_id,
+                )
+                .await,
             )
         }
         "review_fix_plan" => {
-            let (repo, git_ref, review, findings) = args!(args, {
+            let (repo, git_ref, review, findings, environment, review_id) = args!(args, {
                 repo: String,
                 git_ref: String,
                 review: String,
                 findings: Vec<reviews::fix::FixFinding>,
+                environment: Option<String>,
+                review_id: Option<String>,
             });
             result(
-                reviews::review_fix_plan(State::new(&ctx.state), repo, git_ref, review, findings)
-                    .await,
+                reviews::review_fix_plan(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    review,
+                    findings,
+                    environment,
+                    review_id,
+                )
+                .await,
             )
         }
         "review_fix_start" => {
-            let (repo, git_ref, request) =
-                args!(args, { repo: String, git_ref: String, request: reviews::fix::StartFix });
-            result(reviews::review_fix_start(State::new(&ctx.state), repo, git_ref, request).await)
+            let (repo, git_ref, request, environment, review_id) = args!(args, {
+                repo: String,
+                git_ref: String,
+                request: reviews::fix::StartFix,
+                environment: Option<String>,
+                review_id: Option<String>,
+            });
+            result(
+                reviews::review_fix_start(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    request,
+                    environment,
+                    review_id,
+                )
+                .await,
+            )
         }
         "review_fix_sent" => {
-            let (repo, git_ref, findings, agent) = args!(args, {
+            let (repo, git_ref, findings, agent, environment, review_id) = args!(args, {
                 repo: String,
                 git_ref: String,
                 findings: Vec<String>,
                 agent: String,
+                environment: Option<String>,
+                review_id: Option<String>,
             });
             result(
-                reviews::review_fix_sent(State::new(&ctx.state), repo, git_ref, findings, agent)
-                    .await,
+                reviews::review_fix_sent(
+                    State::new(&ctx.state),
+                    repo,
+                    git_ref,
+                    findings,
+                    agent,
+                    environment,
+                    review_id,
+                )
+                .await,
             )
         }
         "settings_get" => json(reviews::settings_get(State::new(&ctx.state))),
@@ -484,7 +644,10 @@ pub async fn dispatch(
             let name = args!(args, { name: String });
             result(roles::roles_remove(State::new(&ctx.state), name).await)
         }
-        "loops_list" => result(loops::loops_list(State::new(&ctx.state)).await),
+        "loops_list" => {
+            let environment = args!(args, { environment: Option<String> });
+            result(loops::loops_list(State::new(&ctx.state), environment).await)
+        }
         "loops_add" => {
             let request = args!(args, { request: loops::NewLoop });
             result(loops::loops_add(State::new(&ctx.state), request).await)
@@ -494,55 +657,101 @@ pub async fn dispatch(
             result(loops::loops_edit(State::new(&ctx.state), request).await)
         }
         "loops_set_paused" => {
-            let (name, paused) = args!(args, { name: String, paused: bool });
-            result(loops::loops_set_paused(State::new(&ctx.state), name, paused).await)
+            let (name, paused, environment) =
+                args!(args, { name: String, paused: bool, environment: Option<String> });
+            result(loops::loops_set_paused(State::new(&ctx.state), name, paused, environment).await)
         }
         "loops_remove" => {
-            let name = args!(args, { name: String });
-            result(loops::loops_remove(State::new(&ctx.state), name).await)
+            let (name, environment, confirmed) =
+                args!(args, { name: String, environment: Option<String>, confirmed: Option<bool> });
+            result(loops::loops_remove(State::new(&ctx.state), name, environment, confirmed).await)
         }
         "loops_run_now" => {
-            let name = args!(args, { name: String });
-            result(loops::loops_run_now(State::new(&ctx.state), name).await)
+            let (name, environment) = args!(args, { name: String, environment: Option<String> });
+            result(loops::loops_run_now(State::new(&ctx.state), name, environment).await)
         }
         "loops_history" => {
-            let (name, limit) = args!(args, { name: String, limit: Option<u32> });
-            result(loops::loops_history(State::new(&ctx.state), name, limit).await)
+            let (name, limit, environment) =
+                args!(args, { name: String, limit: Option<u32>, environment: Option<String> });
+            result(loops::loops_history(State::new(&ctx.state), name, limit, environment).await)
         }
         "loops_history_run" => {
-            let (name, seq) = args!(args, { name: String, seq: u32 });
-            result(loops::loops_history_run(State::new(&ctx.state), name, seq).await)
+            let (name, seq, environment) =
+                args!(args, { name: String, seq: u32, environment: Option<String> });
+            result(loops::loops_history_run(State::new(&ctx.state), name, seq, environment).await)
         }
         "loops_history_clear" => {
-            let name = args!(args, { name: String });
-            result(loops::loops_history_clear(State::new(&ctx.state), name).await)
+            let (name, environment, confirmed) =
+                args!(args, { name: String, environment: Option<String>, confirmed: Option<bool> });
+            result(
+                loops::loops_history_clear(State::new(&ctx.state), name, environment, confirmed)
+                    .await,
+            )
         }
         "loops_memory" => {
-            let name = args!(args, { name: String });
-            result(loops::loops_memory(State::new(&ctx.state), name).await)
+            let (name, environment) = args!(args, { name: String, environment: Option<String> });
+            result(loops::loops_memory(State::new(&ctx.state), name, environment).await)
         }
         "loops_memory_set" => {
-            let (name, key, value, expect_rev) = args!(args, {
+            let (name, key, value, expect_rev, environment) = args!(args, {
                 name: String,
                 key: String,
                 value: String,
                 expect_rev: Option<i64>,
+                environment: Option<String>,
             });
             result(
-                loops::loops_memory_set(State::new(&ctx.state), name, key, value, expect_rev).await,
+                loops::loops_memory_set(
+                    State::new(&ctx.state),
+                    name,
+                    key,
+                    value,
+                    expect_rev,
+                    environment,
+                )
+                .await,
             )
         }
         "loops_memory_remove" => {
-            let (name, key) = args!(args, { name: String, key: String });
-            result(loops::loops_memory_remove(State::new(&ctx.state), name, key).await)
+            let (name, key, environment) =
+                args!(args, { name: String, key: String, environment: Option<String> });
+            result(loops::loops_memory_remove(State::new(&ctx.state), name, key, environment).await)
         }
         "loops_memory_clear" => {
-            let name = args!(args, { name: String });
-            result(loops::loops_memory_clear(State::new(&ctx.state), name).await)
+            let (name, environment, confirmed) =
+                args!(args, { name: String, environment: Option<String>, confirmed: Option<bool> });
+            result(
+                loops::loops_memory_clear(State::new(&ctx.state), name, environment, confirmed)
+                    .await,
+            )
         }
         "stats_get" => {
             let since_ms = args!(args, { since_ms: Option<i64> });
             result(stats::stats_get(State::new(&ctx.state), since_ms).await)
+        }
+        "environments_list" => {
+            result(environments::environments_list(State::new(&ctx.state)).await)
+        }
+        "environment_add" => {
+            let name = args!(args, { name: String });
+            result(environments::environment_add(State::new(&ctx.state), name).await)
+        }
+        "environment_rotate" => {
+            let name = args!(args, { name: String });
+            result(environments::environment_rotate(State::new(&ctx.state), name).await)
+        }
+        "environment_remove" => {
+            let name = args!(args, { name: String });
+            result(environments::environment_remove(State::new(&ctx.state), name).await)
+        }
+        "environments_ca_status" => {
+            result(environments::environments_ca_status(State::new(&ctx.state)).await)
+        }
+        "environments_ca_rotate" => {
+            let (finish, force) = args!(args, { finish: bool, force: bool });
+            result(
+                environments::environments_ca_rotate(State::new(&ctx.state), finish, force).await,
+            )
         }
         "artifact_list" => {
             let (kind, workspace) =
@@ -611,10 +820,19 @@ async fn versions(ctx: &Ctx) -> Result<Value, DispatchError> {
     json(about::versions(&ctx.state.runner, app).await)
 }
 
-async fn open_report(ctx: &Ctx, repo: &str, git_ref: &str) -> Result<Value, DispatchError> {
-    let path = reviews::report::write_html(&ctx.state.runner, &ctx.reports_dir, repo, git_ref)
-        .await
-        .map_err(DispatchError::App)?;
+async fn open_report(
+    ctx: &Ctx,
+    repo: &str,
+    git_ref: &str,
+    environment: Option<&str>,
+    review_id: Option<&str>,
+) -> Result<Value, DispatchError> {
+    let origin =
+        reviews::report::Origin::new(environment, review_id).map_err(DispatchError::App)?;
+    let path =
+        reviews::report::write_html(&ctx.state.runner, &ctx.reports_dir, repo, git_ref, origin)
+            .await
+            .map_err(DispatchError::App)?;
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -775,6 +993,422 @@ mod tests {
             value,
             serde_json::json!({"id": "x-d8efb24f", "name": "draft"})
         );
+    }
+
+    #[tokio::test]
+    async fn remove_entry_accepts_environment() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"workspaceId": "fix-1", "environment": "linux-server"});
+        let err = dispatch(&ctx, "remove_entry", args, None).await;
+        let Err(DispatchError::App(err)) = err else {
+            panic!("expected the fake ws's failure, got {err:?}");
+        };
+        assert_eq!(err.message, "rm --json --env=linux-server -- fix-1");
+    }
+
+    /// A context whose fake `ws` and `claude` log that they ran, and the log.
+    fn logging_ctx() -> (tempfile::TempDir, Ctx, PathBuf) {
+        let log = tempfile::tempdir().unwrap().keep().join("ran.log");
+        let body = format!("echo ran >> {}", log.display());
+        let (dir, ctx) = ctx_with(&body, &body, Box::new(|_| {}));
+        (dir, ctx, log)
+    }
+
+    async fn app_error(ctx: &Ctx, command: &str, args: Value) -> AppError {
+        match dispatch(ctx, command, args, None).await {
+            Err(DispatchError::App(err)) => err,
+            other => panic!("expected an app error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn local_only_commands_refuse_a_remote_environment_without_running_anything() {
+        let (_dir, ctx, log) = logging_ctx();
+        let calls = [
+            (
+                "read_transcript",
+                serde_json::json!({"sessionId": "s", "offset": 0, "workspaceId": "w", "environment": "linux-server"}),
+            ),
+            (
+                "runner_stop",
+                serde_json::json!({"id": "w", "environment": "linux-server"}),
+            ),
+            (
+                "remove_entry",
+                serde_json::json!({"sessionId": "s", "environment": "linux-server"}),
+            ),
+        ];
+        for (command, args) in calls {
+            let err = app_error(&ctx, command, args).await;
+            assert_eq!(err.code, "local_only", "{command}");
+        }
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn set_workspace_hidden_passes_the_environment() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"workspaceId": "fix-1", "hidden": true, "environment": "linux-server"});
+        let err = app_error(&ctx, "set_workspace_hidden", args).await;
+        assert_eq!(err.message, "hide --json --env=linux-server -- fix-1");
+    }
+
+    #[tokio::test]
+    async fn rename_workspace_passes_the_environment() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args =
+            serde_json::json!({"workspaceId": "fix-1", "name": "n", "environment": "linux-server"});
+        let err = app_error(&ctx, "rename_workspace", args).await;
+        assert_eq!(err.message, "rename --json --env=linux-server -- fix-1 n");
+    }
+
+    #[tokio::test]
+    async fn stop_agent_passes_the_environment_and_workspace() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"sessionId": "s", "workspaceId": "fix-1", "environment": "linux-server"});
+        let err = app_error(&ctx, "stop_agent", args).await;
+        assert_eq!(err.message, "stop --json --env=linux-server -- fix-1");
+    }
+
+    #[tokio::test]
+    async fn stop_agent_reports_an_agent_that_had_already_ended() {
+        let ended = r#"echo '{"stopped":[{"workspace":"fix-1","session":"s","stopped":false,"environment":"linux-server"}]}'"#;
+        let (_dir, ctx) = ctx_with(ended, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"sessionId": "s", "workspaceId": "fix-1", "environment": "linux-server"});
+        assert_eq!(
+            app_error(&ctx, "stop_agent", args).await.code,
+            "not_stopped"
+        );
+    }
+
+    #[tokio::test]
+    async fn stop_agent_succeeds_when_the_remote_agent_stopped() {
+        let stopped = r#"echo '{"stopped":[{"workspace":"fix-1","session":"s","stopped":true,"environment":"linux-server"}]}'"#;
+        let (_dir, ctx) = ctx_with(stopped, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"sessionId": "s", "workspaceId": "fix-1", "environment": "linux-server"});
+        assert!(dispatch(&ctx, "stop_agent", args, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn stop_agent_with_a_blank_workspace_id_is_bad_args() {
+        let (_dir, ctx, log) = logging_ctx();
+        let args =
+            serde_json::json!({"sessionId": "s", "workspaceId": "", "environment": "linux-server"});
+        assert_eq!(app_error(&ctx, "stop_agent", args).await.code, "bad_args");
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn reviews_set_watch_accepts_environment() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let repo = "github.com/o/r";
+        let args = serde_json::json!({"repo": repo, "watch": true, "autoReview": true, "environment": "linux-server"});
+        assert!(dispatch(&ctx, "reviews_set_watch", args, None)
+            .await
+            .is_ok());
+        let watch = ctx.state.store.get().reviews.watch(repo);
+        assert_eq!(watch.environment.as_deref(), Some("linux-server"));
+        assert!(watch.auto_review);
+        let old = serde_json::json!({"repo": repo, "watch": true, "autoReview": false});
+        assert!(dispatch(&ctx, "reviews_set_watch", old, None).await.is_ok());
+        assert_eq!(ctx.state.store.get().reviews.watch(repo).environment, None);
+        let local = serde_json::json!({"repo": repo, "watch": true, "autoReview": false, "environment": "local"});
+        assert!(dispatch(&ctx, "reviews_set_watch", local, None)
+            .await
+            .is_ok());
+        assert_eq!(ctx.state.store.get().reviews.watch(repo).environment, None);
+    }
+
+    #[tokio::test]
+    async fn moving_a_watched_repo_to_another_environment_requests_a_check() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let repo = "github.com/o/r";
+        let watch = |environment: serde_json::Value| serde_json::json!({"repo": repo, "watch": true, "autoReview": false, "environment": environment});
+        dispatch(
+            &ctx,
+            "reviews_set_watch",
+            watch("linux-server".into()),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(ctx.state.reviews.take_check_request());
+        dispatch(
+            &ctx,
+            "reviews_set_watch",
+            watch("linux-server".into()),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(!ctx.state.reviews.take_check_request());
+        dispatch(&ctx, "reviews_set_watch", watch("other-box".into()), None)
+            .await
+            .unwrap();
+        assert!(ctx.state.reviews.take_check_request());
+    }
+
+    #[tokio::test]
+    async fn reviews_set_watch_refuses_an_environment_name_ws_would_misread() {
+        let (_dir, ctx, log) = logging_ctx();
+        let repo = "github.com/o/r";
+        for name in ["-x", "--env=a", "a b"] {
+            let args = serde_json::json!({"repo": repo, "watch": true, "autoReview": false, "environment": name});
+            let err = app_error(&ctx, "reviews_set_watch", args).await;
+            assert_eq!(err.code, "bad_args", "{name:?}");
+        }
+        assert!(!ctx.state.store.get().reviews.watch(repo).watch);
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn reviews_plan_fills_the_environment_the_repo_is_watched_on() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let repo = "github.com/bobcob7/buff-bear";
+        ctx.state
+            .reviews
+            .set_pull_requests(repo, vec![crate::reviews::view::tests::pr(42)]);
+        let watch = serde_json::json!({"repo": repo, "watch": true, "autoReview": false, "environment": "linux-server"});
+        dispatch(&ctx, "reviews_set_watch", watch, None)
+            .await
+            .unwrap();
+        let args = serde_json::json!({"repo": repo, "number": 42});
+        let plan = dispatch(&ctx, "reviews_plan", args, None).await.unwrap();
+        assert_eq!(plan["environment"], "linux-server");
+        let named = serde_json::json!({"repo": repo, "number": 42, "environment": "local"});
+        let plan = dispatch(&ctx, "reviews_plan", named, None).await.unwrap();
+        assert!(plan["environment"].is_null());
+    }
+
+    #[tokio::test]
+    async fn review_commands_refuse_an_environment_name_ws_would_misread() {
+        let (_dir, ctx, log) = logging_ctx();
+        let repo = "github.com/o/r";
+        ctx.state
+            .reviews
+            .set_pull_requests(repo, vec![crate::reviews::view::tests::pr(42)]);
+        for name in ["-x", "--env=a", "a b"] {
+            let plan = serde_json::json!({"name": "n", "repo": repo, "number": 42, "head": "h", "profiles": [], "model": "", "permissionMode": "", "environment": name});
+            let calls = [
+                (
+                    "reviews_plan",
+                    serde_json::json!({"repo": repo, "number": 42, "environment": name}),
+                ),
+                ("reviews_profiles", serde_json::json!({"environment": name})),
+                ("reviews_start", serde_json::json!({"plan": plan})),
+            ];
+            for (command, args) in calls {
+                let err = app_error(&ctx, command, args).await;
+                assert_eq!(err.code, "bad_args", "{command} {name:?}");
+            }
+        }
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn loops_list_accepts_environment() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"environment": "linux-server"});
+        let err = app_error(&ctx, "loops_list", args).await;
+        assert_eq!(err.message, "loop --json list --env=linux-server --cached");
+    }
+
+    #[tokio::test]
+    async fn a_remote_loop_list_tags_each_loop_with_its_environment() {
+        let body = r#"echo '{"loops":[{"name":"d","every":"1h","prompt":null,"specs":null,"model":null,"permission_mode":null,"keep":null,"paused":false,"created_at":null,"next_run_at":null,"last_run":null,"summary":true}],"warnings":[],"environment_status":"online","loops_unknown":false}'"#;
+        let (_dir, ctx) = ctx_with(body, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"environment": "linux-server"});
+        let listed = dispatch(&ctx, "loops_list", args, None).await.unwrap();
+        assert_eq!(listed["loops"][0]["environment"], "linux-server");
+        assert_eq!(listed["loops"][0]["summary"], true);
+        assert_eq!(listed["environmentStatus"], "online");
+        let local = dispatch(&ctx, "loops_list", serde_json::json!({}), None)
+            .await
+            .unwrap();
+        assert!(local["loops"][0]["environment"].is_null());
+    }
+
+    #[tokio::test]
+    async fn loops_list_without_environment_is_local() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let err = app_error(&ctx, "loops_list", serde_json::json!({})).await;
+        assert_eq!(err.message, "loop --json list");
+        let local = serde_json::json!({"environment": "local"});
+        let err = app_error(&ctx, "loops_list", local).await;
+        assert_eq!(err.message, "loop --json list");
+    }
+
+    #[tokio::test]
+    async fn loops_commands_pass_environment_and_confirmation() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let cases = [
+            (
+                "loops_remove",
+                serde_json::json!({"name": "d", "environment": "linux-server", "confirmed": true}),
+                "loop --json rm --env=linux-server --yes -- d",
+            ),
+            (
+                "loops_remove",
+                serde_json::json!({"name": "d"}),
+                "loop --json rm -- d",
+            ),
+            (
+                "loops_history_clear",
+                serde_json::json!({"name": "d", "environment": "linux-server", "confirmed": true}),
+                "loop --json history --env=linux-server --yes --clear -- d",
+            ),
+            (
+                "loops_memory_clear",
+                serde_json::json!({"name": "d", "environment": "linux-server"}),
+                "loop --json memory clear --env=linux-server -- d",
+            ),
+            (
+                "loops_run_now",
+                serde_json::json!({"name": "d", "environment": "linux-server"}),
+                "loop --json run --env=linux-server -- d",
+            ),
+        ];
+        for (command, args, expected) in cases {
+            let err = app_error(&ctx, command, args).await;
+            assert_eq!(err.message, expected, "{command}");
+        }
+    }
+
+    #[tokio::test]
+    async fn loops_commands_refuse_an_environment_name_ws_would_misread() {
+        let (_dir, ctx, log) = logging_ctx();
+        let request = serde_json::json!({"name": "d", "every": "1h", "prompt": "p"});
+        for name in ["-x", "--env=a", "a b"] {
+            let with = |mut base: Value| {
+                base["environment"] = name.into();
+                base
+            };
+            let calls = [
+                ("loops_list", with(serde_json::json!({}))),
+                (
+                    "loops_add",
+                    serde_json::json!({"request": with(request.clone())}),
+                ),
+                (
+                    "loops_edit",
+                    serde_json::json!({"request": with(request.clone())}),
+                ),
+                (
+                    "loops_set_paused",
+                    with(serde_json::json!({"name": "d", "paused": true})),
+                ),
+                (
+                    "loops_remove",
+                    with(serde_json::json!({"name": "d", "confirmed": true})),
+                ),
+                ("loops_run_now", with(serde_json::json!({"name": "d"}))),
+                ("loops_history", with(serde_json::json!({"name": "d"}))),
+                (
+                    "loops_history_run",
+                    with(serde_json::json!({"name": "d", "seq": 1})),
+                ),
+                (
+                    "loops_history_clear",
+                    with(serde_json::json!({"name": "d", "confirmed": true})),
+                ),
+                ("loops_memory", with(serde_json::json!({"name": "d"}))),
+                (
+                    "loops_memory_set",
+                    with(serde_json::json!({"name": "d", "key": "k", "value": "v"})),
+                ),
+                (
+                    "loops_memory_remove",
+                    with(serde_json::json!({"name": "d", "key": "k"})),
+                ),
+                (
+                    "loops_memory_clear",
+                    with(serde_json::json!({"name": "d", "confirmed": true})),
+                ),
+            ];
+            for (command, args) in calls {
+                let err = app_error(&ctx, command, args).await;
+                assert_eq!(err.code, "bad_args", "{command} {name:?}");
+            }
+        }
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn review_report_without_environment_is_local() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"repo": "github.com/o/r", "gitRef": "abc", "refresh": true});
+        let err = app_error(&ctx, "review_report", args).await;
+        assert_eq!(
+            err.message,
+            "review report --json --repo github.com/o/r --ref abc"
+        );
+    }
+
+    #[tokio::test]
+    async fn review_report_with_environment_names_the_review() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"repo": "github.com/o/r", "gitRef": "abc", "refresh": true, "environment": "linux-server", "reviewId": "review-1"});
+        let err = app_error(&ctx, "review_report", args).await;
+        assert_eq!(
+            err.message,
+            "review report --json --env=linux-server -- review-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_remote_review_call_without_a_review_id_is_bad_args() {
+        let (_dir, ctx, log) = logging_ctx();
+        let calls = [
+            (
+                "review_report",
+                serde_json::json!({"repo": "r", "gitRef": "a", "refresh": false, "environment": "linux-server"}),
+            ),
+            (
+                "review_decide",
+                serde_json::json!({"repo": "r", "gitRef": "a", "request": {"findings": ["a"], "decision": "skip"}, "environment": "linux-server"}),
+            ),
+            (
+                "review_open_report",
+                serde_json::json!({"repo": "r", "gitRef": "a", "environment": "linux-server"}),
+            ),
+            (
+                "review_fix_sent",
+                serde_json::json!({"repo": "r", "gitRef": "a", "findings": ["a"], "agent": "x", "environment": "linux-server"}),
+            ),
+            (
+                "review_comment_plan",
+                serde_json::json!({"repo": "r", "gitRef": "a", "number": 1, "environment": "linux-server"}),
+            ),
+            (
+                "review_comment_post",
+                serde_json::json!({"repo": "r", "gitRef": "a", "environment": "linux-server", "request": {"number": 1, "commitId": "a", "body": "", "event": "COMMENT", "comments": [], "findings": ["a"]}}),
+            ),
+            (
+                "review_fix_plan",
+                serde_json::json!({"repo": "r", "gitRef": "a", "review": "r-1", "findings": [{"id": "a", "title": "t"}], "environment": "linux-server"}),
+            ),
+            (
+                "review_fix_start",
+                serde_json::json!({"repo": "r", "gitRef": "a", "environment": "linux-server", "request": {"findings": ["a"], "agent": {"name": "n", "spec": "s", "branch": null, "command": "c"}, "message": "m"}}),
+            ),
+        ];
+        assert_eq!(calls.len(), 8);
+        for (command, args) in calls {
+            let err = app_error(&ctx, command, args).await;
+            assert_eq!(err.code, "bad_args", "{command}");
+        }
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn remove_entry_without_environment_is_local() {
+        let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
+        let args = serde_json::json!({"workspaceId": "fix-1"});
+        let err = dispatch(&ctx, "remove_entry", args, None).await;
+        let Err(DispatchError::App(err)) = err else {
+            panic!("expected the fake ws's failure, got {err:?}");
+        };
+        assert_eq!(err.message, "rm --json -- fix-1");
     }
 
     #[tokio::test]

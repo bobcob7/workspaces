@@ -1,10 +1,10 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { entry, testStore, treeEntries } from "../../test/fixtures";
+import { entry, remoteEnvironment, testStore, treeEntries } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { selected } from "../ui/uiSlice";
-import { fetchEntries } from "./agentsSlice";
+import { environmentFilterChanged, fetchEntries } from "./agentsSlice";
 import { Sidebar } from "./Sidebar";
 
 const loadedStore = (entries: Parameters<typeof entry>[0][]): ReturnType<typeof testStore> => {
@@ -18,6 +18,8 @@ const loadedTree = (): ReturnType<typeof testStore> => {
   store.dispatch(fetchEntries.fulfilled({ entries: [...treeEntries()], warnings: [] }, "req"));
   return store;
 };
+
+const chips = (): HTMLElement => screen.getByRole("group", { name: "Environment" });
 
 const tree = (): HTMLElement => screen.getByRole("region", { name: "All workspaces" });
 
@@ -172,5 +174,69 @@ describe("Sidebar", () => {
     store.dispatch(selected("t1r"));
     renderWithStore(<Sidebar />, store);
     expect(within(tree()).getByText("t1-review").closest("button")).toHaveAttribute("aria-current", "true");
+  });
+
+  describe("environment filter", () => {
+    const remoteEntries = [
+      entry({ key: "here", workspaceId: "here", name: "here-agent" }),
+      entry({ key: "env:linux-server:far", workspaceId: "far", name: "far-agent", environment: "linux-server" }),
+      entry({ key: "env:win-rig:wr", workspaceId: "wr", name: "rig-agent", environment: "win-rig" }),
+    ];
+    const withEnvironments = (names: readonly string[]): ReturnType<typeof testStore> => {
+      const store = testStore({
+        state: {
+          environments: {
+            items: names.map((name) => remoteEnvironment({ id: name, name })),
+            loadedAt: Date.now(),
+            error: null,
+            latestRequestId: null,
+            warnings: [],
+            lastChoice: "local",
+          },
+        },
+      });
+      store.dispatch(fetchEntries.fulfilled({ entries: remoteEntries, warnings: [] }, "req"));
+      return store;
+    };
+
+    it("shows no chips without an environment", () => {
+      renderWithStore(<Sidebar />, loadedStore([{ key: "a" }]));
+      expect(screen.queryByRole("group", { name: "Environment" })).not.toBeInTheDocument();
+    });
+
+    it("choosing one filters the list", async () => {
+      renderWithStore(<Sidebar />, withEnvironments(["linux-server", "win-rig"]));
+      expect(within(tree()).getAllByRole("button", { name: /agent/ })).toHaveLength(3);
+      await userEvent.click(within(chips()).getByRole("button", { name: /linux-server/ }));
+      expect(within(tree()).getByText("far-agent")).toBeInTheDocument();
+      expect(within(tree()).queryByText("here-agent")).not.toBeInTheDocument();
+      expect(within(tree()).queryByText("rig-agent")).not.toBeInTheDocument();
+    });
+
+    it("local shows only this machine's entries, and All shows everything", async () => {
+      renderWithStore(<Sidebar />, withEnvironments(["linux-server", "win-rig"]));
+      await userEvent.click(within(chips()).getByRole("button", { name: /local/ }));
+      expect(within(tree()).getByText("here-agent")).toBeInTheDocument();
+      expect(within(tree()).queryByText("far-agent")).not.toBeInTheDocument();
+      await userEvent.click(within(chips()).getByRole("button", { name: "All" }));
+      expect(within(tree()).getByText("far-agent")).toBeInTheDocument();
+    });
+
+    it("ignores a choice whose environment was removed", () => {
+      const store = withEnvironments(["win-rig"]);
+      store.dispatch(environmentFilterChanged("gone"));
+      renderWithStore(<Sidebar />, store);
+      expect(within(tree()).getAllByRole("button", { name: /agent/ })).toHaveLength(3);
+    });
+
+    it("offers Clear filters when the environment filter leaves nothing", async () => {
+      const store = withEnvironments(["linux-server"]);
+      store.dispatch(fetchEntries.fulfilled({ entries: remoteEntries.slice(0, 1), warnings: [] }, "req"));
+      renderWithStore(<Sidebar />, store);
+      await userEvent.click(within(chips()).getByRole("button", { name: /linux-server/ }));
+      expect(screen.getByText("No workspaces match the filters.")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+      expect(within(tree()).getByText("here-agent")).toBeInTheDocument();
+    });
   });
 });

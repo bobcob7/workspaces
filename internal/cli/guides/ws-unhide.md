@@ -1,7 +1,7 @@
 # ws unhide
 
 ```
-ws unhide [--json] <workspace>
+ws unhide [--json] [--env <name>] <workspace>
 ```
 
 Shows a hidden workspace again: `ws list` lists it without `-a`, and the
@@ -16,6 +16,12 @@ workspace does nothing. See `ws llm hide`.
   with `--hidden`, in the Agents list.
 
 A workspace is named by its id, path, or agent session id.
+
+## Flags
+
+| Flag          | Meaning |
+| ------------- | ------- |
+| `--env <name>` | Show the workspace on that environment (`ws env list`), not here |
 
 ## JSON output
 
@@ -34,4 +40,5 @@ A workspace is named by its id, path, or agent session id.
 
 ```console
 $ ws unhide --json review-buff-bear-41-9c04e2a-1f0c33d8
+$ ws unhide --env linux-server --json lint-sweep-5b1e93aa
 ```

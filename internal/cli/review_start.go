@@ -34,6 +34,7 @@ type reviewStartOptions struct {
 	spec       string
 	claudeArgs []string
 	focus      string
+	env        string
 }
 
 func (a *App) newReviewStartCmd() *cobra.Command {
@@ -46,6 +47,13 @@ func (a *App) newReviewStartCmd() *cobra.Command {
 			specs, after := splitAtDash(cmd, args)
 			opts.spec = specs[0]
 			opts.claudeArgs, opts.focus = splitFocus(after)
+			env, err := a.reviewEnv(opts.env, opts.requester)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteReviewStart(cmd.Context(), env, &opts)
+			}
 			return a.runReviewStart(cmd.Context(), &opts)
 		})),
 	}
@@ -54,6 +62,7 @@ func (a *App) newReviewStartCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.profiles, "profile", nil, "review with this profile, NAME or NAME:MODEL; repeatable")
 	cmd.Flags().StringArrayVar(&opts.auto, "auto", nil, "review with this profile if the changed files match it, NAME or NAME:MODEL; repeatable")
 	cmd.Flags().StringVar(&opts.requester, "requester", "", "the workspace asking for the review, or none; default: the one ws runs in")
+	cmd.Flags().StringVar(&opts.env, "env", "", "start the review on this environment (ws env list); for people and the desktop app; default: local")
 	return cmd
 }
 

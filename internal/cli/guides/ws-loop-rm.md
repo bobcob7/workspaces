@@ -1,8 +1,10 @@
 # ws loop rm
 
 ```
-ws loop rm [--json] <NAME>
+ws loop rm [--json] [--env <NAME>] [--yes] <NAME>
 ```
+
+`--env <NAME>` deletes the loop on that environment, with its history and memory, which needs `--yes`. Locally `--yes` does nothing.
 
 Deletes the loop, and prints it as it was. Its runs' workspaces stay until
 they're removed as any workspace is, with `ws rm`.

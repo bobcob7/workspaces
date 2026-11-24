@@ -2,16 +2,31 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Loop } from "../../api";
-import { fakeApi, loop, testStore } from "../../test/fixtures";
+import { fakeApi, loop, remoteEnvironment, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { LoopsList } from "./LoopsList";
 import { creatingStarted, fetchLoops, loopSelected } from "./loopsSlice";
 import { LoopsPane } from "./LoopsPane";
 
+const listing = (loops: Loop[]) => ({ loops, warnings: [], environmentStatus: null, loopsUnknown: false });
+const fetched = (loops: Loop[]) => ({ results: [{ environment: "local", listing: listing(loops), error: null }], at: 1 });
+
 const storeWithLoop = (api = fakeApi(), overrides: Partial<Loop> = {}) => {
   const store = testStore({ api });
-  store.dispatch(fetchLoops.fulfilled({ loops: [loop(overrides)], warnings: [] }, "req"));
+  store.dispatch(fetchLoops.fulfilled(fetched([loop(overrides)]), "req"));
   store.dispatch(loopSelected("deps"));
+  return store;
+};
+
+const remoteLoop = (overrides: Partial<Loop> = {}): Loop => loop({ environment: "linux-server", ...overrides });
+
+const remoteStore = (api = fakeApi(), loops: Loop[] = [], env: Partial<ReturnType<typeof remoteEnvironment>> = {}) => {
+  const base = testStore({ api });
+  const store = testStore({ api, state: { environments: { ...base.getState().environments, items: [remoteEnvironment(env)] } } });
+  store.dispatch(
+    fetchLoops.fulfilled({ results: [{ environment: "linux-server", listing: listing(loops), error: null }], at: 1 }, "req"),
+  );
+  store.dispatch(loopSelected("deps", "linux-server"));
   return store;
 };
 
@@ -20,10 +35,10 @@ describe("LoopsPane", () => {
     const added = loop({ name: "nightly", every: "1h", prompt: "Lint the repo.", specs: ["buff-bear", "api"] });
     const api = fakeApi({
       loopsAdd: vi.fn(async () => added),
-      loopsList: vi.fn(async () => ({ loops: [added], warnings: [] })),
+      loopsList: vi.fn(async () => listing([added])),
     });
     const store = testStore({ api });
-    store.dispatch(fetchLoops.fulfilled({ loops: [], warnings: [] }, "req"));
+    store.dispatch(fetchLoops.fulfilled(fetched([]), "req"));
     store.dispatch(creatingStarted());
     renderWithStore(<LoopsPane />, store);
     await userEvent.type(screen.getByRole("textbox", { name: /Name/ }), "nightly");
@@ -70,7 +85,7 @@ describe("LoopsPane", () => {
     const api = fakeApi();
     renderWithStore(<LoopsPane />, storeWithLoop(api));
     await userEvent.click(screen.getByRole("button", { name: "Pause" }));
-    expect(api.loopsSetPaused).toHaveBeenCalledWith("deps", true);
+    expect(api.loopsSetPaused).toHaveBeenCalledWith("deps", true, "local");
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
   });
 
@@ -78,7 +93,7 @@ describe("LoopsPane", () => {
     const api = fakeApi();
     renderWithStore(<LoopsPane />, storeWithLoop(api));
     await userEvent.click(screen.getByRole("button", { name: "Run now" }));
-    expect(api.loopsRunNow).toHaveBeenCalledWith("deps");
+    expect(api.loopsRunNow).toHaveBeenCalledWith("deps", "local");
   });
 
   it("deletes a loop once confirmed", async () => {
@@ -88,7 +103,64 @@ describe("LoopsPane", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Its runs' workspaces stay.")).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    expect(api.loopsRemove).toHaveBeenCalledWith("deps");
+    expect(api.loopsRemove).toHaveBeenCalledWith("deps", true, "local");
+  });
+
+  it("sends no remove until the delete is confirmed, and cancelling sends nothing", async () => {
+    const api = fakeApi();
+    renderWithStore(<LoopsPane />, storeWithLoop(api));
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(api.loopsRemove).not.toHaveBeenCalled();
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(api.loopsRemove).not.toHaveBeenCalled();
+  });
+
+  it("deletes a remote loop with confirmed from the confirm click", async () => {
+    const api = fakeApi();
+    const store = remoteStore(api, [remoteLoop()]);
+    renderWithStore(<LoopsPane />, store);
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+    expect(api.loopsRemove).toHaveBeenCalledWith("deps", true, "linux-server");
+  });
+
+  it("disables the actions of a loop on an offline environment and says why", () => {
+    const store = remoteStore(fakeApi(), [remoteLoop({ stale: true })], { status: "offline", lastSeen: "2026-11-23T14:02:00Z" });
+    renderWithStore(<LoopsPane />, store);
+    for (const name of ["Edit", "Pause", "Run now", "Delete"]) {
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    }
+    expect(screen.getAllByText(/linux-server is offline \(last seen/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("table", { name: "Memory" })).not.toBeInTheDocument();
+    expect(screen.getByText(/missed runs are skipped, not made up/)).toBeInTheDocument();
+  });
+
+  it("an offline loop's header shows no stale badge", () => {
+    const store = remoteStore(fakeApi(), [remoteLoop({ stale: true })], { status: "offline", lastSeen: "2026-11-23T14:02:00Z" });
+    renderWithStore(<LoopsPane />, store);
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+  });
+
+  it("an online loop's header shows the stale badge", () => {
+    const store = remoteStore(fakeApi(), [remoteLoop({ stale: true })]);
+    renderWithStore(<LoopsPane />, store);
+    expect(screen.getByText("stale")).toBeInTheDocument();
+  });
+
+  it("edit shows the environment read-only", async () => {
+    const store = remoteStore(fakeApi(), [remoteLoop()]);
+    renderWithStore(<LoopsPane />, store);
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.queryByRole("combobox", { name: "Environment" })).not.toBeInTheDocument();
+    expect(screen.getByText("Environment: linux-server")).toBeInTheDocument();
+  });
+
+  it("new loop asks for the environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api, state: { environments: { ...testStore().getState().environments, items: [remoteEnvironment()] } } });
+    store.dispatch(creatingStarted());
+    renderWithStore(<LoopsPane />, store);
+    expect(screen.getByRole("combobox", { name: "Environment" })).toBeInTheDocument();
   });
 
   it("adds a loop with a script and variables", async () => {
@@ -207,7 +279,7 @@ describe("LoopsPane", () => {
 
   it("edits a loop in the same form and shows the detail again", async () => {
     const api = fakeApi({
-      loopsList: vi.fn(async () => ({ loops: [loop({ every: "6h" })], warnings: [] })),
+      loopsList: vi.fn(async () => listing([loop({ every: "6h" })])),
     });
     renderWithStore(<LoopsPane />, storeWithLoop(api));
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -251,6 +323,8 @@ describe("LoopsPane", () => {
       loopsList: vi.fn(async () => ({
         loops: [loop({ name: "deps-bump", title: "Dependency bumps" }), loop({ name: "triage", title: "" })],
         warnings: [],
+        environmentStatus: null,
+        loopsUnknown: false,
       })),
     });
     const store = testStore({ api });

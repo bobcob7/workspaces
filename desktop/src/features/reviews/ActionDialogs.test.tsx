@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { describe, expect, it, vi } from "vitest";
 import type { Api, FindingDecision, ReviewReport } from "../../api";
-import { commentPlan, fakeApi, fakeHost, fixPlan, head, pullRequest, reviewRun, reviewsView, testStore, type FakeHost } from "../../test/fixtures";
+import { commentPlan, fakeApi, fakeHost, fixPlan, head, pullRequest, remoteEnvironment, reviewRun, reviewsView, testStore, type FakeHost } from "../../test/fixtures";
 import { realReport, reviewReport } from "../../test/reportFixture";
 import { renderWithStore } from "../../test/render";
 import { attachKey, messageKeys, openTerminal } from "../terminals/terminalsSlice";
@@ -59,7 +59,7 @@ const openFix = async (overrides: Partial<Api> = {}, host?: FakeHost) => {
 describe("CommentDialog", () => {
   it("previews the review at the reviewed commit without posting anything", async () => {
     const { api, dialog } = await openComment();
-    expect(api.reviewCommentPlan).toHaveBeenCalledWith(repo, head, 42);
+    expect(api.reviewCommentPlan).toHaveBeenCalledWith(repo, head, 42, "local", undefined);
     expect(await within(dialog).findByText(/One review, as/)).toHaveTextContent(
       "One review, as bobcob7, at 3f2a9c1 (the PR's current head). Nothing is posted until you choose Post review.",
     );
@@ -104,7 +104,7 @@ describe("CommentDialog", () => {
       event: "REQUEST_CHANGES",
       comments: [{ ...plan.comments[0], body: "Edited." }, plan.comments[1]],
       findings: plan.findings,
-    });
+    }, "local", undefined);
     expect(store.getState().actions.comment).toBeNull();
     expect(store.getState().ui.notice).toEqual({
       severity: "success",
@@ -157,7 +157,7 @@ describe("FixDialog", () => {
     const { api } = await openFix();
     expect(api.reviewFixPlan).toHaveBeenCalledWith(repo, head, "review-buff-bear-42-3f2a9c1", [
       { id: "security:spoofable-client-ip-1", title: expect.any(String) },
-    ]);
+    ], "local", undefined);
   });
 
   it("sends to the requester by default, through its terminal, then records it", async () => {
@@ -173,7 +173,7 @@ describe("FixDialog", () => {
     await vi.waitFor(() => expect(api.reviewFixSent).toHaveBeenCalled());
     expect(host.send).toHaveBeenNthCalledWith(1, attachKey("e8cdf5d8"), messageKeys(fixPlan().requesterMessage));
     expect(host.send).toHaveBeenNthCalledWith(2, attachKey("e8cdf5d8"), "\r");
-    expect(api.reviewFixSent).toHaveBeenCalledWith(repo, head, ["security:spoofable-client-ip-1"], "fix-login-rate");
+    expect(api.reviewFixSent).toHaveBeenCalledWith(repo, head, ["security:spoofable-client-ip-1"], "fix-login-rate", "local", undefined);
     expect(store.getState().ui.notice?.action).toEqual({ label: "Open agent", agent: "fix-login-rate" });
     expect(store.getState().actions.fix).toBeNull();
   });
@@ -193,7 +193,7 @@ describe("FixDialog", () => {
       findings: plan.findings,
       agent: plan.agent,
       message: plan.agentMessage,
-    });
+    }, "local", undefined);
   });
 
   it("switches an untouched message with the target and keeps an edited one", async () => {
@@ -222,5 +222,48 @@ describe("FixDialog", () => {
     await userEvent.click(await within(dialog).findByRole("button", { name: "Start fix agent" }));
     expect(await within(dialog).findByText("not trusted")).toBeInTheDocument();
     expect(store.getState().actions.fix).not.toBeNull();
+  });
+});
+
+describe("Comment and Fix of a remote review", () => {
+  const reviewId = "review-remote-1";
+  const renderRemote = (overrides: Partial<Api> = {}) => {
+    const api = fakeApi({ reviewReport: vi.fn(async () => decided()), ...overrides });
+    const store = testStore({
+      api,
+      state: { environments: { items: [remoteEnvironment()], loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } },
+    });
+    const pr = pullRequest({ group: "reviewed", reviews: [reviewRun({ workspaceId: reviewId, environment: "linux-server" })] });
+    store.dispatch(fetchReviews.fulfilled(reviewsView({ prs: [pr] }), "req"));
+    store.dispatch(reviewSelected(pr.key));
+    renderWithStore(
+      <>
+        <ReviewsPane />
+        <CommentDialog />
+        <FixDialog />
+      </>,
+      store,
+    );
+    return { store, api };
+  };
+
+  it("previews the comment from the environment's review", async () => {
+    const { api } = renderRemote();
+    await userEvent.click(await screen.findByRole("button", { name: "Comment on 1…" }));
+    await screen.findByRole("dialog", { name: "Post a review on bobcob7/buff-bear#42" });
+    expect(api.reviewCommentPlan).toHaveBeenCalledWith(repo, head, 42, "linux-server", reviewId);
+  });
+
+  it("plans a fix with the environment and review id, and says the fix agent runs on this machine", async () => {
+    const { api } = renderRemote();
+    await userEvent.click(await screen.findByRole("button", { name: "Fix 1…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Fix 1 finding" });
+    expect(api.reviewFixPlan).toHaveBeenCalledWith(repo, head, reviewId, expect.anything(), "linux-server", reviewId);
+    expect(within(dialog).getByText("The fix agent runs on this machine")).toBeInTheDocument();
+  });
+
+  it("does not say it for a local review", async () => {
+    const { dialog } = await openFix();
+    expect(within(dialog).queryByText("The fix agent runs on this machine")).not.toBeInTheDocument();
   });
 });

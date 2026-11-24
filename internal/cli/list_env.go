@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/environment"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/repo"
@@ -65,6 +67,62 @@ func (a *App) selectEnvironments(names []string) ([]string, error) {
 	return selected, nil
 }
 
+// listedEnvironments is the environments plain ws list reads (D9): local
+// and every enrolled environment by name. -q reads local alone, and --parent
+// reads the one environment it is in; --env narrows to the names given.
+func (a *App) listedEnvironments(opts *listOptions) ([]string, error) {
+	switch {
+	case len(opts.envs) > 0:
+		return a.selectEnvironments(opts.envs)
+	case opts.idsOnly:
+		return []string{localEnvironment}, nil
+	case opts.parent != "":
+		return a.parentEnvironment(opts.parent)
+	}
+	return a.enrolledEnvironments()
+}
+
+// enrolledEnvironments is local, then every enrolled environment by name. A
+// pending environment has no snapshot yet, so it is left out.
+func (a *App) enrolledEnvironments() ([]string, error) {
+	recs, err := a.envStore().List()
+	if err != nil {
+		return nil, envError(err)
+	}
+	var enrolled []string
+	for i := range recs {
+		if recs[i].State == environment.StateEnrolled {
+			enrolled = append(enrolled, recs[i].Name)
+		}
+	}
+	slices.Sort(enrolled)
+	return append([]string{localEnvironment}, enrolled...), nil
+}
+
+// parentEnvironment is the one environment --parent runs on without --env:
+// local when the parent is here, else the only environment whose snapshot
+// lists it. Any other parent is workspace_not_found.
+func (a *App) parentEnvironment(parent string) ([]string, error) {
+	_, findErr := a.workspaces.Find(parent)
+	switch {
+	case findErr == nil:
+		return []string{localEnvironment}, nil
+	case !errors.Is(findErr, workspace.ErrNotFound):
+		return nil, domainError(findErr)
+	}
+	found, err := a.environmentsWith(parent)
+	if err != nil {
+		return nil, err
+	}
+	switch len(found) {
+	case 1:
+		return found, nil
+	case 0:
+		return nil, domainError(findErr)
+	}
+	return nil, newError(codeWorkspaceNotFound, fmt.Errorf("%w: %s", workspace.ErrNotFound, parent))
+}
+
 // environmentPresence is the status the running daemon reports for each
 // environment name. It asks with no autostart and a short timeout; without
 // an answer the map is empty, so every environment is offline.
@@ -110,9 +168,25 @@ func (a *App) remoteEntries(name string, presence map[string]string) (remoteList
 			continue
 		}
 		e.Environment, e.EnvironmentStatus, e.Stale = name, status, stale
+		e.AgentState = agentStateOf(snap.Agents, e.Session)
 		out.entries = append(out.entries, e)
 	}
 	return out, nil
+}
+
+// agentStateOf is the state of the snapshot agent that runs session, or nil
+// when no agent does.
+func agentStateOf(agents []envproto.SnapshotAgent, session *listSessionJSON) *string {
+	if session == nil || session.ID == nil {
+		return nil
+	}
+	for i := range agents {
+		if agents[i].SessionID == *session.ID {
+			state := agents[i].State
+			return &state
+		}
+	}
+	return nil
 }
 
 // snapshotOld is whether a snapshot received at receivedAt, an RFC 3339

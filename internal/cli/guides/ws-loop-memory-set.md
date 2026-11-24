@@ -1,8 +1,10 @@
 # ws loop memory set
 
 ```
-ws loop memory set [--json] [--expect-rev <N>] [--file <PATH> | --file -] <NAME> <KEY> [<VALUE>]
+ws loop memory set [--json] [--env <NAME>] [--expect-rev <N>] [--file <PATH> | --file -] <NAME> <KEY> [<VALUE>]
 ```
+
+`--env <NAME>` sets the value on that environment; `--file` and stdin are read on this machine.
 
 Stores a value under a key of a loop's memory, and prints the key's new
 revision. Give the value as `<VALUE>`, or with `--file` to read it from a file,

@@ -2,8 +2,10 @@ import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextF
 import { useState, type FormEvent, type JSX } from "react";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { randomToken } from "../agents/names";
+import { lastChoiceSet } from "../environments/environmentsSlice";
 import { openTerminal, shellKey } from "../terminals/terminalsSlice";
 import { dialogClosed, sectionChosen, selected } from "../ui/uiSlice";
+import { EnvironmentField, useEnvironmentPick } from "./EnvironmentField";
 import { RepoSpecsField } from "./RepoSpecsField";
 import { usePrefilledSpecs } from "./usePrefilledSpecs";
 import styles from "./NewDialog.module.css";
@@ -13,6 +15,7 @@ export const NewShellDialog = (): JSX.Element => {
   const open = useAppSelector((s) => s.ui.dialog === "shell");
   const [name, setName] = useState("");
   const [specs, setSpecs] = useState<readonly string[]>([]);
+  const pick = useEnvironmentPick();
   usePrefilledSpecs(open, setSpecs);
   const submit = (event: FormEvent): void => {
     event.preventDefault();
@@ -24,10 +27,14 @@ export const NewShellDialog = (): JSX.Element => {
       openTerminal({
         key,
         title: trimmed === "" ? "New shell" : trimmed,
-        spec: { kind: "shell", name: trimmed, specs },
+        spec:
+          pick.environment === "local"
+            ? { kind: "shell", name: trimmed, specs }
+            : { kind: "shell", name: trimmed, specs, environment: pick.environment },
         openedAt: Date.now(),
       }),
     );
+    dispatch(lastChoiceSet(pick.environment));
     dispatch(selected(key));
     dispatch(sectionChosen("agents"));
     dispatch(dialogClosed());
@@ -47,6 +54,7 @@ export const NewShellDialog = (): JSX.Element => {
             helperText="Shown in the list, and can be changed later. Leave empty for a generated id."
             autoFocus
           />
+          <EnvironmentField pick={pick} />
           <RepoSpecsField value={specs} onChange={setSpecs} />
           <Alert severity="info">
             The workspace lives as long as its shell: exiting the shell, or quitting this app, removes it.

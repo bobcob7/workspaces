@@ -75,4 +75,36 @@ describe("EntryRow", () => {
     renderRow(entry({ name: "t1-review", result: "FAIL", rollup: { total: 1, done: 0, fraction: 0 } }));
     expect(screen.getByRole("progressbar", { name: "t1-review progress" })).toHaveClass("MuiLinearProgress-colorError");
   });
+
+  it("a remote entry shows its environment badge", () => {
+    renderRow(entry({ environment: "linux-server" }));
+    expect(screen.getByText("linux-server")).toBeInTheDocument();
+    expect(screen.queryByText("offline")).not.toBeInTheDocument();
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+    expect(screen.getByRole("button")).not.toHaveAttribute("data-dimmed");
+  });
+
+  it("a local entry has none", () => {
+    renderRow(entry({ environment: "local" }));
+    expect(screen.queryByText("local")).not.toBeInTheDocument();
+  });
+
+  it("an offline entry is dimmed with offline", () => {
+    renderRow(entry({ environment: "linux-server", environmentOnline: false, snapshotStale: true }));
+    expect(screen.getByText("offline")).toBeInTheDocument();
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+    expect(screen.getByRole("button")).toHaveAttribute("data-dimmed", "true");
+  });
+
+  it("a stale entry of an online environment is dimmed with stale", () => {
+    renderRow(entry({ environment: "linux-server", snapshotStale: true }));
+    expect(screen.getByText("stale")).toBeInTheDocument();
+    expect(screen.queryByText("offline")).not.toBeInTheDocument();
+    expect(screen.getByRole("button")).toHaveAttribute("data-dimmed", "true");
+  });
+
+  it("keeps the last known status of an offline entry", () => {
+    renderRow(entry({ environment: "linux-server", environmentOnline: false, detail: "running tests" }));
+    expect(screen.getByText("running tests")).toBeInTheDocument();
+  });
 });

@@ -105,6 +105,10 @@ const (
 	codeEnvironmentOffline  errorCode = "environment_offline"  // exit 1
 	codeEnvironmentOutdated errorCode = "environment_outdated" // exit 1
 	codeEnvironmentMismatch errorCode = "environment_mismatch" // exit 4
+	// From PR 4 (ADR 0074).
+	codeTerminalLimit errorCode = "terminal_limit" // exit 4
+	// From ADR 0080.
+	codeOperationLimited errorCode = "operation_limited" // exit 1
 	// ADR 0078: artifacts.
 	codeArtifactInvalid     errorCode = "artifact_invalid"     // exit 2
 	codeArtifactUnknown     errorCode = "artifact_unknown"     // exit 3
@@ -159,7 +163,7 @@ func (c errorCode) exitCode() int {
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable,
 		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed,
-		codeEnvironmentOffline, codeEnvironmentOutdated, codeArtifactUnreachable:
+		codeEnvironmentOffline, codeEnvironmentOutdated, codeOperationLimited, codeArtifactUnreachable:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
@@ -173,7 +177,7 @@ func (c errorCode) exitCode() int {
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
 		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
-		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch,
+		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch, codeTerminalLimit,
 		codeArtifactConflict, codeArtifactFull, codeArtifactForbidden:
 		return exitRefused
 	}
@@ -198,9 +202,9 @@ func (c errorCode) known() bool {
 		codeDaemonRunning, codeEndpointUnknown, codeEndpointUnreachable, codeModelNotServed,
 		codeModelWithoutTools, codeRunnerFailed, codeEnvironmentUnknown, codeEnvironmentExists,
 		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
-		codeEnvironmentOutdated, codeEnvironmentMismatch, codeProgressInvalid, codeArtifactInvalid,
-		codeArtifactUnknown, codeArtifactConflict, codeArtifactFull, codeArtifactForbidden, codeArtifactUnreachable,
-		codeAnchorNotFound:
+		codeEnvironmentOutdated, codeEnvironmentMismatch, codeTerminalLimit, codeProgressInvalid, codeOperationLimited,
+		codeArtifactInvalid, codeArtifactUnknown, codeArtifactConflict, codeArtifactFull, codeArtifactForbidden,
+		codeArtifactUnreachable, codeAnchorNotFound:
 		return true
 	}
 	return false

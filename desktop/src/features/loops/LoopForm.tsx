@@ -1,6 +1,10 @@
 import { Alert, Button, FormControlLabel, FormHelperText, Switch, TextField } from "@mui/material";
 import { useState, type FormEvent, type JSX } from "react";
 import type { AppError, Loop, NewLoop } from "../../api";
+import { EnvironmentField, useEnvironmentPick } from "../create/EnvironmentField";
+import { lastChoiceSet } from "../environments/environmentsSlice";
+import { useAppDispatch } from "../../store";
+import { ConfirmRemoteCodeDialog } from "./ConfirmRemoteCodeDialog";
 import { RepoSpecsField } from "../create/RepoSpecsField";
 import { RunnerModelFields, type RunnerModelValues } from "../create/RunnerModelFields";
 import { useRunnerSettings } from "../create/useRunnerSettings";
@@ -30,6 +34,8 @@ const errorFields: Readonly<Record<keyof LoopFormErrors, keyof LoopFormValues>> 
   vars: "vars",
 };
 
+const bypassMode = "bypassPermissions";
+
 export interface LoopFormProps {
   /** The loop to edit; absent for a new loop. */
   readonly loop?: Loop;
@@ -39,13 +45,38 @@ export interface LoopFormProps {
   readonly onCancel: () => void;
 }
 
+interface Changes {
+  readonly scriptChanged: boolean;
+  readonly bypassChanged: boolean;
+}
+
+/** What in a remote loop needs the person's confirmation: a new or changed script, or a newly bypassed agent (R3). */
+const changesOf = (request: NewLoop, loop: Loop | undefined): Changes => {
+  const script = request.script ?? "";
+  return {
+    scriptChanged: script !== "" && script !== (loop?.script ?? ""),
+    bypassChanged: request.permissionMode === bypassMode && request.permissionMode !== (loop?.permissionMode ?? ""),
+  };
+};
+
+interface Pending extends Changes {
+  readonly request: NewLoop;
+}
+
 /** The loop form for add and edit: sections for schedule, prompt, repos, agent, gate script, and variables. */
 export const LoopForm = (props: LoopFormProps): JSX.Element => {
   const { loop, error, submitting, onSubmit, onCancel } = props;
   const [values, setValues] = useState<LoopFormValues>(() => (loop === undefined ? emptyValues : valuesOf(loop)));
   const [touched, setTouched] = useState<ReadonlySet<keyof LoopFormValues>>(new Set());
   const [submitted, setSubmitted] = useState(false);
+  const dispatch = useAppDispatch();
+  const basePick = useEnvironmentPick();
+  const [chosen, setChosen] = useState<string | null>(null);
+  const pick = { ...basePick, choose: (name: string): void => { setChosen(name); basePick.choose(name); } };
+  const [pending, setPending] = useState<Pending | null>(null);
   const runnerSettings = useRunnerSettings(true);
+  const environment = loop === undefined ? pick.environment : loop.environment;
+  const unavailable = loop === undefined && chosen !== null && chosen !== environment;
   const errors = formErrors(values);
   const hasScript = values.script.trim() !== "";
   const slug = slugOf(values.title);
@@ -65,11 +96,41 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
     if (!isValid(values)) {
       return;
     }
-    onSubmit(requestOf(values));
+    if (unavailable) {
+      return;
+    }
+    const request = requestOf(values);
+    if (environment === "local") {
+      onSubmit(request);
+      return;
+    }
+    const remote: NewLoop = {
+      ...request,
+      environment,
+      ...(loop === undefined ? {} : { previous: { ...requestOf(valuesOf(loop)), environment } }),
+    };
+    const changes = changesOf(request, loop);
+    if (changes.scriptChanged || changes.bypassChanged) {
+      setPending({ ...changes, request: remote });
+      return;
+    }
+    onSubmit(remote);
+  };
+  const confirm = ({ request }: Pending): void => {
+    setPending(null);
+    if (loop === undefined) {
+      dispatch(lastChoiceSet(environment));
+    }
+    onSubmit({ ...request, confirmed: true });
   };
   return (
     <form className={styles.form} onSubmit={submit} aria-label={loop ? "Edit loop" : "New loop"} noValidate>
       <h2 className={styles.formTitle}>{loop ? `Edit ${loopLabel(loop)}` : "New loop"}</h2>
+      {loop === undefined ? (
+        <EnvironmentField pick={pick} />
+      ) : (
+        loop.environment !== "local" && <p className={styles.muted}>{`Environment: ${loop.environment}`}</p>
+      )}
       <fieldset className={styles.section}>
         <legend className={styles.legend}>Schedule</legend>
         <TextField
@@ -171,6 +232,18 @@ export const LoopForm = (props: LoopFormProps): JSX.Element => {
         <VarsEditor rows={values.vars} onChange={(vars) => patch("vars", vars)} />
         {messageFor("vars") !== undefined && <FormHelperText error>{messageFor("vars")}</FormHelperText>}
       </fieldset>
+      {pending !== null && (
+        <ConfirmRemoteCodeDialog
+          environment={environment}
+          every={pending.request.every}
+          script={pending.scriptChanged ? (pending.request.script ?? "") : ""}
+          scriptChanged={pending.scriptChanged}
+          bypassChanged={pending.bypassChanged}
+          onConfirm={() => confirm(pending)}
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {unavailable && <Alert severity="warning">{`${chosen} is no longer available; pick an environment to continue`}</Alert>}
       {error !== null && <Alert severity="error">{error.message}</Alert>}
       <div className={styles.formButtons}>
         <Button onClick={onCancel}>Cancel</Button>

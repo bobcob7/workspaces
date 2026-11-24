@@ -85,6 +85,9 @@ const Form = ({ plan }: { readonly plan: FixPlan }): JSX.Element => {
             </span>
           )}
         </TargetOption>
+        {dialog?.environment !== undefined && dialog.environment !== "local" && (
+          <span className={styles.muted}>The fix agent runs on this machine</span>
+        )}
         <TextField
           label="Message"
           multiline

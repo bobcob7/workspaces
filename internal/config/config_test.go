@@ -318,6 +318,24 @@ func TestEnvironments_addresses(t *testing.T) {
 	})
 }
 
+func TestConfig_environments(t *testing.T) {
+	t.Run("agent_loop_scripts defaults to allowed", func(t *testing.T) {
+		cfg, err := parse([]byte(defaultFile))
+		require.NoError(t, err)
+		assert.True(t, cfg.Environments.LoopScriptsAllowed())
+	})
+	t.Run("false forbids", func(t *testing.T) {
+		cfg, err := parse([]byte("[environments]\nagent_loop_scripts = false\n"))
+		require.NoError(t, err)
+		assert.False(t, cfg.Environments.LoopScriptsAllowed())
+	})
+	t.Run("true allows", func(t *testing.T) {
+		cfg, err := parse([]byte("[environments]\nagent_loop_scripts = true\n"))
+		require.NoError(t, err)
+		assert.True(t, cfg.Environments.LoopScriptsAllowed())
+	})
+}
+
 func TestParse_environments(t *testing.T) {
 	t.Run("absent table gives the defaults", func(t *testing.T) {
 		cfg, err := parse([]byte(defaultFile))

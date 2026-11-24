@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commentPlan, fakeApi, fakeHost, fixPlan, head, testStore } from "../../test/fixtures";
 import { attachKey, openTerminal, submitDelay } from "../terminals/terminalsSlice";
-import { attachSettle, postReview, sendFix } from "./actionsSlice";
+import type { PostRequest } from "../../api";
+import { attachSettle, openCommentDialog, openFixDialog, postReview, sendFix } from "./actionsSlice";
+import { reportKey } from "./reportsSlice";
 
 const subject = { prKey: "github.com/bobcob7/buff-bear#42", repo: "github.com/bobcob7/buff-bear", ref: head };
 
@@ -27,7 +29,7 @@ describe("sendFix", () => {
     await vi.advanceTimersByTimeAsync(attachSettle + submitDelay);
     await sent;
     expect(host.send).toHaveBeenCalledWith(attachKey("e8cdf5d8"), "Fix it");
-    expect(api.reviewFixSent).toHaveBeenCalledWith(subject.repo, head, plan.findings, "fix-login-rate");
+    expect(api.reviewFixSent).toHaveBeenCalledWith(subject.repo, head, plan.findings, "fix-login-rate", "local", undefined);
   });
 
   it("refuses a requester that can't take messages, and records nothing", async () => {
@@ -73,11 +75,71 @@ describe("postReview", () => {
         request: { number: 42, commitId: head, body: plan.body, event: "COMMENT", comments: plan.comments, findings: plan.findings },
       }),
     );
-    expect(api.reviewReport).toHaveBeenCalledWith(subject.repo, head, true);
+    expect(api.reviewReport).toHaveBeenCalledWith(subject.repo, head, true, "local", undefined);
     expect(store.getState().ui.notice).toEqual({
       severity: "info",
       message: "Posted, but recording it in the review failed: boom",
       action: { label: "View on GitHub", href: url },
     });
+  });
+});
+
+describe("remote review actions", () => {
+  const remote = { ...subject, environment: "linux-server", reviewId: "review-1" };
+  const postRequest: PostRequest = { number: 42, commitId: head, body: "", event: "COMMENT", comments: [], findings: [] };
+
+  it("opens the comment preview on the review's environment", async () => {
+    const api = fakeApi();
+    await testStore({ api }).dispatch(openCommentDialog({ ...remote, number: 42 }));
+    expect(api.reviewCommentPlan).toHaveBeenCalledWith(subject.repo, head, 42, "linux-server", "review-1");
+  });
+
+  it("posts on the review's environment and keeps the report under its key", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(
+      postReview({ ...remote, request: postRequest }),
+    );
+    expect(api.reviewCommentPost).toHaveBeenCalledWith(subject.repo, head, expect.anything(), "linux-server", "review-1");
+    expect(store.getState().reports.byKey[reportKey(subject.repo, head, "linux-server")]).toBeDefined();
+    expect(store.getState().reports.byKey[reportKey(subject.repo, head)]).toBeUndefined();
+  });
+
+  it("plans a fix on the review's environment", async () => {
+    const api = fakeApi();
+    await testStore({ api }).dispatch(openFixDialog({ ...remote, review: "review-1", findings: [] }));
+    expect(api.reviewFixPlan).toHaveBeenCalledWith(subject.repo, head, "review-1", [], "linux-server", "review-1");
+  });
+
+  it("starts a fix agent on the review's environment", async () => {
+    const api = fakeApi();
+    await testStore({ api }).dispatch(sendFix({ ...remote, plan: fixPlan(), target: "agent", message: "Fix it" }));
+    expect(api.reviewFixStart).toHaveBeenCalledWith(subject.repo, head, expect.anything(), "linux-server", "review-1");
+  });
+
+  it("re-reads the remote report when posting returns none", async () => {
+    const api = fakeApi({ reviewCommentPost: vi.fn(async () => ({ url: "https://github.com/x/y/pull/42", report: null, warning: null })) });
+    const store = testStore({ api });
+    await store.dispatch(postReview({ ...subject, environment: "alpha", reviewId: "review-1", request: postRequest }));
+    expect(api.reviewReport).toHaveBeenCalledWith(subject.repo, head, true, "alpha", "review-1");
+    expect(store.getState().reports.byKey[reportKey(subject.repo, head, "alpha")]).toBeDefined();
+    expect(store.getState().reports.byKey[reportKey(subject.repo, head)]).toBeUndefined();
+  });
+
+  it("re-reads the remote report when starting a fix agent returns none", async () => {
+    const api = fakeApi({
+      reviewFixStart: vi.fn(async () => ({ agent: "fix-agent", session: "5f6e7d8c", report: null, warning: null })),
+    });
+    const store = testStore({ api });
+    await store.dispatch(sendFix({ ...subject, environment: "alpha", reviewId: "review-1", plan: fixPlan(), target: "agent", message: "Fix it" }));
+    expect(api.reviewReport).toHaveBeenCalledWith(subject.repo, head, true, "alpha", "review-1");
+    expect(store.getState().reports.byKey[reportKey(subject.repo, head, "alpha")]).toBeDefined();
+    expect(store.getState().reports.byKey[reportKey(subject.repo, head)]).toBeUndefined();
+  });
+
+  it("keeps a local action on local", async () => {
+    const api = fakeApi();
+    await testStore({ api }).dispatch(openCommentDialog({ ...subject, number: 42 }));
+    expect(api.reviewCommentPlan).toHaveBeenCalledWith(subject.repo, head, 42, "local", undefined);
   });
 });

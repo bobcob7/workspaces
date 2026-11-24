@@ -27,11 +27,13 @@ func (NoOperations) Run(context.Context, string, any) (json.RawMessage, error) {
 }
 
 // dispatch handles a request from env/<id>/req that isn't a reply: decodes
-// the envelope, looks the op up, checks its caller is CallerController or
-// CallerInternal, decodes and validates the arguments, checks workspace
-// references with CheckWorkspaceRef, then either replies at once (a
-// refusal, or ca.update, which runs on the session loop as today) or hands
-// the operation to runOp on its own goroutine. It never blocks the session
+// the envelope, looks the op up, checks its caller is CallerController,
+// CallerInternal or CallerTerminal (the agent can't tell the controller's
+// terminal path from its call path; the controller refuses terminal ops on
+// call), decodes and validates the arguments, checks workspace references
+// with CheckWorkspaceRef, then either replies at once (a refusal, or
+// ca.update, which runs on the session loop as today) or hands the
+// operation to runOp on its own goroutine. It never blocks the session
 // loop on an operation.
 func (a *Agent) dispatch(ctx context.Context, id *Identity, msg *envproto.Message) {
 	var req envproto.Request
@@ -73,7 +75,10 @@ func (a *Agent) startOp(ctx context.Context, id *Identity, msg *envproto.Message
 // controller asks again for a fresh answer.
 func remembered(op string) bool {
 	switch op {
-	case envproto.OpAgentLogs, envproto.OpAgentStatus, envproto.OpWorkspaceList:
+	case envproto.OpAgentLogs, envproto.OpAgentStatus, envproto.OpWorkspaceList,
+		envproto.OpReviewStatus, envproto.OpReviewList, envproto.OpReviewReport, envproto.OpReviewProfiles,
+		envproto.OpLoopList, envproto.OpLoopShow, envproto.OpLoopHistory, envproto.OpLoopHistoryRun,
+		envproto.OpLoopMemoryList, envproto.OpLoopMemoryGet:
 		return false
 	}
 	return true
@@ -93,7 +98,7 @@ func requestSum(req *envproto.Request) string {
 // operation's spec and the decoded arguments.
 func (a *Agent) admit(req *envproto.Request) (envproto.OpSpec, any, error) {
 	spec, ok := envproto.LookupOp(req.Op)
-	if !ok || (spec.Caller != envproto.CallerController && spec.Caller != envproto.CallerInternal) {
+	if !ok || (spec.Caller != envproto.CallerController && spec.Caller != envproto.CallerInternal && spec.Caller != envproto.CallerTerminal) {
 		return envproto.OpSpec{}, nil, &envproto.ReplyError{Code: "usage", Message: "unknown operation " + req.Op}
 	}
 	if req.Deadline == nil {
@@ -112,6 +117,12 @@ func (a *Agent) admit(req *envproto.Request) (envproto.OpSpec, any, error) {
 	for _, ref := range workspaceRefs(args) {
 		if err := CheckWorkspaceRef(a.opts.WorkspacesRoot, ref); err != nil {
 			return envproto.OpSpec{}, nil, err
+		}
+	}
+	// A duplicate request id takes no token: the stored or running reply answers it.
+	if !a.requests.known(req.RequestID) {
+		if ok, retry := a.limits.allow(req.Op, args); !ok {
+			return envproto.OpSpec{}, nil, limitedError(req.Op, retry)
 		}
 	}
 	return spec, args, nil
@@ -136,6 +147,10 @@ func workspaceRefs(args any) []string {
 		return []string{a.Workspace}
 	case *envproto.SendArgs:
 		return []string{a.Workspace}
+	case *envproto.TerminalOpenArgs:
+		if a.Workspace != nil {
+			return []string{*a.Workspace}
+		}
 	}
 	return nil
 }
@@ -183,7 +198,13 @@ func replyOK(reply []byte) bool {
 
 // execute runs one operation and returns its reply, which must fit a message.
 func (a *Agent) execute(ctx context.Context, spec envproto.OpSpec, args any) []byte {
-	result, err := a.ops.Run(ctx, spec.Name, args)
+	var result json.RawMessage
+	var err error
+	if spec.Caller == envproto.CallerTerminal {
+		result, err = a.terminalOp(ctx, spec.Name, args)
+	} else {
+		result, err = a.ops.Run(ctx, spec.Name, args)
+	}
 	if err != nil {
 		if _, ok := errors.AsType[*envproto.ReplyError](err); !ok {
 			a.log.WarnContext(ctx, "operation failed", "op", spec.Name, "error", err)
@@ -205,12 +226,36 @@ func (a *Agent) execute(ctx context.Context, spec envproto.OpSpec, args any) []b
 // ReplyError, else "internal".
 func refusalReply(err error) []byte {
 	if ae, ok := errors.AsType[*envproto.ArgsError](err); ok {
+		if errors.Is(err, envproto.ErrNeedsConfirm) {
+			return needsConfirmReply(ae)
+		}
 		return envproto.ErrorReply(ae.Code, ae.Message)
 	}
 	if re, ok := errors.AsType[*envproto.ReplyError](err); ok {
-		return envproto.ErrorReply(re.Code, re.Message)
+		if len(re.Details) == 0 {
+			return envproto.ErrorReply(re.Code, re.Message)
+		}
+		body, merr := json.Marshal(envproto.Reply{Error: re})
+		if merr != nil {
+			return envproto.ErrorReply("internal", "the operation failed")
+		}
+		return body
 	}
 	return envproto.ErrorReply("internal", "the operation failed")
+}
+
+// needsConfirmReply is the reply to an operation that needs confirm: its
+// usage error, with details {"needs": "confirm"}.
+func needsConfirmReply(ae *envproto.ArgsError) []byte {
+	body, err := json.Marshal(envproto.Reply{Error: &envproto.ReplyError{
+		Code:    ae.Code,
+		Message: ae.Message,
+		Details: map[string]any{"needs": "confirm"},
+	}})
+	if err != nil {
+		return envproto.ErrorReply(ae.Code, ae.Message)
+	}
+	return body
 }
 
 // acquire takes one of the MaxOps slots, reporting false when ctx has ended

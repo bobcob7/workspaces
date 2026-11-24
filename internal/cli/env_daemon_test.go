@@ -266,3 +266,33 @@ func TestOfflineDetails(t *testing.T) {
 		assert.Equal(t, "2026-11-22T10:30:00Z", details["last_seen"])
 	})
 }
+
+func TestEnvHost_OpenTerminal(t *testing.T) {
+	args := envproto.TerminalOpenArgs{Kind: "shell", Cols: 80, Rows: 24, Specs: []string{}}
+	newHost := func(t *testing.T) (daemon.EnvironmentHost, environment.Record) {
+		t.Helper()
+		app, _, _ := newDaemonTestApp(t)
+		app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
+		app.config.Environments = config.Environments{PublicName: "127.0.0.1"}
+		rec := enrollTestEnvironment(t, app)
+		return app.daemonEnvironments(discardDaemonLog()), rec
+	}
+	t.Run("an unknown environment is a nil stream and ErrEnvironmentUnknown", func(t *testing.T) {
+		host, _ := newHost(t)
+		stream, _, err := host.OpenTerminal(t.Context(), "nope", args)
+		assert.Nil(t, stream)
+		isNil := stream == nil
+		assert.True(t, isNil, "the stream is a typed nil")
+		require.ErrorIs(t, err, daemon.ErrEnvironmentUnknown)
+		_, ok := errors.AsType[*daemon.HostError](err)
+		assert.True(t, ok)
+	})
+	t.Run("an environment that isn't listening is a nil stream and ErrEnvironmentOffline", func(t *testing.T) {
+		host, rec := newHost(t)
+		stream, _, err := host.OpenTerminal(t.Context(), rec.Name, args)
+		assert.Nil(t, stream)
+		isNil := stream == nil
+		assert.True(t, isNil, "the stream is a typed nil")
+		require.ErrorIs(t, err, daemon.ErrEnvironmentOffline)
+	})
+}

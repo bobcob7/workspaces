@@ -213,17 +213,24 @@ side is `ws claude --env` and `ws list --env` ([`ws claude`](ws-claude.md#enviro
 | `agent.logs` | Claude Code's `logs`, at most 2000 lines | 1 | 30 s |
 | `agent.send` | a message to a Claude Code or `ws` runner agent | 1 | 90 s |
 | `agent.stop` | Claude Code's `stop` | 1 | 30 s |
+| `review.start` | `ws review start --requester none` | 3 | 10 min |
+| `review.status`, `review.list`, `review.report`, `review.profiles` | `ws review list`, `report`, `profiles` (a page of a report is at most 192 KiB) | 3 | 30 s |
+| `review.decide`, `review.acted` | `ws review decide`, `ws review acted` | 3 | 30 s |
+| `loop.list`, `loop.show`, `loop.history`, `loop.history_run`, `loop.memory_list`, `loop.memory_get` | `ws loop list`, `history`, `memory` (read only) | 3 | 30 s |
+| `loop.add`, `loop.edit`, `loop.pause`, `loop.resume`, `loop.rm`, `loop.history_clear`, `loop.memory_set`, `loop.memory_rm`, `loop.memory_clear` | the matching `ws loop` commands | 3 | 30 s |
+| `loop.run` | `ws loop run [--force]` | 3 | 15 min |
 
 `Since` is the protocol the operation needs (see below). A `shell` kind
-isn't in the table: a shell needs the terminal streams, which come with the
-next release ([0072](../adrs/0072-remote-environments.md), deviation 2).
+isn't in the table: a shell is a terminal ([Terminals](#terminals)).
 
 **Protocol.** The hello carries `protocol`, the newest operation protocol the
-agent speaks: 1 in this release, and 0 from an agent older than it. An
+agent speaks: 1 with PR 3's operations, 2 with the terminal operations (PR 4),
+3 with `review.*` and `loop.*` and the snapshot's `loops` (PR 4, [0080](../adrs/0080-reviews-and-loops-on-environments.md)), and 0 from an agent older than PR 3. An
 operation whose `Since` is above the agent's protocol is refused before it is
 sent, with `environment_outdated` (exit 1). Its details are `environment`,
-`op`, `ws_version`, `protocol` and `need_protocol`, so an agent from before
-this release runs none of the operations. The version string isn't compared:
+`op`, `ws_version`, `protocol` and `need_protocol`, so an agent older than
+an operation's `Since` doesn't run it: one from PR 3 refuses `terminal.open`
+and `terminal.close`. The version string isn't compared:
 `git describe` strings don't order reliably.
 
 **Requests, timeouts and deduplication.** Each request carries a
@@ -261,6 +268,128 @@ still have run; `ws list --env <name>` shows what exists.
   `workspaces/` with no `..` element; anything else is `outside_workspace`
   (exit 2), and nothing runs.
 
+## Reviews on an environment
+
+`ws review start --env <name>` ([`ws review`](ws-review.md)) runs the whole
+review on that machine: its clone cache, review workspace, Claude session and
+reports are in the agent's `CONFIG_DIR`. The controller keeps the forge side:
+the pull request list, posting comments, and the Fix and Ask agents. **No
+token crosses the network:** no operation takes one, and results are redacted
+([0080](../adrs/0080-reviews-and-loops-on-environments.md)).
+
+Set these up **on the remote machine**, as the user that runs `ws env agent
+run`:
+
+1. **GitHub:** install `gh` and run `gh auth login` for each host
+   (`gh auth status` must list it), or set `GH_TOKEN` in the agent's service
+   environment (the systemd `EnvironmentFile=` or the launchd
+   `EnvironmentVariables`).
+2. **Private repositories on any forge:** git credentials for `git fetch`, such
+   as a credential helper or SSH keys.
+3. **Forgejo or Gitea:** nothing more. A review starts at the head commit, and
+   `WS_FORGEJO_TOKEN_*` stays on the controller.
+4. **Claude Code** signed in.
+
+Without these, `review.start` fails with `gh_missing`, `gh_auth`,
+`clone_failed`, `fetch_failed` or `claude_missing`, and `details.environment`.
+
+On a remote, `ws review start` with `bypassPermissions` and no confirm flag
+is refused, in the agent and in the desktop. Whether it may ever be allowed is
+an open owner decision. A finding's decision suggestion index counts from 0.
+Reviews are limited to 12 starts an hour per agent. `ws review wait --env`
+polls `review.status`; a report is read in pages of at most 192 KiB, at most
+1000 pages. A remote markdown or html report has empty submission summaries
+(a known gap). Profiles on a remote are read only: edit them there with `ws
+review profiles add`.
+
+## Loops on an environment
+
+A loop made with `ws loop add --env <name>` lives on that machine: its record,
+history, memory and reports are in the agent's `CONFIG_DIR`, and the
+controller holds only a summary of it in the snapshot's `loops` (at most 100;
+no prompt, script or variables), which `ws loop list --env <name> --cached`
+reads.
+
+- **The agent ticks while connected.** It runs `ws loop tick --quiet
+  --max-starts 2` every 60 s, the first time one period after it connects.
+- **Offline means paused.** No tick runs, nothing is marked `paused`, and
+  nothing is made up: on reconnect each overdue loop is due once, and the
+  agent starts two per pass, so ten overdue loops start over five minutes.
+- **Don't also run another ticker** (`ws loop tick --watch`, or a desktop app)
+  on that machine with the same `CONFIG_DIR`. `loops/.lock` serializes them,
+  but that ticker keeps running loops while the agent is offline.
+- **Trust.** A loop's script and prompt run as the agent's user on that
+  machine, like any Claude agent the controller starts there: anyone who can
+  use this controller can run code as that user on every enrolled machine.
+  Saving a loop with a script or `bypassPermissions` needs confirming
+  (`--yes`, or the desktop's dialog); so do `ws loop rm` and clearing history
+  or memory. Set `[environments] agent_loop_scripts = false` in the remote's
+  `config.toml` to refuse scripts from the controller
+  ([`ws config`](ws-config.md)); existing scripts still run.
+- **Rates, per agent:** `loop.run` 30 an hour and one per loop per 60 s; adding,
+  editing and removing loops 60 an hour. Over a limit the error is
+  `operation_limited` with `retry_after_seconds`.
+- **Redaction.** The agent replaces the values of its own tokens and secrets,
+  and common token formats, with `[redacted]` in every review and loop result.
+  It is best effort: it does not catch base64 or URL-encoded secrets, and a
+  cut after redaction can leave a short token prefix. A write containing
+  `[redacted]` is refused. List pages are capped at 1000 pages, and a
+  truncated memory preview doesn't load the full value on open (a follow-up).
+- **Not run here:** Fix and Ask on the environment, remote profile editing,
+  redacting `agent.logs`, and `cache.*` are later.
+
+## Terminals
+
+A terminal is a process in a pseudo-terminal on the agent's machine: Claude
+Code's `claude attach` for a workspace ([`ws attach --env`](ws-attach.md)), or
+`ws shell` ([`ws shell --env`](ws-shell.md)). `terminal.open` (kind `attach`
+or `shell`, `Since: 2`, 30 s) returns a stream id, and `terminal.close` ends
+it. The CLI reaches them through the daemon's `POST
+/v1/environments/<name>/terminal`, which upgrades the connection, so it never
+speaks MQTT.
+
+**Frames.** Bytes travel as binary frames on `env/<id>/stream/<sid>/out`
+(agent to controller, QoS 0) and `.../in` (controller to agent, QoS 1). A
+frame is a version byte (1), a kind byte, a big-endian 64-bit sequence number
+and a body:
+
+| Kind | Direction | Body |
+| --- | --- | --- |
+| `d` data | out | 1 to 16 KiB of output |
+| `g` dropped | out | the count of bytes dropped, 8 bytes |
+| `x` exit | out | JSON `{"code", "reason"}`; the reason is `exited`, `closed`, `idle`, `input_gap`, `input_limit` or `disconnected` |
+| `i` input | in | 1 to 4 KiB |
+| `r` resize | in | columns and rows, two big-endian 16-bit numbers, each 1 to 1000 |
+| `w` redraw | in | none |
+| `p` ping | in | none |
+| `c` close | in | none |
+
+**Limits.** At most 8 terminals per agent (`terminal_limit`, exit 4). Output
+the reader isn't taking is dropped after 1 MiB queued, by the agent and by the
+controller for its client, with a visible marker. The agent closes a terminal
+whose input exceeds 128 KiB/s or 500 frames/s, or has a gap in its input
+sequence, rather than guess; the CLI paces pasted input at 64 KiB/s.
+
+**Lifetime.** Terminals don't survive a reconnect: the agent closes every
+terminal when its MQTT connection drops, and the controller ends those of an
+environment that goes offline, so `ws attach` says so and exits 1
+(`environment_offline`). The controller pings every 15 s, and the agent closes
+a terminal with no frame for 60 s. The agent keeps no screen model: on an
+output gap the controller asks for a redraw, and the agent does after it drops
+output, at most once a second. A redraw changes the pty's size by one row and
+back, which repaints Claude Code and other full-screen programs; a line-mode
+shell shows only the marker.
+
+**Latency.** Terminals share the agent's one connection with control requests.
+Its socket bounds the not-yet-sent queue (`TCP_NOTSENT_LOWAT` 16 KiB), which
+cut a control request's delay under bulk output about tenfold. On a 10 Mbit/s
+uplink with a 20 ms round trip, the
+[spike](../design/remote-environments/terminal-spike.md) measured **0.195 s**
+against the design's limit of **0.142 s**, so it still misses it: a control
+request can wait about 0.2 s behind a `cat` of a large file. Typing echo and
+throughput met their limits. A second connection passed in the spike and is
+the fallback.
+
 ## Exit codes
 
 | Situation | Error code | Exit |
@@ -270,6 +399,7 @@ still have run; `ws list --env <name>` shows what exists.
 | No environment with that name | `environment_unknown` | 3 |
 | A name already taken, an enrollment on a machine already enrolled | `environment_exists` | 4 |
 | A code already used | `enrollment_used` | 4 |
+| The agent already has 8 terminals open | `terminal_limit` | 4 |
 | `--finish` while environments hold old-CA certificates | `ca_in_use` | 4 |
 | Enrollment refused, or a certificate has expired | `enrollment_failed` | 1 |
 

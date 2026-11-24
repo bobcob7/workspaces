@@ -8,6 +8,7 @@ import { Sidebar } from "./features/agents/Sidebar";
 import { needsAttention } from "./features/agents/status";
 import { NewAgentDialog } from "./features/create/NewAgentDialog";
 import { NewShellDialog } from "./features/create/NewShellDialog";
+import { useEnvironmentsPolling } from "./features/environments/useEnvironmentsPolling";
 import { Rail } from "./features/rail/Rail";
 import { AddRepoDialog } from "./features/repos/AddRepoDialog";
 import { ReposActions } from "./features/repos/ReposActions";
@@ -188,6 +189,7 @@ export const App = (): JSX.Element => {
   const narrowPane = useAppSelector((s) => s.ui.narrowPane);
   const sidebarCollapsed = useAppSelector((s) => s.ui.sidebarCollapsed);
   const view = sectionViews[section] ?? agentsView;
+  useEnvironmentsPolling();
   useEffect(() => {
     const poll = async (): Promise<void> => {
       await dispatch(fetchEntries());

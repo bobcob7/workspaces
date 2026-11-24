@@ -33,6 +33,8 @@ export interface AgentsState {
   readonly query: string;
   /** The Agents list's status filter (ADR 0058); not persisted. */
   readonly statusFilter: StatusFilter;
+  /** The Agents list's environment filter: `local` or an environment's name; null shows all (ADR 0075); not persisted. */
+  readonly environmentFilter: string | null;
 }
 
 const initialState: AgentsState = {
@@ -48,6 +50,7 @@ const initialState: AgentsState = {
   expanded: {},
   query: "",
   statusFilter: "all",
+  environmentFilter: null,
 };
 
 /** The record without its false values: the user's closed choices are dropped so new matches show open. */
@@ -97,11 +100,11 @@ export const stopAgent = createAppThunk<void, Entry>(
   async (entry, { extra, dispatch, rejectWithValue }) => {
     try {
       if (entry.runner === "ws") {
-        if (entry.workspaceId !== null) {
+        if (entry.workspaceId !== null && entry.environment === "local") {
           await extra.api.runnerStop(entry.workspaceId);
         }
       } else if (entry.sessionId !== null) {
-        await extra.api.stopAgent(entry.sessionId);
+        await extra.api.stopAgent(entry.sessionId, entry.workspaceId, entry.environment);
         await dispatch(closeTerminal(`attach:${entry.sessionId}`));
       }
       dispatch(noticeShown({ severity: "info", message: `Stopped ${entry.name}` }));
@@ -124,6 +127,9 @@ export const editorDir = (entry: Entry): string => {
 export const openWorkspace = createAppThunk<Opened, { readonly entry: Entry; readonly with: OpenWith }>(
   "agents/open",
   async ({ entry, with: openWith }, { extra, dispatch, rejectWithValue }) => {
+    if (entry.environment !== "local") {
+      return rejectWithValue(toAppError(new Error(`The files are on ${entry.environment}`)));
+    }
     try {
       return await extra.api.workspaceOpen(
         openWith,
@@ -148,7 +154,7 @@ export const removeEntry = createAppThunk<void, RemoveRequest>(
       if (entry.sessionId !== null) {
         await dispatch(closeTerminal(`attach:${entry.sessionId}`));
       }
-      await extra.api.removeEntry(entry.workspaceId, entry.sessionId, entry.keepChildren ?? false);
+      await extra.api.removeEntry(entry.workspaceId, entry.sessionId, entry.keepChildren ?? false, entry.environment);
       if (getState().ui.selectedKey === entry.key) {
         dispatch(selected(null));
       }
@@ -170,7 +176,7 @@ export const renameEntry = createAppThunk<void, { readonly entry: Entry; readonl
       return;
     }
     try {
-      const renamed = await extra.api.renameWorkspace(entry.workspaceId, name);
+      const renamed = await extra.api.renameWorkspace(entry.workspaceId, name, entry.environment);
       dispatch(noticeShown({ severity: "success", message: `Renamed to ${renamed.name}` }));
     } catch (err: unknown) {
       const error = toAppError(err);
@@ -189,7 +195,7 @@ export const setEntryHidden = createAppThunk<void, { readonly entry: Entry; read
       return;
     }
     try {
-      await extra.api.setWorkspaceHidden(entry.workspaceId, hidden);
+      await extra.api.setWorkspaceHidden(entry.workspaceId, hidden, entry.environment);
       dispatch(noticeShown({ severity: "info", message: hidden ? `Hid ${entry.name}` : `Unhid ${entry.name}` }));
     } catch (err: unknown) {
       const error = toAppError(err);
@@ -240,9 +246,14 @@ const agentsSlice = createSlice({
       state.statusFilter = action.payload;
       state.expanded = withoutClosed(state.expanded);
     },
+    environmentFilterChanged: (state, action: PayloadAction<string | null>) => {
+      state.environmentFilter = action.payload;
+      state.expanded = withoutClosed(state.expanded);
+    },
     filtersCleared: (state) => {
       state.query = "";
       state.statusFilter = "all";
+      state.environmentFilter = null;
       state.expanded = withoutClosed(state.expanded);
     },
   },
@@ -304,6 +315,14 @@ const agentsSlice = createSlice({
   },
 });
 
-export const { createErrorCleared, hiddenShown, nodeToggled, queryChanged, statusFilterChanged, filtersCleared } =
+export const {
+  createErrorCleared,
+  environmentFilterChanged,
+  hiddenShown,
+  nodeToggled,
+  queryChanged,
+  statusFilterChanged,
+  filtersCleared,
+} =
   agentsSlice.actions;
 export const agentsReducer = agentsSlice.reducer;

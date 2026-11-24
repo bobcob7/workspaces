@@ -23,6 +23,7 @@ pub mod view;
 
 use crate::commands::AppState;
 use crate::ipc::State;
+use crate::pty::remote_env;
 use crate::runner::AppError;
 use checker::Started;
 use comment::{CommentPlan, PostRequest, Posted};
@@ -30,7 +31,7 @@ use fix::{FixFinding, FixPlan, FixStarted, StartFix};
 use forge::ForgeKind;
 use plan::ReviewPlan;
 use profiles::{ListedProfile, ProfileDetail, ProfileDraft};
-use report::DecideRequest;
+use report::{DecideRequest, Origin};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -74,12 +75,25 @@ pub fn reviews_set_watch(
     repo: String,
     watch: bool,
     auto_review: bool,
+    environment: Option<String>,
 ) -> CmdResult<ReviewsView> {
     let was = state.store.get().reviews.watch(&repo);
-    state
-        .store
-        .update(|d| d.reviews.set_watch(&repo, RepoWatch { watch, auto_review }))?;
-    if watch && (!was.watch || (auto_review && !was.auto_review)) {
+    let environment = remote_env(environment.as_deref()).map(str::to_string);
+    if let Some(name) = &environment {
+        crate::pty::check_env_name(name)?;
+    }
+    let moved = was.environment != environment;
+    state.store.update(|d| {
+        d.reviews.set_watch(
+            &repo,
+            RepoWatch {
+                watch,
+                auto_review,
+                environment,
+            },
+        );
+    })?;
+    if watch && (!was.watch || (auto_review && !was.auto_review) || moved) {
         state.reviews.check_now();
     }
     Ok(view(&state))
@@ -169,7 +183,14 @@ pub async fn reviews_plan(
     state: State<'_, AppState>,
     repo: String,
     number: u64,
+    environment: Option<String>,
 ) -> CmdResult<ReviewPlan> {
+    let environment = environment
+        .filter(|e| !e.is_empty())
+        .or_else(|| state.store.get().reviews.watch(&repo).environment);
+    if let Some(name) = remote_env(environment.as_deref()) {
+        crate::pty::check_env_name(name)?;
+    }
     let pr = state.reviews.pull_request(&repo, number).ok_or_else(|| {
         AppError::new(
             "pr_not_found",
@@ -177,7 +198,8 @@ pub async fn reviews_plan(
         )
     })?;
     let settings = state.store.get().settings.reviews;
-    let mut plan = plan::build(&state.runner, &repo, &pr, &settings).await?;
+    let mut plan =
+        plan::build(&state.runner, &repo, &pr, &settings, environment.as_deref()).await?;
     plan.forge = state.reviews.forge_of(&repo).unwrap_or_default();
     Ok(plan)
 }
@@ -211,8 +233,14 @@ pub async fn reviews_ask(
 
 /// Every reviewer profile `ws review profiles` lists, for Settings.
 #[cfg_attr(feature = "desktop", tauri::command)]
-pub async fn reviews_profiles(state: State<'_, AppState>) -> CmdResult<Vec<ListedProfile>> {
-    profiles::list(&state.runner).await
+pub async fn reviews_profiles(
+    state: State<'_, AppState>,
+    environment: Option<String>,
+) -> CmdResult<Vec<ListedProfile>> {
+    if let Some(name) = remote_env(environment.as_deref()) {
+        crate::pty::check_env_name(name)?;
+    }
+    profiles::list(&state.runner, environment.as_deref()).await
 }
 
 /// One profile with its guide (`ws review profiles show`), for the editor.
@@ -278,6 +306,9 @@ pub async fn reviews_profile_remove(
 /// exists isn't an error.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn reviews_start(state: State<'_, AppState>, plan: ReviewPlan) -> CmdResult<Started> {
+    if let Some(name) = remote_env(plan.environment.as_deref()) {
+        crate::pty::check_env_name(name)?;
+    }
     state.reviews.start_review(&state.runner, &plan).await
 }
 
@@ -289,8 +320,19 @@ pub async fn review_report(
     repo: String,
     git_ref: String,
     refresh: bool,
+    environment: Option<String>,
+    review_id: Option<String>,
 ) -> CmdResult<Value> {
-    report::read(&state.runner, &state.reports, &repo, &git_ref, refresh).await
+    let origin = Origin::new(environment.as_deref(), review_id.as_deref())?;
+    report::read(
+        &state.runner,
+        &state.reports,
+        &repo,
+        &git_ref,
+        origin,
+        refresh,
+    )
+    .await
 }
 
 /// Decides one or more findings in one `ws review decide`, and returns the
@@ -301,8 +343,19 @@ pub async fn review_decide(
     repo: String,
     git_ref: String,
     request: DecideRequest,
+    environment: Option<String>,
+    review_id: Option<String>,
 ) -> CmdResult<Value> {
-    report::decide(&state.runner, &state.reports, &repo, &git_ref, &request).await
+    let origin = Origin::new(environment.as_deref(), review_id.as_deref())?;
+    report::decide(
+        &state.runner,
+        &state.reports,
+        &repo,
+        &git_ref,
+        origin,
+        &request,
+    )
+    .await
 }
 
 /// Writes `ws review report --format html` to the app's cache directory and
@@ -314,12 +367,15 @@ pub async fn review_open_report(
     state: State<'_, AppState>,
     repo: String,
     git_ref: String,
+    environment: Option<String>,
+    review_id: Option<String>,
 ) -> CmdResult<String> {
+    let origin = Origin::new(environment.as_deref(), review_id.as_deref())?;
     let dir = app
         .path()
         .app_cache_dir()
         .map_err(|e| AppError::new("internal", format!("no cache directory: {e}")))?;
-    let path = report::write_html(&state.runner, &dir, &repo, &git_ref).await?;
+    let path = report::write_html(&state.runner, &dir, &repo, &git_ref, origin).await?;
     app.opener()
         .open_path(path.display().to_string(), None::<&str>)
         .map_err(|e| AppError::new("open_failed", e.to_string()))?;
@@ -334,7 +390,10 @@ pub async fn review_comment_plan(
     repo: String,
     git_ref: String,
     number: u64,
+    environment: Option<String>,
+    review_id: Option<String>,
 ) -> CmdResult<CommentPlan> {
+    let origin = Origin::new(environment.as_deref(), review_id.as_deref())?;
     if state.reviews.forge_of(&repo) != Some(ForgeKind::Github) {
         return Err(AppError::new(
             "forge_unsupported",
@@ -356,6 +415,7 @@ pub async fn review_comment_plan(
             .map_or(git_ref.as_str(), |p| p.head_ref_oid.as_str()),
         pr_url: &url,
         login: state.reviews.login(host),
+        origin,
     };
     comment::plan(&state.runner, &state.reports, subject).await
 }
@@ -368,8 +428,19 @@ pub async fn review_comment_post(
     repo: String,
     git_ref: String,
     request: PostRequest,
+    environment: Option<String>,
+    review_id: Option<String>,
 ) -> CmdResult<Posted> {
-    comment::post(&state.runner, &state.reports, &repo, &git_ref, &request).await
+    let origin = Origin::new(environment.as_deref(), review_id.as_deref())?;
+    comment::post(
+        &state.runner,
+        &state.reports,
+        &repo,
+        &git_ref,
+        origin,
+        &request,
+    )
+    .await
 }
 
 /// Whom the findings decided `fix` would go to, and the message.
@@ -380,8 +451,19 @@ pub async fn review_fix_plan(
     git_ref: String,
     review: String,
     findings: Vec<FixFinding>,
+    environment: Option<String>,
+    review_id: Option<String>,
 ) -> CmdResult<FixPlan> {
-    let report = report::read(&state.runner, &state.reports, &repo, &git_ref, false).await?;
+    let origin = Origin::new(environment.as_deref(), review_id.as_deref())?;
+    let report = report::read(
+        &state.runner,
+        &state.reports,
+        &repo,
+        &git_ref,
+        origin,
+        false,
+    )
+    .await?;
     let settings = state.store.get().settings.reviews;
     let agent = fix::AgentSettings {
         model: &settings.model,
@@ -404,7 +486,10 @@ pub async fn review_fix_start(
     repo: String,
     git_ref: String,
     request: StartFix,
+    environment: Option<String>,
+    review_id: Option<String>,
 ) -> CmdResult<FixStarted> {
+    let origin = Origin::new(environment.as_deref(), review_id.as_deref())?;
     let settings = state.store.get().settings.reviews;
     let agent = fix::AgentSettings {
         model: &settings.model,
@@ -415,6 +500,7 @@ pub async fn review_fix_start(
         &state.reports,
         &repo,
         &git_ref,
+        origin,
         &request,
         &agent,
     )
@@ -430,12 +516,16 @@ pub async fn review_fix_sent(
     git_ref: String,
     findings: Vec<String>,
     agent: String,
+    environment: Option<String>,
+    review_id: Option<String>,
 ) -> CmdResult<Value> {
+    let origin = Origin::new(environment.as_deref(), review_id.as_deref())?;
     report::acted(
         &state.runner,
         &state.reports,
         &repo,
         &git_ref,
+        origin,
         &findings,
         report::Acted::FixSent(&agent),
     )

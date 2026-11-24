@@ -317,12 +317,19 @@ leaves the record alone, so the environment is listed as offline until
 
 `state/.environments/<name>/snapshot.json` is `{"version", "id", "name",
 "received_at", "snapshot"}`: the controller's stamp, `received_at`, and the
-agent's `snapshot`, which is `{"at", "protocol", "workspaces", "agents"}`
+agent's `snapshot`, which is `{"at", "protocol", "workspaces", "agents", "loops"}`
 ([0072](adrs/0072-remote-environments.md)). `at` is when the agent made it;
 `protocol` is the operation protocol the agent speaks (0 from an agent older
 than PR 3); `workspaces` is its `ws list --json --all` array, without unknown
 directories; `agents` is its Claude Code sessions, `[]` from an agent older
-than PR 3. A snapshot over 256 KiB isn't published, and its entries go stale.
+than PR 3; `loops` is a summary of its loops (name, title, period, paused,
+hidden, runner, next and last run, last gate; at most 100, without prompts,
+scripts or variables; absent from an agent older than protocol 3, which means
+unknown). Reviews and loops leave nothing else on the controller's disk. A snapshot over 256 KiB isn't published, and its entries go stale. Terminals
+([0074](adrs/0074-mqtt-transport-embedded-broker.md)) leave nothing on disk on
+the controller: their streams live in memory and end with the terminal, the
+connection or the environment's presence. `ws list`'s `agent_state` isn't
+stored either: it is read from the snapshot's `agents`, matched by session id.
 
 ## What each command does
 

@@ -23,16 +23,25 @@ type reviewListOptions struct {
 
 func (a *App) newReviewListCmd() *cobra.Command {
 	var opts reviewListOptions
+	var env string
 	cmd := &cobra.Command{
 		Use:   "list [--repo <REPO>] [--pr <N>]",
 		Short: "List reviews, including those whose agent was removed",
 		Args:  noArgs,
 		RunE: runE(a.withConfigUnswept(func(cmd *cobra.Command, _ []string) error {
+			name, err := a.reviewEnv(env, "")
+			if err != nil {
+				return err
+			}
+			if name != "" {
+				return a.runRemoteReviewList(cmd.Context(), name, &opts)
+			}
 			return a.runReviewList(cmd.Context(), &opts)
 		})),
 	}
 	cmd.Flags().StringVar(&opts.repo, "repo", "", "only reviews of this repo id, host/owner/name")
 	cmd.Flags().IntVar(&opts.pr, "pr", 0, "only reviews of this pull request")
+	cmd.Flags().StringVar(&env, "env", "", "list the reviews on this environment (ws env list); for people and the desktop app; default: local")
 	return cmd
 }
 

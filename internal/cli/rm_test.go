@@ -390,3 +390,27 @@ func TestRmLine(t *testing.T) {
 		assert.Equal(t, "removed  └ a", rmLine(&lifetime.Removed{Workspace: workspace.Workspace{ID: "a"}}, true, true))
 	})
 }
+
+func TestApp_runRmRemote(t *testing.T) {
+	const removed = `{"ok":true,"result":{"workspaces":[{"id":"a","parent":null,"removed":true,"error":null}],"warnings":[]},"error":null}`
+	t.Run("--env removes through workspace.rm", func(t *testing.T) {
+		e, caller, _ := newEnvOpApp(t, removed)
+		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{env: "linux-server", workspaces: []string{"a"}, keepChildren: true}))
+		assert.Equal(t, "removed  a\n", e.stdout.String())
+		calls := caller.CallEnvironmentCalls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, "workspace.rm", calls[0].Req.Op)
+		assert.JSONEq(t, `{"workspace":"a","keep_children":true}`, string(calls[0].Req.Args))
+	})
+	t.Run("--env with --dry-run is usage", func(t *testing.T) {
+		e, caller, _ := newEnvOpApp(t, removed)
+		requireUsageError(t, e.app.runRm(t.Context(), &rmOptions{env: "linux-server", dryRun: true, workspaces: []string{"a"}}))
+		assert.Empty(t, caller.CallEnvironmentCalls())
+	})
+	t.Run("--json adds the environment", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, removed)
+		e.app.global.json = true
+		require.NoError(t, e.app.runRm(t.Context(), &rmOptions{env: "linux-server", workspaces: []string{"a"}}))
+		assert.JSONEq(t, `{"workspaces":[{"id":"a","parent":null,"removed":true,"error":null}],"warnings":[],"environment":"linux-server"}`, e.stdout.String())
+	})
+}

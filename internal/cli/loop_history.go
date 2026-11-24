@@ -78,15 +78,25 @@ type loopClearedJSON struct {
 
 func (a *App) newLoopHistoryCmd() *cobra.Command {
 	var opts loopHistoryOptions
+	var remote loopEnvOptions
 	cmd := &cobra.Command{
 		Use:   "history [--limit <N>] [--run <SEQ> | --clear] <NAME>",
 		Short: "Show a loop's runs, newest first",
 		Args:  cobra.ExactArgs(1),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 			opts.limitSet = cmd.Flags().Changed("limit")
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoopHistory(cmd.Context(), env, args[0], opts, remote.yes)
+			}
 			return a.runLoopHistory(cmd.Context(), args[0], opts)
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	addLoopYesFlag(cmd, &remote)
 	cmd.Flags().IntVar(&opts.limit, "limit", defaultHistoryLimit, "how many runs to show, 1 to 200")
 	cmd.Flags().IntVar(&opts.run, "run", 0, "show one run, with its report")
 	cmd.Flags().BoolVar(&opts.clear, "clear", false, "delete the loop's run history and saved reports")

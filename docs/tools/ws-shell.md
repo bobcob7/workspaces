@@ -5,7 +5,7 @@ Create a workspace and open an interactive shell in it.
 ## Synopsis
 
 ```
-ws shell [OPTIONS] [<SPEC>...]
+ws shell [--env <name>] [OPTIONS] [<SPEC>...]
 ```
 
 ## Description
@@ -52,16 +52,33 @@ killed the shell.
 
 ## Environments
 
-`ws shell` runs only on this machine. It has no `--env` yet: a shell on a
-remote environment needs the terminal streams, which arrive in the release
-after PR 3, so `--env` is an unknown flag until then. For an agent on a
-remote environment, use [`ws claude --env`](ws-claude.md#environments)
-([0072](../adrs/0072-remote-environments.md), deviation 2).
+With `--env <name>` the shell runs on that environment's machine, in a
+workspace that lives as long as this terminal is open
+([0072](../adrs/0072-remote-environments.md)). The environment's agent runs
+its own `ws shell` in a pty, and `ws` sends keystrokes and size changes over
+the daemon, putting the local terminal in raw mode and restoring it on every
+exit. It needs a terminal on stdin (`usage` otherwise), and `--json` is
+refused. When the shell exits, `ws shell` exits with its status. Terminals
+don't survive a reconnect: if the environment goes offline, the shell ends and
+`ws shell` exits 1 (`environment_offline`). The agent allows 8 terminals at
+once (`terminal_limit`, exit 4), and an agent older than protocol 2 refuses
+with `environment_outdated`.
+
+`WS_ENVIRONMENT` is set by the environment agent in the pty of a remote shell,
+so the `ws shell` that runs there stamps the workspace with the
+environment's name. It is not for people.
+
+Terminals share the agent's one connection to the controller, whose socket
+bounds its unsent queue (`TCP_NOTSENT_LOWAT` 16 KiB). Under bulk output on a
+10 Mbit/s uplink, a control request can wait about 0.2 s behind it; the
+[spike](../design/remote-environments/terminal-spike.md) measured 0.195 s
+against a design limit of 0.142 s.
 
 ## Options
 
 | Option          | Description                       |
 | --------------- | --------------------------------- |
+| `--env <name>`  | Run the shell on this environment (`ws env list`), not here |
 | `--name <name>` | Workspace name; the id is derived from it with a random suffix |
 | `--offline`     | Don't fetch; use the cache as-is  |
 
@@ -85,11 +102,13 @@ $ ws shell
 See the [workspace creation errors](README.md#creating-a-workspace). If
 the session can't be recorded or the shell can't be started, the
 workspace is removed and `ws` fails with `internal` (exit 1). Otherwise
-`ws shell` exits with the shell's exit code.
+`ws shell` exits with the shell's exit code. With `--env`: `environment_unknown`
+(exit 3), `environment_offline` and `environment_outdated` (exit 1), and
+`terminal_limit` (exit 4).
 
 ## See also
 
-[`ws claude`](ws-claude.md),
+[`ws claude`](ws-claude.md), [`ws attach`](ws-attach.md),
 [0014](../adrs/0014-command-set.md),
 [0015](../adrs/0015-workspace-lifetime-follows-session.md),
 [0023](../adrs/0023-shell-session-keeps-creation-lock.md)

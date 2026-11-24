@@ -46,7 +46,12 @@ impl Watcher {
     pub fn observe(&self, entries: &[Entry], now_ms: i64) -> Observed {
         let candidates = attention::candidates(entries);
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let (snapshot, mut events) = attention::step(&inner.snapshot, &candidates, now_ms);
+        let (mut snapshot, mut events) = attention::step(&inner.snapshot, &candidates, now_ms);
+        for key in attention::held_keys(entries) {
+            if let Some(held) = inner.snapshot.tracked.get(&key) {
+                snapshot.tracked.insert(key, *held);
+            }
+        }
         let (loop_snapshot, loop_events) =
             attention::loop_step(&inner.loop_snapshot, entries, now_ms);
         inner.snapshot = snapshot;
@@ -195,6 +200,87 @@ mod tests {
         assert!(watcher.observe(&done, 12_000).events.is_empty());
     }
 
+    fn remote(status: Status, online: bool, stale: bool) -> Entry {
+        Entry {
+            environment: "linux-server".to_string(),
+            environment_online: online,
+            snapshot_stale: stale,
+            ..entry("env:linux-server:a", status)
+        }
+    }
+
+    #[test]
+    fn remote_needs_input_notifies() {
+        let watcher = Watcher::default();
+        let working = [remote(Status::Working, true, false)];
+        let blocked = [remote(Status::NeedsInput, true, false)];
+        assert!(watcher.observe(&working, 0).events.is_empty());
+        assert!(watcher.observe(&blocked, 4_000).events.is_empty());
+        let third = watcher.observe(&blocked, 8_000);
+        assert_eq!(
+            third.events,
+            vec![event("env:linux-server:a", Attention::NeedsInput)]
+        );
+    }
+
+    #[test]
+    fn stale_remote_entry_does_not_notify() {
+        let watcher = Watcher::default();
+        let working = [remote(Status::Working, true, false)];
+        let stale = [remote(Status::NeedsInput, true, true)];
+        assert!(watcher.observe(&working, 0).events.is_empty());
+        for now in [4_000, 8_000, 12_000] {
+            let observed = watcher.observe(&stale, now);
+            assert!(observed.events.is_empty());
+            assert!(observed.candidates.is_empty());
+        }
+        let back = watcher.observe(&working, 16_000);
+        assert!(back.events.is_empty());
+        assert_eq!(back.candidates.len(), 1);
+        assert!(watcher.observe(&working, 20_000).events.is_empty());
+    }
+
+    #[test]
+    fn recovery_in_the_same_state_does_not_fire() {
+        let watcher = Watcher::default();
+        let blocked = remote(Status::NeedsInput, true, false);
+        let offline = remote(Status::NeedsInput, false, false);
+        assert!(watcher
+            .observe(std::slice::from_ref(&blocked), 0)
+            .events
+            .is_empty());
+        assert!(watcher.observe(&[offline], 4_000).events.is_empty());
+        assert!(watcher
+            .observe(std::slice::from_ref(&blocked), 8_000)
+            .events
+            .is_empty());
+        assert!(watcher.observe(&[blocked], 12_000).events.is_empty());
+    }
+
+    #[test]
+    fn a_held_state_survives_an_offline_listing() {
+        let watcher = Watcher::default();
+        let key = "env:linux-server:a";
+        assert!(watcher
+            .observe(&[remote(Status::Working, true, false)], 0)
+            .events
+            .is_empty());
+        let offline = [remote(Status::NeedsInput, false, false)];
+        assert!(watcher.observe(&offline, 4_000).events.is_empty());
+        let held = watcher
+            .inner
+            .lock()
+            .unwrap()
+            .snapshot
+            .tracked
+            .contains_key(key);
+        assert!(held);
+        let back = [remote(Status::NeedsInput, true, false)];
+        assert!(watcher.observe(&back, 8_000).events.is_empty());
+        let third = watcher.observe(&back, 12_000);
+        assert_eq!(third.events, vec![event(key, Attention::NeedsInput)]);
+    }
+
     #[test]
     fn first_seen_needs_input_does_not_notify() {
         let watcher = Watcher::default();
@@ -257,5 +343,84 @@ mod tests {
         );
         assert!(wanted(&events, &settings(true, false, true)).is_empty());
         assert!(wanted(&events, &settings(false, true, true)).is_empty());
+    }
+
+    fn remote_loop_run(attention: Option<&str>, online: bool) -> Entry {
+        Entry {
+            loop_run: Some(WsLoopRun {
+                loop_name: "deps-bump".to_string(),
+                attention: attention.map(str::to_string),
+            }),
+            status: if attention.is_some() {
+                Status::NeedsInput
+            } else {
+                Status::Working
+            },
+            ..remote(Status::Working, online, false)
+        }
+    }
+
+    #[test]
+    fn remote_blocked_loop_run_notifies() {
+        let watcher = Watcher::default();
+        let quiet = [remote_loop_run(None, true)];
+        let blocked = [remote_loop_run(Some("blocked"), true)];
+        assert!(watcher.observe(&quiet, 0).events.is_empty());
+        assert!(watcher.observe(&blocked, 4_000).events.is_empty());
+        let third = watcher.observe(&blocked, 8_000);
+        let loops: Vec<_> = third
+            .events
+            .iter()
+            .filter(|e| e.attention == Attention::Blocked)
+            .collect();
+        assert_eq!(loops.len(), 1, "{:?}", third.events);
+        assert_eq!(loops[0].key, "env:linux-server:a");
+        assert!(watcher.observe(&blocked, 12_000).events.is_empty());
+    }
+
+    #[test]
+    fn offline_remote_loop_run_does_not_notify() {
+        let watcher = Watcher::default();
+        let quiet = [remote_loop_run(None, true)];
+        let offline = [remote_loop_run(Some("blocked"), false)];
+        assert!(watcher.observe(&quiet, 0).events.is_empty());
+        for now in [4_000, 8_000, 12_000] {
+            let loops = watcher
+                .observe(&offline, now)
+                .events
+                .into_iter()
+                .filter(|e| e.attention == Attention::Blocked)
+                .count();
+            assert_eq!(loops, 0);
+        }
+    }
+
+    #[test]
+    fn remote_finished_review_notifies_done() {
+        let watcher = Watcher::default();
+        let record = crate::model::ReviewRecord {
+            repo: "github.com/o/r".to_string(),
+            git_ref: "abc".to_string(),
+            requester: String::new(),
+            profiles: vec![],
+            pr: None,
+        };
+        let review = |status| Entry {
+            review: Some(record.clone()),
+            ..remote(status, true, false)
+        };
+        assert!(watcher
+            .observe(&[review(Status::Working)], 0)
+            .events
+            .is_empty());
+        assert!(watcher
+            .observe(&[review(Status::Done)], 4_000)
+            .events
+            .is_empty());
+        let third = watcher.observe(&[review(Status::Done)], 8_000);
+        assert_eq!(
+            third.events,
+            vec![event("env:linux-server:a", Attention::Done)]
+        );
     }
 }

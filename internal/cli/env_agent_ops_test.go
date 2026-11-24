@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 
@@ -24,6 +25,10 @@ func opsFor(app *App) *agentOperations {
 	app.paths = testPaths()
 	return &agentOperations{app: app, name: "linux-server", newApp: func(stdout, stderr io.Writer) *App {
 		app.stdout, app.stderr = stdout, stderr
+		app.environment = "linux-server"
+		return app
+	}, newAppWithStdin: func(stdin io.Reader, stdout, stderr io.Writer) *App {
+		app.stdin, app.stdout, app.stderr = stdin, stdout, stderr
 		app.environment = "linux-server"
 		return app
 	}}
@@ -304,4 +309,13 @@ func TestCommandObject(t *testing.T) {
 	got, err := commandObject([]byte("  {\"a\":1}\n"))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"a":1}`, string(got))
+}
+
+func TestAgentRedactor_environment(t *testing.T) {
+	app := New("v", strings.NewReader(""), io.Discard, io.Discard, nil, []string{"CUSTOM_API_KEY=env-only-value-123"})
+	app.paths = config.NewPaths(t.TempDir())
+	app.paths.Root = t.TempDir()
+	clean, n := agentRedactor(app).String("leaked env-only-value-123 here")
+	assert.NotContains(t, clean, "env-only-value-123")
+	assert.Equal(t, 1, n)
 }

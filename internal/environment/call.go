@@ -24,6 +24,9 @@ type pendingCall struct {
 	msg         envproto.Message
 	reply       chan envproto.Reply
 	republished bool
+	// onReply, when set, runs in the broker handler that delivers a reply,
+	// before the caller is woken.
+	onReply func(env string, reply envproto.Reply)
 }
 
 // Call sends req to the environment called name and waits for its reply
@@ -44,12 +47,19 @@ type pendingCall struct {
 //
 //nolint:gocritic // hugeParam: the CallRequest value is the fixed API.
 func (c *Controller) Call(ctx context.Context, name string, req CallRequest) (envproto.Reply, error) {
+	return c.call(ctx, name, &req, envproto.CallerController, nil)
+}
+
+// call is Call for an op whose caller must be caller: the controller's call
+// endpoint passes CallerController, the terminal path CallerTerminal. onReply
+// sees the reply before the call returns.
+func (c *Controller) call(ctx context.Context, name string, req *CallRequest, caller envproto.Caller, onReply func(env string, reply envproto.Reply)) (envproto.Reply, error) {
 	rec, err := c.enrolled(name)
 	if err != nil {
 		return envproto.Reply{}, err
 	}
 	spec, ok := envproto.LookupOp(req.Op)
-	if !ok || spec.Caller != envproto.CallerController {
+	if !ok || spec.Caller != caller {
 		return envproto.Reply{}, fmt.Errorf("%s: %w", req.Op, ErrNotForwarded)
 	}
 	if !envproto.ValidRequestID(req.RequestID) {
@@ -62,9 +72,9 @@ func (c *Controller) Call(ctx context.Context, name string, req CallRequest) (en
 		return envproto.Reply{}, fmt.Errorf("%w: the deadline is more than %s away", ErrCallInvalid, far)
 	}
 	if !c.isListening() {
-		return envproto.Reply{}, offlineFor(name, &req, reasonNotListening, nil)
+		return envproto.Reply{}, offlineFor(name, req, reasonNotListening, nil)
 	}
-	msg, err := requestMessage(rec.ID, &req, time.Until(req.Deadline))
+	msg, err := requestMessage(rec.ID, req, time.Until(req.Deadline))
 	if err != nil {
 		return envproto.Reply{}, err
 	}
@@ -73,8 +83,9 @@ func (c *Controller) Call(ctx context.Context, name string, req CallRequest) (en
 		deadline: req.Deadline,
 		msg:      msg,
 		reply:    make(chan envproto.Reply, 1),
+		onReply:  onReply,
 	}
-	if err := c.admitCall(name, &req, spec.Since, pc); err != nil {
+	if err := c.admitCall(name, req, spec.Since, pc); err != nil {
 		return envproto.Reply{}, err
 	}
 	defer c.removeCall(req.RequestID)
@@ -87,7 +98,7 @@ func (c *Controller) Call(ctx context.Context, name string, req CallRequest) (en
 	case reply := <-pc.reply:
 		return reply, nil
 	case <-timer.C:
-		return envproto.Reply{}, offlineFor(name, &req, reasonTimeout, nil)
+		return envproto.Reply{}, offlineFor(name, req, reasonTimeout, nil)
 	case <-ctx.Done():
 		return envproto.Reply{}, ctx.Err()
 	}
@@ -151,6 +162,9 @@ func (c *Controller) deliver(id, reqID string, reply envproto.Reply) bool {
 	c.mu.Unlock()
 	if !ok || pc.env != id {
 		return false
+	}
+	if pc.onReply != nil {
+		pc.onReply(id, reply)
 	}
 	select {
 	case pc.reply <- reply:

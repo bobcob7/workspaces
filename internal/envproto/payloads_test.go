@@ -2,6 +2,7 @@ package envproto
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -59,6 +60,22 @@ func TestHello_MarshalJSON(t *testing.T) {
 	})
 }
 
+func TestHello_Conn(t *testing.T) {
+	t.Run("is the conn key, and is left out when empty", func(t *testing.T) {
+		body, err := json.Marshal(Hello{Status: StatusOnline, Conn: "abc"})
+		require.NoError(t, err)
+		assert.Contains(t, string(body), `"conn":"abc"`)
+		body, err = json.Marshal(Hello{Status: StatusOnline})
+		require.NoError(t, err)
+		assert.NotContains(t, string(body), "conn")
+	})
+	t.Run("an older agent's hello decodes with no connection id", func(t *testing.T) {
+		var hello Hello
+		require.NoError(t, json.Unmarshal([]byte(`{"status":"online","protocol":3}`), &hello))
+		assert.Empty(t, hello.Conn)
+	})
+}
+
 func TestRequest_Unmarshal(t *testing.T) {
 	t.Run("reads op and args", func(t *testing.T) {
 		var req Request
@@ -87,9 +104,9 @@ func TestErrorEnvelope_Marshal(t *testing.T) {
 func TestSnapshot_Marshal(t *testing.T) {
 	t.Run("marshals the protocol and an empty agents list", func(t *testing.T) {
 		at := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
-		body, err := json.Marshal(Snapshot{At: at, Protocol: Protocol, Workspaces: json.RawMessage(`[]`), Agents: []SnapshotAgent{}})
+		body, err := json.Marshal(Snapshot{At: at, Protocol: Protocol, Workspaces: json.RawMessage(`[]`), Agents: []SnapshotAgent{}, Loops: []SnapshotLoop{}})
 		require.NoError(t, err)
-		assert.JSONEq(t, `{"at":"2026-11-22T00:00:00Z","protocol":1,"workspaces":[],"agents":[]}`, string(body))
+		assert.JSONEq(t, fmt.Sprintf(`{"at":"2026-11-22T00:00:00Z","protocol":%d,"workspaces":[],"agents":[],"loops":[]}`, Protocol), string(body))
 	})
 }
 
@@ -117,11 +134,18 @@ func TestRequest_Marshal(t *testing.T) {
 	})
 }
 
+func TestProtocol_reviewsAndLoops(t *testing.T) {
+	t.Run("is 3, the protocol review and loop operations need", func(t *testing.T) {
+		assert.Equal(t, 3, Protocol)
+		assert.Equal(t, Protocol, ProtocolReviewsLoops)
+	})
+}
+
 func TestHello_Protocol(t *testing.T) {
 	t.Run("marshals the protocol number", func(t *testing.T) {
 		body, err := json.Marshal(Hello{Status: StatusOnline, Protocol: Protocol, CAFingerprints: []string{}})
 		require.NoError(t, err)
-		assert.Contains(t, string(body), `"protocol":1`)
+		assert.Contains(t, string(body), fmt.Sprintf(`"protocol":%d`, Protocol))
 	})
 	t.Run("reads 0 from an agent older than PR 3", func(t *testing.T) {
 		var hello Hello

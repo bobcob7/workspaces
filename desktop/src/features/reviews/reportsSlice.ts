@@ -4,13 +4,16 @@ import { createAppThunk } from "../../thunk";
 import { noticeShown } from "../ui/uiSlice";
 import { noFilter, type ReportFilter } from "./report";
 
-/** A review's report, by repo and commit. */
-export const reportKey = (repo: string, ref: string): string => `${repo}@${ref}`;
+/** A review's report, by repo and commit; a remote one also by its environment. */
+export const reportKey = (repo: string, ref: string, environment = "local"): string =>
+  environment === "local" ? `${repo}@${ref}` : `env:${environment}:${repo}@${ref}`;
 
 export interface ReportEntry {
   readonly report: ReviewReport | null;
   readonly error: AppError | null;
   readonly loading: boolean;
+  /** When the report was last read (ms since the epoch); absent before it was. */
+  readonly loadedAt?: number;
 }
 
 export type DetailTab = "findings" | "description" | "agent";
@@ -57,19 +60,23 @@ export interface ReportRequest {
   readonly ref: string;
   /** Read it again rather than take the session's copy. */
   readonly refresh: boolean;
+  /** The environment the review ran on; absent is "local". */
+  readonly environment?: string;
+  /** The review's workspace id on that environment. */
+  readonly reviewId?: string;
 }
 
 /** Reads a review's report (`ws review report --json`). */
 export const fetchReport = createAppThunk<ReviewReport, ReportRequest>(
   "reports/fetch",
-  async ({ repo, ref, refresh }, { extra, rejectWithValue }) => {
+  async ({ repo, ref, refresh, environment = "local", reviewId }, { extra, rejectWithValue }) => {
     try {
-      return await extra.api.reviewReport(repo, ref, refresh);
+      return await extra.api.reviewReport(repo, ref, refresh, environment, reviewId);
     } catch (err: unknown) {
       return rejectWithValue(toAppError(err));
     }
   },
-  { condition: ({ repo, ref }, { getState }) => getState().reports.byKey[reportKey(repo, ref)]?.loading !== true },
+  { condition: ({ repo, ref, environment }, { getState }) => getState().reports.byKey[reportKey(repo, ref, environment)]?.loading !== true },
 );
 
 export interface DecideFindings {
@@ -79,6 +86,8 @@ export interface DecideFindings {
   readonly findings: readonly { readonly id: string; readonly note: string }[];
   readonly decision: DecisionKind | "clear";
   readonly suggestion?: number | null;
+  readonly environment?: string;
+  readonly reviewId?: string;
 }
 
 /**
@@ -87,7 +96,7 @@ export interface DecideFindings {
  */
 export const decideFindings = createAppThunk<ReviewReport, DecideFindings>(
   "reports/decide",
-  async ({ repo, ref, findings, decision, suggestion = null }, { extra, dispatch, rejectWithValue }) => {
+  async ({ repo, ref, findings, decision, suggestion = null, environment = "local", reviewId }, { extra, dispatch, rejectWithValue }) => {
     const byNote = new Map<string, string[]>();
     for (const f of findings) {
       const note = decision === "clear" ? "" : f.note.trim();
@@ -96,9 +105,9 @@ export const decideFindings = createAppThunk<ReviewReport, DecideFindings>(
     try {
       let report: ReviewReport | null = null;
       for (const [note, ids] of byNote) {
-        report = await extra.api.reviewDecide(repo, ref, { findings: ids, decision, suggestion, note });
+        report = await extra.api.reviewDecide(repo, ref, { findings: ids, decision, suggestion, note }, environment, reviewId);
       }
-      return report ?? (await extra.api.reviewReport(repo, ref, false));
+      return report ?? (await extra.api.reviewReport(repo, ref, false, environment, reviewId));
     } catch (err: unknown) {
       const error = toAppError(err);
       dispatch(noticeShown({ severity: "error", message: error.message }));
@@ -108,11 +117,14 @@ export const decideFindings = createAppThunk<ReviewReport, DecideFindings>(
 );
 
 /** Writes the HTML report to the app's cache and opens it in the browser. */
-export const openFullReport = createAppThunk<string, { readonly repo: string; readonly ref: string }>(
+export const openFullReport = createAppThunk<
+  string,
+  { readonly repo: string; readonly ref: string; readonly environment?: string; readonly reviewId?: string }
+>(
   "reports/openFull",
-  async ({ repo, ref }, { extra, dispatch, rejectWithValue }) => {
+  async ({ repo, ref, environment = "local", reviewId }, { extra, dispatch, rejectWithValue }) => {
     try {
-      return await extra.api.reviewOpenReport(repo, ref);
+      return await extra.api.reviewOpenReport(repo, ref, environment, reviewId);
     } catch (err: unknown) {
       const error = toAppError(err);
       dispatch(noticeShown({ severity: "error", message: error.message }));
@@ -167,9 +179,17 @@ const reportsSlice = createSlice({
     selectionCleared: (state, action: PayloadAction<string>): ReportsState =>
       withTriage(state, action.payload, () => ({ selected: [] })),
     /** A report `ws` printed after acting on findings. */
-    reportReplaced: (state, action: PayloadAction<{ readonly repo: string; readonly ref: string; readonly report: ReviewReport }>): ReportsState => {
-      const key = reportKey(action.payload.repo, action.payload.ref);
-      return withReport(state, key, { report: action.payload.report, error: null, loading: state.byKey[key]?.loading ?? false });
+    reportReplaced: (
+      state,
+      action: PayloadAction<{ readonly repo: string; readonly ref: string; readonly report: ReviewReport; readonly environment?: string }>,
+    ): ReportsState => {
+      const key = reportKey(action.payload.repo, action.payload.ref, action.payload.environment);
+      return withReport(state, key, {
+        report: action.payload.report,
+        error: null,
+        loading: state.byKey[key]?.loading ?? false,
+        loadedAt: Date.now(),
+      });
     },
     noteDrafted: (state, action: PayloadAction<ForPr<{ readonly id: string; readonly text: string }>>): ReportsState =>
       withTriage(state, action.payload.pr, (t) => ({
@@ -179,23 +199,30 @@ const reportsSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(fetchReport.pending, (state, action): ReportsState => {
-        const key = reportKey(action.meta.arg.repo, action.meta.arg.ref);
+        const key = reportKey(action.meta.arg.repo, action.meta.arg.ref, action.meta.arg.environment);
         const entry = state.byKey[key];
-        return withReport(state, key, { report: entry?.report ?? null, error: entry?.error ?? null, loading: true });
+        return withReport(state, key, {
+          report: entry?.report ?? null,
+          error: entry?.error ?? null,
+          loading: true,
+          loadedAt: entry?.loadedAt,
+        });
       })
       .addCase(fetchReport.fulfilled, (state, action): ReportsState =>
-        withReport(state, reportKey(action.meta.arg.repo, action.meta.arg.ref), {
+        withReport(state, reportKey(action.meta.arg.repo, action.meta.arg.ref, action.meta.arg.environment), {
           report: action.payload,
           error: null,
           loading: false,
+          loadedAt: Date.now(),
         }),
       )
       .addCase(fetchReport.rejected, (state, action): ReportsState => {
-        const key = reportKey(action.meta.arg.repo, action.meta.arg.ref);
+        const key = reportKey(action.meta.arg.repo, action.meta.arg.ref, action.meta.arg.environment);
         return withReport(state, key, {
           report: state.byKey[key]?.report ?? null,
           error: action.payload ?? { code: "internal", message: action.error.message ?? "reading the report failed" },
           loading: false,
+          loadedAt: state.byKey[key]?.loadedAt,
         });
       })
       .addCase(decideFindings.pending, (state, action): ReportsState => ({
@@ -204,8 +231,13 @@ const reportsSlice = createSlice({
       }))
       .addCase(decideFindings.fulfilled, (state, action): ReportsState => {
         const ids = action.meta.arg.findings.map((f) => f.id);
-        const key = reportKey(action.meta.arg.repo, action.meta.arg.ref);
-        const next = withReport(state, key, { report: action.payload, error: null, loading: state.byKey[key]?.loading ?? false });
+        const key = reportKey(action.meta.arg.repo, action.meta.arg.ref, action.meta.arg.environment);
+        const next = withReport(state, key, {
+          report: action.payload,
+          error: null,
+          loading: state.byKey[key]?.loading ?? false,
+          loadedAt: Date.now(),
+        });
         const triage = Object.fromEntries(
           Object.entries(next.triage).map(([pr, t]) => [
             pr,

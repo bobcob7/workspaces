@@ -8,6 +8,7 @@ use super::names;
 use super::store::StateFile;
 use super::tokens::{TokenSource, TokenStore};
 use crate::model::{Entry, Kind, Link, Status};
+use crate::pty::remote_env;
 use crate::runner::AppError;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -83,6 +84,11 @@ pub struct ReviewView {
     pub requester: Option<String>,
     /// `ws` removed its agent and workspace once it finished (ADR 0045).
     pub removed: bool,
+    /// "local", or the environment the review runs on.
+    pub environment: String,
+    /// The environment couldn't be read at the last check, so this is what
+    /// the check before it found.
+    pub stale: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -107,6 +113,8 @@ pub struct PrView {
 #[serde(rename_all = "camelCase")]
 pub struct RepoView {
     pub id: String,
+    /// The environment its reviews run on; null is this machine.
+    pub environment: Option<String>,
     pub forge: Option<ForgeKind>,
     pub github: bool,
     pub watch: bool,
@@ -177,10 +185,38 @@ pub fn is_review_of(entry: &Entry, repo: &str, number: u64) -> bool {
     }
 }
 
-/// The review workspaces of a pull request, newest first.
-pub fn reviews_of<'a>(entries: &'a [Entry], repo: &str, number: u64) -> Vec<&'a Entry> {
+/// The environment a repo's reviews run on: "local", or the name its watch
+/// settings give.
+pub fn repo_environment(state: &StateFile, repo: &str) -> String {
+    let watch = state.reviews.watch(repo);
+    remote_env(watch.environment.as_deref())
+        .unwrap_or("local")
+        .to_string()
+}
+
+/// The remote environments the watched repos name.
+pub fn watched_environments(state: &StateFile) -> BTreeSet<String> {
+    state
+        .reviews
+        .repos
+        .values()
+        .filter(|w| w.watch)
+        .filter_map(|w| remote_env(w.environment.as_deref()))
+        .map(str::to_string)
+        .collect()
+}
+
+/// The review workspaces of a pull request on the repo's environment,
+/// newest first. A review on another environment is never its review.
+pub fn reviews_of<'a>(
+    entries: &'a [Entry],
+    repo: &str,
+    number: u64,
+    environment: &str,
+) -> Vec<&'a Entry> {
     let mut found: Vec<&Entry> = entries
         .iter()
+        .filter(|e| e.environment == environment)
         .filter(|e| e.kind != Kind::Unknown)
         .filter(|e| is_review_of(e, repo, number))
         .collect();
@@ -201,15 +237,27 @@ fn reviewed_sha(entry: &Entry) -> String {
 }
 
 /// Whether a pull request has a review workspace at its current head.
-pub fn has_review_at_head(entries: &[Entry], repo: &str, pr: &PullRequest) -> bool {
-    reviews_of(entries, repo, pr.number)
+pub fn has_review_at_head(
+    entries: &[Entry],
+    repo: &str,
+    pr: &PullRequest,
+    environment: &str,
+) -> bool {
+    reviews_of(entries, repo, pr.number, environment)
         .iter()
         .any(|e| names::same_commit(&reviewed_sha(e), &pr.head_ref_oid))
 }
 
 /// The commit of the newest review, when it isn't the pull request's head.
-pub fn out_of_date_sha(entries: &[Entry], repo: &str, pr: &PullRequest) -> Option<String> {
-    let newest = reviews_of(entries, repo, pr.number).into_iter().next()?;
+pub fn out_of_date_sha(
+    entries: &[Entry],
+    repo: &str,
+    pr: &PullRequest,
+    environment: &str,
+) -> Option<String> {
+    let newest = reviews_of(entries, repo, pr.number, environment)
+        .into_iter()
+        .next()?;
     let sha = reviewed_sha(newest);
     (!names::same_commit(&sha, &pr.head_ref_oid)).then_some(sha)
 }
@@ -234,11 +282,12 @@ fn pr_view(
 ) -> PrView {
     let host = github::split_repo(repo).map_or("", |(h, _, _)| h);
     let login = check.hosts.get(host).map(String::as_str);
-    let found = reviews_of(entries, repo, pr.number);
+    let environment = repo_environment(state, repo);
+    let found = reviews_of(entries, repo, pr.number, &environment);
     let dismissed = state
         .reviews
         .is_dismissed(repo, pr.number, &pr.head_ref_oid);
-    let out_of_date = out_of_date_sha(entries, repo, pr);
+    let out_of_date = out_of_date_sha(entries, repo, pr, &environment);
     let new_commits = out_of_date.as_ref().and_then(|sha| {
         check
             .compares
@@ -276,6 +325,8 @@ fn pr_view(
                     .map(|r| r.requester.clone())
                     .filter(|r| !r.is_empty()),
                 removed: e.kind == Kind::Removed,
+                environment: e.environment.clone(),
+                stale: e.snapshot_stale,
             })
             .collect(),
         new_commits,
@@ -345,6 +396,7 @@ pub fn build(check: &CheckState, entries: &[Entry], state: &StateFile) -> Review
             let forge = repo_forge(&check.forges, id);
             RepoView {
                 id: id.clone(),
+                environment: watch.environment.clone(),
                 forge,
                 github: forge == Some(ForgeKind::Github),
                 watch: watch.watch,
@@ -448,6 +500,9 @@ pub mod tests {
             ws_runner: None,
             progress: None,
             rollup: None,
+            environment: "local".to_string(),
+            environment_online: true,
+            snapshot_stale: false,
         }
     }
 
@@ -500,6 +555,7 @@ pub mod tests {
             RepoWatch {
                 watch: true,
                 auto_review: false,
+                ..RepoWatch::default()
             },
         );
         state
@@ -657,7 +713,7 @@ pub mod tests {
         let removed = crate::reviews::runs::removed_from(&listed).unwrap();
         let entries = [removed];
         assert_eq!(group(&entries, &watching()), (Group::Reviewed, false));
-        assert!(has_review_at_head(&entries, REPO, &pr(42)));
+        assert!(has_review_at_head(&entries, REPO, &pr(42), "local"));
         let view = build(&checked(vec![pr(42)]), &entries, &watching());
         assert!(view.prs[0].reviews[0].removed);
         assert_eq!(view.prs[0].reviews[0].status, Status::Done);

@@ -194,6 +194,26 @@ works the same way.
 - **iPhone and iPad (16.4+):** Share › Add to Home Screen, then open it
   from the Home Screen. Push works only from there.
 
+## Remote environments
+
+Settings › Environments adds, rotates and removes the remote machines this
+server runs work on ([0072](adrs/0072-remote-environments.md),
+[`ws env`](tools/ws-env.md)); on a phone it is the same list at 360 px:
+
+![Settings, Environments](../desktop/docs/settings-environments.png)
+
+![Settings, Environments on a phone](../desktop/docs/settings-environments-mobile.png)
+
+The one-time enrollment code is a bearer secret until the machine uses it.
+The page shows it once and keeps it in the dialog's own state, never in the
+store or `localStorage`; closing the dialog drops it, and Rotate makes a new
+code and cancels the old one. The server returns it only in the body of a
+`POST`, never in a URL, with `Cache-Control: no-store`, and logs no command
+results. Serve the page over HTTPS: the browser's clipboard needs a secure
+context, so on plain HTTP the Copy buttons are hidden and the dialog says to
+select the text. The code stays in your clipboard until you copy something
+else, so anyone who reads it first can enroll a machine.
+
 ## Notifications
 
 They follow the desktop tray's rules ([0050](adrs/0050-desktop-tray-notifications.md)):
@@ -222,7 +242,12 @@ permission is granted. Clicking one opens the app on that agent.
 
 Everything else (agents, conversations, terminals, repos, reviews,
 loops, settings) works as in the desktop app. The auto-review checker
-and loops run in the server, with or without a browser open.
+and loops run in the server, with or without a browser open. Loops are
+grouped by environment, and a remote's loops are ticked by its own agent:
+
+![Loops grouped by environment on a phone](../desktop/docs/loops-environments-mobile.png)
+
+The full-width view is [`loops-environments.png`](../desktop/docs/loops-environments.png).
 
 ## Security notes
 

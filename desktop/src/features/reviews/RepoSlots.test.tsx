@@ -63,7 +63,7 @@ describe("following Repos", () => {
     const api = fakeApi();
     const store = loaded(api);
     store.dispatch(addRepo.fulfilled(added, "req", { spec: "o/new-repo", watch: true }));
-    await vi.waitFor(() => expect(api.reviewsSetWatch).toHaveBeenCalledWith(added.id, true, false));
+    await vi.waitFor(() => expect(api.reviewsSetWatch).toHaveBeenCalledWith(added.id, true, false, "local"));
   });
 
   it("leaves a repo added with Watch off unwatched", async () => {

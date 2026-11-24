@@ -252,6 +252,17 @@ Use `/loop`, session cron, or cloud routines.
   with `ws continue`, a turn interrupted by sleep is `idle` afterwards
   and isn't retried by `ws loop`).
 
+## Amendments
+
+- **`--max-starts` (decision 4, [0080](0080-reviews-and-loops-on-environments.md)).**
+  `ws loop tick --max-starts N` (1 to 100; 0 is no cap) starts at most N
+  loops in one pass. The other due loops are left `waiting` with
+  `next_run_at` unchanged, for a later pass.
+- **Who runs `tick` on an environment (decision 7, 0080).** The environment
+  agent runs `ws loop tick --json --quiet --max-starts 2` every 60 s while it
+  is connected, and not while it is offline: missed periods are skipped, not
+  made up.
+
 ## References
 
 [^launchd]: launchd.plist(5), macOS 26.6.2 (25G83), read 2026-11-05. `StartInterval`: "This optional key causes the job to be started every N seconds. If the system is asleep during the time of the next scheduled interval firing, that interval will be missed due to shortcomings in kqueue(3). If the job is running during an interval firing, that interval firing will likewise be missed." `StartCalendarInterval`: "The semantics are similar to crontab(5) in how firing dates are specified … Unlike cron which skips job invocations when the computer is asleep, launchd will start the job the next time the computer wakes up."

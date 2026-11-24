@@ -1,9 +1,10 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Artifact } from "../../api";
-import { fakeApi, testStore } from "../../test/fixtures";
+import { fakeApi, remoteEnvironment, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
+import { fetchEnvironments, lastChoiceKey } from "../environments/environmentsSlice";
 import { dialogOpened } from "../ui/uiSlice";
 import { NewAgentDialog } from "./NewAgentDialog";
 
@@ -29,6 +30,105 @@ const chooseWsRunner = async (): Promise<void> => {
   await waitFor(() => expect(screen.getByRole("option", { name: "ws runner" })).not.toHaveAttribute("aria-disabled", "true"));
   await userEvent.click(screen.getByRole("option", { name: "ws runner" }));
 };
+
+const openWithEnvironments = (items = [remoteEnvironment()], api = fakeApi(), lastChoice = "local"): ReturnType<typeof testStore> => {
+  const store = testStore({
+    api,
+    state: { environments: { items, loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice } },
+  });
+  store.dispatch(dialogOpened("agent"));
+  renderWithStore(<NewAgentDialog />, store);
+  return store;
+};
+
+describe("NewAgentDialog environment", () => {
+  it("hides the picker without environments", () => {
+    openDialog();
+    expect(screen.queryByLabelText("Environment")).not.toBeInTheDocument();
+  });
+
+  it("omits environment for local", async () => {
+    const api = fakeApi();
+    openWithEnvironments([remoteEnvironment()], api);
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(vi.mocked(api.createAgent).mock.calls[0]?.[0]).not.toHaveProperty("environment");
+  });
+
+  it("sends environment with the new agent", async () => {
+    const api = fakeApi();
+    openWithEnvironments([remoteEnvironment()], api);
+    await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ environment: "linux-server" }));
+  });
+
+  it("remembers the last choice on submit", async () => {
+    const store = openWithEnvironments();
+    await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    await waitFor(() => expect(store.getState().environments.lastChoice).toBe("linux-server"));
+    expect(window.localStorage.getItem(lastChoiceKey)).toBe("linux-server");
+  });
+
+  it("doesn't remember a choice when the agent didn't start", async () => {
+    const api = fakeApi({ createAgent: vi.fn(async () => Promise.reject({ code: "x", message: "no" })) });
+    const store = openWithEnvironments([remoteEnvironment()], api);
+    await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    await screen.findByText("no");
+    expect(store.getState().environments.lastChoice).toBe("local");
+  });
+
+  it("starts at the remembered environment", async () => {
+    const api = fakeApi();
+    openWithEnvironments([remoteEnvironment()], api, "linux-server");
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ environment: "linux-server" }));
+  });
+
+  it("sends local when the remembered environment is offline", async () => {
+    const api = fakeApi();
+    openWithEnvironments([remoteEnvironment({ status: "offline" })], api, "linux-server");
+    expect(screen.getByText("linux-server is offline; using local")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(vi.mocked(api.createAgent).mock.calls[0]?.[0]).not.toHaveProperty("environment");
+  });
+
+  it("falls back to local and says so when the picked environment goes offline", async () => {
+    const api = fakeApi({
+      environmentsList: vi.fn(async () => ({ environments: [remoteEnvironment({ status: "offline", lastSeen: "2026-11-23T14:02:00Z" })], warnings: [] })),
+    });
+    const store = testStore({
+      api,
+      state: { environments: { items: [remoteEnvironment()], loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } },
+    });
+    store.dispatch(dialogOpened("agent"));
+    renderWithStore(<NewAgentDialog />, store);
+    await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+    await act(async () => {
+      await store.dispatch(fetchEnvironments());
+    });
+    expect(screen.getByRole("combobox", { name: "Environment" })).toHaveTextContent("local");
+    expect(screen.getByText("linux-server is offline; using local")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(vi.mocked(api.createAgent).mock.calls[0]?.[0]).not.toHaveProperty("environment");
+  });
+
+  it("disables Start when claude is missing on the environment", async () => {
+    const hello = { ...remoteEnvironment().hello!, claude: "missing" as const, claudeVersion: null };
+    openWithEnvironments([remoteEnvironment({ hello })], fakeApi(), "linux-server");
+    expect(screen.getByText("claude isn't installed on linux-server.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start agent" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("option", { name: "local" }));
+    expect(screen.queryByText(/isn't installed/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled();
+  });
+});
 
 describe("NewAgentDialog", () => {
   it("starts an agent with the name and task", async () => {

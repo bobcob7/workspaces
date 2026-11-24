@@ -1,8 +1,10 @@
 # ws loop history
 
 ```
-ws loop history [--json] [--limit <N>] [--run <SEQ> | --clear] <NAME>
+ws loop history [--json] [--env <NAME>] [--yes] [--limit <N>] [--run <SEQ> | --clear] <NAME>
 ```
+
+`--env <NAME>` reads or clears the history on that environment; `--limit` is at most 100 there. `--clear --yes` is needed on an environment.
 
 Shows a loop's runs, newest first. Each attempt to start the loop is one run:
 a run that started, a run whose script skipped it, or a run that couldn't

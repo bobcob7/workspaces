@@ -1,7 +1,7 @@
 # ws review decide
 
 ```
-ws review decide [--json] (<id> | --repo <repo> --ref <sha>) <finding>... (--comment | --fix [--suggestion <n>] | --skip | --clear) [--note <text>]
+ws review decide [--env <name>] [--json] (<id> | --repo <repo> --ref <sha>) <finding>... (--comment | --fix [--suggestion <n>] | --skip | --clear) [--note <text>]
 ```
 
 Records what to do with findings of a review: post them as comments,
@@ -31,6 +31,7 @@ removes it. All the findings are checked before any is changed.
 | `--note <text>`       | A note kept with the decisions; not with `--clear`       |
 | `--repo <repo>`       | The reviewed repo's id, with `--ref`                     |
 | `--ref <sha>`         | The reviewed commit, all 40 characters, with `--repo`    |
+| `--env <name>`        | Decide on that environment, by id only; for people and the desktop app; refused inside a workspace |
 | `--json`              | Print the result as JSON                                 |
 
 ## JSON output

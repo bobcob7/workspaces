@@ -420,6 +420,7 @@ func environmentRules() []keyRule {
 		{key: "environments.enroll_listen", typ: TypeString, table: "environments", leaf: "enroll_listen"},
 		{key: "environments.public_name", typ: TypeString, table: "environments", leaf: "public_name"},
 		{key: "environments.renew_before_days", typ: TypeInt, table: "environments", leaf: "renew_before_days"},
+		{key: "environments.agent_loop_scripts", typ: TypeBool, table: "environments", leaf: "agent_loop_scripts"},
 	}
 }
 
@@ -570,6 +571,8 @@ func environmentValue(rule keyRule, cfg *Config) (any, bool) {
 		return cfg.Environments.PublicName, true
 	case "environments.renew_before_days":
 		return cfg.Environments.RenewDays(), true
+	case "environments.agent_loop_scripts":
+		return cfg.Environments.LoopScriptsAllowed(), true
 	}
 	return nil, false
 }
@@ -690,7 +693,7 @@ func defaultOf(rule keyRule) any {
 		return []Host{{Name: defaultHost, Kind: KindAuto}}
 	case "review.timeout":
 		return FormatDuration(defaultReviewTimeout)
-	case "review.remove_finished", "runner.keep_git_tokens", "daemon.resume_on_start":
+	case "review.remove_finished", "runner.keep_git_tokens", "daemon.resume_on_start", "environments.agent_loop_scripts":
 		return true
 	case "runner.user_instructions":
 		return false
@@ -827,6 +830,12 @@ func normalizeEnvironment(rule keyRule, value string) (any, error) {
 			return nil, err
 		}
 		env.RenewBeforeDays, out = &n, n
+	case "environments.agent_loop_scripts":
+		b, err := normalizeBool(rule.key, value)
+		if err != nil {
+			return nil, err
+		}
+		return b, nil
 	}
 	if err := env.check(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValueInvalid, err)

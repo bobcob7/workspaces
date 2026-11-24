@@ -1,7 +1,7 @@
 # ws review profiles
 
 ```
-ws review profiles [--json]
+ws review profiles [--env <name>] [--json]
 ws review profiles show [--json] <name>
 ws review profiles add [--json] <name> --description <d> [--when <w>] [--match <glob>]... (--guide-file <f> | -)
 ws review profiles edit [--json] <name> [--description <d>] [--when <w>] [--match <glob>]... [--no-match] [--guide-file <f> | -]
@@ -21,6 +21,13 @@ compatibility, and is true only for `source: builtin`.
 
 `show`, `add`, `edit`, and `rm` manage profiles; run
 `ws llm review profiles <op>` for each one's guide.
+
+## On an environment
+
+`ws review profiles --env <name>` lists the profiles on that environment,
+read only, with `"environment"` added. It is for people and the desktop
+app, and is refused inside a workspace. Profiles are edited on the
+machine that holds them.
 
 ## JSON output
 

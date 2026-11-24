@@ -7,6 +7,9 @@
   const buffBear = "github.com/bobcob7/buff-bear";
   const api = "github.com/bobcob7/api";
   const workspaces = "github.com/bobcob7/workspaces";
+  const edge = "github.com/bobcob7/edge";
+  const rig = "github.com/bobcob7/rig";
+  const edgeReviewId = "review-edge-7-9b1d2c3-4e5f6a7b";
 
   const defaultSettings = () => ({
     reviews: {
@@ -50,8 +53,20 @@
     wsRunner: null,
     progress: null,
     rollup: leafRollup(false),
+    environment: "local",
+    environmentOnline: true,
+    snapshotStale: false,
     ...overrides,
   });
+
+  /** An entry on a remote environment: keyed env:<name>:<id>, as the backend keys it. */
+  const remoteEntry = (environment, overrides) =>
+    entry({
+      key: `env:${environment}:${overrides.workspaceId}`,
+      environment,
+      path: `/home/me/.ws/${overrides.workspaceId}`,
+      ...overrides,
+    });
 
   /** A workspace with no step record counts as one step, done if it passed (ws progress). */
   function leafRollup(done) {
@@ -203,12 +218,16 @@
       ...pr,
     }));
 
+  /** The environment each watched repo's reviews run on. */
+  const repoEnvironments = { [edge]: "linux-server", [rig]: "win-rig" };
+
   const repoRow = (id, watch) => {
     const host = id.split("/")[0];
     const forge = hosts[host]?.forge ?? null;
     const open = pullRequests().filter((pr) => pr.repo === id).length;
     return {
       id,
+      environment: repoEnvironments[id] ?? null,
       github: forge === "github",
       forge,
       watch,
@@ -218,6 +237,46 @@
       error: null,
     };
   };
+
+  /** A review run on a remote environment, as the Reviews view lists it. */
+  const remoteRun = (environment, workspaceId, sha, stale) => ({
+    workspaceId,
+    sessionId: null,
+    sha,
+    status: "done",
+    createdAt: "2026-10-24T09:30:00Z",
+    detail: null,
+    result: "2 findings",
+    links: [],
+    auto: false,
+    recorded: true,
+    requester: null,
+    removed: true,
+    environment,
+    stale,
+  });
+
+  const remotePullRequests = () => [
+    pullRequest({
+      repo: edge,
+      number: 7,
+      title: "Cache the edge config",
+      group: "reviewed",
+      reviews: [
+        remoteRun("linux-server", edgeReviewId, "9b1d2c3e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c", false),
+        remoteRun("win-rig", "review-edge-7-9b1d2c3-77aa88bb", "9b1d2c3e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c", true),
+      ],
+      merge: { status: "ready", reasons: [], checks: checks(1, 0, 0) },
+    }),
+    pullRequest({
+      repo: rig,
+      number: 3,
+      title: "Pin the rig toolchain",
+      group: "reviewed",
+      reviews: [remoteRun("win-rig", "review-rig-3-1a2b3c4-5d6e7f80", "1a2b3c4e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c", true)],
+      merge: { status: "ready", reasons: [], checks: checks(1, 0, 0) },
+    }),
+  ].map((pr) => ({ key: `${pr.repo}#${pr.number}`, url: `https://${pr.repo}/pull/${pr.number}`, ...pr }));
 
   const reviewsView = () => ({
     checking: false,
@@ -229,9 +288,11 @@
       repoRow("ghe.example.com/team/api", true),
       repoRow("git.example.com/team/svc", true),
       repoRow("gitlab.example.com/team/web", true),
+      repoRow(edge, true),
+      repoRow(rig, true),
     ],
     hosts: hostsView(),
-    prs: pullRequests(),
+    prs: [...pullRequests(), ...remotePullRequests()],
     warnings: [],
   });
 
@@ -314,8 +375,46 @@
     builtins[2],
   ];
 
+  // What `ws loop list --env <name> --cached` reads from the snapshot: no
+  // prompt, script or vars (a summary), and stale when offline.
+  const remoteLoops = (environment) => {
+    const offline = environment === "win-rig";
+    const summary = (name, title, every, paused, nextRunAt, hasScript) => ({
+      name, title, every, prompt: null, specs: null, model: null, permissionMode: null, keep: null,
+      paused, createdAt: null, nextRunAt, lastRun: null, script: hasScript ? "" : null, scriptTimeout: null, vars: null,
+      lastGate: hasScript ? { at: "2026-11-23T08:00:02Z", outcome: "passed", exitCode: 0, message: null } : null,
+      hidden: true, runner: "claude", endpoint: null, summary: true, environment, stale: offline,
+    });
+    const loops = offline
+      ? [summary("rig-nightly", "Nightly build", "24h", false, null, false)]
+      : [summary("disk-watch", "Disk watch", "1h", false, "2026-11-23T09:00:00Z", true), summary("log-triage", "", "6h", true, null, false)];
+    return { loops, warnings: [], environmentStatus: offline ? "offline" : "online", loopsUnknown: false };
+  };
+
   const data = {
     roles: initialRoles(),
+    environments: [
+      {
+        id: "env_7f3a", name: "linux-server", state: "enrolled", status: "online",
+        lastSeen: "2026-11-23T08:10:00Z", createdAt: "2026-10-02T09:00:00Z", enrolledAt: "2026-10-02T09:04:00Z",
+        certNotAfter: "2027-10-02T09:04:00Z", certCa: "current",
+        hello: { wsVersion: "0.9.0", os: "linux", arch: "amd64", claude: "present", claudeVersion: "2.1.0", certNotAfter: "2027-10-02T09:04:00Z" },
+        workspaces: 2,
+      },
+      {
+        id: "env_b20d", name: "win-rig", state: "enrolled", status: "offline",
+        lastSeen: "2026-11-22T14:02:00Z", createdAt: "2026-10-20T16:30:00Z", enrolledAt: "2026-10-20T16:35:00Z",
+        certNotAfter: "2027-10-20T16:35:00Z", certCa: "current",
+        hello: null, workspaces: 1,
+      },
+    ],
+    environmentCa: {
+      current: { fingerprint: "sha256:4c1e0a7d", notAfter: "2036-10-02T00:00:00Z" },
+      old: null,
+      environmentsOnCurrent: 2,
+      environmentsOnOld: 0,
+      warnings: [],
+    },
     runnerSettings: {
       runner: { model: "qwen9b" },
       endpoints: [
@@ -769,6 +868,27 @@
         hidden: true,
         loopRun: { loop: "deps-bump", attention: null },
       }),
+      remoteEntry("linux-server", {
+        workspaceId: "api-fix-1a2b3c4d",
+        sessionId: "1a2b3c4d",
+        status: "needsInput",
+        intent: "Fix the API timeout",
+      }),
+      remoteEntry("linux-server", {
+        workspaceId: "api-fix-t1-impl-5e6f7a8b",
+        sessionId: "5e6f7a8b",
+        status: "working",
+        parentId: "api-fix-1a2b3c4d",
+        intent: "Implement the timeout",
+      }),
+      remoteEntry("win-rig", {
+        workspaceId: "build-rig-9c0d1e2f",
+        sessionId: "9c0d1e2f",
+        status: "idle",
+        environmentOnline: false,
+        snapshotStale: true,
+        intent: "Build the Windows installer",
+      }),
     ],
     settings: defaultSettings(),
     openDefaults: { fileManager: "open", editor: "code" },
@@ -881,6 +1001,8 @@
     model: "",
     permissionMode: "",
     focus: "",
+    forge: "github",
+    environment: null,
   });
 
   const cachedRepo = (id, path, upstream, branches, tags, sizeBytes) => ({
@@ -1422,16 +1544,53 @@
       profile({ name: "go", description: "Go idioms, concurrency, and error handling", when: "auto", patterns: ["**/*.go"] }),
       profile({ name: "security", description: "Security: injection, secrets, and authorization", when: "always" }),
     ],
-    review_report: () => ({
-      repo: buffBear,
-      ref: head,
-      review: null,
-      agent: null,
-      profiles: [],
-      comments: [],
-      superseded: [],
-      warnings: [],
-    }),
+    review_report: ({ environment, reviewId }) =>
+      environment === "linux-server"
+        ? {
+            repo: edge,
+            ref: "9b1d2c3e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c",
+            review: { requester: "none", pr: { number: 7, url: `https://${edge}/pull/7` } },
+            agent: { workspace: reviewId ?? edgeReviewId, status: "done" },
+            profiles: [
+              { name: "go", model: "sonnet-5-5", verdict: "request_changes", severity: { max: 7, must_fix: 0, should_fix: 1, worth_fixing: 0, optional: 0 }, missing: false },
+              { name: "security", model: "sonnet-5-5", verdict: "comment", severity: { max: 5, must_fix: 0, should_fix: 0, worth_fixing: 1, optional: 0 }, missing: false },
+            ],
+            comments: [
+              {
+                id: "go:1", profile: "go", priority: 7, category: "correctness",
+                body: "The cache is read without the lock that guards writes, so a concurrent refresh can return a half-built config.",
+                code: null,
+                anchors: [{ file: "internal/edge/cache.go", line: 48, end_line: 61 }],
+                suggestions: [{ summary: "Read through the same RWMutex the writer takes", effort: "small", scope: "local", pros: ["No new state"], cons: [], code: null }],
+                decision: null,
+              },
+              {
+                id: "security:1", profile: "security", priority: 5, category: "secrets",
+                body: "The cached config includes the upstream token and is written world-readable, so any local user can read it. The modes the store sets on the directory and the file are",
+                code: null,
+                anchors: [{ file: "internal/edge/store.go", line: 22, end_line: null }],
+                suggestions: [],
+                decision: null,
+                truncated: true,
+              },
+            ],
+            superseded: [],
+            warnings: [],
+            environment,
+            reviewId: reviewId ?? edgeReviewId,
+            redacted: 1,
+          }
+        : {
+            repo: environment ? edge : buffBear,
+            ref: head,
+            review: null,
+            agent: null,
+            profiles: [],
+            comments: [],
+            superseded: [],
+            warnings: [],
+            ...(environment ? { environment, reviewId, redacted: 0 } : {}),
+          },
     settings_get: () => data.settings,
     settings_set_reviews: ({ reviews }) => {
       data.settings = { ...data.settings, reviews };
@@ -1478,6 +1637,41 @@
       online: null,
     }),
     versions: () => data.versions,
+    environments_list: () => ({ environments: data.environments, warnings: [] }),
+    environment_add: ({ name }) => {
+      if (data.environments.some((env) => env.name === name)) {
+        throw { code: "environment_exists", message: `an environment named ${name} already exists` };
+      }
+      const added = { id: `env_${name}`, name, state: "pending", status: "pending", lastSeen: null, createdAt: "2026-11-23T08:00:00Z", enrolledAt: null, certNotAfter: null, certCa: null, hello: null, workspaces: null };
+      data.environments = [...data.environments, added];
+      return { id: added.id, name, state: "pending", code: "ENRL-7KQ2-M9XD-4TPL", caCreated: false, revokedSerials: [], warnings: [] };
+    },
+    environment_rotate: ({ name }) => {
+      const env = data.environments.find((candidate) => candidate.name === name);
+      if (env === undefined) {
+        throw { code: "environment_missing", message: `no environment named ${name}` };
+      }
+      return { id: env.id, name, state: "pending", code: "ENRL-2HPA-8VLZ-6WQN", caCreated: false, revokedSerials: [], warnings: [] };
+    },
+    environment_remove: ({ name }) => {
+      const env = data.environments.find((candidate) => candidate.name === name);
+      if (env === undefined) {
+        throw { code: "environment_missing", message: `no environment named ${name}` };
+      }
+      data.environments = data.environments.filter((candidate) => candidate !== env);
+      return { id: env.id, name, revokedSerials: ["3f9a21c0"], warnings: [] };
+    },
+    environments_ca_status: () => data.environmentCa,
+    environments_ca_rotate: ({ finish }) => {
+      const { current, old } = data.environmentCa;
+      if (finish) {
+        data.environmentCa = { ...data.environmentCa, old: null, environmentsOnOld: 0 };
+        return { current, old: null, dropped: old, stranded: [], warnings: [] };
+      }
+      const next = { fingerprint: "sha256:9b72e41c", notAfter: "2037-11-23T00:00:00Z" };
+      data.environmentCa = { current: next, old: current, environmentsOnCurrent: 0, environmentsOnOld: data.environments.length, warnings: [] };
+      return { current: next, old: current, dropped: null, stranded: [], warnings: [] };
+    },
     roles_list: () => data.roles.map(({ prompt, path, ...role }) => role),
     roles_show: ({ name }) => findRole(name),
     roles_add: ({ name, draft }) => {
@@ -1504,7 +1698,12 @@
       data.roles = restored ? data.roles.map((role) => (role.name === name ? builtin : role)) : data.roles.filter((role) => role.name !== name);
       return { name, path: `${roleDir}/${name}.md`, restored };
     },
-    loops_list: () => ({ loops: data.loops.map((loop) => ({ runner: "claude", endpoint: null, ...loop })), warnings: [] }),
+    loops_list: ({ environment } = {}) => {
+      if (environment === "linux-server" || environment === "win-rig") {
+        return remoteLoops(environment);
+      }
+      return { loops: data.loops.map((loop) => ({ runner: "claude", endpoint: null, ...loop })), warnings: [] };
+    },
     loops_add: ({ request }) => {
       const added = { ...loopFields(request), name: request.name, paused: false, createdAt: "2026-10-24T12:00:00Z", nextRunAt: "2026-10-24T13:00:00Z", lastRun: null, lastGate: null };
       data.loops = [...data.loops, added];

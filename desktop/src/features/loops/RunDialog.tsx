@@ -4,7 +4,7 @@ import type { LoopHistoryRun } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { MarkdownText } from "../conversation/ConversationView";
 import { formatDuration, statusLabel } from "./history";
-import { fetchLoopRun } from "./loopDataSlice";
+import { fetchLoopRun, loopKey } from "./loopDataSlice";
 import { gateText } from "./gate";
 import styles from "./HistoryCard.module.css";
 
@@ -34,15 +34,26 @@ const RunDetails = ({ run }: { readonly run: LoopHistoryRun }): JSX.Element => (
 );
 
 /** One run's details and report, fetched when the dialog opens. */
-export const RunDialog = ({ name, seq, onClose }: { readonly name: string; readonly seq: number; readonly onClose: () => void }): JSX.Element => {
+export const RunDialog = ({
+  name,
+  environment,
+  seq,
+  onClose,
+}: {
+  readonly name: string;
+  readonly environment: string;
+  readonly seq: number;
+  readonly onClose: () => void;
+}): JSX.Element => {
   const dispatch = useAppDispatch();
   const detail = useAppSelector((s) => s.loopData.run);
-  const loaded = detail !== null && detail.loop === name && detail.run.seq === seq ? detail : null;
+  const held = useAppSelector((s) => s.loopData.loop === loopKey(name, environment));
+  const loaded = held && detail !== null && detail.run.seq === seq ? detail : null;
   const title = loaded === null ? `Run ${seq}` : `Run ${seq} · ${statusLabel(loaded.run)}`;
 
   useEffect(() => {
-    void dispatch(fetchLoopRun({ name, seq }));
-  }, [dispatch, name, seq]);
+    void dispatch(fetchLoopRun({ name, seq, environment }));
+  }, [dispatch, name, environment, seq]);
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="md" className={styles.dialog}>

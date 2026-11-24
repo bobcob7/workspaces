@@ -1,8 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { Api, ListedProfile } from "../../api";
-import { fakeApi, listedProfile, listedProfiles, notificationSettings, openSettings, reviewSettings, testStore } from "../../test/fixtures";
+import type { Api, ListedProfile, RemoteEnvironment } from "../../api";
+import { fakeApi, listedProfile, remoteEnvironment, listedProfiles, notificationSettings, openSettings, reviewSettings, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { SettingsPane } from "./SettingsPane";
 
@@ -108,5 +108,28 @@ describe("Reviewer profiles actions", () => {
     const dialog = screen.getByRole("dialog", { name: "New reviewer profile" });
     expect(within(dialog).getByLabelText("Name")).toHaveValue("");
     expect(within(dialog).getByLabelText("Guide")).toHaveValue("");
+  });
+});
+
+describe("Reviewer profiles title", () => {
+  const titled = async (items: readonly RemoteEnvironment[]): Promise<void> => {
+    const api = fakeApi({ reviewsProfiles: vi.fn(async () => profiles()) });
+    renderWithStore(
+      <SettingsPane />,
+      testStore({ api, state: { environments: { items, loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } } }),
+    );
+    await screen.findByText("docs");
+  };
+
+  it("says Profiles on this machine when an environment is enrolled", async () => {
+    await titled([remoteEnvironment()]);
+    expect(screen.getByText("Profiles on this machine")).toBeInTheDocument();
+    expect(screen.queryByText("Reviewer profiles")).not.toBeInTheDocument();
+  });
+
+  it("keeps Reviewer profiles when none is enrolled", async () => {
+    await titled([]);
+    expect(screen.getByText("Reviewer profiles")).toBeInTheDocument();
+    expect(screen.queryByText("Profiles on this machine")).not.toBeInTheDocument();
   });
 });

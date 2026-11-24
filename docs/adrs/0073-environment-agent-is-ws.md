@@ -70,13 +70,17 @@ same JSON result as the CLI command:
 
 | Operation | Runs |
 | --- | --- |
-| `workspace.create` (`claude`, `shell` or `runner` kind, specs, name, prompt, flags) | `ws claude` / `ws shell` |
+| `workspace.create` (`claude`, `shell` or `runner` kind, specs, name, prompt, flags) | `ws claude` / `ws shell` (but see Amendments, PR 4: a shell is `terminal.open`) |
 | `workspace.list`, `workspace.rm`, `workspace.rename`, `workspace.hide` | the matching commands |
 | `agent.status`, `agent.logs`, `agent.send`, `agent.stop` | Claude Code's `agents`, `logs`, `stop` and `ws`'s send |
-| `terminal.open`, `terminal.input`, `terminal.resize` | `claude attach` or the shell, in a pty |
+| `terminal.open`, `terminal.input`, `terminal.resize`, `terminal.close`, `terminal.redraw` | `claude attach` or the shell, in a pty (see Amendments, PR 4) |
 | `files.list`, `files.read` (bounded) | the desktop's file and diff views |
-| `cache.*`, `review.*`, `loop.*` | later, one ADR each |
+| `review.start`, `review.status`, `review.list`, `review.report`, `review.decide`, `review.acted`, `review.profiles` | `ws review …`, run in-process on the remote ([0080](0080-reviews-and-loops-on-environments.md)) |
+| `loop.list`, `loop.show`, `loop.add`, `loop.edit`, `loop.pause`, `loop.resume`, `loop.rm`, `loop.run`, `loop.history`, `loop.history_run`, `loop.history_clear`, `loop.memory_*` | `ws loop …`, run in-process on the remote ([0080](0080-reviews-and-loops-on-environments.md)) |
+| `cache.*` | later |
 | `config.get`, `config.set` | `ws config`, for a fixed allow-list of keys |
+
+Results of `review.*` and `loop.*` are redacted by the agent ([0080](0080-reviews-and-loops-on-environments.md)); the allow-list of a finding's decision suggestion index starts at 0.
 
 An unknown operation is refused. There is no "run this command" operation
 and no way to write an arbitrary path; a request's paths must lie under the
@@ -149,6 +153,26 @@ no presence, no streams, no push; the user asked for an agent over MQTT.
   than through a subprocess. If they can't without large changes, the
   agent runs `ws <cmd> --json` as a subprocess; the table and the results
   are the same.
+
+## Amendments (PR 4, terminals)
+
+Accepted by the owner for PR 4 ([0076](0076-environment-platforms-and-phasing.md)).
+
+- **A shell isn't a `workspace.create` kind.** It is `terminal.open` with
+  kind `shell`: the workspace lives as long as the terminal. The agent runs
+  **its own executable** (`os.Executable()`) as `ws shell` in a pty, the one
+  operation that isn't in-process, because a shell needs its own process and
+  a controlling terminal. It sets `WS_ENVIRONMENT` in that pty so the
+  workspace records its environment.
+- **Terminal operations.** `terminal.open` and `terminal.close` are
+  requests; `terminal.input`, `terminal.resize` and `terminal.redraw` are
+  frames on the stream ([0074](0074-mqtt-transport-embedded-broker.md),
+  Amendments). Attach takes a **workspace**, and the agent reads its Claude
+  session id.
+- **Protocol 2.** The hello's `protocol` became 2 with `terminal.open` and
+  `terminal.close` (`Since: 2`); an agent from PR 3 answers every PR 3
+  operation as before and refuses terminals with `environment_outdated`.
+  Reviews and loops later raised it to 3.
 
 ## References
 

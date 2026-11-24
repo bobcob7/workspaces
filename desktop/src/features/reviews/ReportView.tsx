@@ -36,7 +36,9 @@ import {
   selectionCleared,
   selectionToggled,
 } from "./reportsSlice";
+import { useEnvironmentBlock } from "./remote";
 import { startReview } from "./reviewsSlice";
+import { clock } from "../environments/environments";
 import styles from "./Report.module.css";
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -151,20 +153,25 @@ export interface ReportViewProps {
 /** The Findings tab: profiles, filters, findings by band, and the action bar (report.md). */
 export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Element => {
   const dispatch = useAppDispatch();
-  const key = reportKey(pr.repo, review.sha);
+  const environment = review.environment;
+  const remote = environment !== "local";
+  const reviewId = remote ? review.workspaceId : undefined;
+  const block = useEnvironmentBlock(environment);
+  const offline = block !== "";
+  const key = reportKey(pr.repo, review.sha, environment);
   const entry = useAppSelector((s) => s.reports.byKey[key]);
   const triage = useAppSelector((s) => s.reports.triage[pr.key]) ?? defaultTriage;
   const deciding = useAppSelector((s) => s.reports.deciding);
   const older = pr.reviews.slice(pr.reviews.indexOf(review) + 1).filter((r) => r.recorded);
   const byKey = useAppSelector((s) => s.reports.byKey);
-  const olderReports = older.map((r) => byKey[reportKey(pr.repo, r.sha)]?.report ?? null);
+  const olderReports = older.map((r) => byKey[reportKey(pr.repo, r.sha, r.environment)]?.report ?? null);
   const report = entry?.report ?? null;
 
   useEffect(() => {
     for (const r of older) {
-      void dispatch(fetchReport({ repo: pr.repo, ref: r.sha, refresh: false }));
+      void dispatch(fetchReport({ repo: pr.repo, ref: r.sha, refresh: false, environment: r.environment, reviewId: r.environment === "local" ? undefined : r.workspaceId }));
     }
-  }, [dispatch, pr.repo, older.map((r) => r.sha).join(",")]);
+  }, [dispatch, pr.repo, older.map((r) => `${r.environment}/${r.workspaceId}`).join(",")]);
 
   const missing = report?.profiles.filter((p) => p.missing) ?? [];
   const lastReply = useLastReply(review.sessionId, !working && missing.length > 0);
@@ -193,7 +200,7 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
   };
   const reviewAgain = (): void => void dispatch(startReview({ pr }));
   const setFilter = (change: Partial<ReportFilter>): void => void dispatch(filterChanged({ pr: pr.key, value: change }));
-  const busy = (c: ReportComment): boolean => deciding.includes(c.id);
+  const busy = (c: ReportComment): boolean => offline || deciding.includes(c.id);
   const noteOf = (c: ReportComment): string => triage.notes[c.id] ?? c.decision?.note ?? "";
 
   /** The findings a decision on `finding` applies to: the selection, when it's in it. */
@@ -206,7 +213,7 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
       .map((f) => f.comment);
   };
   const decide = (finding: Finding, decision: DecisionKind | "clear", suggestion?: number): void => {
-    if (finding.readOnly) {
+    if (finding.readOnly || offline) {
       return;
     }
     const comments = suggestion === undefined ? targets(finding) : [finding.comment];
@@ -217,10 +224,15 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
         findings: comments.map((c) => ({ id: c.id, note: noteOf(c) })),
         decision,
         suggestion: suggestion ?? null,
+        environment,
+        reviewId,
       }),
     );
   };
   const saveNote = (comment: ReportComment, text: string): void => {
+    if (offline) {
+      return;
+    }
     if (comment.decision === null) {
       dispatch(noteDrafted({ pr: pr.key, value: { id: comment.id, text } }));
       return;
@@ -232,6 +244,8 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
         findings: [{ id: comment.id, note: text }],
         decision: comment.decision.decision,
         suggestion: comment.decision.suggestion,
+        environment,
+        reviewId,
       }),
     );
   };
@@ -299,7 +313,7 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
   const parts = tallyParts(counts);
   const toComment = counts.comment;
   const toFix = counts.fix;
-  const subject = { prKey: pr.key, repo: pr.repo, ref: review.sha };
+  const subject = { prKey: pr.key, repo: pr.repo, ref: review.sha, environment, reviewId };
   const comment = (): void => void dispatch(openCommentDialog({ ...subject, number: pr.number }));
   const fix = (): void => {
     const findings = report.comments
@@ -309,8 +323,14 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
   };
 
   return (
-    <div className={styles.root}>
+    <div className={styles.root} data-dimmed={offline || undefined}>
       <div className={styles.scroll}>
+        {offline && (
+          <Alert severity="warning" className={styles.alert}>
+            {block}
+            {entry?.loadedAt !== undefined && <span className={styles.asOf}> · as of {clock(new Date(entry.loadedAt).toISOString(), Date.now())}</span>}
+          </Alert>
+        )}
         {working && total > 0 && (
           <Alert severity="info" className={styles.alert}>
             {submitted} of {plural(total, "profile")} {submitted === 1 ? "has" : "have"} submitted. Findings appear as each one
@@ -420,6 +440,7 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
                       onDecide={(d, s) => decide(f, d, s)}
                       onNote={(text) => saveNote(f.comment, text)}
                       onOpenAgent={openAgent}
+                      environment={remote ? environment : undefined}
                     />
                   ))}
               </section>
@@ -436,14 +457,18 @@ export const ReportView = ({ pr, review, working }: ReportViewProps): JSX.Elemen
           ))}
         </span>
         <span className={styles.spacer} />
-        <Button size="small" onClick={() => void dispatch(openFullReport({ repo: pr.repo, ref: review.sha }))}>
+        <Button
+          size="small"
+          disabled={offline}
+          onClick={() => void dispatch(openFullReport({ repo: pr.repo, ref: review.sha, environment, reviewId }))}
+        >
           Open full report
         </Button>
         {/* Disabled while the agent works, so nothing is acted on while findings still arrive. */}
-        <Button size="small" variant="outlined" disabled={working || toComment === 0} onClick={comment}>
+        <Button size="small" variant="outlined" disabled={working || offline || toComment === 0} onClick={comment}>
           {toComment > 0 && !working ? `Comment on ${toComment}…` : "Comment…"}
         </Button>
-        <Button size="small" variant="contained" disabled={working || toFix === 0} onClick={fix}>
+        <Button size="small" variant="contained" disabled={working || offline || toFix === 0} onClick={fix}>
           {toFix > 0 && !working ? `Fix ${toFix}…` : "Fix…"}
         </Button>
       </footer>

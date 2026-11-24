@@ -1,16 +1,19 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -117,6 +120,17 @@ func (a *App) runEnvAgentEnroll(ctx context.Context, code string) error {
 	return nil
 }
 
+// agentNotSentLowWater bounds the unsent data in the agent's socket send queue.
+const agentNotSentLowWater = 16384
+
+// agentOptions are the options of the agent that ws env agent run starts.
+func agentOptions(version string, renewDays int, workspacesRoot string) envagent.Options {
+	opts := envagent.DefaultOptions(version, renewDays)
+	opts.WorkspacesRoot = workspacesRoot
+	opts.NotSentLowWater = agentNotSentLowWater
+	return opts
+}
+
 // runEnvAgentRun runs the agent until SIGTERM or an interrupt, logging JSON
 // lines to stderr.
 func (a *App) runEnvAgentRun(ctx context.Context) error {
@@ -133,9 +147,10 @@ func (a *App) runEnvAgentRun(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	probe := agentClaude{claude: claude.New(log, "claude", a.environ)}
-	opts := envagent.DefaultOptions(a.version, a.config.Environments.RenewDays())
-	opts.WorkspacesRoot = a.paths.Workspaces
-	agent := envagent.NewAgent(log, files, client, agentSnapshots{app: a}, probe, newAgentOperations(a, id.Name), rand.Reader, opts)
+	opts := agentOptions(a.version, a.config.Environments.RenewDays(), a.paths.Workspaces)
+	ops := newAgentOperations(a, id.Name)
+	agent := envagent.NewAgent(log, files, client, agentSnapshots{app: a}, probe, ops, rand.Reader, opts)
+	agent.SetLoopTicker(agentLoops{newApp: ops.newApp, root: a.paths.Root})
 	return agentError(agent.Run(ctx))
 }
 
@@ -271,6 +286,54 @@ func (s agentSnapshots) Agents(ctx context.Context) ([]envproto.SnapshotAgent, e
 	return agents[:min(len(agents), envproto.MaxSnapshotAgents)], nil
 }
 
+// Loops is this machine's loops, by name and at most envproto.MaxSnapshotLoops,
+// [] when there are none. Their prompts, scripts and vars stay here.
+func (s agentSnapshots) Loops(ctx context.Context) ([]envproto.SnapshotLoop, error) {
+	loops, err := s.app.readLoops(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(loops, func(i, j int) bool { return loops[i].Name < loops[j].Name })
+	loops = loops[:min(len(loops), envproto.MaxSnapshotLoops)]
+	out := make([]envproto.SnapshotLoop, 0, len(loops))
+	for i := range loops {
+		entry, err := snapshotLoop(&loops[i])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// snapshotLoop maps a loop to its snapshot entry, as ws loop list shows its
+// run and gate.
+func snapshotLoop(l *loop.Loop) (envproto.SnapshotLoop, error) {
+	lastRun, err := json.Marshal(loopRunJSONOf(l.LastRun()))
+	if err != nil {
+		return envproto.SnapshotLoop{}, err
+	}
+	lastGate, err := json.Marshal(gateJSONOf(l.LastGate))
+	if err != nil {
+		return envproto.SnapshotLoop{}, err
+	}
+	out := envproto.SnapshotLoop{
+		Name:     l.Name,
+		Title:    l.Title,
+		Every:    l.Every,
+		Paused:   l.Paused,
+		Hidden:   l.RunsHidden(),
+		Runner:   l.RunsOn(),
+		LastRun:  lastRun,
+		LastGate: lastGate,
+	}
+	if !l.Paused && !l.NextRunAt.IsZero() {
+		next := l.NextRunAt
+		out.NextRunAt = &next
+	}
+	return out, nil
+}
+
 // startedAfter reports whether a session started at a is newer than one at b;
 // a nil start time is the oldest.
 func startedAfter(a, b *time.Time) bool {
@@ -294,4 +357,33 @@ func (c agentClaude) Probe(ctx context.Context) (string, *string) {
 		return envproto.ClaudePresent, nil
 	}
 	return envproto.ClaudePresent, &version
+}
+
+// agentLoops ticks the agent's loops in fresh Apps, as the desktop's tick_forever does (ADR 0080).
+type agentLoops struct {
+	newApp func(stdout, stderr io.Writer) *App
+	root   string
+}
+
+// agentLoopStarts caps the loops the agent starts in one pass.
+const agentLoopStarts = 2
+
+// Tick runs one pass of ws loop tick and reports whether any item started or
+// failed, so the snapshot refreshes. A pass whose output isn't a loop listing
+// is an error.
+func (l agentLoops) Tick(ctx context.Context) (bool, error) {
+	var stdout, stderr bytes.Buffer
+	app := l.newApp(&stdout, &stderr)
+	args := []string{"--json", "--config-dir", l.root, "loop", "tick", "--quiet", "--max-starts", strconv.Itoa(agentLoopStarts)}
+	app.Run(ctx, args)
+	var out loopTickOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		return false, fmt.Errorf("reading the loop pass: %w: %s", err, stderr.String())
+	}
+	for _, item := range out.Loops {
+		if item.Action == loopStarted || item.Action == loopFailed {
+			return true, nil
+		}
+	}
+	return false, nil
 }

@@ -48,6 +48,7 @@ pass.
 | `environments.enroll_listen` | string | `"0.0.0.0:8884"` | `host:port`, with a port from 1 to 65535 |
 | `environments.public_name` | string | `""` | an IP address or a DNS name, without a port; `""` leaves the daemon off |
 | `environments.renew_before_days` | int | `30` | a whole number from 1 to 60 |
+| `environments.agent_loop_scripts` | bool | `true` | `false` makes the environment agent refuse a loop script sent by the controller |
 
 `unset endpoints.<name>`, `unset models.<alias>` and `unset runner.roles.<role>`
 remove the whole table. `set` refuses a write that leaves `config.toml`'s

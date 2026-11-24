@@ -48,6 +48,22 @@ pub fn is_tracked(entry: &Entry) -> bool {
         && !entry.hidden
 }
 
+/// A remote entry whose environment is offline or whose snapshot is stale:
+/// it never counts and never starts an event (ADR 0076, D3).
+pub fn is_unreliable(entry: &Entry) -> bool {
+    entry.environment != "local" && (!entry.environment_online || entry.snapshot_stale)
+}
+
+/// The keys of tracked entries that are unreliable, whose last state the
+/// watcher keeps so that recovery doesn't fire.
+pub fn held_keys(entries: &[Entry]) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|entry| is_tracked(entry) && is_unreliable(entry))
+        .map(|entry| entry.key.clone())
+        .collect()
+}
+
 /// `s` if it has at most `max` chars, else its first `max - 1` chars
 /// followed by `…`. Counts chars, not bytes.
 pub fn truncate(s: &str, max: usize) -> String {
@@ -103,7 +119,7 @@ pub struct Candidate {
 pub fn candidates(entries: &[Entry]) -> Vec<Candidate> {
     entries
         .iter()
-        .filter(|entry| is_tracked(entry))
+        .filter(|entry| is_tracked(entry) && !is_unreliable(entry))
         .map(|entry| {
             let attention = attention_of(entry.status);
             Candidate {
@@ -223,7 +239,7 @@ pub fn loop_step(
         notified: prev.notified.clone(),
     };
     let mut events = Vec::new();
-    for entry in entries {
+    for entry in entries.iter().filter(|entry| !is_unreliable(entry)) {
         let Some(attention) = loop_attention(entry) else {
             continue;
         };
@@ -281,6 +297,9 @@ pub(crate) mod testing {
             ws_runner: None,
             progress: None,
             rollup: None,
+            environment: "local".to_string(),
+            environment_online: true,
+            snapshot_stale: false,
         }
     }
 }
@@ -365,6 +384,42 @@ mod tests {
         let mut shell = entry("a", Status::Done);
         shell.kind = Kind::Shell;
         assert!(!is_tracked(&shell));
+    }
+
+    fn remote(key: &str, status: Status, online: bool, stale: bool) -> Entry {
+        Entry {
+            environment: "linux-server".to_string(),
+            environment_online: online,
+            snapshot_stale: stale,
+            ..entry(key, status)
+        }
+    }
+
+    #[test]
+    fn offline_remote_entry_does_not_count() {
+        let entries = [
+            remote("env:linux-server:a", Status::NeedsInput, false, false),
+            remote("env:linux-server:b", Status::NeedsInput, true, false),
+        ];
+        let keys: Vec<String> = candidates(&entries).into_iter().map(|c| c.key).collect();
+        assert_eq!(keys, ["env:linux-server:b"]);
+        assert_eq!(held_keys(&entries), ["env:linux-server:a"]);
+    }
+
+    #[test]
+    fn unreliable_remote_loop_run_never_notifies() {
+        for (online, stale) in [(false, false), (true, true)] {
+            let mut raised = loop_entry("env:linux-server:a", Some("blocked"));
+            raised.environment = "linux-server".to_string();
+            raised.environment_online = online;
+            raised.snapshot_stale = stale;
+            let entries = [raised];
+            let (s0, _) = loop_step(&seeded(), &entries, 0);
+            let (s1, events) = loop_step(&s0, &entries, DWELL_MS);
+            assert!(events.is_empty());
+            assert!(s1.pending.is_empty());
+            assert!(s1.notified.is_empty());
+        }
     }
 
     #[test]

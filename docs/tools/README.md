@@ -7,7 +7,8 @@ for people and the desktop app ([0046](../adrs/0046-ws-machine.md)).
 | Command                       | Purpose                                                  |
 | ----------------------------- | -------------------------------------------------------- |
 | [`ws claude`](ws-claude.md)   | New workspace with a Claude Code background agent        |
-| [`ws shell`](ws-shell.md)     | New workspace with an interactive shell                  |
+| [`ws shell`](ws-shell.md)     | New workspace with an interactive shell, here or on an environment |
+| [`ws attach`](ws-attach.md)   | Attach this terminal to a workspace's Claude Code agent, here or on an environment |
 | [`ws restore`](ws-restore.md) | Restart agents that aren't running, after a reboot or crash |
 | [`ws continue`](ws-continue.md) | Tell agents stopped by a 5-hour or weekly usage limit to carry on once it resets |
 | [`ws loop`](ws-loop.md) | Start an agent with the same prompt in a new workspace every period; add, edit, list, pause, resume, and remove loops |
@@ -17,6 +18,7 @@ for people and the desktop app ([0046](../adrs/0046-ws-machine.md)).
 | [`ws restart`](ws-restart.md) | Restart Claude Code's background service and every running agent, to pick up new environment variables, MCP servers, or a Claude Code update |
 | [`ws list`](ws-list.md)       | List workspaces and their sessions                       |
 | [`ws rm`](ws-rm.md)           | Remove workspaces and their sessions now                 |
+| [`ws stop`](ws-stop.md)       | Stop the Claude Code agents of workspaces, here or on an environment |
 | [`ws rename`](ws-rename.md)   | Change a workspace's display name                        |
 | [`ws hide`, `ws unhide`](ws-hide.md) | Hide a workspace from `ws list` and the desktop app's default views, or show it again |
 | [`ws cache`](ws-cache.md)     | Manage, search, and resolve cached repos                 |

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/ptyproc"
 	"sync"
 )
 
@@ -275,6 +276,9 @@ var _ snapshotSource = &snapshotSourceMock{}
 //			AgentsFunc: func(ctx context.Context) ([]envproto.SnapshotAgent, error) {
 //				panic("mock out the Agents method")
 //			},
+//			LoopsFunc: func(ctx context.Context) ([]envproto.SnapshotLoop, error) {
+//				panic("mock out the Loops method")
+//			},
 //			WorkspacesFunc: func(ctx context.Context) (json.RawMessage, error) {
 //				panic("mock out the Workspaces method")
 //			},
@@ -288,6 +292,9 @@ type snapshotSourceMock struct {
 	// AgentsFunc mocks the Agents method.
 	AgentsFunc func(ctx context.Context) ([]envproto.SnapshotAgent, error)
 
+	// LoopsFunc mocks the Loops method.
+	LoopsFunc func(ctx context.Context) ([]envproto.SnapshotLoop, error)
+
 	// WorkspacesFunc mocks the Workspaces method.
 	WorkspacesFunc func(ctx context.Context) (json.RawMessage, error)
 
@@ -298,6 +305,11 @@ type snapshotSourceMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// Loops holds details about calls to the Loops method.
+		Loops []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// Workspaces holds details about calls to the Workspaces method.
 		Workspaces []struct {
 			// Ctx is the ctx argument value.
@@ -305,6 +317,7 @@ type snapshotSourceMock struct {
 		}
 	}
 	lockAgents     sync.RWMutex
+	lockLoops      sync.RWMutex
 	lockWorkspaces sync.RWMutex
 }
 
@@ -337,6 +350,38 @@ func (mock *snapshotSourceMock) AgentsCalls() []struct {
 	mock.lockAgents.RLock()
 	calls = mock.calls.Agents
 	mock.lockAgents.RUnlock()
+	return calls
+}
+
+// Loops calls LoopsFunc.
+func (mock *snapshotSourceMock) Loops(ctx context.Context) ([]envproto.SnapshotLoop, error) {
+	if mock.LoopsFunc == nil {
+		panic("snapshotSourceMock.LoopsFunc: method is nil but snapshotSource.Loops was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockLoops.Lock()
+	mock.calls.Loops = append(mock.calls.Loops, callInfo)
+	mock.lockLoops.Unlock()
+	return mock.LoopsFunc(ctx)
+}
+
+// LoopsCalls gets all the calls that were made to Loops.
+// Check the length with:
+//
+//	len(mockedsnapshotSource.LoopsCalls())
+func (mock *snapshotSourceMock) LoopsCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockLoops.RLock()
+	calls = mock.calls.Loops
+	mock.lockLoops.RUnlock()
 	return calls
 }
 
@@ -513,5 +558,443 @@ func (mock *operationRunnerMock) RunCalls() []struct {
 	mock.lockRun.RLock()
 	calls = mock.calls.Run
 	mock.lockRun.RUnlock()
+	return calls
+}
+
+// Ensure, that terminalCommandsMock does implement terminalCommands.
+// If this is not the case, regenerate this file with moq.
+var _ terminalCommands = &terminalCommandsMock{}
+
+// terminalCommandsMock is a mock implementation of terminalCommands.
+//
+//	func TestSomethingThatUsesterminalCommands(t *testing.T) {
+//
+//		// make and configure a mocked terminalCommands
+//		mockedterminalCommands := &terminalCommandsMock{
+//			TerminalCommandFunc: func(ctx context.Context, args *envproto.TerminalOpenArgs) (TerminalCommand, error) {
+//				panic("mock out the TerminalCommand method")
+//			},
+//		}
+//
+//		// use mockedterminalCommands in code that requires terminalCommands
+//		// and then make assertions.
+//
+//	}
+type terminalCommandsMock struct {
+	// TerminalCommandFunc mocks the TerminalCommand method.
+	TerminalCommandFunc func(ctx context.Context, args *envproto.TerminalOpenArgs) (TerminalCommand, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// TerminalCommand holds details about calls to the TerminalCommand method.
+		TerminalCommand []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Args is the args argument value.
+			Args *envproto.TerminalOpenArgs
+		}
+	}
+	lockTerminalCommand sync.RWMutex
+}
+
+// TerminalCommand calls TerminalCommandFunc.
+func (mock *terminalCommandsMock) TerminalCommand(ctx context.Context, args *envproto.TerminalOpenArgs) (TerminalCommand, error) {
+	if mock.TerminalCommandFunc == nil {
+		panic("terminalCommandsMock.TerminalCommandFunc: method is nil but terminalCommands.TerminalCommand was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Args *envproto.TerminalOpenArgs
+	}{
+		Ctx:  ctx,
+		Args: args,
+	}
+	mock.lockTerminalCommand.Lock()
+	mock.calls.TerminalCommand = append(mock.calls.TerminalCommand, callInfo)
+	mock.lockTerminalCommand.Unlock()
+	return mock.TerminalCommandFunc(ctx, args)
+}
+
+// TerminalCommandCalls gets all the calls that were made to TerminalCommand.
+// Check the length with:
+//
+//	len(mockedterminalCommands.TerminalCommandCalls())
+func (mock *terminalCommandsMock) TerminalCommandCalls() []struct {
+	Ctx  context.Context
+	Args *envproto.TerminalOpenArgs
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Args *envproto.TerminalOpenArgs
+	}
+	mock.lockTerminalCommand.RLock()
+	calls = mock.calls.TerminalCommand
+	mock.lockTerminalCommand.RUnlock()
+	return calls
+}
+
+// Ensure, that ptyStarterMock does implement ptyStarter.
+// If this is not the case, regenerate this file with moq.
+var _ ptyStarter = &ptyStarterMock{}
+
+// ptyStarterMock is a mock implementation of ptyStarter.
+//
+//	func TestSomethingThatUsesptyStarter(t *testing.T) {
+//
+//		// make and configure a mocked ptyStarter
+//		mockedptyStarter := &ptyStarterMock{
+//			StartFunc: func(spec ptyproc.Spec) (ptyProcess, error) {
+//				panic("mock out the Start method")
+//			},
+//		}
+//
+//		// use mockedptyStarter in code that requires ptyStarter
+//		// and then make assertions.
+//
+//	}
+type ptyStarterMock struct {
+	// StartFunc mocks the Start method.
+	StartFunc func(spec ptyproc.Spec) (ptyProcess, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Start holds details about calls to the Start method.
+		Start []struct {
+			// Spec is the spec argument value.
+			Spec ptyproc.Spec
+		}
+	}
+	lockStart sync.RWMutex
+}
+
+// Start calls StartFunc.
+func (mock *ptyStarterMock) Start(spec ptyproc.Spec) (ptyProcess, error) {
+	if mock.StartFunc == nil {
+		panic("ptyStarterMock.StartFunc: method is nil but ptyStarter.Start was just called")
+	}
+	callInfo := struct {
+		Spec ptyproc.Spec
+	}{
+		Spec: spec,
+	}
+	mock.lockStart.Lock()
+	mock.calls.Start = append(mock.calls.Start, callInfo)
+	mock.lockStart.Unlock()
+	return mock.StartFunc(spec)
+}
+
+// StartCalls gets all the calls that were made to Start.
+// Check the length with:
+//
+//	len(mockedptyStarter.StartCalls())
+func (mock *ptyStarterMock) StartCalls() []struct {
+	Spec ptyproc.Spec
+} {
+	var calls []struct {
+		Spec ptyproc.Spec
+	}
+	mock.lockStart.RLock()
+	calls = mock.calls.Start
+	mock.lockStart.RUnlock()
+	return calls
+}
+
+// Ensure, that ptyProcessMock does implement ptyProcess.
+// If this is not the case, regenerate this file with moq.
+var _ ptyProcess = &ptyProcessMock{}
+
+// ptyProcessMock is a mock implementation of ptyProcess.
+//
+//	func TestSomethingThatUsesptyProcess(t *testing.T) {
+//
+//		// make and configure a mocked ptyProcess
+//		mockedptyProcess := &ptyProcessMock{
+//			CloseFunc: func() error {
+//				panic("mock out the Close method")
+//			},
+//			ReadFunc: func(p []byte) (int, error) {
+//				panic("mock out the Read method")
+//			},
+//			ResizeFunc: func(cols int, rows int) error {
+//				panic("mock out the Resize method")
+//			},
+//			WaitFunc: func() *int {
+//				panic("mock out the Wait method")
+//			},
+//			WriteFunc: func(p []byte) (int, error) {
+//				panic("mock out the Write method")
+//			},
+//		}
+//
+//		// use mockedptyProcess in code that requires ptyProcess
+//		// and then make assertions.
+//
+//	}
+type ptyProcessMock struct {
+	// CloseFunc mocks the Close method.
+	CloseFunc func() error
+
+	// ReadFunc mocks the Read method.
+	ReadFunc func(p []byte) (int, error)
+
+	// ResizeFunc mocks the Resize method.
+	ResizeFunc func(cols int, rows int) error
+
+	// WaitFunc mocks the Wait method.
+	WaitFunc func() *int
+
+	// WriteFunc mocks the Write method.
+	WriteFunc func(p []byte) (int, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Close holds details about calls to the Close method.
+		Close []struct {
+		}
+		// Read holds details about calls to the Read method.
+		Read []struct {
+			// P is the p argument value.
+			P []byte
+		}
+		// Resize holds details about calls to the Resize method.
+		Resize []struct {
+			// Cols is the cols argument value.
+			Cols int
+			// Rows is the rows argument value.
+			Rows int
+		}
+		// Wait holds details about calls to the Wait method.
+		Wait []struct {
+		}
+		// Write holds details about calls to the Write method.
+		Write []struct {
+			// P is the p argument value.
+			P []byte
+		}
+	}
+	lockClose  sync.RWMutex
+	lockRead   sync.RWMutex
+	lockResize sync.RWMutex
+	lockWait   sync.RWMutex
+	lockWrite  sync.RWMutex
+}
+
+// Close calls CloseFunc.
+func (mock *ptyProcessMock) Close() error {
+	if mock.CloseFunc == nil {
+		panic("ptyProcessMock.CloseFunc: method is nil but ptyProcess.Close was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockClose.Lock()
+	mock.calls.Close = append(mock.calls.Close, callInfo)
+	mock.lockClose.Unlock()
+	return mock.CloseFunc()
+}
+
+// CloseCalls gets all the calls that were made to Close.
+// Check the length with:
+//
+//	len(mockedptyProcess.CloseCalls())
+func (mock *ptyProcessMock) CloseCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockClose.RLock()
+	calls = mock.calls.Close
+	mock.lockClose.RUnlock()
+	return calls
+}
+
+// Read calls ReadFunc.
+func (mock *ptyProcessMock) Read(p []byte) (int, error) {
+	if mock.ReadFunc == nil {
+		panic("ptyProcessMock.ReadFunc: method is nil but ptyProcess.Read was just called")
+	}
+	callInfo := struct {
+		P []byte
+	}{
+		P: p,
+	}
+	mock.lockRead.Lock()
+	mock.calls.Read = append(mock.calls.Read, callInfo)
+	mock.lockRead.Unlock()
+	return mock.ReadFunc(p)
+}
+
+// ReadCalls gets all the calls that were made to Read.
+// Check the length with:
+//
+//	len(mockedptyProcess.ReadCalls())
+func (mock *ptyProcessMock) ReadCalls() []struct {
+	P []byte
+} {
+	var calls []struct {
+		P []byte
+	}
+	mock.lockRead.RLock()
+	calls = mock.calls.Read
+	mock.lockRead.RUnlock()
+	return calls
+}
+
+// Resize calls ResizeFunc.
+func (mock *ptyProcessMock) Resize(cols int, rows int) error {
+	if mock.ResizeFunc == nil {
+		panic("ptyProcessMock.ResizeFunc: method is nil but ptyProcess.Resize was just called")
+	}
+	callInfo := struct {
+		Cols int
+		Rows int
+	}{
+		Cols: cols,
+		Rows: rows,
+	}
+	mock.lockResize.Lock()
+	mock.calls.Resize = append(mock.calls.Resize, callInfo)
+	mock.lockResize.Unlock()
+	return mock.ResizeFunc(cols, rows)
+}
+
+// ResizeCalls gets all the calls that were made to Resize.
+// Check the length with:
+//
+//	len(mockedptyProcess.ResizeCalls())
+func (mock *ptyProcessMock) ResizeCalls() []struct {
+	Cols int
+	Rows int
+} {
+	var calls []struct {
+		Cols int
+		Rows int
+	}
+	mock.lockResize.RLock()
+	calls = mock.calls.Resize
+	mock.lockResize.RUnlock()
+	return calls
+}
+
+// Wait calls WaitFunc.
+func (mock *ptyProcessMock) Wait() *int {
+	if mock.WaitFunc == nil {
+		panic("ptyProcessMock.WaitFunc: method is nil but ptyProcess.Wait was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockWait.Lock()
+	mock.calls.Wait = append(mock.calls.Wait, callInfo)
+	mock.lockWait.Unlock()
+	return mock.WaitFunc()
+}
+
+// WaitCalls gets all the calls that were made to Wait.
+// Check the length with:
+//
+//	len(mockedptyProcess.WaitCalls())
+func (mock *ptyProcessMock) WaitCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockWait.RLock()
+	calls = mock.calls.Wait
+	mock.lockWait.RUnlock()
+	return calls
+}
+
+// Write calls WriteFunc.
+func (mock *ptyProcessMock) Write(p []byte) (int, error) {
+	if mock.WriteFunc == nil {
+		panic("ptyProcessMock.WriteFunc: method is nil but ptyProcess.Write was just called")
+	}
+	callInfo := struct {
+		P []byte
+	}{
+		P: p,
+	}
+	mock.lockWrite.Lock()
+	mock.calls.Write = append(mock.calls.Write, callInfo)
+	mock.lockWrite.Unlock()
+	return mock.WriteFunc(p)
+}
+
+// WriteCalls gets all the calls that were made to Write.
+// Check the length with:
+//
+//	len(mockedptyProcess.WriteCalls())
+func (mock *ptyProcessMock) WriteCalls() []struct {
+	P []byte
+} {
+	var calls []struct {
+		P []byte
+	}
+	mock.lockWrite.RLock()
+	calls = mock.calls.Write
+	mock.lockWrite.RUnlock()
+	return calls
+}
+
+// Ensure, that loopTickerMock does implement loopTicker.
+// If this is not the case, regenerate this file with moq.
+var _ loopTicker = &loopTickerMock{}
+
+// loopTickerMock is a mock implementation of loopTicker.
+//
+//	func TestSomethingThatUsesloopTicker(t *testing.T) {
+//
+//		// make and configure a mocked loopTicker
+//		mockedloopTicker := &loopTickerMock{
+//			TickFunc: func(ctx context.Context) (bool, error) {
+//				panic("mock out the Tick method")
+//			},
+//		}
+//
+//		// use mockedloopTicker in code that requires loopTicker
+//		// and then make assertions.
+//
+//	}
+type loopTickerMock struct {
+	// TickFunc mocks the Tick method.
+	TickFunc func(ctx context.Context) (bool, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Tick holds details about calls to the Tick method.
+		Tick []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+	}
+	lockTick sync.RWMutex
+}
+
+// Tick calls TickFunc.
+func (mock *loopTickerMock) Tick(ctx context.Context) (bool, error) {
+	if mock.TickFunc == nil {
+		panic("loopTickerMock.TickFunc: method is nil but loopTicker.Tick was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockTick.Lock()
+	mock.calls.Tick = append(mock.calls.Tick, callInfo)
+	mock.lockTick.Unlock()
+	return mock.TickFunc(ctx)
+}
+
+// TickCalls gets all the calls that were made to Tick.
+// Check the length with:
+//
+//	len(mockedloopTicker.TickCalls())
+func (mock *loopTickerMock) TickCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockTick.RLock()
+	calls = mock.calls.Tick
+	mock.lockTick.RUnlock()
 	return calls
 }

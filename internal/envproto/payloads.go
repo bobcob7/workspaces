@@ -5,8 +5,11 @@ import (
 	"time"
 )
 
-// Protocol is the newest operation protocol this ws speaks (ADR 0073). PR 3 is 1.
-const Protocol = 1
+// Protocol is the newest operation protocol this ws speaks (ADR 0073). Reviews and loops make it 3.
+const Protocol = 3
+
+// ProtocolReviewsLoops is the protocol review.* and loop.* need (ADR 0080).
+const ProtocolReviewsLoops = 3
 
 // Statuses an agent reports in its hello and its last will.
 const (
@@ -47,6 +50,10 @@ type Hello struct {
 	CertNotAfter   time.Time `json:"cert_not_after"`
 	CAFingerprints []string  `json:"ca_fingerprints"`
 	Protocol       int       `json:"protocol"` // 0 from an agent older than PR 3
+	// Conn is a random id the agent makes on each connect and repeats in every
+	// hello of that connection. A controller that sees it change knows the
+	// agent's terminals died with the old connection. Empty from an older agent.
+	Conn string `json:"conn,omitempty"`
 }
 
 // OfflinePayload is the Last Will: exactly {"status":"offline"}.
@@ -61,6 +68,9 @@ type Snapshot struct {
 	Protocol   int             `json:"protocol"`
 	Workspaces json.RawMessage `json:"workspaces"` // ws list --json --all's array, no unknown dirs
 	Agents     []SnapshotAgent `json:"agents"`
+	// Loops is the agent's loops (ADR 0080). No omitempty: an agent with no
+	// loops sends [], and a snapshot without the key (an older agent) is null.
+	Loops []SnapshotLoop `json:"loops"`
 }
 
 // SnapshotAgent is one Claude Code session on the agent's machine.

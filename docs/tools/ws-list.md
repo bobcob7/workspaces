@@ -49,14 +49,18 @@ when its `loop_run.attention` is `blocked` or `needs_attention`
 reads `<name> (blocked)` or `<name> (needs attention)` in place of
 `<name> (hidden)`.
 
-Without `--env`, `ws list` lists this machine's workspaces only, as it always
-has. `--env <name>` lists the workspaces of those environments instead
-(`local` is a name, and `ws env list` shows the others). A remote
-environment's workspaces come from its last snapshot, and are read-only:
-they can be listed, not acted on from here. Until the desktop app shows
-environments (PR 4), remote workspaces appear only with `--env`, because the
-desktop runs `ws list --all` and acts on ids with local commands, and a
-remote id equal to a local one would make it act on the wrong workspace
+Without `--env`, `ws list` lists this machine's workspaces first, then every
+enrolled environment's, by name. A pending environment, one with no agent
+enrolled yet, adds nothing. `--env <name>` lists the workspaces of those
+environments instead (`local` is a name, and `ws env list` shows the
+others). A remote environment's workspaces come from its last snapshot, and
+can be acted on with `--env` on `ws rm`, `ws rename`, `ws hide`, `ws unhide`
+and `ws stop`, and with `ws attach --env`. Two defaults stay
+local, so that scripts don't mix machines: `-q` lists local ids only unless
+`--env` is given, and `--parent <id>` without `--env` lists the environment
+the parent is in, local first, else the one environment whose snapshot lists
+it (`workspace_not_found` when none or more than one does). The desktop app
+keys remote entries by environment, so they never collide with local ids
 ([0072](../adrs/0072-remote-environments.md), deviation 1).
 
 Each entry names its environment: `environment` is `local` or the
@@ -66,8 +70,11 @@ daemon reports its agent connected; with no daemon running, or no answer
 within 2 s, every remote environment is `offline`, without starting one.
 `stale` is `true` for a remote entry whose environment isn't `online`, or
 whose snapshot is more than 90 s old (three refresh periods), and `false`
-otherwise. The table adds an `ENV` column after `ID` when some listed
-workspace runs on an environment other than `local`.
+otherwise. `agent_state` is the state of the remote agent that runs the
+entry's session, from the environment's snapshot: `working`, `blocked`,
+`done` or `stopped`. It is `null` for a local entry, a shell, or a remote
+entry with no matching agent. The table adds an `ENV` column after `ID` when
+some listed workspace runs on an environment other than `local`.
 
 ## Options
 
@@ -75,10 +82,10 @@ workspace runs on an environment other than `local`.
 | --------------- | ---------------------------------------------- |
 | `-a`, `--all`   | Include hidden workspaces                      |
 | `-q`, `--ids`   | Print only workspace IDs (like `docker ps -q`); not with `--json` |
-| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children ([0044](../adrs/0044-workspace-trees.md)); with `--env`, one environment only |
+| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children ([0044](../adrs/0044-workspace-trees.md)); without `--env`, the environment it is in |
 | `--repo <SPEC>` | Only workspaces containing this repo, matched by the parts the spec gives (`api` matches any owner and host, `o/api` any host) and its ref, if any, against the ref checked out; no cache lookup |
-| `--env <NAME>`  | Only the workspaces of this environment: `local` or a name from `ws env list`. Repeatable; default `local` |
-| `--json`        | Print `{"workspaces": [...], "hidden_count", "warnings"}`, with `environment`, `environment_status` and `stale` on each entry |
+| `--env <NAME>`  | Only the workspaces of this environment: `local` or a name from `ws env list`. Repeatable; default every environment (`local`, then enrolled ones by name). `-q` defaults to `local` |
+| `--json`        | Print `{"workspaces": [...], "hidden_count", "warnings"}`, with `environment`, `environment_status`, `stale` and `agent_state` on each entry |
 
 ## Examples
 
@@ -109,6 +116,7 @@ $ ws list --json
       "loop_run": null,
       "progress": null,
       "rollup": null,
+      "agent_state": null,
       "environment": "local",
       "environment_status": "online",
       "stale": false

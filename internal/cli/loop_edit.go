@@ -20,14 +20,24 @@ type loopEditOptions struct {
 // newLoopEditCmd builds the ws loop edit command and its flags.
 func (a *App) newLoopEditCmd() *cobra.Command {
 	var opts loopEditOptions
+	var remote loopEnvOptions
 	cmd := &cobra.Command{
 		Use:   "edit [OPTIONS] <NAME> [<SPEC>...]",
 		Short: "Change a loop in place",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoopEdit(cmd, env, args, &opts, remote.yes)
+			}
 			return a.runLoopEdit(cmd, args, &opts)
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	addLoopYesFlag(cmd, &remote)
 	cmd.Flags().StringVar(&opts.title, "title", "", "a display name, such as \"Nightly deps bump\"; up to 80 characters; \"\" clears it")
 	cmd.Flags().StringVar(&opts.every, "every", "", "how often a run starts: whole minutes from 5m to 168h, such as 15m or 24h")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "the prompt each run starts with")

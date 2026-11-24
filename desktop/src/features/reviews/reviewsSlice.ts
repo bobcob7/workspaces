@@ -4,22 +4,32 @@ import {
   type AppError,
   type AskStarted,
   type ConfiguredHost,
+  type ListedProfile,
   type MergeStatus,
   type PullRequest,
   type ReviewPlan,
   type ReviewsView,
   type Started,
 } from "../../api";
+import type { RootState } from "../../store";
 import { createAppThunk } from "../../thunk";
 import { fetchEntries } from "../agents/agentsSlice";
 import { noticeShown, sectionChosen, selected } from "../ui/uiSlice";
 import { noFilters, ownerRepo, type Involves, type PrFilters } from "./groups";
+
+/** The reviewer profiles of one environment, as the Start dialog last read them. */
+export interface StartProfiles {
+  readonly environment: string;
+  readonly items: readonly ListedProfile[];
+  readonly error: AppError | null;
+}
 
 /** The Edit before starting dialog: the pull request and the plan being edited. */
 export interface StartDialog {
   readonly key: string;
   readonly plan: ReviewPlan | null;
   readonly error: AppError | null;
+  readonly profiles?: StartProfiles;
 }
 
 export interface ReviewsState {
@@ -95,13 +105,19 @@ export interface WatchChange {
   readonly repo: string;
   readonly watch: boolean;
   readonly autoReview: boolean;
+  /** The environment its reviews run on; absent is "local". */
+  readonly environment?: string;
 }
+
+/** The environment a repo's reviews run on: "local" unless it is watched on a remote. */
+export const selectReviewEnvironment = (state: RootState, repo: string): string =>
+  state.reviews.view?.repos.find((r) => r.id === repo)?.environment ?? "local";
 
 export const setWatch = createAppThunk<ReviewsView, WatchChange>(
   "reviews/setWatch",
-  async ({ repo, watch, autoReview }, { extra, dispatch, rejectWithValue }) => {
+  async ({ repo, watch, autoReview, environment = "local" }, { extra, dispatch, rejectWithValue }) => {
     try {
-      return await extra.api.reviewsSetWatch(repo, watch, autoReview);
+      return await extra.api.reviewsSetWatch(repo, watch, autoReview, environment);
     } catch (err: unknown) {
       return rejectWithValue(failed(err, dispatch));
     }
@@ -160,9 +176,9 @@ export const restorePr = createAppThunk<ReviewsView, PullRequest>(
 /** The plan Review would run now, with the Settings defaults. */
 export const fetchPlan = createAppThunk<ReviewPlan, PullRequest>(
   "reviews/plan",
-  async (pr, { extra, rejectWithValue }) => {
+  async (pr, { extra, getState, rejectWithValue }) => {
     try {
-      return await extra.api.reviewsPlan(pr.repo, pr.number);
+      return await extra.api.reviewsPlan(pr.repo, pr.number, selectReviewEnvironment(getState(), pr.repo));
     } catch (err: unknown) {
       return rejectWithValue(toAppError(err));
     }
@@ -171,9 +187,21 @@ export const fetchPlan = createAppThunk<ReviewPlan, PullRequest>(
 
 export const openStartDialog = createAppThunk<ReviewPlan, PullRequest>(
   "reviews/openStart",
-  async (pr, { extra, rejectWithValue }) => {
+  async (pr, { extra, getState, rejectWithValue }) => {
     try {
-      return await extra.api.reviewsPlan(pr.repo, pr.number);
+      return await extra.api.reviewsPlan(pr.repo, pr.number, selectReviewEnvironment(getState(), pr.repo));
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+);
+
+/** Reads the reviewer profiles of the environment chosen in the Start dialog. */
+export const fetchStartProfiles = createAppThunk<readonly ListedProfile[], string>(
+  "reviews/startProfiles",
+  async (environment, { extra, rejectWithValue }) => {
+    try {
+      return await extra.api.reviewsProfiles(environment);
     } catch (err: unknown) {
       return rejectWithValue(toAppError(err));
     }
@@ -189,9 +217,12 @@ export interface StartRequest {
 /** Starts a review (`ws claude`) and keeps the pull request selected. */
 export const startReview = createAppThunk<Started, StartRequest>(
   "reviews/start",
-  async ({ pr, plan }, { extra, dispatch, rejectWithValue }) => {
+  async ({ pr, plan }, { extra, dispatch, getState, rejectWithValue }) => {
     try {
-      const started = await extra.api.reviewsStart(plan ?? (await extra.api.reviewsPlan(pr.repo, pr.number)));
+      const environment = selectReviewEnvironment(getState(), pr.repo);
+      const planned = plan ?? (await extra.api.reviewsPlan(pr.repo, pr.number, environment));
+      const quickRemote = plan === undefined && environment !== "local" && planned.permissionMode === "bypassPermissions";
+      const started = await extra.api.reviewsStart(quickRemote ? { ...planned, permissionMode: "" } : planned);
       const message = started.already ? `${started.id} is already reviewing it` : `Started ${started.id}`;
       dispatch(noticeShown({ severity: started.already ? "info" : "success", message }));
       await dispatch(fetchEntries());
@@ -311,6 +342,26 @@ const reviewsSlice = createSlice({
           };
         }
       })
+      .addCase(fetchStartProfiles.fulfilled, (state, action) =>
+        state.startDialog === null
+          ? state
+          : { ...state, startDialog: { ...state.startDialog, profiles: { environment: action.meta.arg, items: action.payload, error: null } } },
+      )
+      .addCase(fetchStartProfiles.rejected, (state, action) =>
+        state.startDialog === null
+          ? state
+          : {
+              ...state,
+              startDialog: {
+                ...state.startDialog,
+                profiles: {
+                  environment: action.meta.arg,
+                  items: [],
+                  error: action.payload ?? { code: "internal", message: action.error.message ?? "failed" },
+                },
+              },
+            },
+      )
       .addCase(startReview.pending, (state, action) => {
         state.busy = [...state.busy, action.meta.arg.pr.key];
         if (state.startDialog !== null) {

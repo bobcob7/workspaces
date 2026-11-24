@@ -5,7 +5,7 @@ Remove workspaces and their sessions now.
 ## Synopsis
 
 ```
-ws rm [OPTIONS] <WORKSPACE>...
+ws rm [--env <name>] [OPTIONS] <WORKSPACE>...
 ```
 
 ## Description
@@ -60,9 +60,10 @@ removes a workspace named on the command line, it is reported as removed
 
 | Option      | Description                                   |
 | ----------- | --------------------------------------------- |
+| `--env <name>` | Remove the workspaces on this environment (`ws env list`), not here; one `workspace.rm` call each. `--dry-run` is refused with it. A remote id given without `--env` is `workspace_not_found`, and the message names the environment |
 | `--dry-run` | Print what would be removed, descendants included; `ws rm` itself changes nothing |
 | `--keep-children` | Make the workspace's children top-level instead of removing them |
-| `--json`    | Print `{"workspaces": [{"id", "parent", "removed", "error"}], "warnings"}` |
+| `--json`    | Print `{"workspaces": [{"id", "parent", "removed", "error"}], "warnings"}`, plus `"environment"` with `--env` |
 
 ## Examples
 

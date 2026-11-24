@@ -8,11 +8,12 @@ import { restoreAgents } from "./agentsSlice";
 export const AgentsActions = (): JSX.Element => {
   const dispatch = useAppDispatch();
   const loading = useAppSelector((s) => s.agents.loading);
+  const enrolled = useAppSelector((s) => s.environments.items.some((env) => env.state === "enrolled"));
   return (
     <>
       {loading && <CircularProgress size={14} aria-label="Refreshing" />}
       <Button size="small" onClick={() => void dispatch(restoreAgents())}>
-        Restore stopped
+        {enrolled ? "Restore stopped (this machine)" : "Restore stopped"}
       </Button>
       <Button size="small" variant="outlined" onClick={() => dispatch(dialogOpened("shell"))}>
         New shell

@@ -7,6 +7,7 @@ import { isWeb } from "../../platform";
 import { BrowserPushRow } from "../../web/BrowserPushRow";
 import { AboutGroup } from "./AboutGroup";
 import { ConfigSource } from "./ConfigSource";
+import { EnvironmentsGroup } from "./EnvironmentsGroup";
 import { ForgesGroup } from "./ForgesGroup";
 import { ModelsGroup } from "./ModelsGroup";
 import { Row } from "./Row";
@@ -82,6 +83,7 @@ const ReviewsGroup = ({ settings }: { readonly settings: ReviewSettings }): JSX.
   const dispatch = useAppDispatch();
   const errors = useAppSelector((s) => s.settings.fieldErrors);
   const profiles = useAppSelector((s) => s.settings.profiles);
+  const enrolled = useAppSelector((s) => s.environments.items.some((env) => env.state === "enrolled"));
   const profilesError = useAppSelector((s) => s.settings.profilesError);
   const config = useAppSelector((s) => s.settings.config);
   const configErrors = useAppSelector((s) => s.settings.configErrors);
@@ -206,7 +208,7 @@ const ReviewsGroup = ({ settings }: { readonly settings: ReviewSettings }): JSX.
         />
       </Row>
       <Row
-        label="Reviewer profiles"
+        label={enrolled ? "Profiles on this machine" : "Reviewer profiles"}
         wide
         help={
           <>
@@ -479,6 +481,13 @@ export const SettingsPane = (): JSX.Element => {
     return (
       <div className={styles.root}>
         <RolesGroup />
+      </div>
+    );
+  }
+  if (group === "environments") {
+    return (
+      <div className={styles.root}>
+        <EnvironmentsGroup />
       </div>
     );
   }

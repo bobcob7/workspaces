@@ -12,8 +12,10 @@ use super::runs;
 use super::store::{AutoStarted, Store};
 use super::tokens::{TokenSource, TokenStore};
 use super::view::{self, CheckState, CompareKey, HostState, RepoCheck};
-use crate::commands::{self, Created};
+use crate::commands;
+use crate::environments::{env_list_args, EnvironmentListing};
 use crate::model::Entry;
+use crate::pty::remote_env;
 use crate::runner::{AppError, Runner};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -52,6 +54,12 @@ struct CacheRepo {
     id: String,
 }
 
+/// What `ws review start` prints that the checker reads.
+#[derive(Deserialize)]
+struct StartedWs {
+    id: String,
+}
+
 /// What the checker needs to run commands and keep state.
 pub struct Deps {
     pub runner: Runner,
@@ -70,6 +78,10 @@ pub struct Checker {
     /// Reviews `ws` removed once finished, from `ws review list`, and any
     /// that left the listing since (ADR 0045).
     removed: Mutex<Vec<Entry>>,
+    /// The runs `ws review list --env` found on each environment named by a
+    /// watched repo. An environment that couldn't be read keeps its
+    /// previous runs, marked stale.
+    remote: Mutex<BTreeMap<String, Vec<Entry>>>,
     /// Names of reviews whose `ws review start` is running, so starting one twice
     /// at once starts it once: `ws` no longer refuses a name used twice
     /// (ADR 0036).
@@ -92,18 +104,43 @@ impl Checker {
         self.wake.notify_one();
     }
 
+    /// Gives `repo` the pull requests as if a check had listed them.
+    #[cfg(all(test, feature = "online"))]
+    pub fn set_pull_requests(&self, repo: &str, prs: Vec<PullRequest>) {
+        self.with_state(|s| {
+            s.repos.insert(
+                repo.to_string(),
+                RepoCheck {
+                    prs,
+                    checked_at_ms: Some(1),
+                    error: None,
+                },
+            );
+        });
+    }
+
+    /// Whether a check was asked for since the last call.
+    #[cfg(all(test, feature = "online"))]
+    pub fn take_check_request(&self) -> bool {
+        self.forced.swap(false, Ordering::SeqCst)
+    }
+
     /// Keeps the latest agent listing, so the view shows review status as
     /// fresh as the Agents poll.
     /// A review workspace that leaves the listing is kept as removed until
     /// the next check reads `ws review list`, so its pull request stays
     /// Reviewed meanwhile (ADR 0045).
     pub fn set_entries(&self, entries: Vec<Entry>) {
+        let entries: Vec<Entry> = entries
+            .into_iter()
+            .filter(|e| e.environment == "local")
+            .collect();
         let Ok(mut current) = self.entries.lock() else {
             return;
         };
         let gone: Vec<Entry> = current
             .iter()
-            .filter(|old| !entries.iter().any(|e| e.workspace_id == old.workspace_id))
+            .filter(|old| !runs::has_workspace(&entries, "local", &old.workspace_id))
             .filter_map(runs::removed_from)
             .collect();
         *current = entries;
@@ -127,8 +164,11 @@ impl Checker {
     /// Reviews view and auto-review.
     pub fn review_entries(&self) -> Vec<Entry> {
         let entries = self.entries();
-        let removed = self.removed.lock().map(|r| r.clone()).unwrap_or_default();
-        runs::merge(&entries, &removed)
+        let mut runs = self.removed.lock().map(|r| r.clone()).unwrap_or_default();
+        if let Ok(remote) = self.remote.lock() {
+            runs.extend(remote.values().flatten().cloned());
+        }
+        runs::merge(&entries, &runs)
     }
 
     /// Starts a review with `ws review start`, unless the latest listing
@@ -143,13 +183,17 @@ impl Checker {
         if let Some(id) = self.existing(plan) {
             return Ok(Started { id, already: true });
         }
-        let Some(_claim) = Claim::take(&self.starting, &plan.name) else {
+        let claim_name = match remote_env(plan.environment.as_deref()) {
+            Some(env) => format!("{env}:{}", plan.name),
+            None => plan.name.clone(),
+        };
+        let Some(_claim) = Claim::take(&self.starting, &claim_name) else {
             return Ok(Started {
                 id: plan.name.clone(),
                 already: true,
             });
         };
-        let created = runner.ws_json_as_given::<Created>(&args).await?;
+        let created = runner.ws_json_as_given::<StartedWs>(&args).await?;
         Ok(Started {
             id: created.id,
             already: false,
@@ -160,8 +204,10 @@ impl Checker {
     /// review record has the plan's pull request and head, if any.
     fn existing(&self, plan: &ReviewPlan) -> Option<String> {
         let entries = self.review_entries();
+        let environment = remote_env(plan.environment.as_deref()).unwrap_or("local");
         entries
             .iter()
+            .filter(|e| e.environment == environment)
             .find(|e| {
                 let named = e
                     .workspace_id
@@ -340,13 +386,17 @@ impl Checker {
         let listing =
             commands::list(&deps.runner, deps.jobs_dir.as_deref(), &deps.pr_links).await?;
         self.set_entries(listing.entries.clone());
-        match runs::removed(&deps.runner).await {
+        match runs::removed(&deps.runner, None).await {
             Ok(removed) => self.set_removed(removed),
             Err(err) => warnings.push(format!("ws review list: {}", err.message)),
         }
+        let skipped = self
+            .read_remote_runs(deps, &listing.entries, &mut warnings)
+            .await;
         let entries = self.review_entries();
-        self.compare_out_of_date(&deps.runner, &entries).await;
-        warnings.extend(self.auto_review(deps, &entries).await);
+        self.compare_out_of_date(&deps.runner, &entries, &state)
+            .await;
+        warnings.extend(self.auto_review(deps, &entries, &skipped).await);
         self.with_state(|s| s.warnings = warnings);
         let all_github = !watched.is_empty()
             && watched
@@ -508,7 +558,12 @@ impl Checker {
 
     /// Counts the commits pushed since each out-of-date review, once per
     /// pair of commits.
-    async fn compare_out_of_date(&self, runner: &Runner, entries: &[Entry]) {
+    async fn compare_out_of_date(
+        &self,
+        runner: &Runner,
+        entries: &[Entry],
+        state: &super::store::StateFile,
+    ) {
         let wanted: Vec<CompareKey> = self
             .with_state(|s| {
                 s.repos
@@ -518,7 +573,8 @@ impl Checker {
                     })
                     .flat_map(|(repo, r)| r.prs.iter().map(move |p| (repo, p)))
                     .filter_map(|(repo, pr)| {
-                        let sha = view::out_of_date_sha(entries, repo, pr)?;
+                        let environment = view::repo_environment(state, repo);
+                        let sha = view::out_of_date_sha(entries, repo, pr, &environment)?;
                         let key = (repo.clone(), sha, pr.head_ref_oid.clone());
                         (!s.compares.contains_key(&key)).then_some(key)
                     })
@@ -532,15 +588,95 @@ impl Checker {
         }
     }
 
+    /// Reads the runs of each environment a watched repo names, and returns
+    /// those auto-review must skip: offline, or without Claude Code. An
+    /// environment that can't be read keeps its last runs, marked stale.
+    /// `ws env list` runs only when some repo names an environment.
+    async fn read_remote_runs(
+        &self,
+        deps: &Deps,
+        listing: &[Entry],
+        warnings: &mut Vec<String>,
+    ) -> BTreeSet<String> {
+        let envs = view::watched_environments(&deps.store.get());
+        if let Ok(mut remote) = self.remote.lock() {
+            remote.retain(|env, _| envs.contains(env));
+        }
+        let mut skipped = BTreeSet::new();
+        if envs.is_empty() {
+            return skipped;
+        }
+        let known = match deps
+            .runner
+            .ws_json_as_given::<EnvironmentListing>(&env_list_args())
+            .await
+        {
+            Ok(known) => known.environments,
+            Err(err) => {
+                warnings.push(format!("ws env list: {}", err.message));
+                Vec::new()
+            }
+        };
+        for env in &envs {
+            let info = known.iter().find(|k| &k.name == env);
+            let online = listing
+                .iter()
+                .find(|e| &e.environment == env)
+                .map(|e| e.environment_online)
+                .or_else(|| info.map(|k| k.status == "online"))
+                .unwrap_or(true);
+            if info.is_some_and(|k| k.hello.as_ref().is_some_and(|h| h.claude == "missing"))
+                || !online
+            {
+                skipped.insert(env.clone());
+            }
+            if !online {
+                self.mark_stale(env, false);
+                continue;
+            }
+            match runs::removed(&deps.runner, Some(env)).await {
+                Ok(found) => {
+                    if let Ok(mut remote) = self.remote.lock() {
+                        remote.insert(env.clone(), found);
+                    }
+                }
+                Err(err) => {
+                    warnings.push(format!("ws review list --env {env}: {}", err.message));
+                    self.mark_stale(env, true);
+                }
+            }
+        }
+        skipped
+    }
+
+    /// Keeps an environment's previous runs, marked stale, and whether it
+    /// is connected.
+    fn mark_stale(&self, env: &str, online: bool) {
+        let Ok(mut remote) = self.remote.lock() else {
+            return;
+        };
+        for run in remote.entry(env.to_string()).or_default() {
+            run.snapshot_stale = true;
+            run.environment_online = online;
+        }
+    }
+
     /// Starts the reviews auto-review selects, and records each. Returns a
-    /// warning for each that failed to start.
-    async fn auto_review(&self, deps: &Deps, entries: &[Entry]) -> Vec<String> {
+    /// warning for each that failed to start. A repo on an environment in
+    /// `skipped` is left for the next check.
+    async fn auto_review(
+        &self,
+        deps: &Deps,
+        entries: &[Entry],
+        skipped: &BTreeSet<String>,
+    ) -> Vec<String> {
         let state = deps.store.get();
         let (prs, logins) = self
             .with_state(|s| {
                 let watched = view::watched_repos(s, &state);
                 let prs: Vec<(String, PullRequest)> = watched
                     .iter()
+                    .filter(|repo| !skipped.contains(&view::repo_environment(&state, repo)))
                     .filter_map(|repo| Some((repo, s.repos.get(repo)?)))
                     .flat_map(|(repo, r)| r.prs.iter().map(move |p| (repo.clone(), p.clone())))
                     .collect();
@@ -548,25 +684,47 @@ impl Checker {
             })
             .unwrap_or_default();
         let pairs: Vec<(&str, &PullRequest)> = prs.iter().map(|(r, p)| (r.as_str(), p)).collect();
-        let selected = auto::select(&pairs, entries, &state, &logins);
-        if selected.is_empty() {
-            return Vec::new();
-        }
+        let mut selected = auto::select(&pairs, entries, &state, &logins);
         let settings = &state.settings.reviews;
-        let choices = if settings.profiles.is_empty() {
-            Vec::new()
-        } else {
-            match profiles::list(&deps.runner)
-                .await
-                .and_then(|listed| profiles::choices(&listed, &settings.profiles))
-            {
-                Ok(choices) => choices,
-                Err(err) => return vec![format!("auto-review: {}", err.message)],
-            }
-        };
         let mut warnings = Vec::new();
+        selected.retain(|(repo, pr)| {
+            let environment = view::repo_environment(&state, repo);
+            let mode = settings.permission_mode.trim();
+            let refused = (!mode.is_empty())
+                .then(|| plan::permission_mode_for(remote_env(Some(&environment)), mode).err())
+                .flatten();
+            if let Some(err) = &refused {
+                warnings.push(format!(
+                    "auto-review of {}#{}: {}",
+                    super::names::repo_name(repo),
+                    pr.number,
+                    err.message
+                ));
+            }
+            refused.is_none()
+        });
+        if selected.is_empty() {
+            return warnings;
+        }
+        let mut choices: BTreeMap<String, Vec<profiles::ProfileChoice>> = BTreeMap::new();
+        for (repo, _) in &selected {
+            let environment = view::repo_environment(&state, repo);
+            if choices.contains_key(&environment) || settings.profiles.is_empty() {
+                continue;
+            }
+            let found = profiles::list(&deps.runner, remote_env(Some(&environment)))
+                .await
+                .and_then(|listed| profiles::choices(&listed, &settings.profiles));
+            match found {
+                Ok(found) => choices.insert(environment, found),
+                Err(err) => return vec![format!("auto-review: {}", err.message)],
+            };
+        }
         for (repo, pr) in selected {
-            let mut plan = plan::plan(repo, pr, settings, choices.clone());
+            let environment = view::repo_environment(&state, repo);
+            let chosen = choices.get(&environment).cloned().unwrap_or_default();
+            let mut plan = plan::plan(repo, pr, settings, chosen);
+            plan.environment = remote_env(Some(&environment)).map(str::to_string);
             plan.forge = self.forge_of(repo).unwrap_or_default();
             match self.start_review(&deps.runner, &plan).await {
                 Ok(started) if started.already => {}
@@ -762,11 +920,39 @@ impl Drop for Claim<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{Kind, ReviewRecord, Status};
     use crate::reviews::http::FakeHttp;
     use crate::reviews::merge::MergeStatus;
     use crate::reviews::store::{ProfileSetting, RepoWatch, Runs};
     use crate::reviews::tokens::TOKENS_FILE;
     use std::os::unix::fs::PermissionsExt;
+
+    fn review_workspace(id: &str, environment: &str) -> Entry {
+        let record = ReviewRecord {
+            repo: "github.com/o/r".into(),
+            git_ref: "abc".into(),
+            requester: String::new(),
+            profiles: vec![],
+            pr: None,
+        };
+        Entry {
+            review: Some(record),
+            environment: environment.to_string(),
+            ..crate::tray::attention::testing::entry(id, Status::Working)
+        }
+    }
+
+    #[test]
+    fn set_entries_drops_remote_entries_and_keeps_a_removed_local_review() {
+        let checker = Checker::default();
+        checker.set_entries(vec![review_workspace("a", "local")]);
+        checker.set_entries(vec![review_workspace("a", "linux-server")]);
+        let listed = checker.review_entries();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].kind, Kind::Removed);
+        assert_eq!(listed[0].environment, "local");
+        assert!(checker.entries().is_empty());
+    }
 
     #[test]
     fn next_delay_is_interval_without_backoff() {
@@ -890,6 +1076,7 @@ esac"#
                         RepoWatch {
                             watch: true,
                             auto_review,
+                            ..RepoWatch::default()
                         },
                     );
                 }
@@ -1156,6 +1343,7 @@ esac"#
                     RepoWatch {
                         watch: true,
                         auto_review: false,
+                        ..RepoWatch::default()
                     },
                 )
             })
@@ -1543,5 +1731,444 @@ esac"#
             Some(ForgeKind::Github)
         );
         assert_eq!(checker.forge_of("gitlab.example.com/team/svc"), None);
+    }
+
+    fn run_on(environment: &str, id: &str, number: u64) -> Entry {
+        let record = ReviewRecord {
+            repo: crate::reviews::view::tests::REPO.to_string(),
+            git_ref: crate::reviews::view::tests::HEAD.to_string(),
+            requester: String::new(),
+            profiles: vec![],
+            pr: Some(crate::model::ReviewPr {
+                number,
+                url: "u".to_string(),
+            }),
+        };
+        runs::entry_in(environment, id, record, None)
+    }
+
+    fn watching_on(environment: Option<&str>) -> crate::reviews::store::StateFile {
+        let mut state = crate::reviews::view::tests::watching();
+        state.reviews.set_watch(
+            crate::reviews::view::tests::REPO,
+            RepoWatch {
+                watch: true,
+                auto_review: false,
+                environment: environment.map(str::to_string),
+            },
+        );
+        state
+    }
+
+    #[test]
+    fn remote_runs_join_only_their_environment() {
+        use crate::reviews::view::tests::{checked, pr};
+        let entries = [
+            run_on("local", "review-local", 42),
+            run_on("linux-server", "review-remote", 42),
+            run_on("win-rig", "review-other", 42),
+        ];
+        let remote = view::build(
+            &checked(vec![pr(42)]),
+            &entries,
+            &watching_on(Some("linux-server")),
+        );
+        let ids: Vec<_> = remote.prs[0]
+            .reviews
+            .iter()
+            .map(|r| r.workspace_id.as_str())
+            .collect();
+        assert_eq!(ids, ["review-remote"]);
+        assert_eq!(remote.prs[0].reviews[0].environment, "linux-server");
+        let local = view::build(&checked(vec![pr(42)]), &entries, &watching_on(None));
+        let ids: Vec<_> = local.prs[0]
+            .reviews
+            .iter()
+            .map(|r| r.workspace_id.as_str())
+            .collect();
+        assert_eq!(ids, ["review-local"]);
+        assert_eq!(local.prs[0].group, view::Group::Reviewed);
+    }
+
+    #[test]
+    fn a_run_on_another_environment_does_not_make_the_pull_request_reviewed() {
+        use crate::reviews::view::tests::{checked, pr};
+        let entries = [run_on("linux-server", "review-remote", 42)];
+        let view = view::build(&checked(vec![pr(42)]), &entries, &watching_on(None));
+        assert_eq!(view.prs[0].group, view::Group::ToReview);
+        assert!(view.prs[0].reviews.is_empty());
+    }
+
+    #[test]
+    fn the_repo_view_names_its_environment() {
+        use crate::reviews::view::tests::{checked, pr};
+        let view = view::build(
+            &checked(vec![pr(42)]),
+            &[],
+            &watching_on(Some("linux-server")),
+        );
+        assert_eq!(view.repos[0].environment.as_deref(), Some("linux-server"));
+    }
+
+    const NO_REMOTE_RUNS: &str = r#"{"reviews":[],"environment":"linux-server","warnings":[]}"#;
+
+    const REMOTE_LIST: &str = r#"{"reviews":[{"id":"review-buff-bear-42-3f2a9c1-aa","review":{"repo":"github.com/bobcob7/buff-bear","ref":"3f2a9c1e0b6d4a2f9e8c7b6a5d4c3b2a1f0e9d8c","requester":"","started_at":"2026-10-28T09:00:00Z","profiles":[],"pr":{"number":42,"url":"u"}},"agent":null}],"environment":"linux-server","warnings":[]}"#;
+
+    fn env_json(status: &str, claude: &str) -> String {
+        format!(
+            r#"{{"environments":[{{"id":"e1","name":"linux-server","state":"enrolled","status":"{status}","last_seen":null,"created_at":null,"enrolled_at":null,"cert_not_after":null,"cert_ca":null,"hello":{{"ws_version":"0.9.0","os":"linux","arch":"amd64","claude":"{claude}","claude_version":null,"cert_not_after":"x"}},"workspaces":0}}],"warnings":[]}}"#
+        )
+    }
+
+    /// `fake_programs` whose `ws env list` prints `env.json` in its
+    /// directory, whose remote `ws review list` lists one finished review of
+    /// buff-bear#42, and whose remote `ws review start` makes one.
+    fn fake_remote(status: &str, claude: &str) -> tempfile::TempDir {
+        fake_remote_listing(status, claude, REMOTE_LIST)
+    }
+
+    /// `fake_remote` whose remote `ws review list` prints `listing`.
+    fn fake_remote_listing(status: &str, claude: &str, listing: &str) -> tempfile::TempDir {
+        let dir = fake_programs(&gh_script(&format!("echo '{PRS}'")), "exit 1");
+        set_env(&dir, status, claude);
+        let log = dir.path().join("ws.log");
+        let envfile = dir.path().join("env.json");
+        let ws = format!(
+            r#"echo "$@" >> '{log}'
+case "$1" in
+  cache) echo '{WATCHED_CACHE}' ;;
+  list) echo '{{"workspaces":[],"warnings":[]}}' ;;
+  config) case "$3" in get) echo '{CONFIG_DEFAULT}' ;; *) echo '{CONFIG_CHANGE}' ;; esac ;;
+  env) IFS= read -r line < '{envfile}'; echo "$line" ;;
+  review) case "$*" in
+    *"--json list --env=linux-server"*) echo '{listing}' ;;
+    *"--json list"*) echo '{{"reviews":[],"warnings":[]}}' ;;
+    *"start --env=linux-server"*) echo '{{"id":"review-buff-bear-42-3f2a9c1-bb","environment":"linux-server"}}' ;;
+    *profiles*) echo '{PROFILES}' ;;
+    *) exit 1 ;;
+  esac ;;
+esac"#,
+            log = log.display(),
+            envfile = envfile.display(),
+        );
+        let path = dir.path().join("ws");
+        std::fs::write(&path, format!("#!/bin/sh\n{ws}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        dir
+    }
+
+    fn set_env(dir: &tempfile::TempDir, status: &str, claude: &str) {
+        std::fs::write(dir.path().join("env.json"), env_json(status, claude)).unwrap();
+    }
+
+    fn watch_remote(deps: &Deps, auto_review: bool) {
+        deps.store
+            .update(|d| {
+                d.reviews.set_watch(
+                    "github.com/bobcob7/buff-bear",
+                    RepoWatch {
+                        watch: true,
+                        auto_review,
+                        environment: Some("linux-server".to_string()),
+                    },
+                );
+            })
+            .unwrap();
+    }
+
+    fn remote_reviews(checker: &Checker, deps: &Deps) -> Vec<view::ReviewView> {
+        let view = checker.view(&deps.store);
+        view.prs
+            .into_iter()
+            .find(|p| p.pr.number == 42)
+            .map(|p| p.reviews)
+            .unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn a_check_reads_the_runs_of_a_watched_repos_environment() {
+        let dir = fake_remote("online", "present");
+        let deps = deps(&dir, false);
+        watch_remote(&deps, false);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let reviews = remote_reviews(&checker, &deps);
+        assert_eq!(reviews.len(), 1);
+        assert_eq!(reviews[0].environment, "linux-server");
+        assert!(!reviews[0].stale);
+        assert!(reviews[0].removed);
+        assert!(ws_log(&dir).contains("review --json list --env=linux-server\n"));
+    }
+
+    #[tokio::test]
+    async fn offline_environment_keeps_last_runs_stale() {
+        let dir = fake_remote("online", "present");
+        let deps = deps(&dir, false);
+        watch_remote(&deps, false);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        set_env(&dir, "offline", "present");
+        checker.check(&deps).await;
+        let reviews = remote_reviews(&checker, &deps);
+        assert_eq!(reviews.len(), 1);
+        assert!(reviews[0].stale);
+        let remote_lists = ws_log(&dir).matches("list --env=linux-server").count();
+        assert_eq!(remote_lists, 1, "an offline environment isn't asked");
+        let view = checker.view(&deps.store);
+        assert_eq!(view.error, None, "one environment never fails the cycle");
+    }
+
+    #[tokio::test]
+    async fn a_failing_environment_keeps_its_runs_stale_and_the_cycle_goes_on() {
+        let dir = fake_remote("online", "present");
+        let deps = deps(&dir, false);
+        watch_remote(&deps, false);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let ws = std::fs::read_to_string(dir.path().join("ws")).unwrap();
+        std::fs::write(
+            dir.path().join("ws"),
+            ws.replace(
+                r#"*"--json list --env=linux-server"*) echo"#,
+                r#"*"--json list --env=linux-server"*) echo '{"error":{"code":"environment_failed","message":"no answer"}}' >&2; exit 1; echo"#,
+            ),
+        )
+        .unwrap();
+        checker.check(&deps).await;
+        let reviews = remote_reviews(&checker, &deps);
+        assert_eq!(reviews.len(), 1);
+        assert!(reviews[0].stale);
+        let view = checker.view(&deps.store);
+        assert!(
+            view.warnings.iter().any(|w| w.contains("no answer")),
+            "{:?}",
+            view.warnings
+        );
+        assert!(!view.prs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_recovered_environment_is_fresh_again() {
+        let dir = fake_remote("offline", "present");
+        let deps = deps(&dir, false);
+        watch_remote(&deps, false);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        assert!(remote_reviews(&checker, &deps).is_empty());
+        set_env(&dir, "online", "present");
+        checker.check(&deps).await;
+        let reviews = remote_reviews(&checker, &deps);
+        assert_eq!(reviews.len(), 1);
+        assert!(!reviews[0].stale);
+    }
+
+    #[tokio::test]
+    async fn auto_review_starts_a_review_on_the_repos_environment() {
+        let dir = fake_remote_listing("online", "present", NO_REMOTE_RUNS);
+        let deps = deps(&dir, true);
+        watch_remote(&deps, true);
+        deps.store
+            .update(|d| d.reviews.auto_started.clear())
+            .unwrap();
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let log = ws_log(&dir);
+        assert!(
+            log.contains(
+                "review start --env=linux-server --json --pr 42 github.com/bobcob7/buff-bear\n"
+            ),
+            "{log}"
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_review_skips_offline_environment() {
+        let dir = fake_remote_listing("offline", "present", NO_REMOTE_RUNS);
+        let deps = deps(&dir, true);
+        watch_remote(&deps, true);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        assert!(!ws_log(&dir).contains("review start"), "{}", ws_log(&dir));
+        assert!(deps.store.get().reviews.auto_started.is_empty());
+        set_env(&dir, "online", "present");
+        checker.check(&deps).await;
+        assert!(ws_log(&dir).contains("review start --env=linux-server"));
+    }
+
+    #[tokio::test]
+    async fn auto_review_skips_an_environment_without_claude() {
+        let dir = fake_remote_listing("online", "missing", NO_REMOTE_RUNS);
+        let deps = deps(&dir, true);
+        watch_remote(&deps, true);
+        Checker::default().check(&deps).await;
+        assert!(!ws_log(&dir).contains("review start"), "{}", ws_log(&dir));
+        assert!(deps.store.get().reviews.auto_started.is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_env_list_call_without_remote_repos() {
+        let dir = fake_programs(&gh_script(&format!("echo '{PRS}'")), "exit 1");
+        let deps = deps(&dir, false);
+        Checker::default().check(&deps).await;
+        let log = ws_log(&dir);
+        assert!(!log.contains("env list"), "{log}");
+        assert!(!log.contains("--env"), "{log}");
+    }
+
+    #[tokio::test]
+    async fn unwatched_repo_with_environment_makes_no_remote_call() {
+        let dir = fake_remote("online", "present");
+        let deps = deps(&dir, false);
+        deps.store
+            .update(|d| {
+                for repo in [
+                    "github.com/bobcob7/buff-bear",
+                    "github.com/bobcob7/api",
+                    SVC,
+                ] {
+                    d.reviews.set_watch(
+                        repo,
+                        RepoWatch {
+                            watch: false,
+                            auto_review: false,
+                            environment: Some("linux-server".to_string()),
+                        },
+                    );
+                }
+            })
+            .unwrap();
+        Checker::default().check(&deps).await;
+        let log = ws_log(&dir);
+        assert!(!log.contains("env list"), "{log}");
+        assert!(!log.contains("--env"), "{log}");
+    }
+
+    #[tokio::test]
+    async fn env_list_runs_once_per_cycle_for_any_number_of_environments() {
+        let dir = fake_remote("online", "present");
+        let deps = deps(&dir, false);
+        watch_remote(&deps, false);
+        deps.store
+            .update(|d| {
+                d.reviews.set_watch(
+                    "github.com/bobcob7/api",
+                    RepoWatch {
+                        watch: true,
+                        auto_review: false,
+                        environment: Some("linux-server".to_string()),
+                    },
+                );
+            })
+            .unwrap();
+        Checker::default().check(&deps).await;
+        assert_eq!(ws_log(&dir).matches("env list").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_unwatched_environments_runs_are_dropped() {
+        let dir = fake_remote("online", "present");
+        let deps = deps(&dir, false);
+        watch_remote(&deps, false);
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        deps.store
+            .update(|d| {
+                d.reviews.set_watch(
+                    "github.com/bobcob7/buff-bear",
+                    RepoWatch {
+                        watch: true,
+                        ..RepoWatch::default()
+                    },
+                );
+            })
+            .unwrap();
+        checker.check(&deps).await;
+        assert!(checker
+            .review_entries()
+            .iter()
+            .all(|e| e.environment == "local"));
+    }
+
+    #[tokio::test]
+    async fn auto_review_does_not_start_remote_with_bypass() {
+        let dir = fake_remote_listing("online", "present", NO_REMOTE_RUNS);
+        let deps = deps(&dir, true);
+        watch_remote(&deps, true);
+        deps.store
+            .update(|d| {
+                d.settings.reviews.permission_mode = "bypassPermissions".to_string();
+                d.settings.reviews.profiles.insert(
+                    "security".to_string(),
+                    ProfileSetting {
+                        runs: Runs::Always,
+                        model: "opus".to_string(),
+                    },
+                );
+                d.reviews.auto_started.clear();
+            })
+            .unwrap();
+        let checker = Checker::default();
+        checker.check(&deps).await;
+        let log = ws_log(&dir);
+        assert!(!log.contains("review start"), "{log}");
+        assert!(!log.contains("review profiles"), "{log}");
+        assert!(deps.store.get().reviews.auto_started.is_empty());
+        let view = checker.view(&deps.store);
+        assert!(
+            view.warnings
+                .iter()
+                .any(|w| w.contains("bypassPermissions")),
+            "{:?}",
+            view.warnings
+        );
+    }
+
+    #[tokio::test]
+    async fn starts_with_the_same_name_on_two_environments_do_not_block_each_other() {
+        let started = r#"sleep 1; echo '{"id":"started"}'"#;
+        let dir = fake_programs(&gh_script(&format!("echo '{PRS}'")), started);
+        let runner = Runner::new(dir.path().display().to_string());
+        let local = plan::plan(
+            crate::reviews::view::tests::REPO,
+            &crate::reviews::view::tests::pr(42),
+            &Default::default(),
+            vec![],
+        );
+        let remote = ReviewPlan {
+            environment: Some("linux-server".to_string()),
+            ..local.clone()
+        };
+        let checker = Checker::default();
+        let (a, b) = tokio::join!(
+            checker.start_review(&runner, &local),
+            checker.start_review(&runner, &remote)
+        );
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert!(!a.already && !b.already, "{}", ws_log(&dir));
+    }
+
+    #[tokio::test]
+    async fn starting_a_remote_review_ignores_a_local_one_of_the_same_name() {
+        let checker = Checker::default();
+        let dir = fake_remote("online", "present");
+        let runner = Runner::new(dir.path().display().to_string());
+        let plan = ReviewPlan {
+            environment: Some("linux-server".to_string()),
+            ..plan::plan(
+                crate::reviews::view::tests::REPO,
+                &crate::reviews::view::tests::pr(42),
+                &Default::default(),
+                vec![],
+            )
+        };
+        checker.set_entries(vec![crate::reviews::view::tests::review(
+            42,
+            crate::reviews::view::tests::HEAD,
+            Status::Working,
+            "2026-10-24T10:00:00Z",
+        )]);
+        let started = checker.start_review(&runner, &plan).await.unwrap();
+        assert!(!started.already);
+        assert_eq!(started.id, "review-buff-bear-42-3f2a9c1-bb");
     }
 }

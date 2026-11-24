@@ -78,3 +78,27 @@ func TestApp_runSetHidden(t *testing.T) {
 		assert.ErrorIs(t, e.app.runSetHidden(renamedID, true), errTest)
 	})
 }
+
+func TestApp_newVisibilityCmdRemote(t *testing.T) {
+	t.Run("--env hides through workspace.hide", func(t *testing.T) {
+		e, caller, _ := newEnvOpApp(t, `{"ok":true,"result":{"id":"a","name":null,"path":"/p","hidden":true,"warnings":[]},"error":null}`)
+		cmd := e.app.newHideCmd()
+		cmd.SetContext(t.Context())
+		require.NoError(t, cmd.Flags().Set("env", "linux-server"))
+		require.NoError(t, cmd.RunE(cmd, []string{"a"}))
+		assert.Equal(t, "a  hidden\n", e.stdout.String())
+		calls := caller.CallEnvironmentCalls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, "workspace.hide", calls[0].Req.Op)
+		assert.JSONEq(t, `{"workspace":"a","hidden":true}`, string(calls[0].Req.Args))
+	})
+	t.Run("unhide with --env sends hidden false", func(t *testing.T) {
+		e, caller, _ := newEnvOpApp(t, `{"ok":true,"result":{"id":"a","name":null,"path":"/p","hidden":false,"warnings":[]},"error":null}`)
+		cmd := e.app.newUnhideCmd()
+		cmd.SetContext(t.Context())
+		require.NoError(t, cmd.Flags().Set("env", "linux-server"))
+		require.NoError(t, cmd.RunE(cmd, []string{"a"}))
+		assert.Equal(t, "a  visible\n", e.stdout.String())
+		assert.JSONEq(t, `{"workspace":"a","hidden":false}`, string(caller.CallEnvironmentCalls()[0].Req.Args))
+	})
+}

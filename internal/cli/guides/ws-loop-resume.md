@@ -1,8 +1,10 @@
 # ws loop resume
 
 ```
-ws loop resume [--json] <NAME>
+ws loop resume [--json] [--env <NAME>] <NAME>
 ```
+
+`--env <NAME>` runs it on that environment (`ws env list`).
 
 Starts a paused loop again. If its `next_run_at` passed while it was paused,
 the next run is one period after now. Resuming a loop that isn't paused

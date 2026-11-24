@@ -91,6 +91,21 @@ type App struct {
 	// dialEnvironments is the client to the daemon's call endpoint, started
 	// when none runs (ADR 0068): the daemon's client, unless a test replaces it.
 	dialEnvironments func(ctx context.Context) (environmentCaller, error)
+	// presence is the status the running daemon reports for each environment
+	// name; tests replace it.
+	presence func(ctx context.Context) map[string]string
+	// dialTerminals is the client that opens remote terminals through the
+	// daemon, started when none runs: the daemon's client, unless a test
+	// replaces it.
+	dialTerminals func(ctx context.Context) (terminalOpener, error)
+	// stdinTerminal tells whether stdin is a terminal; rawMode puts it in raw
+	// mode and returns what restores it; termSize is the terminal's size;
+	// pause waits, for pacing input and coalescing resizes. Tests replace
+	// them.
+	stdinTerminal func() bool
+	rawMode       func() (restore func(), err error)
+	termSize      func() (cols, rows int, err error)
+	pause         func(ctx context.Context, d time.Duration)
 	// runnerWait is how long a started runner has to write its status
 	// (reference.md's 10 s).
 	runnerWait time.Duration
@@ -168,6 +183,12 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	}
 	a.dialDaemon = a.dialDaemonClient
 	a.dialEnvironments = a.dialEnvironmentCaller
+	a.presence = a.environmentPresence
+	a.dialTerminals = a.dialTerminalOpener
+	a.stdinTerminal = a.stdinIsTerminal
+	a.rawMode = a.localRawMode
+	a.termSize = a.localTermSize
+	a.pause = pauseFor
 	a.newEnvBroker = func(log *slog.Logger) (envBroker, error) { return mqttbroker.New(log), nil }
 	a.newEnvClient = func(log *slog.Logger) (envClient, error) { return mqttclient.New(log), nil }
 	a.newStores = func(paths config.Paths, cfg config.Config) stores {
@@ -265,12 +286,14 @@ func (a *App) newRootCmd() *cobra.Command {
 	for _, cmd := range []*cobra.Command{
 		a.newClaudeCmd(),
 		a.newShellCmd(),
+		a.newAttachCmd(),
 		a.newRestoreCmd(),
 		a.newRestartCmd(),
 		a.newContinueCmd(),
 		a.newLoopCmd(),
 		a.newListCmd(),
 		a.newRmCmd(),
+		a.newStopCmd(),
 		a.newRenameCmd(),
 		a.newHideCmd(),
 		a.newUnhideCmd(),

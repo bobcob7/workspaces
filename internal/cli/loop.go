@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/loop"
 )
 
@@ -47,14 +48,24 @@ type loopAddOptions struct {
 
 func (a *App) newLoopAddCmd() *cobra.Command {
 	var opts loopAddOptions
+	var remote loopEnvOptions
 	cmd := &cobra.Command{
 		Use:   "add [OPTIONS] <NAME> [<SPEC>...]",
 		Short: "Add a loop that starts an agent every period",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoopAdd(cmd, env, args, &opts, remote.yes)
+			}
 			return a.runLoopAdd(cmd, args, &opts)
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	addLoopYesFlag(cmd, &remote)
 	cmd.Flags().StringVar(&opts.title, "title", "", "a display name, such as \"Nightly deps bump\"; up to 80 characters")
 	cmd.Flags().StringVar(&opts.every, "every", "", "how often a run starts: whole minutes from 5m to 168h, such as 15m or 24h (required)")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "the prompt each run starts with (required)")
@@ -87,47 +98,93 @@ func hiddenFlag(changed func(string) bool, hidden, show bool) (value, given bool
 }
 
 func (a *App) newLoopListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
+	var remote loopEnvOptions
+	var cached bool
+	cmd := &cobra.Command{
+		Use:   "list [--env <NAME> [--cached]]",
 		Short: "List every loop",
 		Args:  cobra.NoArgs,
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, _ []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if cached && env == "" {
+				return usageErrorf("--cached reads an environment's snapshot; give --env")
+			}
+			if env != "" {
+				return a.runRemoteLoopList(cmd.Context(), env, cached)
+			}
 			return a.runLoopList(cmd.Context())
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	cmd.Flags().BoolVar(&cached, "cached", false, "with --env, read the snapshot's loops without asking the environment")
+	return cmd
 }
 
 func (a *App) newLoopPauseCmd() *cobra.Command {
-	return &cobra.Command{
+	var remote loopEnvOptions
+	cmd := &cobra.Command{
 		Use:   "pause <NAME>",
 		Short: "Stop a loop from starting runs",
 		Args:  cobra.ExactArgs(1),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoop(cmd.Context(), env, envproto.OpLoopPause, envproto.LoopName{Name: args[0]})
+			}
 			return a.runLoopPause(cmd.Context(), args[0])
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	return cmd
 }
 
 func (a *App) newLoopResumeCmd() *cobra.Command {
-	return &cobra.Command{
+	var remote loopEnvOptions
+	cmd := &cobra.Command{
 		Use:   "resume <NAME>",
 		Short: "Start a paused loop again",
 		Args:  cobra.ExactArgs(1),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoop(cmd.Context(), env, envproto.OpLoopResume, envproto.LoopName{Name: args[0]})
+			}
 			return a.runLoopResume(cmd.Context(), args[0])
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	return cmd
 }
 
 func (a *App) newLoopRmCmd() *cobra.Command {
-	return &cobra.Command{
+	var remote loopEnvOptions
+	cmd := &cobra.Command{
 		Use:   "rm <NAME>",
 		Short: "Delete a loop; its runs' workspaces stay",
 		Args:  cobra.ExactArgs(1),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoopRm(cmd.Context(), env, args[0], remote.yes)
+			}
 			return a.runLoopRm(cmd.Context(), args[0])
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	addLoopYesFlag(cmd, &remote)
+	return cmd
 }
 
 // loopJSON is a loop in ws loop's output (docs/tools/ws-loop.md).

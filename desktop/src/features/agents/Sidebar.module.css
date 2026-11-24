@@ -199,3 +199,7 @@ li[data-context="true"] > .node {
     min-height: 40px;
   }
 }
+
+.item[data-dimmed="true"] {
+  opacity: 0.6;
+}

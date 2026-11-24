@@ -79,10 +79,21 @@ struct ProfilesList {
     profiles: Vec<ListedProfile>,
 }
 
-/// Runs `ws review profiles --json`.
-pub async fn list(runner: &Runner) -> Result<Vec<ListedProfile>, AppError> {
-    let args = ["review", "profiles", "--json"].map(str::to_string);
-    let list: ProfilesList = runner.ws_json_as_given(&args).await?;
+/// `ws review profiles --json [--env=<name>]`.
+pub fn list_args(environment: Option<&str>) -> Vec<String> {
+    let mut args = ["review", "profiles", "--json"]
+        .map(str::to_string)
+        .to_vec();
+    args.extend(crate::commands::env_args(environment));
+    args
+}
+
+/// Runs `ws review profiles --json`, on an environment when one is named.
+pub async fn list(
+    runner: &Runner,
+    environment: Option<&str>,
+) -> Result<Vec<ListedProfile>, AppError> {
+    let list: ProfilesList = runner.ws_json_as_given(&list_args(environment)).await?;
     Ok(list.profiles)
 }
 
@@ -245,6 +256,16 @@ pub fn choices(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_args_name_the_environment_only_when_remote() {
+        assert_eq!(list_args(None), ["review", "profiles", "--json"]);
+        assert_eq!(list_args(Some("local")), ["review", "profiles", "--json"]);
+        assert_eq!(
+            list_args(Some("linux-server")),
+            ["review", "profiles", "--json", "--env=linux-server"]
+        );
+    }
 
     fn listed(name: &str, when: Runs, patterns: &[&str], model: &str) -> ListedProfile {
         ListedProfile {

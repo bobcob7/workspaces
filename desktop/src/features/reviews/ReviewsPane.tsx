@@ -10,6 +10,7 @@ import { MergeBadge } from "./MergeBadge";
 import { PrDot } from "./PrDot";
 import { ReportView } from "./ReportView";
 import { defaultTriage, fetchReport, reportKey, reviewViewed, tabChosen, type DetailTab } from "./reportsSlice";
+import { useEnvironmentBlock } from "./remote";
 import { ReviewCard } from "./ReviewCard";
 import { askAboutPr, dismissPr, fetchPlan, openStartDialog, restorePr, startReview, watchedOpened } from "./reviewsSlice";
 import styles from "./ReviewsPane.module.css";
@@ -75,7 +76,7 @@ const PrHeader = ({ pr, review }: PrHeaderProps): JSX.Element => {
   const requester = useAppSelector((s) =>
     review === undefined || !review.recorded
       ? null
-      : review.requester ?? s.reports.byKey[reportKey(pr.repo, review.sha)]?.report?.review?.requester ?? null,
+      : review.requester ?? s.reports.byKey[reportKey(pr.repo, review.sha, review.environment)]?.report?.review?.requester ?? null,
   );
   const busy = useAppSelector((s) => s.reviews.busy.includes(pr.key));
   const asking = useAppSelector((s) => s.reviews.asking.includes(pr.key));
@@ -276,13 +277,15 @@ const TabRow = ({ pr, review, tabs, tab, findings }: TabRowProps): JSX.Element =
 const ReviewedDetail = ({ pr, review }: { readonly pr: PullRequest; readonly review: ReviewRun }): JSX.Element => {
   const dispatch = useAppDispatch();
   const triage = useAppSelector((s) => s.reports.triage[pr.key]) ?? defaultTriage;
-  const entry = useAppSelector((s) => s.reports.byKey[reportKey(pr.repo, review.sha)]);
+  const entry = useAppSelector((s) => s.reports.byKey[reportKey(pr.repo, review.sha, review.environment)]);
+  const offline = useEnvironmentBlock(review.environment) !== "";
   const working = isReviewing(review.status);
   useEffect(() => {
-    if (review.recorded) {
-      void dispatch(fetchReport({ repo: pr.repo, ref: review.sha, refresh: true }));
+    if (review.recorded && !offline) {
+      const reviewId = review.environment === "local" ? undefined : review.workspaceId;
+      void dispatch(fetchReport({ repo: pr.repo, ref: review.sha, refresh: true, environment: review.environment, reviewId }));
     }
-  }, [dispatch, pr.repo, review.sha, review.recorded]);
+  }, [dispatch, pr.repo, review.sha, review.recorded, review.environment, review.workspaceId, offline]);
   const report = entry?.report ?? null;
   const hasFindings =
     review.recorded &&

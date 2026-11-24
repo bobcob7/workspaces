@@ -157,6 +157,8 @@ watched repo is on a GitHub host.
 instead, `ws review start --json --name <0032 name> <repo>@<head sha>`, and
 matches the review to its pull request by that name, as it does for
 workspaces without a record ([0032](0032-review-agent-per-pr-head.md)).
+The review starts on the repo's environment ([0080](0080-reviews-and-loops-on-environments.md)):
+`ws review start --env <name>`, with the remote's own forge sign-in.
 
 **Filters** are frontend state: the search box as today, plus an author,
 an "involves me" choice (anyone, mine or requested, mine, requested of me),

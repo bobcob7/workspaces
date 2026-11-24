@@ -70,3 +70,14 @@
 .reply {
   line-height: 1.55;
 }
+
+.root[data-dimmed] {
+  opacity: 0.7;
+}
+
+.note {
+  margin: 0;
+  padding: 6px 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+}

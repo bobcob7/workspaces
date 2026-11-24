@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -15,6 +16,7 @@ import (
 type rmOptions struct {
 	dryRun       bool
 	keepChildren bool
+	env          string
 	// caller is the workspace ws machine rm removes for, which is never
 	// removed and adopts --keep-children's children; "" for ws rm (ADR
 	// 0046).
@@ -36,6 +38,7 @@ func (a *App) newRmCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print what would be removed, change nothing")
 	cmd.Flags().BoolVar(&opts.keepChildren, "keep-children", false, "make the workspaces it started top-level instead of removing them")
+	cmd.Flags().StringVar(&opts.env, "env", "", "remove the workspaces on this environment (ws env list); default: local")
 	return cmd
 }
 
@@ -63,7 +66,26 @@ type rmTarget struct {
 // failure doesn't stop the others; the exit code is the first failure's
 // (ADR 0016).
 func (a *App) runRm(ctx context.Context, opts *rmOptions) error {
+	name, remote, err := a.remoteTarget(opts.env)
+	if err != nil {
+		return err
+	}
+	if remote {
+		return a.runRemoteRm(ctx, name, opts)
+	}
 	return a.removeTargets(ctx, a.rmTargets(opts.workspaces), opts)
+}
+
+// runRemoteRm removes each workspace on env with workspace.rm. The agent has
+// no dry run.
+func (a *App) runRemoteRm(ctx context.Context, env string, opts *rmOptions) error {
+	if opts.dryRun {
+		return usageErrorf("--dry-run isn't supported with --env: the agent has no dry run")
+	}
+	argsFor := func(id string) any {
+		return envproto.RmArgs{Workspace: id, KeepChildren: opts.keepChildren}
+	}
+	return a.remoteWorkspaceOp(ctx, env, envproto.OpWorkspaceRm, argsFor, opts.workspaces)
 }
 
 // removeTargets removes each target that names a workspace, with its
@@ -139,7 +161,7 @@ func (a *App) rmTarget(arg string) rmTarget {
 			return rmTarget{arg: arg, swept: &r}
 		}
 	}
-	return rmTarget{arg: arg, err: err}
+	return rmTarget{arg: arg, err: a.withRemoteHint(arg, err)}
 }
 
 // sweptMatch finds arg among the workspaces the removal pass removed: by

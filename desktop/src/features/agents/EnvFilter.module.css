@@ -1,0 +1,33 @@
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 4px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--mui-palette-divider, #888);
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--mui-palette-action-selected, rgba(128, 128, 128, 0.25));
+  border-color: currentColor;
+}
+
+@media (max-width: 720px) {
+  .chip {
+    min-height: 40px;
+  }
+}

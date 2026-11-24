@@ -230,6 +230,8 @@ export interface FindingRowProps {
   readonly onDecide: (decision: DecisionKind | "clear", suggestion?: number) => void;
   readonly onNote: (text: string) => void;
   readonly onOpenAgent: (id: string) => void;
+  /** The remote environment the report is from; absent for a local one. */
+  readonly environment?: string;
 }
 
 /** One finding: a row that expands to its body, anchors, code, suggestions, and note. */
@@ -249,6 +251,7 @@ export const FindingRow = ({
   onDecide,
   onNote,
   onOpenAgent,
+  environment,
 }: FindingRowProps): JSX.Element => {
   const { comment, readOnly } = finding;
   const [first, ...more] = comment.anchors;
@@ -318,6 +321,9 @@ export const FindingRow = ({
       {expanded && (
         <div className={styles.findingBody}>
           <MarkdownText text={comment.body} />
+          {comment.truncated === true && environment !== undefined && (
+            <p className={styles.truncated}>This finding was cut to fit; open the full report on {environment}</p>
+          )}
           {comment.anchors.length > 1 && (
             <ul className={styles.anchors} aria-label="Anchors">
               {comment.anchors.map((a) => (

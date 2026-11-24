@@ -12,6 +12,7 @@ mod cache;
 mod commands;
 mod daemon_host;
 mod env;
+mod environments;
 mod host;
 mod ipc;
 mod jobs;
@@ -28,6 +29,8 @@ mod runner;
 mod runner_service;
 mod secrets;
 mod stats;
+#[cfg(test)]
+mod test_support;
 mod transcript;
 mod tray;
 mod ws_config;
@@ -179,6 +182,12 @@ pub fn run() {
             loops::loops_memory_remove,
             loops::loops_memory_clear,
             stats::stats_get,
+            environments::environments_list,
+            environments::environment_add,
+            environments::environment_rotate,
+            environments::environment_remove,
+            environments::environments_ca_status,
+            environments::environments_ca_rotate,
             artifacts::artifact_list,
             artifacts::artifact_show,
             artifacts::artifact_read,

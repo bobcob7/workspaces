@@ -4,7 +4,11 @@ Decisions: [0072](../../adrs/0072-remote-environments.md),
 [0073](../../adrs/0073-environment-agent-is-ws.md),
 [0074](../../adrs/0074-mqtt-transport-embedded-broker.md),
 [0075](../../adrs/0075-environment-enrollment-and-certificates.md),
-[0076](../../adrs/0076-environment-platforms-and-phasing.md).
+[0076](../../adrs/0076-environment-platforms-and-phasing.md),
+[0080](../../adrs/0080-reviews-and-loops-on-environments.md).
+
+Task lists and measurements: [PR 4's tasks](tasks-ui.md) with its
+[constraints](constraints-ui.md), the [reviews and loops tasks](tasks-rl.md) with their [constraints](constraints-rl.md), and the [terminal spike](terminal-spike.md). The Loops-by-environment wireframe is below.
 
 ## Picture
 
@@ -77,6 +81,25 @@ Each row gets a small environment badge unless it's `local`. A filter chip
 row lists environments with their online dots. An offline environment's
 rows are dimmed with "offline" and keep their last known status; their
 actions (attach, stop, remove) are disabled with the reason.
+
+## Loops by environment
+
+```
+Loops                                  [ local | linux-server | win-rig ]  [ New loop ]
+● local
+  nightly-deps      every 24h   next 02:00
+● linux-server      online
+  triage            every 1h    next 14:30   last run ok
+○ win-rig           offline (last seen 14:02), dimmed
+  Loops on win-rig don't run while it is offline; missed runs are skipped,
+  not made up.
+  build-watch       every 1h    next 14:30   Run now, Edit, Delete disabled
+```
+
+The list reads the snapshot (`ws loop list --env <name> --cached`), so it
+works offline. Saving a script or `bypassPermissions` on a remote asks first:
+"This script runs as the agent's user on linux-server, every 1h, outside
+Claude Code's permissions." ([0080](../../adrs/0080-reviews-and-loops-on-environments.md))
 
 ## Failure messages
 

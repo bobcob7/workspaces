@@ -20,6 +20,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/loop"
 )
 
 // newEnvTestApp is newDaemonTestApp with the stub stores that a command's
@@ -29,6 +30,7 @@ func newEnvTestApp(t *testing.T) (*App, *bytes.Buffer, *bytes.Buffer) {
 	app, stdout, stderr := newDaemonTestApp(t)
 	s := app.newStores(app.paths, app.config)
 	app.cache, app.workspaces, app.lifetime = s.cache, s.workspaces, s.lifetime
+	app.loops = loop.NewStore(app.paths.Loops)
 	return app, stdout, stderr
 }
 

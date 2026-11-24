@@ -43,7 +43,7 @@ func (a *App) newListCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.idsOnly, "ids", "q", false, "print only workspace IDs")
 	cmd.Flags().StringVar(&opts.repo, "repo", "", "only workspaces containing this repo")
 	cmd.Flags().StringVar(&opts.parent, "parent", "", "only the workspaces this one started")
-	cmd.Flags().StringArrayVar(&opts.envs, "env", nil, "only these environments (local or a name from ws env list); default: local")
+	cmd.Flags().StringArrayVar(&opts.envs, "env", nil, "only these environments (local or a name from ws env list); default: every environment")
 	return cmd
 }
 
@@ -62,6 +62,9 @@ type listEntryJSON struct {
 	Environment       string `json:"environment"`
 	EnvironmentStatus string `json:"environment_status"`
 	Stale             bool   `json:"stale"`
+	// AgentState is the state of the remote agent that runs the entry's
+	// session, or null (D9).
+	AgentState *string `json:"agent_state"`
 }
 
 type listWorkspaceJSON struct {
@@ -143,7 +146,7 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 		}
 		filter = &sp
 	}
-	envs, err := a.selectEnvironments(opts.envs)
+	envs, err := a.listedEnvironments(opts)
 	if err != nil {
 		return err
 	}

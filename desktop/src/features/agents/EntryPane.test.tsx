@@ -1,8 +1,10 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { entry, fakeApi, fakeHost, testStore } from "../../test/fixtures";
+import { entry, fakeApi, fakeHost, remoteEnvironment, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
+import { clock } from "../environments/environments";
+import { agentViewChosen } from "../ui/uiSlice";
 import { fetchEntries } from "./agentsSlice";
 import { EntryPane } from "./EntryPane";
 
@@ -36,7 +38,7 @@ describe("EntryPane", () => {
     await userEvent.clear(field);
     await userEvent.type(field, "  Login fix ");
     await userEvent.click(screen.getByRole("button", { name: "Rename" }));
-    expect(api.renameWorkspace).toHaveBeenCalledWith("this-is-a-test-d8efb24f", "Login fix");
+    expect(api.renameWorkspace).toHaveBeenCalledWith("this-is-a-test-d8efb24f", "Login fix", "local");
   });
 
   it("doesn't rename to an empty name", async () => {
@@ -59,7 +61,7 @@ describe("EntryPane", () => {
     renderWithStore(<EntryPane entry={shellWorkspace} />, testStore({ api }));
     expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Hide" }));
-    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true);
+    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true, "local");
   });
 
   it("marks a hidden workspace and unhides it", async () => {
@@ -67,7 +69,7 @@ describe("EntryPane", () => {
     renderWithStore(<EntryPane entry={{ ...shellWorkspace, hidden: true }} />, testStore({ api }));
     expect(screen.getByText("Hidden")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Unhide" }));
-    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", false);
+    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", false, "local");
   });
 
   it("offers no Hide outside a workspace", () => {
@@ -145,7 +147,7 @@ describe("EntryPane", () => {
       expect(within(dialog).getByText("Remove fix-login and 3 workspaces it started?")).toBeInTheDocument();
       expect(within(dialog).getByText(/its findings are kept/)).toBeInTheDocument();
       await userEvent.click(within(dialog).getByRole("button", { name: "Remove 4 workspaces" }));
-      expect(api.removeEntry).toHaveBeenCalledWith("root", "e8cdf5d8", false);
+      expect(api.removeEntry).toHaveBeenCalledWith("root", "e8cdf5d8", false, "local");
     });
 
     it("can keep what it started", async () => {
@@ -155,7 +157,7 @@ describe("EntryPane", () => {
       const dialog = screen.getByRole("dialog");
       await userEvent.click(within(dialog).getByRole("checkbox", { name: /Keep the workspaces it started/ }));
       await userEvent.click(within(dialog).getByRole("button", { name: "Remove 1 workspace" }));
-      expect(api.removeEntry).toHaveBeenCalledWith("root", "e8cdf5d8", true);
+      expect(api.removeEntry).toHaveBeenCalledWith("root", "e8cdf5d8", true, "local");
     });
 
     it("has no children card without children", () => {
@@ -302,7 +304,7 @@ describe("EntryPane opening a workspace", () => {
       expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "More actions" }));
       await userEvent.click(screen.getByRole("menuitem", { name: "Hide" }));
-      expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true);
+      expect(api.setWorkspaceHidden).toHaveBeenCalledWith("this-is-a-test-d8efb24f", true, "local");
     });
 
     it("lists the open actions first in More actions", async () => {
@@ -431,5 +433,201 @@ describe("EntryPane for a ws runner child", () => {
     const run = screen.getByRole("region", { name: "Run" });
     expect(within(run).getByText("gpu (http://gpu-a.inference.svc:1234, OpenAI-compatible)")).toBeInTheDocument();
     expect(within(run).getByText("step 12 of 80")).toBeInTheDocument();
+  });
+});
+
+describe("EntryPane for a remote entry", () => {
+  const remoteAgent = entry({
+    key: "env:linux-server:fix-login",
+    environment: "linux-server",
+    workspaceId: "fix-login",
+    sessionId: "s1",
+    path: "/home/ci/ws/fix-login",
+    status: "working",
+  });
+  const storeFor = (
+    options: { api?: ReturnType<typeof fakeApi>; host?: ReturnType<typeof fakeHost>; env?: ReturnType<typeof remoteEnvironment>; entries?: ReturnType<typeof entry>[] } = {},
+  ): ReturnType<typeof testStore> => {
+    const store = testStore({
+      api: options.api,
+      terminals: options.host,
+      state: {
+        environments: {
+          items: [options.env ?? remoteEnvironment()],
+          loadedAt: Date.now(),
+          error: null,
+          latestRequestId: null,
+          warnings: [],
+          lastChoice: "local",
+        },
+      },
+    });
+    store.dispatch(fetchEntries.fulfilled({ entries: options.entries ?? [remoteAgent], warnings: [] }, "req"));
+    return store;
+  };
+  const offlineEnv = remoteEnvironment({ status: "offline", lastSeen: "2026-11-23T14:02:00Z" });
+  const offlineAgent = { ...remoteAgent, environmentOnline: false };
+
+  it("a remote agent's actions are disabled with the reason when offline", () => {
+    const host = fakeHost();
+    renderWithStore(<EntryPane entry={offlineAgent} />, storeFor({ env: offlineEnv, host }));
+    const reason = `linux-server is offline (last seen ${clock("2026-11-23T14:02:00Z", Date.now())})`;
+    for (const name of ["Stop", "Rename", "Hide", "Remove"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", reason);
+    }
+    expect(screen.getByRole("button", { name: "Attach" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Attach" })).toHaveAttribute("title", reason);
+    expect(screen.getByText("offline")).toBeInTheDocument();
+    expect(host.open).not.toHaveBeenCalled();
+  });
+
+  it("a stale remote agent of an online environment keeps its actions", () => {
+    renderWithStore(<EntryPane entry={{ ...remoteAgent, snapshotStale: true }} />, storeFor());
+    expect(screen.getByText("stale")).toBeInTheDocument();
+    for (const name of ["Stop", "Rename", "Hide", "Remove"]) {
+      expect(screen.getByRole("button", { name })).toBeEnabled();
+    }
+  });
+
+  it("Open folder is disabled for a remote entry", async () => {
+    renderWithStore(<EntryPane entry={remoteAgent} />, storeFor());
+    await userEvent.click(screen.getByRole("button", { name: "Open..." }));
+    const folder = screen.getByRole("menuitem", { name: "Open folder" });
+    expect(folder).toHaveAttribute("aria-disabled", "true");
+    expect(folder).toHaveAttribute("title", "The files are on linux-server");
+    expect(screen.getByRole("menuitem", { name: "Open in Editor" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("menuitem", { name: "Open terminal" })).not.toBeInTheDocument();
+  });
+
+  it("doesn't make the path a file-manager link", () => {
+    renderWithStore(<EntryPane entry={remoteAgent} />, storeFor());
+    expect(screen.getByText("/home/ci/ws/fix-login").tagName).toBe("SPAN");
+  });
+
+  it("the conversation of a remote agent shows the note and opens the terminal", async () => {
+    const host = fakeHost();
+    renderWithStore(<EntryPane entry={remoteAgent} />, storeFor({ host }));
+    expect(
+      screen.getByText("The conversation of an agent on linux-server isn't shown here yet. Use Terminal."),
+    ).toBeInTheDocument();
+    expect(host.open).toHaveBeenCalledWith(
+      "attach:s1",
+      { kind: "attach", sessionId: "s1", cwd: "/home/ci/ws/fix-login", environment: "linux-server", workspaceId: "fix-login" },
+      expect.any(Function),
+    );
+    expect(await screen.findByTestId("terminal")).toHaveTextContent("attach:s1");
+    expect(screen.getByRole("button", { name: "Conversation" })).toBeDisabled();
+  });
+
+  it("attaches a local agent without an environment", () => {
+    const host = fakeHost();
+    renderWithStore(<EntryPane entry={entry({ sessionId: "s2", path: "/w/x" })} />, testStore({ terminals: host }));
+    expect(host.open).toHaveBeenCalledWith("attach:s2", { kind: "attach", sessionId: "s2", cwd: "/w/x" }, expect.any(Function));
+  });
+
+  it("Stop on a remote agent passes its environment", async () => {
+    const api = fakeApi();
+    renderWithStore(<EntryPane entry={remoteAgent} />, storeFor({ api }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(api.stopAgent).toHaveBeenCalledWith("s1", "fix-login", "linux-server");
+  });
+
+  it("Stop on a remote ws runner is disabled with its reason", () => {
+    const runner = { ...remoteAgent, runner: "ws" as const, sessionId: "rn-1", status: "working" as const };
+    const api = fakeApi();
+    renderWithStore(<EntryPane entry={runner} />, storeFor({ api }));
+    const stop = screen.getByRole("button", { name: "Stop" });
+    expect(stop).toBeDisabled();
+    expect(stop).toHaveAttribute("title", "Stopping a ws runner on linux-server isn't supported yet");
+    expect(api.runnerStop).not.toHaveBeenCalled();
+  });
+
+  it("a remote child says it runs on its parent's environment", () => {
+    const parent = { ...remoteAgent, key: "env:linux-server:parent", workspaceId: "parent", name: "parent", sessionId: "p1" };
+    const child = { ...remoteAgent, parentId: "parent" };
+    renderWithStore(<EntryPane entry={child} />, storeFor({ entries: [parent, child] }));
+    expect(screen.getByText("Runs on linux-server, like its parent")).toBeInTheDocument();
+  });
+
+  it("a local child doesn't say it runs on another environment", () => {
+    const parent = entry({ key: "p", workspaceId: "p", name: "parent" });
+    const child = entry({ key: "c", workspaceId: "c", name: "kid", parentId: "p" });
+    renderWithStore(<EntryPane entry={child} />, storeFor({ entries: [parent, child] }));
+    expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
+  });
+
+  it("a remote entry without a parent says nothing about one", () => {
+    renderWithStore(<EntryPane entry={remoteAgent} />, storeFor());
+    expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
+  });
+
+  it("a remote agent never reads its transcript, even when the persisted view is shell", async () => {
+    const api = fakeApi();
+    const host = fakeHost();
+    const store = storeFor({ api, host });
+    store.dispatch(agentViewChosen("shell"));
+    renderWithStore(<EntryPane entry={remoteAgent} />, store);
+    expect(await screen.findByTestId("terminal")).toHaveTextContent("attach:s1");
+    expect(api.readTranscript).not.toHaveBeenCalled();
+  });
+
+  it("a remote child doesn't claim a local parent with the same id", () => {
+    const parent = entry({ key: "parent", workspaceId: "parent", name: "parent" });
+    const child = { ...remoteAgent, parentId: "parent" };
+    renderWithStore(<EntryPane entry={child} />, storeFor({ entries: [parent, child] }));
+    expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
+  });
+
+  describe("on a phone", () => {
+    const original = window.matchMedia;
+    beforeEach(() => {
+      window.matchMedia = ((query: string) => ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+    });
+    afterEach(() => {
+      window.matchMedia = original;
+    });
+
+    it("disables Stop of a remote ws runner in the menu with its reason", async () => {
+      const runner = { ...remoteAgent, runner: "ws" as const, sessionId: "rn-1", status: "working" as const };
+      const api = fakeApi();
+      renderWithStore(<EntryPane entry={runner} />, storeFor({ api }));
+      await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+      const stop = screen.getByRole("menuitem", { name: "Stop" });
+      expect(stop).toHaveAttribute("aria-disabled", "true");
+      expect(stop).toHaveAttribute("title", "Stopping a ws runner on linux-server isn't supported yet");
+      expect(api.runnerStop).not.toHaveBeenCalled();
+    });
+
+    it("disables every menu action of an offline remote entry with the offline reason", async () => {
+      renderWithStore(<EntryPane entry={offlineAgent} />, storeFor({ env: offlineEnv }));
+      const reason = `linux-server is offline (last seen ${clock("2026-11-23T14:02:00Z", Date.now())})`;
+      expect(screen.getByRole("button", { name: "Attach" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Attach" })).toHaveAttribute("title", reason);
+      await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+      for (const name of ["Stop", "Rename", "Hide", "Remove"]) {
+        const item = screen.getByRole("menuitem", { name });
+        expect(item).toHaveAttribute("aria-disabled", "true");
+        expect(item).toHaveAttribute("title", reason);
+      }
+    });
+  });
+
+  it("shows the environment badge in the header of a remote entry only", () => {
+    const remoteView = renderWithStore(<EntryPane entry={remoteAgent} />, storeFor());
+    expect(screen.getByText("linux-server")).toBeInTheDocument();
+    remoteView.unmount();
+    renderWithStore(<EntryPane entry={entry()} />, testStore());
+    expect(screen.queryByText("linux-server")).not.toBeInTheDocument();
   });
 });

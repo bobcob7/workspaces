@@ -1,8 +1,10 @@
 # ws loop add
 
 ```
-ws loop add [--json] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--runner claude|ws] [--endpoint <name>] [--model <M>] [--permission-mode <P>] [--paused] [--hidden[=BOOL] | --show] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... <NAME> [<SPEC>...]
+ws loop add [--json] [--env <NAME>] [--yes] --every <PERIOD> --prompt <TEXT> [--title <TITLE>] [--keep <N>] [--runner claude|ws] [--endpoint <name>] [--model <M>] [--permission-mode <P>] [--paused] [--hidden[=BOOL] | --show] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... <NAME> [<SPEC>...]
 ```
+
+`--env <NAME>` adds the loop on that environment (`ws env list`); it runs there, ticked by that environment's agent. With a `--script` or `--permission-mode bypassPermissions` it runs code on that machine as its agent's user, so it needs `--yes`. Locally `--yes` does nothing.
 
 Adds a loop. Its first run starts one period after it's added; `ws loop run`
 starts one at once. Specs are checked now and resolved at each run, so a run

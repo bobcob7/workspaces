@@ -8,14 +8,18 @@ import styles from "./MemoryCard.module.css";
 const keyPattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const valueLimit = 65_536;
 const noRev = 0;
+const redactedMarker = "[redacted]";
+const redactedNote = "This value holds a secret and is hidden; set a new value to replace it";
 
 /** Add a memory key, or edit an existing one; a conflict offers a reload of its value. */
 export const MemoryDialog = ({
   loopName,
+  environment,
   entry,
   onClose,
 }: {
   readonly loopName: string;
+  readonly environment: string;
   readonly entry: LoopMemoryEntry | null;
   readonly onClose: () => void;
 }): JSX.Element => {
@@ -28,6 +32,7 @@ export const MemoryDialog = ({
   const keyValid = keyPattern.test(key);
   const bytes = new TextEncoder().encode(value).length;
   const tooLarge = bytes > valueLimit;
+  const redacted = entry !== null && entry.value.includes(redactedMarker);
   const conflict = saveError?.code === "memory_conflict";
 
   useEffect(
@@ -38,7 +43,7 @@ export const MemoryDialog = ({
   );
 
   const save = async (): Promise<void> => {
-    const result = await dispatch(saveLoopMemory({ name: loopName, key, value, expectRev: rev }));
+    const result = await dispatch(saveLoopMemory({ name: loopName, key, value, expectRev: rev, environment }));
     if (saveLoopMemory.fulfilled.match(result)) {
       onClose();
     }
@@ -46,7 +51,7 @@ export const MemoryDialog = ({
 
   const reload = async (): Promise<void> => {
     dispatch(saveErrorCleared());
-    const result = await dispatch(fetchLoopMemory(loopName));
+    const result = await dispatch(fetchLoopMemory({ name: loopName, environment }));
     if (!fetchLoopMemory.fulfilled.match(result)) {
       return;
     }
@@ -89,13 +94,14 @@ export const MemoryDialog = ({
           maxRows={16}
           onChange={(event) => setValue(event.target.value)}
           className={styles.mono}
-          helperText={`${bytes.toLocaleString("en-US")} / ${valueLimit.toLocaleString("en-US")} bytes`}
+          helperText={redacted ? redactedNote : `${bytes.toLocaleString("en-US")} / ${valueLimit.toLocaleString("en-US")} bytes`}
           error={tooLarge}
+          slotProps={{ htmlInput: { readOnly: redacted } }}
         />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={saving || !keyValid || tooLarge} onClick={() => void save()}>
+        <Button variant="contained" disabled={saving || !keyValid || tooLarge || redacted} onClick={() => void save()}>
           Save
         </Button>
       </DialogActions>

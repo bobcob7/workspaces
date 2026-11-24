@@ -31,6 +31,32 @@ func TestLookupOp(t *testing.T) {
 			assert.Equal(t, want, got, name)
 		}
 	})
+	t.Run("terminal.open is CallerTerminal since 2", func(t *testing.T) {
+		got, ok := LookupOp(OpTerminalOpen)
+		require.True(t, ok)
+		assert.Equal(t, OpSpec{Name: OpTerminalOpen, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second, Changes: true}, got)
+	})
+	t.Run("terminal.close is CallerTerminal since 2", func(t *testing.T) {
+		got, ok := LookupOp(OpTerminalClose)
+		require.True(t, ok)
+		assert.Equal(t, OpSpec{Name: OpTerminalClose, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second}, got)
+	})
+	t.Run("review ops have their full spec", func(t *testing.T) {
+		specs := []OpSpec{
+			{Name: OpReviewStart, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 10 * time.Minute, Changes: true},
+			{Name: OpReviewStatus, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewList, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewReport, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewDecide, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewActed, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			{Name: OpReviewProfiles, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+		}
+		for _, want := range specs {
+			got, ok := LookupOp(want.Name)
+			require.True(t, ok, want.Name)
+			assert.Equal(t, want, got, want.Name)
+		}
+	})
 	t.Run("refuses names outside the table", func(t *testing.T) {
 		for _, name := range []string{"files.read", "", "workspace.create "} {
 			_, ok := LookupOp(name)
@@ -116,6 +142,11 @@ func TestDecodeArgs(t *testing.T) {
 		args, ok := got.(*CreateArgs)
 		require.True(t, ok)
 		assert.Equal(t, "lab-gpu", *args.Endpoint)
+	})
+	t.Run("refuses an unknown key in review.report with usage", func(t *testing.T) {
+		raw := json.RawMessage(`{"review":"r1","section":"comments","offset":0,"extra":1}`)
+		_, err := DecodeArgs(OpReviewReport, raw)
+		assertArgsError(t, err, "usage")
 	})
 }
 
@@ -230,4 +261,33 @@ func assertArgsError(t *testing.T, err error, code string) {
 	require.ErrorAs(t, err, &argsErr)
 	assert.Equal(t, code, argsErr.Code)
 	assert.ErrorIs(t, err, ErrArgs)
+}
+
+func TestLookupOp_loops(t *testing.T) {
+	t.Run("loop ops are controller ops since 3", func(t *testing.T) {
+		specs := map[string]OpSpec{
+			OpLoopRun:          {Name: OpLoopRun, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 15 * time.Minute, Changes: true},
+			OpLoopAdd:          {Name: OpLoopAdd, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second, Changes: true},
+			OpLoopEdit:         {Name: OpLoopEdit, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second, Changes: true},
+			OpLoopPause:        {Name: OpLoopPause, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second, Changes: true},
+			OpLoopResume:       {Name: OpLoopResume, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second, Changes: true},
+			OpLoopRm:           {Name: OpLoopRm, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second, Changes: true},
+			OpLoopList:         {Name: OpLoopList, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopShow:         {Name: OpLoopShow, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopHistory:      {Name: OpLoopHistory, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopHistoryRun:   {Name: OpLoopHistoryRun, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopHistoryClear: {Name: OpLoopHistoryClear, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopMemoryList:   {Name: OpLoopMemoryList, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopMemoryGet:    {Name: OpLoopMemoryGet, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopMemorySet:    {Name: OpLoopMemorySet, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopMemoryRm:     {Name: OpLoopMemoryRm, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+			OpLoopMemoryClear:  {Name: OpLoopMemoryClear, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second},
+		}
+		require.Len(t, specs, 16)
+		for name, want := range specs {
+			got, ok := LookupOp(name)
+			require.True(t, ok, name)
+			assert.Equal(t, want, got, name)
+		}
+	})
 }

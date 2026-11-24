@@ -31,7 +31,7 @@ describe("MemoryCard", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "Key" }), "seen");
     await userEvent.type(screen.getByRole("textbox", { name: "Value" }), "x");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(api.loopsMemorySet).toHaveBeenCalledWith("deps", "seen", "x", 0);
+    expect(api.loopsMemorySet).toHaveBeenCalledWith("deps", "seen", "x", 0, "local");
   });
 
   it("edits an entry and sends its rev", async () => {
@@ -41,7 +41,7 @@ describe("MemoryCard", () => {
     expect(screen.getByRole("textbox", { name: "Key" })).toBeDisabled();
     await userEvent.type(screen.getByRole("textbox", { name: "Value" }), " #420");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(api.loopsMemorySet).toHaveBeenCalledWith("deps", "seen", "#412 #415 #420", 3);
+    expect(api.loopsMemorySet).toHaveBeenCalledWith("deps", "seen", "#412 #415 #420", 3, "local");
   });
 
   it("shows a conflict, and Reload clears it and reloads the entry's value and rev", async () => {
@@ -63,7 +63,7 @@ describe("MemoryCard", () => {
     expect(api.loopsMemory).toHaveBeenCalledTimes(callsBefore + 1);
     expect(screen.getByRole("textbox", { name: "Value" })).toHaveValue("#999");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(api.loopsMemorySet).toHaveBeenLastCalledWith("deps", "seen", "#999", 7);
+    expect(api.loopsMemorySet).toHaveBeenLastCalledWith("deps", "seen", "#999", 7, "local");
   });
 
   it("does not show a stale conflict when the dialog is cancelled and reopened", async () => {
@@ -86,7 +86,7 @@ describe("MemoryCard", () => {
     const api = apiWith();
     renderWithStore(<MemoryCard loop={loop()} />, testStore({ api }));
     await userEvent.click(await screen.findByRole("button", { name: "Delete seen" }));
-    expect(api.loopsMemoryRemove).toHaveBeenCalledWith("deps", "seen");
+    expect(api.loopsMemoryRemove).toHaveBeenCalledWith("deps", "seen", "local");
   });
 
   it("disables Save for a value over 65,536 bytes", async () => {
@@ -103,6 +103,27 @@ describe("MemoryCard", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Add" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Key" }), "1x");
     expect(screen.getByText("Start with a letter or _, then letters, digits or _ (64 at most).")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("clears the memory only from the confirm click, with confirmed", async () => {
+    const api = apiWith();
+    renderWithStore(<MemoryCard loop={loop({ environment: "linux-server" })} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: "Clear memory" }));
+    expect(api.loopsMemoryClear).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(api.loopsMemoryClear).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Clear memory" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Clear memory" }));
+    expect(api.loopsMemoryClear).toHaveBeenCalledWith("deps", true, "linux-server");
+  });
+
+  it("a redacted memory value is read-only", async () => {
+    const api = apiWith({ loopsMemory: vi.fn(async () => memory({ entries: [loopMemoryEntry({ key: "token", value: "key [redacted]", rev: 2 })] })) });
+    renderWithStore(<MemoryCard loop={loop({ environment: "linux-server" })} />, testStore({ api }));
+    await userEvent.click(await screen.findByRole("button", { name: "Edit token" }));
+    expect(screen.getByRole("textbox", { name: "Value" })).toHaveAttribute("readonly");
+    expect(screen.getByText("This value holds a secret and is hidden; set a new value to replace it")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });

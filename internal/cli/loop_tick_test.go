@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"testing"
 	"time"
@@ -262,6 +263,16 @@ func TestApp_loopTick(t *testing.T) {
 		code := runLoopCode(t, e.app, "tick", "--watch", "--json")
 		assert.Equal(t, exitUsage, code)
 		assert.Contains(t, stderr.String(), `"code":"usage"`)
+	})
+	t.Run("watch with max-starts 1 starts one loop in a pass", func(t *testing.T) {
+		e := newTickEnv(t)
+		addDueLoopsNamed(t, e, "alpha", "bravo")
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		e.app.stdout = cancelOnWrite{cancel}
+		code := e.app.Run(ctx, []string{"loop", "tick", "--watch", "--max-starts", "1"})
+		assert.Equal(t, exitOK, code, e.stderr.String())
+		assert.Len(t, e.claude.StartCalls(), 1)
 	})
 }
 
@@ -743,4 +754,138 @@ func gateOf(t *testing.T, item map[string]any) map[string]any {
 	assert.Equal(t, formatTime(testNow()), g["at"])
 	delete(g, "at")
 	return g
+}
+
+// addDueTriage adds a loop named triage, due a minute ago, with no runs.
+func (e *tickEnv) addDueTriage(t *testing.T) loop.Loop {
+	t.Helper()
+	l := loop.Loop{
+		Name:      "triage",
+		Every:     "1h",
+		Prompt:    "Do it",
+		Keep:      5,
+		CreatedAt: testNow().Add(-2 * time.Hour),
+		NextRunAt: testNow().Add(-time.Minute),
+	}
+	require.NoError(t, e.loops.Create(&l))
+	return l
+}
+
+// cancelOnWrite discards its output and cancels its context on the first
+// write, which is the first line a watch pass prints.
+type cancelOnWrite struct{ cancel context.CancelFunc }
+
+func (w cancelOnWrite) Write(p []byte) (int, error) {
+	w.cancel()
+	return len(p), nil
+}
+
+// addDueLoopsNamed adds one loop per name, due a minute ago, with no runs.
+func addDueLoopsNamed(t *testing.T, e *tickEnv, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		l := loop.Loop{
+			Name:      name,
+			Every:     "1h",
+			Prompt:    "Do it",
+			Keep:      5,
+			CreatedAt: testNow().Add(-2 * time.Hour),
+			NextRunAt: testNow().Add(-time.Minute),
+		}
+		require.NoError(t, e.loops.Create(&l))
+	}
+}
+
+// actionsByName maps each loop in out to its action.
+func actionsByName(t *testing.T, out map[string]any) map[string]string {
+	t.Helper()
+	actions := map[string]string{}
+	for _, item := range listedLoops(t, out) {
+		name, _ := item["name"].(string)
+		action, _ := item["action"].(string)
+		actions[name] = action
+	}
+	return actions
+}
+
+func TestApp_runLoopTick(t *testing.T) {
+	t.Run("max-starts 1 starts one and leaves the next waiting", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		e.addDueTriage(t)
+		code, out := runLoop(t, e.app, e.stdout, "tick", "--max-starts", "1", "--json")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		assert.Equal(t, map[string]string{"deps": "started", "triage": "waiting"}, actionsByName(t, out))
+		assert.Len(t, e.claude.StartCalls(), 1)
+	})
+	t.Run("a waiting loop keeps next_run_at", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		before := e.addDueTriage(t)
+		code, _ := runLoop(t, e.app, e.stdout, "tick", "--max-starts", "1", "--json")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		after, err := e.loops.Get("triage")
+		require.NoError(t, err)
+		assert.True(t, before.NextRunAt.Equal(after.NextRunAt))
+		assert.Empty(t, after.Runs)
+	})
+	t.Run("max-starts 0 starts every due loop", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		e.addDueTriage(t)
+		code, out := runLoop(t, e.app, e.stdout, "tick", "--max-starts", "0", "--json")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		assert.Equal(t, map[string]string{"deps": "started", "triage": "started"}, actionsByName(t, out))
+	})
+	t.Run("dry-run counts would_start against the cap", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		e.addDueTriage(t)
+		code, out := runLoop(t, e.app, e.stdout, "tick", "--dry-run", "--max-starts", "1", "--json")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		actions := actionsByName(t, out)
+		assert.ElementsMatch(t, []string{"would_start", "waiting"}, []string{actions["deps"], actions["triage"]})
+	})
+	t.Run("without max-starts every due loop starts", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		e.addDueTriage(t)
+		code, out := runLoop(t, e.app, e.stdout, "tick", "--json")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		assert.Equal(t, map[string]string{"deps": "started", "triage": "started"}, actionsByName(t, out))
+		assert.Len(t, e.claude.StartCalls(), 2)
+	})
+	t.Run("max-starts 2 of three due loops starts two and leaves the third waiting", func(t *testing.T) {
+		e := newTickEnv(t)
+		addDueLoopsNamed(t, e, "alpha", "bravo", "charlie")
+		code, out := runLoop(t, e.app, e.stdout, "tick", "--max-starts", "2", "--json")
+		require.Equal(t, exitOK, code, e.stderr.String())
+		var actions []string
+		for _, action := range actionsByName(t, out) {
+			actions = append(actions, action)
+		}
+		assert.ElementsMatch(t, []string{"started", "started", "waiting"}, actions)
+		assert.Len(t, e.claude.StartCalls(), 2)
+	})
+	t.Run("max-starts above 100 is usage", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		code := runLoopCode(t, e.app, "tick", "--max-starts", "101")
+		assert.Equal(t, exitUsage, code)
+		assert.Empty(t, e.claude.StartCalls())
+	})
+	t.Run("max-starts below 0 is usage", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		code := runLoopCode(t, e.app, "tick", "--max-starts", "-1")
+		assert.Equal(t, exitUsage, code)
+		assert.Empty(t, e.claude.StartCalls())
+	})
+}
+
+// writersApp is the tickEnv's App, writing to the given writers.
+func (e *tickEnv) writersApp(stdout, stderr io.Writer) *App {
+	e.app.stdout = stdout
+	e.app.stderr = stderr
+	return e.app
 }

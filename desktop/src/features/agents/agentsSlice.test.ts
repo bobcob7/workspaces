@@ -8,6 +8,7 @@ import {
   createAgent,
   editorDir,
   fetchEntries,
+  environmentFilterChanged,
   filtersCleared,
   hiddenShown,
   nodeToggled,
@@ -15,6 +16,7 @@ import {
   queryChanged,
   removeEntry,
   renameEntry,
+  setEntryHidden,
   stopAgent,
   statusFilterChanged,
   type AgentsState,
@@ -94,7 +96,7 @@ describe("thunks", () => {
     const api = fakeApi();
     const store = testStore({ api });
     await store.dispatch(renameEntry({ entry: entry({ workspaceId: "fix-login-d8efb24f" }), name: "Login fix" }));
-    expect(api.renameWorkspace).toHaveBeenCalledWith("fix-login-d8efb24f", "Login fix");
+    expect(api.renameWorkspace).toHaveBeenCalledWith("fix-login-d8efb24f", "Login fix", "local");
     expect(api.listEntries).toHaveBeenCalled();
     expect(store.getState().ui.notice?.severity).toBe("success");
   });
@@ -114,14 +116,14 @@ describe("thunks", () => {
     const api = fakeApi();
     const store = testStore({ api });
     await store.dispatch(removeEntry(entry()));
-    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", false);
+    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", false, "local");
   });
 
   it("removes keeping the workspaces it started", async () => {
     const api = fakeApi();
     const store = testStore({ api });
     await store.dispatch(removeEntry({ ...entry(), keepChildren: true }));
-    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", true);
+    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", true, "local");
   });
 
   it("closes the agent's terminal before removing it", async () => {
@@ -148,6 +150,53 @@ describe("thunks", () => {
     expect(runnerStop).toHaveBeenCalledTimes(1);
     expect(runnerStop).toHaveBeenCalledWith("t1");
     expect(stopAgentApi).not.toHaveBeenCalled();
+  });
+
+  it("never calls runner_stop for a remote ws runner", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(
+      stopAgent(entry({ runner: "ws", environment: "linux-server", workspaceId: "t1", sessionId: "rn-1", status: "working" })),
+    );
+    expect(api.runnerStop).not.toHaveBeenCalled();
+    expect(api.stopAgent).not.toHaveBeenCalled();
+  });
+
+  it("stops a claude agent on its own environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(stopAgent(entry({ environment: "linux-server" })));
+    expect(api.stopAgent).toHaveBeenCalledWith("e8cdf5d8", "fix-login", "linux-server");
+  });
+
+  it("stops a local agent on local", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(stopAgent(entry()));
+    expect(api.stopAgent).toHaveBeenCalledWith("e8cdf5d8", "fix-login", "local");
+  });
+
+  it("removes on the entry's environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(removeEntry(entry({ environment: "linux-server" })));
+    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", false, "linux-server");
+  });
+
+  it("renames on the entry's environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(renameEntry({ entry: entry({ environment: "linux-server" }), name: "Login fix" }));
+    expect(api.renameWorkspace).toHaveBeenCalledWith("fix-login", "Login fix", "linux-server");
+  });
+
+  it("hides and unhides on the entry's environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(setEntryHidden({ entry: entry({ environment: "linux-server" }), hidden: true }));
+    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("fix-login", true, "linux-server");
+    await store.dispatch(setEntryHidden({ entry: entry(), hidden: false }));
+    expect(api.setWorkspaceHidden).toHaveBeenLastCalledWith("fix-login", false, "local");
   });
 
   it("shows a failed stop as an error notice", async () => {
@@ -178,6 +227,13 @@ describe("openWorkspace", () => {
     const store = testStore({ api });
     await store.dispatch(openWorkspace({ entry: entry({ repos: [repo("buff-bear"), repo("api")] }), with: "editor" }));
     expect(api.workspaceOpen).toHaveBeenCalledWith("editor", "/w/fix-login", ["buff-bear", "api"]);
+  });
+
+  it("never opens the files of a remote workspace", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(openWorkspace({ entry: entry({ environment: "linux-server" }), with: "editor" }));
+    expect(api.workspaceOpen).not.toHaveBeenCalled();
   });
 
   it("shows a failure as an error notice", async () => {
@@ -236,11 +292,29 @@ describe("tree state", () => {
 
   it("clears the query and status filter but keeps Show hidden", () => {
     const shown = agentsReducer(
-      { ...withExpanded({ a: true, b: false }), query: "x", statusFilter: "done" },
+      { ...withExpanded({ a: true, b: false }), query: "x", statusFilter: "done", environmentFilter: "linux-server" },
       hiddenShown(true),
     );
     const state = agentsReducer(shown, filtersCleared());
-    expect(state).toMatchObject({ query: "", statusFilter: "all", expanded: { a: true }, showHidden: true });
+    expect(state).toMatchObject({
+      query: "",
+      statusFilter: "all",
+      environmentFilter: null,
+      expanded: { a: true },
+      showHidden: true,
+    });
+  });
+
+  it("sets and clears the environment filter, dropping closed choices", () => {
+    const closed = agentsReducer(withTree(), nodeToggled({ key: "t1", open: false }));
+    const chosen = agentsReducer(closed, environmentFilterChanged("linux-server"));
+    expect(chosen.environmentFilter).toBe("linux-server");
+    expect(chosen.expanded).toEqual({});
+    expect(agentsReducer(chosen, environmentFilterChanged(null)).environmentFilter).toBeNull();
+  });
+
+  it("shows every environment at first", () => {
+    expect(agentsReducer(undefined, { type: "init" }).environmentFilter).toBeNull();
   });
 
   it("drops the expanded choice of an entry that is no longer listed", () => {

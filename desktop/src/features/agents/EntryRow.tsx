@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import type { Entry, LoopAttention } from "../../api";
 import { age, repoLabel } from "../../format";
+import { EnvBadge } from "./EnvBadge";
 import { isFailed } from "./progress";
 import { modelTooltip, stepLabel } from "./runner";
 import { StatusDot } from "./StatusDot";
@@ -42,33 +43,44 @@ export interface EntryRowProps {
 }
 
 /** An agent or workspace as a two-line list row, as the Agents list shows it. */
-export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRowProps): JSX.Element => (
-  <button
-    type="button"
-    className={styles.item}
-    aria-current={current ? "true" : undefined}
-    title={modelTooltip(entry)}
-    onClick={onClick}
-  >
-    <span className={styles.row}>
-      <StatusDot status={entry.status} />
-      <span className={styles.name}>{entry.name}</span>
-      <span className={styles.age}>{age(entry.updatedAt ?? entry.createdAt)}</span>
-    </span>
-    <span className={styles.summaryLine}>
-      <span className={styles.summary}>
-        {parentName !== null && <span className={styles.parent}>↳ {parentName} · </span>}
-        {summary(entry)}
+export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRowProps): JSX.Element => {
+  const dimmed = !entry.environmentOnline || entry.snapshotStale;
+  return (
+    <button
+      type="button"
+      className={styles.item}
+      aria-current={current ? "true" : undefined}
+      title={modelTooltip(entry)}
+      data-dimmed={dimmed ? "true" : undefined}
+      onClick={onClick}
+    >
+      <span className={styles.row}>
+        <StatusDot status={entry.status} />
+        <span className={styles.name}>{entry.name}</span>
+        {entry.environment !== "local" && <EnvBadge label={entry.environment} />}
+        {!entry.environmentOnline && (
+          <EnvBadge label="offline" warn title={`${entry.environment} is offline; the last known status is shown`} />
+        )}
+        {entry.environmentOnline && entry.snapshotStale && (
+          <EnvBadge label="stale" warn title={`${entry.environment} hasn't reported lately; the status may be old`} />
+        )}
+        <span className={styles.age}>{age(entry.updatedAt ?? entry.createdAt)}</span>
       </span>
-      {entry.model !== null && <span className={styles.modelLabel}>{entry.model}</span>}
-    </span>
-    {entry.rollup !== null && (
-      <StepProgress
-        label={`${entry.name} progress`}
-        done={entry.rollup.done}
-        total={entry.rollup.total}
-        failed={isFailed(entry)}
-      />
-    )}
-  </button>
-);
+      <span className={styles.summaryLine}>
+        <span className={styles.summary}>
+          {parentName !== null && <span className={styles.parent}>↳ {parentName} · </span>}
+          {summary(entry)}
+        </span>
+        {entry.model !== null && <span className={styles.modelLabel}>{entry.model}</span>}
+      </span>
+      {entry.rollup !== null && (
+        <StepProgress
+          label={`${entry.name} progress`}
+          done={entry.rollup.done}
+          total={entry.rollup.total}
+          failed={isFailed(entry)}
+        />
+      )}
+    </button>
+  );
+};

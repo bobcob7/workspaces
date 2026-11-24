@@ -40,7 +40,7 @@ export const ReviewsList = (): JSX.Element => {
   useReports(view?.prs ?? []);
   const reportOf = (pr: PullRequest): ReviewReport | null => {
     const review = pr.reviews[0];
-    return review?.recorded === true ? reports[reportKey(pr.repo, review.sha)]?.report ?? null : null;
+    return review?.recorded === true ? reports[reportKey(pr.repo, review.sha, review.environment)]?.report ?? null : null;
   };
   const prs = view?.prs ?? [];
   const groups = groupPrs(prs, filter, filters);

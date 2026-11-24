@@ -25,12 +25,20 @@ const (
 	OpAgentLogs       = "agent.logs"
 	OpAgentSend       = "agent.send"
 	OpAgentStop       = "agent.stop"
+	OpTerminalOpen    = "terminal.open"
+	OpTerminalClose   = "terminal.close"
 )
 
 // Workspace kinds an operation can create.
 const (
 	KindClaude = "claude"
 	KindRunner = "runner"
+)
+
+// Kinds of terminal.open.
+const (
+	TermAttach = "attach"
+	TermShell  = "shell"
 )
 
 // Grace is how much longer than an operation's deadline the controller waits.
@@ -58,6 +66,9 @@ const (
 	// CallerInternal sends on env/<id>/req, and only the controller itself does.
 	CallerInternal
 )
+
+// CallerTerminal sends terminal.open and terminal.close on env/<id>/req, and only the controller's terminal path does.
+const CallerTerminal Caller = iota + 4
 
 // OpSpec is one operation's rules.
 type OpSpec struct {
@@ -90,8 +101,16 @@ func LookupOp(name string) (OpSpec, bool) {
 		return OpSpec{Name: name, Caller: CallerController, Since: 1, Timeout: 90 * time.Second}, true
 	case OpAgentStop:
 		return OpSpec{Name: name, Caller: CallerController, Since: 1, Timeout: 30 * time.Second, Changes: true}, true
+	case OpReviewStart:
+		return OpSpec{Name: name, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 10 * time.Minute, Changes: true}, true
+	case OpReviewStatus, OpReviewList, OpReviewReport, OpReviewDecide, OpReviewActed, OpReviewProfiles:
+		return OpSpec{Name: name, Caller: CallerController, Since: ProtocolReviewsLoops, Timeout: 30 * time.Second}, true
+	case OpTerminalOpen:
+		return OpSpec{Name: name, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second, Changes: true}, true
+	case OpTerminalClose:
+		return OpSpec{Name: name, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second}, true
 	}
-	return OpSpec{}, false
+	return loopOpSpec(name)
 }
 
 // CreateArgs are the arguments of workspace.create.
@@ -181,16 +200,24 @@ var ErrArgs = errors.New("invalid operation arguments")
 type ArgsError struct {
 	Code    string // "usage", "spec_invalid", "name_invalid" or "outside_workspace"
 	Message string
+	cause   error // a sentinel the refusal also wraps, or nil
 }
+
+// ErrNeedsConfirm is wrapped by the ArgsError of an operation that needs
+// confirm: true and didn't carry it.
+var ErrNeedsConfirm = errors.New("the operation needs confirm")
 
 // Error returns the message the reply carries.
 func (e *ArgsError) Error() string {
 	return e.Message
 }
 
-// Unwrap returns ErrArgs.
-func (*ArgsError) Unwrap() error {
-	return ErrArgs
+// Unwrap returns ErrArgs, and the refusal's sentinel when it has one.
+func (e *ArgsError) Unwrap() []error {
+	if e.cause == nil {
+		return []error{ErrArgs}
+	}
+	return []error{ErrArgs, e.cause}
 }
 
 var (
@@ -210,6 +237,9 @@ func DecodeArgs(op string, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	if err := Validate(target); err != nil {
+		return nil, err
+	}
+	if err := validateOp(op, target); err != nil {
 		return nil, err
 	}
 	return target, nil
@@ -234,8 +264,15 @@ func newArgs(op string) (any, bool) {
 		return &LogsArgs{}, true
 	case OpAgentSend:
 		return &SendArgs{}, true
+	case OpTerminalOpen:
+		return &TerminalOpenArgs{}, true
+	case OpTerminalClose:
+		return &TerminalCloseArgs{}, true
 	}
-	return nil, false
+	if target, ok := newReviewArgs(op); ok {
+		return target, true
+	}
+	return newLoopArgs(op)
 }
 
 // decodeStrict fills target from raw, refusing unknown keys and trailing data.
@@ -287,8 +324,12 @@ func Validate(args any) error {
 		return validateLogs(a)
 	case *SendArgs:
 		return validateSend(a)
+	case *TerminalOpenArgs:
+		return validateTerminalOpen(a)
+	case *TerminalCloseArgs:
+		return validateTerminalClose(a)
 	}
-	return usageError("unknown operation arguments")
+	return validateReviewArgs(args)
 }
 
 // ValidRequestID reports whether id is 16 lowercase hex characters.

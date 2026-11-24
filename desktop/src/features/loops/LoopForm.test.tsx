@@ -1,9 +1,10 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api";
-import { loop, testStore, wsLoop } from "../../test/fixtures";
+import { loop, remoteEnvironment, testStore, wsLoop } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
+import { fetchEnvironments } from "../environments/environmentsSlice";
 import { LoopForm, type LoopFormProps } from "./LoopForm";
 
 const renderForm = (props: Partial<LoopFormProps> = {}) => {
@@ -227,5 +228,216 @@ describe("LoopForm", () => {
     renderWithStore(<LoopForm error={null} submitting={false} onSubmit={vi.fn()} onCancel={onCancel} />, testStore());
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+});
+
+const renderRemote = (props: Partial<LoopFormProps> = {}) => {
+  const onSubmit = vi.fn();
+  const base = testStore();
+  const store = testStore({ state: { environments: { ...base.getState().environments, items: [remoteEnvironment()] } } });
+  renderWithStore(<LoopForm error={null} submitting={false} onCancel={vi.fn()} onSubmit={onSubmit} {...props} />, store);
+  return { onSubmit };
+};
+
+const chooseRemote = async (): Promise<void> => {
+  await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+  await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+};
+
+const typeScript = async (): Promise<void> => {
+  await userEvent.type(screen.getByRole("textbox", { name: "Script" }), "make check");
+};
+
+describe("LoopForm on a remote environment", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("a new script on a remote loop asks for confirmation", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(screen.getByText("Run code on linux-server?")).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("cancelling the confirmation sends nothing", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel", description: "" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.queryByText("Run code on linux-server?")).not.toBeInTheDocument();
+  });
+
+  it("confirming sends the environment and confirmed", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    await userEvent.click(screen.getByRole("button", { name: "Run on linux-server" }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ environment: "linux-server", confirmed: true, script: "make check" }));
+  });
+
+  it("bypassPermissions on a remote loop asks for confirmation", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await userEvent.click(screen.getByRole("combobox", { name: "Permission mode" }));
+    await userEvent.click(screen.getByRole("option", { name: "bypassPermissions" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(screen.getByText(/with every permission \(bypassPermissions\)/)).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("a remote loop without a script or bypass sends no confirmed", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    const sent = onSubmit.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({ environment: "linux-server" });
+    expect(sent).not.toHaveProperty("confirmed");
+  });
+
+  it("a local loop with a script never asks", async () => {
+    const { onSubmit } = renderRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(screen.queryByText(/Run code on/)).not.toBeInTheDocument();
+    const sent = onSubmit.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({ script: "make check" });
+    expect(sent).not.toHaveProperty("confirmed");
+    expect(sent).not.toHaveProperty("environment");
+  });
+
+  it("editing a remote script confirms, then sends confirmed and the previous values", async () => {
+    const existing = loop({ environment: "linux-server", script: "true", scriptTimeout: "1m" });
+    const { onSubmit } = renderRemote({ loop: existing });
+    const script = screen.getByRole("textbox", { name: "Script" });
+    await userEvent.clear(script);
+    await userEvent.type(script, "make check");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Run on linux-server" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: "linux-server",
+        confirmed: true,
+        script: "make check",
+        previous: expect.objectContaining({ script: "true", name: "deps", environment: "linux-server" }),
+      }),
+    );
+  });
+
+  it("editing a remote loop's title leaves its script alone and asks nothing", async () => {
+    const existing = loop({ environment: "linux-server", script: "true", scriptTimeout: "1m" });
+    const { onSubmit } = renderRemote({ loop: existing });
+    const name = screen.getByRole("textbox", { name: /Name/ });
+    await userEvent.clear(name);
+    await userEvent.type(name, "Renamed");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.queryByText(/Run code on/)).not.toBeInTheDocument();
+    const sent = onSubmit.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({ environment: "linux-server", title: "Renamed", previous: expect.objectContaining({ script: "true" }) });
+    expect(sent).not.toHaveProperty("confirmed");
+  });
+
+  it("Escape on the confirmation sends nothing", async () => {
+    const { onSubmit } = renderRemote();
+    await chooseRemote();
+    await typeRequiredFields();
+    await typeScript();
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    await userEvent.keyboard("{Escape}");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.queryByText("Run code on linux-server?")).not.toBeInTheDocument();
+  });
+
+  it("changing only the title of an already-bypass remote loop asks nothing", async () => {
+    const existing = loop({ environment: "linux-server", permissionMode: "bypassPermissions" });
+    const { onSubmit } = renderRemote({ loop: existing });
+    const name = screen.getByRole("textbox", { name: /Name/ });
+    await userEvent.clear(name);
+    await userEvent.type(name, "Renamed");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.queryByText(/Run code on/)).not.toBeInTheDocument();
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("confirmed");
+  });
+
+  it("moving a remote loop from bypassPermissions to manual asks nothing", async () => {
+    const existing = loop({ environment: "linux-server", permissionMode: "bypassPermissions" });
+    const { onSubmit } = renderRemote({ loop: existing });
+    await userEvent.click(screen.getByRole("combobox", { name: "Permission mode" }));
+    await userEvent.click(screen.getByRole("option", { name: "manual" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.queryByText(/Run code on/)).not.toBeInTheDocument();
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("confirmed");
+  });
+
+  it("moving a remote loop from manual to bypassPermissions asks, then sends confirmed", async () => {
+    const existing = loop({ environment: "linux-server", permissionMode: "manual" });
+    const { onSubmit } = renderRemote({ loop: existing });
+    await userEvent.click(screen.getByRole("combobox", { name: "Permission mode" }));
+    await userEvent.click(screen.getByRole("option", { name: "bypassPermissions" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/with every permission \(bypassPermissions\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/This script runs as the agent's user/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Run on linux-server" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "bypassPermissions", confirmed: true }));
+  });
+
+  it("a script edit on an already-bypass loop shows the script text, not the bypass text", async () => {
+    const existing = loop({ environment: "linux-server", permissionMode: "bypassPermissions", script: "true", scriptTimeout: "1m" });
+    renderRemote({ loop: existing });
+    const script = screen.getByRole("textbox", { name: "Script" });
+    await userEvent.clear(script);
+    await userEvent.type(script, "make check");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByText(/This script runs as the agent's user on linux-server/)).toBeInTheDocument();
+    expect(screen.queryByText(/with every permission/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Script", { selector: "pre" })).toHaveTextContent("make check");
+  });
+
+  it("a script and bypass change together show both texts", async () => {
+    const existing = loop({ environment: "linux-server", permissionMode: "manual", script: "true", scriptTimeout: "1m" });
+    renderRemote({ loop: existing });
+    const script = screen.getByRole("textbox", { name: "Script" });
+    await userEvent.clear(script);
+    await userEvent.type(script, "make check");
+    await userEvent.click(screen.getByRole("combobox", { name: "Permission mode" }));
+    await userEvent.click(screen.getByRole("option", { name: "bypassPermissions" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByText(/This script runs as the agent's user on linux-server/)).toBeInTheDocument();
+    expect(screen.getByText(/with every permission \(bypassPermissions\)/)).toBeInTheDocument();
+  });
+
+  it("blocks the submit when the picked environment went offline", async () => {
+    const base = testStore();
+    const store = testStore({ state: { environments: { ...base.getState().environments, items: [remoteEnvironment()] } } });
+    const onSubmit = vi.fn();
+    renderWithStore(<LoopForm error={null} submitting={false} onCancel={vi.fn()} onSubmit={onSubmit} />, store);
+    await chooseRemote();
+    await typeRequiredFields();
+    act(() => {
+      store.dispatch(fetchEnvironments.pending("env", undefined));
+      store.dispatch(
+        fetchEnvironments.fulfilled({ listing: { environments: [remoteEnvironment({ status: "offline" })], warnings: [] }, at: 2 }, "env", undefined),
+      );
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Add loop" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/linux-server is no longer available/)).toBeInTheDocument();
   });
 });

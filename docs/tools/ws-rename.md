@@ -5,7 +5,7 @@ Change a workspace's display name.
 ## Synopsis
 
 ```
-ws rename [OPTIONS] <WORKSPACE> <NAME>
+ws rename [--env <name>] [OPTIONS] <WORKSPACE> <NAME>
 ```
 
 ## Description
@@ -30,7 +30,8 @@ arguments when the name starts with `-`:
 
 | Option   | Description                                      |
 | -------- | ------------------------------------------------ |
-| `--json` | Print `{"id", "name", "path", "warnings"}`       |
+| `--env <name>` | Rename the workspace on this environment (`ws env list`), not here; without it a remote id is `workspace_not_found`, naming the environment |
+| `--json` | Print `{"id", "name", "path", "warnings"}`, plus `"environment"` with `--env` |
 
 ## Errors
 
@@ -39,6 +40,8 @@ arguments when the name starts with `-`:
 | Not exactly a workspace and a name             | `usage`               | 2    |
 | The name is empty or holds a control character | `name_invalid`        | 2    |
 | Workspace not found                            | `workspace_not_found` | 3    |
+| `--env` names no environment                   | `environment_unknown` | 3    |
+| `--env` names an environment that is offline   | `environment_offline` | 1    |
 
 ## Examples
 

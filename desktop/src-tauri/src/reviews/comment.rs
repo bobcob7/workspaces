@@ -5,7 +5,7 @@
 //! pending review.
 
 use super::github::{self, split_repo};
-use super::report::{self, Acted, Cache};
+use super::report::{self, Acted, Cache, Origin};
 use crate::runner::{self, AppError, Outcome, Runner};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -625,6 +625,8 @@ pub struct Subject<'a> {
     pub head: &'a str,
     pub pr_url: &'a str,
     pub login: Option<String>,
+    /// Where the review lives; the diff and the posting are the controller's.
+    pub origin: Origin<'a>,
 }
 
 /// Reads the report, the diff, and any pending review, and places the
@@ -634,7 +636,15 @@ pub async fn plan(
     cache: &Cache,
     subject: Subject<'_>,
 ) -> Result<CommentPlan, AppError> {
-    let report = report::read(runner, cache, subject.repo, subject.git_ref, false).await?;
+    let report = report::read(
+        runner,
+        cache,
+        subject.repo,
+        subject.git_ref,
+        subject.origin,
+        false,
+    )
+    .await?;
     let diff = read_diff(runner, subject.repo, subject.number).await?;
     let pending = pending_review(runner, subject.repo, subject.number).await?;
     let placed = place_findings(&report, &diff)?;
@@ -699,6 +709,7 @@ pub async fn post(
     cache: &Cache,
     repo: &str,
     git_ref: &str,
+    origin: Origin<'_>,
     req: &PostRequest,
 ) -> Result<Posted, AppError> {
     if req.findings.is_empty() {
@@ -734,6 +745,7 @@ pub async fn post(
         cache,
         repo,
         git_ref,
+        origin,
         &req.findings,
         Acted::Commented(&url),
     )
@@ -1116,9 +1128,16 @@ esac"#
                 report(vec![])
             ),
         );
-        let posted = post(&runner, &Cache::default(), REPO, REF, &request())
-            .await
-            .unwrap();
+        let posted = post(
+            &runner,
+            &Cache::default(),
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(),
+        )
+        .await
+        .unwrap();
         assert_eq!(
             posted.url,
             "https://github.com/bobcob7/buff-bear/pull/42#pullrequestreview-99"
@@ -1141,9 +1160,16 @@ esac"#
     async fn a_failed_file_thread_deletes_the_pending_review_and_records_nothing() {
         let fail = r#"echo 'gh: Could not resolve path' >&2; exit 1"#;
         let (dir, runner) = fake(&gh_script(fail, "echo '{}'"), WS_ACTED);
-        let err = post(&runner, &Cache::default(), REPO, REF, &request())
-            .await
-            .unwrap_err();
+        let err = post(
+            &runner,
+            &Cache::default(),
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(),
+        )
+        .await
+        .unwrap_err();
         assert!(err.message.contains("Could not resolve path"));
         assert!(err.message.ends_with("Nothing was posted."));
         let gh = log(&dir, "gh");
@@ -1156,9 +1182,16 @@ esac"#
     async fn a_failed_submit_deletes_the_pending_review() {
         let fail = r#"echo '{"message":"Unprocessable Entity","errors":["Review body is required"]}'; echo 'gh: Unprocessable Entity (HTTP 422)' >&2; exit 1"#;
         let (dir, runner) = fake(&gh_script(r#"echo '{"data":{}}'"#, fail), WS_ACTED);
-        let err = post(&runner, &Cache::default(), REPO, REF, &request())
-            .await
-            .unwrap_err();
+        let err = post(
+            &runner,
+            &Cache::default(),
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(
             err.message,
             "gh: Unprocessable Entity (HTTP 422) Review body is required Nothing was posted."
@@ -1177,9 +1210,16 @@ esac"#
   *) echo '{"id":99,"node_id":"PRR_1","html_url":"u"}' ;;
 esac"#;
         let (_dir, runner) = fake(script, WS_ACTED);
-        let err = post(&runner, &Cache::default(), REPO, REF, &request())
-            .await
-            .unwrap_err();
+        let err = post(
+            &runner,
+            &Cache::default(),
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(),
+        )
+        .await
+        .unwrap_err();
         assert!(err.message.ends_with("discard it on GitHub."));
     }
 
@@ -1187,9 +1227,16 @@ esac"#;
     async fn an_existing_pending_review_is_its_own_error() {
         let script = r#"echo '{"message":"Unprocessable Entity","errors":["User can only have one pending review per pull request"]}'; echo 'gh: Unprocessable Entity (HTTP 422)' >&2; exit 1"#;
         let (dir, runner) = fake(script, WS_ACTED);
-        let err = post(&runner, &Cache::default(), REPO, REF, &request())
-            .await
-            .unwrap_err();
+        let err = post(
+            &runner,
+            &Cache::default(),
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.code, "review_pending");
         assert_eq!(log(&dir, "gh").len(), 1);
     }
@@ -1200,9 +1247,16 @@ esac"#;
             &gh_script(r#"echo '{}'"#, "echo '{}'"),
             r#"echo '{"error":{"code":"finding_not_found","message":"no go:a-1"}}' >&2; exit 3"#,
         );
-        let posted = post(&runner, &Cache::default(), REPO, REF, &request())
-            .await
-            .unwrap();
+        let posted = post(
+            &runner,
+            &Cache::default(),
+            REPO,
+            REF,
+            Origin::LOCAL,
+            &request(),
+        )
+        .await
+        .unwrap();
         assert!(posted.report.is_none());
         assert!(posted.warning.unwrap().contains("no go:a-1"));
     }
@@ -1232,6 +1286,7 @@ esac"#,
             head: "e71b0d4aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             pr_url: "https://github.com/bobcob7/buff-bear/pull/42",
             login: Some("bobcob7".to_string()),
+            origin: Origin::LOCAL,
         };
         let plan = plan(&runner, &Cache::default(), subject).await.unwrap();
         assert!(plan.outdated);
@@ -1243,5 +1298,26 @@ esac"#,
         assert_eq!(plan.placed.comments[0].kind, Kind::Line);
         let gh = log(&dir, "gh");
         assert!(gh[1].contains(r#"select(.state == "PENDING")"#));
+    }
+
+    #[tokio::test]
+    async fn acted_after_post_uses_env() {
+        let ok = r#"echo '{"data":{}}'"#;
+        let (dir, runner) = fake(&gh_script(ok, "echo '{}'"), WS_ACTED);
+        let origin = Origin::new(Some("linux-server"), Some("review-1")).unwrap();
+        let posted = post(&runner, &Cache::default(), REPO, REF, origin, &request())
+            .await
+            .unwrap();
+        assert!(posted.url.ends_with("#pullrequestreview-99"));
+        let gh = log(&dir, "gh");
+        assert!(gh.iter().all(|c| !c.contains("--env")), "{gh:?}");
+        let ws = log(&dir, "ws");
+        assert_eq!(
+            ws[0],
+            format!(
+                "review acted --json --env=linux-server --commented {} -- review-1 go:a-1 go:b-1",
+                posted.url
+            )
+        );
     }
 }

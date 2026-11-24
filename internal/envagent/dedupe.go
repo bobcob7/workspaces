@@ -167,3 +167,15 @@ func (e *requestEntry) result() ([]byte, error) {
 func ended(ctx context.Context) bool {
 	return ctx.Err() != nil
 }
+
+// known reports whether id is running or remembered. An empty id never is.
+func (r *requests) known(id string) bool {
+	if id == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.prune()
+	_, ok := r.entries[id]
+	return ok
+}

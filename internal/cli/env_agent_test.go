@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/url"
@@ -16,12 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/envagent"
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/exectest"
+	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/mqttclient"
 )
 
@@ -291,5 +295,155 @@ func TestAgentSnapshots_Workspaces(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(data), `"id":"quiet"`)
 		assert.NotContains(t, string(data), "stray")
+	})
+}
+
+func TestAgentSnapshots_Loops(t *testing.T) {
+	t.Run("maps a loop without its prompt, script or vars", func(t *testing.T) {
+		app := newMockedApp().app
+		store := withLoopStore(t, app)
+		app.loops = store
+		l := loop.Loop{Name: "digest", Title: "Daily digest", Every: "1h", Prompt: "secret prompt", Script: "echo secret-script", Vars: map[string]string{"token": "secret-var"}, Keep: 5, CreatedAt: testNow().Add(-time.Hour), NextRunAt: testNow().Add(time.Hour)}
+		require.NoError(t, store.Create(&l))
+		loops, err := agentSnapshots{app: app}.Loops(t.Context())
+		require.NoError(t, err)
+		require.Len(t, loops, 1)
+		assert.Equal(t, "digest", loops[0].Name)
+		assert.Equal(t, "Daily digest", loops[0].Title)
+		assert.Equal(t, "1h", loops[0].Every)
+		require.NotNil(t, loops[0].NextRunAt)
+		data, err := json.Marshal(loops)
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "secret")
+		assert.NotContains(t, string(data), "prompt")
+		assert.NotContains(t, string(data), "script")
+		assert.NotContains(t, string(data), "vars")
+	})
+	t.Run("no loops is []", func(t *testing.T) {
+		app := newMockedApp().app
+		app.loops = withLoopStore(t, app)
+		loops, err := agentSnapshots{app: app}.Loops(t.Context())
+		require.NoError(t, err)
+		data, err := json.Marshal(loops)
+		require.NoError(t, err)
+		assert.JSONEq(t, "[]", string(data))
+	})
+	t.Run("keeps 100 by name", func(t *testing.T) {
+		app := newMockedApp().app
+		store := withLoopStore(t, app)
+		app.loops = store
+		for i := range envproto.MaxSnapshotLoops + 50 {
+			l := loop.Loop{Name: fmt.Sprintf("loop-%03d", i), Every: "1h", Prompt: "Do it", Keep: 5, CreatedAt: testNow().Add(-time.Hour), NextRunAt: testNow().Add(time.Hour)}
+			require.NoError(t, store.Create(&l))
+		}
+		loops, err := agentSnapshots{app: app}.Loops(t.Context())
+		require.NoError(t, err)
+		require.Len(t, loops, envproto.MaxSnapshotLoops)
+		assert.Equal(t, "loop-000", loops[0].Name)
+		assert.Equal(t, fmt.Sprintf("loop-%03d", envproto.MaxSnapshotLoops-1), loops[len(loops)-1].Name)
+	})
+}
+
+func Test_agentOptions(t *testing.T) {
+	opts := agentOptions("v1", 30, "/ws")
+	assert.Equal(t, 16384, opts.NotSentLowWater)
+	assert.Equal(t, "/ws", opts.WorkspacesRoot)
+	assert.Equal(t, "v1", opts.Version)
+}
+
+func TestAgentLoops_Tick(t *testing.T) {
+	t.Run("started is true when an item started", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.True(t, started)
+	})
+	t.Run("started is true when an item failed", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addDueLoop(t)
+		e.claude.CheckFunc = func(context.Context) error { return errors.New("claude is not trusted") }
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.True(t, started)
+		assert.Empty(t, e.claude.StartCalls())
+	})
+	t.Run("false when nothing is due", func(t *testing.T) {
+		e := newTickEnv(t)
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.False(t, started)
+	})
+	t.Run("false when every loop is paused or waiting", func(t *testing.T) {
+		e := newTickEnv(t)
+		paused := e.addDueLoop(t)
+		paused.Paused = true
+		require.NoError(t, e.loops.Save(&paused))
+		later := loop.Loop{Name: "later", Every: "1h", Prompt: "Do it", Keep: 5, CreatedAt: testNow().Add(-2 * time.Hour), NextRunAt: testNow().Add(time.Hour)}
+		require.NoError(t, e.loops.Create(&later))
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.False(t, started)
+		assert.Empty(t, e.claude.StartCalls())
+	})
+	t.Run("false when a script skips its loop", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.addGatedLoop(t, "Do it", nil)
+		e.app.gate = &fakeGate{result: gate.Result{ExitCode: 1}}
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.False(t, started)
+		assert.Empty(t, e.claude.StartCalls())
+	})
+	t.Run("starts two of three due loops and leaves the third waiting", func(t *testing.T) {
+		e := newTickEnv(t)
+		addDueLoopsNamed(t, e, "alpha", "bravo", "charlie")
+		started, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.True(t, started)
+		assert.Len(t, e.claude.StartCalls(), 2)
+		var waiting []string
+		for _, name := range []string{"alpha", "bravo", "charlie"} {
+			l, err := e.loops.Get(name)
+			require.NoError(t, err)
+			if len(l.Runs) == 0 {
+				waiting = append(waiting, name)
+				assert.True(t, l.NextRunAt.Equal(testNow().Add(-time.Minute)), "next_run_at of %s", name)
+			}
+		}
+		assert.Len(t, waiting, 1)
+	})
+	t.Run("runs the pass in the root given, quietly", func(t *testing.T) {
+		e := newTickEnv(t)
+		var configDirs []string
+		e.app.configs = &configLoaderMock{LoadFunc: func(configDir string) (config.Paths, config.Config, error) {
+			configDirs = append(configDirs, configDir)
+			return testPaths(), testConfig(), nil
+		}}
+		_, err := agentLoops{newApp: e.writersApp, root: "/cfg"}.Tick(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"/cfg"}, configDirs)
+		assert.True(t, e.app.global.quiet)
+	})
+	t.Run("a pass that can't load its config is an error with stderr", func(t *testing.T) {
+		e := newTickEnv(t)
+		e.app.configs = &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
+			return config.Paths{}, config.Config{}, errors.New("no such root")
+		}}
+		started, err := agentLoops{newApp: e.writersApp, root: "/nowhere"}.Tick(t.Context())
+		assert.False(t, started)
+		assert.ErrorContains(t, err, "no such root")
+	})
+	t.Run("a pass whose stdout isn't a loop listing is an error", func(t *testing.T) {
+		e := newTickEnv(t)
+		newApp := func(stdout, stderr io.Writer) *App {
+			fmt.Fprint(stdout, "[]")
+			e.app.stdout = io.Discard
+			e.app.stderr = stderr
+			return e.app
+		}
+		started, err := agentLoops{newApp: newApp, root: "/cfg"}.Tick(t.Context())
+		assert.False(t, started)
+		assert.ErrorContains(t, err, "reading the loop pass")
 	})
 }

@@ -6,8 +6,8 @@ show it again.
 ## Synopsis
 
 ```
-ws hide [OPTIONS] <WORKSPACE>
-ws unhide [OPTIONS] <WORKSPACE>
+ws hide [--env <name>] [OPTIONS] <WORKSPACE>
+ws unhide [--env <name>] [OPTIONS] <WORKSPACE>
 ```
 
 ## Description
@@ -35,7 +35,8 @@ Workspaces start visible, children included, since the workspace tree
 
 | Option   | Description                                           |
 | -------- | ----------------------------------------------------- |
-| `--json` | Print `{"id", "name", "path", "hidden", "warnings"}`  |
+| `--env <name>` | Act on the workspace on this environment (`ws env list`), not here; without it a remote id is `workspace_not_found`, naming the environment |
+| `--json` | Print `{"id", "name", "path", "hidden", "warnings"}`, plus `"environment"` with `--env` |
 
 ## Errors
 
@@ -43,6 +44,8 @@ Workspaces start visible, children included, since the workspace tree
 | ------------------------- | --------------------- | ---- |
 | Not exactly one workspace | `usage`               | 2    |
 | Workspace not found       | `workspace_not_found` | 3    |
+| `--env` names no environment | `environment_unknown` | 3 |
+| `--env` names an environment that is offline | `environment_offline` | 1 |
 
 ## Examples
 
