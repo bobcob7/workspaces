@@ -263,13 +263,16 @@ func TestTerminal_Hardening(t *testing.T) {
 	t.Run("the close of an abandoned terminal is bounded when the agent never answers", func(t *testing.T) {
 		f := newTermFixture(t)
 		f.c.abandonedCloseWait = 20 * time.Millisecond
-		f.silentClose.Store(true)
 		abandoned := false
 		for range 200 {
 			ctx, cancel := context.WithCancel(t.Context())
-			f.afterOpen = cancel
+			f.afterOpen = func() {
+				f.silentClose.Store(true)
+				cancel()
+			}
 			term, _, err := f.c.OpenTerminal(ctx, "linux-server", attachArgs())
 			if err == nil {
+				f.silentClose.Store(false)
 				require.NoError(t, term.Close(t.Context()))
 				continue
 			}
