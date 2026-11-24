@@ -7,6 +7,7 @@ import { Card } from "./Card";
 import { loopLabel } from "./formValues";
 import { MemoryDialog } from "./MemoryDialog";
 import { clearLoopMemory, fetchLoopMemory, loopKey, removeLoopMemory } from "./loopDataSlice";
+import { selectLoopBusy } from "./loopsSlice";
 import styles from "./MemoryCard.module.css";
 
 /** The entry's first line, cut to 120 characters. */
@@ -34,7 +35,7 @@ const EntryRow = ({ entry, onEdit, onDelete }: { readonly entry: LoopMemoryEntry
 export const MemoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   const dispatch = useAppDispatch();
   const data = useAppSelector((s) => s.loopData);
-  const busy = useAppSelector((s) => s.loops.busy === loop.name);
+  const busy = useAppSelector((s) => selectLoopBusy(s, loop.name, loop.environment));
   const [editing, setEditing] = useState<LoopMemoryEntry | "new" | null>(null);
   const [confirming, setConfirming] = useState(false);
   const held = data.loop === loopKey(loop.name, loop.environment);

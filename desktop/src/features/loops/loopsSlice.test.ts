@@ -11,6 +11,7 @@ import {
   loopSelected,
   removeLoop,
   runLoopNow,
+  selectLoopBusy,
   selectLoopGroups,
   setLoopPaused,
 } from "./loopsSlice";
@@ -291,6 +292,20 @@ describe("loops by environment", () => {
     expect(api.loopsSetPaused).toHaveBeenCalledWith("deps", true, "alpha");
     expect(store.getState().loops.byEnvironment["alpha"]?.items).toEqual([paused]);
     expect(store.getState().loops.byEnvironment["local"]?.items).toEqual([local]);
+  });
+
+  it("marks only the loop of the environment an action runs on as busy", async () => {
+    let finish: (value: ReturnType<typeof loop>) => void = () => undefined;
+    const api = fakeApi({ loopsSetPaused: vi.fn(() => new Promise<ReturnType<typeof loop>>((resolve) => (finish = resolve))) });
+    const store = testStore({ api });
+    const pending = store.dispatch(setLoopPaused({ name: "deps", paused: true, environment: "alpha" }));
+    const state = store.getState();
+    expect(selectLoopBusy(state, "deps", "alpha")).toBe(true);
+    expect(selectLoopBusy(state, "deps")).toBe(false);
+    expect(selectLoopBusy(state, "deps", "beta")).toBe(false);
+    finish(loop({ name: "deps", paused: true }));
+    await pending;
+    expect(selectLoopBusy(store.getState(), "deps", "alpha")).toBe(false);
   });
 
   it("runs a loop on its environment", async () => {

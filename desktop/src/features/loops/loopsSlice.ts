@@ -11,6 +11,7 @@ import type { RootState } from "../../store";
 import { createAppThunk } from "../../thunk";
 import { offlineReason } from "../environments/environments";
 import { noticeShown } from "../ui/uiSlice";
+import { loopKey } from "./loopDataSlice";
 
 /** What one environment's last listing held. */
 export interface EnvironmentLoops {
@@ -39,7 +40,7 @@ export interface LoopsState {
   readonly submitting: boolean;
   /** The last add or edit failed. */
   readonly formError: AppError | null;
-  /** The name of the loop an action is running on. */
+  /** The `loopKey` of the loop an action is running on. */
   readonly busy: string | null;
 }
 
@@ -126,15 +127,15 @@ export const setLoopPaused = createAppThunk<Loop, { name: string; paused: boolea
 export const removeLoop = createAppThunk<Loop, LoopTarget & { confirmed?: boolean }>(
   "loops/remove",
   async ({ name, environment = "local", confirmed = false }, { extra, dispatch, rejectWithValue }) => {
-  try {
-    const removed = await extra.api.loopsRemove(name, confirmed, environment);
-    void dispatch(fetchLoops());
-    return removed;
-  } catch (err: unknown) {
-    const error = toAppError(err);
-    dispatch(noticeShown({ severity: "error", message: error.message }));
-    return rejectWithValue(error);
-  }
+    try {
+      const removed = await extra.api.loopsRemove(name, confirmed, environment);
+      void dispatch(fetchLoops());
+      return removed;
+    } catch (err: unknown) {
+      const error = toAppError(err);
+      dispatch(noticeShown({ severity: "error", message: error.message }));
+      return rejectWithValue(error);
+    }
   },
 );
 
@@ -142,21 +143,25 @@ export const removeLoop = createAppThunk<Loop, LoopTarget & { confirmed?: boolea
 export const runLoopNow = createAppThunk<LoopStarted, LoopTarget>(
   "loops/runNow",
   async ({ name, environment = "local" }, { extra, dispatch, rejectWithValue }) => {
-  try {
-    const started = await extra.api.loopsRunNow(name, environment);
-    dispatch(noticeShown({ severity: "success", message: `Started ${started.workspace}`, action: { label: "Open", agent: started.workspace } }));
-    void dispatch(fetchLoops());
-    return started;
-  } catch (err: unknown) {
-    const error = toAppError(err);
-    dispatch(noticeShown({ severity: "error", message: error.message }));
-    return rejectWithValue(error);
-  }
+    try {
+      const started = await extra.api.loopsRunNow(name, environment);
+      dispatch(noticeShown({ severity: "success", message: `Started ${started.workspace}`, action: { label: "Open", agent: started.workspace } }));
+      void dispatch(fetchLoops());
+      return started;
+    } catch (err: unknown) {
+      const error = toAppError(err);
+      dispatch(noticeShown({ severity: "error", message: error.message }));
+      return rejectWithValue(error);
+    }
   },
 );
 
 /** The loop an action is running on, for the busy marker. */
-const busyName = (arg: { readonly name: string }): string => arg.name;
+const busyName = (arg: { readonly name: string; readonly environment?: string }): string => loopKey(arg.name, arg.environment);
+
+/** Whether an action is running on this loop of this environment. */
+export const selectLoopBusy = (state: RootState, name: string, environment = "local"): boolean =>
+  state.loops.busy === loopKey(name, environment);
 
 /** The state with one loop replaced in its environment's list. */
 const withLoop = (state: LoopsState, environment: string, updated: Loop): LoopsState => {

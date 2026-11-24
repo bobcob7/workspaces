@@ -18,6 +18,7 @@ import {
   editingStarted,
   removeLoop,
   runLoopNow,
+  selectLoopBusy,
   setLoopPaused,
 } from "./loopsSlice";
 import styles from "./LoopsPane.module.css";
@@ -180,7 +181,7 @@ const VarsCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
 /** One loop: its header actions and a card per setting group, with Pause/Resume, Run now, and Delete. */
 const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   const dispatch = useAppDispatch();
-  const busy = useAppSelector((s) => s.loops.busy === loop.name);
+  const busy = useAppSelector((s) => selectLoopBusy(s, loop.name, loop.environment));
   const [confirming, setConfirming] = useState(false);
   return (
     <section className={styles.root} aria-label={loopLabel(loop)}>

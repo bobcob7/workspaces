@@ -4,7 +4,7 @@ import type { LoopHistoryRun } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { MarkdownText } from "../conversation/ConversationView";
 import { formatDuration, statusLabel } from "./history";
-import { fetchLoopRun } from "./loopDataSlice";
+import { fetchLoopRun, loopKey } from "./loopDataSlice";
 import { gateText } from "./gate";
 import styles from "./HistoryCard.module.css";
 
@@ -47,7 +47,8 @@ export const RunDialog = ({
 }): JSX.Element => {
   const dispatch = useAppDispatch();
   const detail = useAppSelector((s) => s.loopData.run);
-  const loaded = detail !== null && detail.loop === name && detail.run.seq === seq ? detail : null;
+  const held = useAppSelector((s) => s.loopData.loop === loopKey(name, environment));
+  const loaded = held && detail !== null && detail.run.seq === seq ? detail : null;
   const title = loaded === null ? `Run ${seq}` : `Run ${seq} · ${statusLabel(loaded.run)}`;
 
   useEffect(() => {

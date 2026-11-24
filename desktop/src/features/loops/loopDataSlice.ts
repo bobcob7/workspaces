@@ -135,15 +135,15 @@ export const removeLoopMemory = createAppThunk<LoopMemoryRemoved, LoopTarget & {
 export const clearLoopMemory = createAppThunk<LoopCleared, LoopTarget & { confirmed?: boolean }>(
   "loopData/clearMemory",
   async ({ name, environment = "local", confirmed = false }, { extra, dispatch, rejectWithValue }) => {
-  try {
-    const cleared = await extra.api.loopsMemoryClear(name, confirmed, environment);
-    await dispatch(fetchLoopMemory({ name, environment }));
-    return cleared;
-  } catch (err: unknown) {
-    const error = toAppError(err);
-    dispatch(noticeShown({ severity: "error", message: error.message }));
-    return rejectWithValue(error);
-  }
+    try {
+      const cleared = await extra.api.loopsMemoryClear(name, confirmed, environment);
+      await dispatch(fetchLoopMemory({ name, environment }));
+      return cleared;
+    } catch (err: unknown) {
+      const error = toAppError(err);
+      dispatch(noticeShown({ severity: "error", message: error.message }));
+      return rejectWithValue(error);
+    }
   },
 );
 
