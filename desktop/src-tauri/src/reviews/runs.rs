@@ -61,8 +61,9 @@ fn agent_status(state: &str) -> Status {
     }
 }
 
-/// A removed review as the Reviews view reads it: a finished review agent
-/// of kind `removed`.
+/// A local removed review as the Reviews view reads it: a finished review
+/// agent of kind `removed`.
+#[cfg(test)]
 pub fn entry(id: &str, record: ReviewRecord, created_at: Option<String>) -> Entry {
     entry_in("local", id, record, created_at)
 }

@@ -52,11 +52,6 @@ impl<'a> Origin<'a> {
         })
     }
 
-    /// The environment, when it isn't this machine.
-    pub fn environment(&self) -> Option<&'a str> {
-        self.environment
-    }
-
     /// The cache key of the review's report.
     pub fn key(&self, repo: &str, git_ref: &str) -> ReportKey {
         match self.environment {
