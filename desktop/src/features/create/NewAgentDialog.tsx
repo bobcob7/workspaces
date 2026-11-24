@@ -13,7 +13,9 @@ import { useState, type FormEvent, type JSX } from "react";
 import type { AppError } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { createAgent, createErrorCleared } from "../agents/agentsSlice";
+import { lastChoiceSet } from "../environments/environmentsSlice";
 import { dialogClosed } from "../ui/uiSlice";
+import { EnvironmentField, useEnvironmentPick } from "./EnvironmentField";
 import { RepoSpecsField } from "./RepoSpecsField";
 import { RunnerModelFields, type RunnerModelValues } from "./RunnerModelFields";
 import { useRunnerSettings } from "./useRunnerSettings";
@@ -45,6 +47,7 @@ export const NewAgentDialog = (): JSX.Element => {
   const [runnerFields, setRunnerFields] = useState<RunnerModelValues>(emptyRunner);
   const [offline, setOffline] = useState(false);
   const runnerSettings = useRunnerSettings(open);
+  const pick = useEnvironmentPick();
   const promptMissing = runnerFields.runner === "ws" && prompt.trim() === "";
   usePrefilledSpecs(open, setSpecs);
   const close = (): void => {
@@ -57,10 +60,12 @@ export const NewAgentDialog = (): JSX.Element => {
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     const { runner, model, endpoint, permissionMode } = runnerFields;
+    const remote = pick.environment === "local" ? {} : { environment: pick.environment };
     const result = await dispatch(
-      createAgent({ name, specs, prompt, model, permissionMode, offline, runner, endpoint }),
+      createAgent({ name, specs, prompt, model, permissionMode, offline, runner, endpoint, ...remote }),
     );
     if (createAgent.fulfilled.match(result)) {
+      dispatch(lastChoiceSet(pick.environment));
       setName("");
       setSpecs([]);
       setPrompt("");
@@ -80,6 +85,8 @@ export const NewAgentDialog = (): JSX.Element => {
             helperText="Shown in the list, and can be changed later; the workspace id is made from it. Leave empty for a generated id."
             autoFocus
           />
+          <EnvironmentField pick={pick} />
+          {pick.claudeMissing && <Alert severity="warning">claude isn't installed on {pick.environment}.</Alert>}
           <RepoSpecsField value={specs} onChange={setSpecs} />
           <TextField
             label="Task"
@@ -110,7 +117,7 @@ export const NewAgentDialog = (): JSX.Element => {
           <Button onClick={close} disabled={creating}>
             Cancel
           </Button>
-          <Button type="submit" variant="contained" disabled={creating || promptMissing}>
+          <Button type="submit" variant="contained" disabled={creating || promptMissing || pick.claudeMissing}>
             {creating ? "Starting…" : "Start agent"}
           </Button>
         </DialogActions>

@@ -101,7 +101,7 @@ export const stopAgent = createAppThunk<void, Entry>(
           await extra.api.runnerStop(entry.workspaceId);
         }
       } else if (entry.sessionId !== null) {
-        await extra.api.stopAgent(entry.sessionId);
+        await extra.api.stopAgent(entry.sessionId, entry.workspaceId, entry.environment);
         await dispatch(closeTerminal(`attach:${entry.sessionId}`));
       }
       dispatch(noticeShown({ severity: "info", message: `Stopped ${entry.name}` }));
@@ -148,7 +148,7 @@ export const removeEntry = createAppThunk<void, RemoveRequest>(
       if (entry.sessionId !== null) {
         await dispatch(closeTerminal(`attach:${entry.sessionId}`));
       }
-      await extra.api.removeEntry(entry.workspaceId, entry.sessionId, entry.keepChildren ?? false);
+      await extra.api.removeEntry(entry.workspaceId, entry.sessionId, entry.keepChildren ?? false, entry.environment);
       if (getState().ui.selectedKey === entry.key) {
         dispatch(selected(null));
       }
@@ -170,7 +170,7 @@ export const renameEntry = createAppThunk<void, { readonly entry: Entry; readonl
       return;
     }
     try {
-      const renamed = await extra.api.renameWorkspace(entry.workspaceId, name);
+      const renamed = await extra.api.renameWorkspace(entry.workspaceId, name, entry.environment);
       dispatch(noticeShown({ severity: "success", message: `Renamed to ${renamed.name}` }));
     } catch (err: unknown) {
       const error = toAppError(err);
@@ -189,7 +189,7 @@ export const setEntryHidden = createAppThunk<void, { readonly entry: Entry; read
       return;
     }
     try {
-      await extra.api.setWorkspaceHidden(entry.workspaceId, hidden);
+      await extra.api.setWorkspaceHidden(entry.workspaceId, hidden, entry.environment);
       dispatch(noticeShown({ severity: "info", message: hidden ? `Hid ${entry.name}` : `Unhid ${entry.name}` }));
     } catch (err: unknown) {
       const error = toAppError(err);

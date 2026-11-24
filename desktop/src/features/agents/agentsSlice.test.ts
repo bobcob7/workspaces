@@ -15,6 +15,7 @@ import {
   queryChanged,
   removeEntry,
   renameEntry,
+  setEntryHidden,
   stopAgent,
   statusFilterChanged,
   type AgentsState,
@@ -94,7 +95,7 @@ describe("thunks", () => {
     const api = fakeApi();
     const store = testStore({ api });
     await store.dispatch(renameEntry({ entry: entry({ workspaceId: "fix-login-d8efb24f" }), name: "Login fix" }));
-    expect(api.renameWorkspace).toHaveBeenCalledWith("fix-login-d8efb24f", "Login fix");
+    expect(api.renameWorkspace).toHaveBeenCalledWith("fix-login-d8efb24f", "Login fix", "local");
     expect(api.listEntries).toHaveBeenCalled();
     expect(store.getState().ui.notice?.severity).toBe("success");
   });
@@ -114,14 +115,14 @@ describe("thunks", () => {
     const api = fakeApi();
     const store = testStore({ api });
     await store.dispatch(removeEntry(entry()));
-    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", false);
+    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", false, "local");
   });
 
   it("removes keeping the workspaces it started", async () => {
     const api = fakeApi();
     const store = testStore({ api });
     await store.dispatch(removeEntry({ ...entry(), keepChildren: true }));
-    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", true);
+    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", true, "local");
   });
 
   it("closes the agent's terminal before removing it", async () => {
@@ -148,6 +149,43 @@ describe("thunks", () => {
     expect(runnerStop).toHaveBeenCalledTimes(1);
     expect(runnerStop).toHaveBeenCalledWith("t1");
     expect(stopAgentApi).not.toHaveBeenCalled();
+  });
+
+  it("stops a claude agent on its own environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(stopAgent(entry({ environment: "linux-server" })));
+    expect(api.stopAgent).toHaveBeenCalledWith("e8cdf5d8", "fix-login", "linux-server");
+  });
+
+  it("stops a local agent on local", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(stopAgent(entry()));
+    expect(api.stopAgent).toHaveBeenCalledWith("e8cdf5d8", "fix-login", "local");
+  });
+
+  it("removes on the entry's environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(removeEntry(entry({ environment: "linux-server" })));
+    expect(api.removeEntry).toHaveBeenCalledWith("fix-login", "e8cdf5d8", false, "linux-server");
+  });
+
+  it("renames on the entry's environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(renameEntry({ entry: entry({ environment: "linux-server" }), name: "Login fix" }));
+    expect(api.renameWorkspace).toHaveBeenCalledWith("fix-login", "Login fix", "linux-server");
+  });
+
+  it("hides and unhides on the entry's environment", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(setEntryHidden({ entry: entry({ environment: "linux-server" }), hidden: true }));
+    expect(api.setWorkspaceHidden).toHaveBeenCalledWith("fix-login", true, "linux-server");
+    await store.dispatch(setEntryHidden({ entry: entry(), hidden: false }));
+    expect(api.setWorkspaceHidden).toHaveBeenLastCalledWith("fix-login", false, "local");
   });
 
   it("shows a failed stop as an error notice", async () => {

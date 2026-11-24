@@ -14,7 +14,8 @@ export const staleAfterMs = 30_000;
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
-const clock = (iso: string, now: number): string => {
+/** The clock time of an instant, with the date when it isn't today. */
+export const clock = (iso: string, now: number): string => {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) {
     return iso;
