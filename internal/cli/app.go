@@ -278,6 +278,7 @@ func (a *App) newRootCmd() *cobra.Command {
 		a.newConfigCmd(),
 		a.newDaemonCmd(),
 		a.newEnvCmd(),
+		a.newArtifactCmd(),
 	} {
 		cmd.GroupID = peopleGroup
 		root.AddCommand(cmd)

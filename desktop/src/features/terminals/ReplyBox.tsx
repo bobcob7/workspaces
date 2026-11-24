@@ -1,5 +1,8 @@
 import { Button, TextField, useMediaQuery } from "@mui/material";
-import { useState, type FormEvent, type JSX } from "react";
+import { useRef, useState, type FormEvent, type JSX } from "react";
+import { AttachmentBar } from "../artifacts/AttachButton";
+import { appendHint } from "../artifacts/references";
+import { insertAtSelection, useAttachments } from "../artifacts/useAttachments";
 import { useAppDispatch } from "../../store";
 import { messageKeys, sendMessage } from "./terminalsSlice";
 import styles from "./ReplyBox.module.css";
@@ -13,38 +16,57 @@ export const ReplyBox = ({ terminalKey, disabled }: ReplyBoxProps): JSX.Element 
   const dispatch = useAppDispatch();
   const phone = useMediaQuery("(max-width:720px)");
   const [message, setMessage] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachments = useAttachments(
+    (reference, selection) => setMessage((current) => insertAtSelection(current, selection, reference)),
+    () => inputRef.current,
+  );
+  const cannotSend = disabled || attachments.busy || message.trim() === "";
   const submit = (event: FormEvent): void => {
     event.preventDefault();
-    if (message.trim() === "") {
+    if (cannotSend) {
       return;
     }
-    void dispatch(sendMessage({ key: terminalKey, text: messageKeys(message) }));
+    void dispatch(sendMessage({ key: terminalKey, text: messageKeys(appendHint(message)) }));
     setMessage("");
   };
   return (
-    <form className={styles.root} onSubmit={submit}>
-      <TextField
-        size="small"
-        fullWidth
-        multiline
-        maxRows={6}
-        placeholder={phone ? "Message" : "Message the agent (Enter to send, Shift+Enter for a new line)"}
-        value={message}
-        disabled={disabled}
-        onChange={(e) => setMessage(e.target.value)}
-        onKeyDown={(e) => {
-          if (phone) {
-            return;
-          }
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-            submit(e);
-          }
-        }}
-        slotProps={{ htmlInput: { "aria-label": "Message" } }}
-      />
-      <Button type="submit" size={phone ? "small" : "medium"} className={styles.send} variant="contained" disabled={disabled || message.trim() === ""}>
-        Send
-      </Button>
-    </form>
+    <>
+      <form className={styles.root} onSubmit={submit}>
+        <TextField
+          size="small"
+          fullWidth
+          multiline
+          maxRows={6}
+          placeholder={phone ? "Message" : "Message the agent (Enter to send, Shift+Enter for a new line)"}
+          value={message}
+          disabled={disabled}
+          inputRef={inputRef}
+          onChange={(e) => setMessage(e.target.value)}
+          onPaste={attachments.onPaste}
+          onDrop={attachments.onDrop}
+          onDragOver={attachments.onDragOver}
+          onKeyDown={(e) => {
+            if (phone) {
+              return;
+            }
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              submit(e);
+            }
+          }}
+          slotProps={{ htmlInput: { "aria-label": "Message" } }}
+        />
+        <Button
+          type="submit"
+          size={phone ? "small" : "medium"}
+          className={styles.send}
+          variant="contained"
+          disabled={cannotSend}
+        >
+          Send
+        </Button>
+      </form>
+      {!disabled && <AttachmentBar text={message} onTextChange={setMessage} attachments={attachments} />}
+    </>
   );
 };

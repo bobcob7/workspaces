@@ -1,6 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { api, type Artifact } from "../../api";
 import { fakeApi, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { dialogOpened } from "../ui/uiSlice";
@@ -10,6 +11,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => []),
   Channel: class {},
 }));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const openDialog = (api = fakeApi()): ReturnType<typeof testStore> => {
   const store = testStore({ api });
@@ -83,4 +88,60 @@ describe("NewAgentDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
     expect(await screen.findByText(/cd "\/w" && claude/)).toBeInTheDocument();
   });
+
+  it("puts a reference to an attached file in the task", async () => {
+    vi.spyOn(api, "artifactAdd").mockResolvedValue(storedArtifact("art-00000009", "shot.png"));
+    openDialog();
+
+    await userEvent.upload(pickerInput(), new File(["png"], "shot.png", { type: "image/png" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Task")).toHaveValue("@artifact:art-00000009 "));
+  });
+
+  it("keeps Start agent in the dialog, with the fields in the scrolling content", () => {
+    openDialog(fakeApi());
+    const dialog = screen.getByRole("dialog");
+    const content = dialog.querySelector(".content");
+
+    expect(dialog.querySelector("form")).toHaveClass("form");
+    expect(content).toHaveClass("content");
+    expect(content).toContainElement(screen.getByLabelText("Task"));
+    expect(content).not.toContainElement(screen.getByRole("button", { name: "Start agent" }));
+  });
+
+  it("holds Start agent while a file uploads", async () => {
+    let finish: (value: Artifact) => void = () => undefined;
+    vi.spyOn(api, "artifactAdd").mockImplementation(() => new Promise<Artifact>((resolve) => (finish = resolve)));
+    openDialog();
+
+    await userEvent.upload(pickerInput(), new File(["png"], "shot.png", { type: "image/png" }));
+
+    expect(screen.getByRole("button", { name: "Start agent" })).toBeDisabled();
+    finish(storedArtifact("art-00000009", "shot.png"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled());
+  });
+});
+
+const pickerInput = (): HTMLInputElement => {
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) {
+    throw new Error("no file picker");
+  }
+  return picker;
+};
+
+const storedArtifact = (id: string, name: string): Artifact => ({
+  id,
+  reference: `@artifact:${id}`,
+  name,
+  title: null,
+  kind: "image",
+  contentType: "image/png",
+  latest: 1,
+  size: 3,
+  createdAt: "2026-11-23T18:00:00Z",
+  updatedAt: "2026-11-23T18:00:00Z",
+  createdBy: { kind: "person", workspace: null, name: null },
+  threads: { open: 0, resolved: 0, detached: 0 },
+  revisions: [],
 });

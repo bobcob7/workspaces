@@ -1,0 +1,13 @@
+.text {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+}

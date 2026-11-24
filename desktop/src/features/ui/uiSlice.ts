@@ -4,13 +4,18 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
  * Action types of other slices, matched by string: importing their action
  * creators would make a cycle, since those slices import from this one.
  */
-const pickedTypes: readonly string[] = ["repos/repoSelected", "loops/loopSelected", "reviews/reviewSelected"];
+const pickedTypes: readonly string[] = [
+  "repos/repoSelected",
+  "loops/loopSelected",
+  "reviews/reviewSelected",
+  "artifacts/artifactSelected",
+];
 const openedTypes: readonly string[] = ["loops/creatingStarted", "settings/groupChosen", "stats/windowChosen"];
 
 export type Dialog = "agent" | "shell";
 
 /** The app's sections, in rail order (ADR 0031). */
-export type Section = "agents" | "repos" | "reviews" | "loops" | "stats" | "settings";
+export type Section = "agents" | "repos" | "reviews" | "loops" | "artifacts" | "stats" | "settings";
 
 /** How an agent is shown: its conversation, or the claude attach terminal. */
 export type AgentView = "conversation" | "terminal" | "shell";

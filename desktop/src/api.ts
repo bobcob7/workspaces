@@ -500,6 +500,103 @@ export interface ProfileRemoved {
 /** Where an agent role comes from: built into `ws`, a user's file, or a user's file replacing a built-in (ADR 0050). */
 export type RoleSource = "builtin" | "user" | "override";
 
+/** Artifacts (ADR 0078): what `ws artifact` stores, camelCase as the app receives it. */
+export type ArtifactKind = "image" | "markdown" | "text";
+
+export interface Actor {
+  readonly kind: "person" | "agent";
+  readonly workspace: string | null;
+  readonly name: string | null;
+}
+
+export interface ThreadCounts {
+  readonly open: number;
+  readonly resolved: number;
+  readonly detached: number;
+}
+
+export interface ArtifactSummary {
+  readonly id: string;
+  readonly reference: string;
+  readonly name: string;
+  readonly title: string | null;
+  readonly kind: ArtifactKind;
+  readonly contentType: string;
+  readonly latest: number;
+  readonly size: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly createdBy: Actor;
+  readonly threads: ThreadCounts;
+}
+
+export interface Revision {
+  readonly rev: number;
+  readonly contentType: string;
+  readonly size: number;
+  readonly sha256: string;
+  readonly createdAt: string;
+  readonly createdBy: Actor;
+  readonly note: string | null;
+}
+
+export interface Artifact extends ArtifactSummary {
+  readonly revisions: readonly Revision[];
+}
+
+export interface ArtifactContent {
+  readonly rev: number;
+  readonly contentType: string;
+  readonly size: number;
+  readonly dataBase64: string;
+}
+
+export interface Anchor {
+  readonly rev: number;
+  readonly start: number;
+  readonly end: number;
+  readonly lineStart: number;
+  readonly lineEnd: number;
+  readonly quote: string;
+  readonly prefix: string;
+  readonly suffix: string;
+  readonly state: "anchored" | "detached";
+}
+
+export interface ThreadComment {
+  readonly id: string;
+  readonly author: Actor;
+  readonly body: string;
+  readonly createdAt: string;
+}
+
+export interface Thread {
+  readonly id: string;
+  readonly anchor: Anchor | null;
+  readonly resolved: boolean;
+  readonly resolvedAt: string | null;
+  readonly resolvedBy: Actor | null;
+  readonly comments: readonly ThreadComment[];
+}
+
+export interface CommentList {
+  readonly artifactId: string;
+  readonly latest: number;
+  readonly threads: readonly Thread[];
+}
+
+export interface NewAnchor {
+  readonly quote: string;
+  readonly line: number;
+  readonly prefix: string;
+  readonly suffix: string;
+}
+
+export interface CommentAdded {
+  readonly thread: Thread;
+  readonly comment: ThreadComment;
+}
+
 /** A role as `ws machine roles` lists it. */
 export interface ListedRole {
   readonly name: string;
@@ -1329,6 +1426,19 @@ export const api = {
   rolesAdd: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_add", { name, draft }),
   rolesEdit: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_edit", { name, draft }),
   rolesRemove: async (name: string): Promise<RoleRemoved> => call<RoleRemoved>("roles_remove", { name }),
+  artifactList: async (kind: ArtifactKind | null, workspace: string | null): Promise<readonly ArtifactSummary[]> =>
+    call<ArtifactSummary[]>("artifact_list", { kind, workspace }),
+  artifactShow: async (id: string): Promise<Artifact> => call<Artifact>("artifact_show", { id }),
+  artifactRead: async (id: string, rev: number | null): Promise<ArtifactContent> =>
+    call<ArtifactContent>("artifact_read", { id, rev }),
+  artifactAdd: async (name: string, title: string | null, dataBase64: string): Promise<Artifact> =>
+    call<Artifact>("artifact_add", { name, title, dataBase64 }),
+  artifactRemove: async (id: string): Promise<void> => call<void>("artifact_remove", { id }),
+  artifactComments: async (id: string): Promise<CommentList> => call<CommentList>("artifact_comments", { id }),
+  artifactCommentAdd: async (id: string, body: string, reply: string | null, anchor: NewAnchor | null): Promise<CommentAdded> =>
+    call<CommentAdded>("artifact_comment_add", { id, body, reply, anchor }),
+  artifactCommentResolve: async (id: string, thread: string, reopen: boolean): Promise<Thread> =>
+    call<Thread>("artifact_comment_resolve", { id, thread, reopen }),
   reviewsStart: async (plan: ReviewPlan): Promise<Started> => call<Started>("reviews_start", { plan }),
   reviewReport: async (repo: string, gitRef: string, refresh: boolean): Promise<ReviewReport> =>
     call<ReviewReport>("review_report", { repo, gitRef, refresh }),

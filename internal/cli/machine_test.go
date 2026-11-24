@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/artifact"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/lifetime"
@@ -104,12 +105,12 @@ func TestApp_newMachineCmd(t *testing.T) {
 	t.Run("is in the group for agents", func(t *testing.T) {
 		assert.Equal(t, agentsGroup, cmd.GroupID)
 	})
-	t.Run("has spawn, result, wait, children, logs, rm, roles, memory, and progress", func(t *testing.T) {
+	t.Run("has spawn, result, wait, children, logs, rm, roles, memory, progress, and artifact", func(t *testing.T) {
 		var names []string
 		for _, sub := range cmd.Commands() {
 			names = append(names, sub.Name())
 		}
-		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "logs", "rm", "roles", "memory", "progress"}, names)
+		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "logs", "rm", "roles", "memory", "progress", "artifact"}, names)
 	})
 	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"nope"}))
@@ -297,6 +298,19 @@ func TestApp_caller(t *testing.T) {
 		_, err := e.app.caller()
 		assert.ErrorIs(t, err, errTest)
 	})
+}
+
+func TestApp_runMachineSpawn_artifactHints(t *testing.T) {
+	e := roleSpawnEnv(t)
+	e.app.now = testNow
+	rec, err := e.app.artifactStore().Add(t.Context(), &artifact.NewArtifact{Name: "login.txt", Data: []byte("hi"), By: artifact.Person()})
+	require.NoError(t, err)
+	opts := roleSpawnOptions()
+	opts.vars = []string{"TASK=fix @artifact:" + rec.ID, "TASKS=t.md", "BASE=feat/x", "BRANCH=feat/x-t1"}
+	require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+	args := e.claude.StartCalls()[0].Opts.Args
+	require.NotEmpty(t, args)
+	assert.True(t, strings.HasSuffix(args[0], artifact.HintLine([]string{rec.ID})), args[0])
 }
 
 func TestApp_runMachineSpawn(t *testing.T) {

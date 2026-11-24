@@ -117,8 +117,8 @@ midnight to now):
 Below 720px only the first three are shown, on one 24px line. Above
 720px the bar is a button ("Open Stats") that chooses the Stats section.
 
-**Stats section** (rail entry between Loops and Settings, `⌘5`; Settings
-becomes `⌘6`). Its list column picks the window: Today, Last 7 days,
+**Stats section** (rail entry between Artifacts and Settings, `⌘6`; Settings
+becomes `⌘7`; Artifacts takes `⌘5`). Its list column picks the window: Today, Last 7 days,
 Last 30 days, All. Its pane shows cards: System; Usage by model; Tokens by
 kind; Lines by language; Productivity (model × language table, with one
 sentence per language in the user's own form, such as "Go: Haiku 5.5

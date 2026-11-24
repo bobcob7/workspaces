@@ -1,7 +1,16 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .content {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
   padding-top: 8px !important;
 }
 

@@ -20,5 +20,6 @@ func TestNewPaths(t *testing.T) {
 		MachineRoles:   "/cfg/machine/roles",
 		Environments:   "/cfg/environments",
 		Environment:    "/cfg/environment",
+		Artifacts:      "/cfg/artifacts",
 	}, paths)
 }
