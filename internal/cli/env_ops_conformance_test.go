@@ -31,6 +31,9 @@ import (
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/loop"
+	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -164,6 +167,7 @@ type conformance struct {
 	stopAgent  func()
 
 	snapshotCheck time.Duration
+	loopTick      time.Duration // the agent's loop pass interval; 0 keeps the default.
 }
 
 // conformanceLog discards logs.
@@ -247,6 +251,13 @@ func (c *conformance) controllerApp(stdout, stderr io.Writer) *App {
 	app.dialEnvironments = func(context.Context) (environmentCaller, error) {
 		return hostCaller{host: envHost{ctrl: c.ctrl}}, nil
 	}
+	app.presence = func(context.Context) map[string]string {
+		status := envOffline
+		if c.online() {
+			status = envOnline
+		}
+		return map[string]string{conformanceEnvName: status}
+	}
 	return app
 }
 
@@ -258,8 +269,12 @@ func (c *conformance) runAgent() {
 	opts.SnapshotCheck = c.snapshotCheck
 	opts.RenewCheck = time.Hour
 	opts.WorkspacesRoot = c.agentApp.paths.Workspaces
+	if c.loopTick > 0 {
+		opts.LoopTick = c.loopTick
+	}
 	opts.BackoffMin, opts.BackoffMax = time.Millisecond, 10*time.Millisecond
 	agent := envagent.NewAgent(conformanceLog(), c.files, c.broker.NewClient(), agentSnapshots{app: c.agentApp}, conformanceProbe{}, c.ops, rand.Reader, opts)
+	agent.SetLoopTicker(agentLoops{newApp: c.ops.newApp, root: c.agentApp.paths.Root})
 	ctx, cancel := context.WithCancel(c.t.Context())
 	finished := make(chan struct{})
 	go func() {
@@ -386,7 +401,12 @@ func (c *conformance) rawRequest(op string, args any) envproto.Reply {
 	require.NoError(c.t, err)
 	body, err := json.Marshal(args)
 	require.NoError(c.t, err)
-	deadline := time.Now().Add(time.Minute).UTC()
+	spec, known := envproto.LookupOp(op)
+	timeout := time.Minute
+	if known {
+		timeout = min(timeout, spec.Timeout)
+	}
+	deadline := time.Now().Add(timeout).UTC()
 	payload, err := json.Marshal(envproto.Request{Op: op, Args: body, RequestID: id, Deadline: &deadline})
 	require.NoError(c.t, err)
 	topic := envproto.Topic(c.identity.ID, envproto.LeafRes, id)
@@ -662,6 +682,299 @@ func TestConformance_EnvOps(t *testing.T) {
 		assert.True(t, entry.Stale)
 		assert.Equal(t, envOffline, entry.EnvironmentStatus)
 	})
+	t.Run("review.start to a protocol 2 agent is environment_outdated", func(t *testing.T) {
+		c := newConformance(t, false)
+		c.publishHello(2)
+		require.Eventually(t, c.online, 10*time.Second, 10*time.Millisecond)
+		_, err := c.call(envproto.OpReviewStart, &envproto.ReviewStartArgs{Repo: "o/n", PR: new(1)})
+		require.Error(t, err)
+		assert.Equal(t, string(codeEnvironmentOutdated), replyCode(err))
+		_, err = c.call(envproto.OpLoopList, &envproto.LoopListArgs{})
+		assert.Equal(t, string(codeEnvironmentOutdated), replyCode(err))
+	})
+	t.Run("review list --env equals the remote's ws review list", func(t *testing.T) {
+		c := newConformance(t, true)
+		c.seedReview("review-buff-bear-42-3f2a9c1-d8efb24f", reviewDoc("security"))
+		remote, stderr, code := c.agentCLI("review", "list")
+		require.Equal(t, exitOK, code, stderr)
+		got, stderr, code := c.controllerCLI("review", "list", "--env", conformanceEnvName)
+		require.Equal(t, exitOK, code, stderr)
+		var want, have map[string]any
+		require.NoError(t, json.Unmarshal([]byte(remote), &want))
+		require.NoError(t, json.Unmarshal([]byte(got), &have))
+		assert.Equal(t, conformanceEnvName, have["environment"])
+		assert.EqualValues(t, 0, have["redacted"])
+		assert.Equal(t, false, have["truncated"])
+		delete(have, "environment")
+		delete(have, "redacted")
+		delete(have, "truncated")
+		assert.Equal(t, want, have)
+		assert.NotEmpty(t, have["reviews"])
+	})
+	t.Run("loop list --env equals the remote's ws loop list", func(t *testing.T) {
+		c := newConformance(t, true)
+		c.addLoop("deps", time.Now().Add(time.Hour))
+		remote, stderr, code := c.agentCLI("loop", "list")
+		require.Equal(t, exitOK, code, stderr)
+		got, stderr, code := c.controllerCLI("loop", "list", "--env", conformanceEnvName)
+		require.Equal(t, exitOK, code, stderr)
+		var want, have map[string]any
+		require.NoError(t, json.Unmarshal([]byte(remote), &want))
+		require.NoError(t, json.Unmarshal([]byte(got), &have))
+		assert.Equal(t, conformanceEnvName, have["environment"])
+		assert.EqualValues(t, 0, have["redacted"])
+		delete(have, "environment")
+		delete(have, "redacted")
+		entries, ok := have["loops"].([]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		entry, ok := entries[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, conformanceEnvName, entry["environment"])
+		assert.Equal(t, false, entry["stale"])
+		delete(entry, "environment")
+		delete(entry, "stale")
+		assert.Equal(t, want, have)
+	})
+	t.Run("a 300-comment report arrives whole through pages", func(t *testing.T) {
+		c := newConformance(t, true)
+		id := "review-buff-bear-42-3f2a9c1-d8efb24f"
+		c.seedReview(id, bigDoc("security", 300, 3000, ""))
+		out, stderr, code := c.controllerCLI("review", "report", "--env", conformanceEnvName, id)
+		require.Equal(t, exitOK, code, stderr)
+		var report struct {
+			Comments []json.RawMessage `json:"comments"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(out), &report))
+		assert.Len(t, report.Comments, 300)
+		assert.Greater(t, len(out), envproto.MaxPageBytes, "the report is more than one page")
+	})
+	t.Run("a ghp token in a comment never appears in any MQTT payload", func(t *testing.T) {
+		c := newConformance(t, true)
+		token := "ghp_" + strings.Repeat("Q", 36)
+		var mu sync.Mutex
+		var payloads [][]byte
+		unsubscribe, err := c.broker.Subscribe(t.Context(), "#", func(msg envproto.Message) {
+			mu.Lock()
+			defer mu.Unlock()
+			payloads = append(payloads, append([]byte{}, msg.Payload...))
+		})
+		require.NoError(t, err)
+		defer unsubscribe()
+		id := "review-buff-bear-42-3f2a9c1-d8efb24f"
+		c.seedReview(id, reviewDoc("security", "c.do ignores", "leaked "+token+" c.do ignores"))
+		out, stderr, code := c.controllerCLI("review", "report", "--env", conformanceEnvName, id)
+		require.Equal(t, exitOK, code, stderr)
+		assert.NotContains(t, out, token)
+		assert.Contains(t, out, "[redacted]")
+		mu.Lock()
+		defer mu.Unlock()
+		require.NotEmpty(t, payloads)
+		for _, p := range payloads {
+			assert.NotContains(t, string(p), token)
+			assert.NotContains(t, string(p), "ghp_")
+		}
+	})
+	t.Run("loop.rm sent raw without confirm is refused by the agent", func(t *testing.T) {
+		c := newConformance(t, true)
+		c.addLoop("deps", time.Now().Add(time.Hour))
+		reply := c.rawRequest(envproto.OpLoopRm, map[string]any{"name": "deps", "confirm": false})
+		require.False(t, reply.OK)
+		assert.Equal(t, string(codeUsage), reply.Error.Code)
+		_, err := c.agentApp.loops.Get("deps")
+		require.NoError(t, err, "the loop is still there")
+		reply = c.rawRequest(envproto.OpLoopRm, map[string]any{"name": "deps", "confirm": true})
+		require.True(t, reply.OK, "%+v", reply.Error)
+		_, err = c.agentApp.loops.Get("deps")
+		require.Error(t, err)
+	})
+	t.Run("loop.memory_set of a redacted value is refused", func(t *testing.T) {
+		c := newConformance(t, true)
+		c.addLoop("deps", time.Now().Add(time.Hour))
+		reply := c.rawRequest(envproto.OpLoopMemorySet, map[string]any{"name": "deps", "key": "token", "value": "[redacted]"})
+		require.False(t, reply.OK)
+		assert.Equal(t, string(codeUsage), reply.Error.Code)
+		_, err := c.call(envproto.OpLoopMemoryGet, &envproto.LoopMemoryKey{Name: "deps", Key: "token"})
+		require.Error(t, err, "nothing was stored")
+	})
+	t.Run("a script is refused when the remote turned scripts off", func(t *testing.T) {
+		c := newConformance(t, false)
+		require.NoError(t, os.WriteFile(filepath.Join(c.agentDir, "config.toml"), []byte("[environments]\nagent_loop_scripts = false\n"), 0o600))
+		c.runAgent()
+		_, err := c.call(envproto.OpLoopAdd, &envproto.LoopSpec{Name: "gated", Every: new("1h"), Prompt: new("Do it"), Script: new("true"), Confirm: true})
+		require.Error(t, err)
+		assert.Equal(t, string(codeUsage), replyCode(err))
+		_, getErr := c.agentApp.loops.Get("gated")
+		require.Error(t, getErr)
+		_, err = c.call(envproto.OpLoopAdd, &envproto.LoopSpec{Name: "plain", Every: new("1h"), Prompt: new("Do it")})
+		require.NoError(t, err)
+	})
+	t.Run("the 13th review.start in an hour is operation_limited", func(t *testing.T) {
+		c := newConformance(t, true)
+		args := &envproto.ReviewStartArgs{Repo: "o/n", PR: new(1)}
+		for range 12 {
+			_, err := c.call(envproto.OpReviewStart, args)
+			require.Error(t, err)
+			require.NotEqual(t, string(codeOperationLimited), replyCode(err))
+		}
+		_, err := c.call(envproto.OpReviewStart, args)
+		require.Error(t, err)
+		assert.Equal(t, string(codeOperationLimited), replyCode(err))
+	})
+	t.Run("a due loop starts on the remote within one LoopTick of connecting", func(t *testing.T) {
+		c := newConformance(t, false)
+		c.loopTick = 200 * time.Millisecond
+		c.addLoop("deps", time.Now().Add(-time.Minute))
+		c.runAgent()
+		require.Eventually(t, func() bool { return c.agentClaud.startedCount() == 1 }, 2*time.Second, 10*time.Millisecond, "no loop run started")
+	})
+	t.Run("no loop starts while the agent is disconnected", func(t *testing.T) {
+		c := newConformance(t, false)
+		c.loopTick = 200 * time.Millisecond
+		c.addLoop("deps", time.Now().Add(-time.Minute))
+		time.Sleep(time.Second)
+		assert.Zero(t, c.agentClaud.startedCount(), "a loop started with the agent never connected")
+		c.runAgent()
+		c.stopAgent()
+		before := c.agentClaud.startedCount()
+		time.Sleep(time.Second)
+		assert.Equal(t, before, c.agentClaud.startedCount(), "a loop started after the agent disconnected")
+	})
+	t.Run("three overdue loops start two in the first pass and one in the next", func(t *testing.T) {
+		c := newConformance(t, false)
+		c.loopTick = 500 * time.Millisecond
+		for _, name := range []string{"one", "two", "three"} {
+			c.addLoop(name, time.Now().Add(-time.Minute))
+		}
+		c.runAgent()
+		require.Eventually(t, func() bool { return c.agentClaud.startedCount() >= 2 }, 3*time.Second, 5*time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
+		assert.Equal(t, 2, c.agentClaud.startedCount(), "the first pass started more than two")
+		require.Eventually(t, func() bool { return c.agentClaud.startedCount() == 3 }, 3*time.Second, 10*time.Millisecond, "the third loop never started")
+	})
+	t.Run("the controller's snapshot lists the remote's loops without prompts", func(t *testing.T) {
+		c := newConformance(t, true)
+		_, err := c.call(envproto.OpLoopAdd, &envproto.LoopSpec{Name: "deps", Title: new("Deps"), Every: new("1h"), Prompt: new("SECRET-PROMPT-TEXT"), Vars: &map[string]string{"K": "SECRET-VAR-VALUE"}})
+		require.NoError(t, err)
+		var loops []envproto.SnapshotLoop
+		require.Eventually(t, func() bool {
+			_, snap, snapErr := c.store.Snapshot(conformanceEnvName)
+			loops = snap.Loops
+			return snapErr == nil && len(loops) == 1
+		}, 10*time.Second, 10*time.Millisecond, "the snapshot has no loops")
+		assert.Equal(t, "deps", loops[0].Name)
+		assert.Equal(t, "Deps", loops[0].Title)
+		file, err := c.store.ReadSnapshot(conformanceEnvName)
+		require.NoError(t, err)
+		assert.NotContains(t, string(file), "SECRET-PROMPT-TEXT")
+		assert.NotContains(t, string(file), "SECRET-VAR-VALUE")
+	})
+	t.Run("ws review start --env from inside a workspace is refused", func(t *testing.T) {
+		c := newConformance(t, true)
+		app := c.controllerApp(io.Discard, io.Discard)
+		stderr := &bytes.Buffer{}
+		app.stderr = stderr
+		app.getwd = func() (string, error) { return "/cfg/workspaces/fix-login-d8efb24f/buff-bear", nil }
+		app.newStores = func(config.Paths, config.Config) stores {
+			ws := stubWorkspaces()
+			ws.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil }
+			return stores{cache: stubCache(), workspaces: ws, lifetime: stubLifetime(), loopData: app.loopData}
+		}
+		before := snapshotOf(t, c.agentDir, "workspaces", "state")
+		code := app.Run(t.Context(), []string{"--json", "--config-dir", c.ctrlDir, "review", "start", "--env", conformanceEnvName, "--pr", "1", "buff-bear"})
+		assert.NotEqual(t, exitOK, code)
+		assert.Equal(t, string(codeUsage), stderrCodeOf(t, stderr.String()))
+		assert.Contains(t, stderr.String(), "an agent never chooses an environment")
+		assert.Equal(t, before, snapshotOf(t, c.agentDir, "workspaces", "state"), "nothing reached the remote")
+	})
+	t.Run("ws review start run by a remote workspace's agent creates the review on the remote", func(t *testing.T) {
+		c := newConformance(t, true)
+		before := snapshotOf(t, c.ctrlDir, "workspaces", "state", "reviews")
+		e := newReviewStartEnv(t)
+		e.app.environment = conformanceEnvName
+		require.NoError(t, e.start(t, &reviewStartOptions{pr: 42}))
+		rec := e.record(t)
+		assert.Equal(t, "fix-login-d8efb24f", rec.Requester, "the review is the child of the remote workspace that ran it")
+		assert.Equal(t, before, snapshotOf(t, c.ctrlDir, "workspaces", "state", "reviews"), "the controller's store stays empty")
+		assert.Empty(t, e.cache.AddCalls(), "no environment was dialled")
+	})
+	t.Run("a review id with .. is refused", func(t *testing.T) {
+		c := newConformance(t, true)
+		for _, review := range []string{"..", "../x", "a/b", "-x"} {
+			for op, args := range map[string]any{
+				envproto.OpReviewStatus: map[string]any{"review": review},
+				envproto.OpReviewReport: map[string]any{"review": review, "section": "comments", "offset": 0},
+			} {
+				reply := c.rawRequest(op, args)
+				require.False(t, reply.OK, "%s %q", op, review)
+				assert.Equal(t, string(codeUsage), reply.Error.Code, "%s %q", op, review)
+			}
+		}
+	})
+	t.Run("a loop name with / is refused", func(t *testing.T) {
+		c := newConformance(t, true)
+		before := snapshotOf(t, c.agentDir, "loops", "state")
+		for _, name := range []string{"../x", "a/b", "A", ".hidden"} {
+			reply := c.rawRequest(envproto.OpLoopShow, map[string]any{"name": name})
+			require.False(t, reply.OK, "%q", name)
+			assert.Equal(t, string(codeNameInvalid), reply.Error.Code, "%q", name)
+			reply = c.rawRequest(envproto.OpLoopAdd, map[string]any{"name": name, "every": "1h", "prompt": "x"})
+			require.False(t, reply.OK, "%q", name)
+		}
+		assert.Equal(t, before, snapshotOf(t, c.agentDir, "loops", "state"))
+	})
+	t.Run("bypassPermissions is refused for review.start", func(t *testing.T) {
+		c := newConformance(t, true)
+		reply := c.rawRequest(envproto.OpReviewStart, map[string]any{"repo": "o/n", "pr": 1, "permission_mode": "bypassPermissions"})
+		require.False(t, reply.OK)
+		assert.Equal(t, string(codeUsage), reply.Error.Code)
+		reply = c.rawRequest(envproto.OpReviewStart, map[string]any{"repo": "o/n", "pr": 1, "permission_mode": "bypassPermissions", "confirm": true})
+		require.False(t, reply.OK, "an extra confirm key doesn't unlock it")
+	})
+}
+
+// publishHello makes the controller see the environment online as an agent
+// that speaks protocol, as its hello says, with no agent running.
+func (c *conformance) publishHello(protocol int) {
+	c.t.Helper()
+	hello := envproto.Hello{
+		Status: envproto.StatusOnline, At: time.Now().UTC(), WSVersion: "0.30.0", OS: "linux", Arch: "amd64",
+		Claude: envproto.ClaudePresent, CertSerial: "1", CertNotAfter: time.Now().Add(time.Hour).UTC(),
+		CAFingerprints: []string{}, Protocol: protocol,
+	}
+	payload, err := json.Marshal(hello)
+	require.NoError(c.t, err)
+	require.NoError(c.t, c.broker.Publish(c.t.Context(), envproto.Message{
+		Topic: envproto.Topic(c.identity.ID, envproto.LeafStatus), Payload: payload, QoS: 1, Retain: true,
+	}))
+}
+
+// seedReview stores a finished review called id, with doc submitted for its
+// profile, on the agent's machine.
+func (c *conformance) seedReview(id, doc string) {
+	c.t.Helper()
+	rec := testRecord()
+	rec.Requester = ""
+	reviews := store.New(c.agentApp.paths.Reviews)
+	require.NoError(c.t, reviews.SaveRun(id, &rec))
+	repoID, err := repo.ParseID(reviewedRepo)
+	require.NoError(c.t, err)
+	_, err = reviews.Submit(c.t.Context(), repoID, testCommit, "security", []byte(doc))
+	require.NoError(c.t, err)
+}
+
+// addLoop stores a loop called name, next due at due, on the agent's machine.
+func (c *conformance) addLoop(name string, due time.Time) {
+	c.t.Helper()
+	l := loop.Loop{Version: loop.FormatVersion, Name: name, Every: "1h", Prompt: "Do it", Keep: 5, CreatedAt: due.Add(-2 * time.Hour), NextRunAt: due}
+	require.NoError(c.t, c.agentApp.loops.Create(&l))
+}
+
+// startedCount is how many Claude sessions have been started.
+func (f *fakeClaude) startedCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.started)
 }
 
 // keysOf is the sorted keys of m.
