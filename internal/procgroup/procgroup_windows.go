@@ -34,7 +34,7 @@ func KillTree(pid int) error {
 	if err != nil {
 		return fmt.Errorf("listing processes: %w", err)
 	}
-	root := uint32(pid)
+	root := uint32(pid) //nolint:gosec // Windows process ids fit in 32 bits
 	for _, target := range append([]uint32{root}, descendants(root, entries, creationTime)...) {
 		if err := terminate(target); err != nil {
 			return fmt.Errorf("terminating process %d: %w", target, err)
@@ -69,8 +69,8 @@ func processEntries(snapshot windows.Handle) ([]windows.ProcessEntry32, error) {
 // parent's: a pid reused by an unrelated process started later.
 func descendants(root uint32, entries []windows.ProcessEntry32, created func(pid uint32) (windows.Filetime, bool)) []uint32 {
 	children := make(map[uint32][]uint32)
-	for _, e := range entries {
-		children[e.ParentProcessID] = append(children[e.ParentProcessID], e.ProcessID)
+	for i := range entries {
+		children[entries[i].ParentProcessID] = append(children[entries[i].ParentProcessID], entries[i].ProcessID)
 	}
 	seen := map[uint32]bool{root: true}
 	queue := []uint32{root}
