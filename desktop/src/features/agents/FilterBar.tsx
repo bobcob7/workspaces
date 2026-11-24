@@ -1,5 +1,7 @@
 import { FormControlLabel, Switch, TextField } from "@mui/material";
 import type { JSX } from "react";
+import type { RemoteEnvironment } from "../../api";
+import { EnvFilter } from "./EnvFilter";
 import { statusFilterOptions, type StatusFilter } from "./status";
 import styles from "./FilterBar.module.css";
 
@@ -9,6 +11,10 @@ export interface FilterBarProps {
   readonly showHidden: boolean;
   /** How many entries are hidden, shown in the switch's label. */
   readonly hiddenCount: number;
+  /** The enrolled environments; the chip row shows only when there is at least one. */
+  readonly environments: readonly RemoteEnvironment[];
+  readonly environmentFilter: string | null;
+  readonly onEnvironmentChange: (environment: string | null) => void;
   readonly onQueryChange: (query: string) => void;
   readonly onStatusChange: (status: StatusFilter) => void;
   readonly onShowHiddenChange: (showHidden: boolean) => void;
@@ -16,8 +22,20 @@ export interface FilterBarProps {
 
 /** The Agents list's search box, status filter and Show hidden switch (ADR 0058). */
 export const FilterBar = (props: FilterBarProps): JSX.Element => {
-  const { query, status, showHidden, hiddenCount, onQueryChange, onStatusChange, onShowHiddenChange } = props;
+  const {
+    query,
+    status,
+    showHidden,
+    hiddenCount,
+    environments,
+    environmentFilter,
+    onEnvironmentChange,
+    onQueryChange,
+    onStatusChange,
+    onShowHiddenChange,
+  } = props;
   return (
+    <>
     <div role="search" aria-label="Filter workspaces" className={styles.bar}>
       <TextField
         size="small"
@@ -49,5 +67,9 @@ export const FilterBar = (props: FilterBarProps): JSX.Element => {
         className={styles.hidden}
       />
     </div>
+    {environments.length > 0 && (
+      <EnvFilter environments={environments} value={environmentFilter} onChange={onEnvironmentChange} />
+    )}
+    </>
   );
 };

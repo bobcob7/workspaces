@@ -8,6 +8,7 @@ import {
   createAgent,
   editorDir,
   fetchEntries,
+  environmentFilterChanged,
   filtersCleared,
   hiddenShown,
   nodeToggled,
@@ -151,6 +152,16 @@ describe("thunks", () => {
     expect(stopAgentApi).not.toHaveBeenCalled();
   });
 
+  it("never calls runner_stop for a remote ws runner", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(
+      stopAgent(entry({ runner: "ws", environment: "linux-server", workspaceId: "t1", sessionId: "rn-1", status: "working" })),
+    );
+    expect(api.runnerStop).not.toHaveBeenCalled();
+    expect(api.stopAgent).not.toHaveBeenCalled();
+  });
+
   it("stops a claude agent on its own environment", async () => {
     const api = fakeApi();
     const store = testStore({ api });
@@ -218,6 +229,13 @@ describe("openWorkspace", () => {
     expect(api.workspaceOpen).toHaveBeenCalledWith("editor", "/w/fix-login", ["buff-bear", "api"]);
   });
 
+  it("never opens the files of a remote workspace", async () => {
+    const api = fakeApi();
+    const store = testStore({ api });
+    await store.dispatch(openWorkspace({ entry: entry({ environment: "linux-server" }), with: "editor" }));
+    expect(api.workspaceOpen).not.toHaveBeenCalled();
+  });
+
   it("shows a failure as an error notice", async () => {
     const api = fakeApi({
       workspaceOpen: vi.fn(async () => Promise.reject({ code: "open_program_missing", message: "`code` isn't on the app's PATH." })),
@@ -274,11 +292,29 @@ describe("tree state", () => {
 
   it("clears the query and status filter but keeps Show hidden", () => {
     const shown = agentsReducer(
-      { ...withExpanded({ a: true, b: false }), query: "x", statusFilter: "done" },
+      { ...withExpanded({ a: true, b: false }), query: "x", statusFilter: "done", environmentFilter: "linux-server" },
       hiddenShown(true),
     );
     const state = agentsReducer(shown, filtersCleared());
-    expect(state).toMatchObject({ query: "", statusFilter: "all", expanded: { a: true }, showHidden: true });
+    expect(state).toMatchObject({
+      query: "",
+      statusFilter: "all",
+      environmentFilter: null,
+      expanded: { a: true },
+      showHidden: true,
+    });
+  });
+
+  it("sets and clears the environment filter, dropping closed choices", () => {
+    const closed = agentsReducer(withTree(), nodeToggled({ key: "t1", open: false }));
+    const chosen = agentsReducer(closed, environmentFilterChanged("linux-server"));
+    expect(chosen.environmentFilter).toBe("linux-server");
+    expect(chosen.expanded).toEqual({});
+    expect(agentsReducer(chosen, environmentFilterChanged(null)).environmentFilter).toBeNull();
+  });
+
+  it("shows every environment at first", () => {
+    expect(agentsReducer(undefined, { type: "init" }).environmentFilter).toBeNull();
   });
 
   it("drops the expanded choice of an entry that is no longer listed", () => {

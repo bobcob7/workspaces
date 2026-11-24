@@ -86,7 +86,9 @@ export const attentionEntries = (entries: readonly Entry[]): readonly Entry[] =>
 export const childrenOf = (entries: readonly Entry[], entry: Entry): readonly Entry[] =>
   entry.workspaceId === null
     ? []
-    : entries.filter((e) => e.parentId === entry.workspaceId && e.key !== entry.key).toSorted(byRecency);
+    : entries
+        .filter((e) => e.parentId === entry.workspaceId && e.environment === entry.environment && e.key !== entry.key)
+        .toSorted(byRecency);
 
 /** Everything entry started, and what that started, each after its parent, with its depth from 1. */
 export const descendantsOf = (entries: readonly Entry[], entry: Entry): readonly { readonly entry: Entry; readonly depth: number }[] => {

@@ -3,6 +3,7 @@ import { useId, useState, type JSX } from "react";
 import type { Entry } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { selected } from "../ui/uiSlice";
+import { EnvBadge } from "./EnvBadge";
 import { RemoveDialog } from "./RemoveDialog";
 import { isFailed } from "./progress";
 import { childrenOf, statusLabels } from "./status";
@@ -22,6 +23,7 @@ const ChildRow = ({ child }: { readonly child: Entry }): JSX.Element => {
     <li className={styles.row}>
       <StatusDot status={child.status} />
       <span className={styles.name}>{child.name}</span>
+      {child.environment !== "local" && <EnvBadge label={child.environment} />}
       <span className={styles.muted}>{statusLabels[child.status]}</span>
       {child.hidden && <span className={styles.chip}>hidden</span>}
       {rollup !== null && (

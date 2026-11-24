@@ -1,0 +1,16 @@
+.badge {
+  display: inline-block;
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.warn {
+  color: var(--mui-palette-warning-main, #ed6c02);
+  opacity: 1;
+}

@@ -84,4 +84,26 @@ describe("ChildrenCard", () => {
     expect(screen.getByRole("progressbar", { name: "f-review progress" })).toHaveClass("MuiLinearProgress-colorError");
     expect(screen.getByRole("progressbar", { name: "p-impl progress" })).toHaveClass("MuiLinearProgress-colorPrimary");
   });
+
+  it("shows the badge of a remote child of a remote parent", () => {
+    const remoteRoot = { ...root, key: "env:linux-server:root", environment: "linux-server" };
+    const remoteChild = entry({ key: "env:linux-server:r", workspaceId: "r", name: "remote-kid", parentId: "root", environment: "linux-server" });
+    const store = testStore();
+    store.dispatch(fetchEntries.fulfilled({ entries: [remoteRoot, remoteChild], warnings: [] }, "req"));
+    renderWithStore(<ChildrenCard entry={remoteRoot} />, store);
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText("remote-kid")).toBeInTheDocument();
+    expect(within(row).getByText("linux-server")).toBeInTheDocument();
+  });
+
+  it("shows no badge for a local child", () => {
+    renderWithStore(<ChildrenCard entry={root} />, loadedWith(childrenNamed(["a"])));
+    expect(screen.getByRole("listitem")).not.toHaveTextContent("local");
+  });
+
+  it("doesn't list a remote entry as a child of a local one with the same id", () => {
+    const remoteSameId = entry({ key: "env:linux-server:r", workspaceId: "r", name: "remote-kid", parentId: "root", environment: "linux-server" });
+    renderWithStore(<ChildrenCard entry={root} />, loadedWith([remoteSameId]));
+    expect(screen.queryByText("remote-kid")).not.toBeInTheDocument();
+  });
 });

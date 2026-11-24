@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import type { Entry, LoopAttention } from "../../api";
 import { age, repoLabel } from "../../format";
+import { EnvBadge } from "./EnvBadge";
 import { isFailed } from "./progress";
 import { modelTooltip, stepLabel } from "./runner";
 import { StatusDot } from "./StatusDot";
@@ -42,17 +43,27 @@ export interface EntryRowProps {
 }
 
 /** An agent or workspace as a two-line list row, as the Agents list shows it. */
-export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRowProps): JSX.Element => (
+export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRowProps): JSX.Element => {
+  const dimmed = !entry.environmentOnline || entry.snapshotStale;
+  return (
   <button
     type="button"
     className={styles.item}
     aria-current={current ? "true" : undefined}
     title={modelTooltip(entry)}
+    data-dimmed={dimmed ? "true" : undefined}
     onClick={onClick}
   >
     <span className={styles.row}>
       <StatusDot status={entry.status} />
       <span className={styles.name}>{entry.name}</span>
+      {entry.environment !== "local" && <EnvBadge label={entry.environment} />}
+      {!entry.environmentOnline && (
+        <EnvBadge label="offline" warn title={`${entry.environment} is offline; the last known status is shown`} />
+      )}
+      {entry.environmentOnline && entry.snapshotStale && (
+        <EnvBadge label="stale" warn title={`${entry.environment} hasn't reported lately; the status may be old`} />
+      )}
       <span className={styles.age}>{age(entry.updatedAt ?? entry.createdAt)}</span>
     </span>
     <span className={styles.summaryLine}>
@@ -71,4 +82,5 @@ export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRo
       />
     )}
   </button>
-);
+  );
+};

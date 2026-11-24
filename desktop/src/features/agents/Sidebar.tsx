@@ -3,7 +3,13 @@ import { useId, useMemo, type JSX } from "react";
 import type { Entry } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { selected } from "../ui/uiSlice";
-import { filtersCleared, hiddenShown, nodeToggled, queryChanged, statusFilterChanged } from "./agentsSlice";
+import {
+  environmentFilterChanged,
+  filtersCleared,
+  hiddenShown,   nodeToggled,
+  queryChanged,
+  statusFilterChanged,
+} from "./agentsSlice";
 import { EntryRow } from "./EntryRow";
 import { FilterBar } from "./FilterBar";
 import { attentionEntries, type StatusFilter } from "./status";
@@ -124,7 +130,17 @@ const EmptyTree = ({ filtering, onClear }: EmptyTreeProps): JSX.Element => {
 /** The Agents list: Needs input, the filter bar, and the tree of root workspaces (ADR 0058). */
 export const Sidebar = (): JSX.Element => {
   const dispatch = useAppDispatch();
-  const entries = useAppSelector((s) => s.agents.entries);
+  const allEntries = useAppSelector((s) => s.agents.entries);
+  const environments = useAppSelector((s) => s.environments.items);
+  const chosenEnvironment = useAppSelector((s) => s.agents.environmentFilter);
+  const enrolled = useMemo(() => environments.filter((env) => env.state === "enrolled"), [environments]);
+  // A choice whose environment was removed no longer filters.
+  const environmentFilter =
+    chosenEnvironment === "local" || enrolled.some((env) => env.name === chosenEnvironment) ? chosenEnvironment : null;
+  const entries = useMemo(
+    () => (environmentFilter === null ? allEntries : allEntries.filter((e) => e.environment === environmentFilter)),
+    [allEntries, environmentFilter],
+  );
   const loaded = useAppSelector((s) => s.agents.loaded);
   const selectedKey = useAppSelector((s) => s.ui.selectedKey);
   const query = useAppSelector((s) => s.agents.query);
@@ -142,7 +158,7 @@ export const Sidebar = (): JSX.Element => {
   const hiddenCount = useMemo(() => entries.filter((e) => e.hidden).length, [entries]);
   return (
     <nav className={styles.root} aria-label="Workspaces">
-      {loaded && entries.length === 0 && <p className={styles.empty}>No workspaces yet.</p>}
+      {loaded && allEntries.length === 0 && <p className={styles.empty}>No workspaces yet.</p>}
       {attention.length > 0 && (
         <section className={styles.group} aria-label="Needs input">
           <h2 className={styles.heading}>
@@ -163,13 +179,16 @@ export const Sidebar = (): JSX.Element => {
           </ul>
         </section>
       )}
-      {entries.length > 0 && (
+      {allEntries.length > 0 && (
         <>
           <FilterBar
             query={query}
             status={statusFilter}
             showHidden={showHidden}
             hiddenCount={hiddenCount}
+            environments={enrolled}
+            environmentFilter={environmentFilter}
+            onEnvironmentChange={(name) => dispatch(environmentFilterChanged(name))}
             onQueryChange={(text) => dispatch(queryChanged(text))}
             onStatusChange={(value: StatusFilter) => dispatch(statusFilterChanged(value))}
             onShowHiddenChange={(value) => dispatch(hiddenShown(value))}
@@ -182,7 +201,7 @@ export const Sidebar = (): JSX.Element => {
             {forest.length > 0 ? (
               <TreeList nodes={forest} depth={0} expanded={expanded} auto={auto} selectedKey={selectedKey} />
             ) : (
-              <EmptyTree filtering={isFiltering(filter)} onClear={() => dispatch(filtersCleared())} />
+              <EmptyTree filtering={isFiltering(filter) || environmentFilter !== null} onClear={() => dispatch(filtersCleared())} />
             )}
           </section>
         </>

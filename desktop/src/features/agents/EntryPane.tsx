@@ -14,7 +14,7 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { useEffect, useState, type FormEvent, type JSX } from "react";
-import { api, type Entry, type LoopAttention, type OpenWith } from "../../api";
+import { api, type Entry, type LoopAttention, type OpenWith, type TermSpec } from "../../api";
 import { repoLabel } from "../../format";
 import { isWeb } from "../../platform";
 import { useAppDispatch, useAppSelector } from "../../store";
@@ -34,7 +34,9 @@ import { reviewSelected } from "../reviews/reviewsSlice";
 import { agentViewChosen, sectionChosen, selected, type AgentView } from "../ui/uiSlice";
 import { editorDir, openWorkspace, renameEntry, setEntryHidden, stopAgent } from "./agentsSlice";
 import { ChildrenCard } from "./ChildrenCard";
+import { EnvBadge } from "./EnvBadge";
 import { RemoveDialog } from "./RemoveDialog";
+import { entryActions } from "./remote";
 import { RootProgress } from "./RootProgress";
 import { isLive } from "./status";
 import { RunCard } from "./RunCard";
@@ -164,6 +166,9 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const parent = useAppSelector((s) =>
     entry.parentId === null ? undefined : s.agents.entries.find((e) => e.workspaceId === entry.parentId),
   );
+  const environment = useAppSelector((s) => s.environments.items.find((env) => env.name === entry.environment));
+  const remote = entry.environment !== "local";
+  const actions = entryActions(entry, environment, Date.now());
   const phone = useMediaQuery(PHONE_QUERY);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [openAnchor, setOpenAnchor] = useState<HTMLElement | null>(null);
@@ -177,14 +182,23 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   };
   const renamable = entry.workspaceId !== null && entry.kind !== "unknown";
   const attach = (): void => {
-    if (entry.sessionId === null) {
+    if (entry.sessionId === null || !actions.attach.enabled) {
       return;
     }
+    const spec: TermSpec = remote
+      ? {
+          kind: "attach",
+          sessionId: entry.sessionId,
+          cwd: entry.path,
+          environment: entry.environment,
+          ...(entry.workspaceId === null ? {} : { workspaceId: entry.workspaceId }),
+        }
+      : { kind: "attach", sessionId: entry.sessionId, cwd: entry.path };
     void dispatch(
       openTerminal({
         key: attachKey(entry.sessionId),
         title: entry.name,
-        spec: { kind: "attach", sessionId: entry.sessionId, cwd: entry.path },
+        spec,
       }),
     );
   };
@@ -210,7 +224,8 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const attached = terminal !== undefined && terminal.state !== "exited";
   const isAgent = entry.kind === "agent" && entry.sessionId !== null;
   // Without a shell terminal for this entry, the shell view falls back to the conversation.
-  const requestedView: AgentView = isRunner && view === "terminal" ? "conversation" : view;
+  // A remote agent's conversation isn't read here, so its pane opens on Terminal.
+  const requestedView: AgentView = isRunner && view === "terminal" ? "conversation" : remote && view === "conversation" ? "terminal" : view;
   const shownView: AgentView = requestedView === "shell" && dirTerminal === undefined ? "conversation" : requestedView;
   const shellShown = shownView === "shell" && dirTerminal !== undefined;
   const showConversation = isAgent && shownView === "conversation";
@@ -231,6 +246,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   };
   const canStopAgent = !isRunner && isAgent && isLive(entry.status);
   const canStopRunner = isRunnerRunning(entry);
+  const stopAction = canStopRunner ? actions.stopRunner : actions.stop;
   const canDetach = isAgent && attached && termKey !== null;
   const openItems = (close: () => void): JSX.Element[] => [
     ...(isWeb()
@@ -238,8 +254,8 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
       : [
           <MenuItem
             key="editor"
-            title={`Open ${editorDir(entry)} in the editor (Settings › Workspaces)`}
-            disabled={entry.kind === "pending" || busy || opening === "editor"}
+            title={actions.openFolder.enabled ? `Open ${editorDir(entry)} in the editor (Settings › Workspaces)` : actions.openFolder.reason}
+            disabled={entry.kind === "pending" || busy || opening === "editor" || !actions.openFolder.enabled}
             onClick={() => {
               close();
               openIn("editor");
@@ -249,8 +265,8 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           </MenuItem>,
           <MenuItem
             key="folder"
-            title={`Open ${entry.path} in the file manager (Settings › Workspaces)`}
-            disabled={entry.kind === "pending" || busy || opening === "fileManager"}
+            title={actions.openFolder.enabled ? `Open ${entry.path} in the file manager (Settings › Workspaces)` : actions.openFolder.reason}
+            disabled={entry.kind === "pending" || busy || opening === "fileManager" || !actions.openFolder.enabled}
             onClick={() => {
               close();
               openIn("fileManager");
@@ -259,17 +275,21 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             Open folder
           </MenuItem>,
         ]),
-    <MenuItem
-      key="terminal"
-      title={`Open a shell in ${entry.path}`}
-      disabled={entry.kind === "pending"}
-      onClick={() => {
-        close();
-        openShell();
-      }}
-    >
-      Open terminal
-    </MenuItem>,
+    ...(remote
+      ? []
+      : [
+          <MenuItem
+            key="terminal"
+            title={`Open a shell in ${entry.path}`}
+            disabled={entry.kind === "pending"}
+            onClick={() => {
+              close();
+              openShell();
+            }}
+          >
+            Open terminal
+          </MenuItem>,
+        ]),
   ];
   const viewToggle = isAgent && !isRunner && (
     <ToggleButtonGroup
@@ -283,13 +303,15 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
       }}
       aria-label="View"
     >
-      <ToggleButton value="conversation">Conversation</ToggleButton>
+      <ToggleButton value="conversation" disabled={!actions.conversation.enabled} title={actions.conversation.reason || undefined}>
+        Conversation
+      </ToggleButton>
       <ToggleButton value="terminal">Terminal</ToggleButton>
       {dirTerminal !== undefined && <ToggleButton value="shell">Shell</ToggleButton>}
     </ToggleButtonGroup>
   );
   const attachButton = isAgent && !isRunner && !attached && (
-    <Button size="small" variant="contained" onClick={attach}>
+    <Button size="small" variant="contained" disabled={!actions.attach.enabled} title={actions.attach.reason || undefined} onClick={attach}>
       {isLive(entry.status) ? "Attach" : "Resume"}
     </Button>
   );
@@ -304,6 +326,11 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             </span>
           )}
           <StatusDot status={entry.status} withLabel={!phone} />
+          {remote && <EnvBadge label={entry.environment} />}
+          {!entry.environmentOnline && <EnvBadge label="offline" warn title={actions.attach.reason} />}
+          {entry.environmentOnline && entry.snapshotStale && (
+            <EnvBadge label="stale" warn title={`${entry.environment} hasn't reported lately; the status may be old`} />
+          )}
           {!phone && entry.stale === true && (
             <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
           )}
@@ -327,25 +354,38 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
                 {openItems(closeMenu)}
                 {canDetach && <MenuItem onClick={fromMenu(() => void dispatch(closeTerminal(termKey)))}>Detach</MenuItem>}
                 {(canStopAgent || canStopRunner) && (
-                  <MenuItem disabled={busy} onClick={fromMenu(() => void dispatch(stopAgent(entry)))}>
+                  <MenuItem
+                    disabled={busy || !stopAction.enabled}
+                    title={stopAction.reason || undefined}
+                    onClick={fromMenu(() => void dispatch(stopAgent(entry)))}
+                  >
                     Stop
                   </MenuItem>
                 )}
                 {renamable && (
-                  <MenuItem disabled={busy} onClick={fromMenu(() => setRenaming(true))}>
+                  <MenuItem
+                    disabled={busy || !actions.rename.enabled}
+                    title={actions.rename.reason || undefined}
+                    onClick={fromMenu(() => setRenaming(true))}
+                  >
                     Rename
                   </MenuItem>
                 )}
                 {hideable && (
                   <MenuItem
-                    disabled={busy}
+                    disabled={busy || !actions.hide.enabled}
+                    title={actions.hide.reason || undefined}
                     onClick={fromMenu(() => void dispatch(setEntryHidden({ entry, hidden: !entry.hidden })))}
                   >
                     {entry.hidden ? "Unhide" : "Hide"}
                   </MenuItem>
                 )}
                 {removable && (
-                  <MenuItem disabled={busy} onClick={fromMenu(() => setConfirming(true))}>
+                  <MenuItem
+                    disabled={busy || !actions.remove.enabled}
+                    title={actions.remove.reason || undefined}
+                    onClick={fromMenu(() => setConfirming(true))}
+                  >
                     Remove
                   </MenuItem>
                 )}
@@ -373,31 +413,54 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             </Button>
           )}
           {canStopAgent && (
-            <Button size="small" disabled={busy} onClick={() => void dispatch(stopAgent(entry))}>
+            <Button
+              size="small"
+              disabled={busy || !actions.stop.enabled}
+              title={actions.stop.reason || undefined}
+              onClick={() => void dispatch(stopAgent(entry))}
+            >
               Stop
             </Button>
           )}
           {renamable && (
-            <Button size="small" disabled={busy} onClick={() => setRenaming(true)}>
+            <Button
+              size="small"
+              disabled={busy || !actions.rename.enabled}
+              title={actions.rename.reason || undefined}
+              onClick={() => setRenaming(true)}
+            >
               Rename
             </Button>
           )}
           {hideable && (
             <Button
               size="small"
-              disabled={busy}
+              disabled={busy || !actions.hide.enabled}
+              title={actions.hide.reason || undefined}
               onClick={() => void dispatch(setEntryHidden({ entry, hidden: !entry.hidden }))}
             >
               {entry.hidden ? "Unhide" : "Hide"}
             </Button>
           )}
           {canStopRunner && (
-            <Button size="small" variant="outlined" disabled={busy} onClick={() => void dispatch(stopAgent(entry))}>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={busy || !actions.stopRunner.enabled}
+              title={actions.stopRunner.reason || undefined}
+              onClick={() => void dispatch(stopAgent(entry))}
+            >
               Stop
             </Button>
           )}
           {entry.kind !== "shell" && entry.kind !== "unknown" && (
-            <Button size="small" color="error" disabled={busy} onClick={() => setConfirming(true)}>
+            <Button
+              size="small"
+              color="error"
+              disabled={busy || !actions.remove.enabled}
+              title={actions.remove.reason || undefined}
+              onClick={() => setConfirming(true)}
+            >
               Remove
             </Button>
           )}
@@ -409,14 +472,21 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
           <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
         )}
         <div className={styles.meta}>
-          <button
-            type="button"
-            className={styles.path}
-            title="Open in the file manager"
-            onClick={() => void dispatch(openWorkspace({ entry, with: "fileManager" }))}
-          >
-            {entry.path}
-          </button>
+          {remote ? (
+            <span className={styles.mono} title={actions.openFolder.reason}>
+              {entry.path}
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={styles.path}
+              title="Open in the file manager"
+              onClick={() => void dispatch(openWorkspace({ entry, with: "fileManager" }))}
+            >
+              {entry.path}
+            </button>
+          )}
+          {remote && parent !== undefined && <span className={styles.note}>Runs on {entry.environment}, like its parent</span>}
           {entry.sessionId !== null && <span className={styles.mono}>session {entry.sessionId}</span>}
           {run?.endpoint && <span className={styles.mono}>endpoint {run.endpoint}</span>}
           {stepText !== null && <Chip size="small" variant="outlined" label={stepText} />}
@@ -493,6 +563,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
       <RootProgress entry={entry} />
       <ChildrenCard entry={entry} />
       {run !== null && <RunCard entry={entry} run={run} />}
+      {remote && isAgent && !isRunner && <p className={styles.note}>{actions.conversation.reason}</p>}
       {shellShown && dirTerminal !== undefined ? (
         <TerminalView terminalKey={dirTerminal.key} generation={dirTerminal.generation} />
       ) : showConversation && entry.sessionId !== null ? (
