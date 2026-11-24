@@ -93,11 +93,11 @@ func checkOwnerAndDACL(path string, user *windows.SID, sd *windows.SECURITY_DESC
 	return checkDACL(path, user, dacl)
 }
 
-// checkDACL reports ErrNotPrivate unless dacl is present and every entry in
-// it is an access-allowed one for user. Other entry types, such as deny, put
+// checkDACL reports ErrNotPrivate unless dacl has entries and every one of
+// them is an access-allowed one for user. Other entry types, such as deny, put
 // a different layout after the header, so they are refused rather than read.
 func checkDACL(path string, user *windows.SID, dacl *windows.ACL) error {
-	if dacl == nil {
+	if dacl == nil || dacl.AceCount == 0 {
 		return notPrivate(path)
 	}
 	for i := range uint32(dacl.AceCount) {

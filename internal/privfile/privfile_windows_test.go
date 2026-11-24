@@ -1,8 +1,10 @@
 package privfile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,16 +21,26 @@ func daclOf(t *testing.T, path string) *windows.SECURITY_DESCRIPTOR {
 	return sd
 }
 
-// requireOnlyUser checks that the DACL has one entry, for user.
+// requireOnlyUser checks that the DACL has at least one entry and that every
+// entry is an allow entry for user. It doesn't count them: Windows can store
+// one grant as several ACEs. On failure the message lists each ACE.
 func requireOnlyUser(t *testing.T, sd *windows.SECURITY_DESCRIPTOR, user *windows.SID) {
 	t.Helper()
 	acl, _, err := sd.DACL()
 	require.NoError(t, err)
 	require.NotNil(t, acl)
-	require.Equal(t, 1, int(acl.AceCount))
-	var ace *windows.ACCESS_ALLOWED_ACE
-	require.NoError(t, windows.GetAce(acl, 0, &ace))
-	assert.True(t, aceSID(ace).Equals(user))
+	var listing strings.Builder
+	onlyUser := acl.AceCount > 0
+	for i := range uint32(acl.AceCount) {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		require.NoError(t, windows.GetAce(acl, i, &ace))
+		sid := aceSID(ace)
+		fmt.Fprintf(&listing, "\n  ACE %d: type %d, flags %#x, mask %#x, sid %s",
+			i, ace.Header.AceType, ace.Header.AceFlags, ace.Mask, sid.String())
+		onlyUser = onlyUser && ace.Header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE && sid.Equals(user)
+	}
+	assert.Truef(t, onlyUser, "want one or more allow entries, all for the current user %s; the DACL has %d ACEs:%s",
+		user.String(), acl.AceCount, listing.String())
 }
 
 func TestRestrictDir(t *testing.T) {
@@ -85,6 +97,12 @@ func TestCheckDACL(t *testing.T) {
 		require.NoError(t, sd.SetOwner(user, false))
 		require.NoError(t, sd.SetDACL(nil, true, false))
 		assert.ErrorIs(t, checkOwnerAndDACL("null", user, sd), ErrNotPrivate)
+	})
+	t.Run("an empty DACL is not private", func(t *testing.T) {
+		t.Parallel()
+		dacl, err := windows.ACLFromEntries(nil, nil)
+		require.NoError(t, err)
+		assert.ErrorIs(t, checkDACL("empty", user, dacl), ErrNotPrivate)
 	})
 	t.Run("a deny entry is not private", func(t *testing.T) {
 		t.Parallel()
