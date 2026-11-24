@@ -23,7 +23,7 @@ describe("RepoReviewsCard", () => {
     const api = fakeApi();
     renderCard("github.com/bobcob7/buff-bear", api);
     await userEvent.click(screen.getByRole("switch", { name: /Review new pull requests automatically/ }));
-    expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", true, true);
+    expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", true, true, "local");
   });
 
   it("shows the repo's pull requests in Reviews", async () => {

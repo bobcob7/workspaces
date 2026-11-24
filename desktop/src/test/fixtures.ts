@@ -168,6 +168,8 @@ export const reviewRun = (overrides: Partial<ReviewRun> = {}): ReviewRun => ({
   recorded: true,
   requester: null,
   removed: false,
+  environment: "local",
+  stale: false,
   ...overrides,
 });
 
@@ -363,6 +365,9 @@ export const loop = (overrides: Partial<Loop> = {}): Loop => ({
   hidden: true,
   runner: "claude",
   endpoint: null,
+  environment: "local",
+  stale: false,
+  summary: false,
   ...overrides,
 });
 
@@ -736,7 +741,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   settingsSetOpen: vi.fn(async (open: OpenSettings) => ({ reviews: reviewSettings(), notifications: notificationSettings(), open })),
   reviewsAsk: vi.fn(async () => ({ id: "ask-buff-bear-42-3f2a9c1-0a1b2c3d", session: "5f6e7d8c", path: "/w/ask-buff-bear-42-3f2a9c1-0a1b2c3d", already: false })),
   onTraySelect: vi.fn(async () => () => undefined),
-  loopsList: vi.fn(async () => ({ loops: [], warnings: [] })),
+  loopsList: vi.fn(async (_environment?: string) => ({ loops: [], warnings: [], environmentStatus: null, loopsUnknown: false })),
   loopsAdd: vi.fn(async (request: NewLoop) =>
     loop({ name: request.name, title: request.title ?? "", every: request.every, prompt: request.prompt, specs: request.specs, script: request.script ?? null }),
   ),
@@ -752,20 +757,20 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
       keep: request.keep ?? 5,
     }),
   ),
-  loopsSetPaused: vi.fn(async (name: string, paused: boolean) => loop({ name, paused })),
-  loopsRemove: vi.fn(async (name: string) => loop({ name })),
-  loopsRunNow: vi.fn(async (name: string) => ({ name, workspace: `loop-${name}-1`, session: "9a8b7c6d", path: `/w/loop-${name}-1` })),
-  loopsHistory: vi.fn(async (name: string) => ({ loop: name, runs: [], total: 0, warnings: [] })),
-  loopsHistoryRun: vi.fn(async (name: string, seq: number) => ({ loop: name, run: loopHistoryRun({ seq }), reportText: null, warnings: [] })),
-  loopsHistoryClear: vi.fn(async (name: string) => ({ loop: name, removed: 0, warnings: [] })),
-  loopsMemory: vi.fn(async (name: string) => ({ loop: name, entries: [], bytes: 0, warnings: [] })),
-  loopsMemorySet: vi.fn(async (name: string, key: string, value: string) => ({
+  loopsSetPaused: vi.fn(async (name: string, paused: boolean, _environment?: string) => loop({ name, paused })),
+  loopsRemove: vi.fn(async (name: string, _confirmed?: boolean, _environment?: string) => loop({ name })),
+  loopsRunNow: vi.fn(async (name: string, _environment?: string) => ({ name, workspace: `loop-${name}-1`, session: "9a8b7c6d", path: `/w/loop-${name}-1` })),
+  loopsHistory: vi.fn(async (name: string, _limit?: number | null, _environment?: string) => ({ loop: name, runs: [], total: 0, warnings: [] })),
+  loopsHistoryRun: vi.fn(async (name: string, seq: number, _environment?: string) => ({ loop: name, run: loopHistoryRun({ seq }), reportText: null, warnings: [] })),
+  loopsHistoryClear: vi.fn(async (name: string, _confirmed?: boolean, _environment?: string) => ({ loop: name, removed: 0, warnings: [] })),
+  loopsMemory: vi.fn(async (name: string, _environment?: string) => ({ loop: name, entries: [], bytes: 0, warnings: [] })),
+  loopsMemorySet: vi.fn(async (name: string, key: string, value: string, _expectRev?: number | null, _environment?: string) => ({
     loop: name,
     entry: loopMemoryEntry({ key, value, rev: 1 }),
     warnings: [],
   })),
-  loopsMemoryRemove: vi.fn(async (name: string, key: string) => ({ loop: name, key, removed: true, warnings: [] })),
-  loopsMemoryClear: vi.fn(async (name: string) => ({ loop: name, removed: 0, warnings: [] })),
+  loopsMemoryRemove: vi.fn(async (name: string, key: string, _environment?: string) => ({ loop: name, key, removed: true, warnings: [] })),
+  loopsMemoryClear: vi.fn(async (name: string, _confirmed?: boolean, _environment?: string) => ({ loop: name, removed: 0, warnings: [] })),
   statsGet: vi.fn(async () => statsSnapshot()),
   environmentsList: vi.fn(async () => ({ environments: [], warnings: [] })),
   environmentAdd: vi.fn(async (name: string) => ({

@@ -31,14 +31,14 @@ describe("WatchedReposDialog", () => {
     const api = fakeApi();
     openDialog(api);
     await userEvent.click(screen.getByLabelText("Auto-review github.com/bobcob7/buff-bear"));
-    expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", true, true);
+    expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", true, true, "local");
   });
 
   it("stops watching a repo", async () => {
     const api = fakeApi();
     openDialog(api);
     await userEvent.click(screen.getByLabelText("Watch github.com/bobcob7/buff-bear"));
-    expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", false, false);
+    expect(api.reviewsSetWatch).toHaveBeenCalledWith("github.com/bobcob7/buff-bear", false, false, "local");
   });
 
   it("says to choose the forge for a repo whose host has none", () => {

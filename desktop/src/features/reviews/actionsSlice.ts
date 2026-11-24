@@ -21,6 +21,10 @@ export interface ActionSubject {
   readonly prKey: string;
   readonly repo: string;
   readonly ref: string;
+  /** The environment the review ran on; absent is "local". */
+  readonly environment?: string;
+  /** The review's workspace id on that environment. */
+  readonly reviewId?: string;
 }
 
 export interface CommentDialog extends ActionSubject {
@@ -53,9 +57,9 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 /** Reads what Comment would post, for the preview (ADR 0041). Posts nothing. */
 export const openCommentDialog = createAppThunk<CommentPlan, ActionSubject & { readonly number: number }>(
   "actions/commentPlan",
-  async ({ repo, ref, number }, { extra, rejectWithValue }) => {
+  async ({ repo, ref, number, environment = "local", reviewId }, { extra, rejectWithValue }) => {
     try {
-      return await extra.api.reviewCommentPlan(repo, ref, number);
+      return await extra.api.reviewCommentPlan(repo, ref, number, environment, reviewId);
     } catch (err: unknown) {
       return rejectWithValue(toAppError(err));
     }
@@ -69,10 +73,12 @@ const settle = async (
   dispatch: AppDispatch,
 ): Promise<void> => {
   if (report !== null) {
-    dispatch(reportReplaced({ repo: subject.repo, ref: subject.ref, report }));
+    dispatch(reportReplaced({ repo: subject.repo, ref: subject.ref, report, environment: subject.environment }));
     return;
   }
-  await dispatch(fetchReport({ repo: subject.repo, ref: subject.ref, refresh: true }));
+  await dispatch(
+    fetchReport({ repo: subject.repo, ref: subject.ref, refresh: true, environment: subject.environment, reviewId: subject.reviewId }),
+  );
 };
 
 /** Posts the previewed review, then marks its findings commented. */
@@ -80,7 +86,7 @@ export const postReview = createAppThunk<string, ActionSubject & { readonly requ
   "actions/post",
   async ({ request, ...subject }, { extra, dispatch, rejectWithValue }) => {
     try {
-      const posted = await extra.api.reviewCommentPost(subject.repo, subject.ref, request);
+      const posted = await extra.api.reviewCommentPost(subject.repo, subject.ref, request, subject.environment ?? "local", subject.reviewId);
       await settle(subject, posted.report, dispatch);
       dispatch(
         noticeShown({
@@ -100,9 +106,9 @@ export const postReview = createAppThunk<string, ActionSubject & { readonly requ
 export const openFixDialog = createAppThunk<
   FixPlan,
   ActionSubject & { readonly review: string; readonly findings: readonly FixFinding[] }
->("actions/fixPlan", async ({ repo, ref, review, findings }, { extra, rejectWithValue }) => {
+>("actions/fixPlan", async ({ repo, ref, review, findings, environment = "local", reviewId }, { extra, rejectWithValue }) => {
   try {
-    return await extra.api.reviewFixPlan(repo, ref, review, findings);
+    return await extra.api.reviewFixPlan(repo, ref, review, findings, environment, reviewId);
   } catch (err: unknown) {
     return rejectWithValue(toAppError(err));
   }
@@ -124,11 +130,13 @@ export const sendFix = createAppThunk<string, SendFix>(
   async ({ plan, target, message, ...subject }, { extra, dispatch, getState, rejectWithValue }) => {
     try {
       if (target === "agent") {
-        const started = await extra.api.reviewFixStart(subject.repo, subject.ref, {
-          findings: plan.findings,
-          agent: plan.agent,
-          message,
-        });
+        const started = await extra.api.reviewFixStart(
+          subject.repo,
+          subject.ref,
+          { findings: plan.findings, agent: plan.agent, message },
+          subject.environment ?? "local",
+          subject.reviewId,
+        );
         await settle(subject, started.report, dispatch);
         void dispatch(fetchEntries());
         dispatch(
@@ -160,8 +168,15 @@ export const sendFix = createAppThunk<string, SendFix>(
         await delay(attachSettle);
       }
       await typeMessage(extra.terminals, key, messageKeys(message));
-      const report = await extra.api.reviewFixSent(subject.repo, subject.ref, plan.findings, requester.workspaceId);
-      dispatch(reportReplaced({ repo: subject.repo, ref: subject.ref, report }));
+      const report = await extra.api.reviewFixSent(
+        subject.repo,
+        subject.ref,
+        plan.findings,
+        requester.workspaceId,
+        subject.environment ?? "local",
+        subject.reviewId,
+      );
+      dispatch(reportReplaced({ repo: subject.repo, ref: subject.ref, report, environment: subject.environment }));
       dispatch(
         noticeShown({
           severity: "success",
@@ -176,7 +191,7 @@ export const sendFix = createAppThunk<string, SendFix>(
   },
 );
 
-const subjectOf = ({ prKey, repo, ref }: ActionSubject): ActionSubject => ({ prKey, repo, ref });
+const subjectOf = ({ prKey, repo, ref, environment, reviewId }: ActionSubject): ActionSubject => ({ prKey, repo, ref, environment, reviewId });
 
 const failure = (payload: AppError | undefined, message: string | undefined): AppError =>
   payload ?? { code: "internal", message: message ?? "failed" };

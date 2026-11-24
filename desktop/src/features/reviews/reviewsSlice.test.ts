@@ -11,7 +11,10 @@ import {
   mergeFiltered,
   openStartDialog,
   reviewsReducer,
+  fetchPlan,
+  selectReviewEnvironment,
   setHosts,
+  setWatch,
   startReview,
   type ReviewsState,
 } from "./reviewsSlice";
@@ -163,5 +166,59 @@ describe("setHosts", () => {
     await store.dispatch(setHosts(hosts));
     expect(api.reviewsSetHosts).toHaveBeenCalledWith(hosts);
     expect(store.getState().reviews.view).toEqual(view);
+  });
+});
+
+describe("review environments", () => {
+  const repoId = "github.com/bobcob7/buff-bear";
+  const remoteView = reviewsView({
+    repos: [{ id: repoId, github: true, forge: "github", watch: true, autoReview: false, environment: "linux-server", open: 1, checkedAtMs: 1, error: null }],
+  });
+  const remoteStore = (api = fakeApi()): ReturnType<typeof testStore> =>
+    testStore({ api, state: { reviews: { ...initial(), view: remoteView } } });
+
+  it("selectReviewEnvironment names the environment a repo is watched on", () => {
+    const store = remoteStore();
+    expect(selectReviewEnvironment(store.getState(), repoId)).toBe("linux-server");
+  });
+
+  it("selectReviewEnvironment is local for a repo with no environment", () => {
+    const store = testStore({ state: { reviews: { ...initial(), view: reviewsView() } } });
+    expect(selectReviewEnvironment(store.getState(), repoId)).toBe("local");
+  });
+
+  it("selectReviewEnvironment is local for an unknown repo and before the view loads", () => {
+    expect(selectReviewEnvironment(testStore().getState(), repoId)).toBe("local");
+    expect(selectReviewEnvironment(remoteStore().getState(), "other/repo")).toBe("local");
+  });
+
+  it("sets a watch on an environment", async () => {
+    const api = fakeApi();
+    await testStore({ api }).dispatch(setWatch({ repo: repoId, watch: true, autoReview: false, environment: "linux-server" }));
+    expect(api.reviewsSetWatch).toHaveBeenCalledWith(repoId, true, false, "linux-server");
+  });
+
+  it("sets a watch on local by default", async () => {
+    const api = fakeApi();
+    await testStore({ api }).dispatch(setWatch({ repo: repoId, watch: true, autoReview: false }));
+    expect(api.reviewsSetWatch).toHaveBeenCalledWith(repoId, true, false, "local");
+  });
+
+  it("plans a review on the environment its repo is watched on", async () => {
+    const api = fakeApi();
+    await remoteStore(api).dispatch(fetchPlan(pullRequest()));
+    expect(api.reviewsPlan).toHaveBeenCalledWith(repoId, 42, "linux-server");
+  });
+
+  it("opens the start dialog with a plan from the repo's environment", async () => {
+    const api = fakeApi();
+    await remoteStore(api).dispatch(openStartDialog(pullRequest()));
+    expect(api.reviewsPlan).toHaveBeenCalledWith(repoId, 42, "linux-server");
+  });
+
+  it("starts a remote review from a plan made on its environment", async () => {
+    const api = fakeApi();
+    await remoteStore(api).dispatch(startReview({ pr: pullRequest() }));
+    expect(api.reviewsPlan).toHaveBeenCalledWith(repoId, 42, "linux-server");
   });
 });

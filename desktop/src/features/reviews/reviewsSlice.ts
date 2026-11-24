@@ -10,6 +10,7 @@ import {
   type ReviewsView,
   type Started,
 } from "../../api";
+import type { RootState } from "../../store";
 import { createAppThunk } from "../../thunk";
 import { fetchEntries } from "../agents/agentsSlice";
 import { noticeShown, sectionChosen, selected } from "../ui/uiSlice";
@@ -95,13 +96,19 @@ export interface WatchChange {
   readonly repo: string;
   readonly watch: boolean;
   readonly autoReview: boolean;
+  /** The environment its reviews run on; absent is "local". */
+  readonly environment?: string;
 }
+
+/** The environment a repo's reviews run on: "local" unless it is watched on a remote. */
+export const selectReviewEnvironment = (state: RootState, repo: string): string =>
+  state.reviews.view?.repos.find((r) => r.id === repo)?.environment ?? "local";
 
 export const setWatch = createAppThunk<ReviewsView, WatchChange>(
   "reviews/setWatch",
-  async ({ repo, watch, autoReview }, { extra, dispatch, rejectWithValue }) => {
+  async ({ repo, watch, autoReview, environment = "local" }, { extra, dispatch, rejectWithValue }) => {
     try {
-      return await extra.api.reviewsSetWatch(repo, watch, autoReview);
+      return await extra.api.reviewsSetWatch(repo, watch, autoReview, environment);
     } catch (err: unknown) {
       return rejectWithValue(failed(err, dispatch));
     }
@@ -160,9 +167,9 @@ export const restorePr = createAppThunk<ReviewsView, PullRequest>(
 /** The plan Review would run now, with the Settings defaults. */
 export const fetchPlan = createAppThunk<ReviewPlan, PullRequest>(
   "reviews/plan",
-  async (pr, { extra, rejectWithValue }) => {
+  async (pr, { extra, getState, rejectWithValue }) => {
     try {
-      return await extra.api.reviewsPlan(pr.repo, pr.number);
+      return await extra.api.reviewsPlan(pr.repo, pr.number, selectReviewEnvironment(getState(), pr.repo));
     } catch (err: unknown) {
       return rejectWithValue(toAppError(err));
     }
@@ -171,9 +178,9 @@ export const fetchPlan = createAppThunk<ReviewPlan, PullRequest>(
 
 export const openStartDialog = createAppThunk<ReviewPlan, PullRequest>(
   "reviews/openStart",
-  async (pr, { extra, rejectWithValue }) => {
+  async (pr, { extra, getState, rejectWithValue }) => {
     try {
-      return await extra.api.reviewsPlan(pr.repo, pr.number);
+      return await extra.api.reviewsPlan(pr.repo, pr.number, selectReviewEnvironment(getState(), pr.repo));
     } catch (err: unknown) {
       return rejectWithValue(toAppError(err));
     }
@@ -189,9 +196,11 @@ export interface StartRequest {
 /** Starts a review (`ws claude`) and keeps the pull request selected. */
 export const startReview = createAppThunk<Started, StartRequest>(
   "reviews/start",
-  async ({ pr, plan }, { extra, dispatch, rejectWithValue }) => {
+  async ({ pr, plan }, { extra, dispatch, getState, rejectWithValue }) => {
     try {
-      const started = await extra.api.reviewsStart(plan ?? (await extra.api.reviewsPlan(pr.repo, pr.number)));
+      const started = await extra.api.reviewsStart(
+        plan ?? (await extra.api.reviewsPlan(pr.repo, pr.number, selectReviewEnvironment(getState(), pr.repo))),
+      );
       const message = started.already ? `${started.id} is already reviewing it` : `Started ${started.id}`;
       dispatch(noticeShown({ severity: started.already ? "info" : "success", message }));
       await dispatch(fetchEntries());

@@ -407,6 +407,10 @@ export interface ReviewRun {
   readonly requester: string | null;
   /** ws removed its agent and workspace once it finished (ADR 0045). */
   readonly removed: boolean;
+  /** "local" or the name of the environment the review runs on. */
+  readonly environment: string;
+  /** The environment's snapshot is old, or it is offline. */
+  readonly stale: boolean;
 }
 
 export interface NewCommits {
@@ -501,6 +505,8 @@ export interface WatchRepo {
   readonly forge: ForgeKind | null;
   readonly watch: boolean;
   readonly autoReview: boolean;
+  /** The environment the repo's reviews run on; absent is "local". */
+  readonly environment?: string;
   readonly open: number | null;
   readonly checkedAtMs: number | null;
   readonly error: string | null;
@@ -538,6 +544,8 @@ export interface ReviewPlan {
   readonly model: string;
   readonly permissionMode: string;
   readonly focus: string;
+  /** The environment the review starts on; absent is "local". */
+  readonly environment?: string;
 }
 
 /** When a reviewer profile joins a review: ws's `when`. */
@@ -1047,6 +1055,12 @@ export interface Loop {
   readonly runner: string | null;
   /** The endpoint a ws loop's runs use instead of the model's. */
   readonly endpoint: string | null;
+  /** "local" or the name of the environment the loop lives on. */
+  readonly environment: string;
+  /** Read from an old snapshot, or the environment is offline. */
+  readonly stale: boolean;
+  /** Read from a snapshot: no prompt, script or vars. */
+  readonly summary: boolean;
 }
 
 /** A loop's last gate check, from `ws loop list --json` (ADR 0049). */
@@ -1065,6 +1079,10 @@ export interface LoopVar {
 export interface LoopListing {
   readonly loops: readonly Loop[];
   readonly warnings: readonly string[];
+  /** What the environment's connection was when the list was read; null for local. */
+  readonly environmentStatus: EnvironmentStatus | null;
+  /** The environment hasn't reported its loops yet. */
+  readonly loopsUnknown: boolean;
 }
 
 export interface NewLoop {
@@ -1084,6 +1102,12 @@ export interface NewLoop {
   /** "claude" or "ws"; the form sends it on every edit (ADR 0070). */
   readonly runner?: string;
   readonly endpoint?: string;
+  /** The environment the loop lives on; left out for this machine. */
+  readonly environment?: string;
+  /** The person confirmed what a remote loop runs (R3); sends --yes. */
+  readonly confirmed?: boolean;
+  /** The loop's values before the edit; a remote edit sends only what differs. */
+  readonly previous?: NewLoop;
 }
 
 /** The workspace a loop run started. */
@@ -1404,8 +1428,8 @@ export const api = {
   reviewsView: async (): Promise<ReviewsView> => call<ReviewsView>("reviews_view"),
   reviewsCheckNow: async (): Promise<ReviewsView> => call<ReviewsView>("reviews_check_now"),
   reviewsLoadRepos: async (): Promise<ReviewsView> => call<ReviewsView>("reviews_load_repos"),
-  reviewsSetWatch: async (repo: string, watch: boolean, autoReview: boolean): Promise<ReviewsView> =>
-    call<ReviewsView>("reviews_set_watch", { repo, watch, autoReview }),
+  reviewsSetWatch: async (repo: string, watch: boolean, autoReview: boolean, environment = "local"): Promise<ReviewsView> =>
+    call<ReviewsView>("reviews_set_watch", { repo, watch, autoReview, environment }),
   reviewsSetHosts: async (hosts: readonly ConfiguredHost[]): Promise<ReviewsView> => call<ReviewsView>("reviews_set_hosts", { hosts }),
   reviewsSetToken: async (host: string, token: string): Promise<ReviewsView> =>
     call<ReviewsView>("reviews_set_token", { host, token }),
@@ -1413,9 +1437,10 @@ export const api = {
     call<ReviewsView>("reviews_dismiss", { repo, number, head }),
   reviewsRestore: async (repo: string, number: number): Promise<ReviewsView> =>
     call<ReviewsView>("reviews_restore", { repo, number }),
-  reviewsPlan: async (repo: string, number: number): Promise<ReviewPlan> =>
-    call<ReviewPlan>("reviews_plan", { repo, number }),
-  reviewsProfiles: async (): Promise<readonly ListedProfile[]> => call<ListedProfile[]>("reviews_profiles"),
+  reviewsPlan: async (repo: string, number: number, environment?: string): Promise<ReviewPlan> =>
+    call<ReviewPlan>("reviews_plan", { repo, number, environment }),
+  reviewsProfiles: async (environment = "local"): Promise<readonly ListedProfile[]> =>
+    call<ListedProfile[]>("reviews_profiles", { environment }),
   reviewsProfileShow: async (name: string): Promise<ProfileDetail> => call<ProfileDetail>("reviews_profile_show", { name }),
   reviewsProfileAdd: async (name: string, draft: ProfileDraft): Promise<ProfileDetail> =>
     call<ProfileDetail>("reviews_profile_add", { name, draft }),
@@ -1429,17 +1454,17 @@ export const api = {
   rolesEdit: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_edit", { name, draft }),
   rolesRemove: async (name: string): Promise<RoleRemoved> => call<RoleRemoved>("roles_remove", { name }),
   reviewsStart: async (plan: ReviewPlan): Promise<Started> => call<Started>("reviews_start", { plan }),
-  reviewReport: async (repo: string, gitRef: string, refresh: boolean): Promise<ReviewReport> =>
-    call<ReviewReport>("review_report", { repo, gitRef, refresh }),
-  reviewDecide: async (repo: string, gitRef: string, request: DecideRequest): Promise<ReviewReport> =>
-    call<ReviewReport>("review_decide", { repo, gitRef, request }),
-  reviewOpenReport: async (repo: string, gitRef: string): Promise<string> => {
+  reviewReport: async (repo: string, gitRef: string, refresh: boolean, environment = "local", reviewId?: string): Promise<ReviewReport> =>
+    call<ReviewReport>("review_report", { repo, gitRef, refresh, environment, reviewId }),
+  reviewDecide: async (repo: string, gitRef: string, request: DecideRequest, environment = "local", reviewId?: string): Promise<ReviewReport> =>
+    call<ReviewReport>("review_decide", { repo, gitRef, request, environment, reviewId }),
+  reviewOpenReport: async (repo: string, gitRef: string, environment = "local", reviewId?: string): Promise<string> => {
     if (!isWeb()) {
-      return call<string>("review_open_report", { repo, gitRef });
+      return call<string>("review_open_report", { repo, gitRef, environment, reviewId });
     }
     const tab = window.open("about:blank", "_blank");
     try {
-      const path = await call<string>("review_open_report", { repo, gitRef });
+      const path = await call<string>("review_open_report", { repo, gitRef, environment, reviewId });
       if (tab !== null) {
         tab.location.href = path;
       }
@@ -1449,16 +1474,28 @@ export const api = {
       throw err;
     }
   },
-  reviewCommentPlan: async (repo: string, gitRef: string, number: number): Promise<CommentPlan> =>
-    call<CommentPlan>("review_comment_plan", { repo, gitRef, number }),
-  reviewCommentPost: async (repo: string, gitRef: string, request: PostRequest): Promise<Posted> =>
-    call<Posted>("review_comment_post", { repo, gitRef, request }),
-  reviewFixPlan: async (repo: string, gitRef: string, review: string, findings: readonly FixFinding[]): Promise<FixPlan> =>
-    call<FixPlan>("review_fix_plan", { repo, gitRef, review, findings }),
-  reviewFixStart: async (repo: string, gitRef: string, request: StartFix): Promise<FixStarted> =>
-    call<FixStarted>("review_fix_start", { repo, gitRef, request }),
-  reviewFixSent: async (repo: string, gitRef: string, findings: readonly string[], agent: string): Promise<ReviewReport> =>
-    call<ReviewReport>("review_fix_sent", { repo, gitRef, findings, agent }),
+  reviewCommentPlan: async (repo: string, gitRef: string, number: number, environment = "local", reviewId?: string): Promise<CommentPlan> =>
+    call<CommentPlan>("review_comment_plan", { repo, gitRef, number, environment, reviewId }),
+  reviewCommentPost: async (repo: string, gitRef: string, request: PostRequest, environment = "local", reviewId?: string): Promise<Posted> =>
+    call<Posted>("review_comment_post", { repo, gitRef, request, environment, reviewId }),
+  reviewFixPlan: async (
+    repo: string,
+    gitRef: string,
+    review: string,
+    findings: readonly FixFinding[],
+    environment = "local",
+    reviewId?: string,
+  ): Promise<FixPlan> => call<FixPlan>("review_fix_plan", { repo, gitRef, review, findings, environment, reviewId }),
+  reviewFixStart: async (repo: string, gitRef: string, request: StartFix, environment = "local", reviewId?: string): Promise<FixStarted> =>
+    call<FixStarted>("review_fix_start", { repo, gitRef, request, environment, reviewId }),
+  reviewFixSent: async (
+    repo: string,
+    gitRef: string,
+    findings: readonly string[],
+    agent: string,
+    environment = "local",
+    reviewId?: string,
+  ): Promise<ReviewReport> => call<ReviewReport>("review_fix_sent", { repo, gitRef, findings, agent, environment, reviewId }),
   settingsGet: async (): Promise<Settings> => call<Settings>("settings_get"),
   versions: async (): Promise<Versions> => call<Versions>("versions"),
   settingsSetReviews: async (reviews: ReviewSettings): Promise<Settings> =>
@@ -1477,20 +1514,27 @@ export const api = {
     }
     return transport().listen<{ readonly key: string }>("tray-select", (payload) => handler(payload.key));
   },
-  loopsList: async (): Promise<LoopListing> => call<LoopListing>("loops_list"),
+  loopsList: async (environment = "local"): Promise<LoopListing> => call<LoopListing>("loops_list", { environment }),
   loopsAdd: async (request: NewLoop): Promise<Loop> => call<Loop>("loops_add", { request }),
   loopsEdit: async (request: NewLoop): Promise<Loop> => call<Loop>("loops_edit", { request }),
-  loopsSetPaused: async (name: string, paused: boolean): Promise<Loop> => call<Loop>("loops_set_paused", { name, paused }),
-  loopsRemove: async (name: string): Promise<Loop> => call<Loop>("loops_remove", { name }),
-  loopsRunNow: async (name: string): Promise<LoopStarted> => call<LoopStarted>("loops_run_now", { name }),
-  loopsHistory: async (name: string, limit: number | null): Promise<LoopHistory> => call<LoopHistory>("loops_history", { name, limit }),
-  loopsHistoryRun: async (name: string, seq: number): Promise<LoopRunDetail> => call<LoopRunDetail>("loops_history_run", { name, seq }),
-  loopsHistoryClear: async (name: string): Promise<LoopCleared> => call<LoopCleared>("loops_history_clear", { name }),
-  loopsMemory: async (name: string): Promise<LoopMemory> => call<LoopMemory>("loops_memory", { name }),
-  loopsMemorySet: async (name: string, key: string, value: string, expectRev: number | null): Promise<LoopMemorySet> =>
-    call<LoopMemorySet>("loops_memory_set", { name, key, value, expectRev }),
-  loopsMemoryRemove: async (name: string, key: string): Promise<LoopMemoryRemoved> => call<LoopMemoryRemoved>("loops_memory_remove", { name, key }),
-  loopsMemoryClear: async (name: string): Promise<LoopCleared> => call<LoopCleared>("loops_memory_clear", { name }),
+  loopsSetPaused: async (name: string, paused: boolean, environment = "local"): Promise<Loop> =>
+    call<Loop>("loops_set_paused", { name, paused, environment }),
+  loopsRemove: async (name: string, confirmed = false, environment = "local"): Promise<Loop> =>
+    call<Loop>("loops_remove", { name, confirmed, environment }),
+  loopsRunNow: async (name: string, environment = "local"): Promise<LoopStarted> => call<LoopStarted>("loops_run_now", { name, environment }),
+  loopsHistory: async (name: string, limit: number | null, environment = "local"): Promise<LoopHistory> =>
+    call<LoopHistory>("loops_history", { name, limit, environment }),
+  loopsHistoryRun: async (name: string, seq: number, environment = "local"): Promise<LoopRunDetail> =>
+    call<LoopRunDetail>("loops_history_run", { name, seq, environment }),
+  loopsHistoryClear: async (name: string, confirmed = false, environment = "local"): Promise<LoopCleared> =>
+    call<LoopCleared>("loops_history_clear", { name, confirmed, environment }),
+  loopsMemory: async (name: string, environment = "local"): Promise<LoopMemory> => call<LoopMemory>("loops_memory", { name, environment }),
+  loopsMemorySet: async (name: string, key: string, value: string, expectRev: number | null, environment = "local"): Promise<LoopMemorySet> =>
+    call<LoopMemorySet>("loops_memory_set", { name, key, value, expectRev, environment }),
+  loopsMemoryRemove: async (name: string, key: string, environment = "local"): Promise<LoopMemoryRemoved> =>
+    call<LoopMemoryRemoved>("loops_memory_remove", { name, key, environment }),
+  loopsMemoryClear: async (name: string, confirmed = false, environment = "local"): Promise<LoopCleared> =>
+    call<LoopCleared>("loops_memory_clear", { name, confirmed, environment }),
   statsGet: async (sinceMs: number | null): Promise<Stats> => call<Stats>("stats_get", { sinceMs }),
 };
 

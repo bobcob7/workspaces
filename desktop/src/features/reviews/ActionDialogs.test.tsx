@@ -59,7 +59,7 @@ const openFix = async (overrides: Partial<Api> = {}, host?: FakeHost) => {
 describe("CommentDialog", () => {
   it("previews the review at the reviewed commit without posting anything", async () => {
     const { api, dialog } = await openComment();
-    expect(api.reviewCommentPlan).toHaveBeenCalledWith(repo, head, 42);
+    expect(api.reviewCommentPlan).toHaveBeenCalledWith(repo, head, 42, "local", undefined);
     expect(await within(dialog).findByText(/One review, as/)).toHaveTextContent(
       "One review, as bobcob7, at 3f2a9c1 (the PR's current head). Nothing is posted until you choose Post review.",
     );
@@ -104,7 +104,7 @@ describe("CommentDialog", () => {
       event: "REQUEST_CHANGES",
       comments: [{ ...plan.comments[0], body: "Edited." }, plan.comments[1]],
       findings: plan.findings,
-    });
+    }, "local", undefined);
     expect(store.getState().actions.comment).toBeNull();
     expect(store.getState().ui.notice).toEqual({
       severity: "success",
@@ -157,7 +157,7 @@ describe("FixDialog", () => {
     const { api } = await openFix();
     expect(api.reviewFixPlan).toHaveBeenCalledWith(repo, head, "review-buff-bear-42-3f2a9c1", [
       { id: "security:spoofable-client-ip-1", title: expect.any(String) },
-    ]);
+    ], "local", undefined);
   });
 
   it("sends to the requester by default, through its terminal, then records it", async () => {
@@ -173,7 +173,7 @@ describe("FixDialog", () => {
     await vi.waitFor(() => expect(api.reviewFixSent).toHaveBeenCalled());
     expect(host.send).toHaveBeenNthCalledWith(1, attachKey("e8cdf5d8"), messageKeys(fixPlan().requesterMessage));
     expect(host.send).toHaveBeenNthCalledWith(2, attachKey("e8cdf5d8"), "\r");
-    expect(api.reviewFixSent).toHaveBeenCalledWith(repo, head, ["security:spoofable-client-ip-1"], "fix-login-rate");
+    expect(api.reviewFixSent).toHaveBeenCalledWith(repo, head, ["security:spoofable-client-ip-1"], "fix-login-rate", "local", undefined);
     expect(store.getState().ui.notice?.action).toEqual({ label: "Open agent", agent: "fix-login-rate" });
     expect(store.getState().actions.fix).toBeNull();
   });
@@ -193,7 +193,7 @@ describe("FixDialog", () => {
       findings: plan.findings,
       agent: plan.agent,
       message: plan.agentMessage,
-    });
+    }, "local", undefined);
   });
 
   it("switches an untouched message with the target and keeps an edited one", async () => {

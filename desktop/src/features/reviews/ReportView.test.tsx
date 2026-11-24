@@ -63,7 +63,7 @@ describe("ReportView", () => {
   it("reads the report again when the pull request is selected", async () => {
     const { api } = renderReport();
     await screen.findByRole("tab", { name: "Findings3" });
-    expect(api.reviewReport).toHaveBeenCalledWith(ws.repo, ws.ref, true);
+    expect(api.reviewReport).toHaveBeenCalledWith(ws.repo, ws.ref, true, "local", undefined);
   });
 
   it("shows each profile's model, verdict, and severity", async () => {
@@ -80,7 +80,7 @@ describe("ReportView", () => {
       decision: "comment",
       suggestion: null,
       note: "",
-    });
+    }, "local", undefined);
   });
 
   it("clears the decision when the selected segment is clicked, keeping nothing else", async () => {
@@ -93,14 +93,14 @@ describe("ReportView", () => {
       decision: "clear",
       suggestion: null,
       note: "",
-    });
+    }, "local", undefined);
   });
 
   it("keeps a decided finding's note when the decision changes", async () => {
     const { api } = renderReport();
     const control = await screen.findByRole("group", { name: "Decision for security:spoofable-client-ip-1" });
     await userEvent.click(within(control).getByRole("button", { name: "Skip" }));
-    expect(api.reviewDecide).toHaveBeenCalledWith(ws.repo, ws.ref, expect.objectContaining({ decision: "skip", note: "trusted proxies only" }));
+    expect(api.reviewDecide).toHaveBeenCalledWith(ws.repo, ws.ref, expect.objectContaining({ decision: "skip", note: "trusted proxies only" }), "local", undefined);
   });
 
   it("expands a row to its body, anchors, code, and suggestions; a suggestion sets Fix", async () => {
@@ -116,7 +116,7 @@ describe("ReportView", () => {
       decision: "fix",
       suggestion: 1,
       note: "trusted proxies only",
-    });
+    }, "local", undefined);
   });
 
   it("links the first anchor to the reviewed commit on GitHub, with a count of the rest", async () => {
@@ -138,7 +138,7 @@ describe("ReportView", () => {
     fireEvent.blur(screen.getByLabelText("Note"));
     expect(api.reviewDecide).not.toHaveBeenCalled();
     await userEvent.click(within(screen.getByRole("group", { name: "Decision for security:retry-after-zero-1" })).getByRole("button", { name: "Fix" }));
-    expect(api.reviewDecide).toHaveBeenCalledWith(ws.repo, ws.ref, expect.objectContaining({ decision: "fix", note: "round up" }));
+    expect(api.reviewDecide).toHaveBeenCalledWith(ws.repo, ws.ref, expect.objectContaining({ decision: "fix", note: "round up" }), "local", undefined);
   });
 
   it("filters by profile and shows `n of total` headings", async () => {
@@ -186,7 +186,7 @@ describe("ReportView", () => {
       decision: "skip",
       suggestion: null,
       note: "",
-    });
+    }, "local", undefined);
   });
 
   it("drives the list from the keyboard", async () => {
@@ -196,13 +196,13 @@ describe("ReportView", () => {
     await userEvent.keyboard("{ArrowDown}");
     expect(document.getElementById("toggle-security:retry-after-zero-1")).toHaveFocus();
     await userEvent.keyboard("c");
-    expect(api.reviewDecide).toHaveBeenLastCalledWith(ws.repo, ws.ref, expect.objectContaining({ findings: ["security:retry-after-zero-1"], decision: "comment" }));
+    expect(api.reviewDecide).toHaveBeenLastCalledWith(ws.repo, ws.ref, expect.objectContaining({ findings: ["security:retry-after-zero-1"], decision: "comment" }), "local", undefined);
     await userEvent.keyboard("{ArrowUp}{Backspace}");
-    expect(api.reviewDecide).toHaveBeenLastCalledWith(ws.repo, ws.ref, expect.objectContaining({ findings: ["security:spoofable-client-ip-1"], decision: "clear" }));
+    expect(api.reviewDecide).toHaveBeenLastCalledWith(ws.repo, ws.ref, expect.objectContaining({ findings: ["security:spoofable-client-ip-1"], decision: "clear" }), "local", undefined);
     await userEvent.keyboard("{Enter}");
     expect(screen.getAllByRole("radio")).toHaveLength(2);
     await userEvent.keyboard("2");
-    expect(api.reviewDecide).toHaveBeenLastCalledWith(ws.repo, ws.ref, expect.objectContaining({ decision: "fix", suggestion: 1 }));
+    expect(api.reviewDecide).toHaveBeenLastCalledWith(ws.repo, ws.ref, expect.objectContaining({ decision: "fix", suggestion: 1 }), "local", undefined);
   });
 
   it("ignores suggestion keys on a collapsed finding and decision keys on a read-only one", async () => {
@@ -218,7 +218,7 @@ describe("ReportView", () => {
     expect(await screen.findByText("fix-login-rate")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "✓ Fix sent to" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Act again" }));
-    expect(api.reviewDecide).toHaveBeenCalledWith(ws.repo, ws.ref, { findings: ["security:a-1"], decision: "fix", suggestion: null, note: "" });
+    expect(api.reviewDecide).toHaveBeenCalledWith(ws.repo, ws.ref, { findings: ["security:a-1"], decision: "fix", suggestion: null, note: "" }, "local", undefined);
     await userEvent.click(screen.getByRole("link", { name: "fix-login-rate" }));
     expect(store.getState().ui.section).toBe("agents");
     expect(store.getState().ui.selectedKey).toBe("fix-login-rate");
@@ -274,7 +274,7 @@ describe("ReportView", () => {
   it("opens the full report", async () => {
     const { api } = renderReport();
     await userEvent.click(await screen.findByRole("button", { name: "Open full report" }));
-    expect(api.reviewOpenReport).toHaveBeenCalledWith(ws.repo, ws.ref);
+    expect(api.reviewOpenReport).toHaveBeenCalledWith(ws.repo, ws.ref, "local", undefined);
   });
 
   it("points back to a decision made in an older review", async () => {
@@ -289,7 +289,7 @@ describe("ReportView", () => {
     });
     renderReport(realReport, pr, api);
     expect(await screen.findByText("decided at a41c9f2")).toBeInTheDocument();
-    expect(api.reviewReport).toHaveBeenCalledWith(ws.repo, old, false);
+    expect(api.reviewReport).toHaveBeenCalledWith(ws.repo, old, false, "local", undefined);
   });
 
   it("cross-links the requester to Agents", async () => {
@@ -329,12 +329,12 @@ describe("ReviewsList with reports", () => {
     store.dispatch(fetchReviews.fulfilled(reviewsView({ prs: [working] }), "req"));
     renderWithStore(<ReviewsList />, store);
     expect(await screen.findByText("buff-bear · alice · 2 of 3 profiles in")).toBeInTheDocument();
-    expect(api.reviewReport).toHaveBeenLastCalledWith(ws.repo, ws.ref, false);
+    expect(api.reviewReport).toHaveBeenLastCalledWith(ws.repo, ws.ref, false, "local", undefined);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(reportInterval);
     });
     expect(api.reviewReport).toHaveBeenCalledTimes(2);
-    expect(api.reviewReport).toHaveBeenLastCalledWith(ws.repo, ws.ref, true);
+    expect(api.reviewReport).toHaveBeenLastCalledWith(ws.repo, ws.ref, true, "local", undefined);
     await act(async () => {
       store.dispatch(fetchReviews.fulfilled(reviewsView({ prs: [reviewed()] }), "req2"));
     });
