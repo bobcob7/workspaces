@@ -103,7 +103,7 @@ impl Checker {
     }
 
     /// Gives `repo` the pull requests as if a check had listed them.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "online"))]
     pub fn set_pull_requests(&self, repo: &str, prs: Vec<PullRequest>) {
         self.with_state(|s| {
             s.repos.insert(
@@ -118,7 +118,7 @@ impl Checker {
     }
 
     /// Whether a check was asked for since the last call.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "online"))]
     pub fn take_check_request(&self) -> bool {
         self.forced.swap(false, Ordering::SeqCst)
     }
