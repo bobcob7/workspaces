@@ -113,7 +113,8 @@ pub async fn watch_forever(app: AppHandle) {
         if !state.watcher.is_stale(crate::commands::now_ms()) {
             continue;
         }
-        match crate::commands::list(&state.runner, state.jobs_dir.as_deref()).await {
+        match crate::commands::list(&state.runner, state.jobs_dir.as_deref(), &state.pr_links).await
+        {
             Ok(listing) => {
                 let observed = state
                     .watcher

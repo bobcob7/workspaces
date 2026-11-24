@@ -11,7 +11,7 @@ import (
 	"unicode"
 )
 
-// Operation names of ADR 0078's review rows.
+// Operation names of ADR 0080's review rows.
 const (
 	OpReviewStart    = "review.start"
 	OpReviewStatus   = "review.status"
@@ -22,7 +22,7 @@ const (
 	OpReviewProfiles = "review.profiles"
 )
 
-// Bounds of review and loop results and arguments (ADR 0078).
+// Bounds of review and loop results and arguments (ADR 0080).
 const (
 	MaxPageBytes     = 192 << 10 // a paged result's JSON
 	MaxFindings      = 200       // finding ids in one decide or acted

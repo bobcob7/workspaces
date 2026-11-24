@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/artifact"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -127,6 +128,41 @@ type claudeRepo struct {
 	Commit  string `json:"commit"`
 }
 
+// artifactHints appends the hint line for the @artifact: references in the
+// prompt, the first argument when it isn't a flag (ADR 0078). Every
+// referenced artifact must exist. On a remote environment, which can't reach
+// the store, the prompt goes unchanged with a warning.
+func (a *App) artifactHints(args []string, remote string) ([]string, error) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return args, nil
+	}
+	ids := artifact.FindRefs(args[0])
+	switch {
+	case len(ids) == 0:
+		return args, nil
+	case remote != "":
+		a.warned = append(a.warned, fmt.Sprintf("artifacts aren't reachable from %s yet; @artifact references were sent as plain text", remote))
+		return args, nil
+	}
+	if err := a.checkArtifactsExist(ids); err != nil {
+		return nil, err
+	}
+	prompt, _ := artifact.AppendHint(args[0])
+	return slices.Concat([]string{prompt}, args[1:]), nil
+}
+
+// checkArtifactsExist is artifact_unknown for the first of ids that isn't
+// in the store.
+func (a *App) checkArtifactsExist(ids []string) error {
+	store := a.artifactStore()
+	for _, id := range ids {
+		if _, err := store.Show(id); err != nil {
+			return artifactError(err)
+		}
+	}
+	return nil
+}
+
 // runClaude creates the workspace and hands it to a new Claude Code
 // background session, started in the repo's directory when there is
 // exactly one and Claude Code can trust it (ADRs 0015, 0025, 0028).
@@ -139,6 +175,10 @@ type claudeRepo struct {
 // With --runner ws it starts a runner agent instead (runWSClaude).
 func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	runOn, parentID, err := a.remoteParent(ctx, opts.env, opts.parent)
+	if err != nil {
+		return err
+	}
+	opts.claudeArgs, err = a.artifactHints(opts.claudeArgs, runOn)
 	if err != nil {
 		return err
 	}

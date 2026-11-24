@@ -225,7 +225,7 @@ isn't in the table: a shell is a terminal ([Terminals](#terminals)).
 
 **Protocol.** The hello carries `protocol`, the newest operation protocol the
 agent speaks: 1 with PR 3's operations, 2 with the terminal operations (PR 4),
-3 with `review.*` and `loop.*` and the snapshot's `loops` (PR 4, [0078](../adrs/0078-reviews-and-loops-on-environments.md)), and 0 from an agent older than PR 3. An
+3 with `review.*` and `loop.*` and the snapshot's `loops` (PR 4, [0080](../adrs/0080-reviews-and-loops-on-environments.md)), and 0 from an agent older than PR 3. An
 operation whose `Since` is above the agent's protocol is refused before it is
 sent, with `environment_outdated` (exit 1). Its details are `environment`,
 `op`, `ws_version`, `protocol` and `need_protocol`, so an agent older than
@@ -275,7 +275,7 @@ review on that machine: its clone cache, review workspace, Claude session and
 reports are in the agent's `CONFIG_DIR`. The controller keeps the forge side:
 the pull request list, posting comments, and the Fix and Ask agents. **No
 token crosses the network:** no operation takes one, and results are redacted
-([0078](../adrs/0078-reviews-and-loops-on-environments.md)).
+([0080](../adrs/0080-reviews-and-loops-on-environments.md)).
 
 Set these up **on the remote machine**, as the user that runs `ws env agent
 run`:

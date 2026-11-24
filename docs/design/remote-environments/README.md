@@ -5,7 +5,7 @@ Decisions: [0072](../../adrs/0072-remote-environments.md),
 [0074](../../adrs/0074-mqtt-transport-embedded-broker.md),
 [0075](../../adrs/0075-environment-enrollment-and-certificates.md),
 [0076](../../adrs/0076-environment-platforms-and-phasing.md),
-[0078](../../adrs/0078-reviews-and-loops-on-environments.md).
+[0080](../../adrs/0080-reviews-and-loops-on-environments.md).
 
 Task lists and measurements: [PR 4's tasks](tasks-ui.md) with its
 [constraints](constraints-ui.md), the [reviews and loops tasks](tasks-rl.md) with their [constraints](constraints-rl.md), and the [terminal spike](terminal-spike.md). The Loops-by-environment wireframe is below.
@@ -99,7 +99,7 @@ Loops                                  [ local | linux-server | win-rig ]  [ New
 The list reads the snapshot (`ws loop list --env <name> --cached`), so it
 works offline. Saving a script or `bypassPermissions` on a remote asks first:
 "This script runs as the agent's user on linux-server, every 1h, outside
-Claude Code's permissions." ([0078](../../adrs/0078-reviews-and-loops-on-environments.md))
+Claude Code's permissions." ([0080](../../adrs/0080-reviews-and-loops-on-environments.md))
 
 ## Failure messages
 

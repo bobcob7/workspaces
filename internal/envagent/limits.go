@@ -15,7 +15,7 @@ type limit struct {
 	refill   time.Duration
 }
 
-// The limits of ADR 0078.
+// The limits of ADR 0080.
 func reviewStartLimit() limit { return limit{capacity: 12, refill: time.Hour} }
 func loopRunLimit() limit     { return limit{capacity: 30, refill: time.Hour} }
 func loopRunNameLimit() limit { return limit{capacity: 1, refill: time.Minute} }
@@ -30,7 +30,7 @@ type tokenBucket struct {
 	at     time.Time
 }
 
-// limiter holds ADR 0078's token buckets.
+// limiter holds ADR 0080's token buckets.
 type limiter struct {
 	mu      sync.Mutex
 	buckets map[string]*tokenBucket

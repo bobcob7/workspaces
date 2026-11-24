@@ -1219,6 +1219,240 @@
     };
   };
 
+  // Artifacts (ADR 0078): a Markdown pitch with two revisions and four threads, a screenshot and a build log.
+  const utf8Base64 = (text) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const sizeOf = (dataBase64) => atob(dataBase64).length;
+  const person = { kind: "person", workspace: null, name: null };
+  const workspaceActor = (workspace, name) => ({ kind: "agent", workspace, name });
+  const noSha = "0".repeat(64);
+  const loginErrorPng =
+    "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAYCAIAAADF1mwTAAAARUlEQVR4nO3PUQ0AIBDD0PODAtxjim9QcSkLbSZgr9Yc0Sv8gQD6gQD6QQvgvJoAum8AQRNATwC9fMAOTwCdADoBdPGAC5ipx5L47eDaAAAAAElFTkSuQmCC";
+  const pitchRev1 =
+    "# Pitch: cache sharing\n\nToday the cache is per clone. Each workspace fetches its own copy.\n\n## Design\n\nWe keep one lock per repo.\n";
+  const pitchRev2 =
+    "# Pitch: cache sharing\n\nToday the cache is shared across workspaces. Each clone reads from it.\n\n## Design\n\nWe keep one lock per repo and share the object store.\n\n## Risks\n\nStale entries after a force push.\n";
+  const buildLog = "fix-ci: run 1 failed\n  go test ./internal/artifact\n  FAIL internal/artifact 2.1s\n";
+
+  const anchorIn = (rev, text, quote, line, prefix, suffix, state = "anchored") => {
+    const start = text.indexOf(quote);
+    return { rev, start, end: start + quote.length, lineStart: line, lineEnd: line, quote, prefix, suffix, state };
+  };
+  const comment = (id, author, body, createdAt) => ({ id, author, body, createdAt });
+  const pitchAuthor = workspaceActor("pitch-ab12cd34", "pitch");
+
+  const threadCounts = (threads) => ({
+    open: threads.filter((t) => !t.resolved && t.anchor?.state !== "detached").length,
+    resolved: threads.filter((t) => t.resolved).length,
+    detached: threads.filter((t) => !t.resolved && t.anchor?.state === "detached").length,
+  });
+
+  const artifactStore = [
+    {
+      id: "art-00000001",
+      name: "pitch.md",
+      title: "Pitch: cache sharing",
+      kind: "markdown",
+      createdAt: "2026-11-23T18:00:00Z",
+      updatedAt: "2026-11-23T18:40:00Z",
+      createdBy: pitchAuthor,
+      revs: [
+        { contentType: "text/markdown; charset=utf-8", dataBase64: utf8Base64(pitchRev1), createdAt: "2026-11-23T18:00:00Z", createdBy: pitchAuthor, note: null },
+        { contentType: "text/markdown; charset=utf-8", dataBase64: utf8Base64(pitchRev2), createdAt: "2026-11-23T18:30:00Z", createdBy: pitchAuthor, note: "Per user; see §2" },
+      ],
+      threads: [
+        {
+          id: "t1",
+          anchor: anchorIn(2, pitchRev2, "the cache is shared", 3, "Today ", " across workspaces."),
+          resolved: false,
+          resolvedAt: null,
+          resolvedBy: null,
+          comments: [
+            comment("c1", person, "Shared how?", "2026-11-23T18:20:00Z"),
+            comment("c2", pitchAuthor, "Per user; see §2. Done in r2.", "2026-11-23T18:31:00Z"),
+          ],
+        },
+        {
+          id: "t2",
+          anchor: anchorIn(2, pitchRev2, "share the object store", 7, "We keep one lock per repo and ", "."),
+          resolved: false,
+          resolvedAt: null,
+          resolvedBy: null,
+          comments: [comment("c3", person, "Does the lock still apply?", "2026-11-23T18:35:00Z")],
+        },
+        {
+          id: "t3",
+          anchor: anchorIn(1, pitchRev1, "fetches its own copy", 3, "Each workspace ", ".", "detached"),
+          resolved: false,
+          resolvedAt: null,
+          resolvedBy: null,
+          comments: [comment("c4", person, "Is this still true?", "2026-11-23T18:22:00Z")],
+        },
+        {
+          id: "t4",
+          anchor: anchorIn(2, pitchRev2, "Stale entries after a force push", 11, "", "."),
+          resolved: true,
+          resolvedAt: "2026-11-23T18:40:00Z",
+          resolvedBy: person,
+          comments: [comment("c5", pitchAuthor, "Covered in §4.", "2026-11-23T18:38:00Z")],
+        },
+      ],
+    },
+    {
+      id: "art-00000002",
+      name: "login-error.png",
+      title: null,
+      kind: "image",
+      createdAt: "2026-11-23T17:50:00Z",
+      updatedAt: "2026-11-23T17:50:00Z",
+      createdBy: person,
+      revs: [{ contentType: "image/png", dataBase64: loginErrorPng, createdAt: "2026-11-23T17:50:00Z", createdBy: person, note: null }],
+      threads: [],
+    },
+    {
+      id: "art-00000003",
+      name: "build.log",
+      title: null,
+      kind: "text",
+      createdAt: "2026-11-23T16:10:00Z",
+      updatedAt: "2026-11-23T16:10:00Z",
+      createdBy: workspaceActor("fix-ci-77aa01bc", "fix-ci"),
+      revs: [{ contentType: "text/plain; charset=utf-8", dataBase64: utf8Base64(buildLog), createdAt: "2026-11-23T16:10:00Z", createdBy: workspaceActor("fix-ci-77aa01bc", "fix-ci"), note: null }],
+      threads: [],
+    },
+  ];
+  let nextArtifact = 4;
+  let nextThread = 5;
+  let nextComment = 6;
+
+  const findArtifact = (id) => {
+    const found = artifactStore.find((a) => a.id === id);
+    if (found === undefined) {
+      throw { code: "artifact_not_found", message: `no artifact ${id}` };
+    }
+    return found;
+  };
+  const latestRev = (a) => a.revs.length;
+  const revisionOf = (a, rev) => {
+    const found = a.revs[(rev ?? latestRev(a)) - 1];
+    if (found === undefined) {
+      throw { code: "artifact_not_found", message: `${a.id} has no revision ${rev}` };
+    }
+    return found;
+  };
+  const summaryOf = (a) => {
+    const latest = revisionOf(a, null);
+    return {
+      id: a.id,
+      reference: `@artifact:${a.id}`,
+      name: a.name,
+      title: a.title,
+      kind: a.kind,
+      contentType: latest.contentType,
+      latest: latestRev(a),
+      size: sizeOf(latest.dataBase64),
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+      createdBy: a.createdBy,
+      threads: threadCounts(a.threads),
+    };
+  };
+  const detailOf = (a) => ({
+    ...summaryOf(a),
+    revisions: a.revs.map((r, index) => ({
+      rev: index + 1,
+      contentType: r.contentType,
+      size: sizeOf(r.dataBase64),
+      sha256: noSha,
+      createdAt: r.createdAt,
+      createdBy: r.createdBy,
+      note: r.note,
+    })),
+  });
+  const kindOfName = (name) => {
+    const ext = name.split(".").pop().toLowerCase();
+    if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) {
+      return "image";
+    }
+    return ext === "md" || ext === "markdown" ? "markdown" : "text";
+  };
+  const contentTypeOf = (name) => {
+    const ext = name.split(".").pop().toLowerCase();
+    const types = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", md: "text/markdown; charset=utf-8", markdown: "text/markdown; charset=utf-8" };
+    return types[ext] ?? "text/plain; charset=utf-8";
+  };
+  const touch = (a) => {
+    a.updatedAt = new Date().toISOString();
+  };
+
+  const artifactHandlers = {
+    artifact_list: () => artifactStore.map(summaryOf),
+    artifact_show: ({ id }) => detailOf(findArtifact(id)),
+    artifact_read: ({ id, rev }) => {
+      const found = revisionOf(findArtifact(id), rev);
+      return { rev: artifactStore.find((a) => a.id === id).revs.indexOf(found) + 1, contentType: found.contentType, size: sizeOf(found.dataBase64), dataBase64: found.dataBase64 };
+    },
+    artifact_add: ({ name, title, dataBase64 }) => {
+      const now = new Date().toISOString();
+      const a = {
+        id: `art-${String(nextArtifact++).padStart(8, "0")}`,
+        name,
+        title: title ?? null,
+        kind: kindOfName(name),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: person,
+        revs: [{ contentType: contentTypeOf(name), dataBase64, createdAt: now, createdBy: person, note: null }],
+        threads: [],
+      };
+      artifactStore.push(a);
+      return detailOf(a);
+    },
+    artifact_remove: ({ id }) => {
+      artifactStore.splice(artifactStore.indexOf(findArtifact(id)), 1);
+      return null;
+    },
+    artifact_comments: ({ id }) => {
+      const a = findArtifact(id);
+      return { artifactId: a.id, latest: latestRev(a), threads: a.threads };
+    },
+    artifact_comment_add: ({ id, body, reply, anchor }) => {
+      const a = findArtifact(id);
+      const now = new Date().toISOString();
+      const author = person;
+      const entry = comment(`c${nextComment++}`, author, body, now);
+      touch(a);
+      if (reply !== null && reply !== undefined) {
+        const thread = a.threads.find((t) => t.id === reply);
+        thread.comments.push(entry);
+        return { thread, comment: entry };
+      }
+      const latest = revisionOf(a, null);
+      const thread = {
+        id: `t${nextThread++}`,
+        anchor:
+          anchor === null || anchor === undefined
+            ? null
+            : anchorIn(latestRev(a), atob(latest.dataBase64), anchor.quote, anchor.line, anchor.prefix, anchor.suffix),
+        resolved: false,
+        resolvedAt: null,
+        resolvedBy: null,
+        comments: [entry],
+      };
+      a.threads.push(thread);
+      return { thread, comment: entry };
+    },
+    artifact_comment_resolve: ({ id, thread, reopen }) => {
+      const a = findArtifact(id);
+      const found = a.threads.find((t) => t.id === thread);
+      touch(a);
+      found.resolved = !reopen;
+      found.resolvedAt = reopen ? null : new Date().toISOString();
+      found.resolvedBy = reopen ? null : person;
+      return found;
+    },
+  };
+  Object.assign(mock.handlers, artifactHandlers);
+
   Object.assign(mock.handlers, {
     list_entries: () => ({ entries: data.entries, warnings: [] }),
     runner_settings_get: () => data.runnerSettings,

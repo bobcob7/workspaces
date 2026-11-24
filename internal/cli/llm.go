@@ -127,6 +127,17 @@ func guideTopicsFromReview() []string {
 		"machine progress set",
 		"machine progress step",
 		"machine progress show",
+		"machine artifact",
+		"machine artifact add",
+		"machine artifact list",
+		"machine artifact show",
+		"machine artifact get",
+		"machine artifact put",
+		"machine artifact rm",
+		"machine artifact comment",
+		"machine artifact comment list",
+		"machine artifact comment add",
+		"machine artifact comment resolve",
 		"llm",
 	}
 }

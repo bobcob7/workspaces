@@ -107,8 +107,17 @@ const (
 	codeEnvironmentMismatch errorCode = "environment_mismatch" // exit 4
 	// From PR 4 (ADR 0074).
 	codeTerminalLimit errorCode = "terminal_limit" // exit 4
-	// From ADR 0078.
+	// From ADR 0080.
 	codeOperationLimited errorCode = "operation_limited" // exit 1
+	// ADR 0078: artifacts.
+	codeArtifactInvalid     errorCode = "artifact_invalid"     // exit 2
+	codeArtifactUnknown     errorCode = "artifact_unknown"     // exit 3
+	codeArtifactConflict    errorCode = "artifact_conflict"    // exit 4
+	codeArtifactFull        errorCode = "artifact_full"        // exit 4
+	codeArtifactForbidden   errorCode = "artifact_forbidden"   // exit 4
+	codeArtifactUnreachable errorCode = "artifact_unreachable" // exit 1
+	// ADR 0079: comment anchors.
+	codeAnchorNotFound errorCode = "anchor_not_found" // exit 3
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -154,20 +163,22 @@ func (c errorCode) exitCode() int {
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable,
 		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed,
-		codeEnvironmentOffline, codeEnvironmentOutdated, codeOperationLimited:
+		codeEnvironmentOffline, codeEnvironmentOutdated, codeOperationLimited, codeArtifactUnreachable:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
-		codeMemoryInvalid, codeProgressInvalid:
+		codeMemoryInvalid, codeProgressInvalid, codeArtifactInvalid:
 		return exitUsage
 	case codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound,
 		codeReviewNotFound, codePRNotFound, codeFindingNotFound, codeLoopNotFound, codeRoleUnknown,
-		codeMemoryNotFound, codeEndpointUnknown, codeModelNotServed, codeEnvironmentUnknown:
+		codeMemoryNotFound, codeEndpointUnknown, codeModelNotServed, codeEnvironmentUnknown, codeArtifactUnknown,
+		codeAnchorNotFound:
 		return exitNotFound
 	case codeWorkspaceExists, codeShellRunning, codeWorkspaceBusy, codeSessionMismatch,
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
 		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
-		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch, codeTerminalLimit:
+		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch, codeTerminalLimit,
+		codeArtifactConflict, codeArtifactFull, codeArtifactForbidden:
 		return exitRefused
 	}
 	return exitFailed
@@ -191,7 +202,9 @@ func (c errorCode) known() bool {
 		codeDaemonRunning, codeEndpointUnknown, codeEndpointUnreachable, codeModelNotServed,
 		codeModelWithoutTools, codeRunnerFailed, codeEnvironmentUnknown, codeEnvironmentExists,
 		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
-		codeEnvironmentOutdated, codeEnvironmentMismatch, codeTerminalLimit, codeProgressInvalid, codeOperationLimited:
+		codeEnvironmentOutdated, codeEnvironmentMismatch, codeTerminalLimit, codeProgressInvalid, codeOperationLimited,
+		codeArtifactInvalid, codeArtifactUnknown, codeArtifactConflict, codeArtifactFull, codeArtifactForbidden,
+		codeArtifactUnreachable, codeAnchorNotFound:
 		return true
 	}
 	return false

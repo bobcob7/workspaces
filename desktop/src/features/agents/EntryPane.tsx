@@ -40,6 +40,7 @@ import { entryActions } from "./remote";
 import { RootProgress } from "./RootProgress";
 import { isLive } from "./status";
 import { RunCard } from "./RunCard";
+import { readDetailsExpanded, writeDetailsExpanded } from "./detailsPreference";
 import { isRunnerRunning, modelTooltip, stepLabel, tokensLine } from "./runner";
 import { StatusDot } from "./StatusDot";
 import styles from "./EntryPane.module.css";
@@ -175,6 +176,15 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [openAnchor, setOpenAnchor] = useState<HTMLElement | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [expanded, setExpanded] = useState(readDetailsExpanded);
+  const toggleExpanded = (): void => {
+    const next = !expanded;
+    setExpanded(next);
+    writeDetailsExpanded(next);
+  };
+  // A phone keeps its own Details toggle and always shows the progress and child cards.
+  const detailsShown = phone ? detailsOpen : expanded;
+  const cardsShown = phone || expanded;
   const [confirming, setConfirming] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [opening, setOpening] = useState<OpenWith | null>(null);
@@ -323,6 +333,17 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
     <section className={styles.root} aria-label={entry.name}>
       <header className={`${styles.header} ${phone ? styles.compact : ""}`}>
         <div className={styles.titleRow}>
+          {!phone && (
+            <IconButton
+              size="small"
+              aria-label={expanded ? "Collapse details" : "Expand details"}
+              title={expanded ? "Collapse details" : "Expand details"}
+              aria-expanded={expanded}
+              onClick={toggleExpanded}
+            >
+              <span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
+            </IconButton>
+          )}
           <h1 className={styles.title}>{entry.name}</h1>
           {entry.model !== null && (
             <span className={styles.titleModel} title={modelTooltip(entry)}>
@@ -471,102 +492,112 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             </>
           )}
         </div>
-        <div className={phone && !detailsOpen ? styles.collapsed : undefined}>
-        {phone && entry.stale === true && (
-          <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
-        )}
-        <div className={styles.meta}>
-          {remote ? (
-            <span className={styles.mono} title={actions.openFolder.reason}>
-              {entry.path}
-            </span>
-          ) : (
-            <button
-              type="button"
-              className={styles.path}
-              title="Open in the file manager"
-              onClick={() => void dispatch(openWorkspace({ entry, with: "fileManager" }))}
-            >
-              {entry.path}
-            </button>
-          )}
-          {remote && parent !== undefined && <span className={styles.note}>Runs on {entry.environment}, like its parent</span>}
-          {entry.sessionId !== null && <span className={styles.mono}>session {entry.sessionId}</span>}
-          {run?.endpoint && <span className={styles.mono}>endpoint {run.endpoint}</span>}
-          {stepText !== null && <Chip size="small" variant="outlined" label={stepText} />}
-          {usageText !== null && <Chip size="small" variant="outlined" label={usageText} />}
-          {entry.repos.map((r) => (
-            <Chip key={r.path} size="small" label={repoLabel(r.id, r.ref)} title={r.id} />
-          ))}
-          {parent !== undefined && (
-            <Chip
-              size="small"
-              variant="outlined"
-              clickable
-              label={`↳ ${parent.name}`}
-              title="Started from this workspace, and removed with it"
-              onClick={() => dispatch(selected(parent.key))}
-            />
-          )}
-          {loopRun !== null && loopRun.attention !== null && (
-            <Chip
-              size="small"
-              color="warning"
-              label={attentionLabel(loopRun.attention)}
-              title={`A run of loop ${loopRun.loop}; shown until it's resolved`}
-            />
-          )}
-          {loopRun !== null && <Chip size="small" variant="outlined" label={`Loop ${loopRun.loop}`} />}
-          {entry.hidden && (
-            <Chip
-              size="small"
-              icon={<EyeOffIcon />}
-              label="Hidden"
-              title="Left out of the Agents list's groups and the waiting count; Unhide shows it"
-            />
-          )}
-          {reviewing !== undefined && (
-            <Chip
-              size="small"
-              color="primary"
-              variant="outlined"
-              clickable
-              label={`Reviewing ${ownerRepo(reviewing.repo)}#${reviewing.number}`}
-              onClick={() => {
-                dispatch(reviewSelected(reviewing.key));
-                dispatch(sectionChosen("reviews"));
-              }}
-            />
-          )}
-        </div>
-        {entry.detail !== null && <p className={styles.detail}>{entry.detail}</p>}
-        {entry.intent !== null && (
-          <details className={styles.intent}>
-            <summary>Task</summary>
-            <p>{entry.intent}</p>
-          </details>
-        )}
-        {entry.result !== null && <p className={styles.result}>{entry.result}</p>}
-        {entry.links.length > 0 && (
-          <div className={styles.links}>
-            {entry.links.map((link) => (
-              <Chip
-                key={link.href}
-                size="small"
-                color="primary"
-                variant="outlined"
-                clickable
-                label={link.href.replace(/^https:\/\/github\.com\//, "")}
-                onClick={() => void api.openExternal(link.href)}
-              />
-            ))}
-          </div>
-        )}
-        </div>
       </header>
-      <RootProgress entry={entry} />
-      <ChildrenCard entry={entry} />
-      {run !== null && <RunCard entry={entry} run={run} />}
+      {(detailsShown || cardsShown) && (
+        <div className={styles.details}>
+          {detailsShown && (
+            <div className={styles.facts}>
+              {phone && entry.stale === true && (
+                <Chip size="small" variant="outlined" label="old environment" title="Started before the background service; ws restart gives it the new environment" />
+              )}
+              <div className={styles.meta}>
+                {remote ? (
+                  <span className={styles.mono} title={actions.openFolder.reason}>
+                    {entry.path}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.path}
+                    title="Open in the file manager"
+                    onClick={() => void dispatch(openWorkspace({ entry, with: "fileManager" }))}
+                  >
+                    {entry.path}
+                  </button>
+                )}
+                {remote && parent !== undefined && <span className={styles.note}>Runs on {entry.environment}, like its parent</span>}
+                {entry.sessionId !== null && <span className={styles.mono}>session {entry.sessionId}</span>}
+                {run?.endpoint && <span className={styles.mono}>endpoint {run.endpoint}</span>}
+                {stepText !== null && <Chip size="small" variant="outlined" label={stepText} />}
+                {usageText !== null && <Chip size="small" variant="outlined" label={usageText} />}
+                {entry.repos.map((r) => (
+                  <Chip key={r.path} size="small" label={repoLabel(r.id, r.ref)} title={r.id} />
+                ))}
+                {parent !== undefined && (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    clickable
+                    label={`↳ ${parent.name}`}
+                    title="Started from this workspace, and removed with it"
+                    onClick={() => dispatch(selected(parent.key))}
+                  />
+                )}
+                {loopRun !== null && loopRun.attention !== null && (
+                  <Chip
+                    size="small"
+                    color="warning"
+                    label={attentionLabel(loopRun.attention)}
+                    title={`A run of loop ${loopRun.loop}; shown until it's resolved`}
+                  />
+                )}
+                {loopRun !== null && <Chip size="small" variant="outlined" label={`Loop ${loopRun.loop}`} />}
+                {entry.hidden && (
+                  <Chip
+                    size="small"
+                    icon={<EyeOffIcon />}
+                    label="Hidden"
+                    title="Left out of the Agents list's groups and the waiting count; Unhide shows it"
+                  />
+                )}
+                {reviewing !== undefined && (
+                  <Chip
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                    clickable
+                    label={`Reviewing ${ownerRepo(reviewing.repo)}#${reviewing.number}`}
+                    onClick={() => {
+                      dispatch(reviewSelected(reviewing.key));
+                      dispatch(sectionChosen("reviews"));
+                    }}
+                  />
+                )}
+              </div>
+              {entry.detail !== null && <p className={styles.detail}>{entry.detail}</p>}
+              {entry.intent !== null && (
+                <details className={styles.intent}>
+                  <summary>Task</summary>
+                  <p>{entry.intent}</p>
+                </details>
+              )}
+              {entry.result !== null && <p className={styles.result}>{entry.result}</p>}
+              {entry.links.length > 0 && (
+                <div className={styles.links}>
+                  {entry.links.map((link) => (
+                    <Chip
+                      key={link.href}
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                      clickable
+                      label={link.href.replace(/^https:\/\/github\.com\//, "")}
+                      onClick={() => void api.openExternal(link.href)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {cardsShown && (
+            <>
+              <RootProgress entry={entry} />
+              <ChildrenCard entry={entry} />
+              {run !== null && <RunCard entry={entry} run={run} />}
+            </>
+          )}
+        </div>
+      )}
       {remote && isAgent && !isRunner && <p className={styles.note}>{actions.conversation.reason}</p>}
       {shellShown && dirTerminal !== undefined ? (
         <TerminalView terminalKey={dirTerminal.key} generation={dirTerminal.generation} />

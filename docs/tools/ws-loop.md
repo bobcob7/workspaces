@@ -297,7 +297,7 @@ Exits 0 when nothing was due.
 | Option | Description |
 | ------ | ----------- |
 | `--dry-run` | Report what would start; start, write, and remove nothing, and run no script. A due loop with a script is `would_start` |
-| `--max-starts <N>` | Start at most N loops in one pass, 1 to 100; the others stay `waiting` with `next_run_at` unchanged. 0, the default, is no cap. The environment agent uses 2 ([0078](../adrs/0078-reviews-and-loops-on-environments.md)) |
+| `--max-starts <N>` | Start at most N loops in one pass, 1 to 100; the others stay `waiting` with `next_run_at` unchanged. 0, the default, is no cap. The environment agent uses 2 ([0080](../adrs/0080-reviews-and-loops-on-environments.md)) |
 | `--watch` | Run a pass every minute until interrupted, printing only what started or failed. Text only: `--json` with `--watch` is a usage error |
 
 ### ws loop history

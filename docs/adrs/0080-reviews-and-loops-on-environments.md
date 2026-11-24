@@ -1,4 +1,4 @@
-# 0078. Reviews and loops run on the environment that owns them
+# 0080. Reviews and loops run on the environment that owns them
 
 - Status: Accepted (2026-11-23)
 - Date: 2026-11-23

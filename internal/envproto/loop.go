@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 )
 
-// Operation names of ADR 0078's loop rows.
+// Operation names of ADR 0080's loop rows.
 const (
 	OpLoopList         = "loop.list"
 	OpLoopShow         = "loop.show"
@@ -33,7 +33,7 @@ const (
 	OpLoopMemoryClear  = "loop.memory_clear"
 )
 
-// Bounds of loop arguments, results and snapshots (ADR 0078).
+// Bounds of loop arguments, results and snapshots (ADR 0080).
 const (
 	MaxScriptBytes   = 16 << 10
 	MaxVars          = 32
@@ -49,7 +49,7 @@ const (
 )
 
 // CodeOperationLimited is the error code of a request the agent refused for
-// its rate limit (ADR 0078).
+// its rate limit (ADR 0080).
 const CodeOperationLimited = "operation_limited"
 
 const (
@@ -130,7 +130,7 @@ type LoopMemorySetArgs struct {
 	ExpectRev *int   `json:"expect_rev"` // >= 0
 }
 
-// SnapshotLoop is one loop in the snapshot (ADR 0078): no prompt, script or vars.
+// SnapshotLoop is one loop in the snapshot (ADR 0080): no prompt, script or vars.
 type SnapshotLoop struct {
 	Name      string          `json:"name"`
 	Title     string          `json:"title"`
@@ -448,7 +448,7 @@ func (spec *LoopSpec) changes() bool {
 		spec.Vars != nil || spec.Hidden != nil
 }
 
-// NeedsConfirm reports whether op with args needs Confirm (ADR 0078):
+// NeedsConfirm reports whether op with args needs Confirm (ADR 0080):
 // loop.rm, loop.history_clear and loop.memory_clear always; loop.add and
 // loop.edit when Script is non-nil and non-empty, or PermissionMode is
 // PermissionBypass.

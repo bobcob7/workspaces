@@ -54,7 +54,7 @@ The RL tasks build on T-tasks of tasks-ui.md. Line numbers below are from
 
 | Where | What is pinned | Breaks when |
 | --- | --- | --- |
-| `errors.go` `const` block | codes under ADR comments | `codeOperationLimited` goes under `// From ADR 0078.` |
+| `errors.go` `const` block | codes under ADR comments | `codeOperationLimited` goes under `// From ADR 0080.` |
 | `exitCode()` (`exhaustive`) | | `operation_limited` must be in the exit-1 case |
 | `known()` | | must be listed, or a remote `operation_limited` prints as `internal` |
 | `errors_test.go` `TestErrorCode_exitCode` | | exit 1 sample |
@@ -107,7 +107,7 @@ The RL tasks build on T-tasks of tasks-ui.md. Line numbers below are from
 
 | File | What to add |
 | --- | --- |
-| `docs/adrs/README.md` | row 0078 |
+| `docs/adrs/README.md` | row 0080 |
 | `docs/adrs/0073`, `0072`, `0076`, `0016`, `0048`, `0060` | R7's amendments |
 | `docs/tools/ws-env.md` | Reviews and Loops on an environment; protocol 3 |
 | `docs/tools/ws-review.md`, `ws-loop.md` | `--env`, `--cached`, `--yes`, `--max-starts` |

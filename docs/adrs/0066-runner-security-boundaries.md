@@ -66,7 +66,8 @@ does it honestly not protect?
    workspace, and anything under `.git/`. `run`'s working directory is the
    session directory.
 3. **Commands.** The deny-list from 0065 (other `ws` commands than
-   `ws machine result` and `ws machine progress`, `claude`,
+   `ws machine result`, `ws machine progress` and `ws machine artifact`
+   (allowed by [0078](0078-artifacts.md)), `claude`,
    `sudo`, force pushes outside `BRANCH`, pushes to `main` or `master`) is
    matched on the parsed command words. It catches model mistakes; it
    can't stop a determined `sh -c "$(echo … | base64 -d)"`.

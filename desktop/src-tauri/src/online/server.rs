@@ -17,7 +17,7 @@ use crate::runner::{AppError, Runner};
 use crate::tray::watcher::{wanted, Watcher, WATCH_INTERVAL};
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{ConnectInfo, Path, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Request, State};
 use axum::http::header::{self, HeaderValue};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::{from_fn, from_fn_with_state, Next};
@@ -129,6 +129,7 @@ pub struct Notifier {
     hub: Arc<Hub>,
     runner: Runner,
     jobs_dir: Option<PathBuf>,
+    pr_links: Arc<crate::pr_links::PrLinks>,
 }
 
 impl Notifier {
@@ -156,7 +157,7 @@ impl Notifier {
             if !self.watcher.is_stale(commands::now_ms()) {
                 continue;
             }
-            match commands::list(&self.runner, self.jobs_dir.as_deref()).await {
+            match commands::list(&self.runner, self.jobs_dir.as_deref(), &self.pr_links).await {
                 Ok(listing) => self.observe(&listing.entries),
                 Err(e) => eprintln!("notify: listing failed: {}: {}", e.code, e.message),
             }
@@ -189,7 +190,10 @@ pub fn router(online: Arc<Online>) -> Router {
         .route("/api/login", post(login));
     let protected = Router::new()
         .route("/api/logout", post(logout))
-        .route("/api/invoke/{command}", post(invoke))
+        .route(
+            "/api/invoke/{command}",
+            post(invoke).layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
         .route("/api/ws", get(ws_upgrade))
         .route("/api/reports/{file}", get(report_file))
         .route("/api/push/vapid", get(vapid))
@@ -221,6 +225,9 @@ pub fn build(config: Config) -> Result<Arc<Online>, String> {
         runner: Runner::new(crate::env::fallback_path()),
         terminals: Terminals::default(),
         jobs_dir: crate::jobs::jobs_dir(),
+        pr_links: Arc::new(crate::pr_links::PrLinks::open(Some(
+            data_dir.join(crate::pr_links::FILE_NAME),
+        ))),
         store: Arc::clone(&store),
         reviews: Arc::new(Checker::default()),
         reports: report::Cache::default(),
@@ -239,6 +246,7 @@ pub fn build(config: Config) -> Result<Arc<Online>, String> {
         hub: Arc::new(Hub::default()),
         runner: state.runner.clone(),
         jobs_dir: state.jobs_dir.clone(),
+        pr_links: state.pr_links.clone(),
     });
     let credentials = Credentials::new(config.username.clone(), config.password.clone());
     let sessions = Sessions::load(
@@ -272,6 +280,7 @@ fn start_background(online: &Arc<Online>) {
         runner: state.runner.clone(),
         store: state.store.clone(),
         jobs_dir: state.jobs_dir.clone(),
+        pr_links: state.pr_links.clone(),
         http: Arc::new(crate::reviews::http::ReqwestHttp::new()),
     };
     tokio::spawn(state.reviews.clone().run(deps));
@@ -927,6 +936,38 @@ mod tests {
             .unwrap();
         assert_eq!(limited.status(), 429);
         assert!(limited.headers().contains_key("retry-after"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn invoke_accepts_bodies_up_to_16_mib() {
+        let test = Test::start().await;
+        let cookie = test.login().await;
+        let body = format!(r#"{{"pad":"{}"}}"#, "x".repeat(3 << 20));
+        let response = test
+            .post("/api/invoke/rename_workspace", &body)
+            .header("Cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            400,
+            "a known command whose args are missing proves the body was read and parsed"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn invoke_refuses_a_body_over_16_mib() {
+        let test = Test::start().await;
+        let cookie = test.login().await;
+        let body = "x".repeat((16 << 20) + 1);
+        let response = test
+            .post("/api/invoke/rename_workspace", &body)
+            .header("Cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 413);
     }
 
     #[tokio::test(flavor = "multi_thread")]

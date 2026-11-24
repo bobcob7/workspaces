@@ -65,4 +65,19 @@ describe("ReplyBox", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("adds the artifact hint line to a message that refers to an artifact", async () => {
+    const terminals = fakeHost();
+    renderWithStore(<ReplyBox terminalKey="attach:a" disabled={false} />, testStore({ terminals }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "see @artifact:art-1a2b3c4d{Enter}");
+    await vi.waitFor(() =>
+      expect(terminals.send).toHaveBeenCalledWith("attach:a", expect.stringContaining('run "ws machine artifact get <id>"')),
+    );
+  });
+
+  it("offers Attach under the box", () => {
+    renderWithStore(<ReplyBox terminalKey="attach:a" disabled={false} />, testStore());
+
+    expect(screen.getByRole("button", { name: "Attach" })).toBeInTheDocument();
+  });
 });

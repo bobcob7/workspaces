@@ -19,7 +19,7 @@ tasks-ui.md, whose T-tasks are referred to here by id.
 - token redaction in results;
 - the desktop's and Workspace Online's Reviews and Loops screens per
   environment;
-- one new ADR, 0078;
+- one new ADR, 0080;
 - the docs.
 
 **Not in this part:**
@@ -49,7 +49,7 @@ PR 4 not started).
 ## Decisions this design adds to the ADRs
 
 Each decision is marked **Owner review**: the owner should confirm or change
-it before RL1 starts. RL16 writes the accepted ones into ADR 0078 and the
+it before RL1 starts. RL16 writes the accepted ones into ADR 0080 and the
 amendments.
 
 ### R1. A review "works remotely" when it runs entirely on the remote; the controller keeps the forge side. **Owner review.**
@@ -267,7 +267,7 @@ dispatches them all.
   permission mode allows.
 - Both are **the same trust as starting a Claude agent on that machine**,
   which `workspace.create` already allows from the controller. The design
-  says so plainly in ADR 0078 and `ws-env.md`: "anyone who can use this
+  says so plainly in ADR 0080 and `ws-env.md`: "anyone who can use this
   controller can run code as <user> on every enrolled machine".
 - Decision:
   - Both **can** be written from the desktop and the browser (Workspace
@@ -403,7 +403,7 @@ that a model or a person printed. New package `internal/redact` (RL3):
 - Why on the agent: the secret never leaves the machine. Exact values catch
   the agent's own tokens, and patterns catch the common forges' and
   Anthropic's.
-- The miss: a secret in an unknown format. ADR 0078 records this.
+- The miss: a secret in an unknown format. ADR 0080 records this.
 
 ### R4. Offline and staleness in the Reviews and Loops screens; choosing the environment. **Owner review.**
 
@@ -522,16 +522,16 @@ the agent guard on `--env` below.**
 - The agent's own tick (R2) isn't an operation and needs no protocol. A
   protocol-3 agent ticks whatever controller it talks to.
 
-### R7. One new ADR, 0078, for both; amendments to 0072, 0073, 0076, 0016, 0048. **Owner review.**
+### R7. One new ADR, 0080, for both; amendments to 0072, 0073, 0076, 0016, 0048. **Owner review.**
 
-**Recommendation: one ADR, 0078 "Reviews and loops run on the environment
+**Recommendation: one ADR, 0080 "Reviews and loops run on the environment
 that owns them".**
 
 - ADR 0073's table says "`cache.*`, `review.*`, `loop.*`: later, one ADR
   each". This design proposes **one** ADR for both, because they share the
   security stance, redaction, confirm flags, rates and protocol number.
   Two ADRs would repeat R3.
-- If the owner prefers two, RL16 splits it into 0078 (reviews: R1, R3's
+- If the owner prefers two, RL16 splits it into 0080 (reviews: R1, R3's
   review rows) and 0079 (loops: R2, R3's loop rows).
 - The number is the next free one at merge; 0077 is the latest on
   `feat/env-ui`.
@@ -539,12 +539,12 @@ that owns them".**
 
 | ADR | Change |
 | --- | --- |
-| 0073, operations table | Replace "`cache.*`, `review.*`, `loop.*` \| later, one ADR each" with a `review.*` row and a `loop.*` row (R1, R2), link 0078; keep `cache.*` later. Add "results of `review.*` and `loop.*` are redacted (0078)". |
+| 0073, operations table | Replace "`cache.*`, `review.*`, `loop.*` \| later, one ADR each" with a `review.*` row and a `loop.*` row (R1, R2), link 0080; keep `cache.*` later. Add "results of `review.*` and `loop.*` are redacted (0080)". |
 | 0072, Decision › Choosing it | "`ws review …`, `ws loop …` take `--env` (people and the desktop; refused for agents inside a workspace)". Amendments: R5's guard. |
-| 0076, stack table row 4 | Add "reviews and loops on environments (`review.*`, `loop.*`, the agent's tick, protocol 3, ADR 0078)". |
-| 0016, Status | Add `operation_limited` (PR 4, ADR 0078). |
-| 0048, decision 7 "Who runs tick" | Add: "On an environment, its agent runs the tick every 60 s while connected, with `--max-starts 2` (0078)". Decision 4 gains `--max-starts`. |
-| 0060, Starting a review | Add: "on the repo's environment (0078)". |
+| 0076, stack table row 4 | Add "reviews and loops on environments (`review.*`, `loop.*`, the agent's tick, protocol 3, ADR 0080)". |
+| 0016, Status | Add `operation_limited` (PR 4, ADR 0080). |
+| 0048, decision 7 "Who runs tick" | Add: "On an environment, its agent runs the tick every 60 s while connected, with `--max-starts 2` (0080)". Decision 4 gains `--max-starts`. |
+| 0060, Starting a review | Add: "on the repo's environment (0080)". |
 
 ## Order
 
@@ -621,7 +621,7 @@ Edges:
 | RL13 Frontend: types and slices for reviews and loops per environment | desktop frontend | RL11, RL12, T14 | RL10 | | |
 | RL14 Reviews screen: environment, badges, offline | desktop frontend | RL13, T16, T17 | RL15 | | |
 | RL15 Loops screen: groups, environment field, script confirmation | desktop frontend | RL13, T16 | RL14 | | |
-| RL16 ADR 0078, amendments, docs | docs | RL10, RL14, RL15, T18 | – | | |
+| RL16 ADR 0080, amendments, docs | docs | RL10, RL14, RL15, T18 | – | | |
 
 **Heavy children** (full `internal/cli` tests, `cargo test`, vitest): RL7,
 RL8, RL9, RL10, RL11-RL15. Run at most one at a time on an 8 GB pod, as
@@ -648,7 +648,7 @@ Change:
   seven ops);
 - `ops_test.go`;
 - `payloads.go`: `Protocol = 3`, and `const ProtocolReviewsLoops = 3`
-  documented as "the protocol `review.*` and `loop.*` need (ADR 0078)";
+  documented as "the protocol `review.*` and `loop.*` need (ADR 0080)";
 - `payloads_test.go`: the `"protocol":2` literals T2 set become
   `envproto.Protocol`.
 
@@ -657,7 +657,7 @@ Change:
 ### `review.go`
 
 ```go
-// Operation names of ADR 0078's review rows.
+// Operation names of ADR 0080's review rows.
 const (
 	OpReviewStart    = "review.start"
 	OpReviewStatus   = "review.status"
@@ -668,7 +668,7 @@ const (
 	OpReviewProfiles = "review.profiles"
 )
 
-// Bounds of review and loop results and arguments (ADR 0078).
+// Bounds of review and loop results and arguments (ADR 0080).
 const (
 	MaxPageBytes     = 192 << 10 // a paged result's JSON
 	MaxFindings      = 200       // finding ids in one decide or acted
@@ -979,7 +979,7 @@ type LoopMemorySetArgs struct {
 	ExpectRev *int   `json:"expect_rev"` // >= 0
 }
 
-// SnapshotLoop is one loop in the snapshot (ADR 0078): no prompt, script or vars.
+// SnapshotLoop is one loop in the snapshot (ADR 0080): no prompt, script or vars.
 type SnapshotLoop struct {
 	Name      string          `json:"name"`
 	Title     string          `json:"title"`
@@ -992,7 +992,7 @@ type SnapshotLoop struct {
 	LastGate  json.RawMessage `json:"last_gate"` // ws loop list's last_gate, or null
 }
 
-// NeedsConfirm reports whether op with args needs Confirm (ADR 0078):
+// NeedsConfirm reports whether op with args needs Confirm (ADR 0080):
 // loop.rm, loop.history_clear and loop.memory_clear always; loop.add and
 // loop.edit when Script is non-nil and non-empty, or PermissionMode is
 // PermissionBypass.
@@ -1074,7 +1074,7 @@ Standard library only. `internal/agent/tools/redact.go` stays as it is. It
 is the runner's tool output redactor; merging the two is a follow-up.
 
 ```go
-// Package redact removes secrets from text an environment agent returns (ADR 0078).
+// Package redact removes secrets from text an environment agent returns (ADR 0080).
 package redact
 
 // Marker replaces each secret.
@@ -1169,7 +1169,7 @@ the same way.
 
 ```go
 // agentLoops ticks the agent's loops in a fresh App, as the desktop's
-// tick_forever does (ADR 0078).
+// tick_forever does (ADR 0080).
 type agentLoops struct{ newApp func(stdout, stderr io.Writer) *App; root string }
 
 // Tick runs ws --json --config-dir <root> loop tick --quiet --max-starts 2 and
@@ -1254,7 +1254,7 @@ func (a *Agent) SetLoopTicker(t loopTicker)
 // it after the hello and cancels it when the connection ends.
 func (a *Agent) tickLoops(ctx context.Context)
 
-// limiter holds ADR 0078's token buckets.
+// limiter holds ADR 0080's token buckets.
 type limiter struct { /* mu; buckets by key; now func() time.Time */ }
 
 // allow reports whether op with args may run now, and if not, how long until it may.
@@ -1580,7 +1580,7 @@ Change:
   `review_profiles.go` (the bare list only): an `--env <name>` flag on
   each;
 - `errors.go`: `codeOperationLimited errorCode = "operation_limited"` under
-  `// From ADR 0078.`, in `exitCode()`'s exit-1 case and in `known()`;
+  `// From ADR 0080.`, in `exitCode()`'s exit-1 case and in `known()`;
 - `errors_test.go`;
 - guides: `ws-review-start.md`, `ws-review-wait.md`, `ws-review-report.md`,
   `ws-review-list.md`, `ws-review-decide.md`, `ws-review-acted.md`,
@@ -2153,7 +2153,7 @@ cd desktop && npm test -- --maxWorkers=2 --testTimeout=60000
 
 ---
 
-## RL16. ADR 0078, amendments, docs
+## RL16. ADR 0080, amendments, docs
 
 - **Depends on:** RL10, RL14, RL15, T18 (the same ADRs and docs; this task
   edits after it). Also the screenshots below, which the orchestrator's
@@ -2162,7 +2162,7 @@ cd desktop && npm test -- --maxWorkers=2 --testTimeout=60000
 
 ### Files
 
-Create `docs/adrs/0078-reviews-and-loops-on-environments.md` (the template
+Create `docs/adrs/0080-reviews-and-loops-on-environments.md` (the template
 in `docs/adrs/template.md`). It holds R1-R6 as accepted, with the redaction
 rule's known miss and the trust statement of R2.
 
@@ -2170,7 +2170,7 @@ Change:
 
 | File | Change |
 | --- | --- |
-| `docs/adrs/README.md` | the 0078 row |
+| `docs/adrs/README.md` | the 0080 row |
 | `0073-environment-agent-is-ws.md` | the operations table rows and allow-list sentence (R7) |
 | `0072-remote-environments.md` | Choosing it, the agent guard |
 | `0076-environment-platforms-and-phasing.md` | stack row 4 |
@@ -2223,7 +2223,7 @@ Layout checks to report by name:
 ```
 go test -p 2 -count=1 -run 'TestGuideTopics' ./internal/cli/
 make lint
-grep -n "review\.\*\|loop\.\*\|0078" docs/adrs/0073-environment-agent-is-ws.md docs/adrs/0076-environment-platforms-and-phasing.md
+grep -n "review\.\*\|loop\.\*\|0080" docs/adrs/0073-environment-agent-is-ws.md docs/adrs/0076-environment-platforms-and-phasing.md
 grep -n "operation_limited" docs/adrs/0016-output-contract.md internal/cli/guides/ws.md
 grep -rn "reviews-start-environment.png\|loops-environments.png\|loop-confirm-script.png" desktop/README.md docs/online.md
 ls desktop/docs/reviews-start-environment.png desktop/docs/reviews-remote-runs.png desktop/docs/reviews-remote-report.png desktop/docs/loops-environments.png desktop/docs/loop-new-environment.png desktop/docs/loop-confirm-script.png desktop/docs/loops-environments-mobile.png

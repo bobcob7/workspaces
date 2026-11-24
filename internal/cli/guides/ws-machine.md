@@ -10,6 +10,7 @@ ws machine rm [--dry-run] [--keep-children] (<workspace>... | --all)
 ws machine roles [show | add | edit | rm] …
 ws machine memory [list | get | set | rm] …
 ws machine progress [set | step | show] …
+ws machine artifact [add | list | show | get | put | rm] …
 ```
 
 Commands for agents: start, wait for, list, and remove the workspaces your
@@ -49,6 +50,10 @@ changes nothing. Errors are one JSON line on stderr.
   long or orchestrated run: `set --name <short name> --total <n>` once you know
   the plan, then `step` as each step finishes. A person watches it as a progress
   bar, and children's progress nests under yours.
+- `ws machine artifact` to share a file with a person, such as a design
+  document, and to read a screenshot or log a person uploaded: `get` copies it
+  into your workspace and prints its path; `add` and `put` store your file for
+  them to read and comment on.
 - `ws machine children` to find your helpers and reviews, and check on
   their sessions and results.
 - `ws machine logs` to see what a child did and why it stopped, once

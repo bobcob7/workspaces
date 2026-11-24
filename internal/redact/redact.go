@@ -1,6 +1,6 @@
-// Package redact removes secrets from text an environment agent returns (ADR 0078).
+// Package redact removes secrets from text an environment agent returns (ADR 0080).
 //
-// Findings for ADR 0078. Redaction is best-effort. It catches literal exact
+// Findings for ADR 0080. Redaction is best-effort. It catches literal exact
 // values of at least 8 bytes and eight token formats: gh[pousr]_, github_pat_,
 // sk-ant-, glpat-, xox[abprs]-, AKIA, PEM private keys, and Authorization
 // bearer or token headers. It does NOT catch encoded, split or unknown-format

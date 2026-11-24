@@ -1,0 +1,35 @@
+.toggle {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.toggle:hover {
+  color: var(--text);
+  background: var(--selected);
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 720px) {
+  .toggle {
+    display: none;
+  }
+}

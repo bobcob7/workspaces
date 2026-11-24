@@ -167,6 +167,79 @@ describe("EntryPane", () => {
   });
 });
 
+describe("EntryPane details", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("starts expanded, with the path shown", () => {
+    renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+    expect(screen.getByRole("button", { name: "Collapse details" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: shellWorkspace.path })).toBeInTheDocument();
+  });
+
+  it("collapses to the title row, hiding the path and the details", async () => {
+    renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+    await userEvent.click(screen.getByRole("button", { name: "Collapse details" }));
+    const toggle = screen.getByRole("button", { name: "Expand details" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: shellWorkspace.path })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "This is a Test" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rename" })).toBeInTheDocument();
+  });
+
+  it("expands again from the title row", async () => {
+    renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+    await userEvent.click(screen.getByRole("button", { name: "Collapse details" }));
+    await userEvent.click(screen.getByRole("button", { name: "Expand details" }));
+    expect(screen.getByRole("button", { name: "Collapse details" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: shellWorkspace.path })).toBeInTheDocument();
+  });
+
+  it("remembers a collapsed choice for the next pane", async () => {
+    const first = renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+    await userEvent.click(screen.getByRole("button", { name: "Collapse details" }));
+    first.unmount();
+    renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+    expect(screen.getByRole("button", { name: "Expand details" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: shellWorkspace.path })).not.toBeInTheDocument();
+  });
+
+  it("hides the children card while collapsed and shows it again when expanded", async () => {
+    const root = entry({ key: "root", workspaceId: "root", name: "fix-login", path: "/w/root", status: "working" });
+    const child = entry({ key: "c", workspaceId: "c", name: "login-tests", parentId: "root", status: "working" });
+    const store = testStore();
+    store.dispatch(fetchEntries.fulfilled({ entries: [root, child], warnings: [] }, "req"));
+    renderWithStore(<EntryPane entry={root} />, store);
+    expect(screen.getByRole("region", { name: "Started from this workspace" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Collapse details" }));
+    expect(screen.queryByRole("region", { name: "Started from this workspace" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Expand details" }));
+    expect(screen.getByRole("region", { name: "Started from this workspace" })).toBeInTheDocument();
+  });
+
+  it("offers no desktop toggle on a phone, which keeps its Details button", () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    try {
+      renderWithStore(<EntryPane entry={shellWorkspace} />, testStore());
+      expect(screen.queryByRole("button", { name: "Collapse details" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+});
+
 describe("EntryPane opening a workspace", () => {
   const oneRepo = entry({
     key: "fix-login",

@@ -25,6 +25,15 @@ ws machine memory rm [--expect-rev <N>] <KEY>
 ws machine progress set [--name <name>] [--total <n>] [--done <n>] [--note <text>]
 ws machine progress step [--by <n>] [--note <text>]
 ws machine progress show
+ws machine artifact add <PATH|-> [--name <name>] [--title <text>] [--note <text>]
+ws machine artifact list [--kind image|markdown|text] [--mine] [--limit <n>]
+ws machine artifact show <ID>
+ws machine artifact get <ID> [--rev <n>] [--out <dir>]
+ws machine artifact put <ID> <PATH|-> [--base-rev <n>] [--note <text>]
+ws machine artifact rm <ID>...
+ws machine artifact comment list <ID> [--open]
+ws machine artifact comment add <ID> (--body <text> | --body-file <path|->) [--reply <thread> | --quote <text> [--line <n>]]
+ws machine artifact comment resolve <ID> <THREAD> [--reopen]
 ```
 
 ## Description
@@ -470,6 +479,86 @@ $ ws machine progress show
 {"id":"plan","progress":{…},"rollup":{…},"tree":{"id":"plan","progress":{…},"rollup":{…},"children":[{"id":"t1-impl-d8efb24f","progress":{…},"rollup":{…},"children":[]}]},"warnings":[]}
 ```
 
+## ws machine artifact
+
+Shares files with the person who started you, and reads what they comment
+on. Every subcommand prints JSON and runs inside your workspace
+(`outside_workspace` otherwise). On an enrolled remote environment's agent
+machine every subcommand fails with `artifact_unreachable`. Artifacts,
+revisions and comments are described in [`ws artifact`](ws-artifact.md),
+which people and the desktop app use; the lifecycle is:
+
+> People upload screenshots and logs, and read what you upload, rendered,
+> in the desktop app. When a prompt says `@artifact:art-1a2b3c4d`, run
+> `ws machine artifact get art-1a2b3c4d` and read the file at the printed
+> `path` with your Read tool; if the read is refused, rerun with
+> `--out <a directory inside your working directory>`. To show a person a
+> document (a design pitch, a report), `ws machine artifact add pitch.md
+> --title "…"` and give them the `reference`. When they say they've
+> commented, `ws machine artifact comment list <id> --open`, change the
+> file, `ws machine artifact put <id> pitch.md --base-rev <latest>`, then
+> reply to each thread you addressed with `comment add --reply t<n>` and
+> resolve it.
+
+### ws machine artifact add
+
+Stores the file as a new artifact. `-` reads stdin and needs `--name`;
+`--name` defaults to the file's base name. Prints `{"artifact": <artifact>,
+"warnings": []}`.
+
+### ws machine artifact list
+
+Lists artifacts, latest `updated_at` first; `--mine` keeps only those whose
+`root` is your tree's root. Prints `{"artifacts": [<summary>…],
+"warnings": []}`.
+
+### ws machine artifact show
+
+Prints one artifact with its revisions. Prints `{"artifact": <artifact>,
+"warnings": []}`.
+
+### ws machine artifact get
+
+Copies revision `--rev` (default latest) to `<dir>/<name>`. `<dir>` is
+`--out`, else `<workspace>/.ws-artifacts/<id>/r<n>`; the directory is
+created 0700 and the file 0600, and an existing file is overwritten. Prints
+
+```json
+{"artifact": {…}, "rev": 1, "path": "/abs/…/login-error.png", "content_type": "image/png", "size": 48213, "warnings": []}
+```
+
+Read the file at `path` with your Read tool.
+
+### ws machine artifact put
+
+Appends a revision of the same kind and moves the comment anchors onto it
+([0079](../adrs/0079-artifact-comments-and-anchors.md)). `--base-rev <n>`
+refuses with `artifact_conflict` unless `n` is the latest revision. Prints
+`{"artifact": <artifact>, "anchors": {"anchored": 3, "detached": 1}, "warnings": []}`.
+
+### ws machine artifact rm
+
+Removes artifacts your tree created; another tree's, or a person's, is
+`artifact_forbidden`. Prints `{"artifacts": [{"id": "art-…", "removed": true,
+"error": null}], "warnings": []}`, and exits with the first failure's code.
+
+### ws machine artifact comment list
+
+Lists threads in creation order; `--open` drops resolved ones. Prints
+`{"artifact_id": "art-…", "latest": 2, "threads": [<thread>…], "warnings": []}`.
+
+### ws machine artifact comment add
+
+Adds a thread anchored to `--quote` (or to the whole artifact without it),
+or, with `--reply <thread>`, a comment on thread `t<n>`. `--quote` with
+`--reply` is `usage`. Prints `{"artifact_id": "art-…", "thread": <thread>,
+"comment": <comment>, "warnings": []}`.
+
+### ws machine artifact comment resolve
+
+Marks the thread resolved, or with `--reopen` open again. Prints
+`{"artifact_id": "art-…", "thread": <thread>, "warnings": []}`.
+
 ## Errors
 
 | Situation                                       | Error code          | Exit |
@@ -502,6 +591,13 @@ $ ws machine progress show
 | `memory set` or `rm`: `--expect-rev` didn't match | `memory_conflict` | 4 |
 | `memory set`: a value over 64 KiB, over 100 keys, or over 256 KiB in all | `memory_full` | 4 |
 | `memory`: the caller's root isn't a loop run, or its loop was removed | `not_loop_run` | 4 |
+| `artifact`: an artifact, revision or thread that doesn't exist; `get` with `--rev` past the latest | `artifact_unknown` | 3 |
+| `artifact`: a file that isn't allowed, is over its kind's size limit, is empty, changes kind on `put`, or has a bad name, title, note, body or quote; a comment anchored on an image | `artifact_invalid` | 2 |
+| `artifact comment add --quote`: the quote isn't in the latest revision, or occurs more than once and `--line` doesn't pick one | `anchor_not_found` | 3 |
+| `artifact put --base-rev`: the latest revision isn't that one; `details: {"latest": <n>}` | `artifact_conflict` | 4 |
+| `artifact`: a revision, thread, comment or store limit | `artifact_full` | 4 |
+| `artifact rm` of an artifact another tree or a person created | `artifact_forbidden` | 4 |
+| any `artifact` command on an enrolled environment agent's machine | `artifact_unreachable` | 1 |
 
 `spawn` fails as [`ws claude`](ws-claude.md) does, and `rm`'s items as
 [`ws rm`](ws-rm.md)'s do.

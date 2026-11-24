@@ -65,6 +65,8 @@ pub struct Deps {
     pub runner: Runner,
     pub store: Arc<Store>,
     pub jobs_dir: Option<PathBuf>,
+    /// PR links kept per session, shared with the app's listing.
+    pub pr_links: Arc<crate::pr_links::PrLinks>,
     /// Forgejo's REST API; tests replace it.
     pub http: Arc<dyn Http>,
 }
@@ -381,7 +383,8 @@ impl Checker {
             }
             s.backoff = if rate_limited { s.backoff + 1 } else { 0 };
         });
-        let listing = commands::list(&deps.runner, deps.jobs_dir.as_deref()).await?;
+        let listing =
+            commands::list(&deps.runner, deps.jobs_dir.as_deref(), &deps.pr_links).await?;
         self.set_entries(listing.entries.clone());
         match runs::removed(&deps.runner, None).await {
             Ok(removed) => self.set_removed(removed),
@@ -1083,6 +1086,7 @@ esac"#
             runner: Runner::new(dir.path().display().to_string()),
             store: Arc::new(store),
             jobs_dir: None,
+            pr_links: Arc::new(crate::pr_links::PrLinks::default()),
             http,
         }
     }
@@ -1348,6 +1352,7 @@ esac"#
             runner: Runner::new(crate::env::resolve_path()),
             store: Arc::new(store),
             jobs_dir: crate::jobs::jobs_dir(),
+            pr_links: Arc::new(crate::pr_links::PrLinks::default()),
             http: Arc::new(crate::reviews::http::ReqwestHttp::new()),
         };
         let checker = Checker::default();

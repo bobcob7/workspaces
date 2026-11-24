@@ -46,6 +46,7 @@ func (a *App) newMachineCmd() *cobra.Command {
 		a.newMachineRolesCmd(),
 		a.newMachineMemoryCmd(),
 		a.newMachineProgressCmd(),
+		a.newMachineArtifactCmd(),
 	)
 	return cmd
 }
@@ -284,6 +285,11 @@ func (a *App) runMachineSpawnRunner(ctx context.Context, opts *machineSpawnOptio
 	if len(after) > 0 {
 		prompt, after = after[0], after[1:]
 	}
+	hinted, err := a.artifactHints([]string{prompt}, "")
+	if err != nil {
+		return err
+	}
+	prompt = hinted[0]
 	model, err := runnerModelArgs(after)
 	if err != nil {
 		return err

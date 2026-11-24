@@ -110,7 +110,7 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   Environment field and a watched repo names the one auto-review uses; a run
   on a remote shows its environment, and is dimmed and read-only while that
   environment is offline. The review runs on that machine with its own `gh`
-  sign-in ([ADR 0078](../docs/adrs/0078-reviews-and-loops-on-environments.md)).
+  sign-in ([ADR 0080](../docs/adrs/0080-reviews-and-loops-on-environments.md)).
   ![Start review with an Environment field](docs/reviews-start-environment.png)
   ![Reviews with remote runs](docs/reviews-remote-runs.png)
   ![A remote review's findings, one truncated](docs/reviews-remote-report.png)
@@ -136,7 +136,7 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   model and language, read from the transcripts and estimated at API rates
   ([ADR 0059](../docs/adrs/0059-stats.md)).
 
-The sections are chosen from the rail on the left, or with ⌘1–⌘4, and are
+The sections are chosen from the rail on the left, or with the shortcuts shown (⌘1–⌘7 for the seven sections), and are
 designed in
 [docs/design/desktop-sections](../docs/design/desktop-sections/README.md)
 ([ADR 0031](../docs/adrs/0031-desktop-sections-rail.md),
@@ -291,6 +291,20 @@ Not yet: a remote agent's conversation view, stopping a `ws` runner agent on a
 remote, and Windows. Reviews and loops run on remote environments; see
 [`ws review`](../docs/tools/ws-review.md) and [`ws loop`](../docs/tools/ws-loop.md).
 
+## Artifacts
+
+The Artifacts section ([ADR 0078](../docs/adrs/0078-artifacts.md), [ADR 0079](../docs/adrs/0079-artifact-comments-and-anchors.md)) holds files that people and agents upload: screenshots as evidence for a bug, or a Markdown design pitch. Upload with the button, drag and drop, or paste. Attach an artifact to a new agent or a reply; the prompt gets an `@artifact:<id>` reference. Select text in a Markdown artifact to comment on it; the comment stays attached to that passage across revisions.
+
+| **List and upload** | **Image viewer** |
+| --- | --- |
+| ![](docs/artifacts-list.png) | ![](docs/artifacts-image.png) |
+| **Markdown with comment threads** | **Detached and resolved threads** |
+| ![](docs/artifacts-markdown-threads.png) | ![](docs/artifacts-markdown-threads-resolved.png) |
+| **Attaching to a new agent** | **A Markdown artifact on a phone** |
+| ![](docs/artifacts-new-agent.png) | ![](docs/artifacts-phone.png) |
+
+The screenshots use sample data.
+
 ## Workspace Online
 
 The same backend can run on a server and serve the frontend to a browser
@@ -353,7 +367,7 @@ src-tauri/src/
   online/       # Workspace Online (feature `online`): config, auth, push, dispatch, wire, and the server (ADR 0053)
 src/
   api.ts                    # typed invoke wrappers
-  features/rail/            # the section rail and ⌘1–⌘6
+  features/rail/            # the section rail and ⌘1–⌘7
   features/agents/          # list, statuses, entry pane, agents slice, top-bar actions
   features/repos/           # repo list, detail with branches and tags, add and remove dialogs, repos slice
   features/conversation/    # conversation view, tool call pairing, conversations slice

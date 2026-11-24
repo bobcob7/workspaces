@@ -359,7 +359,7 @@ func (c agentClaude) Probe(ctx context.Context) (string, *string) {
 	return envproto.ClaudePresent, &version
 }
 
-// agentLoops ticks the agent's loops in fresh Apps, as the desktop's tick_forever does (ADR 0078).
+// agentLoops ticks the agent's loops in fresh Apps, as the desktop's tick_forever does (ADR 0080).
 type agentLoops struct {
 	newApp func(stdout, stderr io.Writer) *App
 	root   string

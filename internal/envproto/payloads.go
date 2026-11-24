@@ -8,7 +8,7 @@ import (
 // Protocol is the newest operation protocol this ws speaks (ADR 0073). Reviews and loops make it 3.
 const Protocol = 3
 
-// ProtocolReviewsLoops is the protocol review.* and loop.* need (ADR 0078).
+// ProtocolReviewsLoops is the protocol review.* and loop.* need (ADR 0080).
 const ProtocolReviewsLoops = 3
 
 // Statuses an agent reports in its hello and its last will.
@@ -68,7 +68,7 @@ type Snapshot struct {
 	Protocol   int             `json:"protocol"`
 	Workspaces json.RawMessage `json:"workspaces"` // ws list --json --all's array, no unknown dirs
 	Agents     []SnapshotAgent `json:"agents"`
-	// Loops is the agent's loops (ADR 0078). No omitempty: an agent with no
+	// Loops is the agent's loops (ADR 0080). No omitempty: an agent with no
 	// loops sends [], and a snapshot without the key (an older agent) is null.
 	Loops []SnapshotLoop `json:"loops"`
 }

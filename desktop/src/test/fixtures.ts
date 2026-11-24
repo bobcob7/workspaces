@@ -719,6 +719,24 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   rolesAdd: vi.fn(async (name: string) => roleDetail({ name, source: "user", path: `/c/machine/roles/${name}.md` })),
   rolesEdit: vi.fn(async (name: string) => roleDetail({ name, source: "override", path: `/c/machine/roles/${name}.md` })),
   rolesRemove: vi.fn(async (name: string) => ({ name, path: `/c/machine/roles/${name}.md`, restored: false })),
+  artifactList: vi.fn(async () => []),
+  artifactShow: vi.fn(async () => {
+    throw { code: "artifact_unknown", message: "no such artifact" };
+  }),
+  artifactRead: vi.fn(async () => {
+    throw { code: "artifact_unknown", message: "no such artifact" };
+  }),
+  artifactAdd: vi.fn(async () => {
+    throw { code: "ws_failed", message: "artifact_add isn't stubbed" };
+  }),
+  artifactRemove: vi.fn(async () => undefined),
+  artifactComments: vi.fn(async (id: string) => ({ artifactId: id, latest: 1, threads: [] })),
+  artifactCommentAdd: vi.fn(async () => {
+    throw { code: "ws_failed", message: "artifact_comment_add isn't stubbed" };
+  }),
+  artifactCommentResolve: vi.fn(async () => {
+    throw { code: "ws_failed", message: "artifact_comment_resolve isn't stubbed" };
+  }),
   reviewsStart: vi.fn(async () => ({ id: "review-buff-bear-42-3f2a9c1", already: false })),
   reviewReport: vi.fn(async () => reviewReport()),
   reviewDecide: vi.fn(async () => reviewReport()),

@@ -20,6 +20,8 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   `ws review` commands its prompt names. A review removes its own agent
   and workspace once every reviewer has reported; its report stays
   readable.
+- `@artifact:<id>` in a prompt names a file a person shared: run
+  `ws machine artifact get <id>` and read the `path` it prints.
 - If a `ws machine` command can't do what you need, stop and tell a
   person what you wanted to run, rather than reaching for another `ws`
   command. Above all never run `ws restart`: it interrupts every
@@ -181,10 +183,10 @@ messages aren't.
 | Exit | Meaning                       | Error codes |
 | ---- | ----------------------------- | ----------- |
 | 0    | Success                       |             |
-| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `config_uneditable`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout`, `daemon_unavailable`, `endpoint_unreachable`, `model_without_tools`, `runner_failed`, `enrollment_failed`, `environment_offline`, `environment_outdated`, `operation_limited` |
-| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid`, `memory_invalid`, `progress_invalid` |
-| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown`, `memory_not_found`, `endpoint_unknown`, `model_not_served`, `environment_unknown` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin`, `memory_conflict`, `memory_full`, `not_loop_run`, `daemon_running`, `environment_exists`, `enrollment_used`, `ca_in_use`, `environment_mismatch`, `terminal_limit` |
+| 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `config_uneditable`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout`, `daemon_unavailable`, `endpoint_unreachable`, `model_without_tools`, `runner_failed`, `enrollment_failed`, `environment_offline`, `environment_outdated`, `operation_limited`, `artifact_unreachable` |
+| 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid`, `memory_invalid`, `progress_invalid`, `artifact_invalid` |
+| 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown`, `memory_not_found`, `endpoint_unknown`, `model_not_served`, `environment_unknown`, `artifact_unknown`, `anchor_not_found` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin`, `memory_conflict`, `memory_full`, `not_loop_run`, `daemon_running`, `environment_exists`, `enrollment_used`, `ca_in_use`, `environment_mismatch`, `terminal_limit`, `artifact_conflict`, `artifact_full`, `artifact_forbidden` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -217,6 +219,17 @@ For agents:
   - `ws llm machine progress set`: name your task, and set its steps and note
   - `ws llm machine progress step`: finish steps of your task
   - `ws llm machine progress show`: show your progress and your descendants'
+  - `ws llm machine artifact`: share files with people, and read the ones they shared
+  - `ws llm machine artifact add`: store a file as a new artifact, for people to read
+  - `ws llm machine artifact list`: list artifacts, latest first
+  - `ws llm machine artifact show`: show an artifact and its revisions
+  - `ws llm machine artifact get`: copy an artifact's file into your workspace, and print its path
+  - `ws llm machine artifact put`: add a revision to an artifact you shared
+  - `ws llm machine artifact rm`: remove artifacts your workspace tree created
+  - `ws llm machine artifact comment`: list, add to and resolve an artifact's comment threads
+  - `ws llm machine artifact comment list`: list an artifact's comment threads
+  - `ws llm machine artifact comment add`: start a thread on an artifact, or reply to one
+  - `ws llm machine artifact comment resolve`: resolve a thread, or open it again
 - `ws llm review`: structured reviews: getting your work reviewed, and the reviewer's commands:
   - `ws llm review start`: start a review of a pull request or commit
   - `ws llm review wait`: wait for a review, then print its report

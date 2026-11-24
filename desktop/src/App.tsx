@@ -16,6 +16,9 @@ import { ReposList } from "./features/repos/ReposList";
 import { ReposPane } from "./features/repos/ReposPane";
 import { CommentDialog } from "./features/reviews/CommentDialog";
 import { FixDialog } from "./features/reviews/FixDialog";
+import { ArtifactsActions } from "./features/artifacts/ArtifactsActions";
+import { ArtifactsList } from "./features/artifacts/ArtifactsList";
+import { ArtifactsPane } from "./features/artifacts/ArtifactsPane";
 import { LoopsActions } from "./features/loops/LoopsActions";
 import { LoopsList } from "./features/loops/LoopsList";
 import { LoopsPane } from "./features/loops/LoopsPane";
@@ -34,6 +37,7 @@ import { StatsPane } from "./features/stats/StatsPane";
 import { TerminalView } from "./features/terminals/TerminalView";
 import { closeTerminal } from "./features/terminals/terminalsSlice";
 import { followTray } from "./features/ui/tray";
+import { SidebarToggle } from "./features/ui/SidebarToggle";
 import { narrowBack, noticeDismissed, sectionChosen, selected, type NoticeAction, type Section } from "./features/ui/uiSlice";
 import { useAppDispatch, useAppSelector } from "./store";
 import styles from "./App.module.css";
@@ -123,6 +127,7 @@ const sectionViews: Readonly<Partial<Record<Section, SectionView>>> = {
   repos: { actions: ReposActions, list: ReposList, pane: ReposPane },
   reviews: { actions: ReviewsActions, list: ReviewsList, pane: ReviewsPane },
   loops: { actions: LoopsActions, list: LoopsList, pane: LoopsPane },
+  artifacts: { actions: ArtifactsActions, list: ArtifactsList, pane: ArtifactsPane },
   stats: { actions: () => null, list: StatsList, pane: StatsPane },
   settings: { actions: () => null, list: SettingsList, pane: SettingsPane },
 };
@@ -138,6 +143,8 @@ const Warnings = ({ section }: { readonly section: Section }): JSX.Element | nul
         return s.repos.warnings;
       case "loops":
         return s.loops.warnings;
+      case "artifacts":
+        return s.artifacts.warnings;
       case "stats":
         return s.stats.results[s.stats.window].data?.warnings ?? noWarnings;
       case "reviews":
@@ -180,6 +187,7 @@ export const App = (): JSX.Element => {
   const attention = useAppSelector((s) => s.agents.entries.filter(needsAttention).length);
   const notice = useAppSelector((s) => s.ui.notice);
   const narrowPane = useAppSelector((s) => s.ui.narrowPane);
+  const sidebarCollapsed = useAppSelector((s) => s.ui.sidebarCollapsed);
   const view = sectionViews[section] ?? agentsView;
   useEnvironmentsPolling();
   useEffect(() => {
@@ -204,6 +212,7 @@ export const App = (): JSX.Element => {
   return (
     <div className={styles.root} data-narrow-pane={narrowPane}>
       <header className={styles.topBar}>
+        <SidebarToggle />
         <span className={styles.brand}>Workspaces</span>
         {attention > 0 && <span className={styles.badge}>{attention} waiting for you</span>}
         <span className={styles.spacer} />
@@ -212,7 +221,7 @@ export const App = (): JSX.Element => {
       <Warnings section={section} />
       <div className={styles.body} data-narrow-pane={narrowPane}>
         <Rail />
-        <aside className={styles.sidebar} data-section={section}>
+        <aside className={styles.sidebar} data-section={section} data-collapsed={sidebarCollapsed}>
           <view.list />
         </aside>
         <main className={styles.main}>

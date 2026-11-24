@@ -254,11 +254,11 @@ Use `/loop`, session cron, or cloud routines.
 
 ## Amendments
 
-- **`--max-starts` (decision 4, [0078](0078-reviews-and-loops-on-environments.md)).**
+- **`--max-starts` (decision 4, [0080](0080-reviews-and-loops-on-environments.md)).**
   `ws loop tick --max-starts N` (1 to 100; 0 is no cap) starts at most N
   loops in one pass. The other due loops are left `waiting` with
   `next_run_at` unchanged, for a later pass.
-- **Who runs `tick` on an environment (decision 7, 0078).** The environment
+- **Who runs `tick` on an environment (decision 7, 0080).** The environment
   agent runs `ws loop tick --json --quiet --max-starts 2` every 60 s while it
   is connected, and not while it is offline: missed periods are skipped, not
   made up.

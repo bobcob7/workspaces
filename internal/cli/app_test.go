@@ -339,7 +339,12 @@ func TestApp_newRootCmd(t *testing.T) {
 		for _, cmd := range root.Commands() {
 			names = append(names, cmd.Name())
 		}
-		assert.ElementsMatch(t, []string{"claude", "shell", "attach", "restore", "restart", "continue", "loop", "list", "rm", "stop", "rename", "hide", "unhide", "cache", "config", "daemon", "env", "review", "llm", "machine", "runner"}, names)
+		assert.ElementsMatch(t, []string{"claude", "shell", "attach", "restore", "restart", "continue", "loop", "list", "rm", "stop", "rename", "hide", "unhide", "cache", "config", "daemon", "env", "artifact", "review", "llm", "machine", "runner"}, names)
+	})
+	t.Run("keeps artifact hidden from help", func(t *testing.T) {
+		cmd, _, err := root.Find([]string{"artifact"})
+		require.NoError(t, err)
+		assert.True(t, cmd.Hidden)
 	})
 	t.Run("keeps runner hidden from help", func(t *testing.T) {
 		cmd, _, err := root.Find([]string{"runner"})

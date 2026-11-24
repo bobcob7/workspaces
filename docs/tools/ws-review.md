@@ -306,7 +306,7 @@ id, for people and the desktop app. Inside a workspace it is a usage error: an
 agent never chooses an environment. `profiles` is read only there. The remote
 needs its own forge sign-in; see
 [Reviews on an environment](ws-env.md#reviews-on-an-environment) and
-[0078](../adrs/0078-reviews-and-loops-on-environments.md).
+[0080](../adrs/0080-reviews-and-loops-on-environments.md).
 
 `--yes` confirms what an environment asks to confirm; it does nothing locally.
 A remote `start` with `bypassPermissions` and no confirm flag is refused.
