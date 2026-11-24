@@ -246,7 +246,7 @@ describe("StartReviewDialog", () => {
       const deferred = new Promise<ReturnType<typeof listedProfile>[]>((resolve) => {
         release = resolve;
       });
-      const reviewsProfiles = vi.fn(async (environment: string) => (environment === "mac-mini" ? deferred : [listedProfile({ name: "alpha-reviewer" })]));
+      const reviewsProfiles = vi.fn(async (environment?: string) => (environment === "mac-mini" ? deferred : [listedProfile({ name: "alpha-reviewer" })]));
       const api = remoteApi({ reviewsProfiles });
       await openRemote([remoteEnvironment(), second()], api);
       expect(await screen.findByText(/Reviewers on linux-server: alpha-reviewer/)).toBeInTheDocument();
