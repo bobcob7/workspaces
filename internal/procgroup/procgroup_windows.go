@@ -81,7 +81,7 @@ func descendants(root uint32, entries []windows.ProcessEntry32, created func(pid
 			}
 			seen[pid] = true
 			childTime, childOK := created(pid)
-			if !childOK || !parentOK || filetimeNanos(childTime) < filetimeNanos(parentTime) {
+			if !childOK || !parentOK || filetimeTicks(childTime) < filetimeTicks(parentTime) {
 				continue
 			}
 			found = append(found, pid)
@@ -119,7 +119,7 @@ func terminate(pid uint32) error {
 	return windows.TerminateProcess(h, 1)
 }
 
-// filetimeNanos joins ft's two halves into one comparable count.
-func filetimeNanos(ft windows.Filetime) uint64 {
+// filetimeTicks joins ft's two halves into one count of 100ns ticks.
+func filetimeTicks(ft windows.Filetime) uint64 {
 	return uint64(ft.HighDateTime)<<32 | uint64(ft.LowDateTime)
 }
