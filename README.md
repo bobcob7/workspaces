@@ -109,10 +109,11 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |
 | [`ws config`](docs/tools/ws-config.md)   | List, read, and change `config.toml`'s settings      |
 | [`ws review`](docs/tools/ws-review.md)   | Start structured reviews and triage their reports    |
+| [`ws artifact`](docs/tools/ws-artifact.md) | Hidden: share files with agents and read their comments |
 | [`ws machine`](docs/tools/ws-machine.md) | For agents: start, list, and remove their child workspaces |
 | [`ws llm`](docs/tools/ws-llm.md)         | Print guidance for AI agents                         |
 
-Share screenshots and documents with agents: the desktop app's Artifacts section, or `ws artifact add`; agents use `ws machine artifact`.
+Share screenshots and documents with agents: people use the desktop app's Artifacts section or the hidden `ws artifact` command (it is not in `ws --help`; see [`ws artifact`](docs/tools/ws-artifact.md)), and agents use `ws machine artifact`.
 
 Commands are non-interactive, write results to stdout and diagnostics to
 stderr, and take `--json` for machine-readable output
