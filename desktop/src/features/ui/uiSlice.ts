@@ -99,8 +99,9 @@ const uiSlice = createSlice({
     builder
       .addMatcher(
         (action) => pickedTypes.includes(action.type),
-        (state, action: PayloadAction<string | null>) => {
-          state.narrowPane = paneFor(action.payload);
+        (state, action: PayloadAction<string | null | { readonly name: string | null }>) => {
+          const picked = typeof action.payload === "object" && action.payload !== null ? action.payload.name : action.payload;
+          state.narrowPane = paneFor(picked);
         },
       )
       .addMatcher(
