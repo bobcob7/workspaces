@@ -69,9 +69,14 @@ export const AddEnvironmentDialog = ({ rotate, onClose, client = backend }: AddE
       setBusy(false);
     }
   };
+  const close = (): void => {
+    if (!busy) {
+      onClose();
+    }
+  };
   const title = rotate === undefined ? "Add environment" : `Rotate ${rotate}?`;
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="environment-code-title">
+    <Dialog open onClose={close} fullWidth maxWidth="sm" aria-labelledby="environment-code-title">
       <DialogTitle id="environment-code-title">{code === null ? title : `Enroll ${code.name}`}</DialogTitle>
       <DialogContent className={dialogStyles.content}>
         {failure?.general != null && <Alert severity="error">{failure.general}</Alert>}
@@ -94,7 +99,9 @@ export const AddEnvironmentDialog = ({ rotate, onClose, client = backend }: AddE
       <DialogActions>
         {code === null ? (
           <>
-            <Button onClick={onClose}>Cancel</Button>
+            <Button disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
             <Button
               variant="contained"
               disabled={busy || (rotate === undefined && (name === "" || problem !== null))}

@@ -73,6 +73,16 @@ describe("EnvironmentSettingsCard", () => {
     expect(api.configUnset).toHaveBeenCalledWith("environments.public_name");
   });
 
+  it("a whitespace-only field unsets the key and sets nothing", async () => {
+    const api = await open(withEnvironments());
+    const field = screen.getByRole("textbox", { name: "Public name" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "   ");
+    await userEvent.tab();
+    expect(api.configUnset).toHaveBeenCalledWith("environments.public_name");
+    expect(api.configSet).not.toHaveBeenCalled();
+  });
+
   it("shows the error of a failed save under the field", async () => {
     await open(withEnvironments(), {
       configSet: vi.fn(async () => {

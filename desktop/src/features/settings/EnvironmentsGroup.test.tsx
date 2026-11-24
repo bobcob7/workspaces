@@ -86,6 +86,30 @@ describe("EnvironmentsGroup", () => {
   });
 });
 
+describe("EnvironmentsGroup add dialog", () => {
+  const closers: readonly [string, () => Promise<void>][] = [
+    ["Done", () => userEvent.click(screen.getByRole("button", { name: "Done" }))],
+    ["the backdrop", () => userEvent.click(document.querySelector(".MuiBackdrop-root") as HTMLElement)],
+    ["Escape", async () => {
+      await userEvent.tab();
+      await userEvent.keyboard("{Escape}");
+    }],
+  ];
+  it.each(closers)("closing through %s forgets the code", async (_name, close) => {
+    await open([]);
+    await userEvent.click(await screen.findByRole("button", { name: "Add environment" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Name" }), "linux-server");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(await screen.findByText("ws-enroll-test-code")).toBeInTheDocument();
+    await close();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByText("ws-enroll-test-code")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Add environment" }));
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("");
+    expect(screen.queryByText("ws-enroll-test-code")).not.toBeInTheDocument();
+  });
+});
+
 describe("statusText", () => {
   it("names an unknown status's cause", () => {
     expect(statusText(remoteEnvironment({ status: "unknown" }))).toBe("offline (the ws daemon isn't running)");

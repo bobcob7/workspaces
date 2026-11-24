@@ -85,6 +85,11 @@ describe("CaCard", () => {
     await waitFor(() => expect(api.environmentsCaStatus).toHaveBeenCalledTimes(2));
   });
 
+  it("Rotate CA is disabled while an old CA exists", async () => {
+    await open(status({ old: ca("fedcba9876543210ffff", "2030-01-01T00:00:00Z"), environmentsOnOld: 0 }));
+    expect(screen.getByRole("button", { name: "Rotate CA" })).toBeDisabled();
+  });
+
   it("shows warnings", async () => {
     await open(status({ warnings: ["the CA expires in 12 days"] }));
     expect(screen.getByText("the CA expires in 12 days")).toBeInTheDocument();

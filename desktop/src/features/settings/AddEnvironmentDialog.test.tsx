@@ -93,6 +93,42 @@ describe("AddEnvironmentDialog", () => {
     expect(screen.queryByText(code)).not.toBeInTheDocument();
   });
 
+  it("says to select the text when the clipboard write is rejected", async () => {
+    setClipboard({ writeText: vi.fn(async () => Promise.reject(new Error("denied"))) });
+    setup();
+    await addNamed("linux-server");
+    await screen.findByText(code);
+    expect(screen.queryByText("Select the text to copy it.")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Copy Enrollment code" }));
+    expect(await screen.findByText("Select the text to copy it.")).toBeInTheDocument();
+  });
+
+  it("a second click while adding issues one request", async () => {
+    const { api } = setup({ environmentAdd: vi.fn(() => new Promise<never>(() => undefined)) });
+    await userEvent.type(screen.getByRole("textbox", { name: "Name" }), "linux-server");
+    await userEvent.dblClick(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    expect(api.environmentAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it("a second click while rotating issues one rotation", async () => {
+    const api = fakeApi({ environmentRotate: vi.fn(() => new Promise<never>(() => undefined)) });
+    renderWithStore(<AddEnvironmentDialog client={api} rotate="linux-server" onClose={() => undefined} />, testStore({ api }));
+    await userEvent.dblClick(screen.getByRole("button", { name: "Rotate" }));
+    expect(screen.getByRole("button", { name: "Rotate" })).toBeDisabled();
+    expect(api.environmentRotate).toHaveBeenCalledTimes(1);
+  });
+
+  it("cannot be closed while a request is in flight", async () => {
+    const onClose = vi.fn();
+    setup({ environmentAdd: vi.fn(() => new Promise<never>(() => undefined)) }, onClose);
+    await userEvent.type(screen.getByRole("textbox", { name: "Name" }), "linux-server");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("the code is not in the store", async () => {
     const { store } = setup();
     await addNamed("linux-server");
