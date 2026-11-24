@@ -938,12 +938,30 @@ mod tests {
         let cookie = test.login().await;
         let body = format!(r#"{{"pad":"{}"}}"#, "x".repeat(3 << 20));
         let response = test
-            .post("/api/invoke/nope", &body)
+            .post("/api/invoke/rename_workspace", &body)
             .header("Cookie", &cookie)
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), 404);
+        assert_eq!(
+            response.status(),
+            400,
+            "a known command whose args are missing proves the body was read and parsed"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn invoke_refuses_a_body_over_16_mib() {
+        let test = Test::start().await;
+        let cookie = test.login().await;
+        let body = "x".repeat((16 << 20) + 1);
+        let response = test
+            .post("/api/invoke/rename_workspace", &body)
+            .header("Cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 413);
     }
 
     #[tokio::test(flavor = "multi_thread")]
