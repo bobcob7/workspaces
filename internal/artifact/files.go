@@ -116,12 +116,18 @@ func checkRecord(path string, r *Record) error {
 // readThreads reads <dir>/comments.json; a missing file is no threads.
 func readThreads(dir string) ([]Thread, error) {
 	path := filepath.Join(dir, threadsFile)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
+	data, err := readFileIfExists(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+		return nil, err
+	}
+	return parseThreads(path, data)
+}
+
+// parseThreads decodes the bytes of the comments.json at path; nil bytes
+// (no file) are no threads.
+func parseThreads(path string, data []byte) ([]Thread, error) {
+	if data == nil {
+		return nil, nil
 	}
 	var doc threadsDocument
 	if err := json.Unmarshal(data, &doc); err != nil {

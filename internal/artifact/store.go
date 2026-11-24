@@ -31,11 +31,22 @@ type Store struct {
 	random        io.Reader
 	now           func() time.Time
 	maxStoreBytes int64
+	// recordWriter and threadsWriter write artifact.json and comments.json
+	// for Put; tests replace them to make a write fail.
+	recordWriter  func(tmpDir, dir string, r *Record) error
+	threadsWriter func(tmpDir, dir string, threads []Thread) error
 }
 
 // NewStore returns a Store over dir. random is crypto/rand.Reader in ws.
 func NewStore(dir string, random io.Reader, now func() time.Time) *Store {
-	return &Store{dir: dir, random: random, now: now, maxStoreBytes: MaxStoreBytes}
+	return &Store{
+		dir:           dir,
+		random:        random,
+		now:           now,
+		maxStoreBytes: MaxStoreBytes,
+		recordWriter:  writeRecord,
+		threadsWriter: writeThreads,
+	}
 }
 
 // NewArtifact is what Add stores.
@@ -388,43 +399,72 @@ func (s *Store) appendRevision(dir string, rec *Record, n *NewRevision) (PutResu
 
 // commitRevision writes rec's new latest revision, whose bytes are data. The
 // record write is the commit point: the revision file and the moved anchors
-// are written first, and undone if the record can't be written.
+// are written first, and undone if either they or the record can't be
+// written. comments.json is restored byte for byte.
 func (s *Store) commitRevision(dir string, rec *Record, data []byte) (PutResult, error) {
-	old, threads, anchored, detached, err := moveAnchors(dir, rec, data)
+	raw, err := readFileIfExists(filepath.Join(dir, threadsFile))
 	if err != nil {
 		return PutResult{}, err
 	}
+	old, err := parseThreads(filepath.Join(dir, threadsFile), raw)
+	if err != nil {
+		return PutResult{}, err
+	}
+	threads, anchored, detached := moveAnchors(rec, data, old)
 	path := revisionPath(dir, rec.Latest().Rev)
 	if err = writeAtomic(s.tmpDir(), path, data); err != nil {
 		return PutResult{}, err
 	}
 	if threads != nil {
-		if err = writeThreads(s.tmpDir(), dir, threads); err != nil {
+		if err = s.threadsWriter(s.tmpDir(), dir, threads); err != nil {
 			_ = os.Remove(path)
+			s.restoreThreads(dir, raw)
 			return PutResult{}, err
 		}
 	}
-	if err = writeRecord(s.tmpDir(), dir, rec); err != nil {
+	if err = s.recordWriter(s.tmpDir(), dir, rec); err != nil {
 		_ = os.Remove(path)
-		if threads != nil {
-			_ = writeThreads(s.tmpDir(), dir, old)
-		}
+		s.restoreThreads(dir, raw)
 		return PutResult{}, err
 	}
 	return PutResult{Record: *rec, Anchored: anchored, Detached: detached}, nil
 }
 
-// moveAnchors is dir's threads as they were and as they are once re-anchored
-// to the latest revision of rec, whose bytes are data. Nothing is written;
-// the moved threads are nil when there is nothing to write. A quote that is
-// gone leaves the thread detached at its last anchor.
-func moveAnchors(dir string, rec *Record, data []byte) ([]Thread, []Thread, int, int, error) {
-	if rec.Kind == KindImage {
-		return nil, nil, 0, 0, nil
+// restoreThreads puts comments.json back to raw, its bytes before the write,
+// or removes it when it did not exist (raw is nil). It is best effort: the
+// error that made the write fail is the one to report.
+func (s *Store) restoreThreads(dir string, raw []byte) {
+	path := filepath.Join(dir, threadsFile)
+	if raw == nil {
+		_ = os.Remove(path)
+		return
 	}
-	old, err := readThreads(dir)
-	if err != nil || len(old) == 0 {
-		return nil, nil, 0, 0, err
+	_ = writeAtomic(s.tmpDir(), path, raw)
+}
+
+// readFileIfExists is path's bytes, or nil when it does not exist. An
+// existing empty file is a non-nil empty slice.
+func readFileIfExists(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	if data == nil {
+		data = []byte{}
+	}
+	return data, nil
+}
+
+// moveAnchors is old as re-anchored to the latest revision of rec, whose bytes
+// are data, with how many anchors moved and how many were left detached.
+// Nothing is written; the moved threads are nil when there is nothing to
+// write. A quote that is gone leaves the thread detached at its last anchor.
+func moveAnchors(rec *Record, data []byte, old []Thread) ([]Thread, int, int) {
+	if rec.Kind == KindImage || len(old) == 0 {
+		return nil, 0, 0
 	}
 	threads := slices.Clone(old)
 	anchored, detached := 0, 0
@@ -443,7 +483,7 @@ func moveAnchors(dir string, rec *Record, data []byte) ([]Thread, []Thread, int,
 		threads[i].Anchor = &a
 		detached++
 	}
-	return old, threads, anchored, detached, nil
+	return threads, anchored, detached
 }
 
 // checkQuota is ErrFull when extra more bytes would take the store past its

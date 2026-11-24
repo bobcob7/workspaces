@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -495,6 +496,121 @@ func TestStore_Put_allOrNothing(t *testing.T) {
 	res, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("two\n"), By: Person()})
 	require.NoError(t, err)
 	assert.Len(t, res.Record.Revisions, 2)
+}
+
+var errInjected = errors.New("injected write failure")
+
+// threadedArtifact is an artifact whose r1 has two anchored threads: "beta"
+// survives the edit to r2 and "gamma" does not. comments.json carries a field
+// the code does not model, so a restore that re-encodes it is caught.
+func threadedArtifact(t *testing.T, s *Store, dir string) (Record, string, []byte) {
+	t.Helper()
+	rec := addText(t, s, "notes.txt", "alpha\nbeta\ngamma\n")
+	for _, quote := range []string{"beta", "gamma"} {
+		_, _, err := s.AddThread(t.Context(), rec.ID, &NewThread{Body: "q", By: Person(), Anchor: &AnchorRequest{Quote: quote}})
+		require.NoError(t, err)
+	}
+	artDir := filepath.Join(dir, rec.ID)
+	path := filepath.Join(artDir, threadsFile)
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	raw = append([]byte(`{"future":{"k":[1,2]},`), raw[1:]...)
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
+	return rec, artDir, raw
+}
+
+const editedText = "alpha\nbeta\n"
+
+func TestStore_Put_rollback(t *testing.T) {
+	t.Parallel()
+	t.Run("a failed record write leaves the artifact as it was and a retry adds one revision", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec, artDir, rawThreads := threadedArtifact(t, s, dir)
+		rawRecord, err := os.ReadFile(filepath.Join(artDir, recordFile))
+		require.NoError(t, err)
+		s.recordWriter = func(string, string, *Record) error { return errInjected }
+		_, err = s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte(editedText), BaseRev: 1, By: Person()})
+		require.ErrorIs(t, err, errInjected)
+		assert.NoFileExists(t, revisionPath(artDir, 2))
+		gotThreads, err := os.ReadFile(filepath.Join(artDir, threadsFile))
+		require.NoError(t, err)
+		assert.Equal(t, string(rawThreads), string(gotThreads))
+		gotRecord, err := os.ReadFile(filepath.Join(artDir, recordFile))
+		require.NoError(t, err)
+		assert.Equal(t, string(rawRecord), string(gotRecord))
+		s.recordWriter = writeRecord
+		res, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte(editedText), BaseRev: 1, By: Person()})
+		require.NoError(t, err)
+		assert.Len(t, res.Record.Revisions, 2)
+		stored, err := readRecord(artDir)
+		require.NoError(t, err)
+		assert.Len(t, stored.Revisions, 2)
+	})
+	t.Run("a failed threads write removes the revision and restores comments.json", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec, artDir, rawThreads := threadedArtifact(t, s, dir)
+		s.threadsWriter = func(tmpDir, dir string, threads []Thread) error {
+			if err := writeThreads(tmpDir, dir, threads); err != nil {
+				return err
+			}
+			return errInjected
+		}
+		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte(editedText), By: Person()})
+		require.ErrorIs(t, err, errInjected)
+		assert.NoFileExists(t, revisionPath(artDir, 2))
+		gotThreads, err := os.ReadFile(filepath.Join(artDir, threadsFile))
+		require.NoError(t, err)
+		assert.Equal(t, string(rawThreads), string(gotThreads))
+		stored, err := readRecord(artDir)
+		require.NoError(t, err)
+		assert.Len(t, stored.Revisions, 1)
+	})
+	t.Run("a put after a failed put reports the counts of a clean put", func(t *testing.T) {
+		t.Parallel()
+		clean, cleanDir := newTestStore(t, fixedClock(testBase))
+		cleanRec, _, _ := threadedArtifact(t, clean, cleanDir)
+		want, err := clean.Put(t.Context(), cleanRec.ID, &NewRevision{Data: []byte(editedText), By: Person()})
+		require.NoError(t, err)
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec, _, _ := threadedArtifact(t, s, dir)
+		s.recordWriter = func(string, string, *Record) error { return errInjected }
+		_, err = s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte(editedText), By: Person()})
+		require.ErrorIs(t, err, errInjected)
+		s.recordWriter = writeRecord
+		got, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte(editedText), By: Person()})
+		require.NoError(t, err)
+		assert.Equal(t, 1, want.Anchored)
+		assert.Equal(t, 1, want.Detached)
+		assert.Equal(t, want.Anchored, got.Anchored)
+		assert.Equal(t, want.Detached, got.Detached)
+		assert.Len(t, got.Record.Revisions, 2)
+	})
+}
+
+func TestStore_restoreThreads(t *testing.T) {
+	t.Parallel()
+	t.Run("removes a comments.json that did not exist before", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "notes.txt", "one\n")
+		artDir := filepath.Join(dir, rec.ID)
+		require.NoError(t, writeThreads(s.tmpDir(), artDir, []Thread{{ID: "t1"}}))
+		s.restoreThreads(artDir, nil)
+		assert.NoFileExists(t, filepath.Join(artDir, threadsFile))
+	})
+	t.Run("writes the original bytes back", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "notes.txt", "one\n")
+		artDir := filepath.Join(dir, rec.ID)
+		require.NoError(t, writeThreads(s.tmpDir(), artDir, []Thread{{ID: "t1"}}))
+		s.restoreThreads(artDir, []byte(`{"version":1,"x":1}`))
+		got, err := os.ReadFile(filepath.Join(artDir, threadsFile))
+		require.NoError(t, err)
+		assert.Equal(t, `{"version":1,"x":1}`, string(got))
+	})
 }
 
 const racers = 8
