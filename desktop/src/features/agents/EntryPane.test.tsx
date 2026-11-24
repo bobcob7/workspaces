@@ -477,6 +477,13 @@ describe("EntryPane for a remote entry", () => {
     expect(screen.getByText("Runs on linux-server, like its parent")).toBeInTheDocument();
   });
 
+  it("a local child doesn't say it runs on another environment", () => {
+    const parent = entry({ key: "p", workspaceId: "p", name: "parent" });
+    const child = entry({ key: "c", workspaceId: "c", name: "kid", parentId: "p" });
+    renderWithStore(<EntryPane entry={child} />, storeFor({ entries: [parent, child] }));
+    expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
+  });
+
   it("a remote entry without a parent says nothing about one", () => {
     renderWithStore(<EntryPane entry={remoteAgent} />, storeFor());
     expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
