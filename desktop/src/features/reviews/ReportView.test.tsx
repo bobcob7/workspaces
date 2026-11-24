@@ -348,12 +348,49 @@ describe("ReviewsList with reports", () => {
   });
 });
 
+describe("useReports on an offline environment", () => {
+  const offlineStore = (review: ReturnType<typeof reviewRun>, api: Api) => {
+    const store = testStore({
+      api,
+      state: {
+        environments: {
+          items: [remoteEnvironment({ status: "offline", lastSeen: "2026-11-23T14:02:00Z" })],
+          loadedAt: Date.now(),
+          error: null,
+          latestRequestId: null,
+          warnings: [],
+          lastChoice: "local",
+        },
+      },
+    });
+    store.dispatch(fetchReviews.fulfilled(reviewsView({ prs: [pullRequest({ group: "reviewing", reviews: [review] })] }), "req"));
+    return store;
+  };
+
+  it("does not read the report of an offline environment", async () => {
+    const api = fakeApi({ reviewReport: vi.fn(async () => realReport) });
+    renderWithStore(<ReviewsList />, offlineStore(reviewRun({ workspaceId: "r1", environment: "linux-server", status: "done" }), api));
+    await screen.findByText(/buff-bear/);
+    expect(api.reviewReport).not.toHaveBeenCalled();
+  });
+
+  it("does not poll a working review on an offline environment", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const api = fakeApi({ reviewReport: vi.fn(async () => realReport) });
+    renderWithStore(<ReviewsList />, offlineStore(reviewRun({ workspaceId: "r1", environment: "linux-server", status: "working" }), api));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(reportInterval * 3);
+    });
+    expect(api.reviewReport).not.toHaveBeenCalled();
+  });
+});
+
 describe("ReportView on an environment", () => {
   const seen = "2026-11-23T14:02:00Z";
   const reviewId = "review-remote-1";
-  const remoteRun = () => reviewRun({ workspaceId: reviewId, environment: "linux-server" });
+  const remoteRun = (stale = false) => reviewRun({ workspaceId: reviewId, environment: "linux-server", stale });
 
-  const renderRemote = (options: { offline?: boolean; report?: ReviewReport; load?: boolean } = {}) => {
+  const renderRemote = (options: { offline?: boolean; report?: ReviewReport; load?: boolean; stale?: boolean } = {}) => {
     const report = options.report ?? realReport;
     const api = fakeApi({ reviewReport: vi.fn(async () => report), reviewDecide: vi.fn(async () => report) });
     const env = options.offline === true ? remoteEnvironment({ status: "offline", lastSeen: seen }) : remoteEnvironment();
@@ -361,7 +398,7 @@ describe("ReportView on an environment", () => {
       api,
       state: { environments: { items: [env], loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } },
     });
-    const pr = pullRequest({ group: "reviewed", reviews: [remoteRun()] });
+    const pr = pullRequest({ group: "reviewed", reviews: [remoteRun(options.stale === true)] });
     store.dispatch(fetchReviews.fulfilled(reviewsView({ prs: [pr] }), "req"));
     store.dispatch(reviewSelected(pr.key));
     if (options.load === true) {
@@ -418,6 +455,40 @@ describe("ReportView on an environment", () => {
     expect(api.reviewReport).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("tab", { name: "Review agent" }));
     expect(screen.getByRole("region", { name: reviewId })).toHaveAttribute("data-dimmed", "true");
+  });
+
+  it("does not decide from the keyboard on an offline remote report", async () => {
+    const { api } = renderRemote({ offline: true, load: true });
+    const first = await screen.findByRole("button", { name: /^7 Retry-After/ });
+    first.focus();
+    await userEvent.keyboard("c");
+    await userEvent.keyboard("f");
+    await userEvent.keyboard("{Backspace}");
+    expect(api.reviewDecide).not.toHaveBeenCalled();
+  });
+
+  it("neither saves nor drafts a note on an offline remote report", async () => {
+    const { api, store } = renderRemote({ offline: true, load: true });
+    await userEvent.click(await screen.findByRole("button", { name: /^7 Retry-After/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Add a note for the fixer or the comment" }));
+    await userEvent.type(screen.getByLabelText("Note"), "round up");
+    fireEvent.blur(screen.getByLabelText("Note"));
+    expect(api.reviewDecide).not.toHaveBeenCalled();
+    expect(Object.values(store.getState().reports.triage).flatMap((t) => Object.keys(t.notes))).toEqual([]);
+  });
+
+  it("dims a stale remote run on an online environment and says its data may be out of date", async () => {
+    renderRemote({ stale: true });
+    await userEvent.click(await screen.findByRole("tab", { name: "Review agent" }));
+    const card = screen.getByRole("region", { name: reviewId });
+    expect(card).toHaveAttribute("data-dimmed", "true");
+    expect(within(card).getByText("linux-server's data may be out of date")).toBeInTheDocument();
+  });
+
+  it("does not dim a fresh remote run on an online environment", async () => {
+    renderRemote();
+    await userEvent.click(await screen.findByRole("tab", { name: "Review agent" }));
+    expect(screen.getByRole("region", { name: reviewId })).not.toHaveAttribute("data-dimmed");
   });
 
   it("keeps the actions enabled for an online remote run", async () => {
