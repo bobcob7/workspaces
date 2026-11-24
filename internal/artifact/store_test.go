@@ -478,3 +478,21 @@ type steppingClock struct {
 func (c *steppingClock) now() time.Time {
 	return c.at
 }
+
+func TestStore_Put_allOrNothing(t *testing.T) {
+	t.Parallel()
+	s, dir := newTestStore(t, fixedClock(testBase))
+	rec := addText(t, s, "notes.txt", "one\n")
+	artDir := filepath.Join(dir, rec.ID)
+	require.NoError(t, os.WriteFile(filepath.Join(artDir, threadsFile), []byte("{not json"), 0o600))
+	_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("two\n"), By: Person()})
+	require.Error(t, err)
+	assert.NoFileExists(t, revisionPath(artDir, 2))
+	stored, err := readRecord(artDir)
+	require.NoError(t, err)
+	assert.Len(t, stored.Revisions, 1)
+	require.NoError(t, os.Remove(filepath.Join(artDir, threadsFile)))
+	res, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("two\n"), By: Person()})
+	require.NoError(t, err)
+	assert.Len(t, res.Record.Revisions, 2)
+}

@@ -380,54 +380,70 @@ func (s *Store) appendRevision(dir string, rec *Record, n *NewRevision) (PutResu
 	}
 	now := s.now().UTC().Truncate(time.Second)
 	rev := newRevision(latest+1, ct, n.Data, n.Note, n.By, now)
-	if err := writeAtomic(s.tmpDir(), revisionPath(dir, rev.Rev), n.Data); err != nil {
-		return PutResult{}, err
-	}
-	rec.Revisions = append(rec.Revisions, rev)
-	rec.ContentType = ct
-	if err := writeRecord(s.tmpDir(), dir, rec); err != nil {
-		return PutResult{}, err
-	}
-	return s.movedResult(dir, rec, n.Data)
+	next := *rec
+	next.Revisions = append(slices.Clone(rec.Revisions), rev)
+	next.ContentType = ct
+	return s.commitRevision(dir, &next, n.Data)
 }
 
-// movedResult is Put's result once the new revision is written: its threads
-// have been moved to it.
-func (s *Store) movedResult(dir string, rec *Record, data []byte) (PutResult, error) {
-	anchored, detached, err := s.moveAnchors(dir, rec, data)
+// commitRevision writes rec's new latest revision, whose bytes are data. The
+// record write is the commit point: the revision file and the moved anchors
+// are written first, and undone if the record can't be written.
+func (s *Store) commitRevision(dir string, rec *Record, data []byte) (PutResult, error) {
+	old, threads, anchored, detached, err := s.moveAnchors(dir, rec, data)
 	if err != nil {
+		return PutResult{}, err
+	}
+	path := revisionPath(dir, rec.Latest().Rev)
+	if err = writeAtomic(s.tmpDir(), path, data); err != nil {
+		return PutResult{}, err
+	}
+	if threads != nil {
+		if err = writeThreads(s.tmpDir(), dir, threads); err != nil {
+			_ = os.Remove(path)
+			return PutResult{}, err
+		}
+	}
+	if err = writeRecord(s.tmpDir(), dir, rec); err != nil {
+		_ = os.Remove(path)
+		if threads != nil {
+			_ = writeThreads(s.tmpDir(), dir, old)
+		}
 		return PutResult{}, err
 	}
 	return PutResult{Record: *rec, Anchored: anchored, Detached: detached}, nil
 }
 
-// moveAnchors re-anchors every thread in dir to the latest revision of rec,
-// whose bytes are data, and writes comments.json when there are threads. A
-// quote that is gone leaves the thread detached at its last anchor.
-func (s *Store) moveAnchors(dir string, rec *Record, data []byte) (int, int, error) {
+// moveAnchors is dir's threads as they were and as they are once re-anchored
+// to the latest revision of rec, whose bytes are data. Nothing is written;
+// the moved threads are nil when there is nothing to write. A quote that is
+// gone leaves the thread detached at its last anchor.
+func (s *Store) moveAnchors(dir string, rec *Record, data []byte) ([]Thread, []Thread, int, int, error) {
 	if rec.Kind == KindImage {
-		return 0, 0, nil
+		return nil, nil, 0, 0, nil
 	}
-	threads, err := readThreads(dir)
-	if err != nil || len(threads) == 0 {
-		return 0, 0, err
+	old, err := readThreads(dir)
+	if err != nil || len(old) == 0 {
+		return nil, nil, 0, 0, err
 	}
+	threads := slices.Clone(old)
 	anchored, detached := 0, 0
 	text := string(data)
 	for i := range threads {
-		a := threads[i].Anchor
-		if a == nil {
+		if threads[i].Anchor == nil {
 			continue
 		}
-		if moved, ok := Move(text, rec.Latest().Rev, *a); ok {
+		a := *threads[i].Anchor
+		if moved, ok := Move(text, rec.Latest().Rev, a); ok {
 			threads[i].Anchor = &moved
 			anchored++
 			continue
 		}
 		a.State = stateDetached
+		threads[i].Anchor = &a
 		detached++
 	}
-	return anchored, detached, writeThreads(s.tmpDir(), dir, threads)
+	return old, threads, anchored, detached, nil
 }
 
 // checkQuota is ErrFull when extra more bytes would take the store past its
