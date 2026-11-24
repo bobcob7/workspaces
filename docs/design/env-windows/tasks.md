@@ -30,7 +30,7 @@ Common verify block (each task runs it, plus its own lines):
 
 ```bash
 test -z "$(go tool golangci-lint fmt --diff ./...)"   # gofumpt via golangci-lint; gofumpt isn't on PATH
-for a in amd64 arm64; do GOOS=windows GOARCH=$a go tool golangci-lint fmt --diff ./... ; done  # also formats _windows.go files
+L=$(GOOS= GOARCH= go tool -n golangci-lint); for a in amd64 arm64; do GOOS=windows GOARCH=$a "$L" fmt --diff ./... ; done  # also formats _windows.go files
 go build ./... && GOOS=darwin go build ./...
 go test -count=1 -run '^TestRepository$' ./internal/blanklines/
 git diff --exit-code origin/feat/env-windows -- go.mod go.sum
@@ -173,7 +173,7 @@ the lock (ADR 0081)."
 go test -p 2 -count=1 ./internal/lockfile ./internal/workspace ./internal/cache
 GOOS=windows go vet ./internal/lockfile
 for a in amd64 arm64; do GOOS=windows GOARCH=$a go test -c -o /dev/null ./internal/lockfile || exit 1; done
-GOOS=windows go tool golangci-lint run ./internal/lockfile/...
+L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./internal/lockfile/...
 ```
 
 ---
@@ -256,7 +256,7 @@ Never call `signal.Notify` with an empty list (it means every signal):
 for a in amd64 arm64; do GOOS=windows GOARCH=$a go build ./... && GOOS=windows GOARCH=$a go vet ./... || exit 1; done
 mkdir -p /tmp/$USER-wt && for a in amd64 arm64; do GOOS=windows GOARCH=$a go test -c -o /tmp/$USER-wt/ ./... >/dev/null || exit 1; done
 go test -p 2 ./internal/daemon ./internal/privfile ./internal/cli
-GOOS=windows go tool golangci-lint run ./internal/privfile/... ./internal/daemon/... ./internal/cli/...
+L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./internal/privfile/... ./internal/daemon/... ./internal/cli/...
 make lint
 ```
 
@@ -322,7 +322,7 @@ program.
 ```bash
 go test -p 2 ./internal/gate ./internal/shell ./internal/loop
 for p in gate shell; do GOOS=windows go vet ./internal/$p && GOOS=windows go test -c -o /dev/null ./internal/$p || exit 1; done
-GOOS=windows go tool golangci-lint run ./internal/gate/... ./internal/shell/...
+L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./internal/gate/... ./internal/shell/...
 make lint
 ```
 
@@ -365,7 +365,7 @@ Depends on: T3. Parallel with T4, T6. Constraints rows: "Behaviour"
 ```bash
 go test -p 2 ./internal/config ./internal/git ./internal/claude ./internal/mcp ./internal/envagent ./internal/artifact ./internal/machine/... ./cmd/ws
 for p in ./internal/config ./internal/git ./internal/claude ./internal/mcp ./internal/envagent ./internal/artifact ./cmd/ws; do GOOS=windows go vet $p && GOOS=windows go test -c -o /dev/null $p || exit 1; done
-GOOS=windows go tool golangci-lint run ./internal/config/... ./internal/git/... ./internal/claude/... ./internal/mcp/... ./internal/envagent/... ./internal/artifact/...
+L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./internal/config/... ./internal/git/... ./internal/claude/... ./internal/mcp/... ./internal/envagent/... ./internal/artifact/...
 make lint
 ```
 
@@ -411,7 +411,7 @@ Do **not** change the protocol number or any `OpSpec.Since`.
 ```bash
 go test -p 2 ./internal/envagent ./internal/environment ./internal/cli
 for p in ./internal/envagent ./internal/environment ./internal/cli; do GOOS=windows go vet $p && GOOS=windows go test -c -o /dev/null $p || exit 1; done
-GOOS=windows go tool golangci-lint run ./internal/envagent/... ./internal/environment/... ./internal/cli/...
+L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./internal/envagent/... ./internal/environment/... ./internal/cli/...
 make lint
 ```
 
@@ -447,14 +447,14 @@ Verify (here; these tests can't run here):
 ```bash
 for a in amd64 arm64; do for p in lockfile privfile procgroup daemon envagent gate config; do GOOS=windows GOARCH=$a go test -c -o /dev/null ./internal/$p || exit 1; done; done
 GOOS=windows go vet ./internal/...
-GOOS=windows go tool golangci-lint run ./internal/...
+L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./internal/...
 ```
 
 ### Part B: CI, Makefile, release, docs
 
 | File | Change |
 | --- | --- |
-| `.github/workflows/ci.yml` | job `windows-cross` (ubuntu-latest, matrix `arch: [amd64, arm64]`): `GOOS=windows GOARCH=$arch go build ./...`, `go vet ./...`, `go test -c -o "$RUNNER_TEMP/wt/" ./...`; and on amd64 only `GOOS=windows go tool golangci-lint run ./...` |
+| `.github/workflows/ci.yml` | job `windows-cross` (ubuntu-latest, matrix `arch: [amd64, arm64]`): `GOOS=windows GOARCH=$arch go build ./...`, `go vet ./...`, `go test -c -o "$RUNNER_TEMP/wt/" ./...`; and on amd64 only `L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./...` |
 | `.github/workflows/ci.yml` | job `windows` (`runs-on: windows-latest`, `defaults.run.shell: bash`): `go build ./...`, `go vet ./...`, `go test -p 2 $WINDOWS_TESTS` (required), then `go test -p 2 ./... ` with `continue-on-error: true` (informational; its failures decide what joins the list) |
 | `Makefile` | `WINDOWS_TESTS := ./internal/lockfile ./internal/privfile ./internal/procgroup ./internal/envproto ./internal/redact ./internal/power ./internal/llm ./internal/telemetry` plus `-run` filtered runs as a second line: `go test -p 2 -run 'TestSocketBaseDir\|TestPrepareSocketDir' ./internal/daemon`, `-run TestHasPathPrefix ./internal/envagent`, `-run TestFindSh ./internal/gate`, `-run TestUserBaseDir ./internal/config`; a `test-windows` target running both. CI calls `make test-windows` (make exists on windows-latest's Git Bash) |
 | `Makefile` | `PLATFORMS += windows/amd64 windows/arm64`; in `dist`, for `os=windows` build to `dist/ws.exe`, then `cd dist && zip -q ws-windows-$$arch.zip ws.exe && rm ws.exe`; the static-link check stays linux-only; `SHA256SUMS` still from `ws-*` |

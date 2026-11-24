@@ -17,7 +17,7 @@ This pod is linux/amd64 (`Linux 6.18 talos`). There is no Windows host, no
 | Compile for Windows | yes, cross | `GOOS=windows GOARCH=amd64 go build ./...`, same with `GOARCH=arm64` |
 | Vet for Windows | yes, cross | `GOOS=windows go vet ./...` (vet also type-checks `_test.go` files) |
 | Compile test binaries for Windows | yes, cross | `GOOS=windows go test -c -o /dev/null ./internal/<pkg>` (one package per call; `-o` with several packages needs a directory) |
-| Lint the Windows files | yes, cross | `GOOS=windows go tool golangci-lint run ./...` |
+| Lint the Windows files | yes, cross | `L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./...` |
 | Run any test on Windows | **no** | only the `windows-latest` CI job runs them; a task's Windows tests are first run on its PR |
 | Unix behaviour unchanged | yes | `go test -p 2 ./internal/<pkg>` on linux |
 | macOS still compiles | yes, cross | `GOOS=darwin go build ./...` |
@@ -39,7 +39,11 @@ Server image, one user, no Claude Code sign-in):
 - `os.Rename` over a file another process holds open (sharing violations),
   antivirus holding new files open.
 
-## What fails today (Step 1 evidence)
+## What failed before T1-T6 (history)
+
+Measured before the Windows tasks; T1-T6 fixed all of it. The CI jobs
+that now guard it: `windows-cross` (build, vet, `go test -c`, lint) and
+`windows` (tests on `windows-latest`), both in `.github/workflows/ci.yml`.
 
 `GOOS=windows GOARCH=amd64 go build -gcflags=-e ./...` fails in 5 packages
 first; after stubbing those (in a scratch copy, not committed), 2 more
@@ -118,7 +122,7 @@ Found by reading, not by running. Each row names the task that fixes it.
 | `Makefile` `lint`, the ADR 0049 grep | `exec.Command…"/bin/sh"` only in `internal/gate/` | the Windows gate looks for `sh` elsewhere: keep the lookup in `internal/gate` |
 | `Makefile` `lint`, ADR 0003/0024/0039 greps | `exec.Command(…"git"/"claude"/"gh")` only in their packages | a Windows helper runs `git` (e.g. to find `sh.exe` next to it): use `exec.LookPath("git")`, which the grep doesn't match, never `exec.Command("git"…)` outside `internal/git` |
 | `Makefile` `lint`, `internal/blanklines` | no blank lines inside function bodies, in **every** `.go` file including `_windows.go` | a new file has one |
-| `.golangci.yml` | linters run on the host's GOOS only | Windows files are never linted unless CI runs `GOOS=windows go tool golangci-lint run ./...` (T6 adds it) |
+| `.golangci.yml` | linters run on the host's GOOS only | Windows files are never linted unless CI runs `L=$(GOOS= GOARCH= go tool -n golangci-lint); GOOS=windows "$L" run ./...` (T6 adds it) |
 | `internal/cli/errors.go` `errorCode` consts, `exitCode()`, `known()` | every code in all three; `exhaustive` linter | `platform_unsupported` (T5) isn't in all three |
 | `internal/cli/llm_test.go` `TestGuideTopics` | every declared code is in `internal/cli/guides/ws.md`'s exit table row | `platform_unsupported` isn't in row `\| 1 ` |
 | `internal/cli/errors_test.go` `TestErrorCode_exitCode` | samples per exit code | add `platform_unsupported` to the exit-1 subtest |

@@ -276,8 +276,8 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [ ] **Windows environment agent** ([0081](docs/adrs/0081-windows-environment-agent.md),
   proposed): `ws env agent run` built natively for Windows, with terminals and
   `agent.send` refused (`platform_unsupported`) until ConPTY
-  ([design](docs/design/env-windows/tasks.md)). Not built yet; `ws` doesn't
-  compile for Windows today, and nothing has been run on a Windows machine
+  ([design](docs/design/env-windows/tasks.md)). Built and tested in CI; not yet
+  run on a Windows machine with Claude Code
 
 Longer term, `ws` aims to depend on no particular model, provider or
 agent harness, with Claude Code staying the default until measured runs
