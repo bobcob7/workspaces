@@ -61,14 +61,23 @@ type loopRunResult struct {
 
 func (a *App) newLoopRunCmd() *cobra.Command {
 	var force bool
+	var remote loopEnvOptions
 	cmd := &cobra.Command{
 		Use:   "run [--force] <NAME>",
 		Short: "Start a run of a loop now",
 		Args:  cobra.ExactArgs(1),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoopRun(cmd.Context(), env, args[0], force)
+			}
 			return a.runLoopRun(cmd.Context(), args[0], force)
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
 	cmd.Flags().BoolVar(&force, "force", false, "start the run without running the loop's script")
 	return cmd
 }

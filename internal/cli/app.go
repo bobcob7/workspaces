@@ -91,6 +91,9 @@ type App struct {
 	// dialEnvironments is the client to the daemon's call endpoint, started
 	// when none runs (ADR 0068): the daemon's client, unless a test replaces it.
 	dialEnvironments func(ctx context.Context) (environmentCaller, error)
+	// presence is the status the running daemon reports for each environment
+	// name; tests replace it.
+	presence func(ctx context.Context) map[string]string
 	// dialTerminals is the client that opens remote terminals through the
 	// daemon, started when none runs: the daemon's client, unless a test
 	// replaces it.
@@ -180,6 +183,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	}
 	a.dialDaemon = a.dialDaemonClient
 	a.dialEnvironments = a.dialEnvironmentCaller
+	a.presence = a.environmentPresence
 	a.dialTerminals = a.dialTerminalOpener
 	a.stdinTerminal = a.stdinIsTerminal
 	a.rawMode = a.localRawMode

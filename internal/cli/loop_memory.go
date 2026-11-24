@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/loop"
 )
 
@@ -85,40 +86,68 @@ func (a *App) newLoopMemoryCmd() *cobra.Command {
 }
 
 func (a *App) newLoopMemoryListCmd() *cobra.Command {
-	return &cobra.Command{
+	var remote loopEnvOptions
+	cmd := &cobra.Command{
 		Use:   "list <NAME>",
 		Short: "List a loop's memory",
 		Args:  exactArgs(1, "loop name"),
-		RunE: runE(a.withConfig(func(_ *cobra.Command, args []string) error {
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoop(cmd.Context(), env, envproto.OpLoopMemoryList, envproto.LoopName{Name: args[0]})
+			}
 			if err := a.requireLoop(args[0]); err != nil {
 				return err
 			}
 			return a.memoryList(args[0])
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	return cmd
 }
 
 func (a *App) newLoopMemoryGetCmd() *cobra.Command {
-	return &cobra.Command{
+	var remote loopEnvOptions
+	cmd := &cobra.Command{
 		Use:   "get <NAME> <KEY>",
 		Short: "Print one memory value",
 		Args:  exactArgs(2, "arguments: a loop name and a key"),
-		RunE: runE(a.withConfig(func(_ *cobra.Command, args []string) error {
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteLoop(cmd.Context(), env, envproto.OpLoopMemoryGet, envproto.LoopMemoryKey{Name: args[0], Key: args[1]})
+			}
 			if err := a.requireLoop(args[0]); err != nil {
 				return err
 			}
 			return a.memoryGet(args[0], args[1])
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	return cmd
 }
 
 func (a *App) newLoopMemorySetCmd() *cobra.Command {
 	var opts memorySetOptions
+	var remote loopEnvOptions
 	cmd := &cobra.Command{
 		Use:   "set [--expect-rev <N>] [--file <PATH> | --file -] <NAME> <KEY> [<VALUE>]",
 		Short: "Set one memory value",
 		Args:  argsBetween(2, 3, "arguments: a loop name, a key, and a value"),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteMemorySet(cmd, env, args, &opts)
+			}
 			value, err := a.memoryValue(args[2:], opts.file)
 			if err != nil {
 				return err
@@ -130,16 +159,26 @@ func (a *App) newLoopMemorySetCmd() *cobra.Command {
 		})),
 	}
 	addMemorySetFlags(cmd, &opts)
+	addLoopEnvFlag(cmd, &remote)
 	return cmd
 }
 
 func (a *App) newLoopMemoryRmCmd() *cobra.Command {
 	var opts memorySetOptions
+	var remote loopEnvOptions
 	cmd := &cobra.Command{
 		Use:   "rm [--expect-rev <N>] <NAME> <KEY>",
 		Short: "Remove one memory value",
 		Args:  exactArgs(2, "arguments: a loop name and a key"),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				call := envproto.LoopMemoryKey{Name: args[0], Key: args[1], ExpectRev: expectRevOf(cmd, &opts)}
+				return a.runRemoteLoop(cmd.Context(), env, envproto.OpLoopMemoryRm, call)
+			}
 			if err := a.requireLoop(args[0]); err != nil {
 				return err
 			}
@@ -147,21 +186,33 @@ func (a *App) newLoopMemoryRmCmd() *cobra.Command {
 		})),
 	}
 	cmd.Flags().IntVar(&opts.expectRev, "expect-rev", loop.AnyRev, expectRevUsage)
+	addLoopEnvFlag(cmd, &remote)
 	return cmd
 }
 
 func (a *App) newLoopMemoryClearCmd() *cobra.Command {
-	return &cobra.Command{
+	var remote loopEnvOptions
+	cmd := &cobra.Command{
 		Use:   "clear <NAME>",
 		Short: "Remove all of a loop's memory",
 		Args:  exactArgs(1, "loop name"),
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
+			env, err := a.loopEnv(&remote)
+			if err != nil {
+				return err
+			}
+			if env != "" {
+				return a.runRemoteMemoryClear(cmd.Context(), env, args[0], remote.yes)
+			}
 			if err := a.requireLoop(args[0]); err != nil {
 				return err
 			}
 			return a.memoryClear(cmd.Context(), args[0])
 		})),
 	}
+	addLoopEnvFlag(cmd, &remote)
+	addLoopYesFlag(cmd, &remote)
+	return cmd
 }
 
 // expectRevUsage is the --expect-rev flag's help text.

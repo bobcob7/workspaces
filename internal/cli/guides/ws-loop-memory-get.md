@@ -1,8 +1,10 @@
 # ws loop memory get
 
 ```
-ws loop memory get [--json] <NAME> <KEY>
+ws loop memory get [--json] [--env <NAME>] <NAME> <KEY>
 ```
+
+`--env <NAME>` runs it on that environment (`ws env list`).
 
 Prints one key's value. Text output is the value exactly as stored, with no
 trailing newline added.

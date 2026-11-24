@@ -1,8 +1,10 @@
 # ws loop memory list
 
 ```
-ws loop memory list [--json] <NAME>
+ws loop memory list [--json] [--env <NAME>] <NAME>
 ```
+
+`--env <NAME>` runs it on that environment (`ws env list`).
 
 Lists a loop's memory, sorted by key. Text output is one line per key: the
 key, its revision, when it was last changed, and the first line of its value,

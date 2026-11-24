@@ -1,8 +1,10 @@
 # ws loop memory rm
 
 ```
-ws loop memory rm [--json] [--expect-rev <N>] <NAME> <KEY>
+ws loop memory rm [--json] [--env <NAME>] [--expect-rev <N>] <NAME> <KEY>
 ```
+
+`--env <NAME>` runs it on that environment (`ws env list`).
 
 Removes one key from a loop's memory.
 

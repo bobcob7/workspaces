@@ -1,8 +1,10 @@
 # ws loop list
 
 ```
-ws loop list [--json]
+ws loop list [--json] [--env <NAME> [--cached]]
 ```
+
+`--env <NAME>` lists that environment's loops, from the environment when it is online. `--cached` reads the loops from its last snapshot instead, which also works offline; those loops have no prompt, script or vars (`"summary": true`) and carry `environment`, `stale`, and at the top `environment_status` and `loops_unknown`. Without `--env` only this machine's loops are listed.
 
 Lists every loop, by name. A loop file that can't be read, or that is from a
 newer `ws`, is a warning and isn't listed.

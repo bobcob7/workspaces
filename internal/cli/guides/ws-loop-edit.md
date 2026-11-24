@@ -1,8 +1,10 @@
 # ws loop edit
 
 ```
-ws loop edit [--json] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--runner claude|ws] [--endpoint <name>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [--hidden[=BOOL] | --show] [<SPEC>...]
+ws loop edit [--json] [--env <NAME>] [--yes] <NAME> [--title <TITLE>] [--every <PERIOD>] [--prompt <TEXT>] [--keep <N>] [--runner claude|ws] [--endpoint <name>] [--model <M>] [--permission-mode <P>] [--script <TEXT>] [--script-timeout <DUR>] [--var <KEY>=<VALUE>]... [--no-script] [--no-vars] [--no-specs] [--hidden[=BOOL] | --show] [<SPEC>...]
 ```
+
+`--env <NAME>` edits the loop on that environment, sending only the flags given. Setting a `--script` or `--permission-mode bypassPermissions` needs `--yes`, as for `ws loop add`.
 
 Changes a loop in place. Only what's given changes: the loop's runs,
 `created_at`, and paused state are kept. The edited loop is checked exactly

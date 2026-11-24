@@ -1,8 +1,10 @@
 # ws loop memory clear
 
 ```
-ws loop memory clear [--json] <NAME>
+ws loop memory clear [--json] [--env <NAME>] [--yes] <NAME>
 ```
+
+`--env <NAME>` clears the memory on that environment, which needs `--yes`. Locally `--yes` does nothing.
 
 Removes every key from a loop's memory, and prints how many were removed.
 

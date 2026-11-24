@@ -1,8 +1,10 @@
 # ws loop pause
 
 ```
-ws loop pause [--json] <NAME>
+ws loop pause [--json] [--env <NAME>] <NAME>
 ```
+
+`--env <NAME>` runs it on that environment (`ws env list`).
 
 Stops a loop from starting runs. A run already started keeps going. Pausing
 a paused loop changes nothing.

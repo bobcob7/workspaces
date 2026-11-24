@@ -1,8 +1,10 @@
 # ws loop run
 
 ```
-ws loop run [--json] [--force] <NAME>
+ws loop run [--json] [--env <NAME>] [--force] <NAME>
 ```
+
+`--env <NAME>` runs it on that environment (`ws env list`).
 
 Starts a run of the loop now, in a new workspace, whether or not the loop
 is paused, due, or busy. The loop's `next_run_at` and its pause state stay
