@@ -93,7 +93,8 @@ func TryExclusiveLock(path string) (lock *Lock, ok bool, err error) {
 // open file, so a child process given File, for example in
 // exec.Cmd.ExtraFiles, holds the same lock: it stays held until this
 // process and every such child have closed their descriptors.
-// On Windows a child given the file doesn't hold the lock (ADR 0081).
+// InheritableLocks says whether that holds on this OS: on Windows a child
+// given the file doesn't hold the lock, so it ends with this process.
 func (l *Lock) File() *os.File {
 	return l.f
 }

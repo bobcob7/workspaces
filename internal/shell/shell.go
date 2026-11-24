@@ -48,7 +48,9 @@ type Session struct {
 	// of the same name.
 	Env []string
 	// Lock, if set, is passed to the shell as file descriptor 3, so the
-	// shell and every command it starts hold it (ADR 0015).
+	// shell and every command it starts hold it (ADR 0015). On Windows
+	// (lockfile.InheritableLocks is false) only ws holds it: the shell and
+	// the jobs it leaves behind don't, so cleanup isn't blocked by them.
 	Lock *os.File
 	// AfterExit, if set, runs once the shell has exited or failed to
 	// start, while ws still catches the signals Run handles, so they can't

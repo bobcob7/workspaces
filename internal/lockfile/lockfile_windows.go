@@ -7,6 +7,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// InheritableLocks is false on Windows: a LockFileEx lock isn't shared through
+// an inherited handle, so a child given a Lock's File doesn't hold it (ADR 0081).
+const InheritableLocks = false
+
 // tryLock takes f's lock without waiting. held is true, with a nil error,
 // when another holder has it, which LOCKFILE_FAIL_IMMEDIATELY reports as
 // ERROR_LOCK_VIOLATION. Any other failure, including ERROR_IO_PENDING, is
