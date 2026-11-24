@@ -232,8 +232,9 @@ Each one replaces the text above it.
   terminal when its MQTT connection drops, and the controller ends the
   terminals of an environment that goes offline. The controller pings every
   15 s, and the agent closes a terminal with no frame for 60 s. An agent
-  allows 8 terminals at once (`terminal_limit`), and input over 128 KiB or
-  500 frames in a window is refused as `input_limit`.
+  allows 8 terminals at once (`terminal_limit`), and closes a terminal whose
+  input exceeds 128 KiB/s or 500 frames/s (`input_limit`); the CLI paces
+  pasted input at 64 KiB/s.
 - **Where it was weak: measured.** The spike
   ([terminal-spike.md](../design/remote-environments/terminal-spike.md))
   found echo latency and throughput within the design's limits on every
