@@ -98,11 +98,15 @@ func TestCheckDACL(t *testing.T) {
 		require.NoError(t, sd.SetDACL(nil, true, false))
 		assert.ErrorIs(t, checkOwnerAndDACL("null", user, sd), ErrNotPrivate)
 	})
+	t.Run("a nil DACL is not private", func(t *testing.T) {
+		t.Parallel()
+		assert.ErrorIs(t, checkDACL("nil", user, nil), ErrNotPrivate)
+	})
 	t.Run("an empty DACL is not private", func(t *testing.T) {
 		t.Parallel()
-		dacl, err := windows.ACLFromEntries(nil, nil)
-		require.NoError(t, err)
-		assert.ErrorIs(t, checkDACL("empty", user, dacl), ErrNotPrivate)
+		empty := &windows.ACL{}
+		require.Zero(t, empty.AceCount)
+		assert.ErrorIs(t, checkDACL("empty", user, empty), ErrNotPrivate)
 	})
 	t.Run("a deny entry is not private", func(t *testing.T) {
 		t.Parallel()
