@@ -231,7 +231,7 @@ describe("ReportView", () => {
     renderReport(report, pullRequest({ group: "reviewing", reviews: [reviewRun({ status: "working" })] }));
     expect(await screen.findByText(/2 of 3 profiles have submitted/)).toBeInTheDocument();
     expect(screen.getByText("not in yet")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Comment…" })).toBeDisabled();
+    expect(within(screen.getByLabelText("Actions")).getByRole("button", { name: /^Comment/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Fix…" })).toBeDisabled();
   });
 
@@ -402,11 +402,14 @@ describe("ReportView on an environment", () => {
   });
 
   it("dims an offline remote run and disables its report actions", async () => {
-    const { api } = renderRemote({ offline: true, load: true });
+    const decidedReport = reviewReport({
+      comments: realReport.comments.map((c, i) => (i === 0 ? { ...c, decision: { decision: "comment", suggestion: null, note: "", at: "2026-10-26T18:30:00Z", done: null } } : c)),
+    });
+    const { api } = renderRemote({ offline: true, load: true, report: decidedReport });
     const reason = `linux-server is offline (last seen ${clock(seen, Date.now())})`;
     expect(await screen.findByText(reason)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open full report" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Comment…" })).toBeDisabled();
+    expect(within(screen.getByLabelText("Actions")).getByRole("button", { name: /^Comment/ })).toBeDisabled();
     expect(within(screen.getByLabelText("Actions")).getByRole("button", { name: /^Fix/ })).toBeDisabled();
     for (const name of ["Comment", "Fix", "Skip"]) {
       expect(within(screen.getByRole("group", { name: "Decision for security:retry-after-zero-1" })).getByRole("button", { name })).toBeDisabled();

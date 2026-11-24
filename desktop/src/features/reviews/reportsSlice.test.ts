@@ -124,4 +124,14 @@ describe("remote reports", () => {
     expect(state.byKey[reportKey(repo, ref, "linux-server")]?.report).toEqual(realReport);
     expect(state.byKey[reportKey(repo, ref)]).toBeUndefined();
   });
+
+  it("keeps when a report was read after a later read fails", () => {
+    const arg = { repo: "r", ref: "x", refresh: true, environment: "linux-server" };
+    const read = reportsReducer(undefined, fetchReport.fulfilled(realReport, "a", arg));
+    const failed = reportsReducer(read, fetchReport.rejected(new Error("offline"), "b", arg));
+    const key = reportKey("r", "x", "linux-server");
+    expect(read.byKey[key]?.loadedAt).toBeTypeOf("number");
+    expect(failed.byKey[key]?.loadedAt).toBe(read.byKey[key]?.loadedAt);
+    expect(failed.byKey[key]?.report).toBe(realReport);
+  });
 });

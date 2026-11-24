@@ -179,6 +179,7 @@ describe("StartReviewDialog", () => {
       await userEvent.click(screen.getByRole("option", { name: "mac-mini" }));
       await userEvent.click(screen.getByRole("button", { name: "Start review" }));
       expect(api.reviewsStart).toHaveBeenCalledWith(reviewPlan({ environment: "mac-mini", profiles: [] }));
+      expect(vi.mocked(api.reviewsStart).mock.calls[0]?.[0]).not.toHaveProperty("confirmed");
     });
 
     it("disables start with the reason when the environment is offline", async () => {
