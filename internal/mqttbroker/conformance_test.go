@@ -6,8 +6,10 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -33,6 +35,9 @@ import (
 	"github.com/bobcob7/workspaces/internal/git"
 	"github.com/bobcob7/workspaces/internal/mqttbroker"
 	"github.com/bobcob7/workspaces/internal/mqttclient"
+	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/review/record"
+	"github.com/bobcob7/workspaces/internal/review/store"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -427,6 +432,13 @@ type cliAgent struct {
 // non-empty via is the address the agent dials instead of the broker's.
 func startCLIAgent(t *testing.T, s *stack, via string) *cliAgent {
 	t.Helper()
+	return startCLIAgentWith(t, s, via, "")
+}
+
+// startCLIAgentWith is startCLIAgent for a machine whose config.toml holds
+// configTOML before the agent runs.
+func startCLIAgentWith(t *testing.T, s *stack, via, configTOML string) *cliAgent {
+	t.Helper()
 	_, code, _, err := s.store.Add(t.Context(), "linux", s.enrollAddr)
 	require.NoError(t, err)
 	dir := t.TempDir()
@@ -446,6 +458,9 @@ func startCLIAgent(t *testing.T, s *stack, via string) *cliAgent {
 		replaced := strings.Replace(string(raw), s.brokerAddr, via, 1)
 		require.NotEqual(t, string(raw), replaced, "the broker address isn't in the identity file")
 		require.NoError(t, os.WriteFile(file, []byte(replaced), 0o600))
+	}
+	if configTOML != "" {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(configTOML), 0o600))
 	}
 	a := &cliAgent{dir: dir, stopped: make(chan struct{})}
 	a.attach = makeClaudeWorkspace(t, dir, environ)
@@ -646,4 +661,232 @@ func TestConformance_terminals(t *testing.T) {
 	})
 	assert.Eventually(t, func() bool { return childProcesses() == 0 }, eventually, 50*time.Millisecond, "pty children were left behind")
 	assert.Eventually(t, func() bool { return runtime.NumGoroutine() <= goroutines+5 }, eventually, 50*time.Millisecond, "goroutines were left behind: %d, was %d", runtime.NumGoroutine(), goroutines)
+}
+
+// callOp sends op with args (a value, marshalled as is) to the environment
+// "linux" through the controller, as the controller's call endpoint does.
+func callOp(t *testing.T, s *stack, op string, args any) envproto.Reply {
+	t.Helper()
+	raw, err := json.Marshal(args)
+	require.NoError(t, err)
+	spec, ok := envproto.LookupOp(op)
+	require.True(t, ok, op)
+	id := make([]byte, 8)
+	_, err = rand.Read(id)
+	require.NoError(t, err)
+	reply, err := s.ctrl.Call(t.Context(), "linux", environment.CallRequest{
+		Op: op, Args: raw, RequestID: hex.EncodeToString(id), Deadline: time.Now().Add(spec.Timeout).UTC(),
+	})
+	require.NoError(t, err, op)
+	return reply
+}
+
+// requireRefused fails unless reply is a refusal with code.
+func requireRefused(t *testing.T, reply envproto.Reply, code string) {
+	t.Helper()
+	require.False(t, reply.OK, "the agent ran it")
+	require.NotNil(t, reply.Error)
+	assert.Equal(t, code, reply.Error.Code, reply.Error.Message)
+}
+
+const (
+	reviewID     = "review-buff-bear-42-3f2a9c1-d8efb24f"
+	reviewCommit = "3f2a9c1e4b5d6f7a8b9c0d1e2f3a4b5c6d7e8f90"
+)
+
+// seedReview stores a finished review called id, with comments submitted for
+// its security profile, in the agent's CONFIG_DIR.
+func seedReview(t *testing.T, a *cliAgent, id string, comments []string) {
+	t.Helper()
+	paths := config.NewPaths(a.dir)
+	reviews := store.New(paths.Reviews)
+	rec := record.Record{
+		Repo: "github.com/bobcob7/buff-bear", Ref: reviewCommit, StartedAt: time.Now().UTC(),
+		Profiles: []record.Profile{{Name: "security", Model: "opus"}},
+	}
+	require.NoError(t, reviews.SaveRun(id, &rec))
+	repoID, err := repo.ParseID(rec.Repo)
+	require.NoError(t, err)
+	doc := `{"version":"1","verdict":"comment","profile":"security","summary":"s","comments":[` + strings.Join(comments, ",") + `]}`
+	_, err = reviews.Submit(t.Context(), repoID, reviewCommit, "security", []byte(doc))
+	require.NoError(t, err)
+}
+
+// reviewComment is comment number n with body.
+func reviewComment(n int, body string) string {
+	return fmt.Sprintf(`{"id":"c-%d","priority":5,"category":"style","body":%q,"anchors":[{"file":"client.go","line":1}],"suggestions":[]}`, n, body)
+}
+
+// addLoop adds a loop called name through loop.add and requires it to work.
+func addLoop(t *testing.T, s *stack, name string) {
+	t.Helper()
+	reply := callOp(t, s, envproto.OpLoopAdd, map[string]any{"name": name, "every": "1h", "prompt": "Do it"})
+	require.True(t, reply.OK, "%+v", reply.Error)
+}
+
+func TestConformance_reviewsLoops(t *testing.T) {
+	t.Run("review.start to a protocol 2 agent is environment_outdated", func(t *testing.T) {
+		s := newStack(t)
+		old := s.enroll(t, "old")
+		hello := envproto.Hello{
+			Status: envproto.StatusOnline, At: time.Now().UTC(), WSVersion: "0.30.0", OS: "linux", Arch: "amd64",
+			Claude: envproto.ClaudeMissing, CertSerial: "1", CertNotAfter: time.Now().Add(time.Hour).UTC(),
+			CAFingerprints: []string{}, Protocol: 2,
+		}
+		payload, err := json.Marshal(hello)
+		require.NoError(t, err)
+		client, err := dial(t, &old, old.identity.TLSConfig(), s.brokerAddr)
+		require.NoError(t, err)
+		require.NoError(t, client.Publish(t.Context(), envproto.Message{Topic: envproto.Topic(old.identity.ID, envproto.LeafStatus), Payload: payload, QoS: 1, Retain: true}))
+		s.waitStatus(t, "old", "online")
+		args, err := json.Marshal(&envproto.ReviewStartArgs{Repo: "o/n", PR: new(1)})
+		require.NoError(t, err)
+		_, err = s.ctrl.Call(t.Context(), "old", environment.CallRequest{Op: envproto.OpReviewStart, Args: args, RequestID: "0123456789abcdef", Deadline: time.Now().Add(time.Minute)})
+		outdated, ok := errors.AsType[*environment.OutdatedError](err)
+		require.True(t, ok, "%v", err)
+		assert.Equal(t, 3, outdated.Need)
+		assert.Equal(t, 2, outdated.Protocol)
+	})
+	t.Run("a 300-comment report arrives whole through pages", func(t *testing.T) {
+		s := newStack(t)
+		a := startCLIAgent(t, s, "")
+		comments := make([]string, 300)
+		for i := range comments {
+			comments[i] = reviewComment(i, strings.Repeat("x", 3000))
+		}
+		seedReview(t, a, reviewID, comments)
+		seen, offset := map[string]bool{}, 0
+		for pages := 0; ; pages++ {
+			require.Less(t, pages, 30)
+			reply := callOp(t, s, envproto.OpReviewReport, &envproto.ReviewReportArgs{Review: reviewID, Section: "comments", Offset: offset})
+			require.True(t, reply.OK, "%+v", reply.Error)
+			assert.LessOrEqual(t, len(reply.Result), envproto.MaxPageBytes)
+			var page struct {
+				Comments []struct {
+					ID string `json:"id"`
+				} `json:"comments"`
+				Next  *int `json:"next_offset"`
+				Total int  `json:"total"`
+			}
+			require.NoError(t, json.Unmarshal(reply.Result, &page))
+			assert.Equal(t, 300, page.Total)
+			for _, c := range page.Comments {
+				seen[c.ID] = true
+			}
+			if page.Next == nil {
+				break
+			}
+			offset = *page.Next
+		}
+		assert.Len(t, seen, 300)
+	})
+	t.Run("a ghp token in a comment never appears in any MQTT payload", func(t *testing.T) {
+		s := newStack(t)
+		a := startCLIAgent(t, s, "")
+		token := "ghp_" + strings.Repeat("Q", 36)
+		var mu sync.Mutex
+		var payloads [][]byte
+		unsubscribe, err := s.broker.Subscribe(t.Context(), "#", func(msg envproto.Message) {
+			mu.Lock()
+			defer mu.Unlock()
+			payloads = append(payloads, append([]byte{}, msg.Payload...))
+		})
+		require.NoError(t, err)
+		defer unsubscribe()
+		seedReview(t, a, reviewID, []string{reviewComment(0, "leaked "+token+" here")})
+		reply := callOp(t, s, envproto.OpReviewReport, &envproto.ReviewReportArgs{Review: reviewID, Section: "comments", Offset: 0})
+		require.True(t, reply.OK, "%+v", reply.Error)
+		assert.Contains(t, string(reply.Result), "[redacted]")
+		mu.Lock()
+		defer mu.Unlock()
+		require.NotEmpty(t, payloads)
+		reports := 0
+		for _, p := range payloads {
+			assert.NotContains(t, string(p), token)
+			assert.NotContains(t, string(p), "ghp_QQ")
+			if bytes.Contains(p, []byte("[redacted]")) {
+				reports++
+			}
+		}
+		assert.Positive(t, reports, "the report never crossed the broker")
+	})
+	t.Run("loop.rm sent raw without confirm is refused by the agent", func(t *testing.T) {
+		s := newStack(t)
+		startCLIAgent(t, s, "")
+		addLoop(t, s, "deps")
+		requireRefused(t, callOp(t, s, envproto.OpLoopRm, map[string]any{"name": "deps", "confirm": false}), "usage")
+		requireRefused(t, callOp(t, s, envproto.OpLoopRm, map[string]any{"name": "deps"}), "usage")
+		reply := callOp(t, s, envproto.OpLoopShow, map[string]any{"name": "deps"})
+		require.True(t, reply.OK, "the loop is still there")
+		reply = callOp(t, s, envproto.OpLoopRm, map[string]any{"name": "deps", "confirm": true})
+		require.True(t, reply.OK, "%+v", reply.Error)
+		requireRefused(t, callOp(t, s, envproto.OpLoopShow, map[string]any{"name": "deps"}), "loop_not_found")
+	})
+	t.Run("loop.memory_set of a redacted value is refused", func(t *testing.T) {
+		s := newStack(t)
+		startCLIAgent(t, s, "")
+		addLoop(t, s, "deps")
+		requireRefused(t, callOp(t, s, envproto.OpLoopMemorySet, map[string]any{"name": "deps", "key": "token", "value": "[redacted]"}), "usage")
+		requireRefused(t, callOp(t, s, envproto.OpLoopMemoryGet, map[string]any{"name": "deps", "key": "token"}), "memory_not_found")
+	})
+	t.Run("a script is refused when the remote turned scripts off", func(t *testing.T) {
+		s := newStack(t)
+		startCLIAgentWith(t, s, "", "[environments]\nagent_loop_scripts = false\n")
+		requireRefused(t, callOp(t, s, envproto.OpLoopAdd, map[string]any{"name": "gated", "every": "1h", "prompt": "Do it", "script": "true", "confirm": true}), "usage")
+		requireRefused(t, callOp(t, s, envproto.OpLoopShow, map[string]any{"name": "gated"}), "loop_not_found")
+		addLoop(t, s, "plain")
+	})
+	t.Run("the 13th review.start in an hour is operation_limited", func(t *testing.T) {
+		s := newStack(t)
+		startCLIAgent(t, s, "")
+		args := &envproto.ReviewStartArgs{Repo: "o/n", PR: new(1)}
+		for range 12 {
+			reply := callOp(t, s, envproto.OpReviewStart, args)
+			require.False(t, reply.OK)
+			require.NotEqual(t, envproto.CodeOperationLimited, reply.Error.Code)
+		}
+		reply := callOp(t, s, envproto.OpReviewStart, args)
+		requireRefused(t, reply, envproto.CodeOperationLimited)
+		assert.Contains(t, reply.Error.Details, "retry_after_seconds")
+	})
+	t.Run("the controller's snapshot lists the remote's loops without prompts", func(t *testing.T) {
+		s := newStack(t)
+		startCLIAgent(t, s, "")
+		reply := callOp(t, s, envproto.OpLoopAdd, map[string]any{"name": "deps", "title": "Deps", "every": "1h", "prompt": "SECRET-PROMPT-TEXT", "vars": map[string]string{"K": "SECRET-VAR-VALUE"}})
+		require.True(t, reply.OK, "%+v", reply.Error)
+		require.Eventually(t, func() bool {
+			_, snap, err := s.store.Snapshot("linux")
+			return err == nil && len(snap.Loops) == 1
+		}, eventually, 20*time.Millisecond, "the snapshot has no loops")
+		raw, err := s.store.ReadSnapshot("linux")
+		require.NoError(t, err)
+		assert.Contains(t, string(raw), `"deps"`)
+		assert.NotContains(t, string(raw), "SECRET-PROMPT-TEXT")
+		assert.NotContains(t, string(raw), "SECRET-VAR-VALUE")
+	})
+	t.Run("a review id with .. is refused", func(t *testing.T) {
+		s := newStack(t)
+		startCLIAgent(t, s, "")
+		for _, id := range []string{"..", "../x", "a/b", "-x"} {
+			requireRefused(t, callOp(t, s, envproto.OpReviewStatus, map[string]any{"review": id}), "usage")
+			requireRefused(t, callOp(t, s, envproto.OpReviewReport, map[string]any{"review": id, "section": "comments", "offset": 0}), "usage")
+		}
+	})
+	t.Run("a loop name with / is refused", func(t *testing.T) {
+		s := newStack(t)
+		a := startCLIAgent(t, s, "")
+		for _, name := range []string{"../x", "a/b", "A", ".hidden"} {
+			requireRefused(t, callOp(t, s, envproto.OpLoopShow, map[string]any{"name": name}), "name_invalid")
+			requireRefused(t, callOp(t, s, envproto.OpLoopAdd, map[string]any{"name": name, "every": "1h", "prompt": "x"}), "name_invalid")
+		}
+		written, err := filepath.Glob(filepath.Join(a.dir, "loops", "*.toml"))
+		require.NoError(t, err)
+		assert.Empty(t, written, "a loop was written")
+	})
+	t.Run("bypassPermissions is refused for review.start", func(t *testing.T) {
+		s := newStack(t)
+		startCLIAgent(t, s, "")
+		requireRefused(t, callOp(t, s, envproto.OpReviewStart, map[string]any{"repo": "o/n", "pr": 1, "permission_mode": "bypassPermissions"}), "usage")
+		requireRefused(t, callOp(t, s, envproto.OpReviewStart, map[string]any{"repo": "o/n", "pr": 1, "permission_mode": "bypassPermissions", "confirm": true}), "usage")
+	})
 }
