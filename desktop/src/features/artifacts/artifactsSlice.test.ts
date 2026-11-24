@@ -70,7 +70,21 @@ describe("artifacts", () => {
     expect(artifactList).toHaveBeenCalled();
     expect(store.getState().artifacts.items.map((item) => item.id)).toEqual(["art-00000001"]);
     expect(store.getState().artifacts.uploads).toEqual([]);
-    expect(store.getState().ui.notice).toEqual({ severity: "error", message: "disk full" });
+    expect(store.getState().ui.notice).toEqual({ severity: "error", message: "second.txt: disk full" });
+  });
+
+  it("selects the file already stored when a later file fails", async () => {
+    const first = summary("art-00000001");
+    const artifactAdd = vi.fn(async (name: string) => {
+      if (name === "second.txt") {
+        throw { code: "ws_failed", message: "disk full" };
+      }
+      return asArtifact(first);
+    });
+    const store = testStore({ api: fakeApi({ artifactAdd, artifactList: vi.fn(async () => [first]) }) });
+    const stored = await store.dispatch(uploadArtifacts([new File(["a"], "first.txt"), new File(["b"], "second.txt")]));
+    expect(stored.payload).toEqual([asArtifact(first)]);
+    expect(store.getState().artifacts.selected).toBe("art-00000001");
   });
 
   it("clears the upload row when an upload is refused", async () => {

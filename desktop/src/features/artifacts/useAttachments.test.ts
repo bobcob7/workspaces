@@ -1,5 +1,68 @@
-import { describe, expect, it } from "vitest";
-import { insertAt, insertAtCaret, removeReference } from "./useAttachments";
+import { act, renderHook } from "@testing-library/react";
+import { createElement, useState, type ReactNode } from "react";
+import { Provider } from "react-redux";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { api, type Artifact } from "../../api";
+import { fakeApi, testStore } from "../../test/fixtures";
+import { insertAt, insertAtCaret, insertAtSelection, removeReference, useAttachments } from "./useAttachments";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const stored = (id: string): Artifact => ({ id }) as Artifact;
+
+describe("useAttachments", () => {
+  const setup = (element: HTMLTextAreaElement, initial: string) =>
+    renderHook(
+      () => {
+        const [text, setText] = useState(initial);
+        const attachments = useAttachments(
+          (reference, selection) => setText((current) => insertAtSelection(current, selection, reference)),
+          () => element,
+        );
+        return { text, attachments };
+      },
+      { wrapper: ({ children }: { children: ReactNode }) => createElement(Provider, { store: testStore({ api: fakeApi() }), children }) },
+    );
+
+  it("inserts several files in order at the caret read when attach was called", async () => {
+    vi.spyOn(api, "artifactAdd").mockImplementation(async (name: string) => stored(`art-${name}`));
+    const element = document.createElement("textarea");
+    element.value = "fix it";
+    element.setSelectionRange(4, 4);
+    const { result } = setup(element, "fix it");
+    const files = ["a", "b", "c"].map((name) => new File(["x"], name));
+
+    let attaching: Promise<void> = Promise.resolve();
+    act(() => {
+      attaching = result.current.attachments.attach(files);
+    });
+    element.setSelectionRange(0, 0);
+    await act(async () => {
+      await attaching;
+    });
+
+    expect(result.current.text).toBe("fix @artifact:art-a @artifact:art-b @artifact:art-c it");
+  });
+
+  it("inserts the references of the files stored when a later one fails", async () => {
+    vi.spyOn(api, "artifactAdd").mockImplementation(async (name: string) => {
+      if (name === "b") {
+        throw { code: "ws_failed", message: "disk full" };
+      }
+      return stored(`art-${name}`);
+    });
+    const element = document.createElement("textarea");
+    const { result } = setup(element, "");
+
+    await act(async () => {
+      await result.current.attachments.attach([new File(["x"], "a"), new File(["x"], "b")]);
+    });
+
+    expect(result.current.text).toBe("@artifact:art-a ");
+  });
+});
 
 describe("insertAt", () => {
   it("replaces the selected characters with the inserted text", () => {

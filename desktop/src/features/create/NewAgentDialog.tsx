@@ -14,7 +14,7 @@ import type { AppError } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { createAgent, createErrorCleared } from "../agents/agentsSlice";
 import { AttachmentBar } from "../artifacts/AttachButton";
-import { insertAtCaret, useAttachments } from "../artifacts/useAttachments";
+import { insertAtSelection, useAttachments } from "../artifacts/useAttachments";
 import { dialogClosed } from "../ui/uiSlice";
 import { RepoSpecsField } from "./RepoSpecsField";
 import { RunnerModelFields, type RunnerModelValues } from "./RunnerModelFields";
@@ -47,8 +47,9 @@ export const NewAgentDialog = (): JSX.Element => {
   const [runnerFields, setRunnerFields] = useState<RunnerModelValues>(emptyRunner);
   const [offline, setOffline] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
-  const attachments = useAttachments((reference) =>
-    setPrompt((current) => insertAtCaret(current, promptRef.current, reference)),
+  const attachments = useAttachments(
+    (reference, selection) => setPrompt((current) => insertAtSelection(current, selection, reference)),
+    () => promptRef.current,
   );
   const runnerSettings = useRunnerSettings(open);
   const promptMissing = runnerFields.runner === "ws" && prompt.trim() === "";

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fileToBase64, imagesFromClipboard, maxUploadBytes, pastedName, uploadFiles } from "./upload";
+import { failureMessage, fileToBase64, imagesFromClipboard, maxUploadBytes, pastedName, uploadFiles } from "./upload";
 
 const artifact = { id: "art-00000001" };
 
@@ -9,7 +9,21 @@ describe("uploadFiles", () => {
     const file = new File(["hello"], "a.txt", { type: "text/plain" });
     const uploaded = await uploadFiles([file], { artifactAdd });
     expect(artifactAdd).toHaveBeenCalledWith("a.txt", null, "aGVsbG8=");
-    expect(uploaded).toEqual([artifact]);
+    expect(uploaded).toEqual({ stored: [artifact], failures: [] });
+  });
+
+  it("keeps the files already stored and tries the rest when one fails", async () => {
+    const artifactAdd = vi.fn(async (name: string) => {
+      if (name === "b.txt") {
+        throw { code: "ws_failed", message: "disk full" };
+      }
+      return { id: `art-${name}` } as never;
+    });
+    const files = ["a.txt", "b.txt", "c.txt"].map((name) => new File(["x"], name));
+    const uploaded = await uploadFiles(files, { artifactAdd });
+    expect(uploaded.stored).toEqual([{ id: "art-a.txt" }, { id: "art-c.txt" }]);
+    expect(uploaded.failures).toEqual([{ name: "b.txt", error: { code: "ws_failed", message: "disk full" } }]);
+    expect(failureMessage(uploaded.failures)).toBe("b.txt: disk full");
   });
 
   it("refuses a file over 10 MiB before uploading anything", async () => {

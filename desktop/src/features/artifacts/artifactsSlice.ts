@@ -2,7 +2,7 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import { toAppError, type AppError, type Artifact, type ArtifactSummary } from "../../api";
 import { createAppThunk } from "../../thunk";
 import { noticeShown } from "../ui/uiSlice";
-import { uploadFiles } from "./upload";
+import { failureMessage, uploadFiles } from "./upload";
 
 export type ArtifactFilter = "all" | "image" | "markdown" | "text";
 
@@ -47,12 +47,16 @@ export const loadArtifacts = createAppThunk<readonly ArtifactSummary[], void>(
   },
 );
 
-/** Uploads files, then loads the list again, even when a file fails. Resolves to the artifacts made. */
+/** Uploads files, then loads the list again, even when a file fails. Resolves to the artifacts made, which stay when a later file fails. */
 export const uploadArtifacts = createAppThunk<readonly Artifact[], readonly File[]>(
   "artifacts/upload",
   async (files, { extra, dispatch, rejectWithValue }) => {
     try {
-      return await uploadFiles(files, extra.api);
+      const { stored, failures } = await uploadFiles(files, extra.api);
+      if (failures.length > 0) {
+        dispatch(noticeShown({ severity: "error", message: failureMessage(failures) }));
+      }
+      return stored;
     } catch (err: unknown) {
       const error = toAppError(err);
       dispatch(noticeShown({ severity: "error", message: error.message }));

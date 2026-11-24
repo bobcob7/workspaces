@@ -1,4 +1,4 @@
-import type { Api, AppError, Artifact } from "../../api";
+import { toAppError, type Api, type AppError, type Artifact } from "../../api";
 
 type ArtifactAdder = Pick<Api, "artifactAdd">;
 
@@ -22,17 +22,41 @@ const tooLarge = (name: string): AppError => ({
   message: `${name} is over the 10 MiB limit`,
 });
 
-/** Uploads each file in order and returns the artifacts made. Refuses the batch before any upload when a file is too large. */
-export const uploadFiles = async (files: readonly File[], adder: ArtifactAdder): Promise<Artifact[]> => {
+export interface UploadFailure {
+  readonly name: string;
+  readonly error: AppError;
+}
+
+export interface UploadResult {
+  /** The artifacts made, in file order. */
+  readonly stored: Artifact[];
+  /** The files that could not be stored; the rest were still tried. */
+  readonly failures: UploadFailure[];
+}
+
+/** One message naming each file that failed and why. */
+export const failureMessage = (failures: readonly UploadFailure[]): string =>
+  failures.map((failure) => `${failure.name}: ${failure.error.message}`).join("; ");
+
+/**
+ * Uploads each file in order. A file that fails is reported in `failures` and
+ * the files already stored stay in `stored`. Refuses the batch before any
+ * upload when a file is too large.
+ */
+export const uploadFiles = async (files: readonly File[], adder: ArtifactAdder): Promise<UploadResult> => {
   const oversized = files.find((file) => file.size > maxUploadBytes);
   if (oversized) {
     throw tooLarge(oversized.name);
   }
-  const uploaded: Artifact[] = [];
+  const result: UploadResult = { stored: [], failures: [] };
   for (const file of files) {
-    uploaded.push(await adder.artifactAdd(file.name, null, await fileToBase64(file)));
+    try {
+      result.stored.push(await adder.artifactAdd(file.name, null, await fileToBase64(file)));
+    } catch (err: unknown) {
+      result.failures.push({ name: file.name, error: toAppError(err) });
+    }
   }
-  return uploaded;
+  return result;
 };
 
 const pad = (n: number): string => String(n).padStart(2, "0");

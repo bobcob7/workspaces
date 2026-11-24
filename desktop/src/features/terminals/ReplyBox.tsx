@@ -2,7 +2,7 @@ import { Button, TextField, useMediaQuery } from "@mui/material";
 import { useRef, useState, type FormEvent, type JSX } from "react";
 import { AttachmentBar } from "../artifacts/AttachButton";
 import { appendHint } from "../artifacts/references";
-import { insertAtCaret, useAttachments } from "../artifacts/useAttachments";
+import { insertAtSelection, useAttachments } from "../artifacts/useAttachments";
 import { useAppDispatch } from "../../store";
 import { messageKeys, sendMessage } from "./terminalsSlice";
 import styles from "./ReplyBox.module.css";
@@ -17,8 +17,9 @@ export const ReplyBox = ({ terminalKey, disabled }: ReplyBoxProps): JSX.Element 
   const phone = useMediaQuery("(max-width:720px)");
   const [message, setMessage] = useState("");
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const attachments = useAttachments((reference) =>
-    setMessage((current) => insertAtCaret(current, inputRef.current, reference)),
+  const attachments = useAttachments(
+    (reference, selection) => setMessage((current) => insertAtSelection(current, selection, reference)),
+    () => inputRef.current,
   );
   const cannotSend = disabled || attachments.busy || message.trim() === "";
   const submit = (event: FormEvent): void => {
