@@ -460,7 +460,9 @@ func (s *Store) checkQuota(extra int64) error {
 }
 
 // storedBytes sums the revision files in the store. They count whether or
-// not their record can be read; List reports unreadable records.
+// not their record can be read; List reports unreadable records. A directory
+// whose files can't be sized is an error, so it can't hide its bytes from the
+// quota.
 func (s *Store) storedBytes() (int64, error) {
 	ids, err := s.ids()
 	if err != nil {
@@ -468,17 +470,24 @@ func (s *Store) storedBytes() (int64, error) {
 	}
 	var total int64
 	for _, id := range ids {
-		total += revisionBytes(filepath.Join(s.dir, id))
+		n, err := revisionBytes(filepath.Join(s.dir, id))
+		if err != nil {
+			return 0, err
+		}
+		total += n
 	}
 	return total, nil
 }
 
-// revisionBytes sums the sizes of dir's revision files; a dir that can't be
-// read counts as empty.
-func revisionBytes(dir string) int64 {
+// revisionBytes sums the sizes of dir's revision files. A dir removed since
+// it was listed counts as empty.
+func revisionBytes(dir string) (int64, error) {
 	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("sizing %s: %w", dir, err)
 	}
 	var total int64
 	for _, e := range entries {
@@ -486,12 +495,15 @@ func revisionBytes(dir string) int64 {
 			continue
 		}
 		info, err := e.Info()
-		if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			continue
+		}
+		if err != nil {
+			return 0, fmt.Errorf("sizing %s: %w", filepath.Join(dir, e.Name()), err)
 		}
 		total += info.Size()
 	}
-	return total
+	return total, nil
 }
 
 func validateNew(n *NewArtifact) (Kind, string, error) {

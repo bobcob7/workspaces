@@ -568,3 +568,40 @@ func TestStore_Put_concurrentRemove(t *testing.T) {
 		assert.NoDirExists(t, filepath.Join(dir, rec.ID))
 	}
 }
+
+func TestStore_quotaEdges(t *testing.T) {
+	t.Parallel()
+	t.Run("allows an add that reaches the limit exactly and refuses one more byte", func(t *testing.T) {
+		t.Parallel()
+		s, _ := newTestStore(t, fixedClock(testBase))
+		s.maxStoreBytes = 10
+		addText(t, s, "a.txt", "abcdef")
+		rec := addText(t, s, "b.txt", "ghij")
+		_, err := s.Add(t.Context(), &NewArtifact{Name: "c.txt", Data: []byte("k"), By: Person()})
+		require.ErrorIs(t, err, ErrFull)
+		_, err = s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("k"), By: Person()})
+		require.ErrorIs(t, err, ErrFull)
+	})
+	t.Run("allows a put that reaches the limit exactly", func(t *testing.T) {
+		t.Parallel()
+		s, _ := newTestStore(t, fixedClock(testBase))
+		s.maxStoreBytes = 10
+		rec := addText(t, s, "a.txt", "abcdef")
+		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("ghij"), By: Person()})
+		require.NoError(t, err)
+	})
+	t.Run("does not let an unreadable artifact directory dodge the quota", func(t *testing.T) {
+		t.Parallel()
+		if os.Geteuid() == 0 {
+			t.Skip("root reads any directory")
+		}
+		s, dir := newTestStore(t, fixedClock(testBase))
+		s.maxStoreBytes = 10
+		rec := addText(t, s, "a.txt", "abcdef")
+		artDir := filepath.Join(dir, rec.ID)
+		require.NoError(t, os.Chmod(artDir, 0))
+		t.Cleanup(func() { _ = os.Chmod(artDir, 0o700) })
+		_, err := s.Add(t.Context(), &NewArtifact{Name: "b.txt", Data: []byte("ghijkl"), By: Person()})
+		require.Error(t, err)
+	})
+}
