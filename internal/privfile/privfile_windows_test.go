@@ -57,4 +57,49 @@ func TestCheckPrivate(t *testing.T) {
 		err := CheckPrivate(dir)
 		assert.ErrorIs(t, err, ErrNotPrivate)
 	})
+	t.Run("a directory restricted by RestrictDir is private", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		require.NoError(t, RestrictDir(dir))
+		assert.NoError(t, CheckPrivate(dir))
+	})
+}
+
+func TestCheckDACL(t *testing.T) {
+	t.Parallel()
+	user, err := currentUser()
+	require.NoError(t, err)
+	t.Run("a file restricted by RestrictFile has a private DACL", func(t *testing.T) {
+		t.Parallel()
+		file := filepath.Join(t.TempDir(), "private")
+		require.NoError(t, os.WriteFile(file, nil, 0o600))
+		require.NoError(t, RestrictFile(file))
+		dacl, _, err := daclOf(t, file).DACL()
+		require.NoError(t, err)
+		assert.NoError(t, checkDACL(file, user, dacl))
+	})
+	t.Run("a null DACL is not private", func(t *testing.T) {
+		t.Parallel()
+		sd, err := windows.NewSecurityDescriptor()
+		require.NoError(t, err)
+		require.NoError(t, sd.SetOwner(user, false))
+		require.NoError(t, sd.SetDACL(nil, true, false))
+		assert.ErrorIs(t, checkOwnerAndDACL("null", user, sd), ErrNotPrivate)
+	})
+	t.Run("a deny entry is not private", func(t *testing.T) {
+		t.Parallel()
+		dacl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
+			AccessPermissions: windows.GENERIC_READ,
+			AccessMode:        windows.DENY_ACCESS,
+			Inheritance:       windows.NO_INHERITANCE,
+			Trustee: windows.TRUSTEE{
+				TrusteeForm:  windows.TRUSTEE_IS_SID,
+				TrusteeValue: windows.TrusteeValueFromSID(user),
+			},
+		}}, nil)
+		require.NoError(t, err)
+		err = checkDACL("deny", user, dacl)
+		assert.ErrorIs(t, err, ErrNotPrivate)
+		assert.ErrorContains(t, err, "not an allow entry")
+	})
 }

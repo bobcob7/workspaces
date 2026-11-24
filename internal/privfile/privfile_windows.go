@@ -22,7 +22,7 @@ func RestrictFile(path string) error {
 }
 
 // CheckPrivate reports ErrNotPrivate unless path is owned by the current
-// user and every entry in its DACL is for them.
+// user and its DACL is present and holds only allow entries, all for them.
 func CheckPrivate(path string) error {
 	user, err := currentUser()
 	if err != nil {
@@ -90,6 +90,13 @@ func checkOwnerAndDACL(path string, user *windows.SID, sd *windows.SECURITY_DESC
 	if err != nil {
 		return fmt.Errorf("reading the access of %s: %w", path, err)
 	}
+	return checkDACL(path, user, dacl)
+}
+
+// checkDACL reports ErrNotPrivate unless dacl is present and every entry in
+// it is an access-allowed one for user. Other entry types, such as deny, put
+// a different layout after the header, so they are refused rather than read.
+func checkDACL(path string, user *windows.SID, dacl *windows.ACL) error {
 	if dacl == nil {
 		return notPrivate(path)
 	}
@@ -97,6 +104,9 @@ func checkOwnerAndDACL(path string, user *windows.SID, sd *windows.SECURITY_DESC
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil {
 			return fmt.Errorf("reading the access of %s: %w", path, err)
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
+			return fmt.Errorf("%s has an access entry of type %d, not an allow entry: %w", path, ace.Header.AceType, ErrNotPrivate)
 		}
 		if !aceSID(ace).Equals(user) {
 			return notPrivate(path)
