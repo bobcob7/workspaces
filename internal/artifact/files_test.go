@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,6 +50,15 @@ func TestWriteAtomic(t *testing.T) {
 		}
 		require.NoError(t, writeAtomicSync(dir, path, []byte("x"), sync))
 		assert.Equal(t, []string{dir}, synced)
+	})
+	t.Run("is not a failure when the sync after the rename fails", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "r1")
+		sync := func(string) error { return errors.New("sync failed") }
+		require.NoError(t, writeAtomicSync(dir, path, []byte("x"), sync))
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "x", string(data))
 	})
 	t.Run("fails when the temporary directory is missing", func(t *testing.T) {
 		t.Parallel()

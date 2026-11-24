@@ -27,11 +27,15 @@ type threadsDocument struct {
 
 // writeAtomic writes data to a new file in tmpDir, syncs it, sets mode
 // 0600, renames it to path, and syncs path's directory so the rename
-// survives a crash.
+// survives a crash. Only a failure before or during the rename is an error:
+// once path has been replaced, a failed directory sync is ignored, so a caller
+// never rolls back a write that has already taken effect.
 func writeAtomic(tmpDir, path string, data []byte) error {
 	return writeAtomicSync(tmpDir, path, data, syncDirectory)
 }
 
+// writeAtomicSync is writeAtomic with the directory sync injected, so tests
+// can make it fail.
 func writeAtomicSync(tmpDir, path string, data []byte, syncDir func(string) error) error {
 	tmp, err := os.CreateTemp(tmpDir, "write-*")
 	if err != nil {
@@ -45,7 +49,8 @@ func writeAtomicSync(tmpDir, path string, data []byte, syncDir func(string) erro
 		_ = os.Remove(tmp.Name())
 		return fmt.Errorf("replacing %s: %w", path, err)
 	}
-	return syncDir(filepath.Dir(path))
+	_ = syncDir(filepath.Dir(path))
+	return nil
 }
 
 // syncDirectory fsyncs dir. Filesystems that can't sync a directory are
