@@ -277,6 +277,22 @@ describe("loops by environment", () => {
     expect(api.loopsSetPaused).toHaveBeenCalledWith("deps", true, "linux-server");
   });
 
+  it("writes a paused remote loop into its own environment's list only", async () => {
+    const local = loop({ name: "deps" });
+    const remote = loop({ name: "deps", environment: "alpha" });
+    const paused = loop({ name: "deps", paused: true, environment: "alpha" });
+    const api = fakeApi({ loopsSetPaused: vi.fn(async () => paused) });
+    const byEnvironment = {
+      local: { items: [local], loadedAt: 1, error: null, loopsUnknown: false },
+      alpha: { items: [remote], loadedAt: 1, error: null, loopsUnknown: false },
+    };
+    const store = testStore({ api, state: { loops: { ...testStore().getState().loops, byEnvironment } } });
+    await store.dispatch(setLoopPaused({ name: "deps", paused: true, environment: "alpha" }));
+    expect(api.loopsSetPaused).toHaveBeenCalledWith("deps", true, "alpha");
+    expect(store.getState().loops.byEnvironment["alpha"]?.items).toEqual([paused]);
+    expect(store.getState().loops.byEnvironment["local"]?.items).toEqual([local]);
+  });
+
   it("runs a loop on its environment", async () => {
     const api = fakeApi();
     await testStore({ api }).dispatch(runLoopNow({ name: "deps", environment: "linux-server" }));
