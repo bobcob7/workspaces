@@ -15,6 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// recordGroup is a fake claude body that writes its process group to the
+// file argsFile reads.
+const recordGroup = `ps -o pgid= -p $$ | tr -d ' ' > "$ARGS"`
+
 // daemonStatusOutput is `claude daemon status` output from Claude Code
 // 2.1.303, shortened.
 const daemonStatusOutput = "pid:     49849\n" +
