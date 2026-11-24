@@ -23,20 +23,26 @@ type agentOperations struct {
 	app *App // the agent's App: paths, config, environ, version
 	// newApp builds the App one CLI operation runs in: cli.New with stdin
 	// empty and the given streams, environment set to name.
-	newApp    func(stdout, stderr io.Writer) *App
-	name      string                 // the enrolled environment's name
-	locksMu   sync.Mutex             // guards sendLocks
-	sendLocks map[string]*sync.Mutex // the send lock of each Claude Code session id
-	redactor  *redact.Redactor       // removes secrets from review.* results
+	newApp func(stdout, stderr io.Writer) *App
+	// newAppWithStdin is newApp with the given stdin, for a value that must
+	// never be read as a flag (loop.memory_set). Nil means newApp.
+	newAppWithStdin func(stdin io.Reader, stdout, stderr io.Writer) *App
+	name            string                 // the enrolled environment's name
+	locksMu         sync.Mutex             // guards sendLocks
+	sendLocks       map[string]*sync.Mutex // the send lock of each Claude Code session id
+	redactor        *redact.Redactor       // removes secrets from review.* results
 }
 
 // newAgentOperations returns the operations of the agent a, enrolled as name.
 func newAgentOperations(a *App, name string) *agentOperations {
 	o := &agentOperations{app: a, name: name, redactor: agentRedactor(a)}
-	o.newApp = func(stdout, stderr io.Writer) *App {
-		n := New(a.version, strings.NewReader(""), stdout, stderr, a.configs, a.environ)
+	o.newAppWithStdin = func(stdin io.Reader, stdout, stderr io.Writer) *App {
+		n := New(a.version, stdin, stdout, stderr, a.configs, a.environ)
 		n.environment = name
 		return n
+	}
+	o.newApp = func(stdout, stderr io.Writer) *App {
+		return o.newAppWithStdin(strings.NewReader(""), stdout, stderr)
 	}
 	return o
 }
@@ -66,6 +72,9 @@ func (o *agentOperations) Run(ctx context.Context, op string, args any) (json.Ra
 	}
 	if strings.HasPrefix(op, "review.") {
 		return o.runReview(ctx, op, args)
+	}
+	if strings.HasPrefix(op, "loop.") {
+		return o.runLoop(ctx, op, args)
 	}
 	return o.runWorkspace(ctx, op, args)
 }
@@ -145,8 +154,18 @@ func (o *agentOperations) runWorkspace(ctx context.Context, op string, args any)
 // runCLI runs argv in a new App and returns its stdout's one JSON object.
 // A non-zero exit is commandFailure's error.
 func (o *agentOperations) runCLI(ctx context.Context, argv []string) (json.RawMessage, error) {
+	return o.runCLIWithStdin(ctx, nil, argv)
+}
+
+// runCLIWithStdin is runCLI with stdin as the command's standard input. A nil
+// stdin is the empty input runCLI always gave.
+func (o *agentOperations) runCLIWithStdin(ctx context.Context, stdin io.Reader, argv []string) (json.RawMessage, error) {
 	var stdout, stderr bytes.Buffer
-	if code := o.newApp(&stdout, &stderr).Run(ctx, argv); code != exitOK {
+	app := o.newApp(&stdout, &stderr)
+	if stdin != nil && o.newAppWithStdin != nil {
+		app = o.newAppWithStdin(stdin, &stdout, &stderr)
+	}
+	if code := app.Run(ctx, argv); code != exitOK {
 		return nil, commandFailure(stdout.Bytes(), stderr.Bytes())
 	}
 	return commandObject(stdout.Bytes())

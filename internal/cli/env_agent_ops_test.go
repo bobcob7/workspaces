@@ -27,6 +27,10 @@ func opsFor(app *App) *agentOperations {
 		app.stdout, app.stderr = stdout, stderr
 		app.environment = "linux-server"
 		return app
+	}, newAppWithStdin: func(stdin io.Reader, stdout, stderr io.Writer) *App {
+		app.stdin, app.stdout, app.stderr = stdin, stdout, stderr
+		app.environment = "linux-server"
+		return app
 	}}
 }
 
