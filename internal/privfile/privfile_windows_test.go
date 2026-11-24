@@ -44,6 +44,7 @@ func TestRestrictDir(t *testing.T) {
 	requireOnlyUser(t, sd, user)
 	file := filepath.Join(dir, "inside")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	// Not CheckPrivate: a new file's owner can be Administrators on elevated windows-latest runners.
 	requireOnlyUser(t, daclOf(t, file), user)
 }
 

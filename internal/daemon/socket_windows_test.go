@@ -13,7 +13,6 @@ import (
 )
 
 func TestSocketBaseDir(t *testing.T) {
-	t.Parallel()
 	dir := socketBaseDir(func(string) string { return "" }, 0)
 	rel, err := filepath.Rel(os.TempDir(), dir)
 	require.NoError(t, err)

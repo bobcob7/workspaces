@@ -43,6 +43,20 @@ func TestDescendants(t *testing.T) {
 	})
 }
 
+// hasDescendant reports whether pid has a child in a fresh process snapshot.
+func hasDescendant(pid int) (bool, error) {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = windows.CloseHandle(snapshot) }()
+	entries, err := processEntries(snapshot)
+	if err != nil {
+		return false, err
+	}
+	return len(descendants(uint32(pid), entries, creationTime)) > 0, nil
+}
+
 func TestKillTree(t *testing.T) {
 	t.Parallel()
 	t.Run("ends the process and the processes it started", func(t *testing.T) {
@@ -51,6 +65,10 @@ func TestKillTree(t *testing.T) {
 		cmd.SysProcAttr = OwnGroup()
 		require.NoError(t, cmd.Start())
 		t.Cleanup(func() { _ = KillTree(cmd.Process.Pid) })
+		require.Eventually(t, func() bool {
+			found, err := hasDescendant(cmd.Process.Pid)
+			return err == nil && found
+		}, 5*time.Second, 50*time.Millisecond, "cmd.exe never started a child")
 		require.NoError(t, KillTree(cmd.Process.Pid))
 		done := make(chan struct{})
 		go func() {
