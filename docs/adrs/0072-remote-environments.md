@@ -66,6 +66,7 @@ session; the controller (this `ws`) holds only a cached snapshot
 - An agent never picks it. `ws machine spawn` and `ws review start` run
   on the environment's own `ws`, so what they create is on that
   environment. A review of a pull request runs where its requester runs.
+- `ws review …` and `ws loop …` take `--env` (people and the desktop; `ws review --env` is refused for an agent inside a workspace, [0078](0078-reviews-and-loops-on-environments.md)).
 - `--env` on a workspace that has a parent is refused when it differs
   from the parent's (`environment_mismatch`, exit 4): a tree shares one
   machine, so removing a parent can remove its descendants
@@ -214,8 +215,9 @@ Accepted by the owner for PR 4. The decisions are the design's, in
   snapshot's agents; `null` for local entries and remote ones without an
   agent). The error code `terminal_limit` (exit 4) is new.
 - **Reviews and loops** run on remote environments in this PR, which the
-  first design left out; see ADR 0078 (written with the reviews and loops docs) where it
-  exists.
+  first design left out; see [0078](0078-reviews-and-loops-on-environments.md).
+  An agent never picks an environment: `ws review --env` inside a workspace
+  is `usage`.
 - **Later:** the remote conversation view (the desktop reads local
   transcripts, so a remote agent's pane opens on its terminal with a note),
   stopping a `ws` runner agent on a remote, and Windows.

@@ -8,12 +8,12 @@ prompt.
 ```
 ws loop add <NAME> --every <PERIOD> --prompt <TEXT> [--hidden[=BOOL] | --show] [OPTIONS] [<SPEC>...]
 ws loop edit <NAME> [--hidden[=BOOL] | --show] [OPTIONS] [<SPEC>...]
-ws loop list
+ws loop list [--env <NAME> [--cached]]
 ws loop pause <NAME>
 ws loop resume <NAME>
 ws loop rm <NAME>
 ws loop run [--force] <NAME>
-ws loop tick [--dry-run] [--watch]
+ws loop tick [--dry-run] [--watch] [--max-starts <N>]
 ws loop history [--json] [--limit <N>] [--run <SEQ> | --clear] <NAME>
 ws loop memory list  [--json] <NAME>
 ws loop memory get   [--json] <NAME> <KEY>
@@ -251,6 +251,17 @@ Lists every loop: its title and then its name in parentheses when it has a
 title, else its name. A loop file that can't be read, or is from a
 newer `ws`, is a warning and isn't listed.
 
+On an environment, `ws loop list --env <NAME>` asks the agent, and
+`--cached` (with `--env`) reads the snapshot's loops instead, which works
+offline. A cached loop has `"summary": true`, `"environment"` and `"stale"`;
+its fields the snapshot lacks (prompt, script, variables) are null. An
+environment that is offline is listed from its snapshot, with a note.
+
+Every `ws loop` subcommand except `tick` takes `--env <NAME>` (default: this
+machine) and `--yes`. `--yes` confirms what an environment asks to confirm: a
+loop with a script or `bypassPermissions`, `rm`, `history --clear` and `memory
+clear`; locally it does nothing. See [Loops on an environment](ws-env.md#loops-on-an-environment).
+
 ### ws loop pause, ws loop resume
 
 `pause` stops a loop from running; a run already started keeps going.
@@ -286,6 +297,7 @@ Exits 0 when nothing was due.
 | Option | Description |
 | ------ | ----------- |
 | `--dry-run` | Report what would start; start, write, and remove nothing, and run no script. A due loop with a script is `would_start` |
+| `--max-starts <N>` | Start at most N loops in one pass, 1 to 100; the others stay `waiting` with `next_run_at` unchanged. 0, the default, is no cap. The environment agent uses 2 ([0078](../adrs/0078-reviews-and-loops-on-environments.md)) |
 | `--watch` | Run a pass every minute until interrupted, printing only what started or failed. Text only: `--json` with `--watch` is a usage error |
 
 ### ws loop history

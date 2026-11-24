@@ -213,13 +213,19 @@ side is `ws claude --env` and `ws list --env` ([`ws claude`](ws-claude.md#enviro
 | `agent.logs` | Claude Code's `logs`, at most 2000 lines | 1 | 30 s |
 | `agent.send` | a message to a Claude Code or `ws` runner agent | 1 | 90 s |
 | `agent.stop` | Claude Code's `stop` | 1 | 30 s |
+| `review.start` | `ws review start --requester none` | 3 | 10 min |
+| `review.status`, `review.list`, `review.report`, `review.profiles` | `ws review list`, `report`, `profiles` (a page of a report is at most 192 KiB) | 3 | 30 s |
+| `review.decide`, `review.acted` | `ws review decide`, `ws review acted` | 3 | 30 s |
+| `loop.list`, `loop.show`, `loop.history`, `loop.history_run`, `loop.memory_list`, `loop.memory_get` | `ws loop list`, `history`, `memory` (read only) | 3 | 30 s |
+| `loop.add`, `loop.edit`, `loop.pause`, `loop.resume`, `loop.rm`, `loop.history_clear`, `loop.memory_set`, `loop.memory_rm`, `loop.memory_clear` | the matching `ws loop` commands | 3 | 30 s |
+| `loop.run` | `ws loop run [--force]` | 3 | 15 min |
 
 `Since` is the protocol the operation needs (see below). A `shell` kind
 isn't in the table: a shell is a terminal ([Terminals](#terminals)).
 
 **Protocol.** The hello carries `protocol`, the newest operation protocol the
-agent speaks: 1 with PR 3's operations, 2 with the terminal operations (PR 4;
-reviews and loops later made it 3), and 0 from an agent older than PR 3. An
+agent speaks: 1 with PR 3's operations, 2 with the terminal operations (PR 4),
+3 with `review.*` and `loop.*` and the snapshot's `loops` (PR 4, [0078](../adrs/0078-reviews-and-loops-on-environments.md)), and 0 from an agent older than PR 3. An
 operation whose `Since` is above the agent's protocol is refused before it is
 sent, with `environment_outdated` (exit 1). Its details are `environment`,
 `op`, `ws_version`, `protocol` and `need_protocol`, so an agent older than
@@ -261,6 +267,76 @@ still have run; `ws list --env <name>` shows what exists.
 - A workspace reference is an id, or an absolute path under the agent's
   `workspaces/` with no `..` element; anything else is `outside_workspace`
   (exit 2), and nothing runs.
+
+## Reviews on an environment
+
+`ws review start --env <name>` ([`ws review`](ws-review.md)) runs the whole
+review on that machine: its clone cache, review workspace, Claude session and
+reports are in the agent's `CONFIG_DIR`. The controller keeps the forge side:
+the pull request list, posting comments, and the Fix and Ask agents. **No
+token crosses the network:** no operation takes one, and results are redacted
+([0078](../adrs/0078-reviews-and-loops-on-environments.md)).
+
+Set these up **on the remote machine**, as the user that runs `ws env agent
+run`:
+
+1. **GitHub:** install `gh` and run `gh auth login` for each host
+   (`gh auth status` must list it), or set `GH_TOKEN` in the agent's service
+   environment (the systemd `EnvironmentFile=` or the launchd
+   `EnvironmentVariables`).
+2. **Private repositories on any forge:** git credentials for `git fetch`, such
+   as a credential helper or SSH keys.
+3. **Forgejo or Gitea:** nothing more. A review starts at the head commit, and
+   `WS_FORGEJO_TOKEN_*` stays on the controller.
+4. **Claude Code** signed in.
+
+Without these, `review.start` fails with `gh_missing`, `gh_auth`,
+`clone_failed`, `fetch_failed` or `claude_missing`, and `details.environment`.
+
+On a remote, `ws review start` with `bypassPermissions` and no confirm flag
+is refused, in the agent and in the desktop. Whether it may ever be allowed is
+an open owner decision. A finding's decision suggestion index counts from 0.
+Reviews are limited to 12 starts an hour per agent. `ws review wait --env`
+polls `review.status`; a report is read in pages of at most 192 KiB, at most
+1000 pages. A remote markdown or html report has empty submission summaries
+(a known gap). Profiles on a remote are read only: edit them there with `ws
+review profiles add`.
+
+## Loops on an environment
+
+A loop made with `ws loop add --env <name>` lives on that machine: its record,
+history, memory and reports are in the agent's `CONFIG_DIR`, and the
+controller holds only a summary of it in the snapshot's `loops` (at most 100;
+no prompt, script or variables), which `ws loop list --env <name> --cached`
+reads.
+
+- **The agent ticks while connected.** It runs `ws loop tick --quiet
+  --max-starts 2` every 60 s, the first time one period after it connects.
+- **Offline means paused.** No tick runs, nothing is marked `paused`, and
+  nothing is made up: on reconnect each overdue loop is due once, and the
+  agent starts two per pass, so ten overdue loops start over five minutes.
+- **Don't also run another ticker** (`ws loop tick --watch`, or a desktop app)
+  on that machine with the same `CONFIG_DIR`. `loops/.lock` serializes them,
+  but that ticker keeps running loops while the agent is offline.
+- **Trust.** A loop's script and prompt run as the agent's user on that
+  machine, like any Claude agent the controller starts there: anyone who can
+  use this controller can run code as that user on every enrolled machine.
+  Saving a loop with a script or `bypassPermissions` needs confirming
+  (`--yes`, or the desktop's dialog); so do `ws loop rm` and clearing history
+  or memory. Set `[environments] agent_loop_scripts = false` in the remote's
+  `config.toml` to refuse scripts from the controller
+  ([`ws config`](ws-config.md)); existing scripts still run.
+- **Rates, per agent:** `loop.run` 30 an hour and one per loop per 60 s; adding,
+  editing and removing loops 60 an hour. Over a limit the error is
+  `operation_limited` with `retry_after_seconds`.
+- **Redaction.** The agent replaces the values of its own tokens and secrets,
+  and common token formats, with `[redacted]` in every review and loop result.
+  It is best effort: it does not catch base64 or URL-encoded secrets, and a
+  cut after redaction can leave a short token prefix. A write containing
+  `[redacted]` is refused. List pages are capped at 1000 pages, and a
+  truncated memory preview doesn't load the full value on open (a follow-up).
+- **Not run here:** Fix and Ask on the environment, remote profile editing,
+  redacting `agent.logs`, and `cache.*` are later.
 
 ## Terminals
 

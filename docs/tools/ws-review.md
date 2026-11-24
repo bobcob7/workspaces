@@ -298,6 +298,19 @@ back: start it, run `wait_command` in the background, and act when woken.
 It tells a fixer to read `ws review report --json --decided fix`.
 `ws llm review <op>` has each command's guide.
 
+## On an environment
+
+`start`, `wait`, `report`, `list`, `decide`, `acted` and `profiles` take
+`--env <NAME>` (default: this machine) and run on that environment, by review
+id, for people and the desktop app. Inside a workspace it is a usage error: an
+agent never chooses an environment. `profiles` is read only there. The remote
+needs its own forge sign-in; see
+[Reviews on an environment](ws-env.md#reviews-on-an-environment) and
+[0078](../adrs/0078-reviews-and-loops-on-environments.md).
+
+`--yes` confirms what an environment asks to confirm; it does nothing locally.
+A remote `start` with `bypassPermissions` and no confirm flag is refused.
+
 ## Options
 
 | Option | Description |
@@ -307,6 +320,8 @@ It tells a fixer to read `ws review report --json --decided fix`.
 | `--auto <NAME>[:<MODEL>]` | `start`: review with this profile if a changed file matches it; repeatable |
 | `--requester <ID>\|none` | `start`: who asked; default: the workspace you're in |
 | `--name <NAME>` | `start`: name the workspace |
+| `--env <NAME>` | the environment to run on (`ws env list`); default: this machine |
+| `--yes` | confirm what an environment asks to confirm |
 | `--offline` | `start`: don't fetch the cache |
 | `--timeout <DURATION>` | `wait`: give up after this long |
 | `--format json\|markdown\|html` | `report`: the output format |

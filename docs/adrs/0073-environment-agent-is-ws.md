@@ -75,8 +75,12 @@ same JSON result as the CLI command:
 | `agent.status`, `agent.logs`, `agent.send`, `agent.stop` | Claude Code's `agents`, `logs`, `stop` and `ws`'s send |
 | `terminal.open`, `terminal.input`, `terminal.resize`, `terminal.close`, `terminal.redraw` | `claude attach` or the shell, in a pty (see Amendments, PR 4) |
 | `files.list`, `files.read` (bounded) | the desktop's file and diff views |
-| `cache.*`, `review.*`, `loop.*` | later, one ADR each |
+| `review.start`, `review.status`, `review.list`, `review.report`, `review.decide`, `review.acted`, `review.profiles` | `ws review …`, run in-process on the remote ([0078](0078-reviews-and-loops-on-environments.md)) |
+| `loop.list`, `loop.show`, `loop.add`, `loop.edit`, `loop.pause`, `loop.resume`, `loop.rm`, `loop.run`, `loop.history`, `loop.history_run`, `loop.history_clear`, `loop.memory_*` | `ws loop …`, run in-process on the remote ([0078](0078-reviews-and-loops-on-environments.md)) |
+| `cache.*` | later |
 | `config.get`, `config.set` | `ws config`, for a fixed allow-list of keys |
+
+Results of `review.*` and `loop.*` are redacted by the agent ([0078](0078-reviews-and-loops-on-environments.md)); the allow-list of a finding's decision suggestion index starts at 0.
 
 An unknown operation is refused. There is no "run this command" operation
 and no way to write an arbitrary path; a request's paths must lie under the

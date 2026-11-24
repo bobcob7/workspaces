@@ -242,7 +242,12 @@ permission is granted. Clicking one opens the app on that agent.
 
 Everything else (agents, conversations, terminals, repos, reviews,
 loops, settings) works as in the desktop app. The auto-review checker
-and loops run in the server, with or without a browser open.
+and loops run in the server, with or without a browser open. Loops are
+grouped by environment, and a remote's loops are ticked by its own agent:
+
+![Loops grouped by environment on a phone](../desktop/docs/loops-environments-mobile.png)
+
+The full-width view is [`loops-environments.png`](../desktop/docs/loops-environments.png).
 
 ## Security notes
 
