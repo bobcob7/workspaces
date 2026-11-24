@@ -3,12 +3,15 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
 )
+
+var errNotUnixConn = errors.New("connection isn't a unix socket")
 
 // socketBaseDir is the directory of the socket when $XDG_RUNTIME_DIR is unset.
 func socketBaseDir(getenv func(string) string, uid int) string {

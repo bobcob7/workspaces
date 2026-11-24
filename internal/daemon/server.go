@@ -483,8 +483,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_, _ = w.Write(data) //nolint:gosec // G705: the body is JSON under application/json, not HTML.
 }
 
-var errNotUnixConn = errors.New("connection isn't a unix socket")
-
 // peerListener accepts only connections from uid; any other connection is
 // closed at once.
 type peerListener struct {
