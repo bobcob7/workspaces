@@ -168,8 +168,9 @@ Then `launchctl load ~/Library/LaunchAgents/com.bobcob7.ws-env-agent.plist`.
 
 ### Windows (ADR 0081, not yet run on a real machine)
 
-The Windows build is tested in CI on `windows-latest` only. It has not yet
-run on a real Windows machine with Claude Code signed in.
+The Windows build is cross-built, vetted and linted for amd64 and arm64; an
+allow-list of packages is tested on `windows-latest`. It has not yet run on a
+real Windows machine with Claude Code signed in.
 
 Install `ws.exe` to `%LocalAppData%\Programs\ws\` and install Git for Windows:
 loop gates run through its `sh.exe`. To start the agent at log on, run this
@@ -426,7 +427,7 @@ the fallback.
 | A name already taken, an enrollment on a machine already enrolled | `environment_exists` | 4 |
 | A code already used | `enrollment_used` | 4 |
 | The agent already has 8 terminals open | `terminal_limit` | 4 |
-| The agent's OS doesn't support terminals or sending to agents yet (ADR 0081) | `platform_unsupported` | 1 |
+| The agent's OS has no pty support (today Windows): terminals and `agent.send` are refused (ADR 0081) | `platform_unsupported` | 1 |
 | `--finish` while environments hold old-CA certificates | `ca_in_use` | 4 |
 | Enrollment refused, or a certificate has expired | `enrollment_failed` | 1 |
 

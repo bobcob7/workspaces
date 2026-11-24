@@ -57,7 +57,7 @@ refuse?
 ## Decision
 
 We will port the agent natively (0076's outcome (a)) as far as it can be
-shown correct by cross-compiling, vetting and a `windows-latest` CI job, and
+shown correct by cross-compiling, vetting and an allow-list of tests on a `windows-latest` CI job, and
 make the parts that need a pseudo-terminal refuse.
 
 **D1. Processes: `internal/procgroup`.** One package owns process groups,

@@ -43,7 +43,7 @@ Server image, one user, no Claude Code sign-in):
 
 Measured before the Windows tasks; T1-T6 fixed all of it. The CI jobs
 that now guard it: `windows-cross` (build, vet, `go test -c`, lint) and
-`windows` (tests on `windows-latest`), both in `.github/workflows/ci.yml`.
+`windows` (an allow-list of tests on `windows-latest`), both in `.github/workflows/ci.yml`.
 
 `GOOS=windows GOARCH=amd64 go build -gcflags=-e ./...` fails in 5 packages
 first; after stubbing those (in a scratch copy, not committed), 2 more
