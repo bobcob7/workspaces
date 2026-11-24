@@ -321,7 +321,8 @@ func (s *Store) dirOf(id string) (string, error) {
 	return dir, nil
 }
 
-// ids lists the artifact directories in the store.
+// ids lists the entries in the store named like an artifact id. A stray file
+// with such a name is listed too, so List warns about it instead of hiding it.
 func (s *Store) ids() ([]string, error) {
 	entries, err := os.ReadDir(s.dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -332,7 +333,7 @@ func (s *Store) ids() ([]string, error) {
 	}
 	var ids []string
 	for _, e := range entries {
-		if e.IsDir() && ValidID(e.Name()) {
+		if ValidID(e.Name()) {
 			ids = append(ids, e.Name())
 		}
 	}
@@ -499,10 +500,11 @@ func (s *Store) checkQuota(extra int64) error {
 	return nil
 }
 
-// storedBytes sums the revision files in the store. They count whether or
-// not their record can be read; List reports unreadable records. A directory
-// whose files can't be sized is an error, so it can't hide its bytes from the
-// quota.
+// storedBytes sums the revision files in the store. Quota policy: they count
+// whether or not their record can be read, so a corrupt artifact.json does not
+// hide its bytes. A directory that can't be read at all contributes 0, so one
+// bad entry never blocks Add or Put of healthy artifacts; List reports it as
+// a warning.
 func (s *Store) storedBytes() (int64, error) {
 	ids, err := s.ids()
 	if err != nil {
@@ -510,24 +512,17 @@ func (s *Store) storedBytes() (int64, error) {
 	}
 	var total int64
 	for _, id := range ids {
-		n, err := revisionBytes(filepath.Join(s.dir, id))
-		if err != nil {
-			return 0, err
-		}
-		total += n
+		total += revisionBytes(filepath.Join(s.dir, id))
 	}
 	return total, nil
 }
 
-// revisionBytes sums the sizes of dir's revision files. A dir removed since
-// it was listed counts as empty.
-func revisionBytes(dir string) (int64, error) {
+// revisionBytes sums the sizes of dir's revision files; a directory that can't
+// be read, or a file that vanished since it was listed, counts for nothing.
+func revisionBytes(dir string) int64 {
 	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
-	}
 	if err != nil {
-		return 0, fmt.Errorf("sizing %s: %w", dir, err)
+		return 0
 	}
 	var total int64
 	for _, e := range entries {
@@ -535,15 +530,12 @@ func revisionBytes(dir string) (int64, error) {
 			continue
 		}
 		info, err := e.Info()
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
 		if err != nil {
-			return 0, fmt.Errorf("sizing %s: %w", filepath.Join(dir, e.Name()), err)
+			continue
 		}
 		total += info.Size()
 	}
-	return total, nil
+	return total
 }
 
 func validateNew(n *NewArtifact) (Kind, string, error) {

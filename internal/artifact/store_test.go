@@ -682,6 +682,14 @@ func TestStore_Put_concurrentRemove(t *testing.T) {
 		})
 		wg.Wait()
 		assert.NoDirExists(t, filepath.Join(dir, rec.ID))
+		left, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		for _, e := range left {
+			assert.Equal(t, tmpDirName, e.Name(), "no stray revision or directory is left behind")
+		}
+		trash, err := os.ReadDir(s.tmpDir())
+		require.NoError(t, err)
+		assert.Empty(t, trash)
 	}
 }
 
@@ -706,18 +714,30 @@ func TestStore_quotaEdges(t *testing.T) {
 		_, err := s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("ghij"), By: Person()})
 		require.NoError(t, err)
 	})
-	t.Run("does not let an unreadable artifact directory dodge the quota", func(t *testing.T) {
+	t.Run("an unreadable sibling counts for nothing, blocks no write and is a List warning", func(t *testing.T) {
 		t.Parallel()
-		if os.Geteuid() == 0 {
-			t.Skip("root reads any directory")
-		}
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "a.txt", "one\n")
+		badID, err := NewID(rand.Reader)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, badID), []byte("not a directory"), 0o600))
+		_, err = s.Add(t.Context(), &NewArtifact{Name: "b.txt", Data: []byte("two\n"), By: Person()})
+		require.NoError(t, err)
+		_, err = s.Put(t.Context(), rec.ID, &NewRevision{Data: []byte("three\n"), By: Person()})
+		require.NoError(t, err)
+		entries, warnings, err := s.List()
+		require.NoError(t, err)
+		assert.Len(t, entries, 2)
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], badID)
+	})
+	t.Run("a readable directory with a corrupt record still counts its revisions", func(t *testing.T) {
+		t.Parallel()
 		s, dir := newTestStore(t, fixedClock(testBase))
 		s.maxStoreBytes = 10
 		rec := addText(t, s, "a.txt", "abcdef")
-		artDir := filepath.Join(dir, rec.ID)
-		require.NoError(t, os.Chmod(artDir, 0))
-		t.Cleanup(func() { _ = os.Chmod(artDir, 0o700) })
-		_, err := s.Add(t.Context(), &NewArtifact{Name: "b.txt", Data: []byte("ghijkl"), By: Person()})
-		require.Error(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, rec.ID, recordFile), []byte("{bad"), 0o600))
+		_, err := s.Add(t.Context(), &NewArtifact{Name: "b.txt", Data: []byte("ghijk"), By: Person()})
+		require.ErrorIs(t, err, ErrFull)
 	})
 }
