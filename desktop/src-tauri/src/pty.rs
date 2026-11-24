@@ -108,6 +108,18 @@ pub fn remote_env(environment: Option<&str>) -> Option<&str> {
     environment.filter(|e| !e.is_empty() && *e != "local")
 }
 
+/// Refuses an environment name `ws` could take for an option or split into
+/// several arguments.
+pub fn check_env_name(environment: &str) -> Result<(), AppError> {
+    if environment.starts_with('-') || environment.contains(char::is_whitespace) {
+        return Err(AppError::new(
+            "bad_args",
+            format!("{environment:?} isn't a valid environment name"),
+        ));
+    }
+    Ok(())
+}
+
 fn command_for(spec: &TermSpec) -> Result<Command, AppError> {
     match spec {
         TermSpec::Attach {

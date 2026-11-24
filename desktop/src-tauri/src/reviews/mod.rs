@@ -79,6 +79,9 @@ pub fn reviews_set_watch(
 ) -> CmdResult<ReviewsView> {
     let was = state.store.get().reviews.watch(&repo);
     let environment = remote_env(environment.as_deref()).map(str::to_string);
+    if let Some(name) = &environment {
+        crate::pty::check_env_name(name)?;
+    }
     let moved = was.environment != environment;
     state.store.update(|d| {
         d.reviews.set_watch(

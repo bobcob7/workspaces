@@ -39,6 +39,7 @@ impl<'a> Origin<'a> {
         let Some(environment) = remote_env(environment) else {
             return Ok(Origin::LOCAL);
         };
+        crate::pty::check_env_name(environment)?;
         let review_id = review_id.map(str::trim).filter(|id| !id.is_empty());
         let Some(review_id) = review_id else {
             return Err(AppError::new(
@@ -702,6 +703,15 @@ esac"#,
     }
 
     #[test]
+    fn origin_refuses_an_environment_name_ws_would_misread() {
+        for name in ["-x", "--env=a", "a b", "a\tb", " a"] {
+            let err = Origin::new(Some(name), Some("review-1")).unwrap_err();
+            assert_eq!(err.code, "bad_args", "{name:?}");
+        }
+        assert!(Origin::new(Some("linux-server"), Some("review-1")).is_ok());
+    }
+
+    #[test]
     fn remote_report_args_use_env_and_id() {
         assert_eq!(
             report_args(REPO, REF, remote()).join(" "),
@@ -810,6 +820,8 @@ esac"#,
         .unwrap();
         assert_eq!(updated["comments"][0]["decision"]["decision"], "skip");
         assert!(cache.get(&format!("{REPO}@{REF}")).is_none());
+        let cached = cache.get(&remote().key(REPO, REF)).unwrap();
+        assert_eq!(cached["comments"][0]["decision"]["decision"], "skip");
         assert_eq!(calls(&dir).len(), 2);
     }
 }

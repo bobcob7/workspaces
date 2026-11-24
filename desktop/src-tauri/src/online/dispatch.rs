@@ -1035,6 +1035,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn moving_a_watched_repo_to_another_environment_requests_a_check() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let repo = "github.com/o/r";
+        let watch = |environment: serde_json::Value| serde_json::json!({"repo": repo, "watch": true, "autoReview": false, "environment": environment});
+        dispatch(
+            &ctx,
+            "reviews_set_watch",
+            watch("linux-server".into()),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(ctx.state.reviews.take_check_request());
+        dispatch(
+            &ctx,
+            "reviews_set_watch",
+            watch("linux-server".into()),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(!ctx.state.reviews.take_check_request());
+        dispatch(&ctx, "reviews_set_watch", watch("other-box".into()), None)
+            .await
+            .unwrap();
+        assert!(ctx.state.reviews.take_check_request());
+    }
+
+    #[tokio::test]
+    async fn reviews_set_watch_refuses_an_environment_name_ws_would_misread() {
+        let (_dir, ctx, log) = logging_ctx();
+        let repo = "github.com/o/r";
+        for name in ["-x", "--env=a", "a b"] {
+            let args = serde_json::json!({"repo": repo, "watch": true, "autoReview": false, "environment": name});
+            let err = app_error(&ctx, "reviews_set_watch", args).await;
+            assert_eq!(err.code, "bad_args", "{name:?}");
+        }
+        assert!(!ctx.state.store.get().reviews.watch(repo).watch);
+        assert!(!log.exists());
+    }
+
+    #[tokio::test]
+    async fn reviews_plan_fills_the_environment_the_repo_is_watched_on() {
+        let (_dir, ctx) = ctx_with("exit 1", "exit 1", Box::new(|_| {}));
+        let repo = "github.com/bobcob7/buff-bear";
+        ctx.state
+            .reviews
+            .set_pull_requests(repo, vec![crate::reviews::view::tests::pr(42)]);
+        let watch = serde_json::json!({"repo": repo, "watch": true, "autoReview": false, "environment": "linux-server"});
+        dispatch(&ctx, "reviews_set_watch", watch, None)
+            .await
+            .unwrap();
+        let args = serde_json::json!({"repo": repo, "number": 42});
+        let plan = dispatch(&ctx, "reviews_plan", args, None).await.unwrap();
+        assert_eq!(plan["environment"], "linux-server");
+        let named = serde_json::json!({"repo": repo, "number": 42, "environment": "local"});
+        let plan = dispatch(&ctx, "reviews_plan", named, None).await.unwrap();
+        assert!(plan["environment"].is_null());
+    }
+
+    #[tokio::test]
     async fn review_report_without_environment_is_local() {
         let (_dir, ctx) = ctx_with(r#"echo "$@" >&2; exit 1"#, "exit 1", Box::new(|_| {}));
         let args = serde_json::json!({"repo": "github.com/o/r", "gitRef": "abc", "refresh": true});
@@ -1076,7 +1137,24 @@ mod tests {
                 "review_fix_sent",
                 serde_json::json!({"repo": "r", "gitRef": "a", "findings": ["a"], "agent": "x", "environment": "linux-server"}),
             ),
+            (
+                "review_comment_plan",
+                serde_json::json!({"repo": "r", "gitRef": "a", "number": 1, "environment": "linux-server"}),
+            ),
+            (
+                "review_comment_post",
+                serde_json::json!({"repo": "r", "gitRef": "a", "environment": "linux-server", "request": {"number": 1, "commitId": "a", "body": "", "event": "COMMENT", "comments": [], "findings": ["a"]}}),
+            ),
+            (
+                "review_fix_plan",
+                serde_json::json!({"repo": "r", "gitRef": "a", "review": "r-1", "findings": [{"id": "a", "title": "t"}], "environment": "linux-server"}),
+            ),
+            (
+                "review_fix_start",
+                serde_json::json!({"repo": "r", "gitRef": "a", "environment": "linux-server", "request": {"findings": ["a"], "agent": {"name": "n", "spec": "s", "branch": null, "command": "c"}, "message": "m"}}),
+            ),
         ];
+        assert_eq!(calls.len(), 8);
         for (command, args) in calls {
             let err = app_error(&ctx, command, args).await;
             assert_eq!(err.code, "bad_args", "{command}");

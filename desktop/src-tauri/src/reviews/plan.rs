@@ -99,6 +99,34 @@ fn target_args(plan: &ReviewPlan, name: &str) -> Vec<String> {
     }
 }
 
+/// The permission modes a remote review accepts, as `envproto.ReviewPermissionModes`
+/// lists them.
+const REMOTE_PERMISSION_MODES: [&str; 5] = ["default", "acceptEdits", "plan", "auto", "dontAsk"];
+
+/// The mode to pass. A review reads untrusted pull request content, so a
+/// remote one is never started with `bypassPermissions`, and `manual`, an
+/// alias of `default`, is sent as `default`.
+pub fn permission_mode_for<'a>(
+    environment: Option<&str>,
+    mode: &'a str,
+) -> Result<&'a str, AppError> {
+    if remote_env(environment).is_none() {
+        return Ok(mode);
+    }
+    match mode {
+        "manual" => Ok("default"),
+        "bypassPermissions" => Err(AppError::new(
+            "usage",
+            "a review on an environment can't run with bypassPermissions: it reads untrusted pull request content",
+        )),
+        _ if REMOTE_PERMISSION_MODES.contains(&mode) => Ok(mode),
+        _ => Err(AppError::new(
+            "usage",
+            format!("a review on an environment can't run with the permission mode {mode:?}"),
+        )),
+    }
+}
+
 /// `ws review start [--env=E] --json --pr <n> [--name N] <repo> [--profile …]…
 /// [--auto …]… -- [--model=M] [--permission-mode=P] [focus]`. Options
 /// after `--` carry their value with `=`, since `ws` takes the last
@@ -119,6 +147,7 @@ pub fn start_args(plan: &ReviewPlan) -> Result<Vec<String>, AppError> {
         after.push(format!("--model={model}"));
     }
     if let Some(mode) = non_empty(&plan.permission_mode) {
+        let mode = permission_mode_for(plan.environment.as_deref(), mode)?;
         after.push(format!("--permission-mode={mode}"));
     }
     if let Some(focus) = non_empty(&plan.focus) {
@@ -287,6 +316,51 @@ mod tests {
             ["--model=sonnet", "--permission-mode=plan", "the SQL"]
         );
         assert_eq!(args.iter().filter(|a| a.starts_with("--env")).count(), 1);
+    }
+
+    #[test]
+    fn remote_start_args_refuse_bypass_permissions() {
+        let plan = ReviewPlan {
+            permission_mode: "bypassPermissions".to_string(),
+            ..remote_plan()
+        };
+        assert_eq!(start_args(&plan).unwrap_err().code, "usage");
+    }
+
+    #[test]
+    fn remote_start_args_refuse_unlisted_mode() {
+        let plan = ReviewPlan {
+            permission_mode: "yolo".to_string(),
+            ..remote_plan()
+        };
+        assert_eq!(start_args(&plan).unwrap_err().code, "usage");
+    }
+
+    #[test]
+    fn remote_start_args_map_manual_to_default() {
+        let plan = ReviewPlan {
+            permission_mode: "manual".to_string(),
+            ..remote_plan()
+        };
+        let args = start_args(&plan).unwrap();
+        assert_eq!(args[args.len() - 2..], ["--", "--permission-mode=default"]);
+    }
+
+    #[test]
+    fn local_start_args_keep_bypass_permissions_and_manual() {
+        for mode in ["bypassPermissions", "manual"] {
+            let plan = ReviewPlan {
+                permission_mode: mode.to_string(),
+                ..default_plan()
+            };
+            let args = start_args(&plan).unwrap();
+            assert_eq!(args[args.len() - 1], format!("--permission-mode={mode}"));
+            let named_local = ReviewPlan {
+                environment: Some("local".to_string()),
+                ..plan
+            };
+            assert_eq!(start_args(&named_local).unwrap(), args);
+        }
     }
 
     #[test]
