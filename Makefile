@@ -21,6 +21,9 @@ test-windows:
 	go test -p 2 -run TestHasPathPrefix ./internal/envagent
 	go test -p 2 -run TestFindSh ./internal/gate
 	go test -p 2 -run TestUserBaseDir ./internal/config
+	go test -p 2 -run TestRunner_program ./internal/shell
+	go test -p 2 -run TestUserHome ./internal/claude
+	go test -p 2 -run TestTerminalSignals ./internal/cli
 
 # The fakes (ADR 0067) are test tools, built here and never shipped.
 fakes:
