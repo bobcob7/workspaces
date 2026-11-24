@@ -83,3 +83,83 @@ describe("api commands that gained an environment argument", () => {
     expect(invoke).toHaveBeenLastCalledWith("stop_agent", { sessionId: "s1", workspaceId: "w1", environment: "win-rig" });
   });
 });
+
+describe("api review commands with an environment", () => {
+  const decide = { findings: ["a:1"], decision: "skip" as const, suggestion: null, note: "" };
+
+  it("reviewsSetWatch sends the environment, local by default", async () => {
+    await api.reviewsSetWatch("r", true, false);
+    expect(invoke).toHaveBeenLastCalledWith("reviews_set_watch", { repo: "r", watch: true, autoReview: false, environment: "local" });
+    await api.reviewsSetWatch("r", true, false, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("reviews_set_watch", { repo: "r", watch: true, autoReview: false, environment: "linux-server" });
+  });
+
+  it("reviewsPlan leaves the environment out unless given", async () => {
+    await api.reviewsPlan("r", 4);
+    expect(invoke).toHaveBeenLastCalledWith("reviews_plan", { repo: "r", number: 4, environment: undefined });
+    await api.reviewsPlan("r", 4, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("reviews_plan", { repo: "r", number: 4, environment: "linux-server" });
+  });
+
+  it("reviewsProfiles sends the environment, local by default", async () => {
+    await api.reviewsProfiles();
+    expect(invoke).toHaveBeenLastCalledWith("reviews_profiles", { environment: "local" });
+    await api.reviewsProfiles("linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("reviews_profiles", { environment: "linux-server" });
+  });
+
+  it("reviewReport and reviewDecide send the environment and review id", async () => {
+    await api.reviewReport("r", "abc", true);
+    expect(invoke).toHaveBeenLastCalledWith("review_report", { repo: "r", gitRef: "abc", refresh: true, environment: "local", reviewId: undefined });
+    await api.reviewReport("r", "abc", false, "linux-server", "review-1");
+    expect(invoke).toHaveBeenLastCalledWith("review_report", { repo: "r", gitRef: "abc", refresh: false, environment: "linux-server", reviewId: "review-1" });
+    await api.reviewDecide("r", "abc", decide, "linux-server", "review-1");
+    expect(invoke).toHaveBeenLastCalledWith("review_decide", { repo: "r", gitRef: "abc", request: decide, environment: "linux-server", reviewId: "review-1" });
+  });
+
+  it("the other review wrappers send the same two trailing arguments", async () => {
+    await api.reviewCommentPlan("r", "abc", 4, "linux-server", "review-1");
+    expect(invoke).toHaveBeenLastCalledWith("review_comment_plan", { repo: "r", gitRef: "abc", number: 4, environment: "linux-server", reviewId: "review-1" });
+    await api.reviewFixPlan("r", "abc", "review-1", [], "linux-server", "review-1");
+    expect(invoke).toHaveBeenLastCalledWith("review_fix_plan", { repo: "r", gitRef: "abc", review: "review-1", findings: [], environment: "linux-server", reviewId: "review-1" });
+    await api.reviewFixSent("r", "abc", ["a:1"], "fix-1", "linux-server", "review-1");
+    expect(invoke).toHaveBeenLastCalledWith("review_fix_sent", { repo: "r", gitRef: "abc", findings: ["a:1"], agent: "fix-1", environment: "linux-server", reviewId: "review-1" });
+  });
+});
+
+describe("api loop commands with an environment", () => {
+  it("loopsList sends the environment, local by default", async () => {
+    await api.loopsList();
+    expect(invoke).toHaveBeenLastCalledWith("loops_list", { environment: "local" });
+    await api.loopsList("linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_list", { environment: "linux-server" });
+  });
+
+  it("loopsRemove and the clear commands send confirmed before the environment", async () => {
+    await api.loopsRemove("deps");
+    expect(invoke).toHaveBeenLastCalledWith("loops_remove", { name: "deps", confirmed: false, environment: "local" });
+    await api.loopsRemove("deps", true, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_remove", { name: "deps", confirmed: true, environment: "linux-server" });
+    await api.loopsHistoryClear("deps", true, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_history_clear", { name: "deps", confirmed: true, environment: "linux-server" });
+    await api.loopsMemoryClear("deps", true, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_memory_clear", { name: "deps", confirmed: true, environment: "linux-server" });
+  });
+
+  it("the other loop wrappers take a trailing environment", async () => {
+    await api.loopsSetPaused("deps", true, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_set_paused", { name: "deps", paused: true, environment: "linux-server" });
+    await api.loopsRunNow("deps", "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_run_now", { name: "deps", environment: "linux-server" });
+    await api.loopsHistory("deps", 200, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_history", { name: "deps", limit: 200, environment: "linux-server" });
+    await api.loopsHistoryRun("deps", 3, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_history_run", { name: "deps", seq: 3, environment: "linux-server" });
+    await api.loopsMemory("deps", "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_memory", { name: "deps", environment: "linux-server" });
+    await api.loopsMemorySet("deps", "k", "v", 2, "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_memory_set", { name: "deps", key: "k", value: "v", expectRev: 2, environment: "linux-server" });
+    await api.loopsMemoryRemove("deps", "k", "linux-server");
+    expect(invoke).toHaveBeenLastCalledWith("loops_memory_remove", { name: "deps", key: "k", environment: "linux-server" });
+  });
+});
