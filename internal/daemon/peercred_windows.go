@@ -7,6 +7,9 @@ import (
 	"os"
 )
 
-// peerUID is the listener's own uid: the socket directory's DACL is the
-// check on Windows, since AF_UNIX there has no peer credentials (ADR 0081 D4).
+// peerUID is a pass-through on Windows: AF_UNIX there has no peer
+// credentials, so it reports the listener's own uid and every connection
+// passes. The guard is the socket directory's DACL, which prepareSocketDir
+// restricts to the current user and then checks (ADR 0081 D4). Keep that
+// Restrict-then-Check order; don't drop the CheckPrivate.
 func peerUID(net.Conn) (int, error) { return os.Getuid(), nil }
