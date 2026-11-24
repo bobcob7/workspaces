@@ -54,7 +54,8 @@ enrolled environment's, by name. A pending environment, one with no agent
 enrolled yet, adds nothing. `--env <name>` lists the workspaces of those
 environments instead (`local` is a name, and `ws env list` shows the
 others). A remote environment's workspaces come from its last snapshot, and
-are read-only: they can be listed, not acted on from here. Two defaults stay
+can be acted on with `--env` on `ws rm`, `ws rename`, `ws hide`, `ws unhide`
+and `ws stop`, and with `ws attach --env`. Two defaults stay
 local, so that scripts don't mix machines: `-q` lists local ids only unless
 `--env` is given, and `--parent <id>` without `--env` lists the environment
 the parent is in, local first, else the one environment whose snapshot lists

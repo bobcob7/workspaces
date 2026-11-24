@@ -97,14 +97,15 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 | Command                                  | Purpose                                              |
 | ---------------------------------------- | ---------------------------------------------------- |
 | [`ws claude`](docs/tools/ws-claude.md)   | New workspace with a Claude Code background agent    |
-| [`ws shell`](docs/tools/ws-shell.md)     | New workspace with an interactive shell              |
+| [`ws shell`](docs/tools/ws-shell.md)     | New workspace with an interactive shell, here or on an environment |
+| [`ws attach`](docs/tools/ws-attach.md)   | Attach this terminal to a workspace's Claude Code agent, here or on an environment |
 | [`ws restore`](docs/tools/ws-restore.md) | Restart agents after a reboot or crash               |
 | [`ws restart`](docs/tools/ws-restart.md) | Restart all agents with a fresh environment          |
 | [`ws continue`](docs/tools/ws-continue.md) | Carry on agents stopped by a usage limit once it resets |
 | [`ws loop`](docs/tools/ws-loop.md)       | Start an agent in a new workspace every period       |
 | [`ws list`](docs/tools/ws-list.md)       | List workspaces and their sessions                   |
 | [`ws rm`](docs/tools/ws-rm.md)           | Remove workspaces and their sessions now             |
-| [`ws stop`](docs/tools/ws-stop.md)       | Stop the Claude Code agents of workspaces            |
+| [`ws stop`](docs/tools/ws-stop.md)       | Stop the Claude Code agents of workspaces, here or on an environment |
 | [`ws rename`](docs/tools/ws-rename.md)   | Change a workspace's display name                    |
 | [`ws hide`](docs/tools/ws-hide.md)       | Hide a workspace from default views, or `unhide` it  |
 | [`ws cache`](docs/tools/ws-cache.md)     | Manage, search, and resolve cached repos             |
@@ -255,11 +256,19 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   `ws env agent`, which runs on the remote machine
 - [x] **Remote environments, operations**: `ws claude --env`, `ws list --env`,
   the nine operations of the environment agent, and the environment fields of
-  `ws list --json`; `ws shell --env` follows with the terminal streams
+  `ws list --json`
   ([0072](docs/adrs/0072-remote-environments.md),
-  [0076](docs/adrs/0076-environment-platforms-and-phasing.md)); plain
-  `ws list` shows remote workspaces only with `--env` until the desktop app
-  does ([0072](docs/adrs/0072-remote-environments.md), deviation 1)
+  [0076](docs/adrs/0076-environment-platforms-and-phasing.md))
+- [x] **Remote environments, terminals and desktop**: `ws shell --env` and
+  `ws attach` over the terminal streams of
+  [0074](docs/adrs/0074-mqtt-transport-embedded-broker.md), `ws stop` and
+  `--env` on `ws rm`, `ws rename`, `ws hide` and `ws unhide`, `ws list`
+  showing every environment (`-q` stays local), and in the desktop app and
+  Workspace Online Settings › Environments, an Environment picker, badges,
+  a filter and an offline state on the Agents list, and an integrated
+  terminal on a remote workspace ([design](docs/design/remote-environments/tasks-ui.md)).
+  Not yet: a remote agent's conversation view, stopping a `ws` runner agent
+  on a remote, and Windows
 
 Longer term, `ws` aims to depend on no particular model, provider or
 agent harness, with Claude Code staying the default until measured runs

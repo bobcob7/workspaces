@@ -47,6 +47,13 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   Push, or copy out, anything worth keeping before `ws machine rm` or
   `claude rm`.
 
+People, not agents, use remote environments (`ws env list` shows them):
+`ws claude --env <name>` and `ws shell --env <name>` start work there,
+`ws attach [--env <name>] <workspace>` attaches a terminal to an agent, and
+`ws stop`, `ws rm`, `ws rename`, `ws hide` and `ws unhide` take `--env <name>`
+too. Without `--env` they act on this machine only. `ws list` shows every
+environment; `ws list -q` stays local unless `--env` is given.
+
 ## Use cases
 
 ```console

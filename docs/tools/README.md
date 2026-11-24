@@ -7,7 +7,8 @@ for people and the desktop app ([0046](../adrs/0046-ws-machine.md)).
 | Command                       | Purpose                                                  |
 | ----------------------------- | -------------------------------------------------------- |
 | [`ws claude`](ws-claude.md)   | New workspace with a Claude Code background agent        |
-| [`ws shell`](ws-shell.md)     | New workspace with an interactive shell                  |
+| [`ws shell`](ws-shell.md)     | New workspace with an interactive shell, here or on an environment |
+| [`ws attach`](ws-attach.md)   | Attach this terminal to a workspace's Claude Code agent, here or on an environment |
 | [`ws restore`](ws-restore.md) | Restart agents that aren't running, after a reboot or crash |
 | [`ws continue`](ws-continue.md) | Tell agents stopped by a 5-hour or weekly usage limit to carry on once it resets |
 | [`ws loop`](ws-loop.md) | Start an agent with the same prompt in a new workspace every period; add, edit, list, pause, resume, and remove loops |

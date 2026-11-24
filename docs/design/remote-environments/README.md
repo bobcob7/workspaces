@@ -6,6 +6,9 @@ Decisions: [0072](../../adrs/0072-remote-environments.md),
 [0075](../../adrs/0075-environment-enrollment-and-certificates.md),
 [0076](../../adrs/0076-environment-platforms-and-phasing.md).
 
+Task lists and measurements: [PR 4's tasks](tasks-ui.md) with its
+[constraints](constraints-ui.md), and the [terminal spike](terminal-spike.md).
+
 ## Picture
 
 ```mermaid

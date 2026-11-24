@@ -314,7 +314,11 @@ agent's `snapshot`, which is `{"at", "protocol", "workspaces", "agents"}`
 `protocol` is the operation protocol the agent speaks (0 from an agent older
 than PR 3); `workspaces` is its `ws list --json --all` array, without unknown
 directories; `agents` is its Claude Code sessions, `[]` from an agent older
-than PR 3. A snapshot over 256 KiB isn't published, and its entries go stale.
+than PR 3. A snapshot over 256 KiB isn't published, and its entries go stale. Terminals
+([0074](adrs/0074-mqtt-transport-embedded-broker.md)) leave nothing on disk on
+the controller: their streams live in memory and end with the terminal, the
+connection or the environment's presence. `ws list`'s `agent_state` isn't
+stored either: it is read from the snapshot's `agents`, matched by session id.
 
 ## What each command does
 

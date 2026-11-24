@@ -31,6 +31,14 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   confirming), and Restore stopped (`ws restore`). A workspace's name is
   the one it was created with until renamed; its id, and directory, end
   with a random suffix ([ADR 0036](../docs/adrs/0036-workspace-id-suffix-and-rename.md)).
+- **Environments**: Settings › Environments enrolls other machines (a Linux
+  server, say) that run `ws env agent run`; New agent and New shell have an
+  Environment picker, and the Agents list shows each remote workspace with
+  its environment's badge, a filter chip per environment and a dimmed
+  offline state. A remote workspace's Terminal is its agent's terminal over
+  the daemon, and Stop, Rename, Hide and Remove run through `ws stop` and
+  `--env` ([ADR 0072](../docs/adrs/0072-remote-environments.md), see
+  [Environments](#environments)).
 - **Open a workspace in your tools**: Open folder shows the workspace in
   Finder (Explorer on Windows, the default file manager on Linux), and
   Open in editor opens it in VS Code (`code`): the repo when the workspace
@@ -222,6 +230,51 @@ rows, and its buttons are at least 40 px tall.
 
 The screenshots use sample data.
 
+## Environments
+
+A remote environment is another machine that runs `ws env agent run` and
+connects to this one ([`ws env`](../docs/tools/ws-env.md)); this app needs
+the daemon running on the controller. Settings › Environments lists them with
+their status, and adds, rotates and removes them:
+
+![Settings, Environments](docs/settings-environments.png)
+
+Add environment shows the one-time code and the two commands to run on the
+machine. The code stays in the dialog and goes nowhere else; Rotate cancels an
+unused one.
+
+![Add environment](docs/settings-environments-add.png)
+
+New agent and New shell pick the environment (it remembers the last choice);
+an offline environment is disabled, and a child of a workspace runs where its
+parent does:
+
+![New agent with the Environment picker](docs/new-agent-environment.png)
+
+The Agents list marks each remote row with its environment, filters by
+environment, and dims an offline environment's rows while keeping their last
+status; their actions are disabled with the reason:
+
+![Agents with environment badges](docs/agents-environments.png)
+
+On a phone, the same list through Workspace Online:
+
+![Agents with environment badges on a phone](docs/agents-environments-mobile.png)
+
+A remote agent's pane opens on its Terminal, with a note: the conversation
+view reads local transcripts, so a remote agent's conversation isn't shown
+yet. Terminals are one connection per environment, don't survive a reconnect,
+and a terminal closed by an offline environment says so:
+
+![A remote terminal](docs/remote-terminal.png)
+
+Open folder and Open in editor are disabled on a remote workspace (the files
+are on the other machine).
+
+Not yet: a remote agent's conversation view, stopping a `ws` runner agent on a
+remote, and Windows. Reviews and loops run on remote environments; see
+[`ws review`](../docs/tools/ws-review.md) and [`ws loop`](../docs/tools/ws-loop.md).
+
 ## Workspace Online
 
 The same backend can run on a server and serve the frontend to a browser
@@ -238,7 +291,7 @@ behind a username and password (`ws-online`, feature `online`). See
 - The workspace root trusted in Claude Code once (see
   [`ws claude`](../docs/tools/ws-claude.md#trust)); the New agent dialog
   says how if it isn't.
-- To build: Rust 1.90+, Node.js 20+, and Tauri's
+- To build: Rust 1.90+, Node.js 22.12+ (the tests need it), and Tauri's
   [system dependencies](https://tauri.app/start/prerequisites/).
 
 ## Build and run

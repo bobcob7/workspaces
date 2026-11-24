@@ -215,15 +215,16 @@ side is `ws claude --env` and `ws list --env` ([`ws claude`](ws-claude.md#enviro
 | `agent.stop` | Claude Code's `stop` | 1 | 30 s |
 
 `Since` is the protocol the operation needs (see below). A `shell` kind
-isn't in the table: a shell needs the terminal streams, which come with the
-next release ([0072](../adrs/0072-remote-environments.md), deviation 2).
+isn't in the table: a shell is a terminal ([Terminals](#terminals)).
 
 **Protocol.** The hello carries `protocol`, the newest operation protocol the
-agent speaks: 1 in this release, and 0 from an agent older than it. An
+agent speaks: 1 with PR 3's operations, 2 with the terminal operations (PR 4;
+reviews and loops later made it 3), and 0 from an agent older than PR 3. An
 operation whose `Since` is above the agent's protocol is refused before it is
 sent, with `environment_outdated` (exit 1). Its details are `environment`,
-`op`, `ws_version`, `protocol` and `need_protocol`, so an agent from before
-this release runs none of the operations. The version string isn't compared:
+`op`, `ws_version`, `protocol` and `need_protocol`, so an agent older than
+an operation's `Since` doesn't run it: one from PR 3 refuses `terminal.open`
+and `terminal.close`. The version string isn't compared:
 `git describe` strings don't order reliably.
 
 **Requests, timeouts and deduplication.** Each request carries a
@@ -261,6 +262,58 @@ still have run; `ws list --env <name>` shows what exists.
   `workspaces/` with no `..` element; anything else is `outside_workspace`
   (exit 2), and nothing runs.
 
+## Terminals
+
+A terminal is a process in a pseudo-terminal on the agent's machine: Claude
+Code's `claude attach` for a workspace ([`ws attach --env`](ws-attach.md)), or
+`ws shell` ([`ws shell --env`](ws-shell.md)). `terminal.open` (kind `attach`
+or `shell`, `Since: 2`, 30 s) returns a stream id, and `terminal.close` ends
+it. The CLI reaches them through the daemon's `POST
+/v1/environments/<name>/terminal`, which upgrades the connection, so it never
+speaks MQTT.
+
+**Frames.** Bytes travel as binary frames on `env/<id>/stream/<sid>/out`
+(agent to controller, QoS 0) and `.../in` (controller to agent, QoS 1). A
+frame is a version byte (1), a kind byte, a big-endian 64-bit sequence number
+and a body:
+
+| Kind | Direction | Body |
+| --- | --- | --- |
+| `d` data | out | 1 to 16 KiB of output |
+| `g` dropped | out | the count of bytes dropped, 8 bytes |
+| `x` exit | out | JSON `{"code", "reason"}`; the reason is `exited`, `closed`, `idle`, `input_gap`, `input_limit` or `disconnected` |
+| `i` input | in | 1 to 4 KiB |
+| `r` resize | in | columns and rows, two big-endian 16-bit numbers, each 1 to 1000 |
+| `w` redraw | in | none |
+| `p` ping | in | none |
+| `c` close | in | none |
+
+**Limits.** At most 8 terminals per agent (`terminal_limit`, exit 4). Output
+the reader isn't taking is dropped after 1 MiB queued, by the agent and by the
+controller for its client, with a visible marker. The agent closes a terminal
+whose input exceeds 128 KiB/s or 500 frames/s, or has a gap in its input
+sequence, rather than guess; the CLI paces pasted input at 64 KiB/s.
+
+**Lifetime.** Terminals don't survive a reconnect: the agent closes every
+terminal when its MQTT connection drops, and the controller ends those of an
+environment that goes offline, so `ws attach` says so and exits 1
+(`environment_offline`). The controller pings every 15 s, and the agent closes
+a terminal with no frame for 60 s. The agent keeps no screen model: on an
+output gap the controller asks for a redraw, and the agent does after it drops
+output, at most once a second. A redraw changes the pty's size by one row and
+back, which repaints Claude Code and other full-screen programs; a line-mode
+shell shows only the marker.
+
+**Latency.** Terminals share the agent's one connection with control requests.
+Its socket bounds the not-yet-sent queue (`TCP_NOTSENT_LOWAT` 16 KiB), which
+cut a control request's delay under bulk output about tenfold. On a 10 Mbit/s
+uplink with a 20 ms round trip, the
+[spike](../design/remote-environments/terminal-spike.md) measured **0.195 s**
+against the design's limit of **0.142 s**, so it still misses it: a control
+request can wait about 0.2 s behind a `cat` of a large file. Typing echo and
+throughput met their limits. A second connection passed in the spike and is
+the fallback.
+
 ## Exit codes
 
 | Situation | Error code | Exit |
@@ -270,6 +323,7 @@ still have run; `ws list --env <name>` shows what exists.
 | No environment with that name | `environment_unknown` | 3 |
 | A name already taken, an enrollment on a machine already enrolled | `environment_exists` | 4 |
 | A code already used | `enrollment_used` | 4 |
+| The agent already has 8 terminals open | `terminal_limit` | 4 |
 | `--finish` while environments hold old-CA certificates | `ca_in_use` | 4 |
 | Enrollment refused, or a certificate has expired | `enrollment_failed` | 1 |
 
