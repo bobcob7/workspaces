@@ -15,7 +15,7 @@ const open = (items = [remoteEnvironment()], lastChoice = "local") => {
   const terminals = fakeHost();
   const store = testStore({
     terminals,
-    state: { environments: { items, loadedAt: Date.now(), error: null, latestRequestId: null, lastChoice } },
+    state: { environments: { items, loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice } },
   });
   store.dispatch(dialogOpened("shell"));
   renderWithStore(<NewShellDialog />, store);

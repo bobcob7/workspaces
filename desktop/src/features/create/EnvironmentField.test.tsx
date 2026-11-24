@@ -22,7 +22,7 @@ const Harness = (): JSX.Element => {
 };
 
 const storeWith = (items = [remoteEnvironment(), remoteEnvironment({ id: "b", name: "win-rig", status: "offline", lastSeen: seen })]) =>
-  testStore({ state: { environments: { items, loadedAt: Date.now(), error: null, latestRequestId: null, lastChoice: "local" } } });
+  testStore({ state: { environments: { items, loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } } });
 
 describe("EnvironmentField", () => {
   it("is hidden without environments", () => {

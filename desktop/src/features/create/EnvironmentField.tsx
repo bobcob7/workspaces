@@ -30,13 +30,13 @@ export const useEnvironmentPick = (): EnvironmentPick => {
   const [picked, setPicked] = useState<string | null>(null);
   return useMemo((): EnvironmentPick => {
     const enabled = (name: string): boolean => choices.some((c) => c.name === name && !c.disabled);
-    const remembered = choices.find((c) => c.name === lastChoice);
+    const wanted = picked ?? lastChoice;
+    const wantedOffline = choices.find((c) => c.name === wanted)?.disabled === true;
     const environment = picked !== null && enabled(picked) ? picked : enabled(lastChoice) ? lastChoice : "local";
-    const fellBack = picked === null && remembered?.disabled === true;
     const hello = items.find((env) => env.name === environment)?.hello ?? null;
     return {
       environment,
-      note: fellBack ? `${lastChoice} is offline; using local` : null,
+      note: wantedOffline ? `${wanted} is offline; using ${environment}` : null,
       claudeMissing: environment !== "local" && hello?.claude === "missing",
       visible: choices.length > 1,
       choices,

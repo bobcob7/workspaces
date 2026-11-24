@@ -1,9 +1,9 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { fakeApi, remoteEnvironment, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
-import { lastChoiceKey } from "../environments/environmentsSlice";
+import { fetchEnvironments, lastChoiceKey } from "../environments/environmentsSlice";
 import { dialogOpened } from "../ui/uiSlice";
 import { NewAgentDialog } from "./NewAgentDialog";
 
@@ -29,7 +29,7 @@ const chooseWsRunner = async (): Promise<void> => {
 const openWithEnvironments = (items = [remoteEnvironment()], api = fakeApi(), lastChoice = "local"): ReturnType<typeof testStore> => {
   const store = testStore({
     api,
-    state: { environments: { items, loadedAt: Date.now(), error: null, latestRequestId: null, lastChoice } },
+    state: { environments: { items, loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice } },
   });
   store.dispatch(dialogOpened("agent"));
   renderWithStore(<NewAgentDialog />, store);
@@ -87,6 +87,27 @@ describe("NewAgentDialog environment", () => {
   it("sends local when the remembered environment is offline", async () => {
     const api = fakeApi();
     openWithEnvironments([remoteEnvironment({ status: "offline" })], api, "linux-server");
+    expect(screen.getByText("linux-server is offline; using local")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(vi.mocked(api.createAgent).mock.calls[0]?.[0]).not.toHaveProperty("environment");
+  });
+
+  it("falls back to local and says so when the picked environment goes offline", async () => {
+    const api = fakeApi({
+      environmentsList: vi.fn(async () => ({ environments: [remoteEnvironment({ status: "offline", lastSeen: "2026-11-23T14:02:00Z" })], warnings: [] })),
+    });
+    const store = testStore({
+      api,
+      state: { environments: { items: [remoteEnvironment()], loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } },
+    });
+    store.dispatch(dialogOpened("agent"));
+    renderWithStore(<NewAgentDialog />, store);
+    await userEvent.click(screen.getByRole("combobox", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+    await act(async () => {
+      await store.dispatch(fetchEnvironments());
+    });
+    expect(screen.getByRole("combobox", { name: "Environment" })).toHaveTextContent("local");
     expect(screen.getByText("linux-server is offline; using local")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
     expect(vi.mocked(api.createAgent).mock.calls[0]?.[0]).not.toHaveProperty("environment");
