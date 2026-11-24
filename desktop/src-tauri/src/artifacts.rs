@@ -195,7 +195,8 @@ pub async fn artifact_show(state: State<'_, AppState>, id: String) -> CmdResult<
 }
 
 async fn show(runner: &Runner, id: &str) -> CmdResult<Artifact> {
-    let args = strings(&["artifact", "show", "--json", id]);
+    check_id(id)?;
+    let args = strings(&["artifact", "show", "--json", "--", id]);
     let result: ArtifactResult = runner.ws_json_as_given(&args).await?;
     Ok(result.artifact)
 }
@@ -211,8 +212,10 @@ pub async fn artifact_read(
 }
 
 async fn read(runner: &Runner, id: &str, rev: Option<u32>) -> CmdResult<ArtifactContent> {
-    let mut args = strings(&["artifact", "cat", id]);
+    check_id(id)?;
+    let mut args = strings(&["artifact", "cat"]);
     args.extend(flag("--rev", rev.map(|n| n.to_string()).as_deref()));
+    args.extend(strings(&["--", id]));
     let outcome = runner.run("ws", &args).await?;
     if !outcome.success {
         return Err(ws_error(&outcome.stderr));
@@ -285,7 +288,8 @@ pub async fn artifact_remove(state: State<'_, AppState>, id: String) -> CmdResul
 }
 
 async fn remove(runner: &Runner, id: &str) -> CmdResult<()> {
-    let args = strings(&["artifact", "rm", "--json", id]);
+    check_id(id)?;
+    let args = strings(&["artifact", "rm", "--json", "--", id]);
     let listing: RemoveList = runner.ws_json_as_given(&args).await?;
     let failed = listing.artifacts.into_iter().find_map(|item| item.error);
     match failed {
@@ -301,7 +305,8 @@ pub async fn artifact_comments(state: State<'_, AppState>, id: String) -> CmdRes
 }
 
 async fn comments(runner: &Runner, id: &str) -> CmdResult<CommentList> {
-    let args = strings(&["artifact", "comment", "list", "--json", id]);
+    check_id(id)?;
+    let args = strings(&["artifact", "comment", "list", "--json", "--", id]);
     runner.ws_json_as_given(&args).await
 }
 
@@ -324,19 +329,16 @@ async fn add_comment(
     reply: Option<&str>,
     anchor: Option<&NewAnchor>,
 ) -> CmdResult<CommentAdded> {
-    let mut args = strings(&[
-        "artifact",
-        "comment",
-        "add",
-        "--json",
-        id,
-        "--body-file",
-        "-",
-    ]);
+    check_id(id)?;
+    if let Some(reply) = reply {
+        check_thread(reply)?;
+    }
+    let mut args = strings(&["artifact", "comment", "add", "--json", "--body-file", "-"]);
     args.extend(flag("--reply", reply));
     if let Some(anchor) = anchor {
         args.extend(anchor_flags(anchor));
     }
+    args.extend(strings(&["--", id]));
     runner
         .ws_json_with_input(&args, Some(body.as_bytes()))
         .await
@@ -368,12 +370,68 @@ pub async fn artifact_comment_resolve(
 }
 
 async fn resolve(runner: &Runner, id: &str, thread: &str, reopen: bool) -> CmdResult<Thread> {
-    let mut args = strings(&["artifact", "comment", "resolve", "--json", id, thread]);
+    check_id(id)?;
+    check_thread(thread)?;
+    let mut args = strings(&["artifact", "comment", "resolve", "--json"]);
     if reopen {
         args.push("--reopen".to_string());
     }
+    args.extend(strings(&["--", id, thread]));
     let result: ThreadResult = runner.ws_json_as_given(&args).await?;
     Ok(result.thread)
+}
+
+/// An artifact id, `art-` and 8 lowercase hex digits, with an optional `/r<n>`
+/// revision (1 to 999): what `internal/artifact` accepts as a reference.
+fn valid_id(id: &str) -> bool {
+    let (base, revision) = match id.split_once('/') {
+        Some((base, revision)) => (base, Some(revision)),
+        None => (id, None),
+    };
+    let hex = base.strip_prefix("art-").unwrap_or("");
+    let id_ok = hex.len() == 8
+        && hex
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    id_ok && revision.is_none_or(valid_revision)
+}
+
+fn valid_revision(revision: &str) -> bool {
+    let Some(digits) = revision.strip_prefix('r') else {
+        return false;
+    };
+    digits.len() <= 3
+        && !digits.starts_with('0')
+        && !digits.is_empty()
+        && digits.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// A thread id: `t` and a positive number, as `ws artifact comment` names them.
+fn valid_thread(thread: &str) -> bool {
+    let Some(digits) = thread.strip_prefix('t') else {
+        return false;
+    };
+    !digits.is_empty() && !digits.starts_with('0') && digits.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn check_id(id: &str) -> CmdResult<()> {
+    if valid_id(id) {
+        return Ok(());
+    }
+    Err(AppError::new(
+        "bad_args",
+        format!("{id:?} is not an artifact id"),
+    ))
+}
+
+fn check_thread(thread: &str) -> CmdResult<()> {
+    if valid_thread(thread) {
+        return Ok(());
+    }
+    Err(AppError::new(
+        "bad_args",
+        format!("{thread:?} is not a thread id"),
+    ))
 }
 
 fn strings(parts: &[&str]) -> Vec<String> {
@@ -459,7 +517,7 @@ mod tests {
         assert_eq!(shown.revisions.len(), 1);
         assert_eq!(
             args_of(&dir),
-            strings(&["artifact", "show", "--json", "art-1a2b3c4d"])
+            strings(&["artifact", "show", "--json", "--", "art-1a2b3c4d"])
         );
     }
 
@@ -479,7 +537,7 @@ mod tests {
                 .lines()
                 .map(str::to_string)
                 .collect::<Vec<_>>(),
-            strings(&["artifact", "cat", "art-1a2b3c4d", "--rev", "1"])
+            strings(&["artifact", "cat", "--rev", "1", "--", "art-1a2b3c4d"])
         );
     }
 
@@ -487,7 +545,7 @@ mod tests {
     async fn read_reports_ws_error_codes() {
         let body = r#"echo '{"error":{"code":"artifact_unknown","message":"no such artifact"}}' >&2; exit 3"#;
         let (_dir, runner) = fake_ws(body);
-        let err = read(&runner, "art-missing", None).await.unwrap_err();
+        let err = read(&runner, "art-0badc0de", None).await.unwrap_err();
         assert_eq!(err.code, "artifact_unknown");
     }
 
@@ -527,45 +585,51 @@ mod tests {
 
     #[tokio::test]
     async fn remove_returns_the_item_error() {
-        let body = r#"echo '{"artifacts":[{"id":"art-1","removed":false,"error":{"code":"artifact_forbidden","message":"not yours"}}],"warnings":[]}'"#;
+        let body = r#"echo '{"artifacts":[{"id":"art-0000000a","removed":false,"error":{"code":"artifact_forbidden","message":"not yours"}}],"warnings":[]}'"#;
         let (dir, runner) = fake_ws(body);
-        let err = remove(&runner, "art-1").await.unwrap_err();
+        let err = remove(&runner, "art-0000000a").await.unwrap_err();
         assert_eq!(err.code, "artifact_forbidden");
         assert_eq!(
             args_of(&dir),
-            strings(&["artifact", "rm", "--json", "art-1"])
+            strings(&["artifact", "rm", "--json", "--", "art-0000000a"])
         );
     }
 
     #[tokio::test]
     async fn remove_succeeds_when_no_item_has_an_error() {
-        let body =
-            r#"echo '{"artifacts":[{"id":"art-1","removed":true,"error":null}],"warnings":[]}'"#;
+        let body = r#"echo '{"artifacts":[{"id":"art-0000000a","removed":true,"error":null}],"warnings":[]}'"#;
         let (_dir, runner) = fake_ws(body);
-        remove(&runner, "art-1").await.unwrap();
+        remove(&runner, "art-0000000a").await.unwrap();
     }
 
     #[tokio::test]
     async fn comments_lists_the_threads() {
         let body = format!(
-            r#"echo '{{"artifact_id":"art-1","latest":1,"threads":[{THREAD}],"warnings":[]}}'"#
+            r#"echo '{{"artifact_id":"art-0000000a","latest":1,"threads":[{THREAD}],"warnings":[]}}'"#
         );
         let (dir, runner) = fake_ws(&body);
-        let list = comments(&runner, "art-1").await.unwrap();
+        let list = comments(&runner, "art-0000000a").await.unwrap();
         assert_eq!(list.threads[0].id, "t1");
         assert_eq!(
             args_of(&dir),
-            strings(&["artifact", "comment", "list", "--json", "art-1"])
+            strings(&[
+                "artifact",
+                "comment",
+                "list",
+                "--json",
+                "--",
+                "art-0000000a"
+            ])
         );
     }
 
     #[tokio::test]
     async fn comment_add_replies_with_the_body_on_stdin() {
         let body = format!(
-            r#"echo '{{"artifact_id":"art-1","thread":{THREAD},"comment":{{"id":"c1","author":{ACTOR},"body":"Thanks","created_at":"2026-11-23T18:20:00Z"}},"warnings":[]}}'"#
+            r#"echo '{{"artifact_id":"art-0000000a","thread":{THREAD},"comment":{{"id":"c1","author":{ACTOR},"body":"Thanks","created_at":"2026-11-23T18:20:00Z"}},"warnings":[]}}'"#
         );
         let (dir, runner) = fake_ws(&body);
-        let added = add_comment(&runner, "art-1", "Thanks", Some("t1"), None)
+        let added = add_comment(&runner, "art-0000000a", "Thanks", Some("t1"), None)
             .await
             .unwrap();
         assert_eq!(added.comment.body, "Thanks");
@@ -577,11 +641,12 @@ mod tests {
                 "comment",
                 "add",
                 "--json",
-                "art-1",
                 "--body-file",
                 "-",
                 "--reply",
                 "t1",
+                "--",
+                "art-0000000a",
             ])
         );
     }
@@ -589,7 +654,7 @@ mod tests {
     #[tokio::test]
     async fn comment_add_anchors_a_quote_with_its_context() {
         let body = format!(
-            r#"echo '{{"artifact_id":"art-1","thread":{THREAD},"comment":{{"id":"c1","author":{ACTOR},"body":"Why?","created_at":"2026-11-23T18:20:00Z"}},"warnings":[]}}'"#
+            r#"echo '{{"artifact_id":"art-0000000a","thread":{THREAD},"comment":{{"id":"c1","author":{ACTOR},"body":"Why?","created_at":"2026-11-23T18:20:00Z"}},"warnings":[]}}'"#
         );
         let (dir, runner) = fake_ws(&body);
         let anchor = NewAnchor {
@@ -598,7 +663,7 @@ mod tests {
             prefix: "Today ".to_string(),
             suffix: " across".to_string(),
         };
-        add_comment(&runner, "art-1", "Why?", None, Some(&anchor))
+        add_comment(&runner, "art-0000000a", "Why?", None, Some(&anchor))
             .await
             .unwrap();
         assert_eq!(
@@ -608,7 +673,6 @@ mod tests {
                 "comment",
                 "add",
                 "--json",
-                "art-1",
                 "--body-file",
                 "-",
                 "--quote",
@@ -619,19 +683,100 @@ mod tests {
                 "Today ",
                 "--suffix",
                 " across",
+                "--",
+                "art-0000000a",
             ])
         );
     }
 
     #[tokio::test]
     async fn comment_resolve_passes_reopen() {
-        let body = format!(r#"echo '{{"artifact_id":"art-1","thread":{THREAD},"warnings":[]}}'"#);
+        let body =
+            format!(r#"echo '{{"artifact_id":"art-0000000a","thread":{THREAD},"warnings":[]}}'"#);
         let (dir, runner) = fake_ws(&body);
-        let thread = resolve(&runner, "art-1", "t1", true).await.unwrap();
+        let thread = resolve(&runner, "art-0000000a", "t1", true).await.unwrap();
         assert_eq!(thread.id, "t1");
         assert_eq!(
             args_of(&dir),
-            strings(&["artifact", "comment", "resolve", "--json", "art-1", "t1", "--reopen"])
+            strings(&[
+                "artifact",
+                "comment",
+                "resolve",
+                "--json",
+                "--reopen",
+                "--",
+                "art-0000000a",
+                "t1"
+            ])
         );
+    }
+
+    const GOOD: &str = "art-1a2b3c4d";
+
+    fn assert_refused_without_running_ws(dir: &tempfile::TempDir, err: AppError) {
+        assert_eq!(err.code, "bad_args");
+        assert!(!dir.path().join("args").exists(), "ws must not run");
+    }
+
+    #[test]
+    fn valid_id_matches_the_go_form_with_an_optional_revision() {
+        for good in ["art-00ff12ab", "art-1a2b3c4d/r2", "art-1a2b3c4d/r999"] {
+            assert!(valid_id(good), "{good} should be valid");
+        }
+        for bad in [
+            "",
+            "--help",
+            "-x",
+            "art-1",
+            "art-00FF12AB",
+            "art-1a2b3c4d/r0",
+            "art-1a2b3c4d/r1000",
+            "art-1a2b3c4d/r",
+            "art-1a2b3c4d ",
+            "art-1a2b3c4d\n",
+            "@artifact:art-1a2b3c4d",
+            "art-1a2b3c4dd",
+        ] {
+            assert!(!valid_id(bad), "{bad:?} should be invalid");
+        }
+    }
+
+    #[test]
+    fn valid_thread_is_t_and_a_positive_number() {
+        assert!(valid_thread("t1") && valid_thread("t12"));
+        for bad in ["", "--help", "t", "t0", "t01", "c1", "t1 "] {
+            assert!(!valid_thread(bad), "{bad:?} should be invalid");
+        }
+    }
+
+    #[tokio::test]
+    async fn every_id_taking_command_refuses_a_flag_as_the_id() {
+        let (dir, runner) = fake_ws("exit 1");
+        assert_refused_without_running_ws(&dir, show(&runner, "--help").await.unwrap_err());
+        assert_refused_without_running_ws(&dir, read(&runner, "--help", None).await.unwrap_err());
+        assert_refused_without_running_ws(&dir, remove(&runner, "--help").await.unwrap_err());
+        assert_refused_without_running_ws(&dir, comments(&runner, "--help").await.unwrap_err());
+        let added = add_comment(&runner, "--help", "hi", None, None).await;
+        assert_refused_without_running_ws(&dir, added.unwrap_err());
+        let resolved = resolve(&runner, "--help", "t1", false).await;
+        assert_refused_without_running_ws(&dir, resolved.unwrap_err());
+    }
+
+    #[tokio::test]
+    async fn comment_commands_refuse_a_flag_as_a_thread_or_reply() {
+        let (dir, runner) = fake_ws("exit 1");
+        let reply = add_comment(&runner, GOOD, "hi", Some("--help"), None).await;
+        assert_refused_without_running_ws(&dir, reply.unwrap_err());
+        let resolved = resolve(&runner, GOOD, "--help", false).await;
+        assert_refused_without_running_ws(&dir, resolved.unwrap_err());
+    }
+
+    #[tokio::test]
+    async fn positional_ids_follow_a_double_dash() {
+        let (dir, runner) = fake_ws(&format!("echo '{ARTIFACT}'"));
+        show(&runner, "art-1a2b3c4d/r2").await.unwrap();
+        let args = args_of(&dir);
+        let dashes = args.iter().position(|arg| arg == "--").unwrap();
+        assert_eq!(args[dashes + 1..], ["art-1a2b3c4d/r2"]);
     }
 }
