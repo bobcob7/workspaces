@@ -71,7 +71,7 @@ password.
 | `env/<id>/res/<req>` | agent | controller | the reply, QoS 1 |
 | `env/<id>/up` | agent | controller | agent-initiated requests (`cert.renew`): `{op, args}`, QoS 1, with a response topic (`env/<id>/req`) and correlation data |
 | `env/<id>/stream/<sid>/out` | agent | controller | terminal and log bytes, QoS 0, with a sequence number |
-| `env/<id>/stream/<sid>/in` | controller | agent | terminal input and resize, QoS 0 |
+| `env/<id>/stream/<sid>/in` | controller | agent | terminal input, resize, redraw, ping and close frames, QoS 1 (see Amendments, PR 4) |
 | `ctl/events` | controller | nobody (reserved) | |
 
 **ACL.** An agent may publish only to its own `status`, `snapshot`,
@@ -124,9 +124,8 @@ never gives up.
 
 Where it's weak: MQTT isn't built for interactive byte streams; latency
 to a terminal is a broker hop each way, and head-of-line blocking on one
-TCP connection is shared with control messages. If measured terminal
-latency is poor, terminals move to a second connection or a direct
-WebSocket opened by a request; the topics don't change.
+TCP connection is shared with control messages. The spike measured it; see
+Amendments (PR 4) for the result and the path chosen.
 
 ## Alternatives
 
@@ -203,6 +202,51 @@ allows it only to publish replies, had no topic for them
 - The versions under Relevant facts are out of date. The latest mochi is
   v2.7.9 (2025-03-01) and the latest paho is v0.23.0 (2025-09-07). mochi's
   upkeep is slow, which is a maintenance risk, not a functional one.
+
+## Amendments (PR 4, terminals)
+
+Accepted by the owner for PR 4 ([0076](0076-environment-platforms-and-phasing.md)).
+The decisions are the design's, in
+[tasks-ui.md](../design/remote-environments/tasks-ui.md#decisions-this-design-adds-to-the-adrs).
+Each one replaces the text above it.
+
+- **Input is QoS 1.** `stream/<sid>/in` carries terminal input and resize at
+  QoS 1, not 0: a lost keystroke can change a command, and the agent closes
+  the terminal on an input gap rather than guess. Output stays QoS 0.
+- **Frames, not requests.** `terminal.input`, `terminal.resize`,
+  `terminal.redraw` and the ping are binary frames on `stream/<sid>/in`, not
+  requests on `req`. Only `terminal.open` and `terminal.close` are requests.
+  A frame is a version byte, a kind byte, a big-endian 64-bit sequence number
+  and a body (`internal/envproto/terminal.go`). Output kinds are data (`d`),
+  dropped (`g`) and exit (`x`); input kinds are input (`i`), resize (`r`),
+  redraw (`w`), ping (`p`) and close (`c`).
+- **Redraw.** The agent keeps no screen model. A redraw makes the program
+  repaint by changing the pty's size by one row and back (two `SIGWINCH`),
+  which repaints Claude Code and other full-screen programs; a line-mode
+  shell shows only the marker. The controller asks for one on an output gap,
+  and the agent after it drops output; at most one a second per terminal.
+- **Drops on both sides.** The agent drops output after 1 MiB queued, as
+  before, and the controller does the same when its client (the CLI) leaves
+  1 MiB unread, with the same marker.
+- **Lifetime.** Terminals don't survive a reconnect: the agent closes every
+  terminal when its MQTT connection drops, and the controller ends the
+  terminals of an environment that goes offline. The controller pings every
+  15 s, and the agent closes a terminal with no frame for 60 s. An agent
+  allows 8 terminals at once (`terminal_limit`), and input over 128 KiB or
+  500 frames in a window is refused as `input_limit`.
+- **Where it was weak: measured.** The spike
+  ([terminal-spike.md](../design/remote-environments/terminal-spike.md))
+  found echo latency and throughput within the design's limits on every
+  profile, and broker memory bounded. It failed one criterion: a control
+  request sent while a stream saturated the agent's single connection waited
+  2.0 to 3.2 s, because the agent's own kernel send queue grew to several
+  MB. Terminals stay on **one connection**, with the agent's socket bounding
+  its not-yet-sent queue (`TCP_NOTSENT_LOWAT` 16 KiB). That cut the delay
+  about tenfold, but on the 20 ms, 10 Mbit/s profile it measured **0.195 s**
+  against the design limit of **0.142 s**, so it still misses the limit. The
+  owner accepted this: a control request can wait about 0.2 s behind bulk
+  terminal output on a slow uplink. A second connection passed in the spike
+  and stays the fallback if it proves too slow in use.
 
 ## References
 

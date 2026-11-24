@@ -195,6 +195,31 @@ Where the built code differs from them, the deviation is listed below.
   starts with `-` (after leading white space) is refused with `usage`,
   because `claude` would read it as a flag. Runner prompts aren't affected.
 
+### PR 4 (terminals and desktop)
+
+Accepted by the owner for PR 4. The decisions are the design's, in
+[tasks-ui.md](../design/remote-environments/tasks-ui.md#decisions-this-design-adds-to-the-adrs).
+
+- **Choosing it.** Besides `ws claude --env` and `ws shell --env`, PR 4 adds
+  `ws attach [--env]`, `ws stop [--env]` and `--env` on `ws rm`, `ws rename`,
+  `ws hide` and `ws unhide`, plus the Environment picker in the desktop app
+  and Workspace Online. Without `--env` these stay local; a remote id given
+  without it is `workspace_not_found` and names the environment.
+- **Deviations 1 and 2 are resolved.** Plain `ws list` and the table and
+  `--json` show every environment, and `ws shell --env` exists. One new
+  deviation: **`ws list -q` (ids only) stays local** unless `--env` is
+  given, so `ws rm $(ws list -q)` can't mix machines.
+- **Seeing them.** `ws list --json` gives every workspace `"environment"`,
+  and now `agent_state` (`working`, `blocked`, `done`, `stopped`, from the
+  snapshot's agents; `null` for local entries and remote ones without an
+  agent). The error code `terminal_limit` (exit 4) is new.
+- **Reviews and loops** run on remote environments in this PR, which the
+  first design left out; see ADR 0078 (written with the reviews and loops docs) where it
+  exists.
+- **Later:** the remote conversation view (the desktop reads local
+  transcripts, so a remote agent's pane opens on its terminal with a note),
+  stopping a `ws` runner agent on a remote, and Windows.
+
 ### Deviations from the design
 
 1. **Plain `ws list` stays local until PR 4.** `ws list --env <name>` (or
