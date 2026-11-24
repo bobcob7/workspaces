@@ -112,7 +112,7 @@ A window onto your `ws` workspaces and their Claude Code agents, like
   model and language, read from the transcripts and estimated at API rates
   ([ADR 0059](../docs/adrs/0059-stats.md)).
 
-The sections are chosen from the rail on the left, or with ⌘1–⌘4, and are
+The sections are chosen from the rail on the left, or with the shortcuts shown (⌘1–⌘7 for the seven sections), and are
 designed in
 [docs/design/desktop-sections](../docs/design/desktop-sections/README.md)
 ([ADR 0031](../docs/adrs/0031-desktop-sections-rail.md),
