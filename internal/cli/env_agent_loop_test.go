@@ -2,10 +2,13 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -138,6 +141,29 @@ func TestAgentOperations_loop(t *testing.T) {
 		_, getErr := e.loops.Get("deps")
 		require.Error(t, getErr, "the loop must not be created")
 	})
+	t.Run("a script is refused (internal) when the config can't be read", func(t *testing.T) {
+		e := newLoopEnv(t)
+		loader, ok := e.app.configs.(*configLoaderMock)
+		require.True(t, ok)
+		loader.LoadFunc = func(string) (config.Paths, config.Config, error) {
+			return config.Paths{}, config.Config{}, errors.New("config.toml is unreadable")
+		}
+		wsRuns := 0
+		newApp, newAppWithStdin := e.ops.newApp, e.ops.newAppWithStdin
+		e.ops.newApp = func(stdout, stderr io.Writer) *App {
+			wsRuns++
+			return newApp(stdout, stderr)
+		}
+		e.ops.newAppWithStdin = func(stdin io.Reader, stdout, stderr io.Writer) *App {
+			wsRuns++
+			return newAppWithStdin(stdin, stdout, stderr)
+		}
+		_, err := e.call(t, envproto.OpLoopAdd, `{"name":"deps","every":"1h","prompt":"p","script":"true","confirm":true}`)
+		requireReplyCode(t, err, "internal")
+		assert.Zero(t, wsRuns, "ws must not run")
+		_, getErr := e.loops.Get("deps")
+		require.Error(t, getErr, "the loop must not be created")
+	})
 	t.Run("an edit that sets a script is refused when agent_loop_scripts is false", func(t *testing.T) {
 		e := newLoopEnv(t)
 		e.addPlain(t, "deps")
@@ -220,6 +246,33 @@ func TestAgentOperations_loop(t *testing.T) {
 		mem, err := e.data.ReadMemory("deps")
 		require.NoError(t, err)
 		assert.Equal(t, "line one\nline two", mem.Entries["notes"].Value)
+	})
+	t.Run("memory_list keeps a value of 1 KiB whole and cuts one byte more", func(t *testing.T) {
+		e := newLoopEnv(t)
+		e.addPlain(t, "deps")
+		exact := strings.Repeat("a", envproto.MaxMemoryPreview)
+		over := strings.Repeat("a", envproto.MaxMemoryPreview+1)
+		multibyte := strings.Repeat("a", envproto.MaxMemoryPreview-2) + "é"
+		e.seed(t, map[string]string{"exact": exact, "over": over, "multibyte": multibyte})
+		got, err := e.call(t, envproto.OpLoopMemoryList, `{"name":"deps"}`)
+		require.NoError(t, err)
+		entries, ok := got["entries"].([]any)
+		require.True(t, ok)
+		byKey := map[string]map[string]any{}
+		for _, entry := range entries {
+			m, isMap := entry.(map[string]any)
+			require.True(t, isMap)
+			key, _ := m["key"].(string)
+			byKey[key] = m
+		}
+		assert.Equal(t, exact, byKey["exact"]["value"])
+		assert.NotContains(t, byKey["exact"], "value_truncated")
+		assert.Equal(t, multibyte, byKey["multibyte"]["value"])
+		assert.NotContains(t, byKey["multibyte"], "value_truncated")
+		overValue, _ := byKey["over"]["value"].(string)
+		assert.LessOrEqual(t, len(overValue), envproto.MaxMemoryPreview)
+		assert.True(t, utf8.ValidString(overValue))
+		assert.Equal(t, true, byKey["over"]["value_truncated"])
 	})
 	t.Run("an empty memory value is stored", func(t *testing.T) {
 		e := newLoopEnv(t)
@@ -574,6 +627,16 @@ func TestLoopPage(t *testing.T) {
 		got := page(t, `{"loops":[`+item("a", 10)+`],"warnings":[]}`, 4)
 		assert.Empty(t, got["loops"])
 		assert.Nil(t, got["next_offset"])
+	})
+	t.Run("a first loop still over the budget after its snapshot is one page", func(t *testing.T) {
+		huge := `{"name":"a","title":"` + strings.Repeat("T", 200<<10) + `","every":"1h","paused":false,"hidden":false,"runner":"claude","prompt":"p","next_run_at":null,"last_run":null,"last_gate":null}`
+		got := page(t, `{"loops":[`+huge+`,`+item("b", 10)+`],"warnings":[]}`, 0)
+		loops, _ := got["loops"].([]any)
+		require.Len(t, loops, 1)
+		first, _ := loops[0].(map[string]any)
+		assert.Equal(t, "a", first["name"])
+		assert.Equal(t, true, first["truncated"])
+		assert.EqualValues(t, 1, got["next_offset"])
 	})
 	t.Run("an object that is not a list is internal", func(t *testing.T) {
 		_, err := loopPage(json.RawMessage(`{"loops":3}`), 0)
