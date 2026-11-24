@@ -40,7 +40,9 @@ func TestKillTree(t *testing.T) {
 		case err := <-done:
 			var exitErr *exec.ExitError
 			require.ErrorAs(t, err, &exitErr)
-			assert.Equal(t, syscall.SIGKILL, exitErr.Sys().(syscall.WaitStatus).Signal())
+			status, ok := exitErr.Sys().(syscall.WaitStatus)
+			require.True(t, ok)
+			assert.Equal(t, syscall.SIGKILL, status.Signal())
 		case <-time.After(5 * time.Second):
 			t.Fatal("process group still running after KillTree")
 		}
