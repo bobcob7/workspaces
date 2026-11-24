@@ -35,6 +35,27 @@ steps:
           capabilities:
             drop: [ALL]
 
+  # ADR 0081: the Windows build and vet, both arches. Tests run on GitHub's
+  # windows-latest runner.
+  - name: windows-cross
+    image: golang:1.27
+    depends_on: []
+    commands:
+      - GOOS=windows GOARCH=amd64 go build ./...
+      - GOOS=windows GOARCH=amd64 go vet ./...
+      - GOOS=windows GOARCH=arm64 go build ./...
+      - GOOS=windows GOARCH=arm64 go vet ./...
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        # Same reason as the test step above.
+        securityContext:
+          capabilities:
+            drop: [ALL]
+
   # ADR 0003 and friends are enforced by make lint's grep checks as well.
   - name: lint
     image: golang:1.27

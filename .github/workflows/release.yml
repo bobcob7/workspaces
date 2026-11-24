@@ -26,6 +26,7 @@ jobs:
       # must be static.
       - run: make dist VERSION="$GITHUB_REF_NAME"
       # A tag like v0.2.0-rc.1 is a prerelease, so it never becomes latest.
+      # dist/* also carries ws-windows-amd64.zip and ws-windows-arm64.zip (ADR 0081).
       - run: |
           flags=(--verify-tag --generate-notes)
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then flags+=(--prerelease); fi

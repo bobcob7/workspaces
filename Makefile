@@ -1,15 +1,26 @@
 BIN := bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
-PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
+PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
+# The packages whose tests run on windows-latest (ADR 0081), and the tests
+# filtered from packages that also have unix-only tests.
+WINDOWS_TESTS := ./internal/lockfile ./internal/privfile ./internal/procgroup ./internal/envproto ./internal/redact ./internal/power ./internal/llm ./internal/telemetry
 
-.PHONY: build test fakes e2e-runner lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
+.PHONY: build test test-windows fakes e2e-runner lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN)/ws ./cmd/ws
 
 test:
 	go test ./...
+
+# Runs on windows-latest in Git Bash (CI's windows job).
+test-windows:
+	go test -p 2 $(WINDOWS_TESTS)
+	go test -p 2 -run 'TestSocketBaseDir|TestPrepareSocketDir' ./internal/daemon
+	go test -p 2 -run TestHasPathPrefix ./internal/envagent
+	go test -p 2 -run TestFindSh ./internal/gate
+	go test -p 2 -run TestUserBaseDir ./internal/config
 
 # The fakes (ADR 0067) are test tools, built here and never shipped.
 fakes:
@@ -62,9 +73,13 @@ dist:
 	rm -rf dist
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; out=dist/ws-$$os-$$arch; \
+		exe=$$out; if [ $$os = windows ]; then exe=dist/ws.exe; fi; \
 		echo "$$out"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" -o $$out ./cmd/ws || exit 1; \
-		case $$os in linux) file $$out | grep -q 'statically linked' || { echo "$$out: not statically linked" >&2; exit 1; };; esac; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" -o $$exe ./cmd/ws || exit 1; \
+		case $$os in \
+		linux) file $$out | grep -q 'statically linked' || { echo "$$out: not statically linked" >&2; exit 1; };; \
+		windows) (cd dist && zip -q ws-$$os-$$arch.zip ws.exe && rm ws.exe) || exit 1;; \
+		esac; \
 	done
 	cd dist && shasum -a 256 ws-* > SHA256SUMS
 
