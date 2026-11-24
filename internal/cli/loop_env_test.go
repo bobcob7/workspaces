@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -29,25 +30,23 @@ func loopEnvRun(t *testing.T, reply string, args ...string) (code int, e *mocked
 	return code, e, caller
 }
 
-// sentArgs is the arguments of call i, as a JSON object.
-func sentArgs(t *testing.T, caller *environmentCallerMock, i int) (op string, args map[string]any) {
+// sentArgs is the operation and arguments of the first call, as a JSON object.
+func sentArgs(t *testing.T, caller *environmentCallerMock) (op string, args map[string]any) {
 	t.Helper()
 	calls := caller.CallEnvironmentCalls()
-	require.Greater(t, len(calls), i)
-	require.NoError(t, json.Unmarshal(calls[i].Req.Args, &args))
-	return calls[i].Req.Op, args
+	require.NotEmpty(t, calls)
+	require.NoError(t, json.Unmarshal(calls[0].Req.Args, &args))
+	return calls[0].Req.Op, args
 }
 
-// nullSpec is a LoopSpec with the name and every other field null or false.
-func nullSpec(name string, set map[string]any) map[string]any {
+// nullSpec is the LoopSpec of loop deps with every other field null or false, then set.
+func nullSpec(set map[string]any) map[string]any {
 	spec := map[string]any{
-		"name": name, "title": nil, "every": nil, "prompt": nil, "specs": nil, "keep": nil, "runner": nil, "endpoint": nil,
+		"name": "deps", "title": nil, "every": nil, "prompt": nil, "specs": nil, "keep": nil, "runner": nil, "endpoint": nil,
 		"model": nil, "permission_mode": nil, "paused": nil, "script": nil, "script_timeout": nil, "vars": nil, "hidden": nil,
 		"confirm": false,
 	}
-	for k, v := range set {
-		spec[k] = v
-	}
+	maps.Copy(spec, set)
 	return spec
 }
 
@@ -55,9 +54,9 @@ func TestApp_runLoopEnv(t *testing.T) {
 	t.Run("add --env sends loop.add with the prompt", func(t *testing.T) {
 		code, e, caller := loopEnvRun(t, loopReply, "add", "deps", "--every", "1h", "--prompt", "hi", "buff-bear", "--env", "linux-server", "--json")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopAdd, op)
-		assert.Equal(t, nullSpec("deps", map[string]any{"every": "1h", "prompt": "hi", "specs": []any{"buff-bear"}}), args)
+		assert.Equal(t, nullSpec(map[string]any{"every": "1h", "prompt": "hi", "specs": []any{"buff-bear"}}), args)
 		var out map[string]any
 		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &out))
 		assert.Equal(t, "linux-server", out["environment"])
@@ -67,8 +66,8 @@ func TestApp_runLoopEnv(t *testing.T) {
 		code, e, caller := loopEnvRun(t, loopReply, "add", "deps", "--every", "90m", "--prompt", "hi", "--title", " Nightly ", "--keep", "3",
 			"--runner", "ws", "--endpoint", "alt", "--model", "opus", "--paused", "--show", "--var", "A=1", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		_, args := sentArgs(t, caller, 0)
-		assert.Equal(t, nullSpec("deps", map[string]any{
+		_, args := sentArgs(t, caller)
+		assert.Equal(t, nullSpec(map[string]any{
 			"every": "1h30m", "prompt": "hi", "title": "Nightly", "keep": float64(3), "runner": "ws", "endpoint": "alt",
 			"model": "opus", "paused": true, "hidden": false, "vars": map[string]any{"A": "1"},
 		}), args)
@@ -100,8 +99,8 @@ func TestApp_runLoopEnv(t *testing.T) {
 		code, e, caller := loopEnvRun(t, loopReply, "add", "deps", "--every", "1h", "--prompt", "hi", "--script", "exit 0",
 			"--script-timeout", "30s", "--yes", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		_, args := sentArgs(t, caller, 0)
-		assert.Equal(t, nullSpec("deps", map[string]any{
+		_, args := sentArgs(t, caller)
+		assert.Equal(t, nullSpec(map[string]any{
 			"every": "1h", "prompt": "hi", "script": "exit 0", "script_timeout": "30s", "confirm": true,
 		}), args)
 	})
@@ -111,13 +110,13 @@ func TestApp_runLoopEnv(t *testing.T) {
 		assert.Empty(t, caller.CallEnvironmentCalls())
 		code, _, caller = loopEnvRun(t, loopReply, "add", "deps", "--every", "1h", "--prompt", "hi", "--permission-mode", "bypassPermissions", "--yes", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		_, args := sentArgs(t, caller, 0)
+		_, args := sentArgs(t, caller)
 		assert.Equal(t, true, args["confirm"])
 	})
 	t.Run("add --env without a script sends no confirm even with --yes", func(t *testing.T) {
 		code, _, caller := loopEnvRun(t, loopReply, "add", "deps", "--every", "1h", "--prompt", "hi", "--permission-mode", "acceptEdits", "--yes", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		_, args := sentArgs(t, caller, 0)
+		_, args := sentArgs(t, caller)
 		assert.Equal(t, false, args["confirm"])
 	})
 	t.Run("rm --env without --yes is refused locally", func(t *testing.T) {
@@ -129,7 +128,7 @@ func TestApp_runLoopEnv(t *testing.T) {
 	t.Run("rm --env --yes sends loop.rm with confirm", func(t *testing.T) {
 		code, e, caller := loopEnvRun(t, loopReply, "rm", "deps", "--yes", "--env", "linux-server", "--json")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopRm, op)
 		assert.Equal(t, map[string]any{"name": "deps", "confirm": true}, args)
 		assert.Contains(t, e.stdout.String(), `"environment":"linux-server"`)
@@ -137,15 +136,15 @@ func TestApp_runLoopEnv(t *testing.T) {
 	t.Run("edit --env sends only the given fields", func(t *testing.T) {
 		code, e, caller := loopEnvRun(t, loopReply, "edit", "deps", "--every", "2h", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopEdit, op)
-		assert.Equal(t, nullSpec("deps", map[string]any{"every": "2h"}), args)
+		assert.Equal(t, nullSpec(map[string]any{"every": "2h"}), args)
 	})
 	t.Run("edit --env maps clearing flags", func(t *testing.T) {
 		code, e, caller := loopEnvRun(t, loopReply, "edit", "deps", "--no-script", "--no-vars", "--no-specs", "--model", "", "--hidden=false", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		_, args := sentArgs(t, caller, 0)
-		assert.Equal(t, nullSpec("deps", map[string]any{"script": "", "vars": map[string]any{}, "specs": []any{}, "model": "", "hidden": false}), args)
+		_, args := sentArgs(t, caller)
+		assert.Equal(t, nullSpec(map[string]any{"script": "", "vars": map[string]any{}, "specs": []any{}, "model": "", "hidden": false}), args)
 	})
 	t.Run("edit --env needs a change", func(t *testing.T) {
 		code, _, caller := loopEnvRun(t, loopReply, "edit", "deps", "--env", "linux-server")
@@ -159,20 +158,20 @@ func TestApp_runLoopEnv(t *testing.T) {
 		assert.Empty(t, caller.CallEnvironmentCalls())
 		code, _, caller = loopEnvRun(t, loopReply, "edit", "deps", "--script", "exit 0", "--yes", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		_, args := sentArgs(t, caller, 0)
-		assert.Equal(t, nullSpec("deps", map[string]any{"script": "exit 0", "confirm": true}), args)
+		_, args := sentArgs(t, caller)
+		assert.Equal(t, nullSpec(map[string]any{"script": "exit 0", "confirm": true}), args)
 	})
 	t.Run("edit --env removing a script needs no --yes", func(t *testing.T) {
 		code, _, caller := loopEnvRun(t, loopReply, "edit", "deps", "--no-script", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		_, args := sentArgs(t, caller, 0)
+		_, args := sentArgs(t, caller)
 		assert.Equal(t, false, args["confirm"])
 	})
 	t.Run("pause and resume --env send their operations", func(t *testing.T) {
 		for verb, want := range map[string]string{"pause": envproto.OpLoopPause, "resume": envproto.OpLoopResume} {
 			code, _, caller := loopEnvRun(t, loopReply, verb, "deps", "--env", "linux-server")
 			require.Equal(t, exitOK, code)
-			op, args := sentArgs(t, caller, 0)
+			op, args := sentArgs(t, caller)
 			assert.Equal(t, want, op)
 			assert.Equal(t, map[string]any{"name": "deps", "confirm": false}, args)
 		}
@@ -181,13 +180,13 @@ func TestApp_runLoopEnv(t *testing.T) {
 		reply := `{"name":"deps","workspace":"deps-1","session":"abc","path":"/w/deps-1","warnings":[]}`
 		code, e, caller := loopEnvRun(t, reply, "run", "--force", "deps", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopRun, op)
 		assert.Equal(t, map[string]any{"name": "deps", "force": true}, args)
 		assert.Equal(t, "deps  deps-1  abc  /w/deps-1\n", e.stdout.String())
 		code, _, caller = loopEnvRun(t, reply, "run", "deps", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		_, args = sentArgs(t, caller, 0)
+		_, args = sentArgs(t, caller)
 		assert.Equal(t, false, args["force"])
 	})
 	t.Run("history --env sends loop.history with the limit", func(t *testing.T) {
@@ -195,14 +194,14 @@ func TestApp_runLoopEnv(t *testing.T) {
 			`"duration_seconds":60,"workspace":"deps-1","workspace_exists":true,"session":null,"error":null,"gate":null,"repeats":1,"verdict":null}],"total":1,"warnings":[]}`
 		code, e, caller := loopEnvRun(t, reply, "history", "deps", "--limit", "5", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopHistory, op)
 		assert.Equal(t, map[string]any{"name": "deps", "limit": float64(5)}, args)
 		assert.Contains(t, e.stdout.String(), "deps-1")
 		code, _, caller = loopEnvRun(t, reply, "history", "deps", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		_, args = sentArgs(t, caller, 0)
-		assert.Equal(t, float64(0), args["limit"])
+		_, args = sentArgs(t, caller)
+		assert.InDelta(t, 0, args["limit"], 0)
 	})
 	t.Run("history --env refuses a limit the environment would", func(t *testing.T) {
 		code, _, caller := loopEnvRun(t, `{}`, "history", "deps", "--limit", "101", "--env", "linux-server")
@@ -214,7 +213,7 @@ func TestApp_runLoopEnv(t *testing.T) {
 			`"workspace":null,"workspace_exists":false,"session":null,"error":null,"gate":null,"repeats":1,"verdict":null},"report_text":"all good\n","warnings":[]}`
 		code, e, caller := loopEnvRun(t, reply, "history", "deps", "--run", "2", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopHistoryRun, op)
 		assert.Equal(t, map[string]any{"name": "deps", "seq": float64(2)}, args)
 		assert.Contains(t, e.stdout.String(), "all good")
@@ -225,7 +224,7 @@ func TestApp_runLoopEnv(t *testing.T) {
 		assert.Empty(t, caller.CallEnvironmentCalls())
 		code, e, caller := loopEnvRun(t, `{"loop":"deps","removed":3,"warnings":[]}`, "history", "deps", "--clear", "--yes", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopHistoryClear, op)
 		assert.Equal(t, map[string]any{"name": "deps", "confirm": true}, args)
 		assert.Equal(t, "3 runs removed\n", e.stdout.String())
@@ -241,7 +240,7 @@ func TestApp_runLoopEnv(t *testing.T) {
 		assert.Empty(t, caller.CallEnvironmentCalls())
 		code, e, caller := loopEnvRun(t, `{"loop":"deps","removed":2,"warnings":[]}`, "memory", "clear", "deps", "--yes", "--env", "linux-server")
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopMemoryClear, op)
 		assert.Equal(t, map[string]any{"name": "deps", "confirm": true}, args)
 		assert.Equal(t, "2 keys removed\n", e.stdout.String())
@@ -251,7 +250,7 @@ func TestApp_runLoopEnv(t *testing.T) {
 		e.app.stdin = strings.NewReader("from stdin")
 		code := e.app.Run(t.Context(), []string{"loop", "memory", "set", "--file", "-", "deps", "notes", "--env", "linux-server"})
 		require.Equal(t, exitOK, code, e.stderr.String())
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopMemorySet, op)
 		assert.Equal(t, map[string]any{"name": "deps", "key": "notes", "value": "from stdin", "expect_rev": nil}, args)
 		assert.Equal(t, "notes  rev 1\n", e.stdout.String())
@@ -260,7 +259,7 @@ func TestApp_runLoopEnv(t *testing.T) {
 		code, _, caller := loopEnvRun(t, `{"loop":"deps","entry":{"key":"k","value":"v","rev":4,"updated_at":"x","updated_by":null},"warnings":[]}`,
 			"memory", "set", "--expect-rev", "3", "deps", "k", "v", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		_, args := sentArgs(t, caller, 0)
+		_, args := sentArgs(t, caller)
 		assert.Equal(t, map[string]any{"name": "deps", "key": "k", "value": "v", "expect_rev": float64(3)}, args)
 	})
 	t.Run("memory set --env needs a value", func(t *testing.T) {
@@ -272,23 +271,21 @@ func TestApp_runLoopEnv(t *testing.T) {
 		code, e, caller := loopEnvRun(t, `{"loop":"deps","entries":[{"key":"k","value":"v\nmore","rev":1,"updated_at":"t","updated_by":null}],"bytes":1,"warnings":[]}`,
 			"memory", "list", "deps", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		op, args := sentArgs(t, caller, 0)
+		op, args := sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopMemoryList, op)
 		assert.Equal(t, map[string]any{"name": "deps", "confirm": false}, args)
 		assert.Equal(t, "k  rev 1  t  v\n", e.stdout.String())
-
 		code, e, caller = loopEnvRun(t, `{"loop":"deps","entry":{"key":"k","value":"v","rev":1,"updated_at":"t","updated_by":null},"warnings":[]}`,
 			"memory", "get", "deps", "k", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		op, args = sentArgs(t, caller, 0)
+		op, args = sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopMemoryGet, op)
 		assert.Equal(t, map[string]any{"name": "deps", "key": "k", "expect_rev": nil}, args)
 		assert.Equal(t, "v", e.stdout.String())
-
 		code, e, caller = loopEnvRun(t, `{"loop":"deps","key":"k","removed":true,"warnings":[]}`,
 			"memory", "rm", "--expect-rev", "0", "deps", "k", "--env", "linux-server")
 		require.Equal(t, exitOK, code)
-		op, args = sentArgs(t, caller, 0)
+		op, args = sentArgs(t, caller)
 		assert.Equal(t, envproto.OpLoopMemoryRm, op)
 		assert.Equal(t, map[string]any{"name": "deps", "key": "k", "expect_rev": float64(0)}, args)
 		assert.Equal(t, "k removed\n", e.stdout.String())
@@ -301,7 +298,7 @@ func TestApp_runLoopEnv(t *testing.T) {
 		assert.Contains(t, e.stderr.String(), "needs your confirmation on linux-server; pass --yes")
 		assert.Contains(t, e.stderr.String(), `"needs":"confirm"`)
 		assert.Len(t, caller.CallEnvironmentCalls(), 1)
-		_, args := sentArgs(t, caller, 0)
+		_, args := sentArgs(t, caller)
 		assert.Equal(t, false, args["confirm"])
 	})
 	t.Run("another agent error keeps its code and the environment", func(t *testing.T) {
@@ -348,9 +345,19 @@ func TestApp_runLoopEnv(t *testing.T) {
 		app, _, _ := newTestApp()
 		root := app.newRootCmd()
 		for _, path := range [][]string{
-			{"loop", "add"}, {"loop", "edit"}, {"loop", "list"}, {"loop", "pause"}, {"loop", "resume"}, {"loop", "rm"}, {"loop", "run"},
-			{"loop", "history"}, {"loop", "memory", "list"}, {"loop", "memory", "get"}, {"loop", "memory", "set"},
-			{"loop", "memory", "rm"}, {"loop", "memory", "clear"},
+			{"loop", "add"},
+			{"loop", "edit"},
+			{"loop", "list"},
+			{"loop", "pause"},
+			{"loop", "resume"},
+			{"loop", "rm"},
+			{"loop", "run"},
+			{"loop", "history"},
+			{"loop", "memory", "list"},
+			{"loop", "memory", "get"},
+			{"loop", "memory", "set"},
+			{"loop", "memory", "rm"},
+			{"loop", "memory", "clear"},
 		} {
 			cmd, _, err := root.Find(path)
 			require.NoError(t, err)
@@ -408,7 +415,7 @@ func TestApp_cachedLoops(t *testing.T) {
 		assert.Equal(t, "24h", first["every"])
 		assert.Equal(t, true, first["hidden"])
 		assert.Equal(t, "2026-10-20T00:00:00Z", first["next_run_at"])
-		assert.Equal(t, "deps-1", first["last_run"].(map[string]any)["workspace"])
+		assert.JSONEq(t, `{"started_at":"2026-10-19T00:00:00Z","workspace":"deps-1","session":"s","error":null}`, string(mustJSON(t, first["last_run"])))
 		assert.Equal(t, "linux-server", first["environment"])
 		assert.Equal(t, false, first["stale"])
 		assert.Equal(t, "sweep", second["name"])
@@ -481,10 +488,18 @@ func TestApp_cachedLoops(t *testing.T) {
 	})
 }
 
+// mustJSON is v as JSON.
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	body, err := json.Marshal(v)
+	require.NoError(t, err)
+	return body
+}
+
 // pagedLoopCaller answers loop.list with the pages in order.
 func pagedLoopCaller(pages ...string) *environmentCallerMock {
 	next := 0
-	return &environmentCallerMock{CallEnvironmentFunc: func(_ context.Context, _ string, req daemon.CallRequest) (daemon.CallReply, error) {
+	return &environmentCallerMock{CallEnvironmentFunc: func(context.Context, string, daemon.CallRequest) (daemon.CallReply, error) {
 		page := pages[min(next, len(pages)-1)]
 		next++
 		return daemon.CallReply{Reply: json.RawMessage(okReply(page))}, nil
@@ -497,7 +512,10 @@ func loopPageJSON(names []string, next any, redacted int) string {
 		loops = append(loops, fmt.Sprintf(`{"name":%q,"title":"","every":"1h","prompt":"p","specs":[],"model":null,"permission_mode":null,"keep":10,"paused":false,"hidden":true,`+
 			`"runner":"claude","endpoint":null,"created_at":"x","next_run_at":null,"last_run":null,"script":null,"script_timeout":null,"vars":{},"last_gate":null}`, n))
 	}
-	nextJSON, _ := json.Marshal(next)
+	nextJSON, err := json.Marshal(next)
+	if err != nil {
+		panic(err)
+	}
 	return fmt.Sprintf(`{"loops":[%s],"offset":0,"total":3,"next_offset":%s,"redacted":%d,"warnings":["w"]}`, strings.Join(loops, ","), nextJSON, redacted)
 }
 

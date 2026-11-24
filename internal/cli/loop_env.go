@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -265,7 +266,7 @@ func withEnvironment(fields map[string]json.RawMessage, env string, stale bool) 
 		return nil, fmt.Errorf("encoding the environment name: %w", err)
 	}
 	fields["environment"] = name
-	fields["stale"] = json.RawMessage(fmt.Sprint(stale))
+	fields["stale"] = json.RawMessage(strconv.FormatBool(stale))
 	item, err := json.Marshal(fields)
 	if err != nil {
 		return nil, fmt.Errorf("encoding a loop: %w", err)
@@ -298,7 +299,7 @@ func (a *App) remoteLoopPages(ctx context.Context, env string) (map[string]json.
 	var loops []json.RawMessage
 	var last map[string]json.RawMessage
 	redacted, offset := 0, 0
-	for page := 0; page < maxRemoteLoopPages; page++ {
+	for range maxRemoteLoopPages {
 		object, err := a.callRemoteObject(ctx, env, envproto.OpLoopList, envproto.LoopListArgs{Offset: offset})
 		if err != nil {
 			return nil, err
@@ -342,7 +343,7 @@ func finishLoopPages(last map[string]json.RawMessage, loops []json.RawMessage, r
 		return nil, fmt.Errorf("encoding the loops: %w", err)
 	}
 	last["loops"] = all
-	last["redacted"] = json.RawMessage(fmt.Sprint(redacted))
+	last["redacted"] = json.RawMessage(strconv.Itoa(redacted))
 	for _, key := range []string{"offset", "next_offset", "total"} {
 		delete(last, key)
 	}
@@ -373,7 +374,6 @@ func (a *App) printCachedLoops(listed *loopListEnvJSON) error {
 	for _, raw := range listed.Loops {
 		var l struct {
 			loopJSON
-
 			Stale bool `json:"stale"`
 		}
 		if err := json.Unmarshal(raw, &l); err != nil {
