@@ -12,10 +12,12 @@ const noRev = 0;
 /** Add a memory key, or edit an existing one; a conflict offers a reload of its value. */
 export const MemoryDialog = ({
   loopName,
+  environment,
   entry,
   onClose,
 }: {
   readonly loopName: string;
+  readonly environment: string;
   readonly entry: LoopMemoryEntry | null;
   readonly onClose: () => void;
 }): JSX.Element => {
@@ -38,7 +40,7 @@ export const MemoryDialog = ({
   );
 
   const save = async (): Promise<void> => {
-    const result = await dispatch(saveLoopMemory({ name: loopName, key, value, expectRev: rev }));
+    const result = await dispatch(saveLoopMemory({ name: loopName, key, value, expectRev: rev, environment }));
     if (saveLoopMemory.fulfilled.match(result)) {
       onClose();
     }
@@ -46,7 +48,7 @@ export const MemoryDialog = ({
 
   const reload = async (): Promise<void> => {
     dispatch(saveErrorCleared());
-    const result = await dispatch(fetchLoopMemory(loopName));
+    const result = await dispatch(fetchLoopMemory({ name: loopName, environment }));
     if (!fetchLoopMemory.fulfilled.match(result)) {
       return;
     }

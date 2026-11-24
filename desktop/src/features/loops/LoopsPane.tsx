@@ -195,11 +195,11 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
         <Button
           size="small"
           disabled={busy}
-          onClick={() => void dispatch(setLoopPaused({ name: loop.name, paused: !loop.paused }))}
+          onClick={() => void dispatch(setLoopPaused({ name: loop.name, paused: !loop.paused, environment: loop.environment }))}
         >
           {loop.paused ? "Resume" : "Pause"}
         </Button>
-        <Button size="small" disabled={busy} onClick={() => void dispatch(runLoopNow(loop.name))}>
+        <Button size="small" disabled={busy} onClick={() => void dispatch(runLoopNow({ name: loop.name, environment: loop.environment }))}>
           Run now
         </Button>
         <Button size="small" color="error" disabled={busy} onClick={() => setConfirming(true)}>
@@ -227,7 +227,7 @@ const LoopDetail = ({ loop }: { readonly loop: Loop }): JSX.Element => {
             color="error"
             onClick={() => {
               setConfirming(false);
-              void dispatch(removeLoop(loop.name));
+              void dispatch(removeLoop({ name: loop.name, environment: loop.environment }));
             }}
           >
             Delete
@@ -246,7 +246,8 @@ export const LoopsPane = (): JSX.Element => {
   const formError = useAppSelector((s) => s.loops.formError);
   const submitting = useAppSelector((s) => s.loops.submitting);
   const selectedName = useAppSelector((s) => s.loops.selected);
-  const loop = useAppSelector((s) => s.loops.loops.find((l) => l.name === selectedName));
+  const selectedEnvironment = useAppSelector((s) => s.loops.selectedEnvironment);
+  const loop = useAppSelector((s) => s.loops.byEnvironment[selectedEnvironment]?.items.find((l) => l.name === selectedName));
   if (creating) {
     return (
       <LoopForm

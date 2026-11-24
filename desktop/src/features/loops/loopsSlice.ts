@@ -7,16 +7,30 @@ import {
   type LoopStarted,
   type NewLoop,
 } from "../../api";
+import type { RootState } from "../../store";
 import { createAppThunk } from "../../thunk";
+import { offlineReason } from "../environments/environments";
 import { noticeShown } from "../ui/uiSlice";
 
+/** What one environment's last listing held. */
+export interface EnvironmentLoops {
+  readonly items: readonly Loop[];
+  /** When the listing last succeeded (ms since the epoch); null before the first. */
+  readonly loadedAt: number | null;
+  /** Why the last listing failed; the items are then the last good ones. */
+  readonly error: string | null;
+  /** The environment hasn't reported its loops yet. */
+  readonly loopsUnknown: boolean;
+}
+
 export interface LoopsState {
-  readonly loops: readonly Loop[];
+  /** By environment: "local", then each enrolled environment's name. */
+  readonly byEnvironment: Readonly<Record<string, EnvironmentLoops>>;
+  /** This machine's warnings from the last listing. */
   readonly warnings: readonly string[];
-  /** The listing failed. */
-  readonly error: AppError | null;
-  /** A loop's name. */
+  /** A loop's name, in `selectedEnvironment`. */
   readonly selected: string | null;
+  readonly selectedEnvironment: string;
   /** The form is shown in the pane. */
   readonly creating: boolean;
   /** The selected loop's edit form is shown in the pane. */
@@ -29,11 +43,13 @@ export interface LoopsState {
   readonly busy: string | null;
 }
 
+const emptyEnvironment: EnvironmentLoops = { items: [], loadedAt: null, error: null, loopsUnknown: false };
+
 const initialState: LoopsState = {
-  loops: [],
+  byEnvironment: {},
   warnings: [],
-  error: null,
   selected: null,
+  selectedEnvironment: "local",
   creating: false,
   editing: false,
   submitting: false,
@@ -41,12 +57,33 @@ const initialState: LoopsState = {
   busy: null,
 };
 
-export const fetchLoops = createAppThunk<LoopListing, void>("loops/fetch", async (_arg, { extra, rejectWithValue }) => {
-  try {
-    return await extra.api.loopsList();
-  } catch (err: unknown) {
-    return rejectWithValue(toAppError(err));
-  }
+/** One environment's listing, or why it failed. */
+export interface EnvironmentListing {
+  readonly environment: string;
+  readonly listing: LoopListing | null;
+  readonly error: string | null;
+}
+
+export interface LoopsFetched {
+  readonly results: readonly EnvironmentListing[];
+  /** When the listings arrived (ms since the epoch). */
+  readonly at: number;
+}
+
+/** Lists the loops of this machine and of each enrolled environment, in parallel. One that fails doesn't stop the rest. */
+export const fetchLoops = createAppThunk<LoopsFetched, void>("loops/fetch", async (_arg, { extra, getState }) => {
+  const enrolled = getState().environments.items.filter((env) => env.state === "enrolled");
+  const names = ["local", ...enrolled.map((env) => env.name)];
+  const results = await Promise.all(
+    names.map(async (environment): Promise<EnvironmentListing> => {
+      try {
+        return { environment, listing: await extra.api.loopsList(environment), error: null };
+      } catch (err: unknown) {
+        return { environment, listing: null, error: toAppError(err).message };
+      }
+    }),
+  );
+  return { results, at: Date.now() };
 });
 
 /** Adds a loop, then lists the loops again. ws checks the period and specs. */
@@ -71,11 +108,11 @@ export const editLoop = createAppThunk<Loop, NewLoop>("loops/edit", async (reque
   }
 });
 
-export const setLoopPaused = createAppThunk<Loop, { name: string; paused: boolean }>(
+export const setLoopPaused = createAppThunk<Loop, { name: string; paused: boolean; environment?: string }>(
   "loops/setPaused",
-  async ({ name, paused }, { extra, dispatch, rejectWithValue }) => {
+  async ({ name, paused, environment = "local" }, { extra, dispatch, rejectWithValue }) => {
     try {
-      const updated = await extra.api.loopsSetPaused(name, paused);
+      const updated = await extra.api.loopsSetPaused(name, paused, environment);
       return updated;
     } catch (err: unknown) {
       const error = toAppError(err);
@@ -86,9 +123,11 @@ export const setLoopPaused = createAppThunk<Loop, { name: string; paused: boolea
 );
 
 /** Deletes a loop, then lists the loops again. Its runs' workspaces stay. */
-export const removeLoop = createAppThunk<Loop, string>("loops/remove", async (name, { extra, dispatch, rejectWithValue }) => {
+export const removeLoop = createAppThunk<Loop, LoopTarget & { confirmed?: boolean }>(
+  "loops/remove",
+  async ({ name, environment = "local", confirmed = false }, { extra, dispatch, rejectWithValue }) => {
   try {
-    const removed = await extra.api.loopsRemove(name);
+    const removed = await extra.api.loopsRemove(name, confirmed, environment);
     void dispatch(fetchLoops());
     return removed;
   } catch (err: unknown) {
@@ -96,12 +135,15 @@ export const removeLoop = createAppThunk<Loop, string>("loops/remove", async (na
     dispatch(noticeShown({ severity: "error", message: error.message }));
     return rejectWithValue(error);
   }
-});
+  },
+);
 
 /** Starts a run now, then lists the loops again. */
-export const runLoopNow = createAppThunk<LoopStarted, string>("loops/runNow", async (name, { extra, dispatch, rejectWithValue }) => {
+export const runLoopNow = createAppThunk<LoopStarted, LoopTarget>(
+  "loops/runNow",
+  async ({ name, environment = "local" }, { extra, dispatch, rejectWithValue }) => {
   try {
-    const started = await extra.api.loopsRunNow(name);
+    const started = await extra.api.loopsRunNow(name, environment);
     dispatch(noticeShown({ severity: "success", message: `Started ${started.workspace}`, action: { label: "Open", agent: started.workspace } }));
     void dispatch(fetchLoops());
     return started;
@@ -110,19 +152,57 @@ export const runLoopNow = createAppThunk<LoopStarted, string>("loops/runNow", as
     dispatch(noticeShown({ severity: "error", message: error.message }));
     return rejectWithValue(error);
   }
-});
+  },
+);
 
 /** The loop an action is running on, for the busy marker. */
-const busyName = (arg: { readonly name: string } | string): string => (typeof arg === "string" ? arg : arg.name);
+const busyName = (arg: { readonly name: string }): string => arg.name;
+
+/** The state with one loop replaced in its environment's list. */
+const withLoop = (state: LoopsState, environment: string, updated: Loop): LoopsState => {
+  const held = state.byEnvironment[environment] ?? emptyEnvironment;
+  const items = held.items.map((item) => (item.name === updated.name ? updated : item));
+  return { ...state, byEnvironment: { ...state.byEnvironment, [environment]: { ...held, items } } };
+};
+
+/** One group of the Loops list: an environment and what it holds. */
+export interface LoopGroup {
+  readonly environment: string;
+  readonly online: boolean;
+  /** Why it isn't online; empty when it is. */
+  readonly reason: string;
+  /** Some of its loops come from an old snapshot. */
+  readonly stale: boolean;
+  /** It hasn't reported its loops yet. */
+  readonly loopsUnknown: boolean;
+  readonly items: readonly Loop[];
+}
+
+/** `local` first, then each enrolled environment by name. */
+export const selectLoopGroups = (state: RootState, now: number = Date.now()): readonly LoopGroup[] => {
+  const group = (environment: string, online: boolean, reason: string): LoopGroup => {
+    const held = state.loops.byEnvironment[environment] ?? emptyEnvironment;
+    return { environment, online, reason, stale: held.items.some((item) => item.stale), loopsUnknown: held.loopsUnknown, items: held.items };
+  };
+  const remote = state.environments.items
+    .filter((env) => env.state === "enrolled")
+    .toSorted((a, b) => a.name.localeCompare(b.name))
+    .map((env) => group(env.name, env.status === "online", offlineReason(env, now)));
+  return [group("local", true, ""), ...remote];
+};
 
 const loopsSlice = createSlice({
   name: "loops",
   initialState,
   reducers: {
-    loopSelected: (state, action: PayloadAction<string | null>) => {
-      state.selected = action.payload;
-      state.creating = false;
-      state.editing = false;
+    loopSelected: {
+      reducer: (state, action: PayloadAction<{ readonly name: string | null; readonly environment: string }>) => {
+        state.selected = action.payload.name;
+        state.selectedEnvironment = action.payload.environment;
+        state.creating = false;
+        state.editing = false;
+      },
+      prepare: (name: string | null, environment = "local") => ({ payload: { name, environment } }),
     },
     creatingStarted: (state) => {
       state.creating = true;
@@ -146,12 +226,19 @@ const loopsSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(fetchLoops.fulfilled, (state, action): LoopsState => {
-        const { loops, warnings } = action.payload;
-        const gone = state.selected !== null && !loops.some((loop) => loop.name === state.selected);
-        return { ...state, loops, warnings, error: null, selected: gone ? null : state.selected };
-      })
-      .addCase(fetchLoops.rejected, (state, action) => {
-        state.error = action.payload ?? { code: "internal", message: action.error.message ?? "listing loops failed" };
+        const { results, at } = action.payload;
+        const byEnvironment = Object.fromEntries(
+          results.map(({ environment, listing, error }): [string, EnvironmentLoops] => {
+            if (listing === null) {
+              return [environment, { ...(state.byEnvironment[environment] ?? emptyEnvironment), error }];
+            }
+            return [environment, { items: listing.loops, loadedAt: at, error: null, loopsUnknown: listing.loopsUnknown }];
+          }),
+        );
+        const local = results.find((r) => r.environment === "local")?.listing;
+        const own = results.find((r) => r.environment === state.selectedEnvironment);
+        const gone = state.selected !== null && own?.listing != null && !own.listing.loops.some((loop) => loop.name === state.selected);
+        return { ...state, byEnvironment, warnings: local?.warnings ?? state.warnings, selected: gone ? null : state.selected };
       })
       .addCase(addLoop.pending, (state) => {
         state.submitting = true;
@@ -161,6 +248,7 @@ const loopsSlice = createSlice({
         state.creating = false;
         state.formError = null;
         state.selected = action.payload.name;
+        state.selectedEnvironment = action.meta.arg.environment ?? "local";
       })
       .addCase(addLoop.rejected, (state, action) => {
         state.submitting = false;
@@ -170,11 +258,10 @@ const loopsSlice = createSlice({
         state.submitting = true;
       })
       .addCase(editLoop.fulfilled, (state, action): LoopsState => ({
-        ...state,
+        ...withLoop(state, action.meta.arg.environment ?? "local", action.payload),
         submitting: false,
         editing: false,
         formError: null,
-        loops: state.loops.map((loop) => (loop.name === action.payload.name ? action.payload : loop)),
       }))
       .addCase(editLoop.rejected, (state, action) => {
         state.submitting = false;
@@ -184,9 +271,8 @@ const loopsSlice = createSlice({
         state.busy = busyName(action.meta.arg);
       })
       .addCase(setLoopPaused.fulfilled, (state, action): LoopsState => ({
-        ...state,
+        ...withLoop(state, action.meta.arg.environment ?? "local", action.payload),
         busy: null,
-        loops: state.loops.map((loop) => (loop.name === action.payload.name ? action.payload : loop)),
       }))
       .addCase(setLoopPaused.rejected, (state) => {
         state.busy = null;
@@ -212,6 +298,12 @@ const loopsSlice = createSlice({
       });
   },
 });
+
+/** The loop an action names: its name, and the environment it lives on ("local" when absent). */
+export interface LoopTarget {
+  readonly name: string;
+  readonly environment?: string;
+}
 
 export const { loopSelected, creatingStarted, creatingCancelled, editingStarted, editingCancelled } = loopsSlice.actions;
 export const loopsReducer = loopsSlice.reducer;

@@ -15,12 +15,14 @@ const nextText = (loop: Loop): string => {
   return next === "" ? "—" : `next ${next}`;
 };
 
-/** The agent loops, one row each, refreshed while shown. */
+const noLoops: readonly Loop[] = [];
+
+/** The agent loops of this machine, one row each, refreshed while shown. */
 export const LoopsList = (): JSX.Element => {
   const dispatch = useAppDispatch();
-  const loops = useAppSelector((s) => s.loops.loops);
-  const selected = useAppSelector((s) => s.loops.selected);
-  const error = useAppSelector((s) => s.loops.error);
+  const loops = useAppSelector((s) => s.loops.byEnvironment["local"]?.items ?? noLoops);
+  const selected = useAppSelector((s) => (s.loops.selectedEnvironment === "local" ? s.loops.selected : null));
+  const error = useAppSelector((s) => s.loops.byEnvironment["local"]?.error ?? null);
   useEffect(() => {
     void dispatch(fetchLoops());
     const timer = window.setInterval(() => void dispatch(fetchLoops()), loopsPollInterval);
@@ -30,7 +32,7 @@ export const LoopsList = (): JSX.Element => {
     <div className={styles.root}>
       {error !== null && (
         <p className={styles.error} role="status">
-          {error.message}
+          {error}
         </p>
       )}
       {loops.length === 0 ? (

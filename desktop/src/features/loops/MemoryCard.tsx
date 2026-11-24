@@ -6,7 +6,7 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { Card } from "./Card";
 import { loopLabel } from "./formValues";
 import { MemoryDialog } from "./MemoryDialog";
-import { clearLoopMemory, fetchLoopMemory, removeLoopMemory } from "./loopDataSlice";
+import { clearLoopMemory, fetchLoopMemory, loopKey, removeLoopMemory } from "./loopDataSlice";
 import styles from "./MemoryCard.module.css";
 
 /** The entry's first line, cut to 120 characters. */
@@ -37,13 +37,13 @@ export const MemoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   const busy = useAppSelector((s) => s.loops.busy === loop.name);
   const [editing, setEditing] = useState<LoopMemoryEntry | "new" | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const held = data.loop === loop.name;
+  const held = data.loop === loopKey(loop.name, loop.environment);
   const memory = held ? data.memory : null;
   const error = held ? data.memoryError : null;
 
   useEffect(() => {
-    void dispatch(fetchLoopMemory(loop.name));
-  }, [dispatch, loop.name]);
+    void dispatch(fetchLoopMemory({ name: loop.name, environment: loop.environment }));
+  }, [dispatch, loop.name, loop.environment]);
 
   return (
     <Card title="Memory">
@@ -61,7 +61,7 @@ export const MemoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
             <p role="alert" className={styles.muted}>
               {error.message}
             </p>
-            <Button size="small" onClick={() => void dispatch(fetchLoopMemory(loop.name))}>
+            <Button size="small" onClick={() => void dispatch(fetchLoopMemory({ name: loop.name, environment: loop.environment }))}>
               Retry
             </Button>
           </div>
@@ -87,7 +87,7 @@ export const MemoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
                   key={entry.key}
                   entry={entry}
                   onEdit={() => setEditing(entry)}
-                  onDelete={() => void dispatch(removeLoopMemory({ name: loop.name, key: entry.key }))}
+                  onDelete={() => void dispatch(removeLoopMemory({ name: loop.name, key: entry.key, environment: loop.environment }))}
                 />
               ))}
             </tbody>
@@ -102,6 +102,7 @@ export const MemoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
       {editing !== null && (
         <MemoryDialog
           loopName={loop.name}
+          environment={loop.environment}
           entry={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
         />
@@ -117,7 +118,7 @@ export const MemoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
             color="error"
             onClick={() => {
               setConfirming(false);
-              void dispatch(clearLoopMemory(loop.name));
+              void dispatch(clearLoopMemory({ name: loop.name, environment: loop.environment }));
             }}
           >
             Clear memory

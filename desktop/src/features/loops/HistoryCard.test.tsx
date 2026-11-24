@@ -43,7 +43,7 @@ describe("HistoryCard", () => {
     });
     renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
     await userEvent.click(await screen.findByRole("button", { name: /Run 56/ }));
-    expect(api.loopsHistoryRun).toHaveBeenCalledWith("deps", 56);
+    expect(api.loopsHistoryRun).toHaveBeenCalledWith("deps", 56, "local");
     expect(await screen.findByRole("heading", { name: "Run 56 · Succeeded" })).toBeInTheDocument();
     expect(await screen.findByText("Bumped two packages.")).toBeInTheDocument();
   });
@@ -55,7 +55,7 @@ describe("HistoryCard", () => {
     const api = fakeApi({ loopsHistory: vi.fn(async () => manyRuns(25)) });
     renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
     const list = await screen.findByRole("list", { name: "Run history" });
-    expect(api.loopsHistory).toHaveBeenCalledWith("deps", 200);
+    expect(api.loopsHistory).toHaveBeenCalledWith("deps", 200, "local");
     expect(within(list).getAllByRole("listitem")).toHaveLength(10);
     expect(within(list).getByRole("button", { name: /Run 25\b/ })).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 3 · 25 runs")).toBeInTheDocument();
@@ -91,7 +91,7 @@ describe("HistoryCard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     first.unmount();
     renderWithStore(<HistoryCard loop={loop({ name: "nightly" })} />, store);
-    await waitFor(() => expect(api.loopsHistory).toHaveBeenLastCalledWith("nightly", 200));
+    await waitFor(() => expect(api.loopsHistory).toHaveBeenLastCalledWith("nightly", 200, "local"));
     await waitFor(() => expect(screen.getByText("Page 1 of 3 · 25 runs")).toBeInTheDocument());
   });
 
@@ -137,7 +137,7 @@ describe("HistoryCard", () => {
     renderWithStore(<HistoryCard loop={loop()} />, testStore({ api }));
     await userEvent.click(await screen.findByRole("button", { name: "Clear history" }));
     await userEvent.click(screen.getByRole("button", { name: "Clear history" }));
-    expect(api.loopsHistoryClear).toHaveBeenCalledWith("deps");
+    expect(api.loopsHistoryClear).toHaveBeenCalledWith("deps", false, "local");
   });
 
   it("selects the workspace of a run in the agents section", async () => {

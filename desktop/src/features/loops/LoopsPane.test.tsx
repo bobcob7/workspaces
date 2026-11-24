@@ -8,9 +8,12 @@ import { LoopsList } from "./LoopsList";
 import { creatingStarted, fetchLoops, loopSelected } from "./loopsSlice";
 import { LoopsPane } from "./LoopsPane";
 
+const listing = (loops: Loop[]) => ({ loops, warnings: [], environmentStatus: null, loopsUnknown: false });
+const fetched = (loops: Loop[]) => ({ results: [{ environment: "local", listing: listing(loops), error: null }], at: 1 });
+
 const storeWithLoop = (api = fakeApi(), overrides: Partial<Loop> = {}) => {
   const store = testStore({ api });
-  store.dispatch(fetchLoops.fulfilled({ loops: [loop(overrides)], warnings: [] }, "req"));
+  store.dispatch(fetchLoops.fulfilled(fetched([loop(overrides)]), "req"));
   store.dispatch(loopSelected("deps"));
   return store;
 };
@@ -20,10 +23,10 @@ describe("LoopsPane", () => {
     const added = loop({ name: "nightly", every: "1h", prompt: "Lint the repo.", specs: ["buff-bear", "api"] });
     const api = fakeApi({
       loopsAdd: vi.fn(async () => added),
-      loopsList: vi.fn(async () => ({ loops: [added], warnings: [] })),
+      loopsList: vi.fn(async () => listing([added])),
     });
     const store = testStore({ api });
-    store.dispatch(fetchLoops.fulfilled({ loops: [], warnings: [] }, "req"));
+    store.dispatch(fetchLoops.fulfilled(fetched([]), "req"));
     store.dispatch(creatingStarted());
     renderWithStore(<LoopsPane />, store);
     await userEvent.type(screen.getByRole("textbox", { name: /Name/ }), "nightly");
@@ -70,7 +73,7 @@ describe("LoopsPane", () => {
     const api = fakeApi();
     renderWithStore(<LoopsPane />, storeWithLoop(api));
     await userEvent.click(screen.getByRole("button", { name: "Pause" }));
-    expect(api.loopsSetPaused).toHaveBeenCalledWith("deps", true);
+    expect(api.loopsSetPaused).toHaveBeenCalledWith("deps", true, "local");
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
   });
 
@@ -78,7 +81,7 @@ describe("LoopsPane", () => {
     const api = fakeApi();
     renderWithStore(<LoopsPane />, storeWithLoop(api));
     await userEvent.click(screen.getByRole("button", { name: "Run now" }));
-    expect(api.loopsRunNow).toHaveBeenCalledWith("deps");
+    expect(api.loopsRunNow).toHaveBeenCalledWith("deps", "local");
   });
 
   it("deletes a loop once confirmed", async () => {
@@ -88,7 +91,7 @@ describe("LoopsPane", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Its runs' workspaces stay.")).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    expect(api.loopsRemove).toHaveBeenCalledWith("deps");
+    expect(api.loopsRemove).toHaveBeenCalledWith("deps", false, "local");
   });
 
   it("adds a loop with a script and variables", async () => {
@@ -207,7 +210,7 @@ describe("LoopsPane", () => {
 
   it("edits a loop in the same form and shows the detail again", async () => {
     const api = fakeApi({
-      loopsList: vi.fn(async () => ({ loops: [loop({ every: "6h" })], warnings: [] })),
+      loopsList: vi.fn(async () => listing([loop({ every: "6h" })])),
     });
     renderWithStore(<LoopsPane />, storeWithLoop(api));
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -251,6 +254,8 @@ describe("LoopsPane", () => {
       loopsList: vi.fn(async () => ({
         loops: [loop({ name: "deps-bump", title: "Dependency bumps" }), loop({ name: "triage", title: "" })],
         warnings: [],
+        environmentStatus: null,
+        loopsUnknown: false,
       })),
     });
     const store = testStore({ api });

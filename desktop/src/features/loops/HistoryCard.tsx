@@ -6,7 +6,7 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { selected, sectionChosen } from "../ui/uiSlice";
 import { Card } from "./Card";
 import { formatDuration, runSummary, statusColor, statusLabel } from "./history";
-import { clearLoopHistory, fetchLoopHistory, historyFetchLimit, runClosed } from "./loopDataSlice";
+import { clearLoopHistory, fetchLoopHistory, historyFetchLimit, loopKey, runClosed } from "./loopDataSlice";
 import { loopLabel } from "./formValues";
 import { RunDialog } from "./RunDialog";
 import styles from "./HistoryCard.module.css";
@@ -62,7 +62,7 @@ export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   const [confirming, setConfirming] = useState(false);
   const [page, setPage] = useState(0);
   const lastStarted = loop.lastRun?.startedAt ?? null;
-  const held = data.loop === loop.name;
+  const held = data.loop === loopKey(loop.name, loop.environment);
   const history = held ? data.history : null;
   const error = held ? data.historyError : null;
 
@@ -71,11 +71,11 @@ export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
   }, [loop.name]);
 
   useEffect(() => {
-    void dispatch(fetchLoopHistory({ name: loop.name, limit: historyFetchLimit }));
-  }, [dispatch, loop.name, lastStarted]);
+    void dispatch(fetchLoopHistory({ name: loop.name, limit: historyFetchLimit, environment: loop.environment }));
+  }, [dispatch, loop.name, loop.environment, lastStarted]);
 
   const refresh = (): void => {
-    void dispatch(fetchLoopHistory({ name: loop.name, limit: historyFetchLimit }));
+    void dispatch(fetchLoopHistory({ name: loop.name, limit: historyFetchLimit, environment: loop.environment }));
   };
 
   const runs = history?.runs ?? [];
@@ -129,6 +129,7 @@ export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
       {openSeq !== null && (
         <RunDialog
           name={loop.name}
+          environment={loop.environment}
           seq={openSeq}
           onClose={() => {
             dispatch(runClosed());
@@ -147,7 +148,7 @@ export const HistoryCard = ({ loop }: { readonly loop: Loop }): JSX.Element => {
             color="error"
             onClick={() => {
               setConfirming(false);
-              void dispatch(clearLoopHistory(loop.name));
+              void dispatch(clearLoopHistory({ name: loop.name, environment: loop.environment }));
             }}
           >
             Clear history
