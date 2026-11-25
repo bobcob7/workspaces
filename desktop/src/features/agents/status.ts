@@ -82,13 +82,27 @@ export const statusFilterOptions: readonly { readonly value: StatusFilter; reado
 export const attentionEntries = (entries: readonly Entry[]): readonly Entry[] =>
   entries.filter(needsAttention).toSorted(byRecency);
 
-/** The workspaces entry started directly, most recently active first (ADR 0044). */
+/**
+ * Whether child was started from parent: by parentId on the same environment, or, with no parentId,
+ * by its scopeParent (ADR 0082). Never its own parent.
+ */
+export const isChildOf = (child: Entry, parent: Entry): boolean => {
+  if (parent.workspaceId === null || child.key === parent.key) {
+    return false;
+  }
+  if (child.parentId !== null) {
+    return child.parentId === parent.workspaceId && child.environment === parent.environment;
+  }
+  return (
+    child.scopeParent !== null &&
+    child.scopeParent.workspaceId === parent.workspaceId &&
+    child.scopeParent.environment === parent.environment
+  );
+};
+
+/** The workspaces entry started directly, most recently active first (ADR 0044, ADR 0082). */
 export const childrenOf = (entries: readonly Entry[], entry: Entry): readonly Entry[] =>
-  entry.workspaceId === null
-    ? []
-    : entries
-        .filter((e) => e.parentId === entry.workspaceId && e.environment === entry.environment && e.key !== entry.key)
-        .toSorted(byRecency);
+  entry.workspaceId === null ? [] : entries.filter((e) => isChildOf(e, entry)).toSorted(byRecency);
 
 /** Everything entry started, and what that started, each after its parent, with its depth from 1. */
 export const descendantsOf = (entries: readonly Entry[], entry: Entry): readonly { readonly entry: Entry; readonly depth: number }[] => {
