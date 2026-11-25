@@ -13,6 +13,8 @@ import (
 // all (SystemRoot, PATHEXT, the profile folders and so on, ADR 0081's
 // follow-up list). Windows spells their names in any case, so they match
 // case-insensitively. Anything else is withheld, as on other systems.
+//
+//nolint:gochecknoglobals // a read-only allow-list.
 var windowsTerminalEnv = []string{
 	"PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
 	"USERPROFILE", "HOMEDRIVE", "HOMEPATH", "HOME", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA",
@@ -20,9 +22,6 @@ var windowsTerminalEnv = []string{
 	"TEMP", "TMP", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "NUMBER_OF_PROCESSORS",
 	"PROCESSOR_ARCHITECTURE", "OS", "LANG",
 }
-
-// defaultPathExt is the extensions Windows tries when PATHEXT is unset or empty.
-var defaultPathExt = []string{".COM", ".EXE", ".BAT", ".CMD"}
 
 // terminalEnvAllowed reports whether a terminal's program may see the
 // variable key of the agent's environment. Windows programs fail without
@@ -63,13 +62,13 @@ func pathExt(env []string) []string {
 		}
 	}
 	var exts []string
-	for _, ext := range strings.Split(value, ";") {
+	for ext := range strings.SplitSeq(value, ";") {
 		if ext != "" {
 			exts = append(exts, ext)
 		}
 	}
 	if len(exts) == 0 {
-		return defaultPathExt
+		return []string{".COM", ".EXE", ".BAT", ".CMD"}
 	}
 	return exts
 }
