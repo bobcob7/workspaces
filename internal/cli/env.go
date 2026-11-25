@@ -304,7 +304,7 @@ func (a *App) snapshotCount(name string) *int {
 		a.warned = append(a.warned, err.Error())
 		return nil
 	}
-	count, err := snapshotWorkspaces(snap)
+	count, err := snapshotWorkspaces(&snap)
 	if err != nil {
 		a.warned = append(a.warned, fmt.Sprintf("reading the snapshot of %s: %v", name, err))
 		return nil
@@ -314,7 +314,7 @@ func (a *App) snapshotCount(name string) *int {
 
 // snapshotWorkspaces counts the entries in a snapshot's workspaces array.
 // A snapshot with no workspaces key fails to parse rather than counting as zero.
-func snapshotWorkspaces(snap envproto.Snapshot) (int, error) {
+func snapshotWorkspaces(snap *envproto.Snapshot) (int, error) {
 	var workspaces []json.RawMessage
 	if err := json.Unmarshal(snap.Workspaces, &workspaces); err != nil {
 		return 0, err
