@@ -38,6 +38,7 @@ import { EnvBadge } from "./EnvBadge";
 import { RemoveDialog } from "./RemoveDialog";
 import { entryActions } from "./remote";
 import { RootProgress } from "./RootProgress";
+import { ScopeBadges } from "./ScopeBadges";
 import { isLive } from "./status";
 import { parentOf } from "./tree";
 import { RunCard } from "./RunCard";
@@ -543,6 +544,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
                     onClick={() => dispatch(selected(parent.key))}
                   />
                 )}
+                {entry.scope !== null && <ScopeBadges scope={entry.scope} />}
                 {loopRun !== null && loopRun.attention !== null && (
                   <Chip
                     size="small"
