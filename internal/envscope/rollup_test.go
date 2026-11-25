@@ -1,7 +1,6 @@
 package envscope
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -82,9 +81,16 @@ func TestListedOf(t *testing.T) {
 		assert.Len(t, listed, MaxListedPerEnvironment)
 	})
 	t.Run("refuses an array over 1 MiB", func(t *testing.T) {
-		raw := bytes.Repeat([]byte(" "), maxListedBytes+1)
-		_, _, err := ListedOf("env-1", raw)
-		require.Error(t, err)
+		raw := `["` + strings.Repeat("a", maxListedBytes) + `"]`
+		_, _, err := ListedOf("env-1", json.RawMessage(raw))
+		require.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("decodes an array of exactly 1 MiB", func(t *testing.T) {
+		tail := `{"id":"ip-1"}]`
+		raw := "[" + strings.Repeat(" ", maxListedBytes-len(tail)-1) + tail
+		listed, _, err := ListedOf("env-1", json.RawMessage(raw))
+		require.NoError(t, err)
+		assert.Equal(t, []Listed{listedAt("env-1", "ip-1", "", 0, 0)}, listed)
 	})
 	t.Run("returns an out-of-range rollup as zero and names it in invalid", func(t *testing.T) {
 		listed, invalid, err := ListedOf("env-1", json.RawMessage(
