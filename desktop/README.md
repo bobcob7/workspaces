@@ -277,6 +277,21 @@ On a phone, the same list through Workspace Online:
 
 ![Agents with environment badges on a phone](docs/agents-environments-mobile.png)
 
+### Environment scopes
+
+A remote child of `ws machine spawn --env` sits under its parent and says where
+it runs. An agent's pane shows its scope, with each environment's state.
+
+| Screen | Shows |
+| --- | --- |
+| ![Agents at 1100 px](docs/scope-tree.png) | `plan-scope` expanded, with its children on other environments |
+| ![Agents at 360 px](docs/scope-tree-mobile.png) | The same tree on a phone |
+| ![plan-scope pane](docs/scope-pane.png) | The Scope line and the children card |
+| ![Remove dialog](docs/scope-remove.png) | The Remove dialog with its note |
+
+Not shown: a refusal for an environment out of scope; it goes to the agent that
+ran `ws machine spawn --env`.
+
 A remote agent's pane opens on its Terminal, with a note: the conversation
 view reads local transcripts, so a remote agent's conversation isn't shown
 yet. Terminals are one connection per environment, don't survive a reconnect,
