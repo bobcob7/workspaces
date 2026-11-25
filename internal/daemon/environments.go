@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -81,6 +82,15 @@ func (NopEnvironments) Call(_ context.Context, name string, req CallRequest) (Ca
 			"op":          req.Op,
 		},
 	}
+}
+
+// Scope is an offline environment: nothing listens for one.
+func (NopEnvironments) Scope(context.Context, string, string, json.RawMessage) envproto.Reply {
+	return envproto.Reply{Error: &envproto.ReplyError{
+		Code:    "environment_offline",
+		Message: "the controller isn't listening",
+		Details: map[string]any{"reason": "not_listening"},
+	}}
 }
 
 // OpenTerminal is an unknown environment: nothing listens for one.

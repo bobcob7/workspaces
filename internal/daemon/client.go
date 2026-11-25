@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/bobcob7/workspaces/internal/envproto"
 )
 
 // Status is GET /v1/status: the daemon, and each runner it watches. The
@@ -116,6 +118,14 @@ func (c *Client) ReloadEnvironments(ctx context.Context) error {
 func (c *Client) CallEnvironment(ctx context.Context, name string, req CallRequest) (CallReply, error) {
 	var res CallReply
 	err := c.do(ctx, http.MethodPost, "/v1/environments/"+url.PathEscape(name)+"/call", req, &res)
+	return res, err
+}
+
+// Scope runs one scope operation through the daemon for the person on this
+// machine and returns the controller's reply (ADR 0082).
+func (c *Client) Scope(ctx context.Context, op string, args any) (envproto.Reply, error) {
+	var res envproto.Reply
+	err := c.do(ctx, http.MethodPost, "/v1/scope/"+url.PathEscape(op), args, &res)
 	return res, err
 }
 

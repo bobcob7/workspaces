@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"context"
+	stdjson "encoding/json"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/machine"
 	"sync"
@@ -895,6 +896,9 @@ var _ EnvironmentHost = &EnvironmentHostMock{}
 //			ReloadFunc: func(ctx context.Context) error {
 //				panic("mock out the Reload method")
 //			},
+//			ScopeFunc: func(ctx context.Context, caller string, op string, args stdjson.RawMessage) envproto.Reply {
+//				panic("mock out the Scope method")
+//			},
 //			StartFunc: func(ctx context.Context) error {
 //				panic("mock out the Start method")
 //			},
@@ -922,6 +926,9 @@ type EnvironmentHostMock struct {
 
 	// ReloadFunc mocks the Reload method.
 	ReloadFunc func(ctx context.Context) error
+
+	// ScopeFunc mocks the Scope method.
+	ScopeFunc func(ctx context.Context, caller string, op string, args stdjson.RawMessage) envproto.Reply
 
 	// StartFunc mocks the Start method.
 	StartFunc func(ctx context.Context) error
@@ -960,6 +967,17 @@ type EnvironmentHostMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// Scope holds details about calls to the Scope method.
+		Scope []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Caller is the caller argument value.
+			Caller string
+			// Op is the op argument value.
+			Op string
+			// Args is the args argument value.
+			Args stdjson.RawMessage
+		}
 		// Start holds details about calls to the Start method.
 		Start []struct {
 			// Ctx is the ctx argument value.
@@ -976,6 +994,7 @@ type EnvironmentHostMock struct {
 	lockClose        sync.RWMutex
 	lockOpenTerminal sync.RWMutex
 	lockReload       sync.RWMutex
+	lockScope        sync.RWMutex
 	lockStart        sync.RWMutex
 	lockStatus       sync.RWMutex
 	lockWarnings     sync.RWMutex
@@ -1117,6 +1136,50 @@ func (mock *EnvironmentHostMock) ReloadCalls() []struct {
 	mock.lockReload.RLock()
 	calls = mock.calls.Reload
 	mock.lockReload.RUnlock()
+	return calls
+}
+
+// Scope calls ScopeFunc.
+func (mock *EnvironmentHostMock) Scope(ctx context.Context, caller string, op string, args stdjson.RawMessage) envproto.Reply {
+	if mock.ScopeFunc == nil {
+		panic("EnvironmentHostMock.ScopeFunc: method is nil but EnvironmentHost.Scope was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Caller string
+		Op     string
+		Args   stdjson.RawMessage
+	}{
+		Ctx:    ctx,
+		Caller: caller,
+		Op:     op,
+		Args:   args,
+	}
+	mock.lockScope.Lock()
+	mock.calls.Scope = append(mock.calls.Scope, callInfo)
+	mock.lockScope.Unlock()
+	return mock.ScopeFunc(ctx, caller, op, args)
+}
+
+// ScopeCalls gets all the calls that were made to Scope.
+// Check the length with:
+//
+//	len(mockedEnvironmentHost.ScopeCalls())
+func (mock *EnvironmentHostMock) ScopeCalls() []struct {
+	Ctx    context.Context
+	Caller string
+	Op     string
+	Args   stdjson.RawMessage
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Caller string
+		Op     string
+		Args   stdjson.RawMessage
+	}
+	mock.lockScope.RLock()
+	calls = mock.calls.Scope
+	mock.lockScope.RUnlock()
 	return calls
 }
 
