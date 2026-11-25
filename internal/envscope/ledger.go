@@ -54,6 +54,12 @@ func NewLedger(environmentsDir string) *Ledger {
 	}
 }
 
+// LedgerExists reports whether the ledger in environmentsDir has been written.
+func LedgerExists(environmentsDir string) bool {
+	_, err := os.Stat(filepath.Join(environmentsDir, ledgerName))
+	return err == nil
+}
+
 // Put adds e, or replaces the entry with the same environment and workspace.
 func (l *Ledger) Put(ctx context.Context, e *Entry) error {
 	if err := validateEntry(e); err != nil {
