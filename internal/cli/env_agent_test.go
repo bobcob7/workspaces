@@ -146,6 +146,7 @@ func TestApp_runEnvAgentRun(t *testing.T) {
 	})
 	t.Run("connects, the controller sees it online, and cancelling exits 0", func(t *testing.T) {
 		app, _, _ := newEnvTestApp(t)
+		app.workspaces = newListApp(nil, nil).store
 		broker := envtest.NewBroker()
 		ctrl := enrollAgentTestMachine(t, app, broker)
 		app.newEnvClient = func(*slog.Logger) (envClient, error) { return broker.NewClient(), nil }
@@ -284,6 +285,7 @@ func TestAgentClaude_Probe(t *testing.T) {
 func TestAgentSnapshots_Workspaces(t *testing.T) {
 	t.Run("no workspaces is an empty array", func(t *testing.T) {
 		app, _, _ := newEnvTestApp(t)
+		app.workspaces = newListApp(nil, nil).store
 		data, err := agentSnapshots{app: app}.Workspaces(t.Context())
 		require.NoError(t, err)
 		assert.JSONEq(t, "[]", string(data))
