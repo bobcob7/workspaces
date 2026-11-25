@@ -92,6 +92,14 @@ func scopeFileOf(t *testing.T, state, id string) (envscope.Scope, *envscope.File
 	return scope, file
 }
 
+// addEnvironmentForScope adds name to app's environment store, so it can be
+// named by --env-scope.
+func addEnvironmentForScope(t *testing.T, app *App, name string) {
+	t.Helper()
+	_, _, _, err := app.envStore().Add(t.Context(), name, "127.0.0.1:8884")
+	require.NoError(t, err)
+}
+
 // errorDetails is the details of err, which must be a cliError's.
 func errorDetails(t *testing.T, err error) map[string]any {
 	t.Helper()
