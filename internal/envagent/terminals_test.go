@@ -740,6 +740,26 @@ func TestTerminals_open(t *testing.T) {
 		require.ErrorAs(t, err, &reply)
 		assert.Equal(t, "platform_unsupported", reply.Code)
 	})
+	t.Run("an unsupported platform refuses before building the command", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		require.NotNil(t, h.m.supported)
+		good := h.m.commands
+		h.m.supported = func() bool { return false }
+		h.m.commands = &terminalCommandsMock{TerminalCommandFunc: func(context.Context, *envproto.TerminalOpenArgs) (TerminalCommand, error) {
+			t.Error("the command was built on a platform without pseudo-terminals")
+			return TerminalCommand{}, nil
+		}}
+		for range envproto.MaxTerminals + 1 {
+			_, err := h.m.open(t.Context(), attachArgs())
+			var reply *envproto.ReplyError
+			require.ErrorAs(t, err, &reply)
+			require.Equal(t, "platform_unsupported", reply.Code)
+		}
+		h.m.supported = func() bool { return true }
+		h.m.commands = good
+		h.open()
+	})
 	t.Run("a sid already in use is not handed out again", func(t *testing.T) {
 		t.Parallel()
 		h := newTermHarness(t)

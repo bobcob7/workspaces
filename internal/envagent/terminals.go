@@ -55,6 +55,7 @@ type terminals struct {
 	log         *slog.Logger
 	client      mqttClient
 	starter     ptyStarter
+	supported   func() bool
 	commands    terminalCommands
 	random      io.Reader
 	now         func() time.Time
@@ -80,6 +81,7 @@ func newTerminals(log *slog.Logger, client mqttClient, commands terminalCommands
 		log:         log,
 		client:      client,
 		starter:     ptyprocStarter{},
+		supported:   ptyproc.Supported,
 		commands:    commands,
 		random:      random,
 		now:         opts.Now,
@@ -218,8 +220,16 @@ func (m *terminals) open(ctx context.Context, args *envproto.TerminalOpenArgs) (
 	return json.Marshal(envproto.TerminalOpenResult{SID: t.sid, Workspace: cmd.Workspace, Session: cmd.Session})
 }
 
+// errPlatformUnsupported refuses a terminal on a system without pseudo-terminals.
+func errPlatformUnsupported() *envproto.ReplyError {
+	return &envproto.ReplyError{Code: "platform_unsupported", Message: "terminals aren't supported on " + runtime.GOOS + " agents yet (ADR 0081)"}
+}
+
 // start builds the command and starts it on a pty, without registering it.
 func (m *terminals) start(ctx context.Context, args *envproto.TerminalOpenArgs) (*terminal, TerminalCommand, error) {
+	if !m.supported() {
+		return nil, TerminalCommand{}, errPlatformUnsupported()
+	}
 	cmd, err := m.commands.TerminalCommand(ctx, args)
 	if err != nil {
 		return nil, TerminalCommand{}, err
@@ -232,7 +242,7 @@ func (m *terminals) start(ctx context.Context, args *envproto.TerminalOpenArgs) 
 	if err != nil {
 		m.log.WarnContext(ctx, "terminal not started", "error", err)
 		if errors.Is(err, ptyproc.ErrUnsupported) {
-			return nil, TerminalCommand{}, &envproto.ReplyError{Code: "platform_unsupported", Message: "terminals aren't supported on " + runtime.GOOS + " agents yet (ADR 0081)"}
+			return nil, TerminalCommand{}, errPlatformUnsupported()
 		}
 		return nil, TerminalCommand{}, err
 	}
