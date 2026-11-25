@@ -4,6 +4,7 @@ import {
   ancestorKeys,
   autoExpandedKeys,
   buildForest,
+  hasParent,
   isFiltering,
   isOpen,
   matchesFilter,
@@ -200,5 +201,57 @@ describe("isOpen", () => {
 
   it("is closed with no choice and no auto-expansion", () => {
     expect(isOpen("a", {}, new Set())).toBe(false);
+  });
+});
+
+describe("buildForest across environments", () => {
+  const forestShape = (entries: readonly ReturnType<typeof entry>[]): unknown[] =>
+    shape(buildForest(entries, noFilter, null));
+
+  it("nests a remote child under a local parent", () => {
+    const local = entry({ key: "p", workspaceId: "p", environment: "local" });
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(forestShape([local, remote])).toEqual([["p", ["box:c"]]]);
+  });
+
+  it("nests a remote grandchild under a remote child", () => {
+    const local = entry({ key: "p", workspaceId: "p", environment: "local" });
+    const remote = entry({ key: "box:a", workspaceId: "a", environment: "box", scopeParent: { environment: "local", workspaceId: "p" } });
+    const grandchild = entry({ key: "win:b", workspaceId: "b", environment: "win", scopeParent: { environment: "box", workspaceId: "a" } });
+    expect(forestShape([local, remote, grandchild])).toEqual([["p", [["box:a", ["win:b"]]]]]);
+  });
+
+  it("keeps a scopeParent naming an unlisted parent as a root", () => {
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "local", workspaceId: "gone" } });
+    expect(forestShape([remote])).toEqual(["box:c"]);
+  });
+
+  it("ends a scopeParent cycle and lists both entries", () => {
+    const first = entry({ key: "x", workspaceId: "x", environment: "box", scopeParent: { environment: "local", workspaceId: "y" } });
+    const second = entry({ key: "y", workspaceId: "y", environment: "local", scopeParent: { environment: "box", workspaceId: "x" } });
+    const keys = flatten(buildForest([first, second], noFilter, null)).map((n) => n.entry.key);
+    expect(keys.toSorted()).toEqual(["x", "y"]);
+  });
+});
+
+describe("ancestorKeys across environments", () => {
+  it("follows a scopeParent up to its parent on another environment", () => {
+    const local = entry({ key: "p", workspaceId: "p", environment: "local" });
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(ancestorKeys([local, remote], "box:c")).toEqual(["p"]);
+  });
+});
+
+describe("hasParent", () => {
+  it("is true for a same-environment parentId", () => {
+    expect(hasParent(entry({ parentId: "p" }))).toBe(true);
+  });
+
+  it("is true for a scopeParent", () => {
+    expect(hasParent(entry({ scopeParent: { environment: "local", workspaceId: "p" } }))).toBe(true);
+  });
+
+  it("is false for a root", () => {
+    expect(hasParent(entry({ parentId: null, scopeParent: null }))).toBe(false);
   });
 });
