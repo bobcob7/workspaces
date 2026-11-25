@@ -638,3 +638,13 @@ $ ws machine roles rm reviewer
 [`ws review wait`](ws-review.md), [0044](../adrs/0044-workspace-trees.md),
 [0046](../adrs/0046-ws-machine.md),
 [0050](../adrs/0050-machine-wait-results-and-roles.md)
+
+## Children on other environments
+
+With a scope granted by a person (`ws claude --env-scope`), `ws machine spawn
+--env <name>` starts a child on another enrolled environment in your scope
+(`ws machine envs` lists it). `children`, `wait`, `logs` and `rm` reach that
+child through the controller, which checks that you started it. When it
+finishes, `ws machine wait` copies its result and report into your tree's
+state, so they stay readable after `ws machine rm`. An environment outside your
+scope is `environment_out_of_scope` (exit 4).
