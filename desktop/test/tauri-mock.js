@@ -56,6 +56,8 @@
     environment: "local",
     environmentOnline: true,
     snapshotStale: false,
+    scopeParent: null,
+    scope: null,
     ...overrides,
   });
 
@@ -888,6 +890,36 @@
         environmentOnline: false,
         snapshotStale: true,
         intent: "Build the Windows installer",
+      }),
+      entry({
+        workspaceId: "plan-scope-4d5e6f7a", sessionId: "4d5e6f7a", path: "/w/plan-scope-4d5e6f7a",
+        status: "working", intent: "Compare each machine's private IP",
+        rollup: { total: 3, done: 1, fraction: 1 / 3 },
+        scope: [
+          { id: "local", name: "local", state: "online", current: true },
+          { id: "env_7f3a", name: "linux-server", state: "online", current: false },
+          { id: "env_0c1d", name: "old-rig", state: "removed", current: false },
+          { id: "env_b20d", name: "win-rig", state: "offline", current: false },
+        ],
+      }),
+      remoteEntry("linux-server", {
+        workspaceId: "ip-linux-8a9b0c1d", sessionId: "8a9b0c1d", status: "done", result: "PASS",
+        intent: "Report the private IP", rollup: leafRollup(true),
+        scopeParent: { environment: "local", workspaceId: "plan-scope-4d5e6f7a" },
+        scope: [
+          { id: "env_7f3a", name: "linux-server", state: "online", current: true },
+          { id: "env_b20d", name: "win-rig", state: "offline", current: false },
+        ],
+      }),
+      remoteEntry("win-rig", {
+        workspaceId: "ip-win-2e3f4a5b", sessionId: "2e3f4a5b", status: "idle",
+        environmentOnline: false, snapshotStale: true, intent: "Report the private IP",
+        scopeParent: { environment: "local", workspaceId: "plan-scope-4d5e6f7a" },
+      }),
+      remoteEntry("win-rig", {
+        workspaceId: "ip-probe-6c7d8e9f", sessionId: "6c7d8e9f", status: "idle",
+        environmentOnline: false, snapshotStale: true, intent: "Probe the route from win-rig",
+        scopeParent: { environment: "linux-server", workspaceId: "ip-linux-8a9b0c1d" },
       }),
     ],
     settings: defaultSettings(),
