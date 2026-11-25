@@ -16,7 +16,6 @@ import (
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/envproto"
-	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -230,11 +229,21 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 }
 
 // startScope is the scope of a workspace ws claude starts: the one opts
-// carries, else the parent's when it has one, else what the person granted
-// with --env-scope or default_scope (ADR 0082, design 1.1).
+// carries; else, inside a workspace, the enclosing workspace's, whatever
+// --parent says; else the parent's when it has one, else what the person
+// granted with --env-scope or default_scope (ADR 0082, design 1.1). Only a
+// person starting a workspace with no parent grants: no agent ever widens
+// its child's scope.
 func (a *App) startScope(opts *claudeOptions, parent string) (childScope, error) {
 	if opts.scope != nil {
 		return *opts.scope, nil
+	}
+	enclosing, err := a.enclosingOr("")
+	if err != nil {
+		return childScope{}, err
+	}
+	if enclosing != "" {
+		return childScope{scope: a.workspaceScope(enclosing), source: "inherited"}, nil
 	}
 	if parent != "" && len(opts.envScope) == 0 {
 		return childScope{scope: a.workspaceScope(parent), source: "inherited"}, nil
@@ -255,25 +264,51 @@ func (a *App) runRemoteClaude(ctx context.Context, opts *claudeOptions, env, par
 	if err != nil {
 		return err
 	}
-	grant, err := a.grantScope(opts.envScope)
+	names, err := a.remoteGrant(opts.envScope, env)
 	if err != nil {
 		return err
 	}
-	result, err := a.createRemote(ctx, env, args, grant)
+	result, err := a.createRemote(ctx, env, args, names)
 	if err != nil {
 		return err
 	}
 	return a.printRemoteCreated(result, env)
 }
 
-// createRemote creates a workspace on env. A grant wider than this machine
-// goes through scope.spawn, so the ledger records the child; anything else is
-// the environment's workspace.create (ADR 0082).
-func (a *App) createRemote(ctx context.Context, env string, args *envproto.CreateArgs, grant envscope.Scope) (json.RawMessage, error) {
-	if !grant.WiderThanSelf() {
+// remoteGrant is the environments a person grants a workspace started on env,
+// besides env itself: names, or [environments] default_scope when names is
+// empty, each local or enrolled. The implicit self of the controller is never
+// added: the scope is {env} plus what was asked for. Inside a workspace
+// nothing is granted and default_scope is not read (ADR 0082, design 1.1).
+func (a *App) remoteGrant(names []string, env string) ([]string, error) {
+	enclosing, err := a.enclosingOr("")
+	if err != nil {
+		return nil, err
+	}
+	if enclosing != "" {
+		return nil, nil
+	}
+	refs, err := a.requestedRefs(names)
+	if err != nil {
+		return nil, err
+	}
+	var granted []string
+	for _, ref := range refs {
+		if ref.Name != env && !slices.Contains(granted, ref.Name) {
+			granted = append(granted, ref.Name)
+		}
+	}
+	return granted, nil
+}
+
+// createRemote creates a workspace on env. A grant of more than env goes
+// through scope.spawn, so the ledger records the child; anything else is the
+// environment's workspace.create (ADR 0082).
+func (a *App) createRemote(ctx context.Context, env string, args *envproto.CreateArgs, granted []string) (json.RawMessage, error) {
+	if len(granted) == 0 {
 		return a.callEnvironment(ctx, env, envproto.OpWorkspaceCreate, args)
 	}
-	return a.callScope(ctx, grant.Self(), "spawn", envproto.ScopeSpawnArgs{Target: env, Narrow: grant.Names(), Create: *args})
+	return a.callScope(ctx, localRef(), "spawn", envproto.ScopeSpawnArgs{Target: env, Narrow: granted, Create: *args})
 }
 
 // printRemoteCreated prints the result of a workspace created on env, with

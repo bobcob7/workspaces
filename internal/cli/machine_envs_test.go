@@ -55,4 +55,16 @@ func TestApp_runMachineEnvs(t *testing.T) {
 		assert.Equal(t, "unknown", out.Environments[1].State)
 		assert.Len(t, out.Warnings, 1)
 	})
+	t.Run("an error reply from the controller is returned, with its code and no list", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveScopeHost(t, e.app, envproto.Reply{Error: &envproto.ReplyError{
+			Code: string(codeEnvironmentOutOfScope), Message: "environment linux isn't in your scope", Details: map[string]any{"environment": "linux"},
+		}})
+		err := e.app.runMachineEnvs(t.Context())
+		requireCode(t, codeEnvironmentOutOfScope, err)
+		assert.Equal(t, "linux", errorDetails(t, err)["environment"])
+		assert.Len(t, host.Calls(), 1)
+		assert.Empty(t, e.stdout.String())
+	})
 }

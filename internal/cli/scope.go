@@ -124,12 +124,22 @@ func scopeReplyError(remote *envproto.ReplyError) error {
 // names, or [environments] default_scope when names is empty. Every name must
 // be local or an enrolled environment, else environment_unknown (ADR 0082).
 func (a *App) grantScope(names []string) (envscope.Scope, error) {
+	refs, err := a.requestedRefs(names)
+	if err != nil {
+		return envscope.Scope{}, err
+	}
+	return envscope.New(localRef(), refs)
+}
+
+// requestedRefs resolves names, or [environments] default_scope when names is
+// empty, to environments: local, or enrolled ones, else environment_unknown.
+func (a *App) requestedRefs(names []string) ([]envscope.Ref, error) {
 	if len(names) == 0 {
 		names = a.config.Environments.DefaultScope
 	}
 	recs, err := a.envStore().List()
 	if err != nil {
-		return envscope.Scope{}, envError(err)
+		return nil, envError(err)
 	}
 	ids := make(map[string]string, len(recs))
 	for i := range recs {
@@ -138,15 +148,16 @@ func (a *App) grantScope(names []string) (envscope.Scope, error) {
 	refs := make([]envscope.Ref, 0, len(names))
 	for _, name := range names {
 		if name == localEnvironment {
+			refs = append(refs, localRef())
 			continue
 		}
 		id, ok := ids[name]
 		if !ok {
-			return envscope.Scope{}, newError(codeEnvironmentUnknown, fmt.Errorf("%w: %s (ws env list shows them)", environment.ErrUnknown, name))
+			return nil, newError(codeEnvironmentUnknown, fmt.Errorf("%w: %s (ws env list shows them)", environment.ErrUnknown, name))
 		}
 		refs = append(refs, envscope.Ref{ID: id, Name: name})
 	}
-	return envscope.New(localRef(), refs)
+	return refs, nil
 }
 
 // writeChildScope writes child's scope file when scope holds more than this

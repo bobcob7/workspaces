@@ -464,6 +464,18 @@ func TestApp_runMachineSpawn(t *testing.T) {
 		assert.Empty(t, e.store.CreateCalls())
 		assert.Empty(t, host.Calls())
 	})
+	t.Run("scope --env-scope wider than the caller's is refused for a remote target", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		host := serveScopeHost(t, e.app, scopeOK(t, nil))
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		opts := spawnOptions("fix it")
+		opts.target = linuxRef.Name
+		opts.narrow = []string{winRef.Name}
+		err := e.app.runMachineSpawn(t.Context(), opts)
+		requireCode(t, codeEnvironmentOutOfScope, err)
+		assert.Equal(t, "win-rig", errorDetails(t, err)["environment"])
+		assert.Empty(t, host.Calls())
+	})
 	t.Run("scope ignores a default_scope edited in config.toml", func(t *testing.T) {
 		e := roleSpawnEnv(t)
 		host := serveScopeHost(t, e.app, scopeOK(t, nil))
