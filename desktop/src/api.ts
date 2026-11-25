@@ -30,6 +30,23 @@ export interface Link {
 }
 
 /** A workspace, or a background session outside any workspace. */
+/** The workspace a cross-environment child was started from (ADR 0082). */
+export interface ScopeParent {
+  readonly environment: string;
+  readonly workspaceId: string;
+}
+
+/** An environment a workspace may start children on: online, offline, removed or unknown (ADR 0082). */
+export type ScopeState = "online" | "offline" | "removed" | "unknown";
+
+/** One environment of a workspace's scope (ADR 0082). */
+export interface ScopeEnvironment {
+  readonly id: string;
+  readonly name: string;
+  readonly state: ScopeState;
+  readonly current: boolean;
+}
+
 export interface Entry {
   readonly key: string;
   readonly kind: EntryKind;
@@ -65,6 +82,10 @@ export interface Entry {
   readonly environmentOnline: boolean;
   /** The entry's snapshot of a remote environment is old. */
   readonly snapshotStale: boolean;
+  /** The parent of a cross-environment child, from the scope ledger (ADR 0082). */
+  readonly scopeParent: ScopeParent | null;
+  /** The environments a workspace may start children on, when wider than its own (ADR 0082). */
+  readonly scope: readonly ScopeEnvironment[] | null;
   /** A `ws` runner's progress and endpoint; null for anything else. */
   readonly wsRunner: WsRunner | null;
   /** The workspace's own step record, null without one (ADR 0077). */

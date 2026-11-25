@@ -403,6 +403,12 @@ Three loop runs sit beside them: a blocked and a needs-attention run in
 Needs input (shown with a Blocked or Needs attention prefix), and one done
 run that is hidden.
 
+The sample `plan-scope` has an environment scope (local, linux-server,
+win-rig offline, old-rig removed) and three children on other environments
+from `ws machine spawn --env`: `ip-linux` on linux-server (online, done),
+`ip-win` on win-rig (offline), and `ip-probe` on win-rig, started by
+`ip-linux`.
+
 For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
 mock. It serves `/api` and a WebSocket from the same handlers, and
 `window.__WEB_MOCK__.authenticated` decides whether the login page shows:
