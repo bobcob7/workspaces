@@ -16,18 +16,20 @@ import (
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/envscope"
+	"github.com/bobcob7/workspaces/internal/lockfile"
 )
 
 // scopeFixture is a started controller over enrolled environments, each with
 // a connected agent (callFixture), a ledger in a temp dir and a fake
 // LocalScopes whose workspaces are localWS.
 type scopeFixture struct {
-	c       *Controller
-	b       *envtest.Broker
-	store   *Store
-	ledger  *envscope.Ledger
-	localWS map[string]envscope.Scope
-	envs    map[string]callFixture
+	c         *Controller
+	b         *envtest.Broker
+	store     *Store
+	ledger    *envscope.Ledger
+	ledgerDir string
+	localWS   map[string]envscope.Scope
+	envs      map[string]callFixture
 }
 
 // newScopeFixture enrolls names, starts a controller and connects each agent.
@@ -44,7 +46,8 @@ func newScopeFixture(t *testing.T, names ...string) scopeFixture {
 		certs[name] = &cert
 	}
 	c := startController(t, store, b)
-	f := scopeFixture{c: c, b: b, store: store, ledger: envscope.NewLedger(t.TempDir()), localWS: map[string]envscope.Scope{}, envs: map[string]callFixture{}}
+	ledgerDir := t.TempDir()
+	f := scopeFixture{c: c, b: b, store: store, ledger: envscope.NewLedger(ledgerDir), ledgerDir: ledgerDir, localWS: map[string]envscope.Scope{}, envs: map[string]callFixture{}}
 	for _, name := range names {
 		agent := connectAgent(t, store, b, recs[name].ID, certs[name])
 		env := callFixture{store: store, b: b, c: c, id: recs[name].ID, agent: agent}
@@ -753,6 +756,12 @@ func TestController_cleanupSurvivesCancelledContext(t *testing.T) {
 		b := f.env("env-b")
 		entry := envscope.Entry{Environment: b.id, Workspace: "c-1", Scope: []string{b.id}, CreatedAt: f.c.now().UTC()}
 		require.NoError(t, f.ledger.Put(t.Context(), &entry))
+		unlock, err := lockfile.Exclusive(t.Context(), filepath.Join(f.ledgerDir, "scopes.lock"))
+		require.NoError(t, err)
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			unlock()
+		}()
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		f.c.dropEntry(ctx, &entry)
