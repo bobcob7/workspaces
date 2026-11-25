@@ -3,19 +3,27 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
+	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envagent"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -221,7 +229,7 @@ func TestAgentOperations_Run(t *testing.T) {
 
 func TestNewAgentOperations_newApp(t *testing.T) {
 	app, _, _ := newTestApp()
-	ops := newAgentOperations(app, "linux-server")
+	ops := newAgentOperations(app, envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"})
 	var out, errb bytes.Buffer
 	got := ops.newApp(&out, &errb)
 	require.NotSame(t, app, got)
@@ -240,7 +248,7 @@ func TestNewAgentOperations_newApp(t *testing.T) {
 
 func TestAgentOperations_concurrent(t *testing.T) {
 	app, _, _ := newTestApp()
-	ops := newAgentOperations(app, "linux-server")
+	ops := newAgentOperations(app, envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"})
 	var wg sync.WaitGroup
 	var outs [2]bytes.Buffer
 	var errs [2]bytes.Buffer
@@ -318,4 +326,109 @@ func TestAgentRedactor_environment(t *testing.T) {
 	clean, n := agentRedactor(app).String("leaked env-only-value-123 here")
 	assert.NotContains(t, clean, "env-only-value-123")
 	assert.Equal(t, 1, n)
+}
+
+// agentStateApp is an agent's operations over a fresh state directory.
+func agentStateApp(t *testing.T) (*agentOperations, string) {
+	t.Helper()
+	app, _, _ := newTestApp()
+	app.paths = config.NewPaths(t.TempDir())
+	return newAgentOperations(app, envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"}), app.paths.State
+}
+
+func TestAgentOperations_grantWorkspace(t *testing.T) {
+	t.Run("a scope grant writes scope.json with this agent as self and the grant's parent", func(t *testing.T) {
+		ops, state := agentStateApp(t)
+		grant := &envproto.ScopeGrant{
+			Environments: []envproto.EnvRef{{ID: "local", Name: "local"}, {ID: "env-1a2b3c4d", Name: "linux-server"}},
+			Parent:       &envproto.WorkspaceAt{Environment: "local", Workspace: "plan-9f8e7d6c"},
+		}
+		require.NoError(t, ops.grantWorkspace("helper-1a2b3c4d", &envproto.CreateArgs{Scope: grant}))
+		scope, file, err := envscope.Read(state, "helper-1a2b3c4d", envscope.Ref{ID: "env-1a2b3c4d", Name: "linux-server"})
+		require.NoError(t, err)
+		require.NotNil(t, file)
+		assert.Equal(t, "granted", file.Source)
+		assert.Equal(t, "env-1a2b3c4d", file.Self)
+		assert.ElementsMatch(t, []string{"local", "env-1a2b3c4d"}, scope.IDs())
+		require.NotNil(t, file.Parent)
+		assert.Equal(t, envscope.Parent{Environment: "local", Workspace: "plan-9f8e7d6c"}, *file.Parent)
+	})
+	t.Run("a spawn writes spawn.toml with the workspace as its own root", func(t *testing.T) {
+		ops, state := agentStateApp(t)
+		spawn := &envproto.SpawnInfo{Role: "implementer", Model: "opus", Pass: []string{"pass"}, Fail: []string{"fail"}}
+		require.NoError(t, ops.grantWorkspace("helper-1a2b3c4d", &envproto.CreateArgs{Spawn: spawn}))
+		rec, err := machine.NewStore(state).Read("helper-1a2b3c4d", "helper-1a2b3c4d")
+		require.NoError(t, err)
+		require.NotNil(t, rec.Spawn)
+		assert.Equal(t, "implementer", rec.Spawn.Role)
+		assert.Equal(t, "opus", rec.Spawn.Model)
+	})
+	t.Run("a create without a grant writes neither file", func(t *testing.T) {
+		ops, state := agentStateApp(t)
+		require.NoError(t, ops.grantWorkspace("helper-1a2b3c4d", &envproto.CreateArgs{}))
+		_, err := os.Stat(envscope.Path(state, "helper-1a2b3c4d"))
+		assert.ErrorIs(t, err, fs.ErrNotExist)
+		_, err = os.Stat(machine.NewStore(state).Dir("helper-1a2b3c4d", "helper-1a2b3c4d"))
+		assert.ErrorIs(t, err, fs.ErrNotExist)
+	})
+	t.Run("a write that fails is an error", func(t *testing.T) {
+		ops, state := agentStateApp(t)
+		require.NoError(t, os.MkdirAll(state, 0o700))
+		blocker := state + "/helper-1a2b3c4d"
+		require.NoError(t, os.WriteFile(blocker, nil, 0o600))
+		grant := &envproto.ScopeGrant{Environments: []envproto.EnvRef{{ID: "env-1a2b3c4d", Name: "linux-server"}}}
+		assert.Error(t, ops.grantWorkspace("helper-1a2b3c4d", &envproto.CreateArgs{Scope: grant}))
+	})
+}
+
+func TestAgentOperations_machineRecord(t *testing.T) {
+	const id = "helper-1a2b3c4d"
+	setup := func(t *testing.T, report string) (*agentOperations, string) {
+		t.Helper()
+		ops, state := agentStateApp(t)
+		wsStore := stubWorkspaces()
+		wsStore.ListFunc = func() ([]workspace.Workspace, error) { return []workspace.Workspace{{ID: id}}, nil }
+		ops.app.workspaces = wsStore
+		store := machine.NewStore(state)
+		require.NoError(t, store.WriteSpawn(id, id, &machine.Spawn{Role: "implementer", Pass: []string{"pass"}, Fail: []string{"fail"}}))
+		require.NoError(t, store.WriteResult(id, id, &machine.Result{Verdict: "pass", RecordedAt: time.Date(2026, 11, 25, 0, 0, 0, 0, time.UTC)}, []byte(report)))
+		return ops, state
+	}
+	decode := func(t *testing.T, raw []byte) envproto.MachineRecordResult {
+		t.Helper()
+		var out envproto.MachineRecordResult
+		require.NoError(t, json.Unmarshal(raw, &out))
+		return out
+	}
+	t.Run("returns the result, role and report", func(t *testing.T) {
+		ops, _ := setup(t, "the report")
+		raw, err := ops.machineRecord(id)
+		require.NoError(t, err)
+		out := decode(t, raw)
+		assert.Equal(t, id, out.Workspace)
+		require.NotNil(t, out.Role)
+		assert.Equal(t, "implementer", *out.Role)
+		require.NotNil(t, out.Result)
+		assert.Equal(t, "pass", out.Result.Verdict)
+		require.NotNil(t, out.Report)
+		assert.Equal(t, "the report", *out.Report)
+		assert.False(t, out.ReportTruncated)
+	})
+	t.Run("cuts a long report on a UTF-8 boundary", func(t *testing.T) {
+		ops, _ := setup(t, strings.Repeat("é", envproto.MaxRecordReportBytes))
+		raw, err := ops.machineRecord(id)
+		require.NoError(t, err)
+		out := decode(t, raw)
+		require.NotNil(t, out.Report)
+		assert.True(t, out.ReportTruncated)
+		assert.LessOrEqual(t, len(*out.Report), envproto.MaxRecordReportBytes)
+		assert.True(t, utf8.ValidString(*out.Report))
+	})
+	t.Run("an unknown workspace is workspace_not_found", func(t *testing.T) {
+		ops, _ := setup(t, "the report")
+		_, err := ops.machineRecord("plan-9f8e7d6c")
+		re, ok := errors.AsType[*envproto.ReplyError](err)
+		require.True(t, ok, "got %v", err)
+		assert.Equal(t, "workspace_not_found", re.Code)
+	})
 }
