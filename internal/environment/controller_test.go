@@ -840,7 +840,7 @@ func TestController_answer(t *testing.T) {
 		c.SetLocalScopes(localFake{ws: map[string]envscope.Scope{}}, envscope.NewLedger(t.TempDir()))
 		workspace := "w"
 		payload, err := marshalRequest(envproto.OpScopeEnvs, envproto.ScopeEnvsArgs{
-			ScopeCallerArgs: envproto.ScopeCallerArgs{Workspace: &workspace, Ancestors: []string{}, Scope: []string{}},
+			ScopeCallerArgs: callerArgs(&workspace, nil),
 		}, callRequestID)
 		require.NoError(t, err)
 		replies := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
