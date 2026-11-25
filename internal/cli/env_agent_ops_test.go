@@ -381,6 +381,85 @@ func TestAgentOperations_grantWorkspace(t *testing.T) {
 	})
 }
 
+func TestAgentOperations_grantCreated(t *testing.T) {
+	const id = "helper-1a2b3c4d"
+	grant := &envproto.ScopeGrant{
+		Environments: []envproto.EnvRef{{ID: "env-1a2b3c4d", Name: "linux-server"}},
+	}
+	// createdEnv is an agent whose workspace.create makes id. Its config is
+	// rooted in a fresh directory, and its lifetime manager records the
+	// workspaces it removes.
+	createdEnv := func(t *testing.T) (*agentOperations, *lifetimeManagerMock, config.Paths) {
+		t.Helper()
+		e := newClaudeEnv(t)
+		e.ws.ID = id
+		e.store.FindFunc = func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{ID: id}, nil
+		}
+		paths := config.NewPaths(t.TempDir())
+		e.app.configs = &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
+			return paths, testConfig(), nil
+		}}
+		lt := stubLifetime()
+		lt.RemoveTreeFunc = func(context.Context, *workspace.Workspace, lifetime.TreeOptions) ([]lifetime.TreeItem, error) {
+			return nil, nil
+		}
+		e.app.lifetime = lt
+		ops := claudeOps(e)
+		ops.self = envscope.Ref{ID: "env-1a2b3c4d", Name: "linux-server"}
+		return ops, lt, paths
+	}
+	create := func(ops *agentOperations, args *envproto.CreateArgs) (json.RawMessage, error) {
+		args.Kind = envproto.KindClaude
+		args.Specs = []string{"buff-bear"}
+		return ops.Run(t.Context(), envproto.OpWorkspaceCreate, args)
+	}
+	t.Run("a create with a scope writes its scope file", func(t *testing.T) {
+		ops, _, paths := createdEnv(t)
+		out, err := create(ops, &envproto.CreateArgs{Scope: grant})
+		require.NoError(t, err)
+		var created struct {
+			ID string `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal(out, &created))
+		assert.Equal(t, id, created.ID)
+		_, file, err := envscope.Read(paths.State, id, envscope.Ref{ID: "env-1a2b3c4d", Name: "linux-server"})
+		require.NoError(t, err)
+		require.NotNil(t, file)
+		assert.Equal(t, "granted", file.Source)
+	})
+	t.Run("a create with a spawn writes its spawn.toml", func(t *testing.T) {
+		ops, _, paths := createdEnv(t)
+		_, err := create(ops, &envproto.CreateArgs{Spawn: &envproto.SpawnInfo{Role: "implementer", Model: "opus"}})
+		require.NoError(t, err)
+		rec, err := machine.NewStore(paths.State).Read(id, id)
+		require.NoError(t, err)
+		require.NotNil(t, rec.Spawn)
+		assert.Equal(t, "implementer", rec.Spawn.Role)
+	})
+	t.Run("a create with neither writes neither file", func(t *testing.T) {
+		ops, lt, paths := createdEnv(t)
+		_, err := create(ops, &envproto.CreateArgs{})
+		require.NoError(t, err)
+		_, err = os.Stat(envscope.Path(paths.State, id))
+		require.ErrorIs(t, err, fs.ErrNotExist)
+		_, err = os.Stat(machine.NewStore(paths.State).Dir(id, id))
+		require.ErrorIs(t, err, fs.ErrNotExist)
+		assert.Empty(t, lt.RemoveTreeCalls())
+	})
+	t.Run("a grant that can't be written removes the workspace and is internal", func(t *testing.T) {
+		ops, lt, paths := createdEnv(t)
+		require.NoError(t, os.WriteFile(paths.State, nil, 0o600))
+		_, err := create(ops, &envproto.CreateArgs{Scope: grant})
+		re, ok := errors.AsType[*envproto.ReplyError](err)
+		require.True(t, ok, "got %v", err)
+		assert.Equal(t, "internal", re.Code)
+		removed := lt.RemoveTreeCalls()
+		require.Len(t, removed, 1)
+		assert.Equal(t, id, removed[0].Ws.ID)
+	})
+}
+
 func TestAgentOperations_machineRecord(t *testing.T) {
 	const id = "helper-1a2b3c4d"
 	setup := func(t *testing.T, report string) (*agentOperations, string) {
@@ -415,14 +494,22 @@ func TestAgentOperations_machineRecord(t *testing.T) {
 		assert.False(t, out.ReportTruncated)
 	})
 	t.Run("cuts a long report on a UTF-8 boundary", func(t *testing.T) {
-		ops, _ := setup(t, strings.Repeat("é", envproto.MaxRecordReportBytes))
+		ops, _ := setup(t, "a"+strings.Repeat("é", envproto.MaxRecordReportBytes))
 		raw, err := ops.machineRecord(id)
 		require.NoError(t, err)
 		out := decode(t, raw)
 		require.NotNil(t, out.Report)
 		assert.True(t, out.ReportTruncated)
-		assert.LessOrEqual(t, len(*out.Report), envproto.MaxRecordReportBytes)
+		assert.Len(t, *out.Report, envproto.MaxRecordReportBytes-1)
 		assert.True(t, utf8.ValidString(*out.Report))
+	})
+	t.Run("a workspace with no progress has progress null", func(t *testing.T) {
+		ops, _ := setup(t, "the report")
+		raw, err := ops.machineRecord(id)
+		require.NoError(t, err)
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &fields))
+		assert.Equal(t, "null", string(fields["progress"]))
 	})
 	t.Run("an unknown workspace is workspace_not_found", func(t *testing.T) {
 		ops, _ := setup(t, "the report")
