@@ -181,6 +181,10 @@ on or remove the child; fails criteria 1 and 4.
   [docs/design/env-scope](../design/env-scope/design.md).
 - Harder: a second store (the ledger) to keep consistent with snapshots; a
   remote child's state reaches its parent only through polling (10 s).
+- Residual: "inside a workspace" is decided by the working directory, so a
+  process that `cd`s out of its workspace is treated as a person and can
+  grant a scope (same uid, [0066](0066-runner-security-boundaries.md)). A
+  follow-up could mark the environment of agent processes.
 - **Unverified:** the cross-machine flow against real agents (the pod has no
   remote environment; tests use `envtest` and fakes); that the cleanup of a
   gone parent's children is timely when the child's environment is offline

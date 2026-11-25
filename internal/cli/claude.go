@@ -186,6 +186,9 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err != nil {
 		return err
 	}
+	if err = a.refuseRemoteInWorkspace(runOn); err != nil {
+		return err
+	}
 	opts.claudeArgs, err = a.artifactHints(opts.claudeArgs, runOn)
 	if err != nil {
 		return err
@@ -226,6 +229,24 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 		return nil
 	}
 	return a.printClaudeResult(&ws, started.ID, opts.result)
+}
+
+// refuseRemoteInWorkspace refuses a start on environment runOn from inside a
+// workspace, however it was reached (--env, or a --parent found on one): an
+// agent picks environments only with ws machine spawn --env (ADR 0082,
+// design 1.1).
+func (a *App) refuseRemoteInWorkspace(runOn string) error {
+	if runOn == "" {
+		return nil
+	}
+	id, err := a.enclosingOr("")
+	if err != nil {
+		return err
+	}
+	if id == "" {
+		return nil
+	}
+	return usageErrorf("an agent never picks an environment with ws claude; use ws machine spawn --env")
 }
 
 // startScope is the scope of a workspace ws claude starts: the one opts
