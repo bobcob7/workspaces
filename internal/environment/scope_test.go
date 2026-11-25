@@ -115,21 +115,21 @@ func assertScopeError(t *testing.T, reply envproto.Reply, code string) map[strin
 	return reply.Error.Details
 }
 
-// writeSnapshot stores a fresh snapshot of environment name listing workspaces (a JSON array).
-func writeSnapshot(t *testing.T, f scopeFixture, name, workspaces string) {
+// writeSnapshot stores a fresh snapshot of environment env-b listing workspaces (a JSON array).
+func writeSnapshot(t *testing.T, f scopeFixture, workspaces string) {
 	t.Helper()
-	rec, err := f.store.Get(name)
+	rec, err := f.store.Get("env-b")
 	require.NoError(t, err)
 	snap := envproto.Snapshot{At: f.c.now().UTC(), Protocol: envproto.Protocol, Workspaces: json.RawMessage(workspaces), Agents: []envproto.SnapshotAgent{}, Loops: []envproto.SnapshotLoop{}}
 	data, err := json.Marshal(SnapshotFile{
 		Version:    snapshotVersion,
 		ID:         rec.ID,
-		Name:       name,
+		Name:       "env-b",
 		ReceivedAt: f.c.now().UTC().Format(time.RFC3339),
 		Snapshot:   mustJSON(t, snap),
 	})
 	require.NoError(t, err)
-	require.NoError(t, f.store.WriteSnapshot(name, data))
+	require.NoError(t, f.store.WriteSnapshot("env-b", data))
 }
 
 func TestController_Scope(t *testing.T) {
@@ -299,7 +299,7 @@ func TestController_Scope(t *testing.T) {
 		put("c-1", "w")
 		put("c-2", "w-desc")
 		put("c-3", "other")
-		writeSnapshot(t, f, "env-b", `[{"id":"c-1","status":"running"}]`)
+		writeSnapshot(t, f, `[{"id":"c-1","status":"running"}]`)
 		reply := f.c.Scope(t.Context(), a.id, "children", mustJSON(t, envproto.ScopeChildrenArgs{
 			ScopeCallerArgs: callerArgs(new("w"), nil),
 			Descendants:     []string{"w-desc"},
@@ -356,7 +356,7 @@ func TestController_sweepLedger(t *testing.T) {
 			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
 			Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "w"}, CreatedAt: f.c.now().UTC(),
 		}))
-		writeSnapshot(t, f, "env-b", `[{"id":"c-1"}]`)
+		writeSnapshot(t, f, `[{"id":"c-1"}]`)
 		requests := b.captureRequests(t)
 		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{}`)})
 		f.c.sweepLedger(t.Context())
@@ -396,6 +396,22 @@ func TestController_sweepLedger(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, entries)
 	})
+	t.Run("a child written after the last snapshot is kept", func(t *testing.T) {
+		f := newScopeFixture(t, "env-b")
+		b := f.env("env-b")
+		f.localWS["w"] = envscope.Only(envscope.Ref{ID: envscope.Local, Name: envscope.Local})
+		writeSnapshot(t, f, `[]`)
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
+			Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "w"}, CreatedAt: f.c.now().UTC().Add(time.Minute),
+		}))
+		requests := b.captureRequests(t)
+		f.c.sweepLedger(t.Context())
+		assert.Empty(t, requests.messages())
+		_, found, err := f.ledger.Get(b.id, "c-1")
+		require.NoError(t, err)
+		assert.True(t, found)
+	})
 	t.Run("a child absent from its fresh snapshot is dropped", func(t *testing.T) {
 		f := newScopeFixture(t, "env-b")
 		b := f.env("env-b")
@@ -403,7 +419,7 @@ func TestController_sweepLedger(t *testing.T) {
 			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
 			Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "w"}, CreatedAt: f.c.now().UTC(),
 		}))
-		writeSnapshot(t, f, "env-b", `[]`)
+		writeSnapshot(t, f, `[]`)
 		requests := b.captureRequests(t)
 		f.c.sweepLedger(t.Context())
 		assert.Empty(t, requests.messages())

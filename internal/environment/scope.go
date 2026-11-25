@@ -540,7 +540,7 @@ func (c *Controller) sweepEntry(ctx context.Context, e *envscope.Entry) {
 		c.dropEntry(ctx, e)
 		return
 	}
-	if c.absentFromSnapshot(&rec, e.Workspace) {
+	if c.absentFromSnapshot(&rec, e.Workspace, e.CreatedAt) {
 		c.dropEntry(ctx, e)
 		return
 	}
@@ -556,12 +556,12 @@ func (c *Controller) sweepEntry(ctx context.Context, e *envscope.Entry) {
 	}
 }
 
-// absentFromSnapshot reports whether rec is online with a fresh snapshot that doesn't list ws.
-func (c *Controller) absentFromSnapshot(rec *Record, ws string) bool {
+// absentFromSnapshot reports whether rec is online with a fresh snapshot, taken since the entry was written, that doesn't list ws.
+func (c *Controller) absentFromSnapshot(rec *Record, ws string, since time.Time) bool {
 	if !c.isOnline(rec.ID) {
 		return false
 	}
-	snap, fresh := c.freshSnapshot(rec.Name)
+	snap, fresh := c.freshSnapshot(rec.Name, since)
 	if !fresh {
 		return false
 	}
@@ -583,17 +583,17 @@ func (c *Controller) parentGone(e *envscope.Entry) bool {
 	if err != nil {
 		return true
 	}
-	return c.absentFromSnapshot(&rec, e.Parent.Workspace)
+	return c.absentFromSnapshot(&rec, e.Parent.Workspace, e.CreatedAt)
 }
 
-// freshSnapshot is the snapshot of environment name, when it arrived within snapshotFresh.
-func (c *Controller) freshSnapshot(name string) (envproto.Snapshot, bool) {
+// freshSnapshot is the snapshot of environment name when it arrived within snapshotFresh and not before since (a snapshot from before an entry was written can't show the child is gone).
+func (c *Controller) freshSnapshot(name string, since time.Time) (envproto.Snapshot, bool) {
 	file, snap, err := c.store.Snapshot(name)
 	if err != nil {
 		return envproto.Snapshot{}, false
 	}
 	received, err := time.Parse(time.RFC3339, file.ReceivedAt)
-	if err != nil || c.now().Sub(received) > snapshotFresh {
+	if err != nil || c.now().Sub(received) > snapshotFresh || received.Before(since.Truncate(time.Second)) {
 		return envproto.Snapshot{}, false
 	}
 	return snap, true
