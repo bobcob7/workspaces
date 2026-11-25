@@ -198,6 +198,11 @@ li[data-context="true"] > .node {
   .empty button {
     min-height: 40px;
   }
+
+  .disclosure,
+  .spacer {
+    width: 40px;
+  }
 }
 
 .item[data-dimmed="true"] {
