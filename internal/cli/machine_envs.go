@@ -84,6 +84,12 @@ func scopeEnvsOf(scope envscope.Scope, self envscope.Ref, state string) []envpro
 	for _, ref := range scope.Refs() {
 		envs = append(envs, envproto.ScopeEnv{Name: ref.Name, ID: ref.ID, State: state, Current: ref.ID == self.ID})
 	}
+	sortScopeEnvs(envs)
+	return envs
+}
+
+// sortScopeEnvs puts the current environment first, then sorts by name.
+func sortScopeEnvs(envs []envproto.ScopeEnv) {
 	slices.SortFunc(envs, func(x, y envproto.ScopeEnv) int {
 		switch {
 		case x.Current != y.Current && x.Current:
@@ -93,7 +99,6 @@ func scopeEnvsOf(scope envscope.Scope, self envscope.Ref, state string) []envpro
 		}
 		return strings.Compare(x.Name, y.Name)
 	})
-	return envs
 }
 
 // controllerUnreachable reports whether err means the controller can't be

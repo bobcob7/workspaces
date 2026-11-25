@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/agent"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/machine"
@@ -65,6 +66,12 @@ type listEntryJSON struct {
 	// AgentState is the state of the remote agent that runs the entry's
 	// session, or null (D9).
 	AgentState *string `json:"agent_state"`
+	// ScopeParent is a cross-environment child's parent from the controller's
+	// scope ledger, or null (ADR 0082).
+	ScopeParent *scopeParentJSON `json:"scope_parent"`
+	// Scope is the environments the workspace may start children on when wider
+	// than its own, or null (ADR 0082).
+	Scope []envproto.ScopeEnv `json:"scope"`
 }
 
 type listWorkspaceJSON struct {
@@ -153,13 +160,14 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	if opts.parent != "" && len(envs) > 1 {
 		return usageErrorf("--parent takes one --env")
 	}
-	listings, err := a.listEnvironments(ctx, opts, envs, filter)
+	listings, presence, err := a.listEnvironments(ctx, opts, envs, filter)
 	if err != nil {
 		return err
 	}
 	entries, rows, hidden := joinListings(listings)
 	switch {
 	case a.global.json:
+		a.annotateScopes(ctx, entries, presence)
 		return a.writeJSON(listJSON{Workspaces: entries, HiddenCount: hidden, Warnings: a.warnings()})
 	case opts.idsOnly:
 		for i := range entries {
@@ -196,15 +204,16 @@ type listRow struct {
 }
 
 // listEnvironments lists each of envs in order: local from this machine,
-// the others from their snapshots.
-func (a *App) listEnvironments(ctx context.Context, opts *listOptions, envs []string, filter *repo.Spec) ([]envListing, error) {
+// the others from their snapshots. It also returns the presence it asked the
+// daemon for, nil when no environment was remote.
+func (a *App) listEnvironments(ctx context.Context, opts *listOptions, envs []string, filter *repo.Spec) ([]envListing, map[string]string, error) {
 	var presence map[string]string
 	listings := make([]envListing, 0, len(envs))
 	for _, name := range envs {
 		if name == localEnvironment {
 			local, err := a.localListing(ctx, opts, filter)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			listings = append(listings, local)
 			continue
@@ -214,7 +223,7 @@ func (a *App) listEnvironments(ctx context.Context, opts *listOptions, envs []st
 		}
 		listings = append(listings, a.remoteEnvListing(name, opts, filter, presence))
 	}
-	return listings, nil
+	return listings, presence, nil
 }
 
 // joinListings is the JSON entries and table rows of all listings, in order,

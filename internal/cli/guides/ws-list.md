@@ -51,6 +51,8 @@ sent, so they can be out of date; see `stale` below.
       "review": null,
       "loop_run": null,
       "agent_state": null,
+      "scope_parent": null,
+      "scope": null,
       "environment": "local",
       "environment_status": "online",
       "stale": false
@@ -71,6 +73,12 @@ sent, so they can be out of date; see `stale` below.
 - `agent_state`: the state of the remote agent that runs the entry's
   session: `working`, `blocked`, `done` or `stopped`. `null` for local
   entries, shells, and remote entries with no matching agent.
+- `scope_parent`: for a child another environment started, its parent:
+  `environment` (`local` or the parent's environment name) and `workspace`.
+  `null` otherwise.
+- `scope`: the environments the workspace may start children on, when wider
+  than its own environment: each `name`, `id`, `state` (`online`, `offline`
+  or `removed`) and `current`. `null` otherwise.
 - `name`: the display name, from `--name` or `ws rename`; `null` for a
   workspace created without one.
 - `session.kind`: `agent` or `shell`. `session.id`: the Claude Code session

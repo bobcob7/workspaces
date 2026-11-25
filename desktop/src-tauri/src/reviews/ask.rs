@@ -217,6 +217,8 @@ mod tests {
             environment: "local".to_string(),
             environment_online: true,
             snapshot_stale: false,
+            scope_parent: None,
+            scope: None,
         }
     }
 

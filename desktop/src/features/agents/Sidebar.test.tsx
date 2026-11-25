@@ -240,3 +240,40 @@ describe("Sidebar", () => {
     });
   });
 });
+
+describe("Sidebar with a child on another environment", () => {
+  const storeWithRemoteChild = (): ReturnType<typeof testStore> =>
+    loadedStore([
+      { key: "plan-scope", workspaceId: "plan-scope", name: "plan-scope" },
+      {
+        key: "win-rig:ip-win",
+        workspaceId: "ip-win",
+        name: "ip-win",
+        environment: "win-rig",
+        detail: "Report the private IP",
+        scopeParent: { environment: "local", workspaceId: "plan-scope" },
+      },
+    ]);
+
+  it("nests a remote child under its parent and names the parent's environment", async () => {
+    renderWithStore(<Sidebar />, storeWithRemoteChild());
+    await userEvent.click(screen.getByRole("button", { name: "Expand plan-scope" }));
+    expect(within(tree()).getByRole("button", { name: /ip-win/ })).toHaveTextContent("↳ plan-scope on local · Report the private IP");
+  });
+
+  it("lists a remote child whose parent isn't listed as a root", () => {
+    renderWithStore(
+      <Sidebar />,
+      loadedStore([
+        {
+          key: "win-rig:ip-win",
+          workspaceId: "ip-win",
+          name: "ip-win",
+          environment: "win-rig",
+          scopeParent: { environment: "local", workspaceId: "gone" },
+        },
+      ]),
+    );
+    expect(within(tree()).getByRole("button", { name: /ip-win/ })).toBeVisible();
+  });
+});

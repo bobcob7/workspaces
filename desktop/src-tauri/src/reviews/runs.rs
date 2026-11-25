@@ -108,6 +108,8 @@ pub fn entry_in(
         environment: environment.to_string(),
         environment_online: true,
         snapshot_stale: false,
+        scope_parent: None,
+        scope: None,
     }
 }
 

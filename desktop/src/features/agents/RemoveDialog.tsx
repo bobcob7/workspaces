@@ -13,7 +13,7 @@ import type { Entry } from "../../api";
 import { repoLabel } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { removeEntry } from "./agentsSlice";
-import { descendantsOf, statusLabels } from "./status";
+import { descendantsOf, statusLabels, sweptWithRemoval } from "./status";
 import styles from "./RemoveDialog.module.css";
 
 const removeWarning = (entry: Entry): string =>
@@ -43,7 +43,11 @@ export const RemoveDialog = ({ entry, open, onClose }: RemoveDialogProps): JSX.E
   const dispatch = useAppDispatch();
   const descendants = useAppSelector((s) => descendantsOf(s.agents.entries, entry));
   const [keepChildren, setKeepChildren] = useState(false);
-  const removing = keepChildren ? 1 : descendants.length + 1;
+  const swept = sweptWithRemoval(descendants, entry);
+  const removing = keepChildren ? 1 + swept.size : descendants.length + 1;
+  const otherEnvironments = [
+    ...new Set(descendants.map((d) => d.entry.environment).filter((env) => env !== entry.environment)),
+  ].sort();
   const title =
     descendants.length === 0
       ? `Remove ${entry.name}?`
@@ -64,15 +68,20 @@ export const RemoveDialog = ({ entry, open, onClose }: RemoveDialogProps): JSX.E
                 <b>{entry.name}</b> <span className={styles.muted}>{describe(entry)}</span>
               </li>
               {descendants.map(({ entry: d, depth }) => (
-                <li key={d.key} style={{ paddingLeft: `${depth * 14}px` }} className={keepChildren ? styles.kept : undefined}>
+                <li key={d.key} style={{ paddingLeft: `${depth * 14}px` }} className={keepChildren && !swept.has(d.key) ? styles.kept : undefined}>
                   ↳ <b>{d.name}</b> <span className={styles.muted}>{describe(d)}</span>
                 </li>
               ))}
             </ul>
             <FormControlLabel
               control={<Checkbox checked={keepChildren} onChange={(e) => setKeepChildren(e.target.checked)} />}
-              label="Keep the workspaces it started; they become top-level"
+              label="Keep the workspaces it started on this environment; they become top-level"
             />
+            {otherEnvironments.length > 0 && (
+              <DialogContentText>
+                {`Workspaces on other environments (${otherEnvironments.join(", ")}) are removed by the controller about a minute after this one, once their environment is online, even if you keep the others.`}
+              </DialogContentText>
+            )}
           </>
         )}
       </DialogContent>

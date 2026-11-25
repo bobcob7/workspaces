@@ -1,6 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Entry } from "../../api";
 import { entry, fakeApi, fakeHost, remoteEnvironment, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { clock } from "../environments/environments";
@@ -563,6 +564,43 @@ describe("EntryPane for a remote entry", () => {
     expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
   });
 
+  it("shows the environments an agent may start children on, with their states", () => {
+    const scoped = entry({
+      key: "plan-scope",
+      workspaceId: "plan-scope",
+      name: "plan-scope",
+      scope: [
+        { id: "local", name: "local", state: "online", current: true },
+        { id: "env_b20d", name: "win-rig", state: "offline", current: false },
+      ],
+    });
+    renderWithStore(<EntryPane entry={scoped} />, storeFor({ entries: [scoped] }));
+    const list = screen.getByRole("list", { name: "Environments it may start children on" });
+    expect(within(list).getByText("win-rig · offline")).toBeInTheDocument();
+  });
+
+  it("shows no scope for an entry whose scope is null", () => {
+    renderWithStore(<EntryPane entry={entry({ scope: null })} />, storeFor());
+    expect(screen.queryByRole("list", { name: "Environments it may start children on" })).not.toBeInTheDocument();
+  });
+
+  it("a cross-environment child names its parent and environment, and links to the parent", async () => {
+    const parent = entry({ key: "plan-scope", workspaceId: "plan-scope", name: "plan-scope" });
+    const child = { ...remoteAgent, key: "env:win-rig:ip-win", environment: "win-rig", workspaceId: "ip-win", name: "ip-win", scopeParent: { environment: "local", workspaceId: "plan-scope" } };
+    const store = storeFor({ entries: [parent, child] });
+    renderWithStore(<EntryPane entry={child} />, store);
+    expect(screen.getByText("Started on win-rig from plan-scope on local")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "↳ plan-scope" }));
+    expect(store.getState().ui.selectedKey).toBe("plan-scope");
+  });
+
+  it("a cross-environment child whose parent isn't listed names the parent's id, with no link", () => {
+    const child = { ...remoteAgent, environment: "win-rig", workspaceId: "ip-win", name: "ip-win", scopeParent: { environment: "local", workspaceId: "plan-x" } };
+    renderWithStore(<EntryPane entry={child} />, storeFor({ entries: [child] }));
+    expect(screen.getByText("Started from plan-x on local")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /↳/ })).not.toBeInTheDocument();
+  });
+
   it("a remote agent never reads its transcript, even when the persisted view is shell", async () => {
     const api = fakeApi();
     const host = fakeHost();
@@ -629,5 +667,55 @@ describe("EntryPane for a remote entry", () => {
     remoteView.unmount();
     renderWithStore(<EntryPane entry={entry()} />, testStore());
     expect(screen.queryByText("linux-server")).not.toBeInTheDocument();
+  });
+});
+
+describe("EntryPane removing a parent with cross-environment children", () => {
+  const planScope = entry({ key: "plan-scope", workspaceId: "plan-scope", name: "plan-scope", path: "/w/plan-scope", status: "working" });
+  const scopedChild = (name: string, environment: string): Entry =>
+    entry({
+      key: `env:${environment}:${name}`,
+      environment,
+      workspaceId: name,
+      name,
+      path: `/home/ci/ws/${name}`,
+      sessionId: null,
+      scopeParent: { environment: "local", workspaceId: "plan-scope" },
+    });
+  const ipLinux = scopedChild("ip-linux", "linux-server");
+  const ipWin = scopedChild("ip-win", "win-rig");
+  const ipProbe = {
+    ...scopedChild("ip-probe", "win-rig"),
+    scopeParent: { environment: "linux-server", workspaceId: "ip-linux" },
+  };
+  const ipNote = entry({ key: "env:win-rig:ip-note", environment: "win-rig", workspaceId: "ip-note", name: "ip-note", parentId: "ip-win", sessionId: null, path: "/home/ci/ws/ip-note" });
+  const loaded = (api = fakeApi()): ReturnType<typeof testStore> => {
+    const store = testStore({ api });
+    store.dispatch(fetchEntries.fulfilled({ entries: [planScope, ipLinux, ipWin, ipProbe, ipNote], warnings: [] }, "req"));
+    return store;
+  };
+
+  it("names the other environments its children are on, and that the controller removes them", async () => {
+    renderWithStore(<EntryPane entry={planScope} />, loaded());
+    await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/Workspaces on other environments \(linux-server, win-rig\) are removed by the controller/)).toBeInTheDocument();
+  });
+
+  it("keeps only same-environment children, and counts every swept cross-environment descendant when kept", async () => {
+    const api = fakeApi();
+    renderWithStore(<EntryPane entry={planScope} />, loaded(api));
+    await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: /Keep the workspaces it started/ }));
+    expect(within(dialog).getByRole("button", { name: "Remove 4 workspaces" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/remote.*top-level/)).not.toBeInTheDocument();
+    const rowOf = (name: string): HTMLElement => within(dialog).getByText(name).closest("li")!;
+    expect(rowOf("ip-linux").className).not.toMatch(/kept/);
+    expect(rowOf("ip-win").className).not.toMatch(/kept/);
+    expect(rowOf("ip-probe").className).not.toMatch(/kept/);
+    expect(rowOf("ip-note").className).toMatch(/kept/);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove 4 workspaces" }));
+    expect(api.removeEntry).toHaveBeenCalledWith("plan-scope", "e8cdf5d8", true, "local");
   });
 });

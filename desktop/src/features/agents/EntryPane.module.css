@@ -137,13 +137,13 @@
   }
 
   .compact .titleRow {
-    flex-wrap: nowrap;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 4px 8px;
   }
 
   .compact .title {
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 6em;
+    min-width: 6em;
     font-size: 15px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -159,6 +159,18 @@
 
   .compact .titleRow :global(.MuiToggleButtonGroup-root) {
     margin: -6px 0;
+  }
+
+  .compact .titleRow :global(.MuiButton-root) {
+    min-height: 40px;
+  }
+
+  .compact .titleModel {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .compact .titleRow :global(.MuiIconButton-root) {
@@ -186,4 +198,16 @@
   padding: 4px 16px;
   font-size: 0.8125rem;
   opacity: 0.8;
+}
+
+@media (max-width: 720px) {
+  .parentChip {
+    position: relative;
+  }
+
+  .parentChip::after {
+    content: "";
+    position: absolute;
+    inset: -10px 0;
+  }
 }

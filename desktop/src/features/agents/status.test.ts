@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import type { Entry } from "../../api";
 import { entry, treeEntries } from "../../test/fixtures";
 import {
   attentionEntries,
   childrenOf,
   descendantsOf,
   groupOf,
+  isChildOf,
+  sweptWithRemoval,
   needsAttention,
   statusFilterOptions,
 } from "./status";
@@ -106,3 +109,133 @@ describe("statusFilterOptions", () => {
   });
 });
 
+describe("isChildOf", () => {
+  const local = entry({ key: "p", workspaceId: "p", environment: "local" });
+
+  it("a child with a parentId is a child of the same-environment parent", () => {
+    expect(isChildOf(entry({ key: "c", workspaceId: "c", parentId: "p" }), local)).toBe(true);
+  });
+
+  it("a child with a scopeParent is a child of the parent it names", () => {
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(isChildOf(remote, local)).toBe(true);
+  });
+
+  it("a scopeParent naming another environment is not a child of that workspace id", () => {
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "box", workspaceId: "p" } });
+    expect(isChildOf(remote, local)).toBe(false);
+  });
+
+  it("a parentId wins over a scopeParent", () => {
+    const child = entry({ key: "c", workspaceId: "c", parentId: "q", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(isChildOf(child, local)).toBe(false);
+  });
+
+  it("a parentId naming the workspace id on another environment is not a child", () => {
+    const box = entry({ key: "box:p", workspaceId: "p", environment: "box" });
+    expect(isChildOf(entry({ key: "c", workspaceId: "c", environment: "local", parentId: "p" }), box)).toBe(false);
+  });
+
+  it("a scopeParent with the same workspaceId on another environment is not a child", () => {
+    const remote = entry({ key: "other:c", workspaceId: "c", environment: "other", scopeParent: { environment: "box", workspaceId: "p" } });
+    expect(isChildOf(remote, local)).toBe(false);
+  });
+
+  it("an entry is never its own parent", () => {
+    const self = entry({ key: "p", workspaceId: "p", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(isChildOf(self, self)).toBe(false);
+  });
+});
+
+describe("childrenOf across environments", () => {
+  it("includes a child started from a scopeParent on another environment", () => {
+    const parent = entry({ key: "p", workspaceId: "p", environment: "local" });
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(childrenOf([parent, remote], parent)).toEqual([remote]);
+  });
+});
+
+describe("descendantsOf across environments", () => {
+  it("walks local, then a linux-server child, then a win-rig grandchild", () => {
+    const local = entry({ key: "plan", workspaceId: "plan", environment: "local" });
+    const linux = entry({
+      key: "linux-server:x",
+      workspaceId: "x",
+      environment: "linux-server",
+      scopeParent: { environment: "local", workspaceId: "plan" },
+    });
+    const win = entry({
+      key: "win-rig:y",
+      workspaceId: "y",
+      environment: "win-rig",
+      scopeParent: { environment: "linux-server", workspaceId: "x" },
+    });
+    const found = descendantsOf([win, local, linux], local).map((d) => [d.entry.key, d.depth]);
+    expect(found).toEqual([
+      ["linux-server:x", 1],
+      ["win-rig:y", 2],
+    ]);
+  });
+});
+
+describe("sweptWithRemoval", () => {
+  const root = entry({ key: "plan", workspaceId: "plan", environment: "local" });
+  const remote = (name: string, environment: string, parent: Entry, extra: Partial<Entry> = {}): Entry =>
+    entry({
+      key: `${environment}:${name}`,
+      workspaceId: name,
+      environment,
+      scopeParent: { environment: parent.environment, workspaceId: parent.workspaceId! },
+      ...extra,
+    });
+  const swept = (entries: readonly Entry[]): string[] =>
+    [...sweptWithRemoval(descendantsOf(entries, root), root)].sort();
+
+  it("sweeps a cross-environment child of the removed parent", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    expect(swept([root, linux])).toEqual(["linux-server:ip-linux"]);
+  });
+
+  it("sweeps a cross-environment child of a swept child, transitively", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    const probe = remote("ip-probe", "win-rig", linux);
+    const deep = remote("ip-deep", "mac", probe);
+    expect(swept([root, linux, probe, deep])).toEqual(["linux-server:ip-linux", "mac:ip-deep", "win-rig:ip-probe"]);
+  });
+
+  it("keeps a same-environment child, and what only it started on its own environment", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    const note = entry({ key: "linux-server:note", environment: "linux-server", workspaceId: "note", parentId: "ip-linux" });
+    expect(swept([root, linux, note])).toEqual(["linux-server:ip-linux"]);
+  });
+
+  it("keeps a cross-environment child of a kept child", () => {
+    const note = entry({ key: "local:note", workspaceId: "note", parentId: "plan" });
+    const far = remote("far", "win-rig", note);
+    expect(swept([root, note, far])).toEqual([]);
+  });
+
+  it("keeps a child that has a parentId, whatever its scopeParent says", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    const both = remote("both", "win-rig", linux, { parentId: "other" });
+    const listed = [linux, both].map((e) => ({ entry: e, depth: 1 }));
+    expect([...sweptWithRemoval(listed, root)]).toEqual(["linux-server:ip-linux"]);
+  });
+
+  it("keeps a child whose scopeParent has the removed workspaceId on a different environment", () => {
+    const lookalike = entry({
+      key: "linux-server:lookalike",
+      workspaceId: "lookalike",
+      environment: "linux-server",
+      scopeParent: { environment: "win-rig", workspaceId: root.workspaceId! },
+    });
+    const listed = [{ entry: lookalike, depth: 1 }];
+    expect([...sweptWithRemoval(listed, root)]).toEqual([]);
+  });
+
+  it("keeps a child that names a parent on its own environment", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    const sibling = remote("sib", "linux-server", linux);
+    expect(swept([root, linux, sibling])).toEqual(["linux-server:ip-linux"]);
+  });
+});

@@ -107,3 +107,18 @@ describe("ChildrenCard", () => {
     expect(screen.queryByText("remote-kid")).not.toBeInTheDocument();
   });
 });
+
+describe("ChildrenCard with a child on another environment", () => {
+  it("lists the child with its environment badge", () => {
+    const remote = entry({
+      key: "win-rig:ip-win",
+      workspaceId: "ip-win",
+      name: "ip-win",
+      environment: "win-rig",
+      scopeParent: { environment: "local", workspaceId: "root" },
+    });
+    renderWithStore(<ChildrenCard entry={root} />, loadedWith([remote]));
+    expect(screen.getByText("ip-win")).toBeVisible();
+    expect(screen.getByText("win-rig")).toBeInTheDocument();
+  });
+});

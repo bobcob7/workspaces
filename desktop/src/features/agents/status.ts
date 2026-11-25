@@ -82,13 +82,27 @@ export const statusFilterOptions: readonly { readonly value: StatusFilter; reado
 export const attentionEntries = (entries: readonly Entry[]): readonly Entry[] =>
   entries.filter(needsAttention).toSorted(byRecency);
 
-/** The workspaces entry started directly, most recently active first (ADR 0044). */
+/**
+ * Whether child was started from parent: by parentId on the same environment, or, with no parentId,
+ * by its scopeParent (ADR 0082). Never its own parent.
+ */
+export const isChildOf = (child: Entry, parent: Entry): boolean => {
+  if (parent.workspaceId === null || child.key === parent.key) {
+    return false;
+  }
+  if (child.parentId !== null) {
+    return child.parentId === parent.workspaceId && child.environment === parent.environment;
+  }
+  return (
+    child.scopeParent !== null &&
+    child.scopeParent.workspaceId === parent.workspaceId &&
+    child.scopeParent.environment === parent.environment
+  );
+};
+
+/** The workspaces entry started directly, most recently active first (ADR 0044, ADR 0082). */
 export const childrenOf = (entries: readonly Entry[], entry: Entry): readonly Entry[] =>
-  entry.workspaceId === null
-    ? []
-    : entries
-        .filter((e) => e.parentId === entry.workspaceId && e.environment === entry.environment && e.key !== entry.key)
-        .toSorted(byRecency);
+  entry.workspaceId === null ? [] : entries.filter((e) => isChildOf(e, entry)).toSorted(byRecency);
 
 /** Everything entry started, and what that started, each after its parent, with its depth from 1. */
 export const descendantsOf = (entries: readonly Entry[], entry: Entry): readonly { readonly entry: Entry; readonly depth: number }[] => {
@@ -106,4 +120,30 @@ export const descendantsOf = (entries: readonly Entry[], entry: Entry): readonly
   };
   visit(entry, 1);
   return out;
+};
+
+/**
+ * The keys of the descendants the controller removes after entry whichever way the user answers "keep":
+ * a cross-environment child with no parentId whose scopeParent is entry or itself swept (the ledger sweep,
+ * scope.go sweepEntry/parentGone, removes a child once its parent is gone, one pass per generation).
+ */
+export const sweptWithRemoval = (
+  descendants: readonly { readonly entry: Entry; readonly depth: number }[],
+  entry: Entry,
+): ReadonlySet<string> => {
+  const gone = [entry];
+  const swept = new Set<string>();
+  for (const { entry: d } of descendants) {
+    const from = d.scopeParent;
+    const isSwept =
+      d.parentId === null &&
+      from !== null &&
+      from.environment !== d.environment &&
+      gone.some((g) => g.workspaceId === from.workspaceId && g.environment === from.environment);
+    if (isSwept) {
+      swept.add(d.key);
+      gone.push(d);
+    }
+  }
+  return swept;
 };

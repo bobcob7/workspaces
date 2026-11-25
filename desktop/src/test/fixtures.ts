@@ -65,6 +65,8 @@ export const entry = (overrides: Partial<Entry> = {}): Entry => ({
   environment: "local",
   environmentOnline: true,
   snapshotStale: false,
+  scopeParent: null,
+  scope: null,
   ...overrides,
 });
 

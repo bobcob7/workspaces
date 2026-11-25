@@ -14,3 +14,8 @@
   color: var(--mui-palette-warning-main, #ed6c02);
   opacity: 1;
 }
+
+.badge[data-state="removed"] {
+  color: var(--mui-palette-error-main, #d32f2f);
+  opacity: 1;
+}

@@ -3,13 +3,14 @@ import type { Entry } from "../../api";
 import { useAppSelector } from "../../store";
 import { isFailed, latestNote } from "./progress";
 import { StepProgress } from "./StepProgress";
+import { hasParent } from "./tree";
 import styles from "./RootProgress.module.css";
 
 /** The overall bar of a root workspace, which usually has children, with the latest step note (ADR 0077). */
 export const RootProgress = ({ entry }: { readonly entry: Entry }): JSX.Element | null => {
   const note = useAppSelector((s) => latestNote(s.agents.entries, entry));
   const rollup = entry.rollup;
-  if (entry.parentId !== null || rollup === null) {
+  if (hasParent(entry) || rollup === null) {
     return null;
   }
   return (

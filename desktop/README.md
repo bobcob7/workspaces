@@ -291,6 +291,21 @@ Not yet: a remote agent's conversation view, stopping a `ws` runner agent on a
 remote, and Windows. Reviews and loops run on remote environments; see
 [`ws review`](../docs/tools/ws-review.md) and [`ws loop`](../docs/tools/ws-loop.md).
 
+### Environment scopes
+
+A remote child of `ws machine spawn --env` sits under its parent and says where
+it runs. An agent's pane shows its scope, with each environment's state.
+
+| Screen | Desktop (1100 px) | Phone (360 px) |
+| --- | --- | --- |
+| `plan-scope` expanded, with its children on other environments | ![Agents tree](docs/scope-tree.png) | ![Agents tree on a phone](docs/scope-tree-mobile.png) |
+| `plan-scope`'s pane: the Scope line and the children card | ![plan-scope pane](docs/scope-pane.png) | ![plan-scope pane on a phone](docs/scope-pane-mobile.png) |
+| A child's pane, naming the parent it was started from | ![Child pane](docs/scope-child-pane.png) | ![Child pane on a phone](docs/scope-child-pane-mobile.png) |
+| The Remove dialog with its note | ![Remove dialog](docs/scope-remove.png) | ![Remove dialog on a phone](docs/scope-remove-mobile.png) |
+
+Not shown: a refusal for an environment out of scope; it goes to the agent that
+ran `ws machine spawn --env`.
+
 ## Artifacts
 
 The Artifacts section ([ADR 0078](../docs/adrs/0078-artifacts.md), [ADR 0079](../docs/adrs/0079-artifact-comments-and-anchors.md)) holds files that people and agents upload: screenshots as evidence for a bug, or a Markdown design pitch. Upload with the button, drag and drop, or paste. Attach an artifact to a new agent or a reply; the prompt gets an `@artifact:<id>` reference. Select text in a Markdown artifact to comment on it; the comment stays attached to that passage across revisions.
@@ -402,6 +417,12 @@ child, so it shows as a dimmed context row until Show hidden is on.
 Three loop runs sit beside them: a blocked and a needs-attention run in
 Needs input (shown with a Blocked or Needs attention prefix), and one done
 run that is hidden.
+
+The sample `plan-scope` has an environment scope (local, linux-server,
+win-rig offline, old-rig removed) and three children on other environments
+from `ws machine spawn --env`: `ip-linux` on linux-server (online, done),
+`ip-win` on win-rig (offline), and `ip-probe` on win-rig, started by
+`ip-linux`.
 
 For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
 mock. It serves `/api` and a WebSocket from the same handlers, and
