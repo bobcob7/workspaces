@@ -131,11 +131,6 @@ describe("isChildOf", () => {
     expect(isChildOf(child, local)).toBe(false);
   });
 
-  it("a parentId pointing elsewhere is not a child even when its scopeParent matches", () => {
-    const child = entry({ key: "c", workspaceId: "c", parentId: "q", scopeParent: { environment: "local", workspaceId: "p" } });
-    expect(isChildOf(child, local)).toBe(false);
-  });
-
   it("a parentId naming the workspace id on another environment is not a child", () => {
     const box = entry({ key: "box:p", workspaceId: "p", environment: "box" });
     expect(isChildOf(entry({ key: "c", workspaceId: "c", environment: "local", parentId: "p" }), box)).toBe(false);

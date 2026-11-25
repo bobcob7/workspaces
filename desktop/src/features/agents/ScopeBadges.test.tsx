@@ -66,4 +66,18 @@ describe("ScopeBadges", () => {
     expect(screen.getByText("win-rig · offline")).toHaveAttribute("data-state", "offline");
     expect(screen.getByText("linux-server")).not.toHaveAttribute("data-state");
   });
+
+  it("styles each state: only offline and unknown warn, removed gets its own state, online is plain", () => {
+    renderScope(environments);
+
+    const badge = (label: string): HTMLElement => screen.getByText(label);
+    expect(badge("linux-server").className).not.toMatch(/warn/);
+    expect(badge("linux-server")).not.toHaveAttribute("data-state");
+    expect(badge("win-rig · offline").className).toMatch(/warn/);
+    expect(badge("win-rig · offline")).toHaveAttribute("data-state", "offline");
+    expect(badge("mac · unknown").className).toMatch(/warn/);
+    expect(badge("mac · unknown")).toHaveAttribute("data-state", "unknown");
+    expect(badge("old-box · removed").className).not.toMatch(/warn/);
+    expect(badge("old-box · removed")).toHaveAttribute("data-state", "removed");
+  });
 });
