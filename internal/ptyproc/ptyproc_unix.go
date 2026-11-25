@@ -13,6 +13,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Supported reports whether this system has pseudo-terminals.
+func Supported() bool { return true }
+
 // setWinsizeFn sets the initial window size; tests replace it to make it fail.
 //
 //nolint:gochecknoglobals // a test replaces it to make the window size fail.
