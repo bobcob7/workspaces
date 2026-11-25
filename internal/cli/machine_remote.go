@@ -134,19 +134,17 @@ func (a *App) remoteRecord(ctx context.Context, root string, rc *remoteChild) (m
 		return machine.Record{}, nil, err
 	}
 	var res envproto.MachineRecordResult
-	if err := json.Unmarshal(raw, &res); err != nil {
-		return machine.Record{}, nil, newError(codeInternal, fmt.Errorf("reading the record of %s: %w", rc.id, err))
+	if decodeErr := json.Unmarshal(raw, &res); decodeErr != nil {
+		return machine.Record{}, nil, newError(codeInternal, fmt.Errorf("reading the record of %s: %w", rc.id, decodeErr))
 	}
 	store := machine.NewStore(a.paths.State)
-	if res.Result == nil {
-		rec, err := store.ReadRemote(root, rc.envID, rc.id)
-		return rec, &res, err
+	if res.Result != nil {
+		if copyErr := a.copyBack(root, rc, &res); copyErr != nil {
+			return machine.Record{}, nil, copyErr
+		}
 	}
-	if err := a.copyBack(root, rc, &res); err != nil {
-		return machine.Record{}, nil, err
-	}
-	rec, err := store.ReadRemote(root, rc.envID, rc.id)
-	return rec, &res, err
+	rec, readErr := store.ReadRemote(root, rc.envID, rc.id)
+	return rec, &res, readErr
 }
 
 // copyBack keeps the result and report of child rc under root, when they are
@@ -264,9 +262,9 @@ func remoteByID(children []remoteChild, id string) (remoteChild, bool) {
 func descendantIDs(list []workspace.Workspace, id string) []string {
 	below := descendants(list, id)
 	ids := make([]string, 0, len(below))
-	for _, ws := range list {
-		if below[ws.ID] {
-			ids = append(ids, ws.ID)
+	for i := range list {
+		if below[list[i].ID] {
+			ids = append(ids, list[i].ID)
 		}
 	}
 	return ids
@@ -442,4 +440,59 @@ func (a *App) warnRemote(t *waitTarget, err error) {
 	}
 	t.warned = true
 	a.warned = append(a.warned, fmt.Sprintf("couldn't ask %s on %s: %v", t.id, t.environment(), err))
+}
+
+// nestRemoteProgress adds each remote child of the caller under its parent in
+// node, as a leaf (design 1.4).
+func (a *App) nestRemoteProgress(ctx context.Context, node *progressNodeJSON) error {
+	caller, _, err := a.progressCaller()
+	if err != nil {
+		return err
+	}
+	list, err := a.workspaces.List()
+	if err != nil {
+		return fmt.Errorf("listing workspaces: %w", err)
+	}
+	for _, rc := range a.listRemoteChildren(ctx, caller, descendantIDs(list, caller)) {
+		addLeaf(node, rc.parent, a.remoteLeaf(ctx, &rc))
+	}
+	return nil
+}
+
+// remoteLeaf is a remote child in ws machine progress show: its progress and
+// rollup as its last machine.record reported them, or none when its
+// environment can't say.
+func (a *App) remoteLeaf(ctx context.Context, rc *remoteChild) progressNodeJSON {
+	leaf := progressNodeJSON{ID: rc.id, Children: []progressNodeJSON{}}
+	raw, err := a.remoteChildOp(ctx, rc, "record", nil)
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't read the progress of %s on %s: %v", rc.id, rc.env, err))
+		return leaf
+	}
+	var res envproto.MachineRecordResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't read the progress of %s on %s: %v", rc.id, rc.env, err))
+		return leaf
+	}
+	own, rollup := a.remoteProgress(&res)
+	leaf.Progress = own
+	if rollup != nil {
+		leaf.Rollup = *rollup
+	}
+	return leaf
+}
+
+// addLeaf appends leaf under the node named parent, in n or below it, and
+// reports whether it found one.
+func addLeaf(n *progressNodeJSON, parent string, leaf progressNodeJSON) bool {
+	if n.ID == parent {
+		n.Children = append(n.Children, leaf)
+		return true
+	}
+	for i := range n.Children {
+		if addLeaf(&n.Children[i], parent, leaf) {
+			return true
+		}
+	}
+	return false
 }
