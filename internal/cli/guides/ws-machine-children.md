@@ -71,6 +71,9 @@ ones, each with `"environment"`, the environment's name. Its entry is the
 asked, the listing has a warning, and `result` is the copy kept by an earlier
 `ws machine wait`, or `null`. A local child has no `environment` key.
 
+Remote entries have no `stale` field: the controller's snapshot entry doesn't
+say how old it is. A warning for an offline environment is the only hint.
+
 ## Exit codes
 
 | Situation                 | Error code          | Exit |

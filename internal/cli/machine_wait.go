@@ -46,6 +46,10 @@ type waitTarget struct {
 	last   childState
 	// warned is whether a failure to ask the environment was reported.
 	warned bool
+	// caller is the workspace that waits; a copy must name it as an ancestor.
+	caller string
+	// refused is the controller's refusal to let caller ask about the child.
+	refused error
 }
 
 // machineWaitItemJSON is one child in ws machine wait's output.
@@ -181,7 +185,7 @@ func (a *App) waitTargetOf(arg string, below map[string]bool, caller, root strin
 		return waitTarget{}, domainError(err)
 	}
 	if rc, ok := remoteByID(remote, arg); ok {
-		return waitTarget{id: arg, remote: &rc}, nil
+		return waitTarget{id: arg, caller: caller, remote: &rc}, nil
 	}
 	rec, readErr := store.Read(root, arg)
 	if readErr != nil {
@@ -190,7 +194,7 @@ func (a *App) waitTargetOf(arg string, below map[string]bool, caller, root strin
 	if rec.Found() && slices.Contains(rec.Ancestors(), caller) {
 		return waitTarget{id: arg, gone: true}, nil
 	}
-	return copiedWaitTarget(store, root, arg, err)
+	return copiedWaitTarget(store, root, caller, arg, err)
 }
 
 // waitForChildren polls every target until they are finished (or one is,
@@ -205,6 +209,11 @@ func (a *App) waitForChildren(ctx context.Context, targets []waitTarget, root st
 			return err
 		}
 		states := a.pollChildren(ctx, targets, listing.Workspaces, root, store, warnedRead)
+		for i := range targets {
+			if targets[i].refused != nil {
+				return targets[i].refused
+			}
+		}
 		src := progressSource{store: store, root: root, list: entryWorkspaces(listing.Workspaces)}
 		if waitDone(states, opts) {
 			return a.printWait(targets, states, opts, src)

@@ -166,6 +166,9 @@ func (a *App) copyBack(root string, rc *remoteChild, res *envproto.MachineRecord
 	if res.Report != nil {
 		report = []byte(*res.Report)
 	}
+	if res.ReportTruncated {
+		a.warned = append(a.warned, fmt.Sprintf("the report of %s on %s was cut down by its environment", rc.id, rc.env))
+	}
 	return machine.NewStore(a.paths.State).WriteRemote(root, rc.envID, rc.id, spawn, &result, report)
 }
 
@@ -366,8 +369,9 @@ func (a *App) remoteLogsOf(ctx context.Context, caller string, entries []lifetim
 }
 
 // copiedWaitTarget is the wait target of a child removed from its environment
-// whose copy is kept under root. Without a copy, notFound is the error.
-func copiedWaitTarget(store *machine.Store, root, id string, notFound error) (waitTarget, error) {
+// whose copy is kept under root and was started by caller or below. Without
+// such a copy, notFound is the error.
+func copiedWaitTarget(store *machine.Store, root, caller, id string, notFound error) (waitTarget, error) {
 	envID, found, err := store.FindRemote(root, id)
 	if err != nil {
 		return waitTarget{}, fmt.Errorf("looking for %s's copy: %w", id, err)
@@ -375,7 +379,14 @@ func copiedWaitTarget(store *machine.Store, root, id string, notFound error) (wa
 	if !found {
 		return waitTarget{}, domainError(notFound)
 	}
-	return waitTarget{id: id, gone: true, remote: &remoteChild{env: envID, envID: envID, id: id}}, nil
+	rec, err := store.ReadRemote(root, envID, id)
+	if err != nil {
+		return waitTarget{}, fmt.Errorf("reading %s's copy: %w", id, err)
+	}
+	if !slices.Contains(rec.Ancestors(), caller) {
+		return waitTarget{}, domainError(notFound)
+	}
+	return waitTarget{id: id, gone: true, caller: caller, remote: &remoteChild{env: envID, envID: envID, id: id}}, nil
 }
 
 // environment is the environment a wait target runs on: its name, or local.
@@ -408,6 +419,9 @@ func (a *App) askRemote(ctx context.Context, t *waitTarget, root string) childSt
 	switch {
 	case hasErrorCode(err, codeWorkspaceNotFound):
 		return a.copiedChildState(t, root)
+	case hasErrorCode(err, codeNotDescendant):
+		t.refused = err
+		return childState{status: unknownSession, finished: true}
 	case err != nil:
 		a.warnRemote(t, err)
 		rec, _ = machine.NewStore(a.paths.State).ReadRemote(root, t.remote.envID, t.id)
@@ -429,6 +443,9 @@ func (a *App) copiedChildState(t *waitTarget, root string) childState {
 	rec, err := machine.NewStore(a.paths.State).ReadRemote(root, t.remote.envID, t.id)
 	if err != nil {
 		a.warnRemote(t, err)
+	}
+	if t.caller != "" && !slices.Contains(rec.Ancestors(), t.caller) {
+		rec = machine.Record{Child: t.id}
 	}
 	return childState{status: waitGone, finished: true, record: rec}
 }

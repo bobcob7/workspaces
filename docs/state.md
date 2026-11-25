@@ -341,7 +341,9 @@ stored either: it is read from the snapshot's `agents`, matched by session id.
   children.
 - `state/<root>/machine/remote/<env-id>/<child>/`: the copy of a finished child
   on another environment (`result.toml`, `spawn.toml` for a role, `report.md`),
-  written once. `ws machine wait` reads it after the child is removed.
+  written once. `ws machine wait` reads it after the child is removed. Its
+  `spawn.toml` is reconstructed from the role and the verdict, not the role's real
+  file.
 - `<12 hex>-agent.sock` beside the daemon socket: how an enrolled machine's
   workspaces reach the controller.
 

@@ -7,12 +7,13 @@ children are started from.
 ## Synopsis
 
 ```
-ws machine spawn [OPTIONS] [--runner claude|ws] [--endpoint <name>] [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
+ws machine spawn [OPTIONS] [--env <name>] [--env-scope <name>]... [--runner claude|ws] [--endpoint <name>] [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ws machine wait [--any] [--timeout <duration>] <WORKSPACE>...
 ws machine result <VERDICT> [--file <path> | --file -]
 ws machine children [--all]
 ws machine logs [--tail <n>] <WORKSPACE>
 ws machine rm [--dry-run] [--keep-children] (<WORKSPACE>... | --all)
+ws machine envs
 ws machine roles
 ws machine roles show <name>
 ws machine roles add <name> --description <d> [ROLE FLAGS] (--prompt-file <f> | -)
@@ -98,6 +99,8 @@ instead, as described under [Runners](#runners).
 | `--hidden`          | Hide the workspace from `ws list` and the desktop app's default views. Off by default: children show in the workspace tree |
 | `--role <name>`     | Start the child from this role: its prompt template, model, `claude` arguments, and verdicts |
 | `--var KEY=VALUE`   | A value for the role's prompt; repeatable; only with `--role` |
+| `--env <name>`      | Start the child on this environment, one `ws machine envs` lists; default: this machine |
+| `--env-scope <name>` | Narrow the child's scope to these environments, a subset of yours; repeatable |
 | `--runner claude\|ws` | Which agent runs the child. Default: the role's `runner` in `[runner.roles]`, else `claude` |
 | `--endpoint <name>` | With `--runner ws`: another endpoint from `config.toml`, instead of the model's. `usage` with `claude` |
 
@@ -190,7 +193,7 @@ its output when it exits.
      "result": {"verdict": "PASS", "outcome": "pass",
                 "report": "/…/state/orch-1a2b3c4d/machine/t1-impl-d8efb24f/report.md",
                 "recorded_at": "2026-11-06T18:04:05Z"},
-     "error": null},
+     "environment": "local", "error": null},
     {"id": "t2-impl-3be0a9c1", "session": "a71c09f2", "role": "implementer",
      "status": "working", "finished": false, "outcome": "pending", "result": null,
      "error": {"code": "wait_timeout", "message": "t2-impl-3be0a9c1 is still working after 1h0m0s; run ws machine wait again to keep waiting"}}
@@ -208,6 +211,7 @@ its output when it exits.
 | `finished` | Whether it finished, as above                                     |
 | `outcome`  | `pass` or `fail` from its result; `missing` when finished with no result; `pending` when not finished |
 | `result`   | The result object, or `null`                                      |
+| `environment` | The environment it runs on: its name, or `local`; for a remote child that was removed, its environment id |
 | `error`    | `null`, or `{"code", "message"}`                                  |
 
 Items are in the order the children were named. Each item's `error`:
@@ -265,6 +269,7 @@ others:
 | -------- | ----------------------------------------------- |
 | `role`   | The role it was spawned with, or `null`         |
 | `result` | Its result object, or `null` until it records one |
+| `environment` | A remote child's environment name; absent on a local child |
 
 | Option  | Description                               |
 | ------- | ----------------------------------------- |
@@ -272,7 +277,7 @@ others:
 
 ## ws machine logs
 
-Prints a descendant's log as JSON: a `ws` child's transcript events, or a
+A remote child's reply has `environment` and its log as `text`. Prints a descendant's log as JSON: a `ws` child's transcript events, or a
 Claude child's `claude logs` text. Use it instead of `claude logs`, which
 doesn't know runner sessions (`rn-…`).
 
@@ -283,7 +288,8 @@ deepest first. Each `WORKSPACE` must be a descendant of the caller: any
 other, the caller itself included, is refused as its item's error,
 `not_descendant`, and the rest are still removed. Prints `ws rm --json`'s
 object, `{"workspaces": [{"id", "parent", "removed", "error"}], "warnings"}`,
-one item per workspace removed or refused. `parent` is set on a
+one item per workspace removed or refused; an item for a remote child has
+`environment`, the environment's name. `parent` is set on a
 descendant removed with a target, and `null` on a workspace named. A
 removed child's result stays under the root.
 
@@ -294,6 +300,14 @@ removed child's result stays under the root.
 | `--keep-children` | Make the target's children children of the caller instead of removing them |
 
 `WORKSPACE` is an id, path, or agent session id, as for other commands.
+
+## ws machine envs
+
+Lists the environments the caller may start children on, as
+`{"environments": [{"name", "id", "state", "current"}], "warnings": []}`.
+`state` is `online`, `offline`, `removed`, or `unknown` when the controller
+can't be asked and the list comes from the caller's scope file (with a
+warning). A caller with no wider scope sees only its own environment.
 
 ## ws machine roles
 
@@ -577,6 +591,8 @@ Marks the thread resolved, or with `--reopen` open again. Prints
 | `spawn --runner ws`: no daemon answers, or the runner didn't write its status within 10 s | `daemon_unavailable`, `runner_failed` | 1 |
 | Workspace not found; for `wait`, also not a gone child with a result | `workspace_not_found` | 3 |
 | `rm` or `wait` of a workspace that isn't the caller's descendant | `not_descendant` | 4 |
+| `spawn --env` or `--env-scope` naming an environment outside the caller's scope | `environment_out_of_scope` | 4 |
+| `spawn --env`, or `rm` of a remote child, when that environment is offline | `environment_offline` | 1 |
 | `roles add`: a role already has the name        | `role_exists`       | 4    |
 | `roles rm` of a built-in with no override       | `role_builtin`      | 4    |
 | `wait`: a finished child whose outcome is `fail` or `missing` (an item's error) | `child_failed` | 1 |
@@ -646,5 +662,14 @@ With a scope granted by a person (`ws claude --env-scope`), `ws machine spawn
 (`ws machine envs` lists it). `children`, `wait`, `logs` and `rm` reach that
 child through the controller, which checks that you started it. When it
 finishes, `ws machine wait` copies its result and report into your tree's
-state, so they stay readable after `ws machine rm`. An environment outside your
+state, so they stay readable after `ws machine rm`. `result.report` of a remote
+child is that local copy,
+`state/<root>/machine/remote/<env-id>/<child>/report.md`, written the first time
+a `wait` or `children` sees the result. A child that was never waited on and was
+removed has no copy, so no report. A copy is read only by a caller whose
+workspace started the child, or one of its ancestors. A report the environment
+cut down is copied as it came, with a warning. Remote entries have no `stale`
+field, because the controller's snapshot entry doesn't say how old it is; a
+`wait` or `children` call for an offline environment is the only hint, as a
+warning. An environment outside your
 scope is `environment_out_of_scope` (exit 4).
