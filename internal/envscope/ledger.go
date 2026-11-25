@@ -19,6 +19,9 @@ const (
 	ledgerName     = "scopes.json"
 	ledgerLockName = "scopes.lock"
 	ledgerVersion  = 1
+	// maxLedgerBytes bounds the file read into memory; MaxLedgerEntries
+	// entries of MaxEntries ids each fit well under it.
+	maxLedgerBytes = 8 << 20
 )
 
 // Entry is what the controller granted a workspace on one environment.
@@ -131,10 +134,17 @@ func (l *Ledger) Ceiling(env string, chain []string) ([]string, error) {
 
 // read decodes the ledger; the caller holds the lock.
 func (l *Ledger) read() ([]Entry, error) {
-	data, err := os.ReadFile(l.path)
+	info, err := os.Stat(l.path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the scope ledger: %w", err)
+	}
+	if info.Size() > maxLedgerBytes {
+		return nil, fmt.Errorf("%w: scope ledger is over %d bytes", ErrInvalid, maxLedgerBytes)
+	}
+	data, err := os.ReadFile(l.path)
 	if err != nil {
 		return nil, fmt.Errorf("reading the scope ledger: %w", err)
 	}
@@ -191,6 +201,9 @@ func validateEntry(e *Entry) error {
 	}
 	if e.Workspace == "" {
 		return fmt.Errorf("%w: ledger entry without a workspace", ErrInvalid)
+	}
+	if len(e.Scope) == 0 || len(e.Scope) > MaxEntries {
+		return fmt.Errorf("%w: ledger scope of %d ids, want 1 to %d", ErrInvalid, len(e.Scope), MaxEntries)
 	}
 	for _, id := range e.Scope {
 		if !validID(id) {

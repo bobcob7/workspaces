@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
 )
@@ -53,8 +54,8 @@ func New(self Ref, refs []Ref) (Scope, error) {
 	all := make([]Ref, 0, len(refs)+1)
 	seen := make(map[string]bool, len(refs)+1)
 	for _, ref := range append([]Ref{self}, refs...) {
-		if !validID(ref.ID) {
-			return Scope{}, fmt.Errorf("%w: environment id %q", ErrInvalid, ref.ID)
+		if err := validRef(ref); err != nil {
+			return Scope{}, err
 		}
 		if seen[ref.ID] {
 			continue
@@ -176,6 +177,21 @@ func (s Scope) ref(id string) (Ref, bool) {
 
 func validID(id string) bool {
 	return id == Local || envproto.ValidID(id)
+}
+
+// validRef checks an id, a non-empty name without control characters, and
+// that Local is named Local and nothing else is.
+func validRef(ref Ref) error {
+	if !validID(ref.ID) {
+		return fmt.Errorf("%w: environment id %q", ErrInvalid, ref.ID)
+	}
+	if ref.Name == "" || strings.IndexFunc(ref.Name, unicode.IsControl) >= 0 {
+		return fmt.Errorf("%w: environment name %q", ErrInvalid, ref.Name)
+	}
+	if (ref.ID == Local) != (ref.Name == Local) {
+		return fmt.Errorf("%w: environment %q named %q", ErrInvalid, ref.ID, ref.Name)
+	}
+	return nil
 }
 
 // compareRefs puts Local first, then sorts by name and then by id.

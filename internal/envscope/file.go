@@ -170,8 +170,8 @@ func validateFile(f *File) error {
 	}
 	selfListed := false
 	for _, ref := range f.Environments {
-		if !validID(ref.ID) {
-			return fmt.Errorf("%w: environment id %q", ErrInvalid, ref.ID)
+		if err := validRef(ref); err != nil {
+			return err
 		}
 		selfListed = selfListed || ref.ID == f.Self
 	}
