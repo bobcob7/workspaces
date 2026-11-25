@@ -86,9 +86,9 @@ func (r *Runner) checkVersion(ctx context.Context) error {
 // exec runs git with args, prefixed by -C dir when dir isn't empty, and
 // logs the command and its duration at debug level.
 func (r *Runner) exec(ctx context.Context, dir string, args []string) ([]byte, error) {
-	full := args
+	full := append(platformArgs(), args...)
 	if dir != "" {
-		full = append([]string{"-C", dir}, args...)
+		full = append([]string{"-C", dir}, full...)
 	}
 	//nolint:gosec // G204: running git with arguments is this package's purpose.
 	cmd := exec.CommandContext(ctx, r.gitPath, full...)

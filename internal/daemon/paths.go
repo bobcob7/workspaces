@@ -3,7 +3,6 @@ package daemon
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"path/filepath"
 )
 
@@ -30,11 +29,7 @@ func socketPath(configDir string, getenv func(string) string, uid int) string {
 	if runtimeDir := getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
 		return filepath.Join(runtimeDir, "ws", name)
 	}
-	tmp := getenv("TMPDIR")
-	if tmp == "" {
-		tmp = "/tmp"
-	}
-	return filepath.Join(tmp, fmt.Sprintf("ws-%d", uid), name)
+	return filepath.Join(socketBaseDir(getenv, uid), name)
 }
 
 func socketName(configDir string) string {

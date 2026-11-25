@@ -9,8 +9,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 // MaxOutput is how many bytes of stdout, and of stderr, Run keeps.
@@ -21,6 +22,9 @@ const waitDelay = 5 * time.Second
 
 // ErrTimedOut is a script that ran past its Request.Timeout.
 var ErrTimedOut = errors.New("script timed out")
+
+// ErrNoShell is a Windows host with no POSIX sh to run scripts with.
+var ErrNoShell = errors.New("loop scripts need a POSIX sh: put sh on PATH or install Git for Windows (ADR 0081)")
 
 // Request is one script to run.
 type Request struct {
@@ -50,7 +54,7 @@ func New(environ []string) *Runner {
 	return &Runner{environ: environ}
 }
 
-// Run runs req.Script as /bin/sh -c req.Script in req.Dir, with stdin
+// Run runs req.Script as sh -c req.Script in req.Dir, with stdin
 // empty. A non-zero exit is a Result, not an error. The error is
 // ErrTimedOut (wrapped) when it ran past req.Timeout, ctx's error
 // (wrapped) when ctx ended first, and otherwise why it couldn't run.
@@ -58,17 +62,20 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	tctx, cancel := context.WithTimeout(ctx, req.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(tctx, "/bin/sh", "-c", req.Script) //nolint:gosec // the script is the point: ADR 0049 runs it through this package only
+	cmd, err := scriptCommand(tctx, req.Script)
+	if err != nil {
+		return Result{}, fmt.Errorf("running script: %w", err)
+	}
 	cmd.Dir = req.Dir
 	cmd.Env = mergeEnv(r.environ, req.Env)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.SysProcAttr = procgroup.OwnGroup()
+	cmd.Cancel = func() error { return procgroup.KillTree(cmd.Process.Pid) }
 	cmd.WaitDelay = waitDelay
 	stdout := &capWriter{limit: MaxOutput}
 	stderr := &capWriter{limit: MaxOutput}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		return Result{}, fmt.Errorf("running script: %w", ctx.Err())
 	}

@@ -118,6 +118,8 @@ const (
 	codeArtifactUnreachable errorCode = "artifact_unreachable" // exit 1
 	// ADR 0079: comment anchors.
 	codeAnchorNotFound errorCode = "anchor_not_found" // exit 3
+	// ADR 0081: the environment runs an OS the feature isn't built for yet.
+	codePlatformUnsupported errorCode = "platform_unsupported" // exit 1
 )
 
 // shellExitError is ws shell's result once its shell has exited with a non-zero
@@ -163,7 +165,7 @@ func (c errorCode) exitCode() int {
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable,
 		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed,
-		codeEnvironmentOffline, codeEnvironmentOutdated, codeOperationLimited, codeArtifactUnreachable:
+		codeEnvironmentOffline, codeEnvironmentOutdated, codeOperationLimited, codeArtifactUnreachable, codePlatformUnsupported:
 		return exitFailed
 	case codeUsage, codeSpecInvalid, codeNameInvalid, codeProfileUnknown, codeProfileInvalid, codeOutsideWorkspace,
 		codeLoopInvalid, codeResultInvalid, codeRoleInvalid, codeConfigKeyUnknown, codeConfigValueInvalid,
@@ -204,7 +206,7 @@ func (c errorCode) known() bool {
 		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
 		codeEnvironmentOutdated, codeEnvironmentMismatch, codeTerminalLimit, codeProgressInvalid, codeOperationLimited,
 		codeArtifactInvalid, codeArtifactUnknown, codeArtifactConflict, codeArtifactFull, codeArtifactForbidden,
-		codeArtifactUnreachable, codeAnchorNotFound:
+		codeArtifactUnreachable, codeAnchorNotFound, codePlatformUnsupported:
 		return true
 	}
 	return false

@@ -8,8 +8,9 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 // startWait is how long Ensure waits for an auto-started daemon's socket.
@@ -83,7 +84,7 @@ func startDetached(ctx context.Context, p Paths, exe string) error {
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), exe, "daemon", "run", "--origin", OriginTransient)
 	cmd.Stderr = log
 	cmd.Dir = homeDir()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = procgroup.Detached()
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting the daemon: %w", err)
 	}

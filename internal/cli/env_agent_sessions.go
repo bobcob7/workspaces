@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -174,6 +175,9 @@ func (o *agentOperations) agentSend(ctx context.Context, args *envproto.SendArgs
 	err = o.app.claude.Send(ctx, agent, args.Message)
 	if errors.Is(err, claude.ErrNotDelivered) {
 		return nil, &envproto.ReplyError{Code: string(codeClaudeFailed), Message: err.Error()}
+	}
+	if errors.Is(err, errors.ErrUnsupported) {
+		return nil, &envproto.ReplyError{Code: string(codePlatformUnsupported), Message: "sending to an agent isn't supported on " + runtime.GOOS + " environments yet (ADR 0081)"}
 	}
 	if err != nil {
 		return nil, err

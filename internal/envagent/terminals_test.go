@@ -731,6 +731,15 @@ func TestTerminals_open(t *testing.T) {
 		h.m.starter = good
 		h.open()
 	})
+	t.Run("a pty the platform doesn't have is platform_unsupported", func(t *testing.T) {
+		t.Parallel()
+		h := newTermHarness(t)
+		h.m.starter = &ptyStarterMock{StartFunc: func(ptyproc.Spec) (ptyProcess, error) { return nil, ptyproc.ErrUnsupported }}
+		_, err := h.m.open(t.Context(), attachArgs())
+		var reply *envproto.ReplyError
+		require.ErrorAs(t, err, &reply)
+		assert.Equal(t, "platform_unsupported", reply.Code)
+	})
 	t.Run("a sid already in use is not handed out again", func(t *testing.T) {
 		t.Parallel()
 		h := newTermHarness(t)

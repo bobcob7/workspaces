@@ -103,8 +103,9 @@ See the [workspace creation errors](README.md#creating-a-workspace). If
 the session can't be recorded or the shell can't be started, the
 workspace is removed and `ws` fails with `internal` (exit 1). Otherwise
 `ws shell` exits with the shell's exit code. With `--env`: `environment_unknown`
-(exit 3), `environment_offline` and `environment_outdated` (exit 1), and
-`terminal_limit` (exit 4).
+(exit 3), `environment_offline` and `environment_outdated` (exit 1),
+`platform_unsupported` (exit 1, when the environment's OS has no pty support,
+today Windows), and `terminal_limit` (exit 4).
 
 ## See also
 

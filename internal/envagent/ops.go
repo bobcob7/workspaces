@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
 )
@@ -305,5 +304,5 @@ func CheckWorkspaceRef(root, ref string) error {
 
 // underRoot reports whether clean is strictly inside root.
 func underRoot(root, clean string) bool {
-	return strings.HasPrefix(clean, filepath.Clean(root)+string(filepath.Separator))
+	return hasPathPrefix(clean, filepath.Clean(root)+string(filepath.Separator))
 }

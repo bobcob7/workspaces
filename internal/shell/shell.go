@@ -15,9 +15,6 @@ import (
 	"syscall"
 )
 
-// defaultShell runs when SHELL is unset or empty.
-const defaultShell = "/bin/sh"
-
 // Runner runs interactive shells with ws's environment and streams.
 type Runner struct {
 	log     *slog.Logger
@@ -51,7 +48,9 @@ type Session struct {
 	// of the same name.
 	Env []string
 	// Lock, if set, is passed to the shell as file descriptor 3, so the
-	// shell and every command it starts hold it (ADR 0015).
+	// shell and every command it starts hold it (ADR 0015). On Windows
+	// (lockfile.InheritableLocks is false) only ws holds it: the shell and
+	// the jobs it leaves behind don't, so cleanup isn't blocked by them.
 	Lock *os.File
 	// AfterExit, if set, runs once the shell has exited or failed to
 	// start, while ws still catches the signals Run handles, so they can't
@@ -60,6 +59,7 @@ type Session struct {
 }
 
 // Run runs $SHELL -i, or /bin/sh -i, for sess and waits for it to exit.
+// On Windows it runs %COMSPEC% (default cmd.exe) with no arguments (ADR 0081).
 // It returns the shell's exit status: its exit code, or 128 plus the
 // signal's number when a signal killed it. err is set only when the shell
 // couldn't be started.
@@ -70,13 +70,13 @@ type Session struct {
 // stays to clean up after it. ws keeps catching all four until
 // sess.AfterExit has returned.
 func (r *Runner) Run(ctx context.Context, sess Session) (int, error) {
-	program := r.program()
-	cmd := exec.CommandContext(context.WithoutCancel(ctx), program, "-i")
+	program, args := r.program()
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), program, args...)
 	cmd.Dir = sess.Dir
 	cmd.Env = withVars(r.environ, append([]string{"PWD=" + sess.Dir}, sess.Env...))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = r.stdin, r.stdout, r.stderr
 	if sess.Lock != nil {
-		cmd.ExtraFiles = []*os.File{sess.Lock}
+		inheritLock(cmd, sess.Lock)
 	}
 	signals := make(chan os.Signal, 4)
 	r.notify(signals, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGTERM)
@@ -93,15 +93,6 @@ func (r *Runner) Run(ctx context.Context, sess Session) (int, error) {
 	go r.forward(cmd.Process, signals, done)
 	err := cmd.Wait()
 	return exitStatus(cmd.ProcessState, err)
-}
-
-// program is $SHELL from the environment, or /bin/sh when it's unset or
-// empty.
-func (r *Runner) program() string {
-	if sh := lookup(r.environ, "SHELL"); sh != "" {
-		return sh
-	}
-	return defaultShell
 }
 
 // forward sends the shell the signal it should get for each one ws

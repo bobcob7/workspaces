@@ -2,10 +2,7 @@
 
 package ptyproc
 
-import (
-	"os"
-	"syscall"
-)
+import "os"
 
 // Start is unsupported on this system.
 func Start(Spec) (*Proc, error) {
@@ -13,9 +10,5 @@ func Start(Spec) (*Proc, error) {
 }
 
 func setWinsize(*os.File, int, int) error {
-	return ErrUnsupported
-}
-
-func signalGroup(int, syscall.Signal) error {
 	return ErrUnsupported
 }

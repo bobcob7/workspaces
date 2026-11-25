@@ -93,3 +93,14 @@ func openTTY(control *os.File, name string) (*os.File, *os.File, error) {
 	}
 	return control, tty, nil
 }
+
+// wait reaps the process and records its exit code.
+func (p *Proc) wait() {
+	defer close(p.done)
+	_ = p.cmd.Wait()
+	code := p.cmd.ProcessState.ExitCode()
+	if code < 0 {
+		return
+	}
+	p.exit = &code
+}

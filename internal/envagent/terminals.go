@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"runtime"
 	"sync"
 	"time"
 
@@ -229,6 +231,9 @@ func (m *terminals) start(ctx context.Context, args *envproto.TerminalOpenArgs) 
 	proc, err := m.starter.Start(ptyproc.Spec{Path: cmd.Path, Args: cmd.Args, Dir: cmd.Dir, Env: cmd.Env, Cols: args.Cols, Rows: args.Rows})
 	if err != nil {
 		m.log.WarnContext(ctx, "terminal not started", "error", err)
+		if errors.Is(err, ptyproc.ErrUnsupported) {
+			return nil, TerminalCommand{}, &envproto.ReplyError{Code: "platform_unsupported", Message: "terminals aren't supported on " + runtime.GOOS + " agents yet (ADR 0081)"}
+		}
 		return nil, TerminalCommand{}, err
 	}
 	return newTerminal(m, sid, proc, args.Cols, args.Rows), cmd, nil

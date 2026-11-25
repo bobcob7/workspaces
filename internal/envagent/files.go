@@ -19,6 +19,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/privfile"
 )
 
 // Files on disk, in the agent's environment directory.
@@ -171,6 +172,9 @@ func (f *Files) Save(id *Identity) error {
 	}
 	if err := os.Chmod(f.dir, dirMode); err != nil { //nolint:gosec // G302: the agent directory is 0700 by design (ADR 0075).
 		return fmt.Errorf("setting the mode of %s: %w", f.dir, err)
+	}
+	if err := privfile.RestrictDir(f.dir); err != nil {
+		return fmt.Errorf("protecting %s: %w", f.dir, err)
 	}
 	if err := f.SaveCertificate(id.Key, id.Cert); err != nil {
 		return err
@@ -365,6 +369,9 @@ func writeFileAtomic(path string, data []byte) error {
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		_ = os.Remove(tmp.Name()) // the rename failed; the temp file is only debris.
 		return fmt.Errorf("renaming into %s: %w", path, err)
+	}
+	if err := privfile.RestrictFile(path); err != nil {
+		return fmt.Errorf("protecting %s: %w", path, err)
 	}
 	return nil
 }

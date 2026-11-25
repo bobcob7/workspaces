@@ -75,17 +75,6 @@ func (p *Proc) Wait() *int {
 	return p.exit
 }
 
-// wait reaps the process and records its exit code.
-func (p *Proc) wait() {
-	defer close(p.done)
-	_ = p.cmd.Wait()
-	code := p.cmd.ProcessState.ExitCode()
-	if code < 0 {
-		return
-	}
-	p.exit = &code
-}
-
 func (p *Proc) shutdown() error {
 	if !p.reaped() {
 		pid := p.cmd.Process.Pid

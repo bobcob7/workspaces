@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -485,33 +483,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_, _ = w.Write(data) //nolint:gosec // G705: the body is JSON under application/json, not HTML.
 }
 
-var errNotUnixConn = errors.New("connection isn't a unix socket")
-
-// prepareSocketDir creates the socket's directory, which must be private to
-// the user: 0700 and owned by them.
-func prepareSocketDir(dir string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("creating the socket directory: %w", err)
-	}
-	info, err := os.Stat(dir)
-	if err != nil {
-		return fmt.Errorf("checking the socket directory: %w", err)
-	}
-	owner, ok := ownerUID(info)
-	if !ok || owner != os.Getuid() || info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("socket directory %s must be 0700 and owned by you", dir)
-	}
-	return nil
-}
-
-func ownerUID(info fs.FileInfo) (int, bool) {
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, false
-	}
-	return int(st.Uid), true
-}
-
 // peerListener accepts only connections from uid; any other connection is
 // closed at once.
 type peerListener struct {
@@ -526,6 +497,9 @@ func (l peerListener) Accept() (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
+		// On unix peerUID is the peer's uid (SO_PEERCRED). On Windows it always
+		// passes, and the socket directory's DACL, checked by prepareSocketDir
+		// before listening, is the guard.
 		if uid, err := peerUID(conn); err == nil && uid == l.uid {
 			return conn, nil
 		}

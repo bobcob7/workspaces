@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bobcob7/workspaces/internal/procgroup"
 )
 
 var errTest = errors.New("boom")
@@ -48,7 +50,7 @@ func TestStartExclusion(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, []string{"tmutil", "addexclusion", "/d"}, got.Args)
 		require.NotNil(t, got.SysProcAttr)
-		assert.True(t, got.SysProcAttr.Setpgid)
+		assert.Equal(t, procgroup.OwnGroup(), got.SysProcAttr)
 		assert.Nil(t, got.Stdin)
 		assert.Nil(t, got.Stdout)
 		assert.Nil(t, got.Stderr)

@@ -166,6 +166,33 @@ launchd plist (`~/Library/LaunchAgents/com.bobcob7.ws-env-agent.plist`):
 
 Then `launchctl load ~/Library/LaunchAgents/com.bobcob7.ws-env-agent.plist`.
 
+### Windows (ADR 0081, not yet run on a real machine)
+
+The Windows build is cross-built, vetted and linted for amd64 and arm64; an
+allow-list of packages is tested on `windows-latest`. It has not yet run on a
+real Windows machine with Claude Code signed in.
+
+Install `ws.exe` to `%LocalAppData%\Programs\ws\` and install Git for Windows:
+loop gates run through its `sh.exe`. To start the agent at log on, run this
+in Command Prompt:
+
+```bat
+schtasks /Create /SC ONLOGON /TN ws-env-agent /TR "\"%LocalAppData%\Programs\ws\ws.exe\" env agent run"
+```
+
+Terminals and `agent.send` are refused with `platform_unsupported` until
+ConPTY is built. WSL2 is the alternative: run the Linux agent inside WSL2.
+
+Not verified on Windows, here or in CI:
+
+- whether the `claude` background commands (`--bg`, `agents`, `logs`,
+  `attach`, `stop`, `daemon run`) exist and behave on native Windows;
+- `claude attach` in a terminal, since ConPTY isn't built;
+- a real Task Scheduler run, including ending it and logging off;
+- that another local user can't read the agent's key or the daemon socket;
+- paths over 260 characters without `LongPathsEnabled`, and antivirus or
+  sharing violations on files the agent writes.
+
 ## Agent commands
 
 These run on the remote machine. Each prints the same JSON its `ws llm`
@@ -400,6 +427,7 @@ the fallback.
 | A name already taken, an enrollment on a machine already enrolled | `environment_exists` | 4 |
 | A code already used | `enrollment_used` | 4 |
 | The agent already has 8 terminals open | `terminal_limit` | 4 |
+| The agent's OS has no pty support (today Windows): terminals and `agent.send` are refused (ADR 0081) | `platform_unsupported` | 1 |
 | `--finish` while environments hold old-CA certificates | `ca_in_use` | 4 |
 | Enrollment refused, or a certificate has expired | `enrollment_failed` | 1 |
 

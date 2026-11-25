@@ -52,6 +52,7 @@ marker.
 | The environment is offline, or went offline   | `environment_offline`  | 1    |
 | The agent runs a protocol older than 2        | `environment_outdated` | 1    |
 | The agent already has 8 terminals open        | `terminal_limit`       | 4    |
+| The environment's OS has no pty support (today Windows) | `platform_unsupported` | 1 |
 | `claude attach` failed                        | `claude_failed`        | 1    |
 
 When the terminal closes normally, `ws attach` exits 0.

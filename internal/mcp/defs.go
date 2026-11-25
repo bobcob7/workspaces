@@ -55,7 +55,7 @@ func ClaudeConfigPath(environ []string) string {
 	if dir := lookup(environ, "CLAUDE_CONFIG_DIR"); dir != "" {
 		return filepath.Join(dir, ".claude.json")
 	}
-	home := lookup(environ, "HOME")
+	home := userHome(environ)
 	if home == "" {
 		return ""
 	}

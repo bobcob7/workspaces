@@ -9,24 +9,30 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // pollInterval is how often a waiting lock retries.
 const pollInterval = 50 * time.Millisecond
 
+// mode is the kind of lock to take.
+type mode int
+
+const (
+	shared mode = iota
+	exclusive
+)
+
 // Exclusive waits until it holds path's lock exclusively, or ctx is done.
 // It creates the file and its directory if needed. The returned function
 // releases the lock.
 func Exclusive(ctx context.Context, path string) (func(), error) {
-	return acquire(ctx, path, unix.LOCK_EX)
+	return acquire(ctx, path, exclusive)
 }
 
 // Shared waits until it holds path's lock shared with other readers, or ctx
 // is done.
 func Shared(ctx context.Context, path string) (func(), error) {
-	return acquire(ctx, path, unix.LOCK_SH)
+	return acquire(ctx, path, shared)
 }
 
 // TryExclusive takes path's lock exclusively without waiting. ok is false
@@ -52,14 +58,11 @@ func HeldExclusively(path string) (bool, error) {
 		return false, fmt.Errorf("opening lock %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
-	err = unix.Flock(int(f.Fd()), unix.LOCK_SH|unix.LOCK_NB)
-	if err == nil {
-		return false, nil
+	held, err := tryLock(f, shared)
+	if err != nil {
+		return false, fmt.Errorf("locking %s: %w", path, err)
 	}
-	if errors.Is(err, unix.EWOULDBLOCK) {
-		return true, nil
-	}
-	return false, fmt.Errorf("locking %s: %w", path, err)
+	return held, nil
 }
 
 // Lock is a held lock and the open file it's held through.
@@ -74,21 +77,24 @@ func TryExclusiveLock(path string) (lock *Lock, ok bool, err error) {
 	if err != nil {
 		return nil, false, err
 	}
-	err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-	if err == nil {
-		return &Lock{f: f}, true, nil
+	held, err := tryLock(f, exclusive)
+	if err != nil {
+		_ = f.Close()
+		return nil, false, fmt.Errorf("locking %s: %w", path, err)
 	}
-	_ = f.Close()
-	if errors.Is(err, unix.EWOULDBLOCK) {
+	if held {
+		_ = f.Close()
 		return nil, false, nil
 	}
-	return nil, false, fmt.Errorf("locking %s: %w", path, err)
+	return &Lock{f: f}, true, nil
 }
 
 // File is the open file the lock is held through. A flock belongs to the
 // open file, so a child process given File, for example in
 // exec.Cmd.ExtraFiles, holds the same lock: it stays held until this
 // process and every such child have closed their descriptors.
+// InheritableLocks says whether that holds on this OS: on Windows a child
+// given the file doesn't hold the lock, so it ends with this process.
 func (l *Lock) File() *os.File {
 	return l.f
 }
@@ -98,19 +104,19 @@ func (l *Lock) Unlock() {
 	_ = l.f.Close()
 }
 
-func acquire(ctx context.Context, path string, how int) (func(), error) {
+func acquire(ctx context.Context, path string, m mode) (func(), error) {
 	f, err := open(path)
 	if err != nil {
 		return nil, err
 	}
 	for {
-		err = unix.Flock(int(f.Fd()), how|unix.LOCK_NB)
-		if err == nil {
-			return func() { _ = f.Close() }, nil
-		}
-		if !errors.Is(err, unix.EWOULDBLOCK) {
+		held, err := tryLock(f, m)
+		if err != nil {
 			_ = f.Close()
 			return nil, fmt.Errorf("locking %s: %w", path, err)
+		}
+		if !held {
+			return func() { _ = f.Close() }, nil
 		}
 		select {
 		case <-ctx.Done():
