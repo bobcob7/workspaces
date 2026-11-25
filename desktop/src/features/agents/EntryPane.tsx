@@ -39,6 +39,7 @@ import { RemoveDialog } from "./RemoveDialog";
 import { entryActions } from "./remote";
 import { RootProgress } from "./RootProgress";
 import { isLive } from "./status";
+import { parentOf } from "./tree";
 import { RunCard } from "./RunCard";
 import { readDetailsExpanded, writeDetailsExpanded } from "./detailsPreference";
 import { isRunnerRunning, modelTooltip, stepLabel, tokensLine } from "./runner";
@@ -164,11 +165,8 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
   const reviewing = useAppSelector((s) =>
     s.reviews.view?.prs.find((pr) => pr.reviews.some((r) => r.workspaceId === entry.workspaceId)),
   );
-  const parent = useAppSelector((s) =>
-    entry.parentId === null
-      ? undefined
-      : s.agents.entries.find((e) => e.workspaceId === entry.parentId && e.environment === entry.environment),
-  );
+  const parent = useAppSelector((s) => parentOf(s.agents.entries, entry));
+  const crossParent = parent !== undefined && parent.environment !== entry.environment;
   const environment = useAppSelector((s) => s.environments.items.find((env) => env.name === entry.environment));
   const remote = entry.environment !== "local";
   const actions = entryActions(entry, environment, Date.now());
@@ -515,7 +513,15 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
                     {entry.path}
                   </button>
                 )}
-                {remote && parent !== undefined && <span className={styles.note}>Runs on {entry.environment}, like its parent</span>}
+                {crossParent && (
+                  <span className={styles.note}>{`Started on ${entry.environment} from ${parent.name} on ${parent.environment}`}</span>
+                )}
+                {!crossParent && remote && parent !== undefined && (
+                  <span className={styles.note}>Runs on {entry.environment}, like its parent</span>
+                )}
+                {parent === undefined && entry.scopeParent !== null && (
+                  <span className={styles.note}>{`Started from ${entry.scopeParent.workspaceId} on ${entry.scopeParent.environment}`}</span>
+                )}
                 {entry.sessionId !== null && <span className={styles.mono}>session {entry.sessionId}</span>}
                 {run?.endpoint && <span className={styles.mono}>endpoint {run.endpoint}</span>}
                 {stepText !== null && <Chip size="small" variant="outlined" label={stepText} />}
@@ -529,7 +535,11 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
                     variant="outlined"
                     clickable
                     label={`↳ ${parent.name}`}
-                    title="Started from this workspace, and removed with it"
+                    title={
+                      crossParent
+                        ? "Started from this workspace; removed by the controller after it is removed"
+                        : "Started from this workspace, and removed with it"
+                    }
                     onClick={() => dispatch(selected(parent.key))}
                   />
                 )}
