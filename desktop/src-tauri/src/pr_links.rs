@@ -127,6 +127,7 @@ fn read_tail(path: &Path) -> std::io::Result<String> {
 /// Every distinct PR link in `text`, normalised, in order of appearance.
 pub fn pr_hrefs_in(text: &str) -> Vec<String> {
     let mut hrefs: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     let mut rest = text;
     while let Some(start) = next_scheme(rest) {
         let candidate = &rest[start..];
@@ -134,7 +135,7 @@ pub fn pr_hrefs_in(text: &str) -> Vec<String> {
             .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '\\' | '`'))
             .unwrap_or(candidate.len());
         if let Some(href) = pr_href(&candidate[..end]) {
-            if !hrefs.contains(&href) {
+            if seen.insert(href.clone()) {
                 hrefs.push(href);
             }
         }
@@ -143,18 +144,27 @@ pub fn pr_hrefs_in(text: &str) -> Vec<String> {
     hrefs
 }
 
+/// The byte offset of the nearest `http://` or `https://` in `text`. Scans
+/// once and stops at the first match, so a caller that moves past each match
+/// reads every byte at most once.
 fn next_scheme(text: &str) -> Option<usize> {
-    match (text.find("https://"), text.find("http://")) {
-        (Some(s), Some(p)) => Some(s.min(p)),
-        (found, None) | (None, found) => found,
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'h' && (bytes[i..].starts_with(b"http://") || bytes[i..].starts_with(b"https://")) {
+            return Some(i);
+        }
+        i += 1;
     }
+    None
 }
 
 /// The canonical PR URL `raw` names, or None when it isn't one. A GitHub
 /// `/pull/N` and a Forgejo or Gitea `/pulls/N` both count. Query, fragment,
 /// trailing punctuation, and subpaths such as `/files` are dropped.
 pub fn pr_href(raw: &str) -> Option<String> {
-    let before_query = raw.find(['#', '?']).map_or(raw, |i| &raw[..i]);
+    let before_fragment = raw.split_once('#').map_or(raw, |(url, _)| url);
+    let before_query = before_fragment.split_once('?').map_or(before_fragment, |(url, _)| url);
     let url = before_query.trim_end_matches(|c: char| {
         matches!(
             c,
@@ -355,5 +365,45 @@ mod tests {
 
         let missing = PrLinks::open(Some(dir.path().join("absent/pr-links.json")));
         assert!(hrefs(&missing.augment("s1", JobState::default())).is_empty());
+    }
+
+    #[test]
+    fn pr_hrefs_in_keeps_interleaved_schemes_in_order() {
+        let text = "http://a.test/x https://github.com/o/r/pull/1 http://git.example.com/o/r/pulls/2 https://b.test/y";
+        assert_eq!(
+            pr_hrefs_in(text),
+            [
+                "https://github.com/o/r/pull/1",
+                "http://git.example.com/o/r/pulls/2",
+            ]
+        );
+    }
+
+    #[test]
+    fn pr_hrefs_in_drops_repeated_links_keeping_first_appearance_order() {
+        let text = "https://github.com/o/r/pull/4 https://github.com/o/r/pull/7 https://github.com/o/r/pull/4/files https://github.com/o/r/pull/7";
+        assert_eq!(
+            pr_hrefs_in(text),
+            [
+                "https://github.com/o/r/pull/4",
+                "https://github.com/o/r/pull/7",
+            ]
+        );
+    }
+
+    #[test]
+    fn pr_hrefs_in_scans_4_mib_of_non_pr_links_in_linear_time() {
+        use std::time::{Duration, Instant};
+        let entry = format!("https://example.com/x {}", "a ".repeat(30));
+        let text = entry.repeat(50_000);
+        let started = Instant::now();
+        let hrefs = pr_hrefs_in(&text);
+        let elapsed = started.elapsed();
+        assert!(hrefs.is_empty(), "no PR links are in the text");
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "took {elapsed:?} for {} bytes",
+            text.len()
+        );
     }
 }
