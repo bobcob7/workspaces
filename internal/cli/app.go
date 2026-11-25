@@ -77,6 +77,8 @@ type App struct {
 	reviewPoll time.Duration
 	// machinePoll is how often ws machine wait reads the sessions.
 	machinePoll time.Duration
+	// remotePoll is how often ws machine wait asks an environment about a child there.
+	remotePoll time.Duration
 	// continuePoll is how often ws continue --watch runs a pass.
 	continuePoll time.Duration
 	// newEnvBroker builds the daemon's MQTT broker (ADR 0074): the mochi
@@ -173,6 +175,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		getwd:          os.Getwd,
 		reviewPoll:     defaultReviewPoll,
 		machinePoll:    defaultMachinePoll,
+		remotePoll:     defaultRemoteWaitPoll,
 		continuePoll:   defaultContinuePoll,
 		awake:          power.Reader{},
 		runnerWait:     defaultRunnerWait,

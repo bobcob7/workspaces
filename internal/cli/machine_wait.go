@@ -39,23 +39,31 @@ type waitTarget struct {
 	// quiet is whether the previous poll saw it idle or stopped with no
 	// busy descendant.
 	quiet bool
+	// remote is the child on another environment, nil for a local one.
+	remote *remoteChild
+	// polled is when the environment was last asked, and last what it said.
+	polled time.Time
+	last   childState
+	// warned is whether a failure to ask the environment was reported.
+	warned bool
 }
 
 // machineWaitItemJSON is one child in ws machine wait's output.
 type machineWaitItemJSON struct {
-	ID       string                 `json:"id"`
-	Session  *string                `json:"session"`
-	Role     *string                `json:"role"`
-	Status   string                 `json:"status"`
-	Finished bool                   `json:"finished"`
-	Outcome  string                 `json:"outcome"`
-	Result   *machineResultInfoJSON `json:"result"`
-	Progress *progressJSON          `json:"progress"`
-	Rollup   *rollupJSON            `json:"rollup"`
-	Error    *itemErrorJSON         `json:"error"`
-	Runner   *string                `json:"runner"`
-	Model    *string                `json:"model"`
-	WSRunner *machineWaitRunnerJSON `json:"ws_runner"`
+	ID          string                 `json:"id"`
+	Environment string                 `json:"environment"`
+	Session     *string                `json:"session"`
+	Role        *string                `json:"role"`
+	Status      string                 `json:"status"`
+	Finished    bool                   `json:"finished"`
+	Outcome     string                 `json:"outcome"`
+	Result      *machineResultInfoJSON `json:"result"`
+	Progress    *progressJSON          `json:"progress"`
+	Rollup      *rollupJSON            `json:"rollup"`
+	Error       *itemErrorJSON         `json:"error"`
+	Runner      *string                `json:"runner"`
+	Model       *string                `json:"model"`
+	WSRunner    *machineWaitRunnerJSON `json:"ws_runner"`
 }
 
 // machineWaitRunnerJSON is a ws runner child's details in ws machine wait
@@ -133,7 +141,8 @@ func (a *App) runMachineWait(ctx context.Context, args []string, opts *machineWa
 	}
 	root := machine.Root(list, caller)
 	store := machine.NewStore(a.paths.State)
-	targets, err := a.waitTargets(args, list, caller, root, store)
+	remote := a.listRemoteChildren(ctx, caller, descendantIDs(list, caller))
+	targets, err := a.waitTargets(args, list, caller, root, store, remote)
 	if err != nil {
 		return err
 	}
@@ -142,12 +151,12 @@ func (a *App) runMachineWait(ctx context.Context, args []string, opts *machineWa
 
 // waitTargets resolves args, in order, without duplicates. Each must be a
 // descendant of caller, or a child removed with its result kept under root.
-func (a *App) waitTargets(args []string, list []workspace.Workspace, caller, root string, store *machine.Store) ([]waitTarget, error) {
+func (a *App) waitTargets(args []string, list []workspace.Workspace, caller, root string, store *machine.Store, remote []remoteChild) ([]waitTarget, error) {
 	below := descendants(list, caller)
 	targets := make([]waitTarget, 0, len(args))
 	listed := map[string]bool{}
 	for _, arg := range args {
-		t, err := a.waitTargetOf(arg, below, caller, root, store)
+		t, err := a.waitTargetOf(arg, below, caller, root, store, remote)
 		if err != nil {
 			return nil, err
 		}
@@ -161,7 +170,7 @@ func (a *App) waitTargets(args []string, list []workspace.Workspace, caller, roo
 }
 
 // waitTargetOf resolves one argument of ws machine wait.
-func (a *App) waitTargetOf(arg string, below map[string]bool, caller, root string, store *machine.Store) (waitTarget, error) {
+func (a *App) waitTargetOf(arg string, below map[string]bool, caller, root string, store *machine.Store, remote []remoteChild) (waitTarget, error) {
 	ws, err := a.workspaces.Find(arg)
 	switch {
 	case err == nil && below[ws.ID]:
@@ -171,6 +180,9 @@ func (a *App) waitTargetOf(arg string, below map[string]bool, caller, root strin
 	case !errors.Is(err, workspace.ErrNotFound):
 		return waitTarget{}, domainError(err)
 	}
+	if rc, ok := remoteByID(remote, arg); ok {
+		return waitTarget{id: arg, remote: &rc}, nil
+	}
 	rec, readErr := store.Read(root, arg)
 	if readErr != nil {
 		return waitTarget{}, fmt.Errorf("reading %s's machine record: %w", arg, readErr)
@@ -178,7 +190,7 @@ func (a *App) waitTargetOf(arg string, below map[string]bool, caller, root strin
 	if rec.Found() && slices.Contains(rec.Ancestors(), caller) {
 		return waitTarget{id: arg, gone: true}, nil
 	}
-	return waitTarget{}, domainError(err)
+	return copiedWaitTarget(store, root, arg, err)
 }
 
 // waitForChildren polls every target until they are finished (or one is,
@@ -192,7 +204,7 @@ func (a *App) waitForChildren(ctx context.Context, targets []waitTarget, root st
 		if err != nil {
 			return err
 		}
-		states := a.pollChildren(targets, listing.Workspaces, root, store, warnedRead)
+		states := a.pollChildren(ctx, targets, listing.Workspaces, root, store, warnedRead)
 		src := progressSource{store: store, root: root, list: entryWorkspaces(listing.Workspaces)}
 		if waitDone(states, opts) {
 			return a.printWait(targets, states, opts, src)
@@ -209,9 +221,13 @@ func (a *App) waitForChildren(ctx context.Context, targets []waitTarget, root st
 
 // pollChildren is one poll's state for each target, in order. A record that
 // can't be read is one warning per target, and an empty record.
-func (a *App) pollChildren(targets []waitTarget, entries []lifetime.Entry, root string, store *machine.Store, warnedRead map[string]bool) []childState {
+func (a *App) pollChildren(ctx context.Context, targets []waitTarget, entries []lifetime.Entry, root string, store *machine.Store, warnedRead map[string]bool) []childState {
 	states := make([]childState, len(targets))
 	for i := range targets {
+		if targets[i].remote != nil {
+			states[i] = a.pollRemoteTarget(ctx, &targets[i], root)
+			continue
+		}
 		id := targets[i].id
 		rec, err := store.Read(root, id)
 		if err != nil {
@@ -358,16 +374,17 @@ func (a *App) printWait(targets []waitTarget, states []childState, opts *machine
 		id := targets[i].id
 		s := &states[i]
 		item := machineWaitItemJSON{
-			ID:       id,
-			Session:  optional(s.session),
-			Role:     optional(s.record.Role()),
-			Status:   s.status,
-			Finished: s.finished,
-			Outcome:  waitOutcome(s),
-			Result:   resultInfo(&s.record),
-			Runner:   optional(s.runner),
-			Model:    optional(s.model),
-			WSRunner: s.wsRunner,
+			ID:          id,
+			Environment: targets[i].environment(),
+			Session:     optional(s.session),
+			Role:        optional(s.record.Role()),
+			Status:      s.status,
+			Finished:    s.finished,
+			Outcome:     waitOutcome(s),
+			Result:      resultInfo(&s.record),
+			Runner:      optional(s.runner),
+			Model:       optional(s.model),
+			WSRunner:    s.wsRunner,
 		}
 		item.Progress, item.Rollup = a.childProgress(src.store, src.root, src.list, id)
 		item.Error = items.add(id, waitItemError(id, s, opts, anyFinished))

@@ -457,6 +457,13 @@ func (a *App) runMachineChildren(ctx context.Context, all bool) error {
 	for i := range listed {
 		children = append(children, a.machineChild(store, root, entryWorkspaces(listing.Workspaces), &listed[i]))
 	}
+	var remoteDescendants []string
+	if all {
+		remoteDescendants = descendantIDs(entryWorkspaces(listing.Workspaces), caller)
+	}
+	for _, rc := range a.listRemoteChildren(ctx, caller, remoteDescendants) {
+		children = append(children, a.remoteMachineChild(ctx, root, &rc))
+	}
 	return a.writeJSON(machineChildrenJSON{Workspaces: children, Warnings: a.warnings()})
 }
 
@@ -519,11 +526,12 @@ func (a *App) runMachineRm(ctx context.Context, opts *machineRmOptions) error {
 	for i := range a.swept {
 		list = append(list, a.swept[i].Workspace)
 	}
+	remote := a.listRemoteChildren(ctx, caller, descendantIDs(list, caller))
 	if opts.all {
-		opts.workspaces = directChildren(list, caller)
+		opts.workspaces = append(directChildren(list, caller), directRemoteIDs(remote, caller)...)
 	}
 	opts.caller = caller
-	targets := a.rmTargets(opts.workspaces)
+	targets := attachRemote(a.rmTargets(opts.workspaces), remote)
 	refuseOutside(targets, descendants(list, caller))
 	return a.removeTargets(ctx, targets, &opts.rmOptions)
 }
@@ -544,7 +552,7 @@ func directChildren(list []workspace.Workspace, id string) []string {
 func refuseOutside(targets []rmTarget, below map[string]bool) {
 	for i := range targets {
 		t := &targets[i]
-		if t.err != nil || below[t.key()] {
+		if t.err != nil || t.remote != nil || below[t.key()] {
 			continue
 		}
 		t.err = newError(codeNotDescendant, fmt.Errorf("%s is not a workspace this one started", t.key()))
