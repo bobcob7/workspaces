@@ -151,7 +151,9 @@ fn next_scheme(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'h' && (bytes[i..].starts_with(b"http://") || bytes[i..].starts_with(b"https://")) {
+        if bytes[i] == b'h'
+            && (bytes[i..].starts_with(b"http://") || bytes[i..].starts_with(b"https://"))
+        {
             return Some(i);
         }
         i += 1;
@@ -164,7 +166,9 @@ fn next_scheme(text: &str) -> Option<usize> {
 /// trailing punctuation, and subpaths such as `/files` are dropped.
 pub fn pr_href(raw: &str) -> Option<String> {
     let before_fragment = raw.split_once('#').map_or(raw, |(url, _)| url);
-    let before_query = before_fragment.split_once('?').map_or(before_fragment, |(url, _)| url);
+    let before_query = before_fragment
+        .split_once('?')
+        .map_or(before_fragment, |(url, _)| url);
     let url = before_query.trim_end_matches(|c: char| {
         matches!(
             c,
