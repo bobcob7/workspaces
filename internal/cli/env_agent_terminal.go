@@ -148,11 +148,12 @@ func lookPathIn(env []string) (string, error) {
 			pathVar = value
 		}
 	}
+	names := executableNames("claude", env)
 	for _, dir := range filepath.SplitList(pathVar) {
 		if !filepath.IsAbs(dir) {
 			continue
 		}
-		for _, name := range executableNames("claude", env) {
+		for _, name := range names {
 			if info, err := os.Stat(filepath.Join(dir, name)); err == nil && isExecutable(info) {
 				return filepath.Join(dir, name), nil
 			}
