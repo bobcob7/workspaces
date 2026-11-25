@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/machine"
 )
 
@@ -181,11 +183,102 @@ func TestApp_runMachineWait_remoteChild(t *testing.T) {
 	})
 	t.Run("after the child is removed its copy is still read", func(t *testing.T) {
 		e := newWaitApp(t)
-		require.NoError(t, machine.NewStore(e.app.paths.State).WriteRemote("boss", linuxRef.ID, "helper", nil, &machine.Result{Verdict: "PASS", RecordedAt: testNow()}, []byte("kept")))
+		writeCopy(t, e, []string{"plan", "boss"})
 		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
 		got := parseWait(t, e.stdout.String())
 		require.Len(t, got.Children, 1)
 		assert.Equal(t, "pass", got.Children[0].Outcome)
+		assert.Equal(t, linuxRef.ID, got.Children[0].Environment)
+	})
+	t.Run("the environment is the name for a live remote child and local for a local one", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateIdle})
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper", "a"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 2)
+		assert.Equal(t, "linux", got.Children[0].Environment)
+		assert.Equal(t, "local", got.Children[1].Environment)
+	})
+	t.Run("a truncated report is a warning", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		record := remoteHelperRecord(t)
+		record.ReportTruncated = true
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, record))
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		assert.Contains(t, strings.Join(parseWait(t, e.stdout.String()).Warnings, "\n"), "cut down")
+	})
+	t.Run("a copy whose ancestors lack the caller is refused", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCopy(t, e, []string{"other", "boss"})
+		requireCode(t, codeWorkspaceNotFound, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		assert.NotContains(t, e.stdout.String(), "report")
+	})
+	t.Run("a copy with no ancestors is refused", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCopy(t, e, nil)
+		requireCode(t, codeWorkspaceNotFound, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+	})
+	t.Run("a controller not_descendant for a listed child is refused", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeNotDescendant), Message: "not a descendant"}}
+		})
+		requireCode(t, codeNotDescendant, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+	})
+	t.Run("a wait is asked once per poll interval", func(t *testing.T) {
+		e := newWaitApp(t)
+		e.app.remotePoll = time.Hour
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		var records int
+		busy := remoteHelperRecord(t)
+		busy.Result = nil
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(op string, args envproto.ScopeChildArgs) envproto.Reply {
+			if op == "record" {
+				records++
+			}
+			if op == "status" {
+				return scopeOK(t, envproto.AgentStatusResult{Session: "s", Agent: &envproto.SnapshotAgent{State: "working"}})
+			}
+			return helperAnswer(t, busy)(op, args)
+		})
+		_ = host
+		requireCode(t, codeWaitTimeout, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(50*time.Millisecond)))
+		assert.Equal(t, 1, records)
+	})
+}
+
+// writeCopy keeps a copy of helper on linux whose ancestors are ancestors.
+func writeCopy(t *testing.T, e *mockedApp, ancestors []string) {
+	t.Helper()
+	res := &machine.Result{Verdict: "PASS", Ancestors: ancestors, RecordedAt: testNow()}
+	require.NoError(t, machine.NewStore(e.app.paths.State).WriteRemote("boss", linuxRef.ID, "helper", nil, res, []byte("kept")))
+}
+
+func TestApp_remoteChildren_access(t *testing.T) {
+	t.Run("logs of a child the controller refuses is not_descendant", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeNotDescendant), Message: "not a descendant"}}
+		})
+		requireCode(t, codeNotDescendant, e.app.runMachineLogs(t.Context(), "helper", &machineLogsOptions{}))
+	})
+	t.Run("an offline environment's copy is still used by children", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		res := &machine.Result{Verdict: "PASS", Ancestors: []string{"plan", "boss"}, RecordedAt: testNow()}
+		require.NoError(t, machine.NewStore(e.app.paths.State).WriteRemote("boss", linuxRef.ID, "helper", nil, res, nil))
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
+		})
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		assert.NotEmpty(t, e.app.warned)
+		assert.Contains(t, e.stdout.String(), `"verdict":"PASS"`)
 	})
 }
 
@@ -211,6 +304,40 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
 		require.NoError(t, e.app.runMachineRm(t.Context(), removeHelper()))
 		assert.Equal(t, []string{"rm"}, childOpsOf(t, host.Calls()))
+	})
+	t.Run("--all removes the remote children too", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		opts := &machineRmOptions{all: true}
+		require.NoError(t, e.app.runMachineRm(t.Context(), opts))
+		assert.Equal(t, []string{"rm"}, childOpsOf(t, host.Calls()))
+	})
+	t.Run("--dry-run removes nothing and names the environment", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		opts := removeHelper()
+		opts.dryRun = true
+		require.NoError(t, e.app.runMachineRm(t.Context(), opts))
+		assert.Empty(t, childOpsOf(t, host.Calls()))
+		assert.Contains(t, e.stdout.String(), `"environment":"linux"`)
+	})
+	t.Run("--keep-children is forwarded", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		var got envproto.ScopeChildArgs
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(op string, args envproto.ScopeChildArgs) envproto.Reply {
+			if op == "rm" {
+				got = args
+			}
+			return helperAnswer(t, remoteHelperRecord(t))(op, args)
+		})
+		opts := removeHelper()
+		opts.keepChildren = true
+		require.NoError(t, e.app.runMachineRm(t.Context(), opts))
+		assert.True(t, got.KeepChildren)
 	})
 	t.Run("a not_descendant reply is refused with its code", func(t *testing.T) {
 		e := newMachineApp(t)
