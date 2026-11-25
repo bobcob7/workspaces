@@ -199,3 +199,15 @@
   font-size: 0.8125rem;
   opacity: 0.8;
 }
+
+@media (max-width: 720px) {
+  .parentChip {
+    position: relative;
+  }
+
+  .parentChip::after {
+    content: "";
+    position: absolute;
+    inset: -10px 0;
+  }
+}

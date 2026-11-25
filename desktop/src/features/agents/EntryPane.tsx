@@ -535,6 +535,7 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
                     size="small"
                     variant="outlined"
                     clickable
+                    className={styles.parentChip}
                     label={`↳ ${parent.name}`}
                     title={
                       crossParent
