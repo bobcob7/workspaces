@@ -27,7 +27,7 @@ test-windows:
 	go test -p 2 -run TestRunner_program ./internal/shell || rc=1; \
 	go test -p 2 -run TestUserHome ./internal/claude || rc=1; \
 	go test -p 2 -run TestTerminalSignals ./internal/cli || rc=1; \
-	go test -p 2 -run 'TestTerminalEnvAllowed_windows|TestExecutableNames|TestLookPathIn_windows' ./internal/cli || rc=1; \
+	go test -p 2 -run 'TestTerminalEnvAllowed_windows|TestExecutableNames|TestLookPathIn_windows|TestAgentOperations_TerminalCommand_windows' ./internal/cli || rc=1; \
 	exit $$rc
 
 # The fakes (ADR 0067) are test tools, built here and never shipped.
