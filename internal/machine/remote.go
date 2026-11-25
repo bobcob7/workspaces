@@ -65,7 +65,7 @@ func (s *Store) ReadRemote(root, envID, child string) (Record, error) {
 // FindRemote is the environment whose complete copy of child under root is
 // kept, and whether there is one. It is how a child removed from its
 // environment is read again without its environment's id.
-func (s *Store) FindRemote(root, child string) (envID string, found bool, err error) {
+func (s *Store) FindRemote(root, child string) (string, bool, error) {
 	if err := checkComponents(root, child); err != nil {
 		return "", false, err
 	}

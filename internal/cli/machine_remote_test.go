@@ -73,11 +73,11 @@ func remoteHelperChild(t *testing.T) envproto.ScopeChild {
 }
 
 // remoteHelperRecord is helper's machine record on linux: PASS with a report.
-func remoteHelperRecord(t *testing.T) envproto.MachineRecordResult {
+func remoteHelperRecord(t *testing.T) *envproto.MachineRecordResult {
 	t.Helper()
 	role := remoteHelperRole
 	report := "the helper's report"
-	return envproto.MachineRecordResult{
+	return &envproto.MachineRecordResult{
 		Workspace: "helper",
 		Role:      &role,
 		Result:    &envproto.RecordResult{Verdict: "PASS", Outcome: "pass", RecordedAt: testNow()},
@@ -108,12 +108,15 @@ func serveChildHost(t *testing.T, e *mockedApp, children []envproto.ScopeChild, 
 
 // removeHelper is ws machine rm of the remote child helper.
 func removeHelper() *machineRmOptions {
-	return &machineRmOptions{rmOptions: rmOptions{workspaces: []string{"helper"}}}
+	opts := &machineRmOptions{}
+	opts.workspaces = []string{"helper"}
+	return opts
 }
 
 // helperAnswer answers helper's record and status and its logs and removal
 // from the given record and logs.
-func helperAnswer(t *testing.T, record envproto.MachineRecordResult) func(string, envproto.ScopeChildArgs) envproto.Reply {
+func helperAnswer(t *testing.T, record *envproto.MachineRecordResult) func(string, envproto.ScopeChildArgs) envproto.Reply {
+	t.Helper()
 	return func(childOp string, _ envproto.ScopeChildArgs) envproto.Reply {
 		switch childOp {
 		case "record":
@@ -224,5 +227,25 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
 		})
 		requireCode(t, codeEnvironmentOffline, e.app.runMachineRm(t.Context(), removeHelper()))
+	})
+}
+
+func TestApp_nestRemoteProgress(t *testing.T) {
+	t.Run("a remote child is a leaf under its parent, with its reported progress", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		record := remoteHelperRecord(t)
+		record.Progress = json.RawMessage(`{"name":"login","total":3,"done":2,"note":null,"updated_at":"2026-11-24T10:00:00Z"}`)
+		record.Rollup = json.RawMessage(`{"total":3,"done":2,"fraction":0.6666666666666666}`)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, record))
+		node, err := e.app.callerProgress()
+		require.NoError(t, err)
+		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
+		require.Len(t, node.Children, 3)
+		leaf := node.Children[len(node.Children)-1]
+		assert.Equal(t, "helper", leaf.ID)
+		require.NotNil(t, leaf.Progress)
+		assert.Equal(t, 2, leaf.Progress.Done)
+		assert.Equal(t, 3, leaf.Progress.Total)
 	})
 }
