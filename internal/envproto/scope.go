@@ -139,6 +139,16 @@ type ScopeChild struct {
 	Parent      string          `json:"parent"`
 	Role        *string         `json:"role"`
 	Entry       json.RawMessage `json:"entry"` // ws list JSON object from the snapshot, or null
+	// Rollup is the child's steps with everything below it on every
+	// environment, merged by the controller; null when its environment's
+	// snapshot doesn't list it (ADR 0083).
+	Rollup *ScopeRollup `json:"rollup"`
+}
+
+// ScopeRollup is the steps of a scope child and everything below it.
+type ScopeRollup struct {
+	Total int `json:"total"`
+	Done  int `json:"done"`
 }
 
 // scopeOpSpec returns the rule of a scope operation or machine.record.
