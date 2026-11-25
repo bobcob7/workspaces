@@ -53,10 +53,10 @@ func (a *Agent) scopeReply(ctx context.Context, op string, body []byte) []byte {
 		return envproto.ErrorReply("usage", "a scope request needs a workspace")
 	}
 	workspace := *caller.Workspace
-	if err := CheckWorkspaceRef(a.opts.WorkspacesRoot, workspace); err != nil {
+	if err = CheckWorkspaceRef(a.opts.WorkspacesRoot, workspace); err != nil {
 		return refusalReply(err)
 	}
-	if _, err := os.Stat(filepath.Join(a.opts.WorkspacesRoot, workspace)); err != nil {
+	if _, err = os.Stat(filepath.Join(a.opts.WorkspacesRoot, workspace)); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return envproto.ErrorReply("workspace_not_found", fmt.Sprintf("no workspace %q on this environment", workspace))
 		}

@@ -34,7 +34,7 @@ func newFakeLink() *fakeLink {
 	return &fakeLink{closed: make(chan struct{})}
 }
 
-func (l *fakeLink) Connect(context.Context, envproto.ConnectOptions) error { return nil }
+func (*fakeLink) Connect(context.Context, envproto.ConnectOptions) error { return nil }
 
 func (l *fakeLink) Publish(_ context.Context, msg envproto.Message) error { //nolint:gocritic // hugeParam: Publish has the mqttClient signature.
 	if !strings.HasSuffix(msg.Topic, "/"+envproto.LeafUp) {
@@ -60,7 +60,7 @@ func (l *fakeLink) Subscribe(_ context.Context, filter string, fn func(envproto.
 
 func (l *fakeLink) Done() <-chan struct{} { return l.closed }
 
-func (l *fakeLink) Close() error { return nil }
+func (*fakeLink) Close() error { return nil }
 
 // deliver hands msg to the agent's request subscription, as the broker would.
 func (l *fakeLink) deliver(msg envproto.Message) { //nolint:gocritic // hugeParam: the subscription takes the message by value.
@@ -92,7 +92,7 @@ func answerUps(link *fakeLink) {
 
 // newUpAgent is an agent over a fresh fixture's identity and a fake link.
 // Its workspaces root is empty, and renewal is kept off the link.
-func newUpAgent(t *testing.T, opts Options) (*Agent, *fakeLink, Identity) {
+func newUpAgent(t *testing.T, opts Options) (*Agent, *fakeLink, Identity) { //nolint:gocritic // hugeParam: Options is passed by value, as NewAgent takes it.
 	t.Helper()
 	fx := startAgentFixture(t)
 	opts.WorkspacesRoot = t.TempDir()
@@ -116,7 +116,7 @@ func connectAgent(t *testing.T, agent *Agent, id *Identity) context.CancelFunc {
 func postScope(t *testing.T, agent *Agent, route, body string) (int, envproto.Reply) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/scope/"+route, strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/scope/"+route, strings.NewReader(body))
 	agent.SocketHandler().ServeHTTP(rec, req)
 	var reply envproto.Reply
 	if rec.Code == http.StatusOK {
@@ -180,7 +180,10 @@ func TestAgent_Up(t *testing.T) {
 		for _, n := range []string{"1", "2"} {
 			wg.Go(func() {
 				reply, err := agent.Up(t.Context(), envproto.OpScopeEnvs, json.RawMessage(`{"n":`+n+`}`))
-				assert.NoError(t, err)
+				if err != nil {
+					t.Errorf("Up: %v", err)
+					return
+				}
 				assert.JSONEq(t, `{"n":`+n+`}`, string(reply.Result))
 			})
 		}
@@ -231,7 +234,7 @@ func TestAgent_Up(t *testing.T) {
 		cancel()
 		select {
 		case err := <-errs:
-			assert.True(t, errors.Is(err, errDisconnected), "got %v", err)
+			require.ErrorIs(t, err, errDisconnected)
 		case <-time.After(5 * time.Second):
 			t.Fatal("Up still waits after the disconnect")
 		}

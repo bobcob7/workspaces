@@ -229,7 +229,7 @@ func TestAgentOperations_Run(t *testing.T) {
 
 func TestNewAgentOperations_newApp(t *testing.T) {
 	app, _, _ := newTestApp()
-	ops := newAgentOperations(app, envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"})
+	ops := newAgentOperations(app, &envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"})
 	var out, errb bytes.Buffer
 	got := ops.newApp(&out, &errb)
 	require.NotSame(t, app, got)
@@ -248,7 +248,7 @@ func TestNewAgentOperations_newApp(t *testing.T) {
 
 func TestAgentOperations_concurrent(t *testing.T) {
 	app, _, _ := newTestApp()
-	ops := newAgentOperations(app, envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"})
+	ops := newAgentOperations(app, &envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"})
 	var wg sync.WaitGroup
 	var outs [2]bytes.Buffer
 	var errs [2]bytes.Buffer
@@ -333,7 +333,7 @@ func agentStateApp(t *testing.T) (*agentOperations, string) {
 	t.Helper()
 	app, _, _ := newTestApp()
 	app.paths = config.NewPaths(t.TempDir())
-	return newAgentOperations(app, envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"}), app.paths.State
+	return newAgentOperations(app, &envagent.Identity{ID: "env-1a2b3c4d", Name: "linux-server"}), app.paths.State
 }
 
 func TestAgentOperations_grantWorkspace(t *testing.T) {
@@ -367,9 +367,9 @@ func TestAgentOperations_grantWorkspace(t *testing.T) {
 		ops, state := agentStateApp(t)
 		require.NoError(t, ops.grantWorkspace("helper-1a2b3c4d", &envproto.CreateArgs{}))
 		_, err := os.Stat(envscope.Path(state, "helper-1a2b3c4d"))
-		assert.ErrorIs(t, err, fs.ErrNotExist)
+		require.ErrorIs(t, err, fs.ErrNotExist)
 		_, err = os.Stat(machine.NewStore(state).Dir("helper-1a2b3c4d", "helper-1a2b3c4d"))
-		assert.ErrorIs(t, err, fs.ErrNotExist)
+		require.ErrorIs(t, err, fs.ErrNotExist)
 	})
 	t.Run("a write that fails is an error", func(t *testing.T) {
 		ops, state := agentStateApp(t)

@@ -150,7 +150,7 @@ func (a *App) runEnvAgentRun(ctx context.Context) error {
 	defer stop()
 	probe := agentClaude{claude: claude.New(log, "claude", a.environ)}
 	opts := agentOptions(a.version, a.config.Environments.RenewDays(), a.paths.Workspaces)
-	ops := newAgentOperations(a, id)
+	ops := newAgentOperations(a, &id)
 	agent := envagent.NewAgent(log, files, client, agentSnapshots{app: a}, probe, ops, rand.Reader, opts)
 	agent.SetLoopTicker(agentLoops{newApp: ops.newApp, root: a.paths.Root})
 	socketCtx, stopSocket := context.WithCancel(ctx)
