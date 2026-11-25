@@ -26,6 +26,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/gate"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/mqttclient"
 )
 
@@ -296,6 +297,44 @@ func TestAgentSnapshots_Workspaces(t *testing.T) {
 		assert.Contains(t, string(data), `"id":"quiet"`)
 		assert.NotContains(t, string(data), "stray")
 	})
+	t.Run("a workspace's progress and rollup are included", func(t *testing.T) {
+		app := snapshotApp(t, []lifetime.Entry{{Workspace: listedWorkspace("impl")}})
+		require.NoError(t, machine.NewStore(app.paths.State).WriteProgress("impl", "impl", &machine.Progress{Name: "impl", Total: 2, Done: 1}))
+		data, err := agentSnapshots{app: app}.Workspaces(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"progress":{"name":"impl","total":2,"done":1,"note":null,`)
+		assert.Contains(t, string(data), `"rollup":{"total":2,"done":1,"fraction":0.5}`)
+	})
+	t.Run("the progress note is left out", func(t *testing.T) {
+		app := snapshotApp(t, []lifetime.Entry{{Workspace: listedWorkspace("impl")}})
+		require.NoError(t, machine.NewStore(app.paths.State).WriteProgress("impl", "impl", &machine.Progress{Name: "impl", Total: 2, Done: 1, Note: "waiting for win-rig"}))
+		data, err := agentSnapshots{app: app}.Workspaces(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"note":null`)
+		assert.NotContains(t, string(data), "waiting for win-rig")
+	})
+	t.Run("a child's steps reach its parent's rollup", func(t *testing.T) {
+		child := listedWorkspace("a")
+		child.Parent = "boss"
+		app := snapshotApp(t, []lifetime.Entry{{Workspace: listedWorkspace("boss")}, {Workspace: child}})
+		store := machine.NewStore(app.paths.State)
+		require.NoError(t, store.WriteProgress("boss", "boss", &machine.Progress{Total: 1}))
+		require.NoError(t, store.WriteProgress("boss", "a", &machine.Progress{Total: 2, Done: 1}))
+		data, err := agentSnapshots{app: app}.Workspaces(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"id":"boss"`)
+		assert.Contains(t, string(data), `"rollup":{"total":3,"done":1,"fraction":0.3333333333333333}`)
+	})
+}
+
+// snapshotApp is an App under test whose workspaces are entries, for
+// agentSnapshots.Workspaces, with progress written under its state directory.
+func snapshotApp(t *testing.T, entries []lifetime.Entry) *App {
+	t.Helper()
+	app, _, _ := newEnvTestApp(t)
+	e := newListApp(entries, nil)
+	app.lifetime, app.workspaces = e.lifetime, e.store
+	return app
 }
 
 func TestAgentSnapshots_Loops(t *testing.T) {
