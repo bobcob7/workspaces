@@ -222,6 +222,17 @@ describe("sweptWithRemoval", () => {
     expect([...sweptWithRemoval(listed, root)]).toEqual(["linux-server:ip-linux"]);
   });
 
+  it("keeps a child whose scopeParent has the removed workspaceId on a different environment", () => {
+    const lookalike = entry({
+      key: "linux-server:lookalike",
+      workspaceId: "lookalike",
+      environment: "linux-server",
+      scopeParent: { environment: "win-rig", workspaceId: root.workspaceId! },
+    });
+    const listed = [{ entry: lookalike, depth: 1 }];
+    expect([...sweptWithRemoval(listed, root)]).toEqual([]);
+  });
+
   it("keeps a child that names a parent on its own environment", () => {
     const linux = remote("ip-linux", "linux-server", root);
     const sibling = remote("sib", "linux-server", linux);
