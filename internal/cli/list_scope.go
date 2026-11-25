@@ -38,7 +38,7 @@ func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON) {
 	}
 	states := newScopeStates(a, recs)
 	self := a.scopeSelf()
-	ledger := a.readLedger()
+	ledger := a.readLedger() //nolint:contextcheck // the scope ledger reads take no context (ADR 0082)
 	for i := range entries {
 		e := &entries[i]
 		if e.ID == nil {

@@ -31,10 +31,10 @@ func runScopeList(t *testing.T, e *mockedApp) listJSON {
 }
 
 // putLedgerEntry writes entry into app's scope ledger.
-func putLedgerEntry(t *testing.T, app *App, entry envscope.Entry) {
+func putLedgerEntry(t *testing.T, app *App, entry *envscope.Entry) {
 	t.Helper()
 	entry.CreatedAt = testNow()
-	require.NoError(t, envscope.NewLedger(app.paths.Environments).Put(t.Context(), &entry))
+	require.NoError(t, envscope.NewLedger(app.paths.Environments).Put(t.Context(), entry))
 }
 
 // writeLocalScope writes the scope file of workspace id on app's machine.
@@ -71,7 +71,7 @@ func entryOf(t *testing.T, got listJSON, env, id string) listEntryJSON {
 func TestApp_annotateScopes(t *testing.T) {
 	t.Run("a remote child gets scope_parent local from the ledger", func(t *testing.T) {
 		e, rec := remoteChildSetup(t)
-		putLedgerEntry(t, e.app, envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-1"}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-1"}})
 		got := runScopeList(t, e)
 		assert.Equal(t, &scopeParentJSON{Environment: "local", Workspace: "plan-1"}, entryOf(t, got, "linux-server", "ip-1").ScopeParent)
 	})
@@ -79,13 +79,13 @@ func TestApp_annotateScopes(t *testing.T) {
 		e, rec := remoteChildSetup(t)
 		parent := addEnvironment(t, e.app, "win-rig")
 		enrollEnvironment(t, e.app, parent)
-		putLedgerEntry(t, e.app, envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: parent.ID, Workspace: "plan-2"}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: parent.ID, Workspace: "plan-2"}})
 		got := runScopeList(t, e)
 		assert.Equal(t, &scopeParentJSON{Environment: "win-rig", Workspace: "plan-2"}, entryOf(t, got, "linux-server", "ip-1").ScopeParent)
 	})
 	t.Run("a person grant has scope but no scope_parent", func(t *testing.T) {
 		e, rec := remoteChildSetup(t)
-		putLedgerEntry(t, e.app, envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}})
 		got := entryOf(t, runScopeList(t, e), "linux-server", "ip-1")
 		assert.Nil(t, got.ScopeParent)
 		assert.Equal(t, []envproto.ScopeEnv{
@@ -118,7 +118,7 @@ func TestApp_annotateScopes(t *testing.T) {
 	})
 	t.Run("a scope of only its own environment is null", func(t *testing.T) {
 		e, rec := remoteChildSetup(t)
-		putLedgerEntry(t, e.app, envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{rec.ID}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{rec.ID}})
 		assert.Nil(t, entryOf(t, runScopeList(t, e), "linux-server", "ip-1").Scope)
 	})
 	t.Run("an invalid scope file is a warning and null", func(t *testing.T) {
@@ -144,11 +144,9 @@ func TestApp_annotateScopes(t *testing.T) {
 	t.Run("without a ledger or scope files nothing dials the daemon", func(t *testing.T) {
 		e, _ := remoteChildSetup(t)
 		ln := listenDaemon(t, e.app)
-		id, remoteID := "ws-a", "ip-1"
-		entries := []listEntryJSON{
-			{listWorkspaceJSON: listWorkspaceJSON{ID: &id}, Environment: localEnvironment},
-			{listWorkspaceJSON: listWorkspaceJSON{ID: &remoteID}, Environment: "linux-server"},
-		}
+		local, remote := listEntryJSON{Environment: localEnvironment}, listEntryJSON{Environment: "linux-server"}
+		local.ID, remote.ID = new("ws-a"), new("ip-1")
+		entries := []listEntryJSON{local, remote}
 		e.app.annotateScopes(t.Context(), entries)
 		assert.Nil(t, entries[0].Scope)
 		assert.Nil(t, entries[1].ScopeParent)
@@ -156,7 +154,7 @@ func TestApp_annotateScopes(t *testing.T) {
 	})
 	t.Run("a removed parent environment gives a null scope_parent", func(t *testing.T) {
 		e, rec := remoteChildSetup(t)
-		putLedgerEntry(t, e.app, envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: removedEnvID, Workspace: "plan-3"}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: removedEnvID, Workspace: "plan-3"}})
 		assert.Nil(t, entryOf(t, runScopeList(t, e), "linux-server", "ip-1").ScopeParent)
 	})
 }
