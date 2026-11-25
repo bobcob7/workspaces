@@ -167,6 +167,23 @@ func writeSnapshotAt(t *testing.T, f scopeFixture, workspaces string, received t
 	require.NoError(t, f.store.WriteSnapshot("env-b", data))
 }
 
+// writeSnapshotOf stores a snapshot of environment name listing workspaces (a JSON array).
+func writeSnapshotOf(t *testing.T, f scopeFixture, name, workspaces string) {
+	t.Helper()
+	rec, err := f.store.Get(name)
+	require.NoError(t, err)
+	snap := envproto.Snapshot{At: f.c.now().UTC(), Protocol: envproto.Protocol, Workspaces: json.RawMessage(workspaces), Agents: []envproto.SnapshotAgent{}, Loops: []envproto.SnapshotLoop{}}
+	data, err := json.Marshal(SnapshotFile{
+		Version:    snapshotVersion,
+		ID:         rec.ID,
+		Name:       name,
+		ReceivedAt: f.c.now().UTC().Format(time.RFC3339),
+		Snapshot:   mustJSON(t, snap),
+	})
+	require.NoError(t, err)
+	require.NoError(t, f.store.WriteSnapshot(name, data))
+}
+
 func TestController_Scope(t *testing.T) {
 	t.Run("spawn refuses a claim wider than the ledger ceiling", func(t *testing.T) {
 		ctx := guardContext(t)
@@ -500,6 +517,64 @@ func TestController_Scope(t *testing.T) {
 		require.NoError(t, json.Unmarshal(reply.Result, &result))
 		require.Len(t, result.Children, 1)
 		assert.Equal(t, "c-1", result.Children[0].Workspace)
+	})
+	t.Run("children carry the merged rollup", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b", "env-c")
+		a, b, c := f.env("env-a"), f.env("env-b"), f.env("env-c")
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
+			Parent: &envscope.Parent{Environment: a.id, Workspace: "w"}, CreatedAt: f.c.now().UTC(),
+		}))
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: c.id, Workspace: "g-1", Scope: []string{c.id},
+			Parent: &envscope.Parent{Environment: b.id, Workspace: "c-1"}, CreatedAt: f.c.now().UTC(),
+		}))
+		writeSnapshotOf(t, f, "env-b", `[{"id":"c-1","rollup":{"total":2,"done":1}}]`)
+		writeSnapshotOf(t, f, "env-c", `[{"id":"g-1","rollup":{"total":1,"done":1}}]`)
+		reply := f.c.Scope(t.Context(), a.id, "children", mustJSON(t, envproto.ScopeChildrenArgs{
+			ScopeCallerArgs: callerArgs(new("w"), nil),
+		}))
+		require.True(t, reply.OK, "%+v", reply.Error)
+		var result envproto.ScopeChildrenResult
+		require.NoError(t, json.Unmarshal(reply.Result, &result))
+		require.Len(t, result.Children, 1)
+		assert.Equal(t, &envproto.ScopeRollup{Total: 3, Done: 2}, result.Children[0].Rollup)
+	})
+	t.Run("children not in their snapshot have a null rollup", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a, b := f.env("env-a"), f.env("env-b")
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
+			Parent: &envscope.Parent{Environment: a.id, Workspace: "w"}, CreatedAt: f.c.now().UTC(),
+		}))
+		writeSnapshotOf(t, f, "env-b", `[{"id":"other","rollup":{"total":2,"done":1}}]`)
+		reply := f.c.Scope(t.Context(), a.id, "children", mustJSON(t, envproto.ScopeChildrenArgs{
+			ScopeCallerArgs: callerArgs(new("w"), nil),
+		}))
+		require.True(t, reply.OK, "%+v", reply.Error)
+		var result envproto.ScopeChildrenResult
+		require.NoError(t, json.Unmarshal(reply.Result, &result))
+		require.Len(t, result.Children, 1)
+		assert.Nil(t, result.Children[0].Rollup)
+		assert.JSONEq(t, `null`, string(result.Children[0].Entry))
+		assert.JSONEq(t, `{"children":[{"environment":"env-b","workspace":"c-1","parent":"w","role":null,"entry":null,"rollup":null}]}`, string(reply.Result))
+	})
+	t.Run("a snapshot rollup out of range counts as zero", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a, b := f.env("env-a"), f.env("env-b")
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
+			Parent: &envscope.Parent{Environment: a.id, Workspace: "w"}, CreatedAt: f.c.now().UTC(),
+		}))
+		writeSnapshotOf(t, f, "env-b", `[{"id":"c-1","rollup":{"total":2,"done":3}}]`)
+		reply := f.c.Scope(t.Context(), a.id, "children", mustJSON(t, envproto.ScopeChildrenArgs{
+			ScopeCallerArgs: callerArgs(new("w"), nil),
+		}))
+		require.True(t, reply.OK, "%+v", reply.Error)
+		var result envproto.ScopeChildrenResult
+		require.NoError(t, json.Unmarshal(reply.Result, &result))
+		require.Len(t, result.Children, 1)
+		assert.Equal(t, &envproto.ScopeRollup{Total: 0, Done: 0}, result.Children[0].Rollup)
 	})
 	t.Run("child forwards status, logs, record and rm, and rm removes the entry", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b")
