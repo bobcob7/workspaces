@@ -3,6 +3,9 @@ package environment
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -67,6 +70,17 @@ func (l localFake) Exists(id string) (bool, error) {
 	return ok, nil
 }
 
+// brokenLocal is a LocalScopes whose workspace store can't be read.
+type brokenLocal struct{}
+
+func (brokenLocal) Scope(string) (envscope.Scope, error) {
+	return envscope.Scope{}, errors.New("store unreadable")
+}
+
+func (brokenLocal) Exists(string) (bool, error) {
+	return false, errors.New("store unreadable")
+}
+
 // env is the fixture's environment called name.
 func (f scopeFixture) env(name string) callFixture {
 	return f.envs[name]
@@ -95,11 +109,11 @@ func spawnArgs(claimed []string, target string, narrow []string) envproto.ScopeS
 	}
 }
 
-// childArgs is a scope.child from workspace ws on the child's parent, on environment env.
-func childArgs(ws, env, child, parent, op string) envproto.ScopeChildArgs {
+// childArgs is a scope.child from workspace ws on the child's parent, on environment env-b.
+func childArgs(ws, child, parent, op string) envproto.ScopeChildArgs {
 	return envproto.ScopeChildArgs{
 		ScopeCallerArgs: callerArgs(&ws, nil),
-		Environment:     env,
+		Environment:     "env-b",
 		Child:           child,
 		Parent:          parent,
 		Op:              op,
@@ -163,7 +177,7 @@ func TestController_Scope(t *testing.T) {
 			CreatedAt:   f.c.now().UTC(),
 		}))
 		requests := b.captureRequests(t)
-		reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("p-1", "env-b", "c-1", "p-1", "rm")))
+		reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("p-1", "c-1", "p-1", "rm")))
 		assertScopeError(t, reply, "not_descendant")
 		assert.Empty(t, requests.messages())
 	})
@@ -217,18 +231,97 @@ func TestController_Scope(t *testing.T) {
 		assertScopeError(t, reply, "environment_out_of_scope")
 		assert.Empty(t, requests.messages())
 	})
-	t.Run("spawn to an unknown environment is environment_unknown", func(t *testing.T) {
+	t.Run("spawn to an unenrolled name outside the scope is environment_out_of_scope", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a")
 		a := f.env("env-a")
 		f.grant(t, a.id, a.id)
 		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id}, "nope", nil)))
-		details := assertScopeError(t, reply, "environment_unknown")
+		details := assertScopeError(t, reply, "environment_out_of_scope")
 		assert.Equal(t, "nope", details["environment"])
+		assert.Equal(t, []string{"env-a"}, details["allowed"])
+	})
+	t.Run("spawn to a removed environment in the local scope is environment_unknown", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a")
+		gone := envscope.Ref{ID: "env-1a2b3c4d", Name: "gone"}
+		scope, err := envscope.New(envscope.Ref{ID: envscope.Local, Name: envscope.Local}, []envscope.Ref{gone})
+		require.NoError(t, err)
+		f.localWS["w"] = scope
+		reply := f.c.Scope(t.Context(), envscope.Local, "spawn", mustJSON(t, spawnArgs(nil, "gone", nil)))
+		details := assertScopeError(t, reply, "environment_unknown")
+		assert.Equal(t, "gone", details["environment"])
+	})
+	t.Run("spawn refuses a target the claim leaves out of the ceiling", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a, b := f.env("env-a"), f.env("env-b")
+		f.grant(t, a.id, a.id, b.id)
+		requests := b.captureRequests(t)
+		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{"id":"h-1a2b3c4d"}`)})
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id}, "env-b", nil)))
+		assertScopeError(t, reply, "environment_out_of_scope")
+		assert.Empty(t, requests.messages())
+	})
+	t.Run("spawn narrowed to a name outside the scope is environment_out_of_scope", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a, b := f.env("env-a"), f.env("env-b")
+		f.grant(t, a.id, a.id, b.id)
+		requests := b.captureRequests(t)
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id}, "env-b", []string{"nope"})))
+		details := assertScopeError(t, reply, "environment_out_of_scope")
+		assert.Equal(t, "nope", details["environment"])
+		assert.Empty(t, requests.messages())
+	})
+	t.Run("spawn on the caller's own environment is usage", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a")
+		a := f.env("env-a")
+		f.grant(t, a.id, a.id)
+		requests := a.captureRequests(t)
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id}, "env-a", nil)))
+		assertScopeError(t, reply, "usage")
+		assert.Empty(t, requests.messages())
+	})
+	t.Run("a failed ledger write removes the child and is internal", func(t *testing.T) {
+		f := newScopeFixture(t, "env-b")
+		b := f.env("env-b")
+		scope, err := envscope.New(envscope.Ref{ID: envscope.Local, Name: envscope.Local}, []envscope.Ref{{ID: b.id, Name: "env-b"}})
+		require.NoError(t, err)
+		f.localWS["w"] = scope
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "scopes.json"), []byte("not json"), 0o600))
+		f.c.SetLocalScopes(localFake{ws: f.localWS}, envscope.NewLedger(dir))
+		requests := b.captureRequests(t)
+		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{"id":"h-1a2b3c4d"}`)})
+		reply := f.c.Scope(t.Context(), envscope.Local, "spawn", mustJSON(t, spawnArgs(nil, "env-b", nil)))
+		assertScopeError(t, reply, "internal")
+		sent := requests.messages()
+		require.Len(t, sent, 2)
+		assert.Equal(t, envproto.OpWorkspaceCreate, requestOf(t, &sent[0]).Op)
+		req := requestOf(t, &sent[1])
+		assert.Equal(t, envproto.OpWorkspaceRm, req.Op)
+		var rm envproto.RmArgs
+		require.NoError(t, json.Unmarshal(req.Args, &rm))
+		assert.Equal(t, "h-1a2b3c4d", rm.Workspace)
+	})
+	t.Run("spawn takes the ceiling from an ancestor's ledger entry", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a, b := f.env("env-a"), f.env("env-b")
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: a.id, Workspace: "anc", Scope: []string{a.id, b.id}, CreatedAt: f.c.now().UTC(),
+		}))
+		requests := b.captureRequests(t)
+		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{"id":"h-1a2b3c4d"}`)})
+		withAncestor := spawnArgs([]string{a.id, b.id}, "env-b", nil)
+		withAncestor.Ancestors = []string{"anc"}
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, withAncestor))
+		require.True(t, reply.OK, "%+v", reply.Error)
+		require.Len(t, requests.messages(), 1)
+		withoutAncestor := spawnArgs([]string{a.id, b.id}, "env-b", nil)
+		reply = f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, withoutAncestor))
+		assertScopeError(t, reply, "environment_out_of_scope")
 	})
 	t.Run("child of a workspace the ledger doesn't hold is workspace_not_found", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b")
 		a := f.env("env-a")
-		reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("w", "env-b", "c-9", "w", "status")))
+		reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("w", "c-9", "w", "status")))
 		assertScopeError(t, reply, "workspace_not_found")
 	})
 	t.Run("spawn to an outdated agent is environment_outdated", func(t *testing.T) {
@@ -338,7 +431,7 @@ func TestController_Scope(t *testing.T) {
 		requests := b.captureRequests(t)
 		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{}`)})
 		for _, op := range []string{"status", "logs", "record", "rm"} {
-			reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("w", "env-b", "c-1", "w", op)))
+			reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("w", "c-1", "w", op)))
 			require.True(t, reply.OK, "%s: %+v", op, reply.Error)
 		}
 		sent := requests.messages()
@@ -347,6 +440,43 @@ func TestController_Scope(t *testing.T) {
 		assert.Equal(t, envproto.OpAgentLogs, requestOf(t, &sent[1]).Op)
 		assert.Equal(t, envproto.OpMachineRecord, requestOf(t, &sent[2]).Op)
 		assert.Equal(t, envproto.OpWorkspaceRm, requestOf(t, &sent[3]).Op)
+		_, found, err := f.ledger.Get(b.id, "c-1")
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
+	t.Run("child refuses a ledger parent workspace other than the claimed parent", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a, b := f.env("env-a"), f.env("env-b")
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
+			Parent: &envscope.Parent{Environment: a.id, Workspace: "p-1"}, CreatedAt: f.c.now().UTC(),
+		}))
+		requests := b.captureRequests(t)
+		reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("other", "c-1", "other", "rm")))
+		assertScopeError(t, reply, "not_descendant")
+		assert.Empty(t, requests.messages())
+	})
+	t.Run("child refuses a child of a person's grant", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a, b := f.env("env-a"), f.env("env-b")
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id}, CreatedAt: f.c.now().UTC(),
+		}))
+		requests := b.captureRequests(t)
+		reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("w", "c-1", "w", "status")))
+		assertScopeError(t, reply, "not_descendant")
+		assert.Empty(t, requests.messages())
+	})
+	t.Run("rm of a child the environment doesn't have removes the ledger entry", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a, b := f.env("env-a"), f.env("env-b")
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
+			Parent: &envscope.Parent{Environment: a.id, Workspace: "w"}, CreatedAt: f.c.now().UTC(),
+		}))
+		b.answerRequests(t, envproto.Reply{Error: &envproto.ReplyError{Code: "workspace_not_found", Message: "no workspace c-1"}})
+		reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("w", "c-1", "w", "rm")))
+		assertScopeError(t, reply, "workspace_not_found")
 		_, found, err := f.ledger.Get(b.id, "c-1")
 		require.NoError(t, err)
 		assert.False(t, found)
@@ -418,6 +548,36 @@ func TestController_sweepLedger(t *testing.T) {
 		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
 			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
 			Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "w"}, CreatedAt: f.c.now().UTC().Add(time.Minute),
+		}))
+		requests := b.captureRequests(t)
+		f.c.sweepLedger(t.Context())
+		assert.Empty(t, requests.messages())
+		_, found, err := f.ledger.Get(b.id, "c-1")
+		require.NoError(t, err)
+		assert.True(t, found)
+	})
+	t.Run("a store read error keeps the entry and sends nothing", func(t *testing.T) {
+		f := newScopeFixture(t, "env-b")
+		b := f.env("env-b")
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
+			Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "w"}, CreatedAt: f.c.now().UTC(),
+		}))
+		require.NoError(t, os.WriteFile(f.store.recordPath(b.id), []byte("{"), 0o600))
+		requests := b.captureRequests(t)
+		f.c.sweepLedger(t.Context())
+		assert.Empty(t, requests.messages())
+		_, found, err := f.ledger.Get(b.id, "c-1")
+		require.NoError(t, err)
+		assert.True(t, found)
+	})
+	t.Run("a parent check that fails keeps the entry", func(t *testing.T) {
+		f := newScopeFixture(t, "env-b")
+		b := f.env("env-b")
+		f.c.SetLocalScopes(brokenLocal{}, f.ledger)
+		require.NoError(t, f.ledger.Put(t.Context(), &envscope.Entry{
+			Environment: b.id, Workspace: "c-1", Scope: []string{b.id},
+			Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "w"}, CreatedAt: f.c.now().UTC(),
 		}))
 		requests := b.captureRequests(t)
 		f.c.sweepLedger(t.Context())
