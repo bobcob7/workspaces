@@ -732,3 +732,32 @@ func TestController_sweepLedger(t *testing.T) {
 		assert.False(t, found)
 	})
 }
+
+func TestController_cleanupSurvivesCancelledContext(t *testing.T) {
+	t.Run("a ledger write that fails on a cancelled context still removes the child", func(t *testing.T) {
+		f := newScopeFixture(t, "env-b")
+		b := f.env("env-b")
+		requests := b.captureRequests(t)
+		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{}`)})
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		args := spawnArgs(nil, "env-b", nil)
+		target := envscope.Ref{ID: b.id, Name: "env-b"}
+		reply := f.c.recordChild(ctx, envscope.Local, &args, target, envscope.Scope{}, envproto.Reply{OK: true, Result: json.RawMessage(`{"id":"h-1a2b3c4d"}`)})
+		assertScopeError(t, reply, "internal")
+		require.Eventually(t, func() bool { return len(requests.messages()) == 1 }, time.Second, 10*time.Millisecond)
+		assert.Equal(t, envproto.OpWorkspaceRm, requestOf(t, &requests.messages()[0]).Op)
+	})
+	t.Run("a dropped ledger entry is removed although the request context is done", func(t *testing.T) {
+		f := newScopeFixture(t, "env-b")
+		b := f.env("env-b")
+		entry := envscope.Entry{Environment: b.id, Workspace: "c-1", Scope: []string{b.id}, CreatedAt: f.c.now().UTC()}
+		require.NoError(t, f.ledger.Put(t.Context(), &entry))
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		f.c.dropEntry(ctx, &entry)
+		_, found, err := f.ledger.Get(b.id, "c-1")
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
+}

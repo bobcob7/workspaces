@@ -21,6 +21,8 @@ const (
 	sweepInterval = time.Minute
 	// snapshotFresh is how old a snapshot may be and still say what an environment runs.
 	snapshotFresh = 90 * time.Second
+	// cleanupTimeout bounds cleanup that must run after the request's context is done.
+	cleanupTimeout = 10 * time.Second
 	// stateRemoved is the scope state of an environment with no record.
 	stateRemoved = "removed"
 	// codeUsage is the error code of a request the controller refuses as malformed.
@@ -346,7 +348,9 @@ func (c *Controller) recordChild(ctx context.Context, caller string, a *envproto
 		CreatedAt:   c.now().UTC(),
 	}
 	if err := c.ledger.Put(ctx, &entry); err != nil {
-		if _, rmErr := c.forward(ctx, target.Name, envproto.OpWorkspaceRm, envproto.RmArgs{Workspace: created.ID}, ""); rmErr != nil {
+		cleanup, cancel := cleanupContext(ctx)
+		defer cancel()
+		if _, rmErr := c.forward(cleanup, target.Name, envproto.OpWorkspaceRm, envproto.RmArgs{Workspace: created.ID}, ""); rmErr != nil {
 			c.log.WarnContext(ctx, "orphaned child not removed", "environment", target.Name, "error", rmErr)
 		}
 		return scopeFailure(fmt.Errorf("recording the child: %w", err))
@@ -471,9 +475,7 @@ func (c *Controller) scopeChild(ctx context.Context, caller string, a *envproto.
 		return scopeFailure(err)
 	}
 	if a.Op == "rm" && (reply.OK || errorCode(reply) == "workspace_not_found") {
-		if err := c.ledger.Remove(ctx, rec.ID, a.Child); err != nil {
-			c.log.WarnContext(ctx, "scope ledger entry not removed", "child", a.Child, "error", err)
-		}
+		c.dropEntry(ctx, &envscope.Entry{Environment: rec.ID, Workspace: a.Child})
 	}
 	return reply
 }
@@ -616,8 +618,15 @@ func (c *Controller) freshSnapshot(name string, since time.Time) (envproto.Snaps
 	return snap, true
 }
 
+// cleanupContext is a context for cleanup that must finish although ctx is done: it keeps ctx's values, drops its cancellation and ends after cleanupTimeout.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+}
+
 // dropEntry removes a ledger entry, logging a failure.
 func (c *Controller) dropEntry(ctx context.Context, e *envscope.Entry) {
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	if err := c.ledger.Remove(ctx, e.Environment, e.Workspace); err != nil {
 		c.log.WarnContext(ctx, "scope ledger entry not dropped", "workspace", e.Workspace, "error", err)
 	}
