@@ -111,6 +111,7 @@ func guideTopicsFromReview() []string {
 		"machine result",
 		"machine wait",
 		"machine children",
+		"machine envs",
 		"machine logs",
 		"machine rm",
 		"machine roles",

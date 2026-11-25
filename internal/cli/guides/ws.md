@@ -43,8 +43,9 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   `ws machine children` lists them. If work must outlive you, ask a
   person to start it.
 - On a remote environment, `ws machine spawn` and `ws review start` run on
-  that machine, and your children are there too. You never choose an
-  environment.
+  that machine, and your children are there too. You may start a child on
+  another environment only with `ws machine spawn --env <name>`, and only on
+  one in your scope (`ws machine envs`); a person grants the scope.
 - Removing a workspace discards everything in it, whatever its git state.
   Push, or copy out, anything worth keeping before `ws machine rm` or
   `claude rm`.
@@ -186,7 +187,7 @@ messages aren't.
 | 1    | Failed                        | `fetch_failed`, `clone_failed`, `git_failed`, `claude_missing`, `claude_untrusted`, `claude_failed`, `config_invalid`, `config_uneditable`, `internal`, `review_invalid`, `review_unverifiable`, `review_timeout`, `gh_missing`, `gh_auth`, `loop_script_failed`, `child_failed`, `wait_timeout`, `daemon_unavailable`, `endpoint_unreachable`, `model_without_tools`, `runner_failed`, `enrollment_failed`, `environment_offline`, `environment_outdated`, `operation_limited`, `artifact_unreachable`, `platform_unsupported` |
 | 2    | Usage error                   | `usage`, `spec_invalid`, `name_invalid`, `profile_unknown`, `profile_invalid`, `outside_workspace`, `loop_invalid`, `result_invalid`, `role_invalid`, `config_key_unknown`, `config_value_invalid`, `memory_invalid`, `progress_invalid`, `artifact_invalid` |
 | 3    | Not found or ambiguous        | `repo_not_found`, `repo_ambiguous`, `ref_not_found`, `workspace_not_found`, `review_not_found`, `pr_not_found`, `finding_not_found`, `loop_not_found`, `role_unknown`, `memory_not_found`, `endpoint_unknown`, `model_not_served`, `environment_unknown`, `artifact_unknown`, `anchor_not_found` |
-| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin`, `memory_conflict`, `memory_full`, `not_loop_run`, `daemon_running`, `environment_exists`, `enrollment_used`, `ca_in_use`, `environment_mismatch`, `terminal_limit`, `artifact_conflict`, `artifact_full`, `artifact_forbidden` |
+| 4    | Refused, to protect something | `workspace_exists`, `shell_running`, `workspace_busy`, `session_mismatch`, `profile_exists`, `profile_builtin`, `child_kept`, `not_descendant`, `loop_exists`, `loop_skipped`, `role_exists`, `role_builtin`, `memory_conflict`, `memory_full`, `not_loop_run`, `daemon_running`, `environment_exists`, `enrollment_used`, `ca_in_use`, `environment_mismatch`, `terminal_limit`, `artifact_conflict`, `artifact_full`, `artifact_forbidden`, `environment_out_of_scope` |
 
 Once its shell has started, `ws shell` exits with the shell's exit code
 instead. `ws claude` that attached a terminal exits with `claude attach`'s.
@@ -203,6 +204,7 @@ For agents:
   - `ws llm machine result`: record your verdict and report for the agent that started you
   - `ws llm machine wait`: wait for children to finish, then print each one's verdict
   - `ws llm machine children`: list the workspaces yours started
+  - `ws llm machine envs`: list the environments your children may start on
   - `ws llm machine logs`: print a child's log: a `ws` child's transcript, or a Claude child's `claude logs`
   - `ws llm machine rm`: remove workspaces yours started, and theirs
   - `ws llm machine roles`: the roles children can be started as

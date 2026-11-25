@@ -5,6 +5,7 @@ ws machine spawn [--runner claude|ws] [--endpoint <name>] [--name <name>] [--off
 ws machine wait [--any] [--timeout <duration>] <workspace>...
 ws machine result <VERDICT> [--file <path> | --file -]
 ws machine children [--all]
+ws machine envs
 ws machine logs [--tail <n>] <workspace>
 ws machine rm [--dry-run] [--keep-children] (<workspace>... | --all)
 ws machine roles [show | add | edit | rm] …
@@ -54,6 +55,8 @@ changes nothing. Errors are one JSON line on stderr.
   document, and to read a screenshot or log a person uploaded: `get` copies it
   into your workspace and prints its path; `add` and `put` store your file for
   them to read and comment on.
+- `ws machine envs` to see which environments your children may start on,
+  before `ws machine spawn --env <name>`.
 - `ws machine children` to find your helpers and reviews, and check on
   their sessions and results.
 - `ws machine logs` to see what a child did and why it stopped, once

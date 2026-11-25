@@ -24,7 +24,7 @@ func TestApp_runMachineEnvs(t *testing.T) {
 	})
 	t.Run("a scope with environments is the controller's list", func(t *testing.T) {
 		e := newMachineApp(t)
-		writeScopeFile(t, e.app.paths.State, "plan", "granted", linuxRef)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
 		host := serveScopeHost(t, e.app, scopeOK(t, envproto.ScopeEnvsResult{Environments: []envproto.ScopeEnv{
 			{Name: "local", ID: "local", State: "online", Current: true},
 			{Name: "linux", ID: linuxRef.ID, State: "offline", Current: false},
@@ -37,7 +37,7 @@ func TestApp_runMachineEnvs(t *testing.T) {
 	t.Run("a daemon that isn't running lists the scope file's environments as unknown, with a warning", func(t *testing.T) {
 		e := newMachineApp(t)
 		e.app.environ = append(e.app.environ, "WS_DAEMON_AUTOSTART=0")
-		writeScopeFile(t, e.app.paths.State, "plan", "granted", linuxRef)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
 		require.NoError(t, e.app.runMachineEnvs(t.Context()))
 		var out struct {
 			Environments []struct {

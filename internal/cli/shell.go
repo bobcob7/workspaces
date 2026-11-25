@@ -47,6 +47,9 @@ func (a *App) newShellCmd() *cobra.Command {
 // until the workspace is gone, so the workspace never looks abandoned in
 // between. Once the shell has run, ws exits with its status (ADR 0016).
 func (a *App) runShell(ctx context.Context, opts *shellOptions) error {
+	if err := a.refuseScopeFlagsInWorkspace("ws shell", opts.env, nil); err != nil {
+		return err
+	}
 	name, remote, err := a.remoteTarget(opts.env)
 	if err != nil {
 		return err

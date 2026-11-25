@@ -16,6 +16,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -31,6 +32,9 @@ type claudeOptions struct {
 	envScope   []string
 	specs      []string
 	claudeArgs []string
+	// scope, when set, is the scope the new workspace gets; ws machine spawn
+	// sets it. Otherwise it comes from the parent or the person's grant (ADR 0082).
+	scope *childScope
 	// started, when set, runs after the session is recorded and before the
 	// result is printed (ADR 0050).
 	started func(ws *workspace.Workspace, session string)
@@ -57,6 +61,7 @@ func (a *App) newClaudeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.env, "env", "", "run it on this environment (ws env list); default: local, or the parent's")
 	cmd.Flags().StringVar(&opts.runner, "runner", config.RunnerClaude, "claude or ws: which agent runs it; a ws agent needs a prompt and can't be attached")
 	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "with --runner ws, another endpoint from config.toml")
+	cmd.Flags().StringSliceVar(&opts.envScope, "env-scope", nil, "environments the new workspace may start children on (ws env list, or local); repeatable")
 	return cmd
 }
 
@@ -175,6 +180,9 @@ func (a *App) checkArtifactsExist(ids []string) error {
 // interrupted or hung up on; otherwise ws prints the result and exits.
 // With --runner ws it starts a runner agent instead (runWSClaude).
 func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
+	if err := a.refuseScopeFlagsInWorkspace("ws claude", opts.env, opts.envScope); err != nil {
+		return err
+	}
 	runOn, parentID, err := a.remoteParent(ctx, opts.env, opts.parent)
 	if err != nil {
 		return err
@@ -196,6 +204,10 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err != nil {
 		return err
 	}
+	scope, err := a.startScope(opts, parent)
+	if err != nil {
+		return err
+	}
 	ws, lock, err := a.workspaces.Create(ctx, workspace.CreateOptions{Name: opts.name, Specs: parseSpecs(opts.specs), Offline: opts.offline, Hidden: opts.hidden, Parent: parent, Environment: a.environment})
 	if err != nil {
 		a.printWarnings()
@@ -207,6 +219,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 		return err
 	}
 	lock.Unlock()
+	a.writeChildScope(ws.ID, scope)
 	if opts.started != nil {
 		opts.started(&ws, started.ID)
 	}
@@ -216,19 +229,56 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	return a.printClaudeResult(&ws, started.ID, opts.result)
 }
 
+// startScope is the scope of a workspace ws claude starts: the one opts
+// carries, else the parent's when it has one, else what the person granted
+// with --env-scope or default_scope (ADR 0082, design 1.1).
+func (a *App) startScope(opts *claudeOptions, parent string) (childScope, error) {
+	if opts.scope != nil {
+		return *opts.scope, nil
+	}
+	if parent != "" && len(opts.envScope) == 0 {
+		return childScope{scope: a.workspaceScope(parent), source: "inherited"}, nil
+	}
+	grant, err := a.grantScope(opts.envScope)
+	if err != nil {
+		return childScope{}, err
+	}
+	return childScope{scope: grant, source: "granted"}, nil
+}
+
 // runRemoteClaude builds envproto.CreateArgs from opts (kind runner for
-// --runner ws; the prompt and --model from after "--"), calls
-// workspace.create on environment env, and prints the agent's result with
-// "environment" added (D9). It never attaches.
+// --runner ws; the prompt and --model from after "--"), creates the workspace
+// on environment env, and prints the agent's result with "environment" added
+// (D9). It never attaches.
 func (a *App) runRemoteClaude(ctx context.Context, opts *claudeOptions, env, parent string) error {
 	args, err := remoteCreateArgs(opts, parent)
 	if err != nil {
 		return err
 	}
-	result, err := a.callEnvironment(ctx, env, envproto.OpWorkspaceCreate, args)
+	grant, err := a.grantScope(opts.envScope)
 	if err != nil {
 		return err
 	}
+	result, err := a.createRemote(ctx, env, args, grant)
+	if err != nil {
+		return err
+	}
+	return a.printRemoteCreated(result, env)
+}
+
+// createRemote creates a workspace on env. A grant wider than this machine
+// goes through scope.spawn, so the ledger records the child; anything else is
+// the environment's workspace.create (ADR 0082).
+func (a *App) createRemote(ctx context.Context, env string, args *envproto.CreateArgs, grant envscope.Scope) (json.RawMessage, error) {
+	if !grant.WiderThanSelf() {
+		return a.callEnvironment(ctx, env, envproto.OpWorkspaceCreate, args)
+	}
+	return a.callScope(ctx, grant.Self(), "spawn", envproto.ScopeSpawnArgs{Target: env, Narrow: grant.Names(), Create: *args})
+}
+
+// printRemoteCreated prints the result of a workspace created on env, with
+// "environment" added in JSON (D9).
+func (a *App) printRemoteCreated(result json.RawMessage, env string) error {
 	object, err := remoteObject(result, env)
 	if err != nil {
 		return err
@@ -357,6 +407,10 @@ func (a *App) runWSClaude(ctx context.Context, opts *claudeOptions) error {
 	if err != nil {
 		return err
 	}
+	scope, err := a.startScope(opts, parent)
+	if err != nil {
+		return err
+	}
 	started, err := a.startRunnerAgent(ctx, runnerStart{
 		Name: opts.name, Parent: parent, Endpoint: opts.endpoint, Model: model,
 		Specs: opts.specs, Hidden: opts.hidden, Offline: opts.offline, Prompt: prompt,
@@ -364,6 +418,7 @@ func (a *App) runWSClaude(ctx context.Context, opts *claudeOptions) error {
 	if err != nil {
 		return err
 	}
+	a.writeChildScope(started.Workspace.ID, scope)
 	return a.printClaudeResult(&started.Workspace, started.Session, func(r claudeResult) any {
 		r.Runner = lifetime.RunnerWS
 		r.Model = optional(started.Resolved.ModelID)

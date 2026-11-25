@@ -36,7 +36,9 @@ is removed by a later `ws` command once nothing from the shell runs.
 With `--env`, the shell runs on that environment's machine, in a workspace
 that lives for as long as this terminal is open. `ws` puts the terminal in
 raw mode, sends keystrokes and size changes to the shell, and shows its
-output; it needs a terminal on stdin (`usage` otherwise). When the shell
+output; it needs a terminal on stdin (`usage` otherwise). Inside a
+workspace, `--env` is refused (`usage`): an agent never picks an environment
+with `ws shell`. When the shell
 exits, `ws shell` exits with its status. The local terminal is restored on
 every exit. If the environment goes offline, the shell ends and `ws shell`
 exits 1 (`environment_offline`). The agent allows 8 terminals at once

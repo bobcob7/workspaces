@@ -19,7 +19,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker envClient environmentCaller terminalOpener remoteTerminal
+//go:generate go tool moq -out moq_test.go . configLoader repoCache workspaceStore lifetimeManager shellRunner claudeClient ghClient runnerDaemon envBroker envClient environmentCaller scopeCaller terminalOpener remoteTerminal
 
 // configLoader resolves CONFIG_DIR and reads config.toml.
 type configLoader interface {
@@ -72,6 +72,12 @@ type runnerDaemon interface {
 // environmentCaller is the daemon's call endpoint (daemon.Client).
 type environmentCaller interface {
 	CallEnvironment(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error)
+}
+
+// scopeCaller is the scope endpoint of the daemon, or of an agent's socket
+// (daemon.Client; ADR 0082).
+type scopeCaller interface {
+	Scope(ctx context.Context, op string, args any) (envproto.Reply, error)
 }
 
 // terminalOpener opens a remote terminal through the daemon (daemon.Client).
