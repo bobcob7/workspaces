@@ -40,11 +40,12 @@ pub fn attention_of(status: Status) -> Attention {
     }
 }
 
-/// An agent in a workspace, with no parent, not hidden (ADRs 0043, 0044).
+/// An agent in a workspace, with no parent, not hidden (ADRs 0043, 0044, 0082).
 pub fn is_tracked(entry: &Entry) -> bool {
     entry.kind == Kind::Agent
         && entry.workspace_id.is_some()
         && entry.parent_id.is_none()
+        && entry.scope_parent.is_none()
         && !entry.hidden
 }
 
@@ -300,6 +301,8 @@ pub(crate) mod testing {
             environment: "local".to_string(),
             environment_online: true,
             snapshot_stale: false,
+            scope_parent: None,
+            scope: None,
         }
     }
 }
@@ -308,7 +311,7 @@ pub(crate) mod testing {
 mod tests {
     use super::testing::entry;
     use super::*;
-    use crate::model::WsLoopRun;
+    use crate::model::{ScopeParent, WsLoopRun};
 
     fn c(key: &str, attention: Attention) -> Candidate {
         Candidate {
@@ -376,6 +379,13 @@ mod tests {
         let mut child = entry("a", Status::Done);
         child.parent_id = Some("p".to_string());
         assert!(!is_tracked(&child));
+
+        let mut scoped_child = entry("a", Status::Done);
+        scoped_child.scope_parent = Some(ScopeParent {
+            environment: "local".to_string(),
+            workspace_id: "p".to_string(),
+        });
+        assert!(!is_tracked(&scoped_child));
 
         let mut no_workspace = entry("a", Status::Done);
         no_workspace.workspace_id = None;

@@ -9,6 +9,10 @@ use serde_json::Value;
 /// How long a session without a process counts as starting, as in
 /// `ws list` (ADR 0024).
 const STARTING_WINDOW_MS: i64 = 10_000;
+/// Most scope environments kept per entry (envscope.MaxEntries).
+const MAX_SCOPE_ENVS: usize = 64;
+/// Longest environment name, id or workspace id kept.
+const MAX_SCOPE_FIELD: usize = 128;
 
 #[derive(Debug, Deserialize)]
 pub struct WsList {
@@ -58,6 +62,29 @@ pub struct WsWorkspace {
     /// The state of the remote agent that runs the session.
     #[serde(default)]
     pub agent_state: Option<String>,
+    /// The parent of a cross-environment child, null otherwise (ADR 0082).
+    #[serde(default)]
+    pub scope_parent: Option<WsScopeParent>,
+    /// The environments the workspace may start children on, null otherwise (ADR 0082).
+    #[serde(default)]
+    pub scope: Option<Vec<WsScopeEnv>>,
+}
+
+/// A cross-environment child's parent, from `ws list`'s `scope_parent` (ADR 0082).
+#[derive(Debug, Deserialize)]
+pub struct WsScopeParent {
+    pub environment: String,
+    pub workspace: String,
+}
+
+/// One environment of a workspace's scope, from `ws list`'s `scope`.
+#[derive(Debug, Deserialize)]
+pub struct WsScopeEnv {
+    pub id: String,
+    pub name: String,
+    pub state: String,
+    #[serde(default)]
+    pub current: bool,
 }
 
 /// A workspace's `progress` from `ws list` (ADR 0077).
@@ -290,6 +317,27 @@ pub struct Entry {
     pub environment_online: bool,
     /// The entry's snapshot of a remote environment is old.
     pub snapshot_stale: bool,
+    /// The parent of a cross-environment child (ADR 0082).
+    pub scope_parent: Option<ScopeParent>,
+    /// The environments the entry may start children on, when wider (ADR 0082).
+    pub scope: Option<Vec<ScopeEnv>>,
+}
+
+/// A cross-environment child's parent: where it was started from (ADR 0082).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeParent {
+    pub environment: String,
+    pub workspace_id: String,
+}
+
+/// One environment a workspace may start children on, with its state (ADR 0082).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ScopeEnv {
+    pub id: String,
+    pub name: String,
+    pub state: String,
+    pub current: bool,
 }
 
 /// The model id shown for an agent: `claude-sonnet-5-5` reads `sonnet-5-5`.
@@ -444,7 +492,53 @@ fn workspace_entry(ws: WsWorkspace, job_for: &dyn Fn(&str) -> Option<JobState>) 
         environment,
         environment_online,
         snapshot_stale,
+        scope_parent: scope_parent_of(ws.scope_parent),
+        scope: scope_of(ws.scope),
     }
+}
+
+/// Whether s is non-empty, at most MAX_SCOPE_FIELD bytes, with no control character.
+fn plain_field(s: &str) -> bool {
+    !s.is_empty() && s.len() <= MAX_SCOPE_FIELD && !s.chars().any(char::is_control)
+}
+
+/// The parent, or None when a field isn't plain.
+fn scope_parent_of(parent: Option<WsScopeParent>) -> Option<ScopeParent> {
+    let parent = parent?;
+    (plain_field(&parent.environment) && plain_field(&parent.workspace)).then_some(ScopeParent {
+        environment: parent.environment,
+        workspace_id: parent.workspace,
+    })
+}
+
+/// A state `ws` reports as one of the three known ones, else "unknown".
+fn scope_state(state: &str) -> &'static str {
+    match state {
+        "online" => "online",
+        "offline" => "offline",
+        "removed" => "removed",
+        _ => "unknown",
+    }
+}
+
+fn scope_env_of(env: WsScopeEnv) -> Option<ScopeEnv> {
+    (plain_field(&env.id) && plain_field(&env.name)).then(|| ScopeEnv {
+        state: scope_state(&env.state).to_string(),
+        id: env.id,
+        name: env.name,
+        current: env.current,
+    })
+}
+
+/// At most MAX_SCOPE_ENVS items whose id and name are plain; a state other
+/// than online, offline or removed reads "unknown"; None when nothing is left.
+fn scope_of(scope: Option<Vec<WsScopeEnv>>) -> Option<Vec<ScopeEnv>> {
+    let envs: Vec<ScopeEnv> = scope?
+        .into_iter()
+        .take(MAX_SCOPE_ENVS)
+        .filter_map(scope_env_of)
+        .collect();
+    (!envs.is_empty()).then_some(envs)
 }
 
 /// What runs an agent. `ws` says so; a Claude agent that doesn't say is
@@ -486,6 +580,8 @@ fn session_entry(agent: &ClaudeAgent, id: &str, job: Option<JobState>, now_ms: i
         environment: "local".to_string(),
         environment_online: true,
         snapshot_stale: false,
+        scope_parent: None,
+        scope: None,
     }
 }
 
@@ -530,6 +626,7 @@ pub fn warning_text(warning: &Value) -> String {
 mod tests {
     use super::*;
     use crate::jobs::{JobChild, JobOutput};
+    use serde_json::json;
 
     const NOW: i64 = 1_800_000_000_000;
 
@@ -947,5 +1044,112 @@ mod tests {
             serde_json::from_str(r#"["plain", {"code":"x","message":"from object"}, 3]"#).unwrap();
         let texts: Vec<_> = warnings.iter().map(warning_text).collect();
         assert_eq!(texts, ["plain", "from object", "3"]);
+    }
+
+    fn env_json(id: &str, name: &str, state: &str, current: bool) -> Value {
+        json!({"id": id, "name": name, "state": state, "current": current})
+    }
+
+    fn merged_scope(scope_parent: Value, scope: Value) -> Entry {
+        let list = serde_json::from_value(json!({"workspaces": [{
+            "id": "ip-win", "path": "/r/ip-win", "environment": "win-rig",
+            "environment_status": "online", "stale": false,
+            "session": {"kind": "agent", "id": "s1", "state": "idle"},
+            "scope_parent": scope_parent, "scope": scope,
+        }]}))
+        .unwrap();
+        merge(Some(list), &[], &|_| None, NOW).remove(0)
+    }
+
+    #[test]
+    fn scope_parent_and_scope_are_read_and_serialized() {
+        let entry = merged_scope(
+            json!({"environment": "local", "workspace": "plan"}),
+            json!([
+                env_json("local", "local", "online", true),
+                env_json("env_b", "win-rig", "offline", false),
+            ]),
+        );
+        assert_eq!(
+            entry.scope_parent,
+            Some(ScopeParent {
+                environment: "local".to_string(),
+                workspace_id: "plan".to_string(),
+            })
+        );
+        assert_eq!(entry.scope.as_ref().map(Vec::len), Some(2));
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(
+            json["scopeParent"],
+            json!({"environment": "local", "workspaceId": "plan"})
+        );
+        assert_eq!(
+            json["scope"][1],
+            json!({"id": "env_b", "name": "win-rig", "state": "offline", "current": false})
+        );
+    }
+
+    #[test]
+    fn missing_scope_fields_are_none_and_null() {
+        let entries = merge(Some(remote_list("idle", "")), &[], &|_| None, NOW);
+        let json = serde_json::to_value(&entries[0]).unwrap();
+        assert_eq!(entries[0].scope_parent, None);
+        assert_eq!(entries[0].scope, None);
+        assert!(json["scopeParent"].is_null());
+        assert!(json["scope"].is_null());
+    }
+
+    #[test]
+    fn scope_keeps_at_most_64_items() {
+        let items: Vec<Value> = (0..70)
+            .map(|i| env_json(&format!("env_{i}"), &format!("e{i}"), "online", false))
+            .collect();
+        let scope = merged_scope(Value::Null, Value::Array(items))
+            .scope
+            .unwrap();
+        assert_eq!(scope.len(), 64);
+        assert_eq!(scope[63].id, "env_63");
+    }
+
+    #[test]
+    fn scope_drops_items_with_a_bad_id_or_name() {
+        let entry = merged_scope(
+            Value::Null,
+            json!([
+                env_json("env_a", "ok", "online", false),
+                env_json("env_b", &"n".repeat(129), "online", false),
+                env_json("", "empty id", "online", false),
+                env_json("env_c", "new\nline", "online", false),
+            ]),
+        );
+        let scope = entry.scope.unwrap();
+        assert_eq!(scope.len(), 1);
+        assert_eq!(scope[0].id, "env_a");
+    }
+
+    #[test]
+    fn scope_reads_an_unknown_state_as_unknown() {
+        let entry = merged_scope(Value::Null, json!([env_json("env_a", "a", "weird", false)]));
+        assert_eq!(entry.scope.unwrap()[0].state, "unknown");
+    }
+
+    #[test]
+    fn scope_with_no_plain_items_is_none() {
+        let entry = merged_scope(Value::Null, json!([env_json("", "a", "online", false)]));
+        assert_eq!(entry.scope, None);
+    }
+
+    #[test]
+    fn scope_parent_with_an_empty_or_control_field_is_none() {
+        let empty_workspace = merged_scope(
+            json!({"environment": "local", "workspace": ""}),
+            Value::Null,
+        );
+        assert_eq!(empty_workspace.scope_parent, None);
+        let control = merged_scope(
+            json!({"environment": "lo\tcal", "workspace": "plan"}),
+            Value::Null,
+        );
+        assert_eq!(control.scope_parent, None);
     }
 }
