@@ -26,6 +26,14 @@ const plainSummary = (entry: Entry): string => {
   return entry.kind === "agent" && entry.workspaceId === null ? "Not in a workspace" : "Empty workspace";
 };
 
+/** The parent's name and, when it's on another environment, where it runs (ADR 0082). */
+const parentLabel = (parentName: string | null, parentEnvironment: string | null): string | null => {
+  if (parentEnvironment === null) {
+    return parentName === null ? null : `↳ ${parentName} · `;
+  }
+  return parentName === null ? `from ${parentEnvironment} · ` : `↳ ${parentName} on ${parentEnvironment} · `;
+};
+
 const agentSummary = (entry: Entry): string =>
   (entry.runner === "ws" ? stepLabel(entry.wsRunner) : null) ?? plainSummary(entry);
 
@@ -40,11 +48,18 @@ export interface EntryRowProps {
   readonly onClick: () => void;
   /** The name of the workspace it was started from, if that's listed (ADR 0044). */
   readonly parentName?: string | null;
+  /** The environment of the workspace it was started from, when that's another environment (ADR 0082). */
+  readonly parentEnvironment?: string | null;
 }
 
 /** An agent or workspace as a two-line list row, as the Agents list shows it. */
-export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRowProps): JSX.Element => {
+export const EntryRow = ({ entry, current, onClick, parentName = null, parentEnvironment = null }: EntryRowProps): JSX.Element => {
   const dimmed = !entry.environmentOnline || entry.snapshotStale;
+  const label = parentLabel(parentName, parentEnvironment);
+  const badgeTitle =
+    parentEnvironment === null
+      ? undefined
+      : `Runs on ${entry.environment}; started from ${parentEnvironment} with ws machine spawn --env`;
   return (
     <button
       type="button"
@@ -57,7 +72,7 @@ export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRo
       <span className={styles.row}>
         <StatusDot status={entry.status} />
         <span className={styles.name}>{entry.name}</span>
-        {entry.environment !== "local" && <EnvBadge label={entry.environment} />}
+        {entry.environment !== "local" && <EnvBadge label={entry.environment} title={badgeTitle} />}
         {!entry.environmentOnline && (
           <EnvBadge label="offline" warn title={`${entry.environment} is offline; the last known status is shown`} />
         )}
@@ -68,7 +83,7 @@ export const EntryRow = ({ entry, current, onClick, parentName = null }: EntryRo
       </span>
       <span className={styles.summaryLine}>
         <span className={styles.summary}>
-          {parentName !== null && <span className={styles.parent}>↳ {parentName} · </span>}
+          {label !== null && <span className={styles.parent}>{label}</span>}
           {summary(entry)}
         </span>
         {entry.model !== null && <span className={styles.modelLabel}>{entry.model}</span>}

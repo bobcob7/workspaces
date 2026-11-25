@@ -1,5 +1,5 @@
 import type { Entry } from "../../api";
-import { byRecency, groupOf, type StatusFilter } from "./status";
+import { byRecency, groupOf, isChildOf, type StatusFilter } from "./status";
 
 /** The Agents list's filters (ADR 0058). */
 export interface TreeFilter {
@@ -21,13 +21,12 @@ export interface TreeNode {
   readonly children: readonly TreeNode[];
 }
 
-/** The listed entry on the same environment that entry was started from, or undefined. */
-export const parentOf = (entries: readonly Entry[], entry: Entry): Entry | undefined => {
-  if (entry.parentId === null) {
-    return undefined;
-  }
-  return entries.find((e) => e.workspaceId === entry.parentId && e.environment === entry.environment && e.key !== entry.key);
-};
+/** The listed entry that entry was started from, on its own environment or another one (ADR 0082), or undefined. */
+export const parentOf = (entries: readonly Entry[], entry: Entry): Entry | undefined =>
+  entries.find((e) => isChildOf(entry, e));
+
+/** Whether entry has a parent link, listed or not. */
+export const hasParent = (entry: Entry): boolean => entry.parentId !== null || entry.scopeParent !== null;
 
 /** Keys of the ancestors of the entry with key, nearest first; [] for a root or an unknown key. Stops before repeating a key, so a cycle ends. */
 export const ancestorKeys = (entries: readonly Entry[], key: string): readonly string[] => {

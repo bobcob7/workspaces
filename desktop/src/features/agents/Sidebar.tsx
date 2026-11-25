@@ -29,6 +29,12 @@ import styles from "./Sidebar.module.css";
 /** The listed name of the workspace entry was started from, or null. */
 const parentName = (entries: readonly Entry[], entry: Entry): string | null => parentOf(entries, entry)?.name ?? null;
 
+/** The environment of the workspace entry was started from, when it's another one, or null (ADR 0082). */
+const parentEnvironmentOf = (entries: readonly Entry[], entry: Entry): string | null => {
+  const parent = parentOf(entries, entry);
+  return parent !== undefined && parent.environment !== entry.environment ? parent.environment : null;
+};
+
 interface TreeListProps {
   readonly nodes: readonly TreeNode[];
   readonly depth: number;
@@ -36,10 +42,13 @@ interface TreeListProps {
   readonly expanded: Readonly<Record<string, boolean>>;
   readonly auto: ReadonlySet<string>;
   readonly selectedKey: string | null;
+  /** The name and environment of the parent these nodes hang from, for those on another environment (ADR 0082). */
+  readonly parentName?: string;
+  readonly parentEnvironment?: string;
 }
 
 const TreeList = (props: TreeListProps): JSX.Element => {
-  const { nodes, depth, id, expanded, auto, selectedKey } = props;
+  const { nodes, depth, id, expanded, auto, selectedKey, parentName, parentEnvironment } = props;
   return (
     <ul id={id} className={depth === 0 ? styles.list : styles.children} data-capped={depth > 5 ? "true" : undefined}>
       {nodes.map((node) => (
@@ -50,6 +59,8 @@ const TreeList = (props: TreeListProps): JSX.Element => {
           expanded={expanded}
           auto={auto}
           selectedKey={selectedKey}
+          parentName={parentName}
+          parentEnvironment={parentEnvironment}
         />
       ))}
     </ul>
@@ -61,11 +72,12 @@ interface TreeItemProps extends Omit<TreeListProps, "nodes" | "id"> {
 }
 
 const TreeItem = (props: TreeItemProps): JSX.Element => {
-  const { node, depth, expanded, auto, selectedKey } = props;
+  const { node, depth, expanded, auto, selectedKey, parentName, parentEnvironment } = props;
   const dispatch = useAppDispatch();
   const childListId = useId();
   const open = isOpen(node.entry.key, expanded, auto);
   const hasChildren = node.children.length > 0;
+  const crossEnvironment = parentEnvironment !== undefined && parentEnvironment !== node.entry.environment;
   return (
     <li data-context={node.match ? undefined : "true"} data-hidden={node.entry.hidden ? "true" : undefined}>
       <div className={styles.node}>
@@ -88,6 +100,8 @@ const TreeItem = (props: TreeItemProps): JSX.Element => {
         <EntryRow
           entry={node.entry}
           current={node.entry.key === selectedKey}
+          parentName={crossEnvironment ? (parentName ?? null) : null}
+          parentEnvironment={crossEnvironment ? parentEnvironment : null}
           onClick={() => dispatch(selected(node.entry.key))}
         />
       </div>
@@ -99,6 +113,8 @@ const TreeItem = (props: TreeItemProps): JSX.Element => {
           expanded={expanded}
           auto={auto}
           selectedKey={selectedKey}
+          parentName={node.entry.name}
+          parentEnvironment={node.entry.environment}
         />
       )}
     </li>
@@ -173,6 +189,7 @@ export const Sidebar = (): JSX.Element => {
                   entry={entry}
                   current={entry.key === selectedKey}
                   parentName={parentName(entries, entry)}
+                  parentEnvironment={parentEnvironmentOf(entries, entry)}
                   onClick={() => dispatch(selected(entry.key))}
                 />
               </li>
