@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/agent"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/machine"
@@ -65,6 +66,12 @@ type listEntryJSON struct {
 	// AgentState is the state of the remote agent that runs the entry's
 	// session, or null (D9).
 	AgentState *string `json:"agent_state"`
+	// ScopeParent is a cross-environment child's parent from the controller's
+	// scope ledger, or null (ADR 0082).
+	ScopeParent *scopeParentJSON `json:"scope_parent"`
+	// Scope is the environments the workspace may start children on when wider
+	// than its own, or null (ADR 0082).
+	Scope []envproto.ScopeEnv `json:"scope"`
 }
 
 type listWorkspaceJSON struct {
@@ -160,6 +167,7 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	entries, rows, hidden := joinListings(listings)
 	switch {
 	case a.global.json:
+		a.annotateScopes(ctx, entries)
 		return a.writeJSON(listJSON{Workspaces: entries, HiddenCount: hidden, Warnings: a.warnings()})
 	case opts.idsOnly:
 		for i := range entries {

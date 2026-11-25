@@ -98,11 +98,11 @@ func TestApp_runList(t *testing.T) {
 		assert.JSONEq(t, `{"workspaces":[
 			{"id":"fix-login","name":"Fix login","path":"/cfg/workspaces/fix-login","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"agent","id":"e8cdf5d8","state":"stopped","pid":null,"stale":false,"runner":"claude","model":"claude-sonnet-5-5","ws_runner":null},
-			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"agent_state":null,"environment":"local","environment_status":"online","stale":false},
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"agent_state":null,"scope_parent":null,"scope":null,"environment":"local","environment_status":"online","stale":false},
 			{"id":"api-bump","name":null,"path":"/cfg/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z",
 			 "session":{"kind":"shell","id":null,"state":"running","pid":null,"stale":null,"runner":null,"model":null,"ws_runner":null},
-			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"agent_state":null,"environment":"local","environment_status":"online","stale":false},
-			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null,"progress":null,"rollup":null,"agent_state":null,"environment":"local","environment_status":"online","stale":false}
+			 "hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"buff-bear","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"agent_state":null,"scope_parent":null,"scope":null,"environment":"local","environment_status":"online","stale":false},
+			{"id":null,"name":null,"path":"/cfg/workspaces/stray","created_at":null,"session":null,"hidden":false,"parent":null,"repos":[],"review":null,"loop_run":null,"progress":null,"rollup":null,"agent_state":null,"scope_parent":null,"scope":null,"environment":"local","environment_status":"online","stale":false}
 		],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--json has each workspace's progress, its rollup counting a hidden child", func(t *testing.T) {
@@ -423,7 +423,7 @@ func TestApp_runList(t *testing.T) {
 		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("api-bump", "github.com/bobcob7/buff-bear", "", false)))
 		e.app.global.json = true
 		require.NoError(t, e.app.runList(t.Context(), &listOptions{envs: []string{"linux-server"}}))
-		assert.JSONEq(t, `{"workspaces":[{"id":"api-bump","name":null,"path":"/srv/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z","session":null,"hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"repo","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"agent_state":null,"environment":"linux-server","environment_status":"offline","stale":true}],"hidden_count":0,"warnings":[]}`, e.stdout.String())
+		assert.JSONEq(t, `{"workspaces":[{"id":"api-bump","name":null,"path":"/srv/workspaces/api-bump","created_at":"2026-10-19T10:00:00Z","session":null,"hidden":false,"parent":null,"repos":[{"id":"github.com/bobcob7/buff-bear","path":"repo","ref":"main","ref_kind":"branch"}],"review":null,"loop_run":null,"progress":null,"rollup":null,"agent_state":null,"scope_parent":null,"scope":null,"environment":"linux-server","environment_status":"offline","stale":true}],"hidden_count":0,"warnings":[]}`, e.stdout.String())
 	})
 	t.Run("--env unknown is environment_unknown", func(t *testing.T) {
 		e := newRemoteListApp(t, nil)
