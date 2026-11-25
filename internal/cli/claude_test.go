@@ -1230,14 +1230,6 @@ func TestApp_runClaude_scope(t *testing.T) {
 	})
 }
 
-// addEnvironmentForScope adds name to app's environment store, so it can be
-// named by --env-scope.
-func addEnvironmentForScope(t *testing.T, app *App, name string) {
-	t.Helper()
-	_, _, _, err := app.envStore().Add(t.Context(), name, "127.0.0.1:8884")
-	require.NoError(t, err)
-}
-
 // enrolledClaudeEnv is a claude env with linux and win-rig enrolled, and a
 // scope host that answers every scope operation with a created workspace.
 func enrolledClaudeEnv(t *testing.T) (*claudeEnv, *scopeHost) {
