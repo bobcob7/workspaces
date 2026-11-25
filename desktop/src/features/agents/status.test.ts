@@ -5,6 +5,7 @@ import {
   childrenOf,
   descendantsOf,
   groupOf,
+  isChildOf,
   needsAttention,
   statusFilterOptions,
 } from "./status";
@@ -106,3 +107,61 @@ describe("statusFilterOptions", () => {
   });
 });
 
+describe("isChildOf", () => {
+  const local = entry({ key: "p", workspaceId: "p", environment: "local" });
+
+  it("a child with a parentId is a child of the same-environment parent", () => {
+    expect(isChildOf(entry({ key: "c", workspaceId: "c", parentId: "p" }), local)).toBe(true);
+  });
+
+  it("a child with a scopeParent is a child of the parent it names", () => {
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(isChildOf(remote, local)).toBe(true);
+  });
+
+  it("a scopeParent naming another environment is not a child of that workspace id", () => {
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "box", workspaceId: "p" } });
+    expect(isChildOf(remote, local)).toBe(false);
+  });
+
+  it("a parentId wins over a scopeParent", () => {
+    const child = entry({ key: "c", workspaceId: "c", parentId: "q", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(isChildOf(child, local)).toBe(false);
+  });
+
+  it("an entry is never its own parent", () => {
+    const self = entry({ key: "p", workspaceId: "p", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(isChildOf(self, self)).toBe(false);
+  });
+});
+
+describe("childrenOf across environments", () => {
+  it("includes a child started from a scopeParent on another environment", () => {
+    const parent = entry({ key: "p", workspaceId: "p", environment: "local" });
+    const remote = entry({ key: "box:c", workspaceId: "c", environment: "box", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(childrenOf([parent, remote], parent)).toEqual([remote]);
+  });
+});
+
+describe("descendantsOf across environments", () => {
+  it("walks local, then a linux-server child, then a win-rig grandchild", () => {
+    const local = entry({ key: "plan", workspaceId: "plan", environment: "local" });
+    const linux = entry({
+      key: "linux-server:x",
+      workspaceId: "x",
+      environment: "linux-server",
+      scopeParent: { environment: "local", workspaceId: "plan" },
+    });
+    const win = entry({
+      key: "win-rig:y",
+      workspaceId: "y",
+      environment: "win-rig",
+      scopeParent: { environment: "linux-server", workspaceId: "x" },
+    });
+    const found = descendantsOf([win, local, linux], local).map((d) => [d.entry.key, d.depth]);
+    expect(found).toEqual([
+      ["linux-server:x", 1],
+      ["win-rig:y", 2],
+    ]);
+  });
+});

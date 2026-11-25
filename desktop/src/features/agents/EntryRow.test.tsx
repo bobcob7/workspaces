@@ -108,3 +108,40 @@ describe("EntryRow", () => {
     expect(screen.getByText("running tests")).toBeInTheDocument();
   });
 });
+
+describe("EntryRow started from another environment", () => {
+  const renderChild = (overrides: Partial<Entry>, parentName: string | null, parentEnvironment: string | null) =>
+    render(
+      <EntryRow
+        entry={entry({ environment: "linux-server", detail: "Report the private IP", ...overrides })}
+        current={false}
+        onClick={vi.fn()}
+        parentName={parentName}
+        parentEnvironment={parentEnvironment}
+      />,
+    );
+
+  it("names the parent and the environment it runs on in the summary", () => {
+    renderChild({}, "plan-scope", "local");
+    expect(screen.getByRole("button")).toHaveTextContent("↳ plan-scope on local · Report the private IP");
+  });
+
+  it("names only the parent's environment when the parent isn't listed", () => {
+    renderChild({}, null, "local");
+    expect(screen.getByRole("button")).toHaveTextContent("from local · Report the private IP");
+  });
+
+  it("explains on the environment badge how the child was started", () => {
+    renderChild({}, "plan-scope", "local");
+    expect(screen.getByText("linux-server")).toHaveAttribute(
+      "title",
+      "Runs on linux-server; started from local with ws machine spawn --env",
+    );
+  });
+
+  it("adds no environment to the summary of a parent on the same environment", () => {
+    renderChild({ environment: "local", detail: "Report" }, "plan-scope", null);
+    expect(screen.getByRole("button")).toHaveTextContent("↳ plan-scope · Report");
+    expect(screen.getByRole("button")).not.toHaveTextContent(" on ");
+  });
+});
