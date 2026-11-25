@@ -1296,11 +1296,30 @@ func TestApp_runRemoteClaude_scope(t *testing.T) {
 		_ = e.app.runRemoteClaude(t.Context(), &claudeOptions{env: linuxRef.Name}, linuxRef.Name, "")
 		assert.Empty(t, host.Calls())
 	})
-	t.Run("an agent's remote claude never reads default_scope", func(t *testing.T) {
+	t.Run("the unit never reads default_scope for a caller inside a workspace", func(t *testing.T) {
 		e, host := enrolledClaudeEnv(t)
 		e.app.config.Environments.DefaultScope = []string{winRef.Name}
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
 		_ = e.app.runRemoteClaude(t.Context(), &claudeOptions{parent: "remote-1"}, linuxRef.Name, "remote-1")
 		assert.Empty(t, host.Calls())
+	})
+}
+
+func TestApp_runClaude_remoteParentInWorkspace(t *testing.T) {
+	for _, runner := range []string{"", config.RunnerWS} {
+		t.Run("runner "+runner+": a remote --parent is refused inside a workspace", func(t *testing.T) {
+			e := newRemoteClaudeEnv(t, remoteCreated, nil)
+			e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+			err := e.app.runClaude(t.Context(), &claudeOptions{parent: "api-bump", runner: runner, claudeArgs: []string{"fix it"}})
+			requireUsageError(t, err)
+			assert.Empty(t, e.caller.CallEnvironmentCalls())
+			assert.Empty(t, e.store.CreateCalls())
+			assert.Empty(t, e.claude.StartCalls())
+		})
+	}
+	t.Run("outside a workspace a remote --parent still runs on its environment", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: "api-bump", claudeArgs: []string{"fix it"}}))
+		assert.Len(t, e.caller.CallEnvironmentCalls(), 1)
 	})
 }

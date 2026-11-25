@@ -485,6 +485,7 @@ What each can forge:
 | 12 | W on A sends `workspace.create` with a scope to B directly | agents can't publish on `env/B/req` (ACL) | existing |
 | 13 | A replays an old `scope.spawn` | same request id → target's dedupe returns the stored reply; ledger add is idempotent | T3 |
 | 14 | W on the controller machine calls the daemon socket `/v1/scope/spawn` with `workspace: null` (person grant) from `cd /tmp` | **not defended**: same uid ([0066](../../adrs/0066-runner-security-boundaries.md)). Documented residual; the CLI never does it from inside a workspace | — |
+| 14b | W `cd`s out of its workspace, then runs `ws claude --env B` or `ws machine spawn` | **not defended**: "inside a workspace" is decided by the cwd (the enclosing-workspace check), so the process is treated as a person. Same uid ([0066](../../adrs/0066-runner-security-boundaries.md)). Documented residual; a follow-up could add an environment marker | — |
 | 15 | W on the controller machine edits another workspace's `scope.json` or the ledger | **not defended** (same uid, 0066). The daemon re-reads files, so it narrows nothing extra | — |
 | 16 | Compromised A uses wider scopes granted to other workspaces on A | bounded by the union of ledger scopes on A (inherent to one uid per machine) | — |
 | 17 | B lies in `machine.record` or snapshots about a child | affects only that child's reported result, already B's to report; reports are capped at 256 KiB and stored as data, never executed | T4 |
