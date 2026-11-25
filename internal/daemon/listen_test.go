@@ -30,11 +30,11 @@ func TestListenPeer(t *testing.T) {
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 		accepted := make(chan net.Conn, 1)
 		go func() {
-			if conn, err := ln.Accept(); err == nil {
+			if conn, acceptErr := ln.Accept(); acceptErr == nil {
 				accepted <- conn
 			}
 		}()
-		conn, err := net.Dial("unix", socket)
+		conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", socket)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = conn.Close() })
 		select {
@@ -59,7 +59,7 @@ func TestListenPeer(t *testing.T) {
 // which t.TempDir's test-name prefix can overflow.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ws")
+	dir, err := os.MkdirTemp("", "ws") //nolint:usetesting // unix socket paths are capped at 108 bytes; t.TempDir's test-name prefix can overflow that.
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir

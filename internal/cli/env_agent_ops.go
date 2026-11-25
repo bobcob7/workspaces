@@ -43,7 +43,7 @@ type agentOperations struct {
 }
 
 // newAgentOperations returns the operations of the agent a, enrolled as id.
-func newAgentOperations(a *App, id envagent.Identity) *agentOperations {
+func newAgentOperations(a *App, id *envagent.Identity) *agentOperations {
 	name := id.Name
 	o := &agentOperations{app: a, name: name, self: envscope.Ref{ID: id.ID, Name: name}, redactor: agentRedactor(a)}
 	o.newAppWithStdin = func(stdin io.Reader, stdout, stderr io.Writer) *App {
@@ -268,9 +268,9 @@ func (o *agentOperations) machineRecord(id string) (json.RawMessage, error) {
 		out.Result = &envproto.RecordResult{Verdict: rec.Result.Verdict, Outcome: string(outcome), RecordedAt: rec.Result.RecordedAt}
 	}
 	if rec.ReportPath != "" {
-		report, truncated, err := readCappedReport(rec.ReportPath)
-		if err != nil {
-			return nil, fmt.Errorf("reading the report: %w", err)
+		report, truncated, readErr := readCappedReport(rec.ReportPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("reading the report: %w", readErr)
 		}
 		out.Report, out.ReportTruncated = &report, truncated
 	}

@@ -223,7 +223,7 @@ func newConformanceEvery(t *testing.T, startAgent bool, snapshotCheck time.Durat
 	c.agentApp.paths, c.agentApp.config = paths, cfg
 	c.agentApp.cache, c.agentApp.workspaces, c.agentApp.lifetime = s.cache, s.workspaces, s.lifetime
 	c.agentApp.loops, c.agentApp.loopData = s.loops, s.loopData
-	c.ops = newAgentOperations(c.agentApp, c.identity)
+	c.ops = newAgentOperations(c.agentApp, &c.identity)
 	c.ops.newApp = func(stdout, stderr io.Writer) *App {
 		app := c.newApp(stdout, stderr)
 		app.environment = c.identity.Name
