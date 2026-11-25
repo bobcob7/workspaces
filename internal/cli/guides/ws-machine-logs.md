@@ -69,6 +69,13 @@ Output is always JSON; `--json` changes nothing.
 - `text`: a Claude child's `claude logs` output, else `null`.
 - `truncated`: `true` when `--tail` left older events out.
 
+## Children on other environments
+
+For a child on another environment, `ws machine logs` prints the last `--tail`
+lines of its log on that environment as `text`, with `"environment"` set and
+`events` empty. Once the child is removed its log isn't kept, so it is
+`workspace_not_found`.
+
 ## Exit codes
 
 | Situation                                         | Error code            | Exit |

@@ -110,6 +110,9 @@ func LookupOp(name string) (OpSpec, bool) {
 	case OpTerminalClose:
 		return OpSpec{Name: name, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second}, true
 	}
+	if spec, ok := scopeOpSpec(name); ok {
+		return spec, true
+	}
 	return loopOpSpec(name)
 }
 
@@ -124,6 +127,9 @@ type CreateArgs struct {
 	Prompt   *string  `json:"prompt"` // required for KindRunner
 	Model    *string  `json:"model"`
 	Endpoint *string  `json:"endpoint"` // KindRunner only
+	// Scope and Spawn are omitted when nil, so an agent without scopes sees today's bytes (ADR 0082).
+	Scope *ScopeGrant `json:"scope,omitempty"`
+	Spawn *SpawnInfo  `json:"spawn,omitempty"`
 }
 
 // ListArgs are the arguments of workspace.list.
@@ -269,6 +275,9 @@ func newArgs(op string) (any, bool) {
 	case OpTerminalClose:
 		return &TerminalCloseArgs{}, true
 	}
+	if target, ok := newScopeArgs(op); ok {
+		return target, true
+	}
 	if target, ok := newReviewArgs(op); ok {
 		return target, true
 	}
@@ -328,6 +337,8 @@ func Validate(args any) error {
 		return validateTerminalOpen(a)
 	case *TerminalCloseArgs:
 		return validateTerminalClose(a)
+	case *ScopeEnvsArgs, *ScopeSpawnArgs, *ScopeChildrenArgs, *ScopeChildArgs:
+		return validateScopeArgs(args)
 	}
 	return validateReviewArgs(args)
 }
@@ -369,7 +380,23 @@ func validateCreate(a *CreateArgs) error {
 			return err
 		}
 	}
+	if err := validateCreateGrants(a); err != nil {
+		return err
+	}
 	return validatePrompt(a)
+}
+
+// validateCreateGrants checks the scope and spawn info a create may carry (ADR 0082).
+func validateCreateGrants(a *CreateArgs) error {
+	if a.Scope != nil {
+		if err := validateScopeGrant(a.Scope); err != nil {
+			return err
+		}
+	}
+	if a.Spawn != nil {
+		return validateSpawnInfo(a.Spawn)
+	}
+	return nil
 }
 
 func validateEndpoint(endpoint string) error {

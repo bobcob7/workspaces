@@ -231,3 +231,13 @@ See also the [workspace creation errors](README.md#creating-a-workspace).
 [0015](../adrs/0015-workspace-lifetime-follows-session.md),
 [0024](../adrs/0024-claude-code-client.md),
 [0025](../adrs/0025-ws-claude-session-hand-off.md)
+
+## Scopes
+
+`ws claude --env-scope <name>[,<name>...]` grants the agent it starts a set of
+environments it may start children on, besides its own. Without the flag,
+`[environments] default_scope` in `config.toml` applies. Names are resolved
+when granted; an unknown name is `environment_unknown`. Inside a workspace,
+`--env-scope` and `--env` are refused with `usage`: an agent never grants a
+scope or picks an environment with `ws claude`; it starts children with
+`ws machine spawn --env`.

@@ -1,7 +1,7 @@
 # ws claude
 
 ```
-ws claude [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--env <name>] [--json] [<spec>...] [-- <claude args>...]
+ws claude [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--env <name>] [--env-scope <name>[,<name>...]] [--json] [<spec>...] [-- <claude args>...]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, then
@@ -36,8 +36,16 @@ prompt and `--model <m>` are accepted (`usage` otherwise). `--env local` is
 the same as no `--env`. A workspace's `--parent` is an id on one
 environment: given without `--env`, a parent found only on one environment
 runs the child there; found on several, pass `--env`. The default parent
-(the workspace `ws` runs in) is dropped with a warning when `--env` names a
-remote environment.
+(the workspace `ws` runs in) isn't used when `--env` names a remote environment.
+
+`--env-scope <name>[,<name>...]` grants the new workspace a scope: the
+environments it may start children on, besides its own. Each name is `local`
+or an enrolled environment (`ws env list`). Without it the scope is
+`[environments] default_scope` in config.toml, and with neither the workspace
+is on this machine alone. A workspace started with `--parent`, or inside a
+workspace, inherits its parent's scope instead. Inside a workspace, `--env`
+and `--env-scope` are refused (`usage`): an agent starts children on another
+environment with `ws machine spawn --env`, and never grants a scope.
 
 Everything before `--` is a repo spec, so the prompt must come after `--`.
 Everything after `--` goes to `claude` unchanged: the prompt, and options
@@ -66,6 +74,7 @@ Its workspace stays, even after it finishes, until the session is deleted
 | `--hidden`      | Hide the workspace: `ws list` shows it only with `-a`, and the desktop app keeps it in a collapsed Hidden group that doesn't count as waiting for input. For helpers the user needn't follow; see `ws llm hide` |
 | `--parent <id>\|none` | The workspace this one is removed with; default: the workspace you run `ws` in, so a helper you start is yours. `none` for work meant to outlive you |
 | `--env <name>` | Run it on this environment (`ws env list`); default: local, or the parent's. See above |
+| `--env-scope <name>[,<name>...]` | The environments it may start children on (`ws env list`, or `local`); repeatable. See above |
 | `--runner claude\|ws` | Which agent runs it: Claude Code (the default) or `ws`'s own runner (see `ws llm machine spawn`). A `ws` agent needs a prompt and can't be attached; after the prompt only `--model <alias or id>` is accepted |
 | `--endpoint <name>` | With `--runner ws`, another endpoint from config.toml   |
 | `--json`        | Print the result as JSON                                    |
@@ -119,7 +128,8 @@ added for an environment.
 | Fetch or clone failed                                  | `fetch_failed`, `clone_failed`, `git_failed` | 1 |
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root; `details.directory` is the directory a person must trust | `claude_untrusted` | 1 |
-| `--env` names no environment                           | `environment_unknown` | 3 |
+| `--env` or `--env-scope` names no environment          | `environment_unknown` | 3 |
+| `--env` or `--env-scope` inside a workspace            | `usage`            | 2    |
 | `--env` with a `--parent` found nowhere                | `workspace_not_found` | 3 |
 | `--parent` found on several environments without `--env` | `usage`          | 2    |
 | The environment is offline, or the daemon hasn't heard from it; `details.environment` | `environment_offline` | 1 |

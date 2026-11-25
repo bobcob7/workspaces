@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/machine"
@@ -41,6 +42,7 @@ func (a *App) newMachineCmd() *cobra.Command {
 		a.newMachineResultCmd(),
 		a.newMachineWaitCmd(),
 		a.newMachineChildrenCmd(),
+		a.newMachineEnvsCmd(),
 		a.newMachineLogsCmd(),
 		a.newMachineRmCmd(),
 		a.newMachineRolesCmd(),
@@ -55,8 +57,10 @@ func (a *App) newMachineCmd() *cobra.Command {
 // runner and endpoint for a ws child (ADR 0070), plus a role.
 type machineSpawnOptions struct {
 	claudeOptions
-	role string
-	vars []string
+	role   string
+	vars   []string
+	target string
+	narrow []string
 }
 
 // machineSpawnJSON is ws claude --json's object plus the role, the runner
@@ -128,6 +132,8 @@ func (a *App) newMachineSpawnCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.vars, "var", nil, "KEY=VALUE for the role's prompt; repeatable, with --role")
 	cmd.Flags().StringVar(&opts.runner, "runner", "", "claude or ws: which agent runs the child (default: the role's runner, else claude)")
 	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "the endpoint from config.toml instead of the model's; only with --runner ws")
+	cmd.Flags().StringVar(&opts.target, "env", "", "start the child on this environment (ws machine envs lists yours); default: this machine")
+	cmd.Flags().StringSliceVar(&opts.narrow, "env-scope", nil, "narrow the child's scope to these environments (ws machine envs lists yours); repeatable")
 	return cmd
 }
 
@@ -242,6 +248,22 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 	if err != nil {
 		return err
 	}
+	self, err := a.selfRef()
+	if err != nil {
+		return newError(codeInternal, err)
+	}
+	remote, err := spawnsRemotely(opts.target, self)
+	if err != nil {
+		return err
+	}
+	if remote {
+		return a.runRemoteSpawn(ctx, opts, caller, self)
+	}
+	scope, err := a.narrowedScope(caller, opts.narrow)
+	if err != nil {
+		return err
+	}
+	opts.scope = &scope
 	if which == config.RunnerWS {
 		return a.runMachineSpawnRunner(ctx, opts, caller)
 	}
@@ -257,6 +279,18 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 		opts.started = a.recordRole(&ro, vars)
 	}
 	return a.runClaude(ctx, &opts.claudeOptions)
+}
+
+// spawnsRemotely reports whether --env target starts the child on another
+// environment than self. local from a remote environment isn't supported yet.
+func spawnsRemotely(target string, self envscope.Ref) (bool, error) {
+	if target == "" || target == self.Name {
+		return false, nil
+	}
+	if target == localEnvironment {
+		return false, usageErrorf("starting a child on local from an environment isn't supported yet")
+	}
+	return true, nil
 }
 
 // spawnRunner is the runner ws machine spawn starts the child with: --runner,
@@ -305,6 +339,7 @@ func (a *App) runMachineSpawnRunner(ctx context.Context, opts *machineSpawnOptio
 	if err != nil {
 		return err
 	}
+	a.writeChildScope(started.Workspace.ID, *opts.scope)
 	result := func(r claudeResult) any { return runnerSpawnJSON(opts.role, &started, &r) }
 	return a.printClaudeResult(&started.Workspace, started.Session, result)
 }
@@ -422,6 +457,13 @@ func (a *App) runMachineChildren(ctx context.Context, all bool) error {
 	for i := range listed {
 		children = append(children, a.machineChild(store, root, entryWorkspaces(listing.Workspaces), &listed[i]))
 	}
+	var remoteDescendants []string
+	if all {
+		remoteDescendants = descendantIDs(entryWorkspaces(listing.Workspaces), caller)
+	}
+	for _, rc := range a.listRemoteChildren(ctx, caller, remoteDescendants) {
+		children = append(children, a.remoteMachineChild(ctx, root, &rc))
+	}
 	return a.writeJSON(machineChildrenJSON{Workspaces: children, Warnings: a.warnings()})
 }
 
@@ -484,11 +526,12 @@ func (a *App) runMachineRm(ctx context.Context, opts *machineRmOptions) error {
 	for i := range a.swept {
 		list = append(list, a.swept[i].Workspace)
 	}
+	remote := a.listRemoteChildren(ctx, caller, descendantIDs(list, caller))
 	if opts.all {
-		opts.workspaces = directChildren(list, caller)
+		opts.workspaces = append(directChildren(list, caller), directRemoteIDs(remote, caller)...)
 	}
 	opts.caller = caller
-	targets := a.rmTargets(opts.workspaces)
+	targets := attachRemote(a.rmTargets(opts.workspaces), remote)
 	refuseOutside(targets, descendants(list, caller))
 	return a.removeTargets(ctx, targets, &opts.rmOptions)
 }
@@ -509,7 +552,7 @@ func directChildren(list []workspace.Workspace, id string) []string {
 func refuseOutside(targets []rmTarget, below map[string]bool) {
 	for i := range targets {
 		t := &targets[i]
-		if t.err != nil || below[t.key()] {
+		if t.err != nil || t.remote != nil || below[t.key()] {
 			continue
 		}
 		t.err = newError(codeNotDescendant, fmt.Errorf("%s is not a workspace this one started", t.key()))

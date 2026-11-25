@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	stdjson "encoding/json"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -268,6 +269,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/environments/reload", s.handleReloadEnvironments)
 	mux.HandleFunc("POST /v1/environments/{name}/call", s.handleCallEnvironment)
 	mux.HandleFunc("POST /v1/environments/{name}/terminal", s.handleTerminal)
+	mux.HandleFunc("POST /v1/scope/{op}", s.handleScope)
 	return mux
 }
 
@@ -328,6 +330,30 @@ func (s *server) handleCallEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, reply)
+}
+
+// isScopeOp reports whether op is a scope operation POST /v1/scope/{op} serves (ADR 0082).
+func isScopeOp(op string) bool {
+	switch op {
+	case "envs", "spawn", "children", "child":
+		return true
+	}
+	return false
+}
+
+// handleScope runs one scope operation for the person on this socket and
+// answers the controller's reply unchanged, with 200 whatever the reply says.
+func (s *server) handleScope(w http.ResponseWriter, r *http.Request) {
+	op := r.PathValue("op")
+	if !isScopeOp(op) {
+		writeError(w, http.StatusNotFound, "usage", "no scope operation "+op, nil)
+		return
+	}
+	var args stdjson.RawMessage
+	if !readBodyUpTo(w, r, &args, int64(envproto.MaxRequestBytes)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, s.envs.Scope(r.Context(), envproto.Local, op, args))
 }
 
 func (s *server) handlePreflight(w http.ResponseWriter, r *http.Request) {

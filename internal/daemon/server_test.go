@@ -376,6 +376,59 @@ func callDaemon(t *testing.T, fn func(context.Context, string, CallRequest) (Cal
 	return p
 }
 
+// scopeDaemon starts a daemon whose environments answer scope operations with fn.
+func scopeDaemon(t *testing.T, fn func(context.Context, string, string, json.RawMessage) envproto.Reply) Paths {
+	t.Helper()
+	p := testPaths(t)
+	host := &EnvironmentHostMock{
+		StartFunc:    func(context.Context) error { return nil },
+		CloseFunc:    func() error { return nil },
+		WarningsFunc: func() []string { return []string{} },
+		StatusFunc:   func() EnvironmentsStatus { return EnvironmentsStatus{Environments: []EnvironmentPresence{}} },
+		ScopeFunc:    fn,
+	}
+	startDaemon(t, p, daemonRun{origin: OriginManaged, sup: NopSupervisor{}, envs: host, opts: fastOptions()})
+	return p
+}
+
+func TestServer_handleScope(t *testing.T) {
+	t.Parallel()
+	t.Run("the operation runs for local and its reply passes through", func(t *testing.T) {
+		var got struct {
+			caller, op, args string
+		}
+		p := scopeDaemon(t, func(_ context.Context, caller, op string, args json.RawMessage) envproto.Reply {
+			got.caller, got.op, got.args = caller, op, string(args)
+			return envproto.Reply{OK: true, Result: json.RawMessage(`{"children":[]}`)}
+		})
+		reply, err := Dial(p).Scope(t.Context(), "children", map[string]any{"workspace": "w"})
+		require.NoError(t, err)
+		assert.True(t, reply.OK)
+		assert.JSONEq(t, `{"children":[]}`, string(reply.Result))
+		assert.Equal(t, envproto.Local, got.caller)
+		assert.Equal(t, "children", got.op)
+		assert.JSONEq(t, `{"workspace":"w"}`, got.args)
+	})
+	t.Run("a refused operation is a 200 carrying the reply", func(t *testing.T) {
+		p := scopeDaemon(t, func(context.Context, string, string, json.RawMessage) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: "environment_out_of_scope", Message: "no"}}
+		})
+		reply, err := Dial(p).Scope(t.Context(), "spawn", map[string]any{})
+		require.NoError(t, err)
+		assert.False(t, reply.OK)
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "environment_out_of_scope", reply.Error.Code)
+	})
+	t.Run("an unknown scope operation is 404 usage and never reaches the controller", func(t *testing.T) {
+		p := scopeDaemon(t, func(context.Context, string, string, json.RawMessage) envproto.Reply {
+			assert.Fail(t, "an unknown operation reached the controller")
+			return envproto.Reply{}
+		})
+		_, err := Dial(p).Scope(t.Context(), "bogus", map[string]any{})
+		assertRemoteCode(t, err, "usage")
+	})
+}
+
 func TestServer_handleCallEnvironment(t *testing.T) {
 	t.Parallel()
 	t.Run("a reply is passed through unchanged", func(t *testing.T) {

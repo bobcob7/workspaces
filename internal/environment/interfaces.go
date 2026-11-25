@@ -5,9 +5,19 @@ import (
 	"crypto/tls"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 )
 
-//go:generate go tool moq -out moq_test.go . broker
+//go:generate go tool moq -out moq_test.go . broker LocalScopes
+
+// LocalScopes reads the scopes of workspaces on the controller's machine.
+type LocalScopes interface {
+	// Scope is local workspace id's scope (envscope.Read with self local);
+	// ErrWorkspaceNotFound when the workspace doesn't exist here.
+	Scope(id string) (envscope.Scope, error)
+	// Exists reports whether local workspace id exists.
+	Exists(id string) (bool, error)
+}
 
 // broker is the MQTT 5 broker the daemon embeds (ADR 0074). envtest.Broker
 // and internal/mqttbroker implement it.

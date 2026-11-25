@@ -102,9 +102,10 @@ const (
 	codeEnrollmentUsed     errorCode = "enrollment_used"     // exit 4
 	codeCAInUse            errorCode = "ca_in_use"           // exit 4
 	// From ADR 0072 (PR 3).
-	codeEnvironmentOffline  errorCode = "environment_offline"  // exit 1
-	codeEnvironmentOutdated errorCode = "environment_outdated" // exit 1
-	codeEnvironmentMismatch errorCode = "environment_mismatch" // exit 4
+	codeEnvironmentOffline    errorCode = "environment_offline"      // exit 1
+	codeEnvironmentOutdated   errorCode = "environment_outdated"     // exit 1
+	codeEnvironmentMismatch   errorCode = "environment_mismatch"     // exit 4
+	codeEnvironmentOutOfScope errorCode = "environment_out_of_scope" // exit 4 (ADR 0082)
 	// From PR 4 (ADR 0074).
 	codeTerminalLimit errorCode = "terminal_limit" // exit 4
 	// From ADR 0080.
@@ -180,7 +181,7 @@ func (c errorCode) exitCode() int {
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
 		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
 		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch, codeTerminalLimit,
-		codeArtifactConflict, codeArtifactFull, codeArtifactForbidden:
+		codeArtifactConflict, codeArtifactFull, codeArtifactForbidden, codeEnvironmentOutOfScope:
 		return exitRefused
 	}
 	return exitFailed
@@ -206,7 +207,7 @@ func (c errorCode) known() bool {
 		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
 		codeEnvironmentOutdated, codeEnvironmentMismatch, codeTerminalLimit, codeProgressInvalid, codeOperationLimited,
 		codeArtifactInvalid, codeArtifactUnknown, codeArtifactConflict, codeArtifactFull, codeArtifactForbidden,
-		codeArtifactUnreachable, codeAnchorNotFound, codePlatformUnsupported:
+		codeArtifactUnreachable, codeAnchorNotFound, codePlatformUnsupported, codeEnvironmentOutOfScope:
 		return true
 	}
 	return false

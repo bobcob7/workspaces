@@ -63,6 +63,17 @@ never reported, and `rollup` sums its steps and its descendants':
 step, done if it passed. `rollup` is `null` until a step is planned. See
 `ws llm machine progress`.
 
+## Children on other environments
+
+Children you started with `ws machine spawn --env` are listed after the local
+ones, each with `"environment"`, the environment's name. Its entry is the
+`ws list` object from that environment's snapshot. If the environment can't be
+asked, the listing has a warning, and `result` is the copy kept by an earlier
+`ws machine wait` or `children`, or `null`. A local child has no `environment` key.
+
+Remote entries have no `stale` field: the controller's snapshot entry doesn't
+say how old it is. A warning for an offline environment is the only hint.
+
 ## Exit codes
 
 | Situation                 | Error code          | Exit |

@@ -53,6 +53,8 @@ type machineChildJSON struct {
 	Result   *machineResultInfoJSON `json:"result"`
 	Progress *progressJSON          `json:"progress"`
 	Rollup   *rollupJSON            `json:"rollup"`
+	// Environment is a remote child's environment, absent for a local one.
+	Environment *string `json:"environment,omitempty"`
 }
 
 // machineChildrenJSON is ws machine children's output.

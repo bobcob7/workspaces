@@ -20,6 +20,8 @@ import (
 	"github.com/bobcob7/workspaces/internal/artifact"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/machine"
@@ -105,12 +107,12 @@ func TestApp_newMachineCmd(t *testing.T) {
 	t.Run("is in the group for agents", func(t *testing.T) {
 		assert.Equal(t, agentsGroup, cmd.GroupID)
 	})
-	t.Run("has spawn, result, wait, children, logs, rm, roles, memory, progress, and artifact", func(t *testing.T) {
+	t.Run("has spawn, result, wait, children, envs, logs, rm, roles, memory, progress, and artifact", func(t *testing.T) {
 		var names []string
 		for _, sub := range cmd.Commands() {
 			names = append(names, sub.Name())
 		}
-		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "logs", "rm", "roles", "memory", "progress", "artifact"}, names)
+		assert.ElementsMatch(t, []string{"spawn", "result", "wait", "children", "envs", "logs", "rm", "roles", "memory", "progress", "artifact"}, names)
 	})
 	t.Run("refuses an unknown operation", func(t *testing.T) {
 		requireUsageError(t, cmd.Args(cmd, []string{"nope"}))
@@ -429,6 +431,118 @@ func TestApp_runMachineSpawn(t *testing.T) {
 		require.NoError(t, e.app.runMachineSpawn(t.Context(), roleSpawnOptions()))
 		require.Len(t, e.claude.StartCalls(), 1)
 		assert.Contains(t, e.stdout.String(), "couldn't record role implementer for x")
+	})
+	t.Run("scope without a grant spawns locally and writes no scope.json", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), spawnOptions("fix it")))
+		require.Len(t, e.store.CreateCalls(), 1)
+		_, err := os.Stat(envscope.Path(e.app.paths.State, "x"))
+		require.ErrorIs(t, err, os.ErrNotExist)
+		assert.NotContains(t, e.stdout.String(), "environment")
+	})
+	t.Run("scope --env out of scope is environment_out_of_scope", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		host := serveScopeHost(t, e.app, scopeOK(t, nil))
+		opts := spawnOptions("fix it")
+		opts.target = linuxRef.Name
+		err := e.app.runMachineSpawn(t.Context(), opts)
+		requireCode(t, codeEnvironmentOutOfScope, err)
+		assert.Equal(t, map[string]any{"environment": "linux", "allowed": []string{"local"}}, errorDetails(t, err))
+		assert.Empty(t, e.store.CreateCalls())
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("scope --env-scope wider than the caller's is refused", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		host := serveScopeHost(t, e.app, scopeOK(t, nil))
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		opts := spawnOptions("fix it")
+		opts.narrow = []string{linuxRef.Name, winRef.Name}
+		err := e.app.runMachineSpawn(t.Context(), opts)
+		requireCode(t, codeEnvironmentOutOfScope, err)
+		assert.Equal(t, "win-rig", errorDetails(t, err)["environment"])
+		assert.Empty(t, e.store.CreateCalls())
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("scope --env-scope wider than the caller's is refused for a remote target", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		host := serveScopeHost(t, e.app, scopeOK(t, nil))
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		opts := spawnOptions("fix it")
+		opts.target = linuxRef.Name
+		opts.narrow = []string{winRef.Name}
+		err := e.app.runMachineSpawn(t.Context(), opts)
+		requireCode(t, codeEnvironmentOutOfScope, err)
+		assert.Equal(t, "win-rig", errorDetails(t, err)["environment"])
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("scope ignores a default_scope edited in config.toml", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		host := serveScopeHost(t, e.app, scopeOK(t, nil))
+		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
+		opts := spawnOptions("fix it")
+		opts.target = linuxRef.Name
+		requireCode(t, codeEnvironmentOutOfScope, e.app.runMachineSpawn(t.Context(), opts))
+		assert.Empty(t, e.store.CreateCalls())
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("scope ignores environment variables", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		host := serveScopeHost(t, e.app, scopeOK(t, nil))
+		e.app.environ = append(e.app.environ, "WS_ENV_SCOPE=linux", "WS_SCOPE=linux", "WS_ENVIRONMENT=linux")
+		opts := spawnOptions("fix it")
+		opts.target = linuxRef.Name
+		requireCode(t, codeEnvironmentOutOfScope, e.app.runMachineSpawn(t.Context(), opts))
+		assert.Empty(t, e.store.CreateCalls())
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("scope --env in scope calls scope spawn", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveScopeHost(t, e.app, scopeOK(t, map[string]any{
+			"id": "x", "session": "e8cdf5d8", "path": "/cfg/workspaces/x", "parent": nil, "repos": []any{},
+			"warnings": []string{}, "runner": "claude", "model": nil, "ws_runner": nil, "scope": []string{"local", "linux"},
+		}))
+		opts := roleSpawnOptions()
+		opts.target = linuxRef.Name
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+		assert.Empty(t, e.store.CreateCalls())
+		calls := host.Calls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, envscope.Local, calls[0].caller)
+		assert.Equal(t, "spawn", calls[0].op)
+		var args envproto.ScopeSpawnArgs
+		require.NoError(t, json.Unmarshal(calls[0].args, &args))
+		require.NotNil(t, args.Workspace)
+		assert.Equal(t, "plan", *args.Workspace)
+		assert.Equal(t, []string{"boss"}, args.Ancestors)
+		assert.ElementsMatch(t, []string{envscope.Local, linuxRef.ID}, args.Scope)
+		assert.Equal(t, "linux", args.Target)
+		assert.Nil(t, args.Create.Parent)
+		require.NotNil(t, args.Spawn)
+		assert.Equal(t, "implementer", args.Spawn.Role)
+		out := decodeJSONObject(t, e.stdout)
+		assert.Equal(t, "linux", out["environment"])
+		assert.Equal(t, []any{"local", "linux"}, out["scope"])
+	})
+	t.Run("scope a local child inherits the caller's scope", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef, winRef)
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), spawnOptions("fix it")))
+		scope, file := scopeFileOf(t, e.app.paths.State, "x")
+		assert.Equal(t, "inherited", file.Source)
+		assert.Equal(t, []string{"local", "linux", "win-rig"}, scope.Names())
+	})
+	t.Run("scope a local child narrows to --env-scope", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef, winRef)
+		opts := spawnOptions("fix it")
+		opts.narrow = []string{linuxRef.Name}
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+		scope, file := scopeFileOf(t, e.app.paths.State, "x")
+		assert.Equal(t, "narrowed", file.Source)
+		assert.Equal(t, []string{"local", "linux"}, scope.Names())
 	})
 }
 

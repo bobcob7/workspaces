@@ -5,16 +5,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envagent"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
+	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/redact"
 	"github.com/bobcob7/workspaces/internal/repo"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // agentOperations runs the controller's operations on this machine, each
@@ -28,14 +36,16 @@ type agentOperations struct {
 	// never be read as a flag (loop.memory_set). Nil means newApp.
 	newAppWithStdin func(stdin io.Reader, stdout, stderr io.Writer) *App
 	name            string                 // the enrolled environment's name
+	self            envscope.Ref           // this agent's environment, for the scope files it writes
 	locksMu         sync.Mutex             // guards sendLocks
 	sendLocks       map[string]*sync.Mutex // the send lock of each Claude Code session id
 	redactor        *redact.Redactor       // removes secrets from review.* results
 }
 
-// newAgentOperations returns the operations of the agent a, enrolled as name.
-func newAgentOperations(a *App, name string) *agentOperations {
-	o := &agentOperations{app: a, name: name, redactor: agentRedactor(a)}
+// newAgentOperations returns the operations of the agent a, enrolled as id.
+func newAgentOperations(a *App, id *envagent.Identity) *agentOperations {
+	name := id.Name
+	o := &agentOperations{app: a, name: name, self: envscope.Ref{ID: id.ID, Name: name}, redactor: agentRedactor(a)}
 	o.newAppWithStdin = func(stdin io.Reader, stdout, stderr io.Writer) *App {
 		n := New(a.version, stdin, stdout, stderr, a.configs, a.environ)
 		n.environment = name
@@ -130,9 +140,17 @@ func (o *agentOperations) runWorkspace(ctx context.Context, op string, args any)
 				return nil, &envproto.ReplyError{Code: string(codeSpecInvalid), Message: err.Error()}
 			}
 		}
-		return o.runCLI(ctx, createArgv(root, a))
+		out, err := o.runCLI(ctx, createArgv(root, a))
+		if err != nil || (a.Scope == nil && a.Spawn == nil) {
+			return out, err
+		}
+		return o.grantCreated(ctx, root, a, out)
 	case *envproto.ListArgs:
 		return o.runCLI(ctx, append(cliPrefix(root), "list", "--all"))
+	case *envproto.WorkspaceArgs:
+		if op == envproto.OpMachineRecord {
+			return o.machineRecord(a.Workspace)
+		}
 	case *envproto.RmArgs:
 		argv := append(cliPrefix(root), "rm")
 		if a.KeepChildren {
@@ -149,6 +167,155 @@ func (o *agentOperations) runWorkspace(ctx context.Context, op string, args any)
 		return o.runCLI(ctx, append(cliPrefix(root), verb, "--", a.Workspace))
 	}
 	return nil, &envproto.ReplyError{Code: string(codeUsage), Message: "unknown operation " + op}
+}
+
+// grantCreated writes the grant of the workspace that a create with a scope or
+// spawn made. When the grant can't be written, the workspace is removed, so a
+// child never runs without the scope its parent was given.
+func (o *agentOperations) grantCreated(ctx context.Context, root string, args *envproto.CreateArgs, out json.RawMessage) (json.RawMessage, error) {
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(out, &created); err != nil || created.ID == "" {
+		return nil, &envproto.ReplyError{Code: string(codeInternal), Message: "the created workspace has no id"}
+	}
+	if err := o.grantWorkspace(created.ID, args); err != nil {
+		_, _ = o.runCLI(ctx, append(cliPrefix(root), "rm", "--", created.ID))
+		return nil, &envproto.ReplyError{Code: string(codeInternal), Message: "the grant couldn't be written: " + err.Error()}
+	}
+	return out, nil
+}
+
+// grantWorkspace writes the scope file of workspace id when args has a scope,
+// and its spawn.toml, as its own tree's root, when args has a spawn. The
+// files follow the create because `ws claude` starts the session before it
+// returns the workspace's id, and the agent reaches that command only through
+// its argv (D1), which has no hook between the two. So the session may start
+// before the files exist. Until the scope file exists the workspace is scoped
+// to itself, which only narrows, so a missing file fails closed (ADR 0082).
+func (o *agentOperations) grantWorkspace(id string, args *envproto.CreateArgs) error {
+	state := o.app.paths.State
+	if args.Scope != nil {
+		file, err := o.scopeFile(args.Scope, time.Now())
+		if err != nil {
+			return err
+		}
+		if err := envscope.Write(state, id, file); err != nil {
+			return fmt.Errorf("writing the scope: %w", err)
+		}
+	}
+	if args.Spawn != nil {
+		sp := machine.Spawn{
+			Role:      args.Spawn.Role,
+			Model:     args.Spawn.Model,
+			Pass:      args.Spawn.Pass,
+			Fail:      args.Spawn.Fail,
+			Vars:      args.Spawn.Vars,
+			SpawnedAt: time.Now().UTC(),
+		}
+		if err := machine.NewStore(state).WriteSpawn(id, id, &sp); err != nil {
+			return fmt.Errorf("writing the spawn: %w", err)
+		}
+	}
+	return nil
+}
+
+// scopeFile is the scope file of a workspace this agent created for grant:
+// this agent as self, source granted, and the grant's parent.
+func (o *agentOperations) scopeFile(grant *envproto.ScopeGrant, now time.Time) (*envscope.File, error) {
+	refs := make([]envscope.Ref, 0, len(grant.Environments))
+	for _, e := range grant.Environments {
+		refs = append(refs, envscope.Ref{ID: e.ID, Name: e.Name})
+	}
+	scope, err := envscope.New(o.self, refs)
+	if err != nil {
+		return nil, fmt.Errorf("the scope grant: %w", err)
+	}
+	var parent *envscope.Parent
+	if grant.Parent != nil {
+		parent = &envscope.Parent{Environment: grant.Parent.Environment, Workspace: grant.Parent.Workspace}
+	}
+	return envscope.FileFor(scope, "granted", parent, now), nil
+}
+
+// machineRecord is what machine.record reads of workspace id on this
+// environment: its result and role, its report cut to MaxRecordReportBytes, and
+// its progress and rollup as ws machine progress shows them, with progress
+// null when the workspace reported none (ADR 0082).
+func (o *agentOperations) machineRecord(id string) (json.RawMessage, error) {
+	list, err := o.app.workspaces.List()
+	if err != nil {
+		return nil, fmt.Errorf("listing workspaces: %w", err)
+	}
+	if !slices.ContainsFunc(list, func(w workspace.Workspace) bool { return w.ID == id }) {
+		return nil, &envproto.ReplyError{Code: string(codeWorkspaceNotFound), Message: fmt.Sprintf("no workspace %q on this environment", id)}
+	}
+	root := machine.Root(list, id)
+	store := machine.NewStore(o.app.paths.State)
+	rec, err := store.Read(root, id)
+	if err != nil {
+		return nil, fmt.Errorf("reading the record: %w", err)
+	}
+	tree, err := progressTreeOf(store, root, list, id)
+	if err != nil {
+		return nil, fmt.Errorf("reading the progress: %w", err)
+	}
+	node := progressNode(tree)
+	out := envproto.MachineRecordResult{Workspace: id, Progress: json.RawMessage("null"), Rollup: jsonOrNull(node.Rollup)}
+	if tree.Progress != nil {
+		out.Progress = jsonOrNull(node.Progress)
+	}
+	if rec.Spawn != nil {
+		role := rec.Spawn.Role
+		out.Role = &role
+	}
+	if rec.Result != nil {
+		outcome := machine.OutcomeOf(rec.Spawn, rec.Result.Verdict)
+		out.Result = &envproto.RecordResult{Verdict: rec.Result.Verdict, Outcome: string(outcome), RecordedAt: rec.Result.RecordedAt}
+	}
+	if rec.ReportPath != "" {
+		report, truncated, readErr := readCappedReport(rec.ReportPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("reading the report: %w", readErr)
+		}
+		out.Report, out.ReportTruncated = &report, truncated
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("encoding the record: %w", err)
+	}
+	return raw, nil
+}
+
+// readCappedReport reads the report at path, cut to MaxRecordReportBytes on a
+// UTF-8 boundary, and reports whether it was cut.
+func readCappedReport(path string) (string, bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, envproto.MaxRecordReportBytes+1))
+	if err != nil {
+		return "", false, err
+	}
+	if len(data) <= envproto.MaxRecordReportBytes {
+		return string(data), false, nil
+	}
+	cut := envproto.MaxRecordReportBytes
+	for cut > 0 && !utf8.RuneStart(data[cut]) {
+		cut--
+	}
+	return string(data[:cut]), true, nil
+}
+
+// jsonOrNull is v as JSON, or null when it doesn't encode.
+func jsonOrNull(v any) json.RawMessage {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage("null")
+	}
+	return raw
 }
 
 // runCLI runs argv in a new App and returns its stdout's one JSON object.

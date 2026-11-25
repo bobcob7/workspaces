@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/envagent"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
@@ -148,10 +150,39 @@ func (a *App) runEnvAgentRun(ctx context.Context) error {
 	defer stop()
 	probe := agentClaude{claude: claude.New(log, "claude", a.environ)}
 	opts := agentOptions(a.version, a.config.Environments.RenewDays(), a.paths.Workspaces)
-	ops := newAgentOperations(a, id.Name)
+	ops := newAgentOperations(a, &id)
 	agent := envagent.NewAgent(log, files, client, agentSnapshots{app: a}, probe, ops, rand.Reader, opts)
 	agent.SetLoopTicker(agentLoops{newApp: ops.newApp, root: a.paths.Root})
-	return agentError(agent.Run(ctx))
+	socketCtx, stopSocket := context.WithCancel(ctx)
+	socketDone := make(chan struct{})
+	go func() {
+		defer close(socketDone)
+		a.serveAgentSocket(socketCtx, log, agent.SocketHandler())
+	}()
+	err = agent.Run(ctx)
+	stopSocket()
+	<-socketDone
+	return agentError(err)
+}
+
+// serveAgentSocket serves handler on the agent socket until ctx ends (ADR
+// 0082). A socket that can't listen is logged, and the agent runs without it.
+func (a *App) serveAgentSocket(ctx context.Context, log *slog.Logger, handler http.Handler) {
+	socket := a.daemonPaths().AgentSocket
+	ln, err := daemon.ListenPeer(ctx, socket, log)
+	if err != nil {
+		log.WarnContext(ctx, "the agent socket isn't listening", "error", err)
+		return
+	}
+	defer func() { _ = os.Remove(socket) }()
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+	}()
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.WarnContext(ctx, "the agent socket stopped", "error", err)
+	}
 }
 
 // envAgentStatusJSON is ws env agent status's output. Without an identity

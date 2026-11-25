@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -353,6 +354,11 @@ func TestParse_environments(t *testing.T) {
 		_, err := parse([]byte("[environments]\npublic_name = \"192.0.2.10\"\n"))
 		require.NoError(t, err)
 	})
+	t.Run("reads a valid default_scope", func(t *testing.T) {
+		cfg, err := parse([]byte("[environments]\ndefault_scope = [\"local\", \"linux-server\"]\n"))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"local", "linux-server"}, cfg.Environments.DefaultScope)
+	})
 	bad := []struct {
 		name string
 		line string
@@ -368,6 +374,12 @@ func TestParse_environments(t *testing.T) {
 		{"public_name with an empty label", `public_name = "ws..example.com"`, "environments.public_name"},
 		{"renew_before_days 0", `renew_before_days = 0`, "environments.renew_before_days"},
 		{"renew_before_days 61", `renew_before_days = 61`, "environments.renew_before_days"},
+		{"default_scope with an empty entry", `default_scope = [""]`, "environments.default_scope"},
+		{"default_scope with a space", `default_scope = ["win rig"]`, "environments.default_scope"},
+		{"default_scope with a comma", `default_scope = ["a,b"]`, "environments.default_scope"},
+		{"default_scope with a control character", `default_scope = ["a\tb"]`, "environments.default_scope"},
+		{"default_scope with a duplicate", `default_scope = ["local", "local"]`, "environments.default_scope"},
+		{"default_scope with a 65-byte entry", `default_scope = ["` + strings.Repeat("a", 65) + `"]`, "environments.default_scope"},
 	}
 	for _, tt := range bad {
 		t.Run(tt.name+" is ErrInvalid", func(t *testing.T) {

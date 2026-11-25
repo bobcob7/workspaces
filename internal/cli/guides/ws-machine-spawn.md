@@ -2,6 +2,7 @@
 
 ```
 ws machine spawn [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden]
+                 [--env <name>] [--env-scope <name>[,<name>...]]
                  [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ```
 
@@ -37,6 +38,18 @@ Copy this into the prompt: "As your last step run
 you could not finish." The report is never an argument. For a child that runs
 long, also ask it to run `ws machine progress set --name <short name> --total <n>`
 and `ws machine progress step`, so `ws machine wait` and `children` show its progress.
+
+## Environments
+
+Your scope is the environments you may start children on: `ws machine envs`
+lists it. A child started without `--env` (or with your own environment's
+name) runs on this machine, and its scope is yours, or narrowed with
+`--env-scope`. It can't be wider than yours. With `--env <name>` for another
+environment in your scope, the child runs there, and the output says so:
+`environment` is its name and `scope` the environments it may use. Its scope
+always contains its own environment. `--env local` from a remote environment
+isn't supported yet. A child can't grant itself a wider scope: a person grants
+it with `ws claude --env-scope` or `[environments] default_scope`.
 
 ## Roles
 
@@ -89,6 +102,8 @@ can't be attached to or sent messages.
 | `--var KEY=VALUE`   | A value for the role's prompt; repeatable; only with `--role` |
 | `--runner claude\|ws` | Which agent runs the child; default from `config.toml` for the role, else `claude` |
 | `--endpoint <name>` | An endpoint from `config.toml` instead of the model's own; only with the `ws` runner |
+| `--env <name>` | Start the child on this environment (`ws machine envs` lists yours); default: this machine. See Environments |
+| `--env-scope <name>[,<name>...]` | Narrow the child's scope to these environments; repeatable. Each must be in your scope. See Environments |
 
 Output is always JSON; `--json` changes nothing.
 
@@ -144,6 +159,9 @@ default), and `ws_runner` the model's endpoint for a `ws` child, else
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root           | `claude_untrusted` | 1    |
 | `claude --bg` failed; `details.stderr` has its output  | `claude_failed`    | 1    |
+| `--env` or `--env-scope` names an environment outside your scope | `environment_out_of_scope` | 4 |
+| `--env` or `--env-scope` names an enrolled environment that `ws env rm` removed, or not enrolled, within the scope | `environment_unknown` | 3 |
+| `--env` names an environment that is offline, or its agent is too old | `environment_offline`, `environment_outdated` | 1 |
 | `--runner` isn't `claude` or `ws`; `--endpoint` with `claude`; an argument other than `--model` after a `ws` child's prompt | `usage` | 2 |
 | The endpoint isn't in `config.toml`; `details.endpoints` lists them | `endpoint_unknown` | 3 |
 | No model configured for a `ws` child, or a bad `[models]` or `[endpoints]` entry | `config_invalid` | 1 |

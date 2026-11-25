@@ -51,6 +51,13 @@ descendant, `null` on a workspace named. `removed` is `false` with
 `--dry-run`. The exit code is the first failure's; the others are still
 removed.
 
+## Children on other environments
+
+`ws machine rm` removes a child on another environment on that environment,
+and `--all` includes your direct ones. Each item has `"environment"`. With
+`--dry-run` such a child is listed and not removed. If its environment is
+offline, the item's error is `environment_offline` and the child stays.
+
 ## Exit codes
 
 | Situation                                                    | Error code            | Exit |

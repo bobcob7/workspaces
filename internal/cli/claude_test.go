@@ -23,6 +23,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -1006,31 +1007,15 @@ func TestApp_runClaude_environment(t *testing.T) {
 		assert.Equal(t, "/srv/ws/fix-login-1", got["path"])
 		assert.Equal(t, []any{}, got["warnings"])
 	})
-	t.Run("--json merges the local warnings into the agent's", func(t *testing.T) {
+	t.Run("--json keeps the agent's warnings", func(t *testing.T) {
 		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1","warnings":["agent warning"]},"error":null}`, nil)
 		e.app.global.json = true
-		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
-			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
-		}
 		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
 		var got struct {
 			Warnings []string `json:"warnings"`
 		}
 		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
-		assert.Equal(t, []string{"agent warning", "not a child of fix-login-d8efb24f: it runs on linux-server"}, got.Warnings)
-	})
-	t.Run("--json lists the local warnings when the result has no warnings key", func(t *testing.T) {
-		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1"},"error":null}`, nil)
-		e.app.global.json = true
-		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
-			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
-		}
-		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
-		var got struct {
-			Warnings []string `json:"warnings"`
-		}
-		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
-		assert.Equal(t, []string{"not a child of fix-login-d8efb24f: it runs on linux-server"}, got.Warnings)
+		assert.Equal(t, []string{"agent warning"}, got.Warnings)
 	})
 	t.Run("--json has an empty warnings list when there are none", func(t *testing.T) {
 		e := newRemoteClaudeEnv(t, `{"ok":true,"result":{"id":"fix-login-1","session":"s1","path":"/srv/ws/fix-login-1"},"error":null}`, nil)
@@ -1095,14 +1080,13 @@ func TestApp_runClaude_environment(t *testing.T) {
 		requireUsageError(t, run(e, claudeOptions{parent: "api-bump"}))
 		assert.Empty(t, e.caller.CallEnvironmentCalls())
 	})
-	t.Run("the default parent is dropped with a warning under --env", func(t *testing.T) {
+	t.Run("--env inside a workspace is usage, and creates nothing", func(t *testing.T) {
 		e := newRemoteClaudeEnv(t, remoteCreated, nil)
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
 			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
 		}
-		require.NoError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
-		assert.Nil(t, e.create(t).Parent)
-		assert.Contains(t, e.stderr.String(), "not a child of fix-login-d8efb24f: it runs on linux-server")
+		requireUsageError(t, run(e, claudeOptions{env: "linux-server", claudeArgs: []string{"fix it"}}))
+		assert.Empty(t, e.caller.CallEnvironmentCalls())
 	})
 	t.Run("--runner ws --env sends kind runner with the prompt", func(t *testing.T) {
 		e := newRemoteClaudeEnv(t, remoteCreated, nil)
@@ -1167,4 +1151,167 @@ func (e *claudeEnv) run(t *testing.T, args ...string) error {
 func (e *claudeE2E) trustedDirs(t *testing.T) []string {
 	t.Helper()
 	return trustedDirsIn(t, e.claudeJSON)
+}
+
+func TestApp_runClaude_scope(t *testing.T) {
+	t.Run("refuses --env-scope inside a workspace", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		opts := &claudeOptions{envScope: []string{linuxRef.Name}}
+		requireUsageError(t, e.app.runClaude(t.Context(), opts))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("refuses --env inside a workspace", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		opts := &claudeOptions{env: linuxRef.Name}
+		requireUsageError(t, e.app.runClaude(t.Context(), opts))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("grants --env-scope outside a workspace", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{envScope: []string{linuxRef.Name}}))
+		scope, file := scopeFileOf(t, e.app.paths.State, "x")
+		assert.Equal(t, "granted", file.Source)
+		assert.Equal(t, []string{"local", linuxRef.Name}, scope.Names())
+	})
+	t.Run("uses default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{}))
+		scope, _ := scopeFileOf(t, e.app.paths.State, "x")
+		assert.Equal(t, []string{"local", linuxRef.Name}, scope.Names())
+	})
+	t.Run("--parent none inside a workspace never reads default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: requesterNone}))
+		_, err := os.Stat(envscope.Path(e.app.paths.State, "x"))
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("--parent none inside a workspace inherits the enclosing scope, not default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		addEnvironmentForScope(t, e.app, winRef.Name)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: requesterNone}))
+		scope, file := scopeFileOf(t, e.app.paths.State, "x")
+		assert.Equal(t, "inherited", file.Source)
+		assert.Equal(t, []string{"local", linuxRef.Name}, scope.Names())
+	})
+	t.Run("--parent <other> inside a workspace takes the enclosing scope, not the parent's", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		e.store.FindFunc = func(arg string) (workspace.Workspace, error) { return workspace.Workspace{ID: arg}, nil }
+		scope, err := envscope.New(localRef(), []envscope.Ref{linuxRef})
+		require.NoError(t, err)
+		require.NoError(t, envscope.Write(e.app.paths.State, "boss", envscope.FileFor(scope, "granted", nil, time.Now())))
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: "boss"}))
+		_, err = os.Stat(envscope.Path(e.app.paths.State, "x"))
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("unknown --env-scope name is environment_unknown and creates nothing", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		err := e.app.runClaude(t.Context(), &claudeOptions{envScope: []string{"nope"}})
+		requireCode(t, codeEnvironmentUnknown, err)
+		assert.Empty(t, e.store.CreateCalls())
+	})
+}
+
+// enrolledClaudeEnv is a claude env with linux and win-rig enrolled, and a
+// scope host that answers every scope operation with a created workspace.
+func enrolledClaudeEnv(t *testing.T) (*claudeEnv, *scopeHost) {
+	t.Helper()
+	e := newClaudeEnv(t)
+	e.app.paths = config.NewPaths(t.TempDir())
+	addEnvironmentForScope(t, e.app, linuxRef.Name)
+	addEnvironmentForScope(t, e.app, winRef.Name)
+	host := serveScopeHost(t, e.app, scopeOK(t, map[string]any{
+		"id": "x", "session": "e8cdf5d8", "path": "/cfg/workspaces/x", "warnings": []string{},
+	}))
+	return e, host
+}
+
+// spawnNarrow is the Narrow of the one scope.spawn host was asked for.
+func spawnNarrow(t *testing.T, host *scopeHost) []string {
+	t.Helper()
+	calls := host.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "spawn", calls[0].op)
+	var args envproto.ScopeSpawnArgs
+	require.NoError(t, json.Unmarshal(calls[0].args, &args))
+	assert.Nil(t, args.Workspace)
+	return args.Narrow
+}
+
+func TestApp_runRemoteClaude_scope(t *testing.T) {
+	t.Run("--env A --env-scope B sends B alone, never the controller", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		opts := &claudeOptions{env: linuxRef.Name, envScope: []string{winRef.Name}}
+		require.NoError(t, e.app.runRemoteClaude(t.Context(), opts, linuxRef.Name, ""))
+		assert.Equal(t, []string{winRef.Name}, spawnNarrow(t, host))
+	})
+	t.Run("--env A with default_scope [B] sends B alone", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		opts := &claudeOptions{env: linuxRef.Name}
+		require.NoError(t, e.app.runRemoteClaude(t.Context(), opts, linuxRef.Name, ""))
+		assert.Equal(t, []string{winRef.Name}, spawnNarrow(t, host))
+	})
+	t.Run("--env A --env-scope local sends local, as asked", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		opts := &claudeOptions{env: linuxRef.Name, envScope: []string{"local"}}
+		require.NoError(t, e.app.runRemoteClaude(t.Context(), opts, linuxRef.Name, ""))
+		assert.Equal(t, []string{"local"}, spawnNarrow(t, host))
+	})
+	t.Run("--env A --env-scope A is not wider than A", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		opts := &claudeOptions{env: linuxRef.Name, envScope: []string{linuxRef.Name}}
+		_ = e.app.runRemoteClaude(t.Context(), opts, linuxRef.Name, "")
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("default_scope [A] with --env A is not wider than A", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
+		_ = e.app.runRemoteClaude(t.Context(), &claudeOptions{env: linuxRef.Name}, linuxRef.Name, "")
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("the unit never reads default_scope for a caller inside a workspace", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		_ = e.app.runRemoteClaude(t.Context(), &claudeOptions{parent: "remote-1"}, linuxRef.Name, "remote-1")
+		assert.Empty(t, host.Calls())
+	})
+}
+
+func TestApp_runClaude_remoteParentInWorkspace(t *testing.T) {
+	for _, runner := range []string{"", config.RunnerWS} {
+		t.Run("runner "+runner+": a remote --parent is refused inside a workspace", func(t *testing.T) {
+			e := newRemoteClaudeEnv(t, remoteCreated, nil)
+			e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+			err := e.app.runClaude(t.Context(), &claudeOptions{parent: "api-bump", runner: runner, claudeArgs: []string{"fix it"}})
+			requireUsageError(t, err)
+			assert.Empty(t, e.caller.CallEnvironmentCalls())
+			assert.Empty(t, e.store.CreateCalls())
+			assert.Empty(t, e.claude.StartCalls())
+		})
+	}
+	t.Run("outside a workspace a remote --parent still runs on its environment", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: "api-bump", claudeArgs: []string{"fix it"}}))
+		assert.Len(t, e.caller.CallEnvironmentCalls(), 1)
+	})
 }

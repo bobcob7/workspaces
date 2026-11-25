@@ -24,6 +24,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 )
 
 // syncBuffer is a log sink that the server's goroutines and the test may share.
@@ -830,6 +831,31 @@ func TestController_answer(t *testing.T) {
 		assert.False(t, reply.OK)
 		require.NotNil(t, reply.Error)
 		assert.Equal(t, "usage", reply.Error.Code)
+	})
+	t.Run("scope.envs from an agent is answered on env/<id>/req", func(t *testing.T) {
+		store := newTestStore(t)
+		b := envtest.NewBroker()
+		rec, _ := enrollAgent(t, store, "linux-server")
+		c := startController(t, store, b)
+		c.SetLocalScopes(localFake{ws: map[string]envscope.Scope{}}, envscope.NewLedger(t.TempDir()))
+		workspace := "w"
+		payload, err := marshalRequest(envproto.OpScopeEnvs, envproto.ScopeEnvsArgs{
+			ScopeCallerArgs: callerArgs(&workspace, nil),
+		}, callRequestID)
+		require.NoError(t, err)
+		replies := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
+		c.onUp(t.Context(), &envproto.Message{
+			Topic:           envproto.Topic(rec.ID, envproto.LeafUp),
+			Payload:         payload,
+			ResponseTopic:   envproto.Topic(rec.ID, envproto.LeafReq),
+			CorrelationData: []byte("abc"),
+		})
+		require.Len(t, *replies, 1)
+		reply := replyOf(t, &(*replies)[0])
+		require.True(t, reply.OK, "%+v", reply.Error)
+		var result envproto.ScopeEnvsResult
+		require.NoError(t, json.Unmarshal(reply.Result, &result))
+		assert.Equal(t, []envproto.ScopeEnv{{Name: "linux-server", ID: rec.ID, State: envproto.StatusOffline, Current: true}}, result.Environments)
 	})
 	t.Run("cert.renew still renews", func(t *testing.T) {
 		store := newTestStore(t)

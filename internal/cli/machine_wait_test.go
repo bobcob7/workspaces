@@ -251,7 +251,7 @@ func TestApp_waitTargets(t *testing.T) {
 	resolve := func(t *testing.T, e *mockedApp, args ...string) ([]waitTarget, error) {
 		t.Helper()
 		store := machine.NewStore(e.app.paths.State)
-		return e.app.waitTargets(args, machineTree(), "plan", "boss", store)
+		return e.app.waitTargets(args, machineTree(), "plan", "boss", store, nil)
 	}
 	t.Run("a descendant resolves to its id", func(t *testing.T) {
 		e := newWaitApp(t)

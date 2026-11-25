@@ -36,8 +36,10 @@ type machineLogsJSON struct {
 	Events  []agent.Event `json:"events"`
 	Text    *string       `json:"text"`
 	// Truncated is whether --tail left older events out.
-	Truncated bool     `json:"truncated"`
-	Warnings  []string `json:"warnings"`
+	Truncated bool `json:"truncated"`
+	// Environment is a remote child's environment, absent for a local one.
+	Environment *string  `json:"environment,omitempty"`
+	Warnings    []string `json:"warnings"`
 }
 
 // logChild is a child ws machine logs reads: a listed workspace, or a
@@ -80,7 +82,7 @@ func (a *App) runMachineLogs(ctx context.Context, arg string, opts *machineLogsO
 	root := machine.Root(entryWorkspaces(listing.Workspaces), caller)
 	child, err := a.logChildOf(arg, listing.Workspaces, caller, root)
 	if err != nil {
-		return err
+		return a.remoteLogsOf(ctx, caller, listing.Workspaces, arg, opts.tail, err)
 	}
 	out, err := a.machineLog(ctx, &child, opts.tail)
 	if err != nil {

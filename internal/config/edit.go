@@ -421,6 +421,7 @@ func environmentRules() []keyRule {
 		{key: "environments.public_name", typ: TypeString, table: "environments", leaf: "public_name"},
 		{key: "environments.renew_before_days", typ: TypeInt, table: "environments", leaf: "renew_before_days"},
 		{key: "environments.agent_loop_scripts", typ: TypeBool, table: "environments", leaf: "agent_loop_scripts"},
+		{key: "environments.default_scope", typ: TypeStrings, table: "environments", leaf: "default_scope"},
 	}
 }
 
@@ -573,6 +574,8 @@ func environmentValue(rule keyRule, cfg *Config) (any, bool) {
 		return cfg.Environments.RenewDays(), true
 	case "environments.agent_loop_scripts":
 		return cfg.Environments.LoopScriptsAllowed(), true
+	case "environments.default_scope":
+		return append([]string{}, cfg.Environments.DefaultScope...), true
 	}
 	return nil, false
 }
@@ -687,7 +690,7 @@ func defaultOf(rule keyRule) any {
 	switch rule.key {
 	case "defaults.host":
 		return defaultHost
-	case "defaults.owners":
+	case "defaults.owners", "environments.default_scope":
 		return []string{}
 	case "hosts":
 		return []Host{{Name: defaultHost, Kind: KindAuto}}

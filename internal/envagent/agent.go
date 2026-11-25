@@ -85,7 +85,11 @@ type Agent struct {
 	random    io.Reader
 	opts      Options
 	inbox     chan envproto.Message
+	pendingMu sync.Mutex                       // guards pending
 	pending   map[string]chan envproto.Message // replies awaited, by correlation data
+	upMu      sync.Mutex                       // guards upID and upGone
+	upID      string                           // the connected environment's id
+	upGone    chan struct{}                    // closed when the connection ends; nil when there is none
 	slots     chan struct{}                    // one per operation running, MaxOps in all
 	queue     chan struct{}                    // one per operation running or waiting for a slot
 	running   sync.WaitGroup                   // the operation goroutines
@@ -207,6 +211,7 @@ func (a *Agent) connect(ctx context.Context, id *Identity) error {
 		return err
 	}
 	a.refreshSnapshot(ctx, id, true)
+	a.beginUplink(id.ID)
 	return nil
 }
 
@@ -215,6 +220,7 @@ func (a *Agent) connect(ctx context.Context, id *Identity) error {
 func (a *Agent) serve(parent context.Context, id *Identity) {
 	ctx, cancelOps := context.WithCancel(parent)
 	defer cancelOps()
+	defer a.endUplink()
 	done := a.client.Done()
 	if a.terms != nil {
 		a.terms.begin(ctx, id.ID)

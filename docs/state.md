@@ -331,6 +331,22 @@ the controller: their streams live in memory and end with the terminal, the
 connection or the environment's presence. `ws list`'s `agent_state` isn't
 stored either: it is read from the snapshot's `agents`, matched by session id.
 
+### Scope and remote child files
+
+- `state/<id>/scope.json`: a workspace's scope (`version`, `environments`,
+  `self`, `source`, `parent`). Missing means its own environment only; an
+  invalid file is the same, with a warning.
+- `environments/scopes.json` and `environments/scopes.lock` under the config
+  directory: the controller's ledger of remote workspaces and cross-environment
+  children.
+- `state/<root>/machine/remote/<env-id>/<child>/`: the copy of a finished child
+  on another environment (`result.toml`, `spawn.toml` for a role, `report.md`),
+  written once. `ws machine wait` reads it after the child is removed. Its
+  `spawn.toml` is reconstructed from the role and the verdict, not the role's real
+  file.
+- `<12 hex>-agent.sock` beside the daemon socket: how an enrolled machine's
+  workspaces reach the controller.
+
 ## What each command does
 
 - **`ws shell`**: creates the workspace, records a `shell` session and

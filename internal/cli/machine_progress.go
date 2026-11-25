@@ -135,9 +135,12 @@ func (a *App) newMachineProgressShowCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Show your progress and your descendants' progress",
 		Args:  noArgs,
-		RunE: runE(a.withConfig(func(_ *cobra.Command, _ []string) error {
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, _ []string) error {
 			node, err := a.callerProgress()
 			if err != nil {
+				return err
+			}
+			if err := a.nestRemoteProgress(cmd.Context(), &node); err != nil {
 				return err
 			}
 			return a.writeJSON(machineProgressJSON{progressUpdateJSON: a.progressUpdate(&node), Tree: node})

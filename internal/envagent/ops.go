@@ -74,7 +74,7 @@ func (a *Agent) startOp(ctx context.Context, id *Identity, msg *envproto.Message
 // controller asks again for a fresh answer.
 func remembered(op string) bool {
 	switch op {
-	case envproto.OpAgentLogs, envproto.OpAgentStatus, envproto.OpWorkspaceList,
+	case envproto.OpAgentLogs, envproto.OpAgentStatus, envproto.OpWorkspaceList, envproto.OpMachineRecord,
 		envproto.OpReviewStatus, envproto.OpReviewList, envproto.OpReviewReport, envproto.OpReviewProfiles,
 		envproto.OpLoopList, envproto.OpLoopShow, envproto.OpLoopHistory, envproto.OpLoopHistoryRun,
 		envproto.OpLoopMemoryList, envproto.OpLoopMemoryGet:

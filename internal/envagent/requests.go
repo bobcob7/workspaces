@@ -24,7 +24,7 @@ func (a *Agent) deliverReply(msg *envproto.Message) bool {
 	if len(msg.CorrelationData) == 0 {
 		return false
 	}
-	waiting, ok := a.pending[string(msg.CorrelationData)]
+	waiting, ok := a.waiter(string(msg.CorrelationData))
 	if !ok {
 		return false
 	}

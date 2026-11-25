@@ -3631,6 +3631,84 @@ func (mock *environmentCallerMock) CallEnvironmentCalls() []struct {
 	return calls
 }
 
+// Ensure, that scopeCallerMock does implement scopeCaller.
+// If this is not the case, regenerate this file with moq.
+var _ scopeCaller = &scopeCallerMock{}
+
+// scopeCallerMock is a mock implementation of scopeCaller.
+//
+//	func TestSomethingThatUsesscopeCaller(t *testing.T) {
+//
+//		// make and configure a mocked scopeCaller
+//		mockedscopeCaller := &scopeCallerMock{
+//			ScopeFunc: func(ctx context.Context, op string, args any) (envproto.Reply, error) {
+//				panic("mock out the Scope method")
+//			},
+//		}
+//
+//		// use mockedscopeCaller in code that requires scopeCaller
+//		// and then make assertions.
+//
+//	}
+type scopeCallerMock struct {
+	// ScopeFunc mocks the Scope method.
+	ScopeFunc func(ctx context.Context, op string, args any) (envproto.Reply, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Scope holds details about calls to the Scope method.
+		Scope []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Op is the op argument value.
+			Op string
+			// Args is the args argument value.
+			Args any
+		}
+	}
+	lockScope sync.RWMutex
+}
+
+// Scope calls ScopeFunc.
+func (mock *scopeCallerMock) Scope(ctx context.Context, op string, args any) (envproto.Reply, error) {
+	if mock.ScopeFunc == nil {
+		panic("scopeCallerMock.ScopeFunc: method is nil but scopeCaller.Scope was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Op   string
+		Args any
+	}{
+		Ctx:  ctx,
+		Op:   op,
+		Args: args,
+	}
+	mock.lockScope.Lock()
+	mock.calls.Scope = append(mock.calls.Scope, callInfo)
+	mock.lockScope.Unlock()
+	return mock.ScopeFunc(ctx, op, args)
+}
+
+// ScopeCalls gets all the calls that were made to Scope.
+// Check the length with:
+//
+//	len(mockedscopeCaller.ScopeCalls())
+func (mock *scopeCallerMock) ScopeCalls() []struct {
+	Ctx  context.Context
+	Op   string
+	Args any
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Op   string
+		Args any
+	}
+	mock.lockScope.RLock()
+	calls = mock.calls.Scope
+	mock.lockScope.RUnlock()
+	return calls
+}
+
 // Ensure, that terminalOpenerMock does implement terminalOpener.
 // If this is not the case, regenerate this file with moq.
 var _ terminalOpener = &terminalOpenerMock{}

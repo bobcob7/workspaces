@@ -27,6 +27,12 @@ The same `id`, `progress`, `rollup` and `warnings` as `set` and `step` print, pl
 
 `rollup` is that workspace's steps plus everything below it.
 
+## Remote children
+
+A child you started on another environment (`ws machine spawn --env`) is
+shown as a leaf under its parent, with the progress and rollup its environment
+last reported. A child whose environment can't be asked has no progress.
+
 ## Exit codes
 
 | Situation               | Error code          | Exit |

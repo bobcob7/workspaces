@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 )
 
 const (
@@ -84,6 +85,10 @@ type Controller struct {
 	abandonedCloseWait time.Duration
 	// newTicker returns a channel that ticks every d and a func that stops it.
 	newTicker func(d time.Duration) (<-chan time.Time, func())
+	// local and ledger are the scopes of local workspaces and the scope ledger
+	// (ADR 0082), set by SetLocalScopes before Start.
+	local  LocalScopes
+	ledger *envscope.Ledger
 
 	// lifecycle serializes Start, Reload and Close. mu is never held across
 	// a broker call, since the broker's handlers take mu.
@@ -206,6 +211,7 @@ func (c *Controller) listenAll(ctx context.Context) error {
 		unsubscribe: unsubscribe,
 	})
 	go c.serveEnrollment(life, srv, tls.NewListener(enrollLn, enrollTLS(c.currentState)))
+	go c.sweepEvery(life, sweepInterval)
 	return nil
 }
 
@@ -590,7 +596,13 @@ func (c *Controller) answer(ctx context.Context, id string, payload []byte) []by
 	case spec.Caller != envproto.CallerAgent:
 		return envproto.ErrorReply("usage", req.Op+" isn't an operation an agent may send")
 	}
-	return c.renew(ctx, id, req.Args)
+	switch req.Op {
+	case envproto.OpCertRenew:
+		return c.renew(ctx, id, req.Args)
+	case envproto.OpScopeEnvs, envproto.OpScopeSpawn, envproto.OpScopeChildren, envproto.OpScopeChild:
+		return encodeReply(c.scope(ctx, id, scopeOpName(req.Op), req.Args, req.RequestID))
+	}
+	return envproto.ErrorReply("usage", req.Op+" isn't an operation an agent may send")
 }
 
 // renew signs the CSR in args for environment id and returns the reply.

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"sync"
 )
 
@@ -315,5 +316,115 @@ func (mock *brokerMock) SubscribeCalls() []struct {
 	mock.lockSubscribe.RLock()
 	calls = mock.calls.Subscribe
 	mock.lockSubscribe.RUnlock()
+	return calls
+}
+
+// Ensure, that LocalScopesMock does implement LocalScopes.
+// If this is not the case, regenerate this file with moq.
+var _ LocalScopes = &LocalScopesMock{}
+
+// LocalScopesMock is a mock implementation of LocalScopes.
+//
+//	func TestSomethingThatUsesLocalScopes(t *testing.T) {
+//
+//		// make and configure a mocked LocalScopes
+//		mockedLocalScopes := &LocalScopesMock{
+//			ExistsFunc: func(id string) (bool, error) {
+//				panic("mock out the Exists method")
+//			},
+//			ScopeFunc: func(id string) (envscope.Scope, error) {
+//				panic("mock out the Scope method")
+//			},
+//		}
+//
+//		// use mockedLocalScopes in code that requires LocalScopes
+//		// and then make assertions.
+//
+//	}
+type LocalScopesMock struct {
+	// ExistsFunc mocks the Exists method.
+	ExistsFunc func(id string) (bool, error)
+
+	// ScopeFunc mocks the Scope method.
+	ScopeFunc func(id string) (envscope.Scope, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Exists holds details about calls to the Exists method.
+		Exists []struct {
+			// ID is the id argument value.
+			ID string
+		}
+		// Scope holds details about calls to the Scope method.
+		Scope []struct {
+			// ID is the id argument value.
+			ID string
+		}
+	}
+	lockExists sync.RWMutex
+	lockScope  sync.RWMutex
+}
+
+// Exists calls ExistsFunc.
+func (mock *LocalScopesMock) Exists(id string) (bool, error) {
+	if mock.ExistsFunc == nil {
+		panic("LocalScopesMock.ExistsFunc: method is nil but LocalScopes.Exists was just called")
+	}
+	callInfo := struct {
+		ID string
+	}{
+		ID: id,
+	}
+	mock.lockExists.Lock()
+	mock.calls.Exists = append(mock.calls.Exists, callInfo)
+	mock.lockExists.Unlock()
+	return mock.ExistsFunc(id)
+}
+
+// ExistsCalls gets all the calls that were made to Exists.
+// Check the length with:
+//
+//	len(mockedLocalScopes.ExistsCalls())
+func (mock *LocalScopesMock) ExistsCalls() []struct {
+	ID string
+} {
+	var calls []struct {
+		ID string
+	}
+	mock.lockExists.RLock()
+	calls = mock.calls.Exists
+	mock.lockExists.RUnlock()
+	return calls
+}
+
+// Scope calls ScopeFunc.
+func (mock *LocalScopesMock) Scope(id string) (envscope.Scope, error) {
+	if mock.ScopeFunc == nil {
+		panic("LocalScopesMock.ScopeFunc: method is nil but LocalScopes.Scope was just called")
+	}
+	callInfo := struct {
+		ID string
+	}{
+		ID: id,
+	}
+	mock.lockScope.Lock()
+	mock.calls.Scope = append(mock.calls.Scope, callInfo)
+	mock.lockScope.Unlock()
+	return mock.ScopeFunc(id)
+}
+
+// ScopeCalls gets all the calls that were made to Scope.
+// Check the length with:
+//
+//	len(mockedLocalScopes.ScopeCalls())
+func (mock *LocalScopesMock) ScopeCalls() []struct {
+	ID string
+} {
+	var calls []struct {
+		ID string
+	}
+	mock.lockScope.RLock()
+	calls = mock.calls.Scope
+	mock.lockScope.RUnlock()
 	return calls
 }

@@ -139,6 +139,12 @@ func TestApp_newShellCmd(t *testing.T) {
 }
 
 func TestApp_runShell(t *testing.T) {
+	t.Run("refuses --env inside a workspace with usage, creating nothing", func(t *testing.T) {
+		e := newShellEnv(t)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		requireUsageError(t, e.app.runShell(t.Context(), &shellOptions{env: "linux"}))
+		assert.Empty(t, e.store.CreateCalls())
+	})
 	t.Run("holds the lock from creation until the workspace is removed", func(t *testing.T) {
 		e := newShellEnv(t)
 		e.store.RecordSessionFunc = func(string, workspace.SessionKind, string) error {
