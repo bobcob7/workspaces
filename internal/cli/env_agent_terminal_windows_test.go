@@ -1,0 +1,83 @@
+//go:build windows
+
+package cli
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestTerminalEnvAllowed_windows(t *testing.T) {
+	t.Run("the system variables pass whatever their case", func(t *testing.T) {
+		for _, key := range []string{"PATH", "Path", "path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "ProgramFiles(x86)", "USERPROFILE", "TEMP"} {
+			assert.True(t, terminalEnvAllowed(key), key)
+		}
+	})
+	t.Run("secrets and everything else are withheld", func(t *testing.T) {
+		for _, key := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "USER", "SHELL", "TERM", "", "PATHS"} {
+			assert.False(t, terminalEnvAllowed(key), key)
+		}
+	})
+	t.Run("Path keeps its spelling and secrets are dropped", func(t *testing.T) {
+		got := envMap(terminalEnv([]string{"Path=C:\\bin", "SystemRoot=C:\\Windows", "GH_TOKEN=secret"}))
+		assert.Equal(t, "C:\\bin", got["Path"])
+		assert.Equal(t, "C:\\Windows", got["SystemRoot"])
+		assert.NotContains(t, got, "GH_TOKEN")
+	})
+}
+
+func TestExecutableNames(t *testing.T) {
+	t.Run("an unset PATHEXT tries the defaults", func(t *testing.T) {
+		assert.Equal(t, []string{"claude.COM", "claude.EXE", "claude.BAT", "claude.CMD"}, executableNames("claude", nil))
+	})
+	t.Run("an empty PATHEXT tries the defaults", func(t *testing.T) {
+		assert.Equal(t, []string{"claude.COM", "claude.EXE", "claude.BAT", "claude.CMD"}, executableNames("claude", []string{"PATHEXT="}))
+	})
+	t.Run("a custom PATHEXT drops empty entries and keeps its order", func(t *testing.T) {
+		assert.Equal(t, []string{"claude.EXE", "claude.CMD"}, executableNames("claude", []string{"PATHEXT=.EXE;;.CMD"}))
+	})
+	t.Run("the last PATHEXT wins, whatever the key's case", func(t *testing.T) {
+		env := []string{"PATHEXT=.EXE", "pathext=.CMD"}
+		assert.Equal(t, []string{"claude.CMD"}, executableNames("claude", env))
+	})
+	t.Run("a program that already has a PATHEXT extension keeps its name", func(t *testing.T) {
+		assert.Equal(t, []string{"claude.exe"}, executableNames("claude.exe", []string{"PATHEXT=.EXE;.CMD"}))
+		assert.Equal(t, []string{"claude.EXE"}, executableNames("claude.EXE", []string{"PATHEXT=.exe;.cmd"}))
+	})
+}
+
+func TestLookPathIn_windows(t *testing.T) {
+	t.Run("finds claude.cmd on a Path given in mixed case", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "claude.cmd"), []byte("x"), 0o600))
+		got, err := lookPathIn([]string{"Path=" + dir, "PATHEXT=.EXE;.CMD"})
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(dir, "claude.cmd"), got)
+	})
+	t.Run("prefers the earlier extension in PATHEXT when both exist", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "claude.cmd"), []byte("x"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "claude.exe"), []byte("x"), 0o600))
+		got, err := lookPathIn([]string{"Path=" + dir, "PATHEXT=.EXE;.CMD"})
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(dir, "claude.exe"), got)
+	})
+	t.Run("skips a relative directory", func(t *testing.T) {
+		planted := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(planted, "claude.cmd"), []byte("x"), 0o600))
+		t.Chdir(planted)
+		_, err := lookPathIn([]string{"Path=.", "PATHEXT=.EXE;.CMD"})
+		assert.ErrorIs(t, err, exec.ErrNotFound)
+	})
+	t.Run("an extensionless claude is not found", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "claude"), []byte("x"), 0o600))
+		_, err := lookPathIn([]string{"Path=" + dir, "PATHEXT=.EXE;.CMD"})
+		assert.ErrorIs(t, err, exec.ErrNotFound)
+	})
+}
