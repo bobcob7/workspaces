@@ -564,6 +564,26 @@ describe("EntryPane for a remote entry", () => {
     expect(screen.queryByText(/like its parent/)).not.toBeInTheDocument();
   });
 
+  it("shows the environments an agent may start children on, with their states", () => {
+    const scoped = entry({
+      key: "plan-scope",
+      workspaceId: "plan-scope",
+      name: "plan-scope",
+      scope: [
+        { id: "local", name: "local", state: "online", current: true },
+        { id: "env_b20d", name: "win-rig", state: "offline", current: false },
+      ],
+    });
+    renderWithStore(<EntryPane entry={scoped} />, storeFor({ entries: [scoped] }));
+    const list = screen.getByRole("list", { name: "Environments it may start children on" });
+    expect(within(list).getByText("win-rig · offline")).toBeInTheDocument();
+  });
+
+  it("shows no scope for an entry whose scope is null", () => {
+    renderWithStore(<EntryPane entry={entry({ scope: null })} />, storeFor());
+    expect(screen.queryByRole("list", { name: "Environments it may start children on" })).not.toBeInTheDocument();
+  });
+
   it("a cross-environment child names its parent and environment, and links to the parent", async () => {
     const parent = entry({ key: "plan-scope", workspaceId: "plan-scope", name: "plan-scope" });
     const child = { ...remoteAgent, key: "env:win-rig:ip-win", environment: "win-rig", workspaceId: "ip-win", name: "ip-win", scopeParent: { environment: "local", workspaceId: "plan-scope" } };
