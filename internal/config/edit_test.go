@@ -540,10 +540,10 @@ func TestRemoveTable(t *testing.T) {
 
 func TestEnvironmentKeys(t *testing.T) {
 	const table = "[environments]\nlisten = \"0.0.0.0:9001\"\n"
-	t.Run("the four keys come last when the table is set", func(t *testing.T) {
+	t.Run("the five keys come last when the table is set", func(t *testing.T) {
 		settings, err := Settings([]byte(defaultFile + table))
 		require.NoError(t, err)
-		require.Len(t, settings, 10)
+		require.Len(t, settings, 11)
 		assert.Equal(t, "environments.listen", settings[5].Key)
 		assert.Equal(t, "0.0.0.0:9001", settings[5].Value)
 		assert.True(t, settings[5].Set)
@@ -553,6 +553,7 @@ func TestEnvironmentKeys(t *testing.T) {
 		assert.Equal(t, "environments.renew_before_days", settings[8].Key)
 		assert.Equal(t, 30, settings[8].Default)
 		assert.Equal(t, "environments.agent_loop_scripts", settings[9].Key)
+		assert.Equal(t, Setting{Key: "environments.default_scope", Type: TypeStrings, Value: []string{}, Default: []string{}, Set: false}, settings[10])
 	})
 	t.Run("the default file has none of them", func(t *testing.T) {
 		settings, err := Settings([]byte(defaultFile))

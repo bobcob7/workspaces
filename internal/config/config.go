@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/BurntSushi/toml"
 
@@ -147,6 +148,8 @@ type Environments struct {
 	RenewBeforeDays *int   `toml:"renew_before_days" json:"renew_before_days"`
 	// AgentLoopScripts false refuses a loop script sent by the controller.
 	AgentLoopScripts *bool `toml:"agent_loop_scripts" json:"agent_loop_scripts"`
+	// DefaultScope is the environments a parentless agent may start children on (ADR 0082).
+	DefaultScope []string `toml:"default_scope" json:"default_scope"`
 }
 
 // LoopScriptsAllowed is [environments] agent_loop_scripts, true when it isn't set.
@@ -232,7 +235,32 @@ func (e *Environments) check() error {
 	if e.RenewBeforeDays != nil && (*e.RenewBeforeDays < 1 || *e.RenewBeforeDays > 60) {
 		return fmt.Errorf("%w: environments.renew_before_days %d must be 1 to 60", ErrInvalid, *e.RenewBeforeDays)
 	}
+	return checkDefaultScope(e.DefaultScope)
+}
+
+// checkDefaultScope wants each entry to be 1 to 64 bytes with no whitespace,
+// comma or control character, and no entry listed twice.
+func checkDefaultScope(names []string) error {
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		if !validScopeName(name) {
+			return fmt.Errorf("%w: environments.default_scope entry %q must be 1 to 64 bytes with no whitespace, comma or control character", ErrInvalid, name)
+		}
+		if seen[name] {
+			return fmt.Errorf("%w: environments.default_scope lists %q twice", ErrInvalid, name)
+		}
+		seen[name] = true
+	}
 	return nil
+}
+
+func validScopeName(name string) bool {
+	if len(name) < 1 || len(name) > 64 {
+		return false
+	}
+	return !strings.ContainsFunc(name, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r) || r == ','
+	})
 }
 
 // checkListenAddr is nil when addr is host:port with a port from 1 to 65535.
