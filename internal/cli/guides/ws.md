@@ -56,6 +56,9 @@ People, not agents, use remote environments (`ws env list` shows them):
 `ws stop`, `ws rm`, `ws rename`, `ws hide` and `ws unhide` take `--env <name>`
 too. Without `--env` they act on this machine only. `ws list` shows every
 environment; `ws list -q` stays local unless `--env` is given.
+`ws claude --env-scope <name>` grants a new workspace the environments it may start
+children on, and `[environments] default_scope` in config.toml does the same for
+every workspace a person starts without a parent.
 `ws review --env <name>` and `ws loop --env <name>` run a review or a loop on an
 environment: the review and its report, or the loop and its ticks (the agent
 ticks while connected), live on that machine, which needs its own `gh` sign-in.
