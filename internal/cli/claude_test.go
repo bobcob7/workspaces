@@ -1168,3 +1168,53 @@ func (e *claudeE2E) trustedDirs(t *testing.T) []string {
 	t.Helper()
 	return trustedDirsIn(t, e.claudeJSON)
 }
+
+func TestApp_runClaude_scope(t *testing.T) {
+	t.Run("refuses --env-scope inside a workspace", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		opts := &claudeOptions{envScope: []string{linuxRef.Name}}
+		requireUsageError(t, e.app.runClaude(t.Context(), opts))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("refuses --env inside a workspace", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		opts := &claudeOptions{env: linuxRef.Name}
+		requireUsageError(t, e.app.runClaude(t.Context(), opts))
+		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("grants --env-scope outside a workspace", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{envScope: []string{linuxRef.Name}}))
+		scope, file := scopeFileOf(t, e.app.paths.State, "x")
+		assert.Equal(t, "granted", file.Source)
+		assert.Equal(t, []string{"local", linuxRef.Name}, scope.Names())
+	})
+	t.Run("uses default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{}))
+		scope, _ := scopeFileOf(t, e.app.paths.State, "x")
+		assert.Equal(t, []string{"local", linuxRef.Name}, scope.Names())
+	})
+	t.Run("unknown --env-scope name is environment_unknown and creates nothing", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		err := e.app.runClaude(t.Context(), &claudeOptions{envScope: []string{"nope"}})
+		requireCode(t, codeEnvironmentUnknown, err)
+		assert.Empty(t, e.store.CreateCalls())
+	})
+}
+
+// addEnvironmentForScope adds name to app's environment store, so it can be
+// named by --env-scope.
+func addEnvironmentForScope(t *testing.T, app *App, name string) {
+	t.Helper()
+	_, _, _, err := app.envStore().Add(t.Context(), name, "127.0.0.1:8884")
+	require.NoError(t, err)
+}

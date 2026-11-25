@@ -28,6 +28,7 @@ type claudeOptions struct {
 	env        string
 	runner     string
 	endpoint   string
+	envScope   []string
 	specs      []string
 	claudeArgs []string
 	// started, when set, runs after the session is recorded and before the

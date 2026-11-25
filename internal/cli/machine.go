@@ -55,8 +55,10 @@ func (a *App) newMachineCmd() *cobra.Command {
 // runner and endpoint for a ws child (ADR 0070), plus a role.
 type machineSpawnOptions struct {
 	claudeOptions
-	role string
-	vars []string
+	role   string
+	vars   []string
+	target string
+	narrow []string
 }
 
 // machineSpawnJSON is ws claude --json's object plus the role, the runner
