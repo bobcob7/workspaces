@@ -152,6 +152,18 @@ func TestAgent_SocketHandler(t *testing.T) {
 		assert.Equal(t, "environment_offline", reply.Error.Code)
 		assert.Equal(t, map[string]any{"reason": "agent_unreachable"}, reply.Error.Details)
 	})
+	t.Run("an answered request returns the controller's reply", func(t *testing.T) {
+		agent, link, id := newUpAgent(t, testOptions())
+		answerUps(link)
+		connectAgent(t, agent, &id)
+		require.NoError(t, os.MkdirAll(filepath.Join(agent.opts.WorkspacesRoot, "plan-9f8e7d6c"), 0o700))
+		body := `{"workspace":"plan-9f8e7d6c","ancestors":[],"scope":[]}`
+		code, reply := postScope(t, agent, "envs", body)
+		assert.Equal(t, http.StatusOK, code)
+		assert.True(t, reply.OK)
+		assert.Nil(t, reply.Error)
+		assert.JSONEq(t, body, string(reply.Result))
+	})
 	t.Run("only the four scope routes are served", func(t *testing.T) {
 		agent, _, id := newUpAgent(t, testOptions())
 		connectAgent(t, agent, &id)

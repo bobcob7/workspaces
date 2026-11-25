@@ -188,9 +188,11 @@ func (o *agentOperations) grantCreated(ctx context.Context, root string, args *e
 
 // grantWorkspace writes the scope file of workspace id when args has a scope,
 // and its spawn.toml, as its own tree's root, when args has a spawn. The
-// files follow the create, so the session may start before them: until the
-// scope file exists the workspace is scoped to itself, which only narrows (ADR
-// 0082).
+// files follow the create because `ws claude` starts the session before it
+// returns the workspace's id, and the agent reaches that command only through
+// its argv (D1), which has no hook between the two. So the session may start
+// before the files exist. Until the scope file exists the workspace is scoped
+// to itself, which only narrows, so a missing file fails closed (ADR 0082).
 func (o *agentOperations) grantWorkspace(id string, args *envproto.CreateArgs) error {
 	state := o.app.paths.State
 	if args.Scope != nil {
@@ -238,7 +240,8 @@ func (o *agentOperations) scopeFile(grant *envproto.ScopeGrant, now time.Time) (
 
 // machineRecord is what machine.record reads of workspace id on this
 // environment: its result and role, its report cut to MaxRecordReportBytes, and
-// its progress and rollup as ws machine progress shows them (ADR 0082).
+// its progress and rollup as ws machine progress shows them, with progress
+// null when the workspace reported none (ADR 0082).
 func (o *agentOperations) machineRecord(id string) (json.RawMessage, error) {
 	list, err := o.app.workspaces.List()
 	if err != nil {
@@ -258,7 +261,10 @@ func (o *agentOperations) machineRecord(id string) (json.RawMessage, error) {
 		return nil, fmt.Errorf("reading the progress: %w", err)
 	}
 	node := progressNode(tree)
-	out := envproto.MachineRecordResult{Workspace: id, Progress: jsonOrNull(node.Progress), Rollup: jsonOrNull(node.Rollup)}
+	out := envproto.MachineRecordResult{Workspace: id, Progress: json.RawMessage("null"), Rollup: jsonOrNull(node.Rollup)}
+	if tree.Progress != nil {
+		out.Progress = jsonOrNull(node.Progress)
+	}
 	if rec.Spawn != nil {
 		role := rec.Spawn.Role
 		out.Role = &role
