@@ -263,6 +263,23 @@ func assertArgsError(t *testing.T, err error, code string) {
 	assert.ErrorIs(t, err, ErrArgs)
 }
 
+func TestLookupOp_scopes(t *testing.T) {
+	t.Run("scope and machine.record ops have their spec", func(t *testing.T) {
+		specs := []OpSpec{
+			{Name: OpMachineRecord, Caller: CallerController, Since: ProtocolScopes, Timeout: 30 * time.Second},
+			{Name: OpScopeEnvs, Caller: CallerAgent, Timeout: 30 * time.Second},
+			{Name: OpScopeSpawn, Caller: CallerAgent, Timeout: 10 * time.Minute},
+			{Name: OpScopeChildren, Caller: CallerAgent, Timeout: 30 * time.Second},
+			{Name: OpScopeChild, Caller: CallerAgent, Timeout: 2 * time.Minute},
+		}
+		for _, want := range specs {
+			got, ok := LookupOp(want.Name)
+			require.True(t, ok, want.Name)
+			assert.Equal(t, want, got, want.Name)
+		}
+	})
+}
+
 func TestLookupOp_loops(t *testing.T) {
 	t.Run("loop ops are controller ops since 3", func(t *testing.T) {
 		specs := map[string]OpSpec{

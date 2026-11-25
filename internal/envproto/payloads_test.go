@@ -136,8 +136,8 @@ func TestRequest_Marshal(t *testing.T) {
 
 func TestProtocol_reviewsAndLoops(t *testing.T) {
 	t.Run("is 3, the protocol review and loop operations need", func(t *testing.T) {
-		assert.Equal(t, 3, Protocol)
-		assert.Equal(t, Protocol, ProtocolReviewsLoops)
+		assert.Equal(t, 3, ProtocolReviewsLoops)
+		assert.GreaterOrEqual(t, Protocol, ProtocolReviewsLoops)
 	})
 }
 
