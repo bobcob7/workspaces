@@ -162,21 +162,11 @@ func (a *App) parentWithoutEnv(env, parent string) (runOn, parentID string, err 
 	return found[0], parent, nil
 }
 
-// parentOnEnv is remoteParent for --env naming a remote environment. The
-// default parent, the local workspace ws runs in, is dropped with a warning.
-// An explicit one must be in the environment's snapshot.
+// parentOnEnv is remoteParent for --env naming a remote environment. No
+// parent starts a workspace there with no parent. An explicit one must be in
+// the environment's snapshot.
 func (a *App) parentOnEnv(name, parent string) (runOn, parentID string, err error) {
-	if parent == requesterNone {
-		return name, "", nil
-	}
-	if parent == "" {
-		enclosing, enclosingErr := a.enclosingOr("")
-		if enclosingErr != nil {
-			return "", "", enclosingErr
-		}
-		if enclosing != "" {
-			a.warned = append(a.warned, fmt.Sprintf("not a child of %s: it runs on %s", enclosing, name))
-		}
+	if parent == requesterNone || parent == "" {
 		return name, "", nil
 	}
 	entries, err := a.remoteEntries(name, nil)

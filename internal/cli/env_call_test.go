@@ -219,17 +219,12 @@ func TestApp_remoteParent(t *testing.T) {
 		assert.Equal(t, "linux-server", runOn)
 		assert.Empty(t, parent)
 	})
-	t.Run("--env drops the default parent with a warning", func(t *testing.T) {
+	t.Run("--env with no parent has no parent and no warning", func(t *testing.T) {
 		app := remoteParentApp(t, false)
-		store, ok := app.workspaces.(*workspaceStoreMock)
-		require.True(t, ok)
-		store.ContainingFunc = func(string) (workspace.Workspace, error) {
-			return workspace.Workspace{ID: "local-ws"}, nil
-		}
 		runOn, parent, err := app.remoteParent(t.Context(), "linux-server", "")
 		require.NoError(t, err)
 		assert.Equal(t, "linux-server", runOn)
 		assert.Empty(t, parent)
-		assert.Equal(t, []string{"not a child of local-ws: it runs on linux-server"}, app.warned)
+		assert.Empty(t, app.warned)
 	})
 }

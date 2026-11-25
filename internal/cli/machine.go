@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/machine"
@@ -41,6 +42,7 @@ func (a *App) newMachineCmd() *cobra.Command {
 		a.newMachineResultCmd(),
 		a.newMachineWaitCmd(),
 		a.newMachineChildrenCmd(),
+		a.newMachineEnvsCmd(),
 		a.newMachineLogsCmd(),
 		a.newMachineRmCmd(),
 		a.newMachineRolesCmd(),
@@ -130,6 +132,8 @@ func (a *App) newMachineSpawnCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.vars, "var", nil, "KEY=VALUE for the role's prompt; repeatable, with --role")
 	cmd.Flags().StringVar(&opts.runner, "runner", "", "claude or ws: which agent runs the child (default: the role's runner, else claude)")
 	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "the endpoint from config.toml instead of the model's; only with --runner ws")
+	cmd.Flags().StringVar(&opts.target, "env", "", "start the child on this environment (ws machine envs lists yours); default: this machine")
+	cmd.Flags().StringSliceVar(&opts.narrow, "env-scope", nil, "narrow the child's scope to these environments (ws machine envs lists yours); repeatable")
 	return cmd
 }
 
@@ -244,6 +248,22 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 	if err != nil {
 		return err
 	}
+	self, err := a.selfRef()
+	if err != nil {
+		return newError(codeInternal, err)
+	}
+	remote, err := spawnsRemotely(opts.target, self)
+	if err != nil {
+		return err
+	}
+	if remote {
+		return a.runRemoteSpawn(ctx, opts, caller, self)
+	}
+	scope, err := a.narrowedScope(caller, opts.narrow)
+	if err != nil {
+		return err
+	}
+	opts.scope = &scope
 	if which == config.RunnerWS {
 		return a.runMachineSpawnRunner(ctx, opts, caller)
 	}
@@ -259,6 +279,18 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 		opts.started = a.recordRole(&ro, vars)
 	}
 	return a.runClaude(ctx, &opts.claudeOptions)
+}
+
+// spawnsRemotely reports whether --env target starts the child on another
+// environment than self. local from a remote environment isn't supported yet.
+func spawnsRemotely(target string, self envscope.Ref) (bool, error) {
+	if target == "" || target == self.Name {
+		return false, nil
+	}
+	if target == localEnvironment {
+		return false, usageErrorf("starting a child on local from an environment isn't supported yet")
+	}
+	return true, nil
 }
 
 // spawnRunner is the runner ws machine spawn starts the child with: --runner,
@@ -307,6 +339,7 @@ func (a *App) runMachineSpawnRunner(ctx context.Context, opts *machineSpawnOptio
 	if err != nil {
 		return err
 	}
+	a.writeChildScope(started.Workspace.ID, *opts.scope)
 	result := func(r claudeResult) any { return runnerSpawnJSON(opts.role, &started, &r) }
 	return a.printClaudeResult(&started.Workspace, started.Session, result)
 }

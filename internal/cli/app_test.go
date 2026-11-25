@@ -114,6 +114,7 @@ func stubWorkspaces() *workspaceStoreMock {
 	return &workspaceStoreMock{
 		UsesCommitFunc: func(string, string) (bool, error) { return false, nil },
 		WarningsFunc:   func() []string { return nil },
+		ContainingFunc: func(string) (workspace.Workspace, error) { return workspace.Workspace{}, workspace.ErrNotFound },
 	}
 }
 

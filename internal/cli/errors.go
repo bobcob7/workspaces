@@ -181,7 +181,7 @@ func (c errorCode) exitCode() int {
 		codeProfileExists, codeProfileBuiltin, codeChildKept, codeNotDescendant, codeLoopExists,
 		codeLoopSkipped, codeRoleExists, codeRoleBuiltin, codeMemoryConflict, codeMemoryFull, codeNotLoopRun,
 		codeDaemonRunning, codeEnvironmentExists, codeEnrollmentUsed, codeCAInUse, codeEnvironmentMismatch, codeTerminalLimit,
-		codeArtifactConflict, codeArtifactFull, codeArtifactForbidden:
+		codeArtifactConflict, codeArtifactFull, codeArtifactForbidden, codeEnvironmentOutOfScope:
 		return exitRefused
 	}
 	return exitFailed
@@ -207,7 +207,7 @@ func (c errorCode) known() bool {
 		codeEnrollmentFailed, codeEnrollmentUsed, codeCAInUse, codeEnvironmentOffline,
 		codeEnvironmentOutdated, codeEnvironmentMismatch, codeTerminalLimit, codeProgressInvalid, codeOperationLimited,
 		codeArtifactInvalid, codeArtifactUnknown, codeArtifactConflict, codeArtifactFull, codeArtifactForbidden,
-		codeArtifactUnreachable, codeAnchorNotFound, codePlatformUnsupported:
+		codeArtifactUnreachable, codeAnchorNotFound, codePlatformUnsupported, codeEnvironmentOutOfScope:
 		return true
 	}
 	return false
