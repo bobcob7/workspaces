@@ -217,6 +217,20 @@ func TestController_Scope(t *testing.T) {
 		assertScopeError(t, reply, "environment_out_of_scope")
 		assert.Empty(t, requests.messages())
 	})
+	t.Run("spawn to an unknown environment is environment_unknown", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a")
+		a := f.env("env-a")
+		f.grant(t, a.id, a.id)
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id}, "nope", nil)))
+		details := assertScopeError(t, reply, "environment_unknown")
+		assert.Equal(t, "nope", details["environment"])
+	})
+	t.Run("child of a workspace the ledger doesn't hold is workspace_not_found", func(t *testing.T) {
+		f := newScopeFixture(t, "env-a", "env-b")
+		a := f.env("env-a")
+		reply := f.c.Scope(t.Context(), a.id, "child", mustJSON(t, childArgs("w", "env-b", "c-9", "w", "status")))
+		assertScopeError(t, reply, "workspace_not_found")
+	})
 	t.Run("spawn to an outdated agent is environment_outdated", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b")
 		a, b := f.env("env-a"), f.env("env-b")
