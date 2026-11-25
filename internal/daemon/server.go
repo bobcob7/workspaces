@@ -2,8 +2,8 @@ package daemon
 
 import (
 	"context"
-	"encoding/json/v2"
 	stdjson "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -332,14 +332,20 @@ func (s *server) handleCallEnvironment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, reply)
 }
 
-// scopeOps are the scope operations POST /v1/scope/{op} serves (ADR 0082).
-var scopeOps = []string{"envs", "spawn", "children", "child"}
+// isScopeOp reports whether op is a scope operation POST /v1/scope/{op} serves (ADR 0082).
+func isScopeOp(op string) bool {
+	switch op {
+	case "envs", "spawn", "children", "child":
+		return true
+	}
+	return false
+}
 
 // handleScope runs one scope operation for the person on this socket and
 // answers the controller's reply unchanged, with 200 whatever the reply says.
 func (s *server) handleScope(w http.ResponseWriter, r *http.Request) {
 	op := r.PathValue("op")
-	if !slices.Contains(scopeOps, op) {
+	if !isScopeOp(op) {
 		writeError(w, http.StatusNotFound, "usage", "no scope operation "+op, nil)
 		return
 	}

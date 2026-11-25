@@ -73,16 +73,22 @@ func (f scopeFixture) env(name string) callFixture {
 }
 
 // grant writes a ledger entry for workspace ws on env with scope ids and no parent.
-func (f scopeFixture) grant(t *testing.T, env, ws string, scope ...string) {
+func (f scopeFixture) grant(t *testing.T, env string, scope ...string) {
 	t.Helper()
-	entry := envscope.Entry{Environment: env, Workspace: ws, Scope: scope, CreatedAt: f.c.now().UTC()}
+	entry := envscope.Entry{Environment: env, Workspace: "w", Scope: scope, CreatedAt: f.c.now().UTC()}
 	require.NoError(t, f.ledger.Put(t.Context(), &entry))
 }
 
-// spawnArgs is a scope.spawn from workspace ws with claimed scope, to target, narrowed to narrow (nil: same as the caller).
-func spawnArgs(ws string, claimed []string, target string, narrow []string) envproto.ScopeSpawnArgs {
+// callerArgs is the caller fields of a scope request: workspace ws (nil for a
+// person's grant) and the claimed scope.
+func callerArgs(ws *string, claimed []string) envproto.ScopeCallerArgs {
+	return envproto.ScopeCallerArgs{Workspace: ws, Ancestors: []string{}, Scope: claimed}
+}
+
+// spawnArgs is a scope.spawn from workspace w with claimed scope, to target, narrowed to narrow (nil: same as the caller).
+func spawnArgs(claimed []string, target string, narrow []string) envproto.ScopeSpawnArgs {
 	return envproto.ScopeSpawnArgs{
-		ScopeCallerArgs: envproto.ScopeCallerArgs{Workspace: &ws, Ancestors: []string{}, Scope: claimed},
+		ScopeCallerArgs: callerArgs(new("w"), claimed),
 		Target:          target,
 		Narrow:          narrow,
 		Create:          envproto.CreateArgs{Kind: envproto.KindClaude, Specs: []string{}},
@@ -92,7 +98,7 @@ func spawnArgs(ws string, claimed []string, target string, narrow []string) envp
 // childArgs is a scope.child from workspace ws on the child's parent, on environment env.
 func childArgs(ws, env, child, parent, op string) envproto.ScopeChildArgs {
 	return envproto.ScopeChildArgs{
-		ScopeCallerArgs: envproto.ScopeCallerArgs{Workspace: &ws, Ancestors: []string{}, Scope: []string{}},
+		ScopeCallerArgs: callerArgs(&ws, nil),
 		Environment:     env,
 		Child:           child,
 		Parent:          parent,
@@ -100,13 +106,13 @@ func childArgs(ws, env, child, parent, op string) envproto.ScopeChildArgs {
 	}
 }
 
-// assertScopeError checks that reply failed with code and returns its error.
-func assertScopeError(t *testing.T, reply envproto.Reply, code string) *envproto.ReplyError {
+// assertScopeError checks that reply failed with code and returns its details.
+func assertScopeError(t *testing.T, reply envproto.Reply, code string) map[string]any {
 	t.Helper()
 	require.False(t, reply.OK, "reply was ok: %s", reply.Result)
 	require.NotNil(t, reply.Error)
 	assert.Equal(t, code, reply.Error.Code)
-	return reply.Error
+	return reply.Error.Details
 }
 
 // writeSnapshot stores a fresh snapshot of environment name listing workspaces (a JSON array).
@@ -130,19 +136,19 @@ func TestController_Scope(t *testing.T) {
 	t.Run("spawn refuses a claim wider than the ledger ceiling", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b")
 		a, b := f.env("env-a"), f.env("env-b")
-		f.grant(t, a.id, "w", a.id)
+		f.grant(t, a.id, a.id)
 		requests := b.captureRequests(t)
-		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, b.id}, "env-b", nil)))
-		e := assertScopeError(t, reply, "environment_out_of_scope")
-		assert.Equal(t, []string{"env-a"}, e.Details["allowed"])
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id}, "env-b", nil)))
+		details := assertScopeError(t, reply, "environment_out_of_scope")
+		assert.Equal(t, []string{"env-a"}, details["allowed"])
 		assert.Empty(t, requests.messages())
 	})
 	t.Run("spawn ignores ledger entries on other environments", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b", "env-c")
 		a, b, c := f.env("env-a"), f.env("env-b"), f.env("env-c")
-		f.grant(t, c.id, "w", c.id, b.id)
+		f.grant(t, c.id, c.id, b.id)
 		requests := b.captureRequests(t)
-		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, b.id}, "env-b", nil)))
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id}, "env-b", nil)))
 		assertScopeError(t, reply, "environment_out_of_scope")
 		assert.Empty(t, requests.messages())
 	})
@@ -164,12 +170,11 @@ func TestController_Scope(t *testing.T) {
 	t.Run("spawn sends the scope and writes the ledger", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b")
 		a, b := f.env("env-a"), f.env("env-b")
-		f.grant(t, a.id, "w", a.id, b.id)
+		f.grant(t, a.id, a.id, b.id)
 		requests := b.captureRequests(t)
 		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{"id":"h-1a2b3c4d"}`)})
-		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, b.id}, "env-b", nil)))
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id}, "env-b", nil)))
 		require.True(t, reply.OK, "%+v", reply.Error)
-
 		sent := requests.messages()
 		require.Len(t, sent, 1)
 		req := requestOf(t, &sent[0])
@@ -179,13 +184,11 @@ func TestController_Scope(t *testing.T) {
 		require.NotNil(t, create.Scope)
 		assert.Equal(t, []string{a.id, b.id}, envIDs(create.Scope.Environments))
 		assert.Equal(t, &envproto.WorkspaceAt{Environment: a.id, Workspace: "w"}, create.Scope.Parent)
-
 		entry, found, err := f.ledger.Get(b.id, "h-1a2b3c4d")
 		require.NoError(t, err)
 		require.True(t, found)
 		assert.Equal(t, []string{a.id, b.id}, entry.Scope)
 		assert.Equal(t, &envscope.Parent{Environment: a.id, Workspace: "w"}, entry.Parent)
-
 		var result map[string]any
 		require.NoError(t, json.Unmarshal(reply.Result, &result))
 		assert.Equal(t, "h-1a2b3c4d", result["id"])
@@ -195,10 +198,10 @@ func TestController_Scope(t *testing.T) {
 	t.Run("spawn narrows the child scope", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b", "env-c")
 		a, b, c := f.env("env-a"), f.env("env-b"), f.env("env-c")
-		f.grant(t, a.id, "w", a.id, b.id, c.id)
+		f.grant(t, a.id, a.id, b.id, c.id)
 		requests := b.captureRequests(t)
 		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{"id":"h-1a2b3c4d"}`)})
-		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, b.id, c.id}, "env-b", []string{"env-b"})))
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id, c.id}, "env-b", []string{"env-b"})))
 		require.True(t, reply.OK, "%+v", reply.Error)
 		entry, _, err := f.ledger.Get(b.id, "h-1a2b3c4d")
 		require.NoError(t, err)
@@ -208,45 +211,45 @@ func TestController_Scope(t *testing.T) {
 	t.Run("spawn refuses a wider narrow", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b", "env-c")
 		a, b := f.env("env-a"), f.env("env-b")
-		f.grant(t, a.id, "w", a.id, b.id)
+		f.grant(t, a.id, a.id, b.id)
 		requests := b.captureRequests(t)
-		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, b.id}, "env-b", []string{"env-c"})))
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id}, "env-b", []string{"env-c"})))
 		assertScopeError(t, reply, "environment_out_of_scope")
 		assert.Empty(t, requests.messages())
 	})
 	t.Run("spawn to an outdated agent is environment_outdated", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b")
 		a, b := f.env("env-a"), f.env("env-b")
-		f.grant(t, a.id, "w", a.id, b.id)
+		f.grant(t, a.id, a.id, b.id)
 		b.hear(t, envproto.StatusOnline, 3)
 		requests := b.captureRequests(t)
-		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, b.id}, "env-b", nil)))
-		e := assertScopeError(t, reply, "environment_outdated")
-		assert.EqualValues(t, envproto.ProtocolScopes, e.Details["need_protocol"])
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id}, "env-b", nil)))
+		details := assertScopeError(t, reply, "environment_outdated")
+		assert.EqualValues(t, envproto.ProtocolScopes, details["need_protocol"])
 		assert.Empty(t, requests.messages())
 	})
 	t.Run("spawn to an offline environment is environment_offline", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b")
 		a, b := f.env("env-a"), f.env("env-b")
-		f.grant(t, a.id, "w", a.id, b.id)
+		f.grant(t, a.id, a.id, b.id)
 		b.hear(t, envproto.StatusOffline, envproto.Protocol)
-		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, b.id}, "env-b", nil)))
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id}, "env-b", nil)))
 		assertScopeError(t, reply, "environment_offline")
 	})
 	t.Run("spawn to local from an environment is usage", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a")
 		a := f.env("env-a")
-		f.grant(t, a.id, "w", a.id, envscope.Local)
-		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, envscope.Local}, "local", nil)))
+		f.grant(t, a.id, a.id, envscope.Local)
+		reply := f.c.Scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, envscope.Local}, "local", nil)))
 		assertScopeError(t, reply, "usage")
 	})
 	t.Run("a retried spawn reuses the request id", func(t *testing.T) {
 		f := newScopeFixture(t, "env-a", "env-b")
 		a, b := f.env("env-a"), f.env("env-b")
-		f.grant(t, a.id, "w", a.id, b.id)
+		f.grant(t, a.id, a.id, b.id)
 		requests := b.captureRequests(t)
 		b.answerRequests(t, envproto.Reply{OK: true, Result: json.RawMessage(`{"id":"h-1a2b3c4d"}`)})
-		reply := f.c.scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs("w", []string{a.id, b.id}, "env-b", nil)), callRequestID)
+		reply := f.c.scope(t.Context(), a.id, "spawn", mustJSON(t, spawnArgs([]string{a.id, b.id}, "env-b", nil)), callRequestID)
 		require.True(t, reply.OK, "%+v", reply.Error)
 		sent := requests.messages()
 		require.Len(t, sent, 1)
@@ -258,9 +261,9 @@ func TestController_Scope(t *testing.T) {
 		local := envscope.Only(envscope.Ref{ID: envscope.Local, Name: envscope.Local})
 		f.localWS["w"] = local
 		requests := b.captureRequests(t)
-		reply := f.c.Scope(t.Context(), envscope.Local, "spawn", mustJSON(t, spawnArgs("w", []string{envscope.Local, b.id}, "env-b", nil)))
-		e := assertScopeError(t, reply, "environment_out_of_scope")
-		assert.Equal(t, []string{envscope.Local}, e.Details["allowed"])
+		reply := f.c.Scope(t.Context(), envscope.Local, "spawn", mustJSON(t, spawnArgs([]string{envscope.Local, b.id}, "env-b", nil)))
+		details := assertScopeError(t, reply, "environment_out_of_scope")
+		assert.Equal(t, []string{envscope.Local}, details["allowed"])
 		assert.Empty(t, requests.messages())
 	})
 	t.Run("envs lists states", func(t *testing.T) {
@@ -273,7 +276,7 @@ func TestController_Scope(t *testing.T) {
 		})
 		require.NoError(t, err)
 		f.localWS["w"] = scope
-		reply := f.c.Scope(t.Context(), envscope.Local, "envs", mustJSON(t, envproto.ScopeEnvsArgs{ScopeCallerArgs: envproto.ScopeCallerArgs{Workspace: ptr("w")}}))
+		reply := f.c.Scope(t.Context(), envscope.Local, "envs", mustJSON(t, envproto.ScopeEnvsArgs{ScopeCallerArgs: callerArgs(new("w"), nil)}))
 		require.True(t, reply.OK, "%+v", reply.Error)
 		var result envproto.ScopeEnvsResult
 		require.NoError(t, json.Unmarshal(reply.Result, &result))
@@ -298,7 +301,7 @@ func TestController_Scope(t *testing.T) {
 		put("c-3", "other")
 		writeSnapshot(t, f, "env-b", `[{"id":"c-1","status":"running"}]`)
 		reply := f.c.Scope(t.Context(), a.id, "children", mustJSON(t, envproto.ScopeChildrenArgs{
-			ScopeCallerArgs: envproto.ScopeCallerArgs{Workspace: ptr("w")},
+			ScopeCallerArgs: callerArgs(new("w"), nil),
 			Descendants:     []string{"w-desc"},
 		}))
 		require.True(t, reply.OK, "%+v", reply.Error)
@@ -343,11 +346,6 @@ func envIDs(refs []envproto.EnvRef) []string {
 		ids = append(ids, ref.ID)
 	}
 	return ids
-}
-
-// ptr is a pointer to v.
-func ptr[T any](v T) *T {
-	return &v
 }
 
 func TestController_sweepLedger(t *testing.T) {

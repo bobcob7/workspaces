@@ -28,7 +28,9 @@ const (
 )
 
 // localRef is the controller's own environment in a scope.
-var localRef = envscope.Ref{ID: envscope.Local, Name: envscope.Local}
+func localRef() envscope.Ref {
+	return envscope.Ref{ID: envscope.Local, Name: envscope.Local}
+}
 
 // SetLocalScopes sets where local workspaces' scopes and the scope ledger come
 // from. Call it before Start.
@@ -50,7 +52,7 @@ func (c *Controller) Scope(ctx context.Context, caller, op string, args json.Raw
 func (c *Controller) scope(ctx context.Context, caller, op string, args json.RawMessage, requestID string) envproto.Reply {
 	wire := scopeWireOp(op)
 	if wire == "" {
-		return scopeFailure(&scopeFault{code: codeUsage, message: fmt.Sprintf("unknown scope operation %q", op)})
+		return scopeFailure(&scopeError{code: codeUsage, message: fmt.Sprintf("unknown scope operation %q", op)})
 	}
 	if c.ledger == nil || c.local == nil {
 		return scopeFailure(errors.New("scopes aren't set up"))
@@ -61,15 +63,15 @@ func (c *Controller) scope(ctx context.Context, caller, op string, args json.Raw
 	}
 	switch a := parsed.(type) {
 	case *envproto.ScopeEnvsArgs:
-		return c.scopeEnvs(caller, &a.ScopeCallerArgs)
+		return c.scopeEnvs(caller, &a.ScopeCallerArgs) //nolint:contextcheck // the scope ledger reads take no context (ADR 0082)
 	case *envproto.ScopeSpawnArgs:
 		return c.scopeSpawn(ctx, caller, a, requestID)
 	case *envproto.ScopeChildrenArgs:
-		return c.scopeChildren(caller, a)
+		return c.scopeChildren(caller, a) //nolint:contextcheck // the scope ledger reads take no context (ADR 0082)
 	case *envproto.ScopeChildArgs:
 		return c.scopeChild(ctx, caller, a)
 	}
-	return scopeFailure(&scopeFault{code: codeUsage, message: "not a scope operation"})
+	return scopeFailure(&scopeError{code: codeUsage, message: "not a scope operation"})
 }
 
 // scopeWireOp is the envproto operation of a scope operation name, or "".
@@ -144,12 +146,12 @@ func (c *Controller) localScope(a *envproto.ScopeCallerArgs) (envscope.Scope, er
 		return envscope.Scope{}, err
 	}
 	refs := make([]envscope.Ref, 0, len(recs))
-	for _, rec := range recs {
-		if rec.State == StateEnrolled {
-			refs = append(refs, envscope.Ref{ID: rec.ID, Name: rec.Name})
+	for i := range recs {
+		if recs[i].State == StateEnrolled {
+			refs = append(refs, envscope.Ref{ID: recs[i].ID, Name: recs[i].Name})
 		}
 	}
-	return envscope.New(localRef, refs)
+	return envscope.New(localRef(), refs)
 }
 
 // environmentScope is the ledger ceiling for environment caller's workspace
@@ -157,7 +159,7 @@ func (c *Controller) localScope(a *envproto.ScopeCallerArgs) (envscope.Scope, er
 // Without an entry the scope is the caller alone.
 func (c *Controller) environmentScope(caller string, a *envproto.ScopeCallerArgs) (envscope.Scope, error) {
 	if a.Workspace == nil {
-		return envscope.Scope{}, &scopeFault{code: codeUsage, message: "a scope operation needs a workspace"}
+		return envscope.Scope{}, &scopeError{code: codeUsage, message: "a scope operation needs a workspace"}
 	}
 	rec, err := c.store.ByID(caller)
 	if err != nil {
@@ -187,7 +189,7 @@ func (c *Controller) refsOf(ids []string) ([]envscope.Ref, error) {
 	refs := make([]envscope.Ref, 0, len(ids))
 	for _, id := range ids {
 		if id == envscope.Local {
-			refs = append(refs, localRef)
+			refs = append(refs, localRef())
 			continue
 		}
 		rec, err := c.store.ByID(id)
@@ -207,11 +209,11 @@ func (c *Controller) refsOf(ids []string) ([]envscope.Ref, error) {
 // refNamed is the environment called name, or environment_unknown.
 func (c *Controller) refNamed(name string) (envscope.Ref, error) {
 	if name == envscope.Local {
-		return localRef, nil
+		return localRef(), nil
 	}
 	rec, err := c.store.Get(name)
 	if errors.Is(err, ErrUnknown) || (err == nil && rec.State != StateEnrolled) {
-		return envscope.Ref{}, &scopeFault{
+		return envscope.Ref{}, &scopeError{
 			code:    "environment_unknown",
 			message: "no environment called " + name,
 			details: map[string]any{"environment": name},
@@ -226,7 +228,7 @@ func (c *Controller) refNamed(name string) (envscope.Ref, error) {
 // scopeSpawn creates a child on the target environment with the scope the
 // caller may grant, and records it in the ledger.
 func (c *Controller) scopeSpawn(ctx context.Context, caller string, a *envproto.ScopeSpawnArgs, requestID string) envproto.Reply {
-	eff, err := c.effectiveScope(caller, &a.ScopeCallerArgs)
+	eff, err := c.effectiveScope(caller, &a.ScopeCallerArgs) //nolint:contextcheck // the scope ledger reads take no context (ADR 0082)
 	if err != nil {
 		return scopeFailure(err)
 	}
@@ -238,7 +240,7 @@ func (c *Controller) scopeSpawn(ctx context.Context, caller string, a *envproto.
 	if err != nil {
 		return scopeFailure(err)
 	}
-	if err := c.requireScopes(target); err != nil {
+	if err = c.requireScopes(target); err != nil {
 		return scopeFailure(err)
 	}
 	create := a.Create
@@ -264,10 +266,10 @@ func (c *Controller) spawnTarget(caller string, eff envscope.Scope, name string)
 		return envscope.Ref{}, &envscope.OutOfScopeError{Environment: name, Allowed: eff.Names()}
 	}
 	if target.ID == envscope.Local && caller != envscope.Local {
-		return envscope.Ref{}, &scopeFault{code: codeUsage, message: "starting a child on local from an environment isn't supported yet"}
+		return envscope.Ref{}, &scopeError{code: codeUsage, message: "starting a child on local from an environment isn't supported yet"}
 	}
 	if target.ID == caller {
-		return envscope.Ref{}, &scopeFault{code: codeUsage, message: "spawn on your own environment without --env"}
+		return envscope.Ref{}, &scopeError{code: codeUsage, message: "spawn on your own environment without --env"}
 	}
 	return target, nil
 }
@@ -343,8 +345,8 @@ func (c *Controller) recordChild(ctx context.Context, caller string, a *envproto
 		CreatedAt:   c.now().UTC(),
 	}
 	if err := c.ledger.Put(ctx, &entry); err != nil {
-		if _, err := c.forward(ctx, target.Name, envproto.OpWorkspaceRm, envproto.RmArgs{Workspace: created.ID}, ""); err != nil {
-			c.log.WarnContext(ctx, "orphaned child not removed", "environment", target.Name, "error", err)
+		if _, rmErr := c.forward(ctx, target.Name, envproto.OpWorkspaceRm, envproto.RmArgs{Workspace: created.ID}, ""); rmErr != nil {
+			c.log.WarnContext(ctx, "orphaned child not removed", "environment", target.Name, "error", rmErr)
 		}
 		return scopeFailure(fmt.Errorf("recording the child: %w", err))
 	}
@@ -382,7 +384,7 @@ func spawnReply(reply envproto.Reply, name string, child envscope.Scope) envprot
 // scopeChildren lists the ledger children of the caller's workspace and its descendants.
 func (c *Controller) scopeChildren(caller string, a *envproto.ScopeChildrenArgs) envproto.Reply {
 	if a.Workspace == nil {
-		return scopeFailure(&scopeFault{code: codeUsage, message: "children needs a workspace"})
+		return scopeFailure(&scopeError{code: codeUsage, message: "children needs a workspace"})
 	}
 	parents := append([]string{*a.Workspace}, a.Descendants...)
 	entries, err := c.ledger.List()
@@ -404,26 +406,26 @@ func (c *Controller) scopeChildren(caller string, a *envproto.ScopeChildrenArgs)
 			Workspace:   e.Workspace,
 			Parent:      e.Parent.Workspace,
 			Role:        e.Role,
-			Entry:       c.childEntry(rec, e.Workspace),
+			Entry:       c.childEntry(&rec, e.Workspace),
 		})
 	}
 	return okReply(envproto.ScopeChildrenResult{Children: children})
 }
 
 // childEntry is the ws list object for workspace ws in rec's snapshot, or null.
-func (c *Controller) childEntry(rec Record, ws string) json.RawMessage {
+func (c *Controller) childEntry(rec *Record, ws string) json.RawMessage {
 	_, snap, err := c.store.Snapshot(rec.Name)
 	if err != nil {
 		return json.RawMessage("null")
 	}
-	if entry, ok := snapshotWorkspace(snap, ws); ok {
+	if entry, ok := snapshotWorkspace(&snap, ws); ok {
 		return entry
 	}
 	return json.RawMessage("null")
 }
 
 // snapshotWorkspace is the ws list object for ws in snap, when snap lists it.
-func snapshotWorkspace(snap envproto.Snapshot, ws string) (json.RawMessage, bool) {
+func snapshotWorkspace(snap *envproto.Snapshot, ws string) (json.RawMessage, bool) {
 	var list []json.RawMessage
 	if err := json.Unmarshal(snap.Workspaces, &list); err != nil {
 		return nil, false
@@ -449,7 +451,7 @@ func (c *Controller) scopeChild(ctx context.Context, caller string, a *envproto.
 	if err != nil || rec.State != StateEnrolled {
 		return scopeFailure(workspaceNotFound(a.Child))
 	}
-	entry, found, err := c.ledger.Get(rec.ID, a.Child)
+	entry, found, err := c.ledger.Get(rec.ID, a.Child) //nolint:contextcheck // the scope ledger reads take no context (ADR 0082)
 	if err != nil {
 		return scopeFailure(err)
 	}
@@ -457,7 +459,7 @@ func (c *Controller) scopeChild(ctx context.Context, caller string, a *envproto.
 		return scopeFailure(workspaceNotFound(a.Child))
 	}
 	if entry.Parent == nil || entry.Parent.Environment != caller || entry.Parent.Workspace != a.Parent {
-		return scopeFailure(&scopeFault{
+		return scopeFailure(&scopeError{
 			code:    "not_descendant",
 			message: "workspace " + a.Child + " isn't a descendant of your workspace",
 			details: map[string]any{"workspace": a.Child},
@@ -487,7 +489,7 @@ func (c *Controller) forwardChild(ctx context.Context, name string, a *envproto.
 	case "record":
 		return c.forward(ctx, name, envproto.OpMachineRecord, envproto.WorkspaceArgs{Workspace: a.Child}, "")
 	}
-	return envproto.Reply{}, &scopeFault{code: codeUsage, message: "op must be status, logs, rm or record"}
+	return envproto.Reply{}, &scopeError{code: codeUsage, message: "op must be status, logs, rm or record"}
 }
 
 // forward sends op with args to environment name and waits for its reply,
@@ -512,7 +514,7 @@ func (c *Controller) forward(ctx context.Context, name, op string, args any, req
 
 // workspaceNotFound is the error for a child the ledger doesn't hold.
 func workspaceNotFound(ws string) error {
-	return &scopeFault{code: "workspace_not_found", message: "no workspace " + ws + " in the scope ledger"}
+	return &scopeError{code: "workspace_not_found", message: "no workspace " + ws + " in the scope ledger"}
 }
 
 // sweepLedger drops the ledger entries whose child or parent is gone, and
@@ -521,7 +523,7 @@ func (c *Controller) sweepLedger(ctx context.Context) {
 	if c.ledger == nil {
 		return
 	}
-	entries, err := c.ledger.List()
+	entries, err := c.ledger.List() //nolint:contextcheck // the scope ledger reads take no context (ADR 0082)
 	if err != nil {
 		c.log.WarnContext(ctx, "scope ledger not swept", "error", err)
 		return
@@ -538,7 +540,7 @@ func (c *Controller) sweepEntry(ctx context.Context, e *envscope.Entry) {
 		c.dropEntry(ctx, e)
 		return
 	}
-	if c.absentFromSnapshot(rec, e.Workspace) {
+	if c.absentFromSnapshot(&rec, e.Workspace) {
 		c.dropEntry(ctx, e)
 		return
 	}
@@ -555,7 +557,7 @@ func (c *Controller) sweepEntry(ctx context.Context, e *envscope.Entry) {
 }
 
 // absentFromSnapshot reports whether rec is online with a fresh snapshot that doesn't list ws.
-func (c *Controller) absentFromSnapshot(rec Record, ws string) bool {
+func (c *Controller) absentFromSnapshot(rec *Record, ws string) bool {
 	if !c.isOnline(rec.ID) {
 		return false
 	}
@@ -563,7 +565,7 @@ func (c *Controller) absentFromSnapshot(rec Record, ws string) bool {
 	if !fresh {
 		return false
 	}
-	_, listed := snapshotWorkspace(snap, ws)
+	_, listed := snapshotWorkspace(&snap, ws)
 	return !listed
 }
 
@@ -581,7 +583,7 @@ func (c *Controller) parentGone(e *envscope.Entry) bool {
 	if err != nil {
 		return true
 	}
-	return c.absentFromSnapshot(rec, e.Parent.Workspace)
+	return c.absentFromSnapshot(&rec, e.Parent.Workspace)
 }
 
 // freshSnapshot is the snapshot of environment name, when it arrived within snapshotFresh.
@@ -618,15 +620,15 @@ func (c *Controller) sweepEvery(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// scopeFault is a scope operation's refusal: its error code, message and details.
-type scopeFault struct {
+// scopeError is a scope operation's refusal: its error code, message and details.
+type scopeError struct {
 	code    string
 	message string
 	details map[string]any
 }
 
 // Error is the refusal's message.
-func (e *scopeFault) Error() string {
+func (e *scopeError) Error() string {
 	return e.message
 }
 
@@ -637,7 +639,7 @@ func scopeFailure(err error) envproto.Reply {
 
 // scopeReplyError is err as the error part of a reply, with its ws code.
 func scopeReplyError(err error) *envproto.ReplyError {
-	if fault, ok := errors.AsType[*scopeFault](err); ok {
+	if fault, ok := errors.AsType[*scopeError](err); ok {
 		return &envproto.ReplyError{Code: fault.code, Message: fault.message, Details: fault.details}
 	}
 	if args, ok := errors.AsType[*envproto.ArgsError](err); ok {
