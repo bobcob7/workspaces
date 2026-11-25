@@ -41,7 +41,7 @@ Output is always JSON; `--json` changes nothing.
 ```json
 {
   "children": [
-    {"id": "t1-impl-d8efb24f", "session": "e8cdf5d8", "role": "implementer",
+    {"id": "t1-impl-d8efb24f", "environment": "local", "session": "e8cdf5d8", "role": "implementer",
      "status": "idle", "finished": true, "outcome": "pass",
      "result": {"verdict": "PASS", "outcome": "pass",
                 "report": "/…/state/orch-1a2b3c4d/machine/t1-impl-d8efb24f/report.md",
@@ -94,6 +94,15 @@ An item's `error` is `child_failed` when it finished with outcome `fail`
 or `missing`, and `wait_timeout` when it hadn't finished at the timeout
 (with `--any`, only when no child finished). Exit 0 means every child
 finished and passed.
+
+## Children on other environments
+
+A child you started on another environment with `ws machine spawn --env` is
+waited for the same way. Its environment is asked every 10 seconds. When it
+finishes, its result and report are copied into your tree's state, so
+`result.report` stays readable after `ws machine rm`. An item's `environment`
+is `local` or the environment's name; for a child whose copy is all that's
+left, it is that environment's id.
 
 ## Exit codes
 

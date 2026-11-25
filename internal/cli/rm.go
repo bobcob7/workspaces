@@ -45,6 +45,8 @@ func (a *App) newRmCmd() *cobra.Command {
 // rmJSON is one workspace in ws rm's output (docs/tools/ws-rm.md).
 type rmJSON struct {
 	ID string `json:"id"`
+	// Environment is a remote child's environment, absent for a local one.
+	Environment *string `json:"environment,omitempty"`
 	// Parent is the workspace it was started from, for a descendant
 	// removed with it (ADR 0044).
 	Parent  *string        `json:"parent"`
@@ -55,10 +57,11 @@ type rmJSON struct {
 // rmTarget is a WORKSPACE argument: the workspace it names, one the
 // removal pass already removed, or why it names none.
 type rmTarget struct {
-	arg   string
-	ws    workspace.Workspace
-	swept *lifetime.Removed
-	err   error
+	arg    string
+	ws     workspace.Workspace
+	swept  *lifetime.Removed
+	err    error
+	remote *remoteChild
 }
 
 // runRm removes each workspace named, with its session and its
@@ -96,6 +99,10 @@ func (a *App) removeTargets(ctx context.Context, targets []rmTarget, opts *rmOpt
 	done := map[string]bool{}
 	for i := range targets {
 		t := &targets[i]
+		if t.remote != nil {
+			results = append(results, a.removeRemote(ctx, t.remote, opts, &items))
+			continue
+		}
 		if t.err != nil || t.swept != nil {
 			r, err := t.unremovable()
 			id := t.id()
