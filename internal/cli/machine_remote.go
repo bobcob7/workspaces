@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -69,11 +67,9 @@ func (a *App) remoteChildren(ctx context.Context, caller string, descendants []s
 	return remoteChildrenOf(raw, scope)
 }
 
-// ledgerExists reports whether the controller has a scope ledger. It is
-// envscope's scopes.json in the environments directory.
+// ledgerExists reports whether the controller has a scope ledger.
 func (a *App) ledgerExists() bool {
-	_, err := os.Stat(filepath.Join(a.paths.Environments, "scopes.json"))
-	return err == nil
+	return envscope.LedgerExists(a.paths.Environments)
 }
 
 // remoteChildrenOf decodes a scope.children reply. A child whose environment

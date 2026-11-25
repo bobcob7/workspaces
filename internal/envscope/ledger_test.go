@@ -232,3 +232,10 @@ func TestLedger_Ceiling(t *testing.T) {
 		assert.Nil(t, got)
 	})
 }
+
+func TestLedgerExists(t *testing.T) {
+	dir := t.TempDir()
+	assert.False(t, LedgerExists(dir))
+	require.NoError(t, NewLedger(dir).Put(t.Context(), ledgerEntry(envA, "w", envA)))
+	assert.True(t, LedgerExists(dir))
+}

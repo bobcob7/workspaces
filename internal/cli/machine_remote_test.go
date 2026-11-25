@@ -15,6 +15,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/machine"
 )
@@ -140,6 +141,17 @@ func TestApp_remoteChildren(t *testing.T) {
 		assert.NotContains(t, e.stdout.String(), "environment")
 		assert.Empty(t, e.app.warned)
 	})
+	t.Run("a local scope with a ledger present asks the controller", func(t *testing.T) {
+		e := newMachineApp(t)
+		require.NoError(t, os.MkdirAll(e.app.paths.Environments, 0o700))
+		require.NoError(t, envscope.NewLedger(e.app.paths.Environments).Put(t.Context(), &envscope.Entry{
+			Environment: linuxRef.ID, Workspace: "helper", Scope: []string{linuxRef.ID}, CreatedAt: testNow(),
+		}))
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		require.NotEmpty(t, host.Calls())
+		assert.Equal(t, "children", host.Calls()[0].op)
+	})
 	t.Run("a remote child is listed with its environment", func(t *testing.T) {
 		e := newMachineApp(t)
 		writeCallerScope(t, e.app.paths.State, linuxRef)
@@ -160,6 +172,23 @@ func TestApp_remoteChildren(t *testing.T) {
 		assert.Contains(t, e.stdout.String(), `"id":"a"`)
 		assert.NotEmpty(t, e.app.warned)
 	})
+}
+
+func TestRemoteChildrenOf(t *testing.T) {
+	scope, err := envscope.New(localRef(), []envscope.Ref{linuxRef})
+	require.NoError(t, err)
+	raw, err := json.Marshal(envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{
+		remoteHelperChild(t),
+		{Environment: "elsewhere", Workspace: "stray", Parent: "plan", Entry: json.RawMessage(`{"id":"stray"}`)},
+	}})
+	require.NoError(t, err)
+	children, warnings := remoteChildrenOf(raw, scope)
+	require.Len(t, children, 1)
+	assert.Equal(t, "helper", children[0].id)
+	assert.Equal(t, linuxRef.ID, children[0].envID)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "stray")
+	assert.Contains(t, warnings[0], "isn't in your scope")
 }
 
 func TestApp_runMachineWait_remoteChild(t *testing.T) {
@@ -232,12 +261,23 @@ func TestApp_runMachineWait_remoteChild(t *testing.T) {
 	})
 	t.Run("a wait is asked once per poll interval", func(t *testing.T) {
 		e := newWaitApp(t)
+		now := testNow()
+		e.app.now = func() time.Time { return now }
 		e.app.remotePoll = time.Hour
 		writeCallerScope(t, e.app.paths.State, linuxRef)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		polls := 0
+		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) {
+			if polls++; polls == 5 {
+				cancel()
+			}
+			return lifetime.Listing{}, nil
+		}
 		var records int
 		busy := remoteHelperRecord(t)
 		busy.Result = nil
-		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(op string, args envproto.ScopeChildArgs) envproto.Reply {
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(op string, args envproto.ScopeChildArgs) envproto.Reply {
 			if op == "record" {
 				records++
 			}
@@ -246,9 +286,52 @@ func TestApp_runMachineWait_remoteChild(t *testing.T) {
 			}
 			return helperAnswer(t, busy)(op, args)
 		})
-		_ = host
-		requireCode(t, codeWaitTimeout, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(50*time.Millisecond)))
+		require.Error(t, e.app.runMachineWait(ctx, []string{"helper"}, waitOptions(time.Minute)))
+		assert.GreaterOrEqual(t, polls, 5)
 		assert.Equal(t, 1, records)
+	})
+	t.Run("a failed remote child keeps a spawn record with the verdict in the fail list", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		record := remoteHelperRecord(t)
+		record.Result = &envproto.RecordResult{Verdict: "FAIL", Outcome: "fail", RecordedAt: testNow()}
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, record))
+		require.Error(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		assert.Equal(t, "fail", got.Children[0].Outcome)
+		kept, err := machine.NewStore(e.app.paths.State).ReadRemote("boss", linuxRef.ID, "helper")
+		require.NoError(t, err)
+		require.NotNil(t, kept.Spawn)
+		assert.Equal(t, remoteHelperRole, kept.Spawn.Role)
+		assert.Equal(t, []string{"FAIL"}, kept.Spawn.Fail)
+		assert.Empty(t, kept.Spawn.Pass)
+		assert.Equal(t, []string{"plan", "boss"}, kept.Spawn.Ancestors)
+	})
+	t.Run("a passing remote child keeps a spawn record with the verdict in the pass list", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		kept, err := machine.NewStore(e.app.paths.State).ReadRemote("boss", linuxRef.ID, "helper")
+		require.NoError(t, err)
+		require.NotNil(t, kept.Spawn)
+		assert.Equal(t, []string{"PASS"}, kept.Spawn.Pass)
+		assert.Empty(t, kept.Spawn.Fail)
+	})
+	t.Run("a remote child with no role keeps no spawn record", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		child := remoteHelperChild(t)
+		child.Role = nil
+		record := remoteHelperRecord(t)
+		record.Role = nil
+		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, record))
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		kept, err := machine.NewStore(e.app.paths.State).ReadRemote("boss", linuxRef.ID, "helper")
+		require.NoError(t, err)
+		assert.Nil(t, kept.Spawn)
+		require.NotNil(t, kept.Result)
 	})
 }
 
@@ -305,13 +388,20 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 		require.NoError(t, e.app.runMachineRm(t.Context(), removeHelper()))
 		assert.Equal(t, []string{"rm"}, childOpsOf(t, host.Calls()))
 	})
-	t.Run("--all removes the remote children too", func(t *testing.T) {
+	t.Run("--all selects the remote child with no id given", func(t *testing.T) {
 		e := newMachineApp(t)
 		writeCallerScope(t, e.app.paths.State, linuxRef)
-		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		var removed []string
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(op string, args envproto.ScopeChildArgs) envproto.Reply {
+			if op == "rm" {
+				removed = append(removed, args.Child)
+			}
+			return helperAnswer(t, remoteHelperRecord(t))(op, args)
+		})
 		opts := &machineRmOptions{all: true}
+		require.Empty(t, opts.workspaces)
 		require.NoError(t, e.app.runMachineRm(t.Context(), opts))
-		assert.Equal(t, []string{"rm"}, childOpsOf(t, host.Calls()))
+		assert.Equal(t, []string{"helper"}, removed)
 	})
 	t.Run("--dry-run removes nothing and names the environment", func(t *testing.T) {
 		e := newMachineApp(t)
@@ -353,7 +443,11 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
 			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
 		})
+		writeCopy(t, e, []string{"plan", "boss"})
 		requireCode(t, codeEnvironmentOffline, e.app.runMachineRm(t.Context(), removeHelper()))
+		kept, err := machine.NewStore(e.app.paths.State).ReadRemote("boss", linuxRef.ID, "helper")
+		require.NoError(t, err)
+		require.NotNil(t, kept.Result)
 	})
 }
 
