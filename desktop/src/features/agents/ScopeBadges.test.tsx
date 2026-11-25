@@ -11,6 +11,9 @@ const environments: readonly ScopeEnvironment[] = [
   { id: "env_unk1", name: "mac", state: "unknown", current: false },
 ];
 
+const pick = (...names: readonly string[]): readonly ScopeEnvironment[] =>
+  names.flatMap((name) => environments.filter((environment) => environment.name === name));
+
 const renderScope = (scope: readonly ScopeEnvironment[]) => {
   render(<ScopeBadges scope={scope} />);
   return screen.getByRole("list", { name: "Environments it may start children on" });
@@ -48,11 +51,19 @@ describe("ScopeBadges", () => {
   });
 
   it("keeps the order it is given", () => {
-    const list = renderScope([environments[2]!, environments[0]!, environments[1]!]);
+    const list = renderScope(pick("win-rig", "local", "linux-server"));
 
     const labels = within(list)
       .getAllByRole("listitem")
       .map((item) => item.textContent);
     expect(labels).toEqual(["win-rig · offline", "local", "linux-server"]);
+  });
+
+  it("marks removed and offline differently and leaves online unmarked", () => {
+    renderScope(environments);
+
+    expect(screen.getByText("old-box · removed")).toHaveAttribute("data-state", "removed");
+    expect(screen.getByText("win-rig · offline")).toHaveAttribute("data-state", "offline");
+    expect(screen.getByText("linux-server")).not.toHaveAttribute("data-state");
   });
 });

@@ -32,7 +32,8 @@ export const ScopeBadges = ({ scope }: ScopeBadgesProps): JSX.Element => (
         <li key={environment.id}>
           <EnvBadge
             label={scopeLabel(environment)}
-            warn={environment.state !== "online"}
+            warn={environment.state !== "online" && environment.state !== "removed"}
+            state={environment.state === "online" ? undefined : environment.state}
             title={scopeTitle(environment)}
           />
         </li>
