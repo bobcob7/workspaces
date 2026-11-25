@@ -29,7 +29,6 @@ export interface Link {
   readonly kind: string;
 }
 
-/** A workspace, or a background session outside any workspace. */
 /** The workspace a cross-environment child was started from (ADR 0082). */
 export interface ScopeParent {
   readonly environment: string;
@@ -47,6 +46,7 @@ export interface ScopeEnvironment {
   readonly current: boolean;
 }
 
+/** A workspace, or a background session outside any workspace. */
 export interface Entry {
   readonly key: string;
   readonly kind: EntryKind;
