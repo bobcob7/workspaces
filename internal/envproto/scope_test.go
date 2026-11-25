@@ -130,6 +130,26 @@ func TestDecodeArgs_scopes(t *testing.T) {
 		_, err := DecodeArgs(OpScopeSpawn, raw)
 		assertArgsError(t, err, "usage")
 	})
+	t.Run("accepts exactly 64 ancestors", func(t *testing.T) {
+		raw := json.RawMessage(`{"workspace":"w1","ancestors":` + scopeTestList(64, func(int) string { return `"a"` }) + `,"scope":["local"]}`)
+		_, err := DecodeArgs(OpScopeEnvs, raw)
+		require.NoError(t, err)
+	})
+	t.Run("accepts exactly 1024 descendants", func(t *testing.T) {
+		raw := json.RawMessage(`{"workspace":"w1","ancestors":[],"scope":["local"],"descendants":` + scopeTestList(1024, func(int) string { return `"c"` }) + `}`)
+		_, err := DecodeArgs(OpScopeChildren, raw)
+		require.NoError(t, err)
+	})
+	t.Run("accepts exactly 64 narrow names", func(t *testing.T) {
+		raw := json.RawMessage(`{"workspace":"w1","ancestors":[],"scope":["local"],"target":"b","narrow":` + scopeTestList(64, func(int) string { return `"local"` }) + `,"create":` + scopeTestCreate + `,"spawn":null}`)
+		_, err := DecodeArgs(OpScopeSpawn, raw)
+		require.NoError(t, err)
+	})
+	t.Run("accepts a tail equal to MaxTail", func(t *testing.T) {
+		raw := json.RawMessage(fmt.Sprintf(`{"workspace":"w1","ancestors":[],"scope":["local"],"environment":"b","child":"c1","parent":"w1","op":"logs","tail":%d,"keep_children":false}`, MaxTail))
+		_, err := DecodeArgs(OpScopeChild, raw)
+		require.NoError(t, err)
+	})
 	t.Run("refuses an op outside the four child operations with usage", func(t *testing.T) {
 		for _, op := range []string{"files", "rm ", "", "spawn"} {
 			raw := json.RawMessage(fmt.Sprintf(`{"workspace":"w1","ancestors":[],"scope":["local"],"environment":"b","child":"c1","parent":"w1","op":%q,"tail":0,"keep_children":false}`, op))
@@ -185,6 +205,23 @@ func TestValidate_scopeGrant(t *testing.T) {
 		_, err := DecodeArgs(OpWorkspaceCreate, raw)
 		assertArgsError(t, err, "usage")
 	})
+	t.Run("accepts a parent on a valid environment and workspace", func(t *testing.T) {
+		raw := json.RawMessage(`{"kind":"claude","specs":[],"scope":{"environments":[{"id":"local","name":"local"}],"parent":{"environment":"env-0000000a","workspace":"w1"}}}`)
+		_, err := DecodeArgs(OpWorkspaceCreate, raw)
+		require.NoError(t, err)
+	})
+	t.Run("refuses a parent with a bad environment id with usage", func(t *testing.T) {
+		raw := json.RawMessage(`{"kind":"claude","specs":[],"scope":{"environments":[{"id":"local","name":"local"}],"parent":{"environment":"Env-1","workspace":"w1"}}}`)
+		_, err := DecodeArgs(OpWorkspaceCreate, raw)
+		assertArgsError(t, err, "usage")
+	})
+	t.Run("refuses a parent workspace that is not one path element with usage", func(t *testing.T) {
+		for _, workspace := range []string{"a/b", `a\b`, ".x"} {
+			raw := json.RawMessage(fmt.Sprintf(`{"kind":"claude","specs":[],"scope":{"environments":[{"id":"local","name":"local"}],"parent":{"environment":"local","workspace":%q}}}`, workspace))
+			_, err := DecodeArgs(OpWorkspaceCreate, raw)
+			assertArgsError(t, err, "usage")
+		}
+	})
 }
 
 func TestValidate_spawnInfo(t *testing.T) {
@@ -224,6 +261,30 @@ func TestValidate_spawnInfo(t *testing.T) {
 	})
 	t.Run("refuses a model that starts with a dash with usage", func(t *testing.T) {
 		_, err := DecodeArgs(OpWorkspaceCreate, withSpawn(`{"role":"r","model":"--dangerously-skip-permissions","pass":[],"fail":[],"vars":{}}`))
+		assertArgsError(t, err, "usage")
+	})
+}
+
+func TestValidate_createGrants(t *testing.T) {
+	const validScope = `{"environments":[{"id":"local","name":"local"}],"parent":null}`
+	withBoth := func(spawn string) json.RawMessage {
+		return json.RawMessage(`{"kind":"claude","specs":[],"prompt":"hi","scope":` + validScope + `,"spawn":` + spawn + `}`)
+	}
+	t.Run("accepts a valid scope with a valid spawn", func(t *testing.T) {
+		_, err := DecodeArgs(OpWorkspaceCreate, withBoth(`{"role":"helper","model":"","pass":[],"fail":[],"vars":{}}`))
+		require.NoError(t, err)
+	})
+	t.Run("refuses a valid scope with an empty role with usage", func(t *testing.T) {
+		_, err := DecodeArgs(OpWorkspaceCreate, withBoth(`{"role":"","model":"","pass":[],"fail":[],"vars":{}}`))
+		assertArgsError(t, err, "usage")
+	})
+	t.Run("refuses a valid scope with a dash-leading model with usage", func(t *testing.T) {
+		_, err := DecodeArgs(OpWorkspaceCreate, withBoth(`{"role":"r","model":"--x","pass":[],"fail":[],"vars":{}}`))
+		assertArgsError(t, err, "usage")
+	})
+	t.Run("refuses a bad scope even with a valid spawn with usage", func(t *testing.T) {
+		raw := json.RawMessage(`{"kind":"claude","specs":[],"prompt":"hi","scope":{"environments":[],"parent":null},"spawn":{"role":"r","model":"","pass":[],"fail":[],"vars":{}}}`)
+		_, err := DecodeArgs(OpWorkspaceCreate, raw)
 		assertArgsError(t, err, "usage")
 	})
 }

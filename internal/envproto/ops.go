@@ -389,7 +389,9 @@ func validateCreate(a *CreateArgs) error {
 // validateCreateGrants checks the scope and spawn info a create may carry (ADR 0082).
 func validateCreateGrants(a *CreateArgs) error {
 	if a.Scope != nil {
-		return validateScopeGrant(a.Scope)
+		if err := validateScopeGrant(a.Scope); err != nil {
+			return err
+		}
 	}
 	if a.Spawn != nil {
 		return validateSpawnInfo(a.Spawn)
