@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,10 +61,18 @@ func TestLedger_Put(t *testing.T) {
 			"scope id":           ledgerEntry(envA, "helper-1", "env-XYZ"),
 			"parent environment": withParent(ledgerEntry(envA, "helper-1", envA), "nope", "plan-1"),
 			"empty workspace":    ledgerEntry(envA, "", envA),
+			"nil scope":          ledgerEntry(envA, "helper-1"),
+			"empty scope":        ledgerEntry(envA, "helper-1", []string{}...),
+			"scope over max":     ledgerEntry(envA, "helper-1", manyScopeIDs(MaxEntries+1)...),
 		}
 		for name, e := range bad {
 			require.ErrorIs(t, l.Put(t.Context(), e), ErrInvalid, name)
 		}
+	})
+	t.Run("a scope of MaxEntries ids is accepted", func(t *testing.T) {
+		t.Parallel()
+		l := newTestLedger(t)
+		require.NoError(t, l.Put(t.Context(), ledgerEntry(envA, "helper-1", manyScopeIDs(MaxEntries)...)))
 	})
 	t.Run("a full ledger refuses a new key but still replaces one", func(t *testing.T) {
 		t.Parallel()
@@ -81,6 +90,15 @@ func TestLedger_Put(t *testing.T) {
 func withParent(e *Entry, environment, workspace string) *Entry {
 	e.Parent = &Parent{Environment: environment, Workspace: workspace}
 	return e
+}
+
+// manyScopeIDs returns n distinct valid environment ids.
+func manyScopeIDs(n int) []string {
+	ids := make([]string, 0, n)
+	for i := range n {
+		ids = append(ids, fmt.Sprintf("env-%08x", i+1))
+	}
+	return ids
 }
 
 // writeFullLedger writes a ledger with MaxLedgerEntries entries, ws-0 .. ws-4095.
@@ -110,6 +128,20 @@ func TestLedger_Remove(t *testing.T) {
 		t.Parallel()
 		require.NoError(t, newTestLedger(t).Remove(t.Context(), envA, "nobody"))
 	})
+	t.Run("keeps the same workspace on another environment", func(t *testing.T) {
+		t.Parallel()
+		l := newTestLedger(t)
+		require.NoError(t, l.Put(t.Context(), ledgerEntry(envA, "helper-1", envA)))
+		require.NoError(t, l.Put(t.Context(), ledgerEntry(envB, "helper-1", envB)))
+		require.NoError(t, l.Remove(t.Context(), envA, "helper-1"))
+		_, okA, err := l.Get(envA, "helper-1")
+		require.NoError(t, err)
+		assert.False(t, okA)
+		got, okB, err := l.Get(envB, "helper-1")
+		require.NoError(t, err)
+		require.True(t, okB)
+		assert.Equal(t, []string{envB}, got.Scope)
+	})
 }
 
 func TestLedger_List(t *testing.T) {
@@ -133,6 +165,23 @@ func TestLedger_List(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, ledgerName), []byte(`{"version":9}`), 0o600))
+		_, err := NewLedger(dir).List()
+		require.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("an entry with an empty scope is ErrInvalid", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		body := `{"version":1,"entries":[{"environment":"` + envA + `","workspace":"helper-1","scope":[]}]}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ledgerName), []byte(body), 0o600))
+		_, err := NewLedger(dir).List()
+		require.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("a file over the size cap is ErrInvalid before it is decoded", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		padding := strings.Repeat(" ", maxLedgerBytes)
+		body := `{"version":1,"entries":[]` + padding + `}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ledgerName), []byte(body), 0o600))
 		_, err := NewLedger(dir).List()
 		require.ErrorIs(t, err, ErrInvalid)
 	})

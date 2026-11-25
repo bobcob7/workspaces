@@ -35,6 +35,24 @@ func TestNew(t *testing.T) {
 		_, err := New(serverRef, []Ref{{ID: "env-XYZ", Name: "x"}})
 		require.ErrorIs(t, err, ErrInvalid)
 	})
+	t.Run("an empty name is ErrInvalid", func(t *testing.T) {
+		_, err := New(serverRef, []Ref{{ID: rigRef.ID}})
+		require.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("a name with a control character is ErrInvalid", func(t *testing.T) {
+		for _, name := range []string{"win\nrig", "win\x00rig", "win\trig"} {
+			_, err := New(serverRef, []Ref{{ID: rigRef.ID, Name: name}})
+			require.ErrorIs(t, err, ErrInvalid, name)
+		}
+	})
+	t.Run("Local must be named local", func(t *testing.T) {
+		_, err := New(serverRef, []Ref{{ID: Local, Name: "laptop"}})
+		require.ErrorIs(t, err, ErrInvalid)
+	})
+	t.Run("only Local may be named local", func(t *testing.T) {
+		_, err := New(serverRef, []Ref{{ID: rigRef.ID, Name: Local}})
+		require.ErrorIs(t, err, ErrInvalid)
+	})
 	t.Run("an invalid self is ErrInvalid", func(t *testing.T) {
 		_, err := New(Ref{ID: "nope", Name: "x"}, nil)
 		require.ErrorIs(t, err, ErrInvalid)

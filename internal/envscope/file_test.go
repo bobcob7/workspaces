@@ -72,6 +72,9 @@ func TestRead(t *testing.T) {
 		{"self missing from its entries", strings.Replace(validScopeFile, `{"id":"env-1a2b3c4d","name":"linux-server"},`, "", 1)},
 		{"a bad environment id", strings.Replace(validScopeFile, `"id":"env-2b3c4d5e"`, `"id":"ENV-2B"`, 1)},
 		{"an unknown source", strings.Replace(validScopeFile, `"source":"granted"`, `"source":"stolen"`, 1)},
+		{"an empty environment name", strings.Replace(validScopeFile, `"name":"linux-server"`, `"name":""`, 1)},
+		{"a control character in an environment name", strings.Replace(validScopeFile, `"name":"win-rig"`, `"name":"win\u0007rig"`, 1)},
+		{"a remote environment named local", strings.Replace(validScopeFile, `"name":"win-rig"`, `"name":"local"`, 1)},
 		{"a bad parent environment", strings.Replace(validScopeFile, `"parent":null`, `"parent":{"environment":"x","workspace":"w"}`, 1)},
 		{"self of another environment", strings.Replace(validScopeFile, `"self":"env-1a2b3c4d"`, `"self":"env-2b3c4d5e"`, 1)},
 		{"more than MaxEntries", tooManyEntriesFile(t)},
@@ -155,6 +158,16 @@ func TestWrite(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		err := Write(dir, id, &File{Version: 2, Self: serverRef.ID})
+		require.ErrorIs(t, err, ErrInvalid)
+		_, statErr := os.Stat(Path(dir, id))
+		assert.ErrorIs(t, statErr, os.ErrNotExist)
+	})
+	t.Run("an environment with an empty name is refused", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		bad := *FileFor(scope, "granted", nil, time.Now())
+		bad.Environments = []Ref{serverRef, {ID: rigRef.ID}}
+		err := Write(dir, id, &bad)
 		require.ErrorIs(t, err, ErrInvalid)
 		_, statErr := os.Stat(Path(dir, id))
 		assert.ErrorIs(t, statErr, os.ErrNotExist)
