@@ -2,12 +2,15 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bobcob7/workspaces/internal/envproto"
 )
 
 func TestClient_Status(t *testing.T) {
@@ -141,6 +144,21 @@ func TestClient_ReloadEnvironments(t *testing.T) {
 	t.Run("nothing listening is ErrNotRunning", func(t *testing.T) {
 		err := Dial(testPaths(t)).ReloadEnvironments(t.Context())
 		require.ErrorIs(t, err, ErrNotRunning)
+	})
+}
+
+func TestClient_Scope(t *testing.T) {
+	t.Parallel()
+	t.Run("a refusal decodes into the reply's error", func(t *testing.T) {
+		p := scopeDaemon(t, func(context.Context, string, string, json.RawMessage) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: "not_descendant", Details: map[string]any{"workspace": "c"}}}
+		})
+		reply, err := Dial(p).Scope(t.Context(), "child", map[string]any{"child": "c"})
+		require.NoError(t, err)
+		assert.False(t, reply.OK)
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "not_descendant", reply.Error.Code)
+		assert.Equal(t, "c", reply.Error.Details["workspace"])
 	})
 }
 

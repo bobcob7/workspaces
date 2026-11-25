@@ -12,6 +12,8 @@ import (
 	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
+	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // envStore is the controller's store for this config directory.
@@ -37,7 +39,9 @@ func (a *App) daemonEnvironments(log *slog.Logger) daemon.EnvironmentHost {
 		PublicName:      env.PublicName,
 		RenewBeforeDays: env.RenewDays(),
 	}
-	return envHost{ctrl: environment.NewController(log, a.envStore(), broker, settings, a.now)}
+	ctrl := environment.NewController(log, a.envStore(), broker, settings, a.now)
+	ctrl.SetLocalScopes(localScopes{workspaces: a.workspaces, state: a.paths.State}, envscope.NewLedger(a.paths.Environments))
+	return envHost{ctrl: ctrl}
 }
 
 // envHost adapts *environment.Controller to daemon.EnvironmentHost.
@@ -48,6 +52,45 @@ func (h envHost) Start(ctx context.Context) error { return h.ctrl.Start(ctx) }
 
 // Reload rereads the environments' state.
 func (h envHost) Reload(ctx context.Context) error { return h.ctrl.Reload(ctx) }
+
+// Scope runs one scope operation for caller on the controller (ADR 0082).
+func (h envHost) Scope(ctx context.Context, caller, op string, args json.RawMessage) envproto.Reply {
+	return h.ctrl.Scope(ctx, caller, op, args)
+}
+
+// localScopes reads the scopes of this machine's workspaces from their scope
+// files (ADR 0082).
+type localScopes struct {
+	workspaces workspaceStore
+	state      string
+}
+
+// Scope is workspace id's scope: its scope file, or its own environment alone
+// when the file is missing or malformed. environment.ErrWorkspaceNotFound when
+// there's no such workspace.
+func (l localScopes) Scope(id string) (envscope.Scope, error) {
+	ws, err := l.workspaces.Find(id)
+	if errors.Is(err, workspace.ErrNotFound) {
+		return envscope.Scope{}, environment.ErrWorkspaceNotFound
+	}
+	if err != nil {
+		return envscope.Scope{}, err
+	}
+	scope, _, err := envscope.Read(l.state, ws.ID, envscope.Ref{ID: envscope.Local, Name: envscope.Local})
+	if errors.Is(err, envscope.ErrInvalid) {
+		return scope, nil
+	}
+	return scope, err
+}
+
+// Exists reports whether workspace id exists on this machine.
+func (l localScopes) Exists(id string) (bool, error) {
+	_, err := l.workspaces.Find(id)
+	if errors.Is(err, workspace.ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
 
 // Status is the controller's listeners and environments.
 func (h envHost) Status() daemon.EnvironmentsStatus { return environmentsStatus(h.ctrl.Status()) }

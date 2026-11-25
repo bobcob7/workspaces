@@ -55,6 +55,9 @@ type EnvironmentHost interface {
 	// OpenTerminal opens a terminal on an environment (T6's controller). The
 	// returned stream is nil when the error is not.
 	OpenTerminal(ctx context.Context, name string, args envproto.TerminalOpenArgs) (TerminalStream, envproto.TerminalOpenResult, error)
+	// Scope runs one scope operation for caller ("local" for the person on the
+	// daemon socket) and returns the reply to send (ADR 0082).
+	Scope(ctx context.Context, caller, op string, args json.RawMessage) envproto.Reply
 	Close() error
 }
 
