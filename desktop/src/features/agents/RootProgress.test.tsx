@@ -45,6 +45,12 @@ describe("RootProgress", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("renders nothing for a workspace started on another environment", () => {
+    const remote = entry({ key: "ip-win", workspaceId: "ip-win", name: "ip-win", environment: "win-rig", scopeParent: { environment: "local", workspaceId: "plan-scope" }, rollup });
+    const { container } = renderWithStore(<RootProgress entry={remote} />, loadedWith([remote]));
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("renders nothing without a rollup", () => {
     const { container } = renderWithStore(<RootProgress entry={entry({ key: "solo", workspaceId: "solo", name: "solo" })} />, loadedWith([]));
     expect(container).toBeEmptyDOMElement();
