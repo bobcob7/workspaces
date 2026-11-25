@@ -185,6 +185,15 @@ on or remove the child; fails criteria 1 and 4.
   process that `cd`s out of its workspace is treated as a person and can
   grant a scope (same uid, [0066](0066-runner-security-boundaries.md)). A
   follow-up could mark the environment of agent processes.
+- Residual: sibling isolation between workspaces on one remote environment is
+  not a boundary. The controller bounds a forged `Parent` or `Descendants`
+  claim only by the environment's ledger ceiling, so a workspace on A that
+  names another workspace on A as parent can read, or remove, that workspace's
+  children. All workspaces on A share one uid, so this adds nothing to what
+  they could already do ([0066](0066-runner-security-boundaries.md)).
+- Residual: ledger reads (`Get`, `List`, `Ceiling`) take no context and can
+  wait on the file lock for as long as a writer holds it, so a stuck holder
+  stalls scope requests past their deadlines. The writes take a context.
 - **Unverified:** the cross-machine flow against real agents (the pod has no
   remote environment; tests use `envtest` and fakes); that the cleanup of a
   gone parent's children is timely when the child's environment is offline

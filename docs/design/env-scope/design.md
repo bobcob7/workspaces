@@ -488,6 +488,8 @@ What each can forge:
 | 14b | W `cd`s out of its workspace, then runs `ws claude --env B` or `ws machine spawn` | **not defended**: "inside a workspace" is decided by the cwd (the enclosing-workspace check), so the process is treated as a person. Same uid ([0066](../../adrs/0066-runner-security-boundaries.md)). Documented residual; a follow-up could add an environment marker | — |
 | 15 | W on the controller machine edits another workspace's `scope.json` or the ledger | **not defended** (same uid, 0066). The daemon re-reads files, so it narrows nothing extra | — |
 | 16 | Compromised A uses wider scopes granted to other workspaces on A | bounded by the union of ledger scopes on A (inherent to one uid per machine) | — |
+| 16b | W on A names another workspace on A as `Parent`, or lists its ids in `Descendants`, to read or remove that workspace's children | **not defended**: sibling isolation between workspaces on one environment is not a boundary. The controller bounds a forged claim only by A's ledger ceiling (same uid, 0066) | — |
+| 16c | A stuck holder of the ledger lock stalls scope requests | **not defended**: ledger reads (`Get`, `List`, `Ceiling`) use `context.Background()` and can block while a writer holds the lock; writes take the request context | — |
 | 17 | B lies in `machine.record` or snapshots about a child | affects only that child's reported result, already B's to report; reports are capped at 256 KiB and stored as data, never executed | T4 |
 
 Hostile-input limits (reviewers check these): every new args type ≤
