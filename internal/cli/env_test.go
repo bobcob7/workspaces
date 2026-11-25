@@ -275,7 +275,10 @@ func TestApp_runEnvList(t *testing.T) {
 		app, stdout, _ := newEnvTestApp(t)
 		withPublicName(app)
 		enrollTestEnvironment(t, app)
-		snapshot, err := json.Marshal(envproto.Snapshot{Workspaces: json.RawMessage(`[{"id":"a"},{"id":"b"}]`)})
+		// The controller stores the agent's snapshot wrapped in a SnapshotFile.
+		inner, err := json.Marshal(envproto.Snapshot{Workspaces: json.RawMessage(`[{"id":"a"},{"id":"b"}]`)})
+		require.NoError(t, err)
+		snapshot, err := json.Marshal(environment.SnapshotFile{Version: 1, ID: "env-0a1b2c3d", Name: "linux-server", ReceivedAt: "2026-11-22T10:00:00Z", Snapshot: inner})
 		require.NoError(t, err)
 		require.NoError(t, app.envStore().WriteSnapshot("linux-server", snapshot))
 		app.global.json = true

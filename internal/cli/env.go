@@ -296,7 +296,7 @@ func (a *App) envEntry(rec *environment.Record, presence map[string]daemon.Envir
 // snapshotCount is how many workspaces name's stored snapshot lists, or nil
 // without a snapshot.
 func (a *App) snapshotCount(name string) *int {
-	data, err := a.envStore().ReadSnapshot(name)
+	_, snap, err := a.envStore().Snapshot(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -304,7 +304,7 @@ func (a *App) snapshotCount(name string) *int {
 		a.warned = append(a.warned, err.Error())
 		return nil
 	}
-	count, err := snapshotWorkspaces(data)
+	count, err := snapshotWorkspaces(&snap)
 	if err != nil {
 		a.warned = append(a.warned, fmt.Sprintf("reading the snapshot of %s: %v", name, err))
 		return nil
@@ -314,11 +314,7 @@ func (a *App) snapshotCount(name string) *int {
 
 // snapshotWorkspaces counts the entries in a snapshot's workspaces array.
 // A snapshot with no workspaces key fails to parse rather than counting as zero.
-func snapshotWorkspaces(data []byte) (int, error) {
-	var snap envproto.Snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return 0, err
-	}
+func snapshotWorkspaces(snap *envproto.Snapshot) (int, error) {
 	var workspaces []json.RawMessage
 	if err := json.Unmarshal(snap.Workspaces, &workspaces); err != nil {
 		return 0, err
