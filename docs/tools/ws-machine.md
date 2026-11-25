@@ -277,9 +277,10 @@ others:
 
 ## ws machine logs
 
-A remote child's reply has `environment` and its log as `text`. Prints a descendant's log as JSON: a `ws` child's transcript events, or a
+Prints a descendant's log as JSON: a `ws` child's transcript events, or a
 Claude child's `claude logs` text. Use it instead of `claude logs`, which
-doesn't know runner sessions (`rn-…`).
+doesn't know runner sessions (`rn-…`). A remote child's reply has
+`environment` and its log as `text`.
 
 ## ws machine rm
 
@@ -589,7 +590,7 @@ Marks the thread resolved, or with `--reopen` open again. Prints
 | `spawn --runner ws`: the endpoint is unreachable, or the model has no tools | `endpoint_unreachable`, `model_without_tools` | 1 |
 | `spawn --runner ws`: the model isn't served by the endpoint | `model_not_served` | 3 |
 | `spawn --runner ws`: no daemon answers, or the runner didn't write its status within 10 s | `daemon_unavailable`, `runner_failed` | 1 |
-| Workspace not found; for `wait`, also not a gone child with a result | `workspace_not_found` | 3 |
+| Workspace not found; for `wait`, also not a gone child with a result; a removed remote child whose copy lacks the caller as an ancestor (deliberately not `not_descendant`, which a live one gets, so another tree's removed child isn't confirmed) | `workspace_not_found` | 3 |
 | `rm` or `wait` of a workspace that isn't the caller's descendant | `not_descendant` | 4 |
 | `spawn --env` or `--env-scope` naming an environment outside the caller's scope | `environment_out_of_scope` | 4 |
 | `spawn --env`, or `rm` of a remote child, when that environment is offline | `environment_offline` | 1 |

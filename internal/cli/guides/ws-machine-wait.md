@@ -110,7 +110,7 @@ left, it is that environment's id.
 | -------------------------------------------------------- | --------------------- | ---- |
 | Run outside a workspace                                  | `outside_workspace`   | 2    |
 | No workspace, or `--timeout` not positive                | `usage`               | 2    |
-| Not a workspace, nor a removed child with a kept result  | `workspace_not_found` | 3    |
+| Not a workspace, nor a removed child with a kept result; a removed remote child whose copy lacks you as an ancestor (a live one is `not_descendant`) | `workspace_not_found` | 3    |
 | Not one you started, or theirs                           | `not_descendant`      | 4    |
 | An item: finished with a failing verdict, or none        | `child_failed`        | 1    |
 | An item: still not finished at the timeout; run `wait` again | `wait_timeout`    | 1    |
