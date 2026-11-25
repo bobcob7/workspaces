@@ -684,10 +684,14 @@ describe("EntryPane removing a parent with cross-environment children", () => {
     });
   const ipLinux = scopedChild("ip-linux", "linux-server");
   const ipWin = scopedChild("ip-win", "win-rig");
-  const ipProbe = entry({ key: "env:win-rig:ip-probe", environment: "win-rig", workspaceId: "ip-probe", name: "ip-probe", parentId: "ip-win", sessionId: null, path: "/home/ci/ws/ip-probe" });
+  const ipProbe = {
+    ...scopedChild("ip-probe", "win-rig"),
+    scopeParent: { environment: "linux-server", workspaceId: "ip-linux" },
+  };
+  const ipNote = entry({ key: "env:win-rig:ip-note", environment: "win-rig", workspaceId: "ip-note", name: "ip-note", parentId: "ip-win", sessionId: null, path: "/home/ci/ws/ip-note" });
   const loaded = (api = fakeApi()): ReturnType<typeof testStore> => {
     const store = testStore({ api });
-    store.dispatch(fetchEntries.fulfilled({ entries: [planScope, ipLinux, ipWin, ipProbe], warnings: [] }, "req"));
+    store.dispatch(fetchEntries.fulfilled({ entries: [planScope, ipLinux, ipWin, ipProbe, ipNote], warnings: [] }, "req"));
     return store;
   };
 
@@ -698,18 +702,20 @@ describe("EntryPane removing a parent with cross-environment children", () => {
     expect(within(dialog).getByText(/Workspaces on other environments \(linux-server, win-rig\) are removed by the controller/)).toBeInTheDocument();
   });
 
-  it("keeps only the deeper children, and counts the direct cross-environment ones when kept", async () => {
+  it("keeps only same-environment children, and counts every swept cross-environment descendant when kept", async () => {
     const api = fakeApi();
     renderWithStore(<EntryPane entry={planScope} />, loaded(api));
     await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
     const dialog = screen.getByRole("dialog");
     await userEvent.click(within(dialog).getByRole("checkbox", { name: /Keep the workspaces it started/ }));
-    expect(within(dialog).getByRole("button", { name: "Remove 3 workspaces" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Remove 4 workspaces" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/remote.*top-level/)).not.toBeInTheDocument();
     const rowOf = (name: string): HTMLElement => within(dialog).getByText(name).closest("li")!;
     expect(rowOf("ip-linux").className).not.toMatch(/kept/);
     expect(rowOf("ip-win").className).not.toMatch(/kept/);
-    expect(rowOf("ip-probe").className).toMatch(/kept/);
-    await userEvent.click(within(dialog).getByRole("button", { name: "Remove 3 workspaces" }));
+    expect(rowOf("ip-probe").className).not.toMatch(/kept/);
+    expect(rowOf("ip-note").className).toMatch(/kept/);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove 4 workspaces" }));
     expect(api.removeEntry).toHaveBeenCalledWith("plan-scope", "e8cdf5d8", true, "local");
   });
 });

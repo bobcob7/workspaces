@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Entry } from "../../api";
 import { entry, treeEntries } from "../../test/fixtures";
 import {
   attentionEntries,
@@ -6,6 +7,7 @@ import {
   descendantsOf,
   groupOf,
   isChildOf,
+  sweptWithRemoval,
   needsAttention,
   statusFilterOptions,
 } from "./status";
@@ -129,6 +131,21 @@ describe("isChildOf", () => {
     expect(isChildOf(child, local)).toBe(false);
   });
 
+  it("a parentId pointing elsewhere is not a child even when its scopeParent matches", () => {
+    const child = entry({ key: "c", workspaceId: "c", parentId: "q", scopeParent: { environment: "local", workspaceId: "p" } });
+    expect(isChildOf(child, local)).toBe(false);
+  });
+
+  it("a parentId naming the workspace id on another environment is not a child", () => {
+    const box = entry({ key: "box:p", workspaceId: "p", environment: "box" });
+    expect(isChildOf(entry({ key: "c", workspaceId: "c", environment: "local", parentId: "p" }), box)).toBe(false);
+  });
+
+  it("a scopeParent with the same workspaceId on another environment is not a child", () => {
+    const remote = entry({ key: "other:c", workspaceId: "c", environment: "other", scopeParent: { environment: "box", workspaceId: "p" } });
+    expect(isChildOf(remote, local)).toBe(false);
+  });
+
   it("an entry is never its own parent", () => {
     const self = entry({ key: "p", workspaceId: "p", scopeParent: { environment: "local", workspaceId: "p" } });
     expect(isChildOf(self, self)).toBe(false);
@@ -163,5 +180,56 @@ describe("descendantsOf across environments", () => {
       ["linux-server:x", 1],
       ["win-rig:y", 2],
     ]);
+  });
+});
+
+describe("sweptWithRemoval", () => {
+  const root = entry({ key: "plan", workspaceId: "plan", environment: "local" });
+  const remote = (name: string, environment: string, parent: Entry, extra: Partial<Entry> = {}): Entry =>
+    entry({
+      key: `${environment}:${name}`,
+      workspaceId: name,
+      environment,
+      scopeParent: { environment: parent.environment, workspaceId: parent.workspaceId! },
+      ...extra,
+    });
+  const swept = (entries: readonly Entry[]): string[] =>
+    [...sweptWithRemoval(descendantsOf(entries, root), root)].sort();
+
+  it("sweeps a cross-environment child of the removed parent", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    expect(swept([root, linux])).toEqual(["linux-server:ip-linux"]);
+  });
+
+  it("sweeps a cross-environment child of a swept child, transitively", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    const probe = remote("ip-probe", "win-rig", linux);
+    const deep = remote("ip-deep", "mac", probe);
+    expect(swept([root, linux, probe, deep])).toEqual(["linux-server:ip-linux", "mac:ip-deep", "win-rig:ip-probe"]);
+  });
+
+  it("keeps a same-environment child, and what only it started on its own environment", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    const note = entry({ key: "linux-server:note", environment: "linux-server", workspaceId: "note", parentId: "ip-linux" });
+    expect(swept([root, linux, note])).toEqual(["linux-server:ip-linux"]);
+  });
+
+  it("keeps a cross-environment child of a kept child", () => {
+    const note = entry({ key: "local:note", workspaceId: "note", parentId: "plan" });
+    const far = remote("far", "win-rig", note);
+    expect(swept([root, note, far])).toEqual([]);
+  });
+
+  it("keeps a child that has a parentId, whatever its scopeParent says", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    const both = remote("both", "win-rig", linux, { parentId: "other" });
+    const listed = [linux, both].map((e) => ({ entry: e, depth: 1 }));
+    expect([...sweptWithRemoval(listed, root)]).toEqual(["linux-server:ip-linux"]);
+  });
+
+  it("keeps a child that names a parent on its own environment", () => {
+    const linux = remote("ip-linux", "linux-server", root);
+    const sibling = remote("sib", "linux-server", linux);
+    expect(swept([root, linux, sibling])).toEqual(["linux-server:ip-linux"]);
   });
 });

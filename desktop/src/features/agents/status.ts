@@ -121,3 +121,29 @@ export const descendantsOf = (entries: readonly Entry[], entry: Entry): readonly
   visit(entry, 1);
   return out;
 };
+
+/**
+ * The keys of the descendants the controller removes after entry whichever way the user answers "keep":
+ * a cross-environment child with no parentId whose scopeParent is entry or itself swept (the ledger sweep,
+ * scope.go sweepEntry/parentGone, removes a child once its parent is gone, one pass per generation).
+ */
+export const sweptWithRemoval = (
+  descendants: readonly { readonly entry: Entry; readonly depth: number }[],
+  entry: Entry,
+): ReadonlySet<string> => {
+  const gone = [entry];
+  const swept = new Set<string>();
+  for (const { entry: d } of descendants) {
+    const from = d.scopeParent;
+    const isSwept =
+      d.parentId === null &&
+      from !== null &&
+      from.environment !== d.environment &&
+      gone.some((g) => g.workspaceId === from.workspaceId && g.environment === from.environment);
+    if (isSwept) {
+      swept.add(d.key);
+      gone.push(d);
+    }
+  }
+  return swept;
+};
