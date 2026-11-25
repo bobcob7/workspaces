@@ -40,3 +40,9 @@ func TestPathsFor(t *testing.T) {
 		assert.Equal(t, rel.Socket, abs.Socket)
 	})
 }
+
+func TestPaths_AgentSocket(t *testing.T) {
+	p := PathsFor("/home/u/.config/ws", func(string) string { return "" }, 1000)
+	assert.Regexp(t, `^/tmp/ws-1000/[0-9a-f]{12}-agent\.sock$`, p.AgentSocket)
+	assert.Equal(t, filepath.Dir(p.Socket), filepath.Dir(p.AgentSocket))
+}

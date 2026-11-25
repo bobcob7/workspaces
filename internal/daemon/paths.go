@@ -4,10 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
+	"strings"
 )
 
-// Paths are a CONFIG_DIR's daemon files.
-type Paths struct{ Dir, Lock, Info, Log, Socket string }
+// Paths are a CONFIG_DIR's daemon files. AgentSocket is the environment
+// agent's socket, beside Socket (ADR 0082).
+type Paths struct{ Dir, Lock, Info, Log, Socket, AgentSocket string }
 
 // PathsFor returns CONFIG_DIR's daemon files. The socket is in
 // $XDG_RUNTIME_DIR/ws when that is set, else in ${TMPDIR:-/tmp}/ws-<uid>,
@@ -15,12 +17,14 @@ type Paths struct{ Dir, Lock, Info, Log, Socket string }
 // CONFIG_DIR, so two config directories never share a socket.
 func PathsFor(configDir string, getenv func(string) string, uid int) Paths {
 	dir := filepath.Join(configDir, "daemon")
+	socket := socketPath(configDir, getenv, uid)
 	return Paths{
-		Dir:    dir,
-		Lock:   filepath.Join(dir, "lock"),
-		Info:   filepath.Join(dir, "daemon.json"),
-		Log:    filepath.Join(dir, "daemon.log"),
-		Socket: socketPath(configDir, getenv, uid),
+		Dir:         dir,
+		Lock:        filepath.Join(dir, "lock"),
+		Info:        filepath.Join(dir, "daemon.json"),
+		Log:         filepath.Join(dir, "daemon.log"),
+		Socket:      socket,
+		AgentSocket: strings.TrimSuffix(socket, ".sock") + "-agent.sock",
 	}
 }
 
