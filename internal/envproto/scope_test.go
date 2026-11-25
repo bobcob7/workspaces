@@ -12,7 +12,7 @@ import (
 
 const scopeTestCreate = `{"kind":"claude","specs":[],"name":null,"parent":null,"hidden":false,"offline":false,"prompt":"hi","model":null,"endpoint":null}`
 
-func scopeTestList(n int, item func(i int) string) string {
+func scopeTestList(n int, item func(int) string) string {
 	items := make([]string, n)
 	for i := range items {
 		items[i] = item(i)
@@ -22,6 +22,10 @@ func scopeTestList(n int, item func(i int) string) string {
 
 func scopeTestEnvID(i int) string {
 	return fmt.Sprintf("%q", fmt.Sprintf("env-%08x", i))
+}
+
+func scopeTestCaller() ScopeCallerArgs {
+	return ScopeCallerArgs{Ancestors: []string{}, Scope: []string{"local"}}
 }
 
 func TestProtocol_scopes(t *testing.T) {
@@ -105,7 +109,7 @@ func TestDecodeArgs_scopes(t *testing.T) {
 		require.NoError(t, err)
 	})
 	t.Run("refuses more than 64 ancestors with usage", func(t *testing.T) {
-		raw := json.RawMessage(`{"workspace":"w1","ancestors":` + scopeTestList(65, func(i int) string { return fmt.Sprintf("%q", "a") }) + `,"scope":["local"]}`)
+		raw := json.RawMessage(`{"workspace":"w1","ancestors":` + scopeTestList(65, func(int) string { return fmt.Sprintf("%q", "a") }) + `,"scope":["local"]}`)
 		_, err := DecodeArgs(OpScopeEnvs, raw)
 		assertArgsError(t, err, "usage")
 	})
@@ -117,12 +121,12 @@ func TestDecodeArgs_scopes(t *testing.T) {
 		}
 	})
 	t.Run("refuses more than 1024 descendants with usage", func(t *testing.T) {
-		raw := json.RawMessage(`{"workspace":"w1","ancestors":[],"scope":["local"],"descendants":` + scopeTestList(1025, func(i int) string { return fmt.Sprintf("%q", "c") }) + `}`)
+		raw := json.RawMessage(`{"workspace":"w1","ancestors":[],"scope":["local"],"descendants":` + scopeTestList(1025, func(int) string { return fmt.Sprintf("%q", "c") }) + `}`)
 		_, err := DecodeArgs(OpScopeChildren, raw)
 		assertArgsError(t, err, "usage")
 	})
 	t.Run("refuses more than 64 narrow names with usage", func(t *testing.T) {
-		raw := json.RawMessage(`{"workspace":"w1","ancestors":[],"scope":["local"],"target":"b","narrow":` + scopeTestList(65, func(i int) string { return `"local"` }) + `,"create":` + scopeTestCreate + `,"spawn":null}`)
+		raw := json.RawMessage(`{"workspace":"w1","ancestors":[],"scope":["local"],"target":"b","narrow":` + scopeTestList(65, func(int) string { return `"local"` }) + `,"create":` + scopeTestCreate + `,"spawn":null}`)
 		_, err := DecodeArgs(OpScopeSpawn, raw)
 		assertArgsError(t, err, "usage")
 	})
@@ -201,7 +205,7 @@ func TestValidate_spawnInfo(t *testing.T) {
 		assertArgsError(t, err, "usage")
 	})
 	t.Run("refuses more than 16 pass entries with usage", func(t *testing.T) {
-		pass := scopeTestList(17, func(i int) string { return `"go test"` })
+		pass := scopeTestList(17, func(int) string { return `"go test"` })
 		_, err := DecodeArgs(OpWorkspaceCreate, withSpawn(`{"role":"r","model":"","pass":`+pass+`,"fail":[],"vars":{}}`))
 		assertArgsError(t, err, "usage")
 	})
@@ -237,7 +241,7 @@ func TestCreateArgs_scope(t *testing.T) {
 func TestScopeSpawnArgs_create(t *testing.T) {
 	t.Run("a create with Scope set is refused with usage", func(t *testing.T) {
 		args := &ScopeSpawnArgs{
-			ScopeCallerArgs: ScopeCallerArgs{Ancestors: []string{}, Scope: []string{"local"}},
+			ScopeCallerArgs: scopeTestCaller(),
 			Target:          "b",
 			Create: CreateArgs{Kind: KindClaude, Specs: []string{}, Scope: &ScopeGrant{
 				Environments: []EnvRef{{ID: Local, Name: Local}},
@@ -248,7 +252,7 @@ func TestScopeSpawnArgs_create(t *testing.T) {
 	t.Run("a create with Parent set is refused with usage", func(t *testing.T) {
 		parent := "w1"
 		args := &ScopeSpawnArgs{
-			ScopeCallerArgs: ScopeCallerArgs{Ancestors: []string{}, Scope: []string{"local"}},
+			ScopeCallerArgs: scopeTestCaller(),
 			Target:          "b",
 			Create:          CreateArgs{Kind: KindClaude, Specs: []string{}, Parent: &parent},
 		}

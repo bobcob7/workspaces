@@ -380,17 +380,21 @@ func validateCreate(a *CreateArgs) error {
 			return err
 		}
 	}
-	if a.Scope != nil {
-		if err := validateScopeGrant(a.Scope); err != nil {
-			return err
-		}
-	}
-	if a.Spawn != nil {
-		if err := validateSpawnInfo(a.Spawn); err != nil {
-			return err
-		}
+	if err := validateCreateGrants(a); err != nil {
+		return err
 	}
 	return validatePrompt(a)
+}
+
+// validateCreateGrants checks the scope and spawn info a create may carry (ADR 0082).
+func validateCreateGrants(a *CreateArgs) error {
+	if a.Scope != nil {
+		return validateScopeGrant(a.Scope)
+	}
+	if a.Spawn != nil {
+		return validateSpawnInfo(a.Spawn)
+	}
+	return nil
 }
 
 func validateEndpoint(endpoint string) error {
