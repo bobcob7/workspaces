@@ -26,8 +26,11 @@ type ledgerKey struct{ env, workspace string }
 // annotateScopes sets scope_parent and scope on every entry of a ws list
 // --json. Remote snapshots never supply them: they are reset first, then
 // filled from this machine's scope files and the controller's ledger (ADR
-// 0082, design 3.1).
-func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON) {
+// 0082, design 3.1). presence is the environment presence the listing used,
+// or nil to ask the daemon when a scope needs it. The ledger and scope file
+// reads are local and context-free (ADR 0082), so contextcheck is silenced once,
+// at the ledger call.
+func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON, presence map[string]string) {
 	for i := range entries {
 		entries[i].ScopeParent, entries[i].Scope = nil, nil
 	}
@@ -36,9 +39,9 @@ func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON) {
 		a.warned = append(a.warned, fmt.Sprintf("couldn't read the environments: %v", err))
 		return
 	}
-	states := newScopeStates(a, recs)
+	states := newScopeStates(a, recs, presence)
 	self := a.scopeSelf()
-	ledger := a.readLedger() //nolint:contextcheck // the scope ledger reads take no context (ADR 0082)
+	ledger := a.readLedger() //nolint:contextcheck // the scope ledger and scope file reads take no context
 	for i := range entries {
 		e := &entries[i]
 		if e.ID == nil {
@@ -53,10 +56,11 @@ func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON) {
 }
 
 // scopeSelf is this machine's environment, read once; local when it can't be
-// read.
+// read, which is a warning.
 func (a *App) scopeSelf() envscope.Ref {
 	self, err := a.selfRef()
 	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("ignoring this machine's identity: %v", err))
 		return localRef()
 	}
 	return self
@@ -101,8 +105,8 @@ func (a *App) localScopeOf(ctx context.Context, states *scopeStates, self envsco
 }
 
 // scopeStates is what the scope annotations need of the environment store
-// and the daemon. Presence is asked at most once, and only when a scope
-// names a remote environment.
+// and the daemon. Presence is the listing's when it has one; else it is asked
+// at most once, and only when a scope names a remote environment.
 type scopeStates struct {
 	app      *App
 	byID     map[string]environment.Record
@@ -110,8 +114,8 @@ type scopeStates struct {
 	presence map[string]string
 }
 
-func newScopeStates(a *App, recs []environment.Record) *scopeStates {
-	s := &scopeStates{app: a, byID: map[string]environment.Record{}, byName: map[string]environment.Record{}}
+func newScopeStates(a *App, recs []environment.Record, presence map[string]string) *scopeStates {
+	s := &scopeStates{app: a, byID: map[string]environment.Record{}, byName: map[string]environment.Record{}, presence: presence}
 	for i := range recs {
 		s.byID[recs[i].ID] = recs[i]
 		s.byName[recs[i].Name] = recs[i]
