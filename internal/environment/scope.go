@@ -206,12 +206,19 @@ func (c *Controller) refsOf(ids []string) ([]envscope.Ref, error) {
 	return refs, nil
 }
 
-// refNamed is the environment called name, or environment_unknown.
-func (c *Controller) refNamed(name string) (envscope.Ref, error) {
-	if name == envscope.Local {
-		return localRef(), nil
+// namedInScope is the environment called name in scope. A name outside the
+// scope is environment_out_of_scope, enrolled or not, so an agent learns
+// nothing about environments it can't use. A name in scope whose environment
+// was removed is environment_unknown.
+func (c *Controller) namedInScope(eff envscope.Scope, name string) (envscope.Ref, error) {
+	ref, ok := eff.ByName(name)
+	if !ok {
+		return envscope.Ref{}, &envscope.OutOfScopeError{Environment: name, Allowed: eff.Names()}
 	}
-	rec, err := c.store.Get(name)
+	if ref.ID == envscope.Local {
+		return ref, nil
+	}
+	rec, err := c.store.ByID(ref.ID)
 	if errors.Is(err, ErrUnknown) || (err == nil && rec.State != StateEnrolled) {
 		return envscope.Ref{}, &scopeError{
 			code:    "environment_unknown",
@@ -222,7 +229,7 @@ func (c *Controller) refNamed(name string) (envscope.Ref, error) {
 	if err != nil {
 		return envscope.Ref{}, err
 	}
-	return envscope.Ref{ID: rec.ID, Name: rec.Name}, nil
+	return ref, nil
 }
 
 // scopeSpawn creates a child on the target environment with the scope the
@@ -258,12 +265,9 @@ func (c *Controller) scopeSpawn(ctx context.Context, caller string, a *envproto.
 
 // spawnTarget is the environment a spawn names, when the caller may start a child there.
 func (c *Controller) spawnTarget(caller string, eff envscope.Scope, name string) (envscope.Ref, error) {
-	target, err := c.refNamed(name)
+	target, err := c.namedInScope(eff, name)
 	if err != nil {
 		return envscope.Ref{}, err
-	}
-	if !eff.Contains(target.ID) {
-		return envscope.Ref{}, &envscope.OutOfScopeError{Environment: name, Allowed: eff.Names()}
 	}
 	if target.ID == envscope.Local && caller != envscope.Local {
 		return envscope.Ref{}, &scopeError{code: codeUsage, message: "starting a child on local from an environment isn't supported yet"}
@@ -282,12 +286,9 @@ func (c *Controller) childScope(eff envscope.Scope, target envscope.Ref, narrow 
 	}
 	ids := make([]string, 0, len(narrow))
 	for _, name := range narrow {
-		ref, err := c.refNamed(name)
+		ref, err := c.namedInScope(eff, name)
 		if err != nil {
 			return envscope.Scope{}, err
-		}
-		if !eff.Contains(ref.ID) {
-			return envscope.Scope{}, &envscope.OutOfScopeError{Environment: name, Allowed: eff.Names()}
 		}
 		ids = append(ids, ref.ID)
 	}
@@ -536,7 +537,11 @@ func (c *Controller) sweepLedger(ctx context.Context) {
 // sweepEntry keeps, drops or removes the child of one ledger entry.
 func (c *Controller) sweepEntry(ctx context.Context, e *envscope.Entry) {
 	rec, err := c.store.ByID(e.Environment)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrUnknown) {
+		c.log.WarnContext(ctx, "scope ledger entry kept", "workspace", e.Workspace, "error", err)
+		return
+	}
+	if errors.Is(err, ErrUnknown) || rec.State != StateEnrolled {
 		c.dropEntry(ctx, e)
 		return
 	}
@@ -544,7 +549,12 @@ func (c *Controller) sweepEntry(ctx context.Context, e *envscope.Entry) {
 		c.dropEntry(ctx, e)
 		return
 	}
-	if !c.parentGone(e) {
+	gone, err := c.parentGone(e)
+	if err != nil {
+		c.log.WarnContext(ctx, "scope ledger entry kept", "workspace", e.Workspace, "error", err)
+		return
+	}
+	if !gone {
 		return
 	}
 	reply, err := c.forward(ctx, rec.Name, envproto.OpWorkspaceRm, envproto.RmArgs{Workspace: e.Workspace}, "")
@@ -570,20 +580,27 @@ func (c *Controller) absentFromSnapshot(rec *Record, ws string, since time.Time)
 }
 
 // parentGone reports whether the parent of a ledger entry is gone: a local
-// workspace that doesn't exist, or a remote one its environment no longer lists.
-func (c *Controller) parentGone(e *envscope.Entry) bool {
+// workspace that doesn't exist, or a remote one its environment no longer
+// lists, or whose environment record is gone. A read error is no verdict.
+func (c *Controller) parentGone(e *envscope.Entry) (bool, error) {
 	if e.Parent == nil {
-		return false
+		return false, nil
 	}
 	if e.Parent.Environment == envscope.Local {
 		exists, err := c.local.Exists(e.Parent.Workspace)
-		return err == nil && !exists
+		if err != nil {
+			return false, err
+		}
+		return !exists, nil
 	}
 	rec, err := c.store.ByID(e.Parent.Environment)
-	if err != nil {
-		return true
+	if errors.Is(err, ErrUnknown) || (err == nil && rec.State != StateEnrolled) {
+		return true, nil
 	}
-	return c.absentFromSnapshot(&rec, e.Parent.Workspace, e.CreatedAt)
+	if err != nil {
+		return false, err
+	}
+	return c.absentFromSnapshot(&rec, e.Parent.Workspace, e.CreatedAt), nil
 }
 
 // freshSnapshot is the snapshot of environment name when it arrived within snapshotFresh and not before since (a snapshot from before an entry was written can't show the child is gone).
