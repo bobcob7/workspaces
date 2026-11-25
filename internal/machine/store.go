@@ -67,7 +67,11 @@ func (s *Store) Read(root, child string) (Record, error) {
 	if err := checkComponents(root, child); err != nil {
 		return Record{}, err
 	}
-	dir := s.Dir(root, child)
+	return readDir(s.Dir(root, child), child)
+}
+
+// readDir reads child's record files in dir.
+func readDir(dir, child string) (Record, error) {
 	rec := Record{Child: child}
 	var sp Spawn
 	if found, err := readTOML(filepath.Join(dir, spawnFile), &sp); err != nil {
