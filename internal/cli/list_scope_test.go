@@ -1,15 +1,23 @@
 package cli
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/envagent"
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/envscope"
@@ -37,12 +45,30 @@ func putLedgerEntry(t *testing.T, app *App, entry *envscope.Entry) {
 	require.NoError(t, envscope.NewLedger(app.paths.Environments).Put(t.Context(), entry))
 }
 
-// writeLocalScope writes the scope file of workspace id on app's machine.
-func writeLocalScope(t *testing.T, app *App, id string, refs ...envscope.Ref) {
+// enrollThisMachine makes app's machine the enrolled environment rec, by
+// saving the agent identity it would have after an enroll.
+func enrollThisMachine(t *testing.T, app *App, rec *environment.Record) {
 	t.Helper()
-	scope, err := envscope.New(localRef(), refs)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	require.NoError(t, envscope.Write(app.paths.State, id, envscope.FileFor(scope, "granted", nil, testNow())))
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: rec.Name},
+		NotBefore:             testNow().Add(-time.Hour),
+		NotAfter:              testNow().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	id := &envagent.Identity{
+		ID: rec.ID, Name: rec.Name, Broker: "ws.example.com:8883", ServerName: "ws.example.com",
+		EnrolledAt: testNow(), Key: key, Cert: cert, Roots: []*x509.Certificate{cert},
+	}
+	require.NoError(t, envagent.NewFiles(app.paths.Environment).Save(id))
 }
 
 // remoteChildSetup is an enrolled environment linux-server with one remote
@@ -104,16 +130,39 @@ func TestApp_annotateScopes(t *testing.T) {
 		assert.Nil(t, got.ScopeParent)
 		assert.Nil(t, got.Scope)
 	})
+	t.Run("annotateScopes clears scope_parent and scope it is handed", func(t *testing.T) {
+		e, _ := remoteChildSetup(t)
+		preset := func(id, env string) listEntryJSON {
+			return listEntryJSON{
+				ID:          new(id),
+				Environment: env,
+				ScopeParent: &scopeParentJSON{Environment: "local", Workspace: "plan-1"},
+				Scope:       []envproto.ScopeEnv{{Name: "x", ID: "env-1a2b3c4d", State: "online"}},
+			}
+		}
+		noID := preset("ws-b", localEnvironment)
+		noID.ID = nil
+		entries := []listEntryJSON{preset("ws-a", localEnvironment), preset("ip-1", "linux-server"), noID}
+		e.app.annotateScopes(t.Context(), entries)
+		for i := range entries {
+			assert.Nil(t, entries[i].ScopeParent, "entry %d", i)
+			assert.Nil(t, entries[i].Scope, "entry %d", i)
+		}
+	})
 	t.Run("a local scope file gives scope with states, current first", func(t *testing.T) {
 		e := newRemoteListApp(t, []lifetime.Entry{{Workspace: listedWorkspace("ws-a")}})
 		rec := addLinuxServer(t, e.app)
 		enrollEnvironment(t, e.app, rec)
-		writeLocalScope(t, e.app, "ws-a", envscope.Ref{ID: rec.ID, Name: rec.Name}, envscope.Ref{ID: removedEnvID, Name: "old-rig"})
+		enrollThisMachine(t, e.app, rec)
+		self := envscope.Ref{ID: rec.ID, Name: rec.Name}
+		scope, err := envscope.New(self, []envscope.Ref{{ID: envscope.Local, Name: envscope.Local}, {ID: removedEnvID, Name: "aaa-rig"}})
+		require.NoError(t, err)
+		require.NoError(t, envscope.Write(e.app.paths.State, "ws-a", envscope.FileFor(scope, "granted", nil, testNow())))
 		got := entryOf(t, runScopeList(t, e), "local", "ws-a")
 		assert.Equal(t, []envproto.ScopeEnv{
-			{Name: "local", ID: envscope.Local, State: "online", Current: true},
-			{Name: "linux-server", ID: rec.ID, State: "offline", Current: false},
-			{Name: "old-rig", ID: removedEnvID, State: "removed", Current: false},
+			{Name: "linux-server", ID: rec.ID, State: "offline", Current: true},
+			{Name: "aaa-rig", ID: removedEnvID, State: "removed", Current: false},
+			{Name: "local", ID: envscope.Local, State: "online", Current: false},
 		}, got.Scope)
 	})
 	t.Run("a scope of only its own environment is null", func(t *testing.T) {

@@ -64,22 +64,22 @@ keys remote entries by environment, so they never collide with local ids
 ([0072](../adrs/0072-remote-environments.md), deviation 1).
 
 Each entry names its environment: `environment` is `local` or the
-environment's name. `environment_status` is `online` or `offline` for a
-remote one, and `online` for local. An environment is `online` when the
-daemon reports its agent connected; with no daemon running, or no answer
-within 2 s, every remote environment is `offline`, without starting one.
-`stale` is `true` for a remote entry whose environment isn't `online`, or
-whose snapshot is more than 90 s old (three refresh periods), and `false`
-otherwise. `agent_state` is the state of the remote agent that runs the
-entry's session, from the environment's snapshot: `working`, `blocked`,
-`done` or `stopped`. It is `null` for a local entry, a shell, or a remote
-entry with no matching agent. `scope_parent` is the parent of a child that
-another environment started, as `{"environment", "workspace"}`: `local` or
-the parent's environment name; `null` otherwise. `scope` lists the
-environments the workspace may start children on, when that is wider than its
-own environment, each with its `name`, `id`, `state` (`online`, `offline` or
-`removed`) and `current`; `null` otherwise. Both come from this machine's
-scope files and the controller's ledger, never from a snapshot. The table adds an `ENV` column after `ID` when
+environment's name. `environment_status` is `online` or `offline` for a remote
+one, and `online` for local. An environment is `online` when the daemon
+reports its agent connected; with no daemon running, or no answer within 2 s,
+every remote environment is `offline`, without starting one. `stale` is `true`
+for a remote entry whose environment isn't `online`, or whose snapshot is more
+than 90 s old (three refresh periods), and `false` otherwise. `agent_state` is
+the state of the remote agent that runs the entry's session, from the
+environment's snapshot: `working`, `blocked`, `done` or `stopped`. It is
+`null` for a local entry, a shell, or a remote entry with no matching agent.
+`scope_parent` is the parent of a child that another environment started, as
+`{"environment", "workspace"}`: `local` or the parent's environment name;
+`null` otherwise. `scope` lists the environments the workspace may start
+children on, when that is wider than its own environment, each with its
+`name`, `id`, `state` (`online`, `offline` or `removed`) and `current`; `null`
+otherwise. Both come from this machine's scope files and the controller's
+ledger, never from a snapshot. The table adds an `ENV` column after `ID` when
 some listed workspace runs on an environment other than `local`.
 
 ## Options
