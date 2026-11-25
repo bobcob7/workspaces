@@ -269,7 +269,8 @@ func TestApp_runMachineWait_remoteChild(t *testing.T) {
 		defer cancel()
 		polls := 0
 		e.lifetime.ListFunc = func(context.Context) (lifetime.Listing, error) {
-			if polls++; polls == 5 {
+			polls++
+			if polls == 5 {
 				cancel()
 			}
 			return lifetime.Listing{}, nil
