@@ -89,6 +89,15 @@ hard-linked clone of the cache, not a git worktree
 
 See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 
+### Remote children and scopes
+
+A person grants an agent a scope with `ws claude --env-scope <name>`, or
+`[environments] default_scope` in `config.toml`. The agent may then start a
+child on one of those environments with `ws machine spawn --env <name>`. The
+controller checks each request against its own ledger, so an agent on one
+machine can't reach past what was granted to its workspaces. `ws machine wait`
+copies a finished remote child's result and report into the local state.
+
 ## Commands
 
 `ws` is a single binary with subcommands

@@ -432,3 +432,14 @@ the fallback.
 | Enrollment refused, or a certificate has expired | `enrollment_failed` | 1 |
 
 See [`ws llm`](ws-llm.md) for the guides of each subcommand.
+
+## Scopes
+
+A workspace's scope is the set of environments it may start children on. A
+person grants it with `ws claude --env-scope` (see [ws claude](ws-claude.md)).
+The controller keeps a ledger, `environments/scopes.json`, of the remote
+workspaces it created with a scope and of every cross-environment child. For a
+child request, it checks that the child's ledger parent is on the requesting
+environment, and it bounds a spawn claim by the ceiling the ledger gives the
+requester. Protocol 4 carries scopes; an agent on an older protocol is
+`environment_outdated`.
