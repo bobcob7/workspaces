@@ -23,6 +23,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lockfile"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -1185,6 +1186,41 @@ func TestApp_runClaude_scope(t *testing.T) {
 		scope, _ := scopeFileOf(t, e.app.paths.State, "x")
 		assert.Equal(t, []string{"local", linuxRef.Name}, scope.Names())
 	})
+	t.Run("--parent none inside a workspace never reads default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: requesterNone}))
+		_, err := os.Stat(envscope.Path(e.app.paths.State, "x"))
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("--parent none inside a workspace inherits the enclosing scope, not default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		addEnvironmentForScope(t, e.app, winRef.Name)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: requesterNone}))
+		scope, file := scopeFileOf(t, e.app.paths.State, "x")
+		assert.Equal(t, "inherited", file.Source)
+		assert.Equal(t, []string{"local", linuxRef.Name}, scope.Names())
+	})
+	t.Run("--parent <other> inside a workspace takes the enclosing scope, not the parent's", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		e.store.FindFunc = func(arg string) (workspace.Workspace, error) { return workspace.Workspace{ID: arg}, nil }
+		scope, err := envscope.New(localRef(), []envscope.Ref{linuxRef})
+		require.NoError(t, err)
+		require.NoError(t, envscope.Write(e.app.paths.State, "boss", envscope.FileFor(scope, "granted", nil, time.Now())))
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{parent: "boss"}))
+		_, err = os.Stat(envscope.Path(e.app.paths.State, "x"))
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
 	t.Run("unknown --env-scope name is environment_unknown and creates nothing", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.app.paths = config.NewPaths(t.TempDir())
@@ -1200,4 +1236,71 @@ func addEnvironmentForScope(t *testing.T, app *App, name string) {
 	t.Helper()
 	_, _, _, err := app.envStore().Add(t.Context(), name, "127.0.0.1:8884")
 	require.NoError(t, err)
+}
+
+// enrolledClaudeEnv is a claude env with linux and win-rig enrolled, and a
+// scope host that answers every scope operation with a created workspace.
+func enrolledClaudeEnv(t *testing.T) (*claudeEnv, *scopeHost) {
+	t.Helper()
+	e := newClaudeEnv(t)
+	e.app.paths = config.NewPaths(t.TempDir())
+	addEnvironmentForScope(t, e.app, linuxRef.Name)
+	addEnvironmentForScope(t, e.app, winRef.Name)
+	host := serveScopeHost(t, e.app, scopeOK(t, map[string]any{
+		"id": "x", "session": "e8cdf5d8", "path": "/cfg/workspaces/x", "warnings": []string{},
+	}))
+	return e, host
+}
+
+// spawnNarrow is the Narrow of the one scope.spawn host was asked for.
+func spawnNarrow(t *testing.T, host *scopeHost) []string {
+	t.Helper()
+	calls := host.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "spawn", calls[0].op)
+	var args envproto.ScopeSpawnArgs
+	require.NoError(t, json.Unmarshal(calls[0].args, &args))
+	assert.Nil(t, args.Workspace)
+	return args.Narrow
+}
+
+func TestApp_runRemoteClaude_scope(t *testing.T) {
+	t.Run("--env A --env-scope B sends B alone, never the controller", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		opts := &claudeOptions{env: linuxRef.Name, envScope: []string{winRef.Name}}
+		require.NoError(t, e.app.runRemoteClaude(t.Context(), opts, linuxRef.Name, ""))
+		assert.Equal(t, []string{winRef.Name}, spawnNarrow(t, host))
+	})
+	t.Run("--env A with default_scope [B] sends B alone", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		opts := &claudeOptions{env: linuxRef.Name}
+		require.NoError(t, e.app.runRemoteClaude(t.Context(), opts, linuxRef.Name, ""))
+		assert.Equal(t, []string{winRef.Name}, spawnNarrow(t, host))
+	})
+	t.Run("--env A --env-scope local sends local, as asked", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		opts := &claudeOptions{env: linuxRef.Name, envScope: []string{"local"}}
+		require.NoError(t, e.app.runRemoteClaude(t.Context(), opts, linuxRef.Name, ""))
+		assert.Equal(t, []string{"local"}, spawnNarrow(t, host))
+	})
+	t.Run("--env A --env-scope A is not wider than A", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		opts := &claudeOptions{env: linuxRef.Name, envScope: []string{linuxRef.Name}}
+		_ = e.app.runRemoteClaude(t.Context(), opts, linuxRef.Name, "")
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("default_scope [A] with --env A is not wider than A", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
+		_ = e.app.runRemoteClaude(t.Context(), &claudeOptions{env: linuxRef.Name}, linuxRef.Name, "")
+		assert.Empty(t, host.Calls())
+	})
+	t.Run("an agent's remote claude never reads default_scope", func(t *testing.T) {
+		e, host := enrolledClaudeEnv(t)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		_ = e.app.runRemoteClaude(t.Context(), &claudeOptions{parent: "remote-1"}, linuxRef.Name, "remote-1")
+		assert.Empty(t, host.Calls())
+	})
 }
