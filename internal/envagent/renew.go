@@ -81,8 +81,8 @@ func (a *Agent) requestCertificate(ctx context.Context, id *Identity, csrPEM []b
 		return nil, fmt.Errorf("encoding the renewal: %w", err)
 	}
 	replies := make(chan envproto.Message, 1)
-	a.pending[correlation] = replies
-	defer delete(a.pending, correlation)
+	a.addPending(correlation, replies)
+	defer a.removePending(correlation)
 	err = a.client.Publish(ctx, envproto.Message{
 		Topic:           envproto.Topic(id.ID, envproto.LeafUp),
 		Payload:         payload,

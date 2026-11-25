@@ -792,3 +792,20 @@ func TestAgent_operationGoroutines(t *testing.T) {
 		require.Eventually(t, func() bool { return len(replies.all()) == queueFactor }, 5*time.Second, 10*time.Millisecond)
 	})
 }
+
+func TestAgent_admitRefusesScopeOpsFromController(t *testing.T) {
+	agent, _, _ := newUpAgent(t, testOptions())
+	deadline := time.Now().Add(time.Minute)
+	for _, op := range []string{envproto.OpScopeEnvs, envproto.OpScopeSpawn, envproto.OpScopeChildren, envproto.OpScopeChild} {
+		t.Run(op, func(t *testing.T) {
+			_, _, err := agent.admit(&envproto.Request{Op: op, Args: json.RawMessage(`{}`), RequestID: "00", Deadline: &deadline})
+			re, ok := errors.AsType[*envproto.ReplyError](err)
+			require.True(t, ok, "got %v", err)
+			assert.Equal(t, "usage", re.Code)
+		})
+	}
+}
+
+func TestRemembered_machineRecord(t *testing.T) {
+	assert.False(t, remembered(envproto.OpMachineRecord))
+}
