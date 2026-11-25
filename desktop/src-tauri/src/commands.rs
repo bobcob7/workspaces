@@ -96,8 +96,20 @@ pub async fn list(
             .unwrap_or_default();
         Some(pr_links.augment(id, job))
     };
-    let entries = model::merge(ws, &agents.unwrap_or_default(), &job_for, now_ms());
+    let agents = agents.unwrap_or_default();
+    let entries = off_worker(|| model::merge(ws, &agents, &job_for, now_ms()));
     Ok(Listing { entries, warnings })
+}
+
+/// Runs blocking work (file reads and scans) without stalling the runtime's
+/// other tasks: on a multi-thread runtime the worker hands its queue off;
+/// on a current-thread one, which has nothing to hand to, it runs inline.
+fn off_worker<T>(work: impl FnOnce() -> T) -> T {
+    use tokio::runtime::{Handle, RuntimeFlavor};
+    match Handle::try_current().map(|h| h.runtime_flavor()) {
+        Ok(RuntimeFlavor::MultiThread) => tokio::task::block_in_place(work),
+        _ => work(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -610,6 +622,53 @@ mod tests {
             crate::test_support::wait_until_executable(&path);
         }
         dir
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn list_does_not_stall_the_runtime_while_scanning() {
+        use std::sync::atomic::Ordering;
+        let dir = fake_programs(
+            r#"echo '{"workspaces":[],"warnings":[]}'"#,
+            r#"echo '[{"id":"s2","sessionId":"u","cwd":"/x","kind":"background","status":"busy","pid":2,"startedAt":1}]'"#,
+        );
+        let jobs = tempfile::tempdir().unwrap();
+        let transcript = jobs.path().join("t.jsonl");
+        std::fs::write(&transcript, "https://github.com/o/r/pull/4\n").unwrap();
+        std::fs::create_dir(jobs.path().join("s2")).unwrap();
+        std::fs::write(
+            jobs.path().join("s2/state.json"),
+            format!(r#"{{"linkScanPath":"{}"}}"#, transcript.display()),
+        )
+        .unwrap();
+        let path = dir.path().display().to_string();
+        let jobs_path = jobs.path().to_path_buf();
+        // One listing per worker thread, so both are busy scanning.
+        let all: Vec<_> = (0..2)
+            .map(|_| {
+                let links = Arc::new(crate::pr_links::PrLinks::default());
+                links.scan_delay_ms.store(500, Ordering::SeqCst);
+                let (runner, jobs_path, task_links) =
+                    (Runner::new(path.clone()), jobs_path.clone(), links.clone());
+                let handle = tokio::spawn(async move {
+                    list(&runner, Some(&jobs_path), &task_links).await.unwrap()
+                });
+                (links, handle)
+            })
+            .collect();
+        // Let the listings reach their scans (a plain sleep: the timer needs a free worker), then see how soon another task runs.
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let started = std::time::Instant::now();
+        tokio::spawn(async {}).await.unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(100),
+            "a spawned task waited {:?} behind the scans",
+            started.elapsed()
+        );
+        for (links, handle) in all {
+            let listing = handle.await.unwrap();
+            assert_eq!(links.scan_count.load(Ordering::SeqCst), 1);
+            assert_eq!(listing.entries.len(), 1);
+        }
     }
 
     #[tokio::test]

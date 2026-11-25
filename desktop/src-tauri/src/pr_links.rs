@@ -9,11 +9,17 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 pub const FILE_NAME: &str = "pr-links.json";
 /// The transcript's tail that is scanned; older links are not looked for.
 const SCAN_TAIL_BYTES: u64 = 4 * 1024 * 1024;
 const PR_KIND: &str = "pr";
+/// Most transcripts whose scan is cached; past it the cache starts over.
+const CACHE_CAP: usize = 512;
+
+/// A transcript's scan, valid while its length and mtime are unchanged.
+type ScanCache = std::collections::HashMap<PathBuf, (u64, SystemTime, Vec<String>)>;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct StickyFile {
@@ -26,6 +32,11 @@ struct StickyFile {
 pub struct PrLinks {
     path: Option<PathBuf>,
     data: Mutex<StickyFile>,
+    pub(crate) scans: Mutex<ScanCache>,
+    #[cfg(test)]
+    pub(crate) scan_count: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    pub(crate) scan_delay_ms: std::sync::atomic::AtomicU64,
 }
 
 impl PrLinks {
@@ -35,6 +46,7 @@ impl PrLinks {
         Self {
             path,
             data: Mutex::new(data),
+            ..Self::default()
         }
     }
 
@@ -45,7 +57,7 @@ impl PrLinks {
         let scanned = job
             .link_scan_path
             .as_deref()
-            .map_or_else(Vec::new, |p| scan_file(Path::new(p)));
+            .map_or_else(Vec::new, |p| self.scan_cached(Path::new(p)));
         let reported = job
             .children
             .iter()
@@ -68,6 +80,45 @@ impl PrLinks {
             children: Some(children),
             ..job
         }
+    }
+
+    /// `scan_file`, reused while the transcript's length and mtime are
+    /// unchanged. The locks are not held while scanning.
+    fn scan_cached(&self, path: &Path) -> Vec<String> {
+        let stamp = std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok().map(|t| (m.len(), t)));
+        let Some((len, mtime)) = stamp else {
+            return self.scan_counted(path);
+        };
+        if let Ok(cache) = self.scans.lock() {
+            if let Some((l, t, links)) = cache.get(path) {
+                if *l == len && *t == mtime {
+                    return links.clone();
+                }
+            }
+        }
+        let links = self.scan_counted(path);
+        if let Ok(mut cache) = self.scans.lock() {
+            if cache.len() >= CACHE_CAP && !cache.contains_key(path) {
+                cache.clear();
+            }
+            cache.insert(path.to_path_buf(), (len, mtime, links.clone()));
+        }
+        links
+    }
+
+    fn scan_counted(&self, path: &Path) -> Vec<String> {
+        #[cfg(test)]
+        {
+            use std::sync::atomic::Ordering;
+            self.scan_count.fetch_add(1, Ordering::SeqCst);
+            let delay = self.scan_delay_ms.load(Ordering::SeqCst);
+            if delay > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+        }
+        scan_file(path)
     }
 
     /// Adds `seen` to the links kept for `session`, saves when that changes
@@ -369,6 +420,54 @@ mod tests {
 
         let missing = PrLinks::open(Some(dir.path().join("absent/pr-links.json")));
         assert!(hrefs(&missing.augment("s1", JobState::default())).is_empty());
+    }
+
+    fn job_scanning(path: &Path) -> JobState {
+        JobState {
+            link_scan_path: Some(path.to_string_lossy().into_owned()),
+            ..JobState::default()
+        }
+    }
+
+    #[test]
+    fn unchanged_transcript_is_scanned_once_and_rescanned_after_it_grows() {
+        use std::sync::atomic::Ordering;
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = dir.path().join("session.jsonl");
+        std::fs::write(&transcript, "https://github.com/o/r/pull/4\n").unwrap();
+        let links = PrLinks::open(None);
+        let first = links.augment("s1", job_scanning(&transcript));
+        let second = links.augment("s1", job_scanning(&transcript));
+        assert_eq!(hrefs(&first), ["https://github.com/o/r/pull/4"]);
+        assert_eq!(hrefs(&second), hrefs(&first));
+        assert_eq!(links.scan_count.load(Ordering::SeqCst), 1);
+
+        let mut grown = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&transcript)
+            .unwrap();
+        std::io::Write::write_all(&mut grown, b"https://github.com/o/r/pull/9\n").unwrap();
+        let third = links.augment("s1", job_scanning(&transcript));
+        assert_eq!(links.scan_count.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            hrefs(&third),
+            [
+                "https://github.com/o/r/pull/4",
+                "https://github.com/o/r/pull/9"
+            ]
+        );
+    }
+
+    #[test]
+    fn scan_cache_is_capped() {
+        let dir = tempfile::tempdir().unwrap();
+        let links = PrLinks::open(None);
+        for i in 0..CACHE_CAP + 5 {
+            let p = dir.path().join(format!("{i}.jsonl"));
+            std::fs::write(&p, "x").unwrap();
+            links.augment("s", job_scanning(&p));
+        }
+        assert!(links.scans.lock().unwrap().len() <= CACHE_CAP);
     }
 
     #[test]
