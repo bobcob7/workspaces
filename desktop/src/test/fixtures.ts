@@ -431,6 +431,12 @@ export const configListing = (): ConfigListing => ({
   ],
 });
 
+/** configListing() with more settings appended. */
+export const configListingWith = (settings: readonly ConfigSetting[]): ConfigListing => {
+  const base = configListing();
+  return { ...base, settings: [...base.settings, ...settings] };
+};
+
 const configSettingFor = (key: string): ConfigSetting =>
   configListing().settings.find((setting) => setting.key === key) ?? { key, type: "string", value: "", default: "", set: false };
 
