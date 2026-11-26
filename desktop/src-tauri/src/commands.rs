@@ -173,7 +173,7 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
     if let Some(env) = remote_env(req.environment.as_deref()) {
         args.push(format!("--env={env}"));
     }
-    if let Some(names) = &req.env_scope {
+    if let Some(names) = req.env_scope.as_ref().filter(|names| !names.is_empty()) {
         args.push(format!("--env-scope={}", names.join(",")));
     }
     if let Some(name) = non_empty(req.name.as_ref()) {
