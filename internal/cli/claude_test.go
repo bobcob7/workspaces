@@ -1192,6 +1192,7 @@ func TestApp_runClaude_scope(t *testing.T) {
 		addEnvironmentForScope(t, e.app, linuxRef.Name)
 		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
 		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{envScope: []string{localEnvironment}}))
+		require.Len(t, e.store.CreateCalls(), 1)
 		_, err := os.Stat(envscope.Path(e.app.paths.State, "x"))
 		require.ErrorIs(t, err, os.ErrNotExist)
 	})
@@ -1276,7 +1277,7 @@ func TestApp_remoteGrant(t *testing.T) {
 		addEnvironmentForScope(t, e.app, winRef.Name)
 		e.app.config.Environments.DefaultScope = []string{winRef.Name}
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
-		granted, err := e.app.remoteGrant([]string{winRef.Name}, linuxRef.Name)
+		granted, err := e.app.remoteGrant([]string{linuxRef.Name, winRef.Name}, linuxRef.Name)
 		require.NoError(t, err)
 		assert.Empty(t, granted)
 	})
