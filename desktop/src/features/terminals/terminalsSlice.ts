@@ -126,13 +126,16 @@ export const typeMessage = async (host: TerminalHost, key: string, text: string)
 };
 
 /** Types text into a terminal and submits it, showing a failure as a notice. */
-export const sendMessage = createAppThunk<void, { key: string; text: string }>(
+/** Types a message into a terminal; resolves to whether it was sent, after showing a failure as a notice. */
+export const sendMessage = createAppThunk<boolean, { key: string; text: string }>(
   "terminals/sendMessage",
   async ({ key, text }, { extra, dispatch }) => {
     try {
       await typeMessage(extra.terminals, key, text);
+      return true;
     } catch (err: unknown) {
       dispatch(noticeShown({ severity: "error", message: toAppError(err).message }));
+      return false;
     }
   },
 );

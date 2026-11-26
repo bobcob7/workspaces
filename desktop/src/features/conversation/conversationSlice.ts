@@ -17,6 +17,8 @@ export interface Conversation {
 export interface LinkedArtifacts {
   readonly items: ArtifactSummary[];
   readonly loaded: boolean;
+  /** A read is in flight, so another isn't started and an older answer can't replace a newer one. */
+  readonly loading: boolean;
 }
 
 export interface ConversationsState {
@@ -39,6 +41,7 @@ export const fetchLinkedArtifacts = createAppThunk<readonly ArtifactSummary[], s
       return rejectWithValue(toAppError(err));
     }
   },
+  { condition: (workspaceId, { getState }) => getState().conversations.artifactsByWorkspace[workspaceId]?.loading !== true },
 );
 
 /** Most items kept per conversation; older ones are dropped as new ones come. */
@@ -139,8 +142,18 @@ const conversationsSlice = createSlice({
             : { ...current, loading: false },
         ),
       )
+      .addCase(fetchLinkedArtifacts.pending, (state, action) => {
+        const current = state.artifactsByWorkspace[action.meta.arg];
+        state.artifactsByWorkspace[action.meta.arg] = { items: current?.items ?? [], loaded: current?.loaded ?? false, loading: true };
+      })
       .addCase(fetchLinkedArtifacts.fulfilled, (state, action) => {
-        state.artifactsByWorkspace[action.meta.arg] = { items: [...action.payload], loaded: true };
+        state.artifactsByWorkspace[action.meta.arg] = { items: [...action.payload], loaded: true, loading: false };
+      })
+      .addCase(fetchLinkedArtifacts.rejected, (state, action) => {
+        const current = state.artifactsByWorkspace[action.meta.arg];
+        if (current !== undefined) {
+          state.artifactsByWorkspace[action.meta.arg] = { ...current, loading: false };
+        }
       })
       .addCase(fetchConversation.rejected, (state, action) => {
         const error = action.payload ?? { code: "internal", message: action.error.message ?? "reading failed" };

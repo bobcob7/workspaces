@@ -1,6 +1,7 @@
 /** `@artifact:<id>` references in prompts, the same as `internal/artifact` finds and hints them (ADR 0078). */
 
-const inTextPattern = /@artifact:(art-[0-9a-f]{8})(?:\/r[1-9]\d{0,2})?/g;
+/** A reference in text, as `internal/artifact` matches it: the id, and the revision digits if any. */
+const refPattern = /@artifact:(art-[0-9a-f]{8})(?:\/r([1-9]\d{0,2}))?/g;
 
 const hintFormat = (ids: string): string =>
   `(Artifacts ${ids}: run "ws machine artifact get <id>" for each, then read the file at the "path" it prints.)`;
@@ -13,7 +14,7 @@ const hintSeparator = "\n\n";
 /** The distinct artifact ids a text references, in first-seen order. */
 export const findRefs = (text: string): string[] => {
   const ids = new Set<string>();
-  for (const match of text.matchAll(inTextPattern)) {
+  for (const match of text.matchAll(refPattern)) {
     const id = match[1];
     if (id) {
       ids.add(id);
@@ -104,8 +105,7 @@ export const blankCode = (text: string): string => blankSpans(blankFences(text))
 export const refsIn = (text: string): FoundRef[] => {
   const plain = blankCode(text);
   const found: FoundRef[] = [];
-  const pattern = /@artifact:(art-[0-9a-f]{8})(?:\/r([1-9]\d{0,2}))?/g;
-  for (const match of plain.matchAll(pattern)) {
+  for (const match of plain.matchAll(refPattern)) {
     const id = match[1];
     if (id !== undefined) {
       found.push({ id, rev: match[2] === undefined ? null : Number(match[2]), start: match.index, end: match.index + match[0].length });

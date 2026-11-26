@@ -4,6 +4,7 @@
 //! (message, artifact) pair once. `ws` never parses a transcript; this module
 //! reuses the conversation view's parser, so the scan and the view agree.
 
+use crate::artifacts::valid_workspace;
 use crate::model::WsList;
 use crate::runner::Runner;
 use crate::transcript::{self, Item};
@@ -376,7 +377,7 @@ pub fn targets(list: &WsList, state_dir: &Path, jobs_dir: Option<&Path>) -> Vec<
         .iter()
         .filter(|w| w.environment.as_deref().is_none_or(|e| e == "local"))
         .filter_map(|w| {
-            let id = w.id.as_deref().filter(|id| valid_id(id))?;
+            let id = w.id.as_deref().filter(|id| valid_workspace(id))?;
             let session = w.session.as_ref().filter(|s| s.kind != "shell")?;
             if session.runner.as_deref() == Some("ws") {
                 let path = state_dir.join(id).join("runner").join("transcript.jsonl");
@@ -396,14 +397,6 @@ pub fn targets(list: &WsList, state_dir: &Path, jobs_dir: Option<&Path>) -> Vec<
             })
         })
         .collect()
-}
-
-/// A workspace id `ws` would accept: one path element, not hidden.
-fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && !id.starts_with('.')
-        && !id.chars().any(|c| c == '/' || c == '\\' || c.is_control())
 }
 
 #[derive(Deserialize)]
@@ -831,6 +824,241 @@ mod tests {
         let raw: Value = serde_json::from_slice(&std::fs::read(fixture).unwrap()).unwrap();
         let parsed: ScanInput = serde_json::from_value(raw.clone()).unwrap();
         assert_eq!(serde_json::to_value(&parsed).unwrap(), raw);
+    }
+
+    /// A fake `ws` for the sweeper: `cursors`, `list` and `record` print
+    /// what the files of those names in dir hold (exit 1 when absent, or 3
+    /// with a workspace_not_found error for `record` when `gone` exists),
+    /// and each call's arguments are appended to `calls`.
+    fn fake_ws(dir: &Path) -> Runner {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dir.display();
+        let script = format!(
+            r#"#!/bin/sh
+echo "$*" >> "{d}/calls"
+case "$1 $3 $4" in
+  "artifact cursors --json") [ -f "{d}/cursors" ] && cat "{d}/cursors" || exit 1 ;;
+  "list --all ") cat "{d}/list" ;;
+  "artifact record -")
+    cat > "{d}/stdin"
+    if [ -f "{d}/gone" ]; then echo '{{"error":{{"code":"workspace_not_found","message":"gone","details":null}}}}' >&2; exit 3; fi
+    [ -f "{d}/record" ] && cat "{d}/record" || exit 1 ;;
+esac
+"#
+        );
+        let path = dir.join("ws");
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Runner::new(format!("{d}:/bin:/usr/bin"))
+    }
+
+    struct SweepEnv {
+        dir: tempfile::TempDir,
+        runner: Runner,
+        state: PathBuf,
+        transcript: PathBuf,
+    }
+
+    /// A state dir with runner workspace run-1, whose transcript holds one
+    /// citing reply, listed by the fake `ws`.
+    fn sweep_env() -> SweepEnv {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        let transcript = state.join("run-1").join("runner").join("transcript.jsonl");
+        std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        let line =
+            serde_json::json!({"kind": "response", "content": format!("see @artifact:{ID}")});
+        std::fs::write(&transcript, format!("{line}\n")).unwrap();
+        let list = r#"{"workspaces":[{"id":"run-1","path":"/w/run-1","created_at":null,"session":{"kind":"agent","id":"s1","state":"running","stale":null,"runner":"ws"}}],"warnings":[]}"#;
+        std::fs::write(dir.path().join("list"), list).unwrap();
+        std::fs::write(
+            dir.path().join("cursors"),
+            r#"{"cursors":[],"warnings":[]}"#,
+        )
+        .unwrap();
+        let runner = fake_ws(dir.path());
+        SweepEnv {
+            dir,
+            runner,
+            state,
+            transcript,
+        }
+    }
+
+    impl SweepEnv {
+        fn file(&self, name: &str) -> String {
+            std::fs::read_to_string(self.dir.path().join(name)).unwrap_or_default()
+        }
+        fn put(&self, name: &str, body: &str) {
+            std::fs::write(self.dir.path().join(name), body).unwrap();
+        }
+        fn len(&self) -> u64 {
+            std::fs::metadata(&self.transcript).unwrap().len()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_recorded_scan_moves_and_stores_the_cursor() {
+        let env = sweep_env();
+        env.put(
+            "record",
+            r#"{"workspace":"run-1","offset":0,"recorded":1,"skipped":0,"warnings":[]}"#,
+        );
+        let mut sweeper = Sweeper::default();
+        sweeper.sweep(&env.runner, &env.state, None).await;
+        let sent: ScanInput = serde_json::from_str(&env.file("stdin")).unwrap();
+        assert_eq!(sent.workspace, "run-1");
+        assert_eq!(sent.offset, env.len());
+        assert_eq!(sent.citations[0].refs, [format!("@artifact:{ID}")]);
+        assert_eq!(sent.citations[0].key, "r0");
+        let cursor = sweeper.cursors.get("run-1").unwrap();
+        assert_eq!((cursor.offset, cursor.stored), (env.len(), env.len()));
+    }
+
+    #[tokio::test]
+    async fn a_failed_record_leaves_the_cursor_so_the_next_sweep_retries() {
+        let env = sweep_env();
+        let mut sweeper = Sweeper::default();
+        sweeper.sweep(&env.runner, &env.state, None).await;
+        assert_eq!(sweeper.cursors.get("run-1"), None);
+        env.put(
+            "record",
+            r#"{"workspace":"run-1","offset":0,"recorded":1,"skipped":0,"warnings":[]}"#,
+        );
+        sweeper.sweep(&env.runner, &env.state, None).await;
+        assert_eq!(
+            sweeper.cursors.get("run-1").map(|c| c.offset),
+            Some(env.len())
+        );
+        assert_eq!(
+            env.file("calls")
+                .lines()
+                .filter(|l| l.contains("record"))
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn a_removed_workspace_drops_its_cursor() {
+        let env = sweep_env();
+        env.put("gone", "");
+        let mut sweeper = Sweeper {
+            loaded: true,
+            ..Sweeper::default()
+        };
+        sweeper.cursors.insert(
+            "run-1".into(),
+            Cursor {
+                transcript: PathBuf::from("/old"),
+                offset: 5,
+                stored: 5,
+            },
+        );
+        sweeper.sweep(&env.runner, &env.state, None).await;
+        assert_eq!(sweeper.cursors.get("run-1"), None);
+    }
+
+    #[tokio::test]
+    async fn quiet_growth_moves_the_cursor_without_running_ws() {
+        let env = sweep_env();
+        let mut sweeper = Sweeper {
+            loaded: true,
+            ..Sweeper::default()
+        };
+        let start = env.len();
+        sweeper.cursors.insert(
+            "run-1".into(),
+            Cursor {
+                transcript: env.transcript.clone(),
+                offset: start,
+                stored: start,
+            },
+        );
+        let quiet = serde_json::json!({"kind": "response", "content": "nothing cited"});
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&env.transcript)
+            .unwrap();
+        writeln!(f, "{quiet}").unwrap();
+        sweeper.sweep(&env.runner, &env.state, None).await;
+        let cursor = sweeper.cursors.get("run-1").unwrap();
+        assert_eq!((cursor.offset, cursor.stored), (env.len(), start));
+        assert!(!env.file("calls").contains("record"));
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_transcript_runs_nothing_but_the_list() {
+        let env = sweep_env();
+        let mut sweeper = Sweeper {
+            loaded: true,
+            ..Sweeper::default()
+        };
+        let len = env.len();
+        sweeper.cursors.insert(
+            "run-1".into(),
+            Cursor {
+                transcript: env.transcript.clone(),
+                offset: len,
+                stored: len,
+            },
+        );
+        sweeper.sweep(&env.runner, &env.state, None).await;
+        assert_eq!(env.file("calls").lines().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn without_cursors_the_sweep_waits_and_scans_nothing() {
+        let env = sweep_env();
+        std::fs::remove_file(env.dir.path().join("cursors")).unwrap();
+        let mut sweeper = Sweeper::default();
+        sweeper.sweep(&env.runner, &env.state, None).await;
+        assert!(!sweeper.loaded);
+        assert!(!env.file("calls").contains("list"));
+    }
+
+    #[tokio::test]
+    async fn cursors_of_unlisted_workspaces_are_dropped() {
+        let env = sweep_env();
+        env.put("list", r#"{"workspaces":[],"warnings":[]}"#);
+        let mut sweeper = Sweeper {
+            loaded: true,
+            ..Sweeper::default()
+        };
+        sweeper.cursors.insert(
+            "gone-1".into(),
+            Cursor {
+                transcript: PathBuf::from("/t"),
+                offset: 1,
+                stored: 1,
+            },
+        );
+        sweeper.sweep(&env.runner, &env.state, None).await;
+        assert!(sweeper.cursors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_claude_agent_is_found_through_its_job_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let jobs = dir.path().join("jobs");
+        let transcript = dir.path().join("projects").join("-w-c-1").join("s1.jsonl");
+        std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        std::fs::write(&transcript, "").unwrap();
+        std::fs::create_dir_all(jobs.join("s1")).unwrap();
+        let state = serde_json::json!({"sessionId": "s1", "cwd": "/w/c-1", "linkScanPath": transcript.to_string_lossy()});
+        std::fs::write(jobs.join("s1").join("state.json"), state.to_string()).unwrap();
+        let list: WsList = serde_json::from_value(serde_json::json!({"workspaces": [
+            {"id": "c-1", "path": "/w/c-1", "created_at": null, "session": {"kind": "agent", "id": "s1", "state": "running", "stale": null, "runner": "claude"}}
+        ]})).unwrap();
+        let found = targets(&list, Path::new("/cfg/state"), Some(&jobs));
+        assert_eq!(
+            found,
+            [Target {
+                workspace: "c-1".into(),
+                path: transcript,
+                format: Format::Claude
+            }]
+        );
     }
 
     #[test]

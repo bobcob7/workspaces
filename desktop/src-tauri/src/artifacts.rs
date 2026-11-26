@@ -475,7 +475,7 @@ async fn cite(runner: &Runner, workspace: &str, refs: &[String]) -> CmdResult<Ve
 
 /// A workspace id `ws` accepts: one path element, not hidden, at most 128
 /// bytes, no control characters.
-fn valid_workspace(id: &str) -> bool {
+pub(crate) fn valid_workspace(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && !id.starts_with('.')
@@ -680,6 +680,16 @@ mod tests {
                 "art-5e6f7a8b"
             ])
         );
+    }
+
+    #[test]
+    fn valid_workspace_boundaries() {
+        assert!(valid_workspace(&"w".repeat(128)));
+        assert!(!valid_workspace(&"w".repeat(129)));
+        for bad in ["", ".hidden", "a/b", "a\\b", "a\nb", "a\u{7f}b"] {
+            assert!(!valid_workspace(bad), "{bad:?}");
+        }
+        assert!(valid_workspace("fix-login-d8efb24f"));
     }
 
     #[tokio::test]

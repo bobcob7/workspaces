@@ -10,16 +10,20 @@ export interface ArtifactRefProps {
   readonly raw: string;
 }
 
-/** Loads the artifact list once, so references can show titles and know which ids exist. */
+/**
+ * Loads the artifact list once, so references can show titles and know which
+ * ids exist. After a failed load it doesn't try again: the Artifacts section
+ * reloads the list, and references show their raw text meanwhile.
+ */
 export const useArtifactsLoaded = (): boolean => {
   const dispatch = useAppDispatch();
   const loaded = useAppSelector((s) => s.artifacts.loaded);
-  const loading = useAppSelector((s) => s.artifacts.loading);
+  const failed = useAppSelector((s) => s.artifacts.error !== null);
   useEffect(() => {
-    if (!loaded && !loading) {
+    if (!loaded && !failed) {
       void dispatch(loadArtifacts());
     }
-  }, [dispatch, loaded, loading]);
+  }, [dispatch, loaded, failed]);
   return loaded;
 };
 

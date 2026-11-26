@@ -32,7 +32,8 @@ export const ReplyBox = ({ terminalKey, disabled, citeWorkspaceId = null }: Repl
     }
     const refs = citationsIn(message);
     void dispatch(sendMessage({ key: terminalKey, text: messageKeys(appendHint(message)) })).then((result) => {
-      if (citeWorkspaceId === null || refs.length === 0 || !sendMessage.fulfilled.match(result)) {
+      const sent = sendMessage.fulfilled.match(result) && result.payload;
+      if (citeWorkspaceId === null || refs.length === 0 || !sent) {
         return;
       }
       void dispatch(citeArtifacts({ workspaceId: citeWorkspaceId, refs }));

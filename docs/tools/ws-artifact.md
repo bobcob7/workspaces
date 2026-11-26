@@ -250,7 +250,8 @@ Prints `{"artifact_id": "art-…", "thread": <thread>, "warnings": []}`.
 ## ws artifact cite
 
 Records that a person cited artifacts to the agent of workspace `<id>`: the
-desktop's reply box runs it after sending a message with references. Each
+desktop's reply box runs it after a message with references was sent to a
+local agent (remote agents' citations aren't recorded). Each
 distinct (artifact, revision) counts once. Every artifact must exist
 (`artifact_unknown`, nothing recorded); a bad `--workspace` is `usage`, and
 one `ws` doesn't list here is `workspace_not_found`. A link that can't be

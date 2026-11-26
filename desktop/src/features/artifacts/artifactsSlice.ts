@@ -57,6 +57,7 @@ export const loadArtifacts = createAppThunk<readonly ArtifactSummary[], void>(
       return rejectWithValue(toAppError(err));
     }
   },
+  { condition: (_, { getState }) => !getState().artifacts.loading },
 );
 
 /** Uploads files, then loads the list again, even when a file fails. Resolves to the artifacts made, which stay when a later file fails. */
