@@ -31,6 +31,7 @@ type Store struct {
 	random        io.Reader
 	now           func() time.Time
 	maxStoreBytes int64
+	linkLockWait  time.Duration
 	// recordWriter and threadsWriter write artifact.json and comments.json
 	// for Put; tests replace them to make a write fail.
 	recordWriter  func(tmpDir, dir string, r *Record) error
@@ -44,6 +45,7 @@ func NewStore(dir string, random io.Reader, now func() time.Time) *Store {
 		random:        random,
 		now:           now,
 		maxStoreBytes: MaxStoreBytes,
+		linkLockWait:  LinkLockWait,
 		recordWriter:  writeRecord,
 		threadsWriter: writeThreads,
 	}
@@ -75,10 +77,14 @@ type PutResult struct {
 	Detached int
 }
 
-// Entry is one artifact in List, with its thread counts.
+// Entry is one artifact in List, with its thread counts and the
+// conversations it was part of (ADR 0084). Warnings name a links.json that
+// was ignored.
 type Entry struct {
-	Record  Record
-	Threads ThreadCounts
+	Record        Record
+	Threads       ThreadCounts
+	Conversations []Conversation
+	Warnings      []string
 }
 
 // Add stores a new artifact with its first revision.
@@ -144,7 +150,8 @@ func (s *Store) Show(id string) (Entry, error) {
 		return Entry{}, err
 	}
 	setAnchorStates(threads, rec.Latest().Rev)
-	return Entry{Record: rec, Threads: Counts(threads)}, nil
+	links, warnings := linksOrWarning(dir, id)
+	return Entry{Record: rec, Threads: Counts(threads), Conversations: Conversations(&rec, threads, links), Warnings: warnings}, nil
 }
 
 // Read is the record, revision rev (0 = latest) and its bytes.
@@ -184,6 +191,7 @@ func (s *Store) List() ([]Entry, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("%s: %v", id, err))
 			continue
 		}
+		warnings = append(warnings, e.Warnings...)
 		found = append(found, &e)
 	}
 	slices.SortFunc(found, compareEntries)
