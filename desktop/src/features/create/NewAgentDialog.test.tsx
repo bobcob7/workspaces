@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Artifact } from "../../api";
@@ -234,6 +234,14 @@ const deferredConfig = () => {
   return { configList, land: (listing: ReturnType<typeof scopeListing>) => resolve(listing) };
 };
 
+const startForm = (): HTMLFormElement => {
+  const form = screen.getByRole("button", { name: "Start agent" }).closest("form");
+  if (form === null) {
+    throw new Error("New agent has no form");
+  }
+  return form;
+};
+
 const enrolledNames = (count: number) =>
   Array.from({ length: count }, (_, index) => remoteEnvironment({ id: `env_${index}`, name: `env-${index}` }));
 
@@ -395,6 +403,24 @@ describe("NewAgentDialog scope", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled());
     await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
     expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local", "linux-server"] }));
+  });
+
+  it("enables Start while default_scope loads with no environment enrolled", async () => {
+    const config = deferredConfig();
+    openDialog(fakeApi({ configList: config.configList }));
+    await waitFor(() => expect(config.configList).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled();
+  });
+
+  it("ignores a submit while default_scope is still loading", async () => {
+    const config = deferredConfig();
+    const api = fakeApi({ configList: config.configList });
+    openWithEnvironments([remoteEnvironment()], api);
+    await waitFor(() => expect(config.configList).toHaveBeenCalledTimes(1));
+    fireEvent.submit(startForm());
+    await act(async () => undefined);
+    expect(api.createAgent).not.toHaveBeenCalled();
+    await act(async () => config.land(scopeListing(["linux-server"])));
   });
 
   it("keeps a toggle made before default_scope lands", async () => {
