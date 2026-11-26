@@ -263,7 +263,10 @@ describe("NewAgentDialog scope", () => {
 
   it("prefilled specs never touch the scope", async () => {
     const api = scopeApi();
-    const store = testStore({ api });
+    const store = testStore({
+      api,
+      state: { environments: { items: [remoteEnvironment()], loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } },
+    });
     store.dispatch(dialogOpened("agent", ["acme/app@main"]));
     renderWithStore(<NewAgentDialog />, store);
     await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
