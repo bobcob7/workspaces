@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { createElement, useState, type ReactNode } from "react";
+import { createElement, useState, type DragEvent, type ReactNode } from "react";
 import { Provider } from "react-redux";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Artifact } from "../../api";
@@ -61,6 +61,32 @@ describe("useAttachments", () => {
     });
 
     expect(result.current.text).toBe("@artifact:art-a ");
+  });
+
+  it("leaves a drop of plain text to the browser", () => {
+    const artifactAdd = vi.spyOn(api, "artifactAdd");
+    const { result } = setup(document.createElement("textarea"), "");
+    const drop = new Event("drop", { cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { types: ["text/plain"], files: [] } });
+
+    result.current.attachments.onDrop(drop as unknown as DragEvent);
+
+    expect(drop.defaultPrevented).toBe(false);
+    expect(artifactAdd).not.toHaveBeenCalled();
+  });
+
+  it("attaches the files of a drop and prevents the browser's default", async () => {
+    vi.spyOn(api, "artifactAdd").mockImplementation(async (name: string) => stored(`art-${name}`));
+    const { result } = setup(document.createElement("textarea"), "");
+    const drop = new Event("drop", { cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { types: ["Files"], files: [new File(["x"], "a")] } });
+
+    result.current.attachments.onDrop(drop as unknown as DragEvent);
+
+    expect(drop.defaultPrevented).toBe(true);
+    await vi.waitFor(() => {
+      expect(result.current.text).toBe("@artifact:art-a ");
+    });
   });
 });
 

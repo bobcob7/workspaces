@@ -99,6 +99,9 @@ export const useAttachments = (
       }
     },
     onDrop: (event) => {
+      if (!hasFiles(event)) {
+        return;
+      }
       event.preventDefault();
       void attach(Array.from(event.dataTransfer.files));
     },
