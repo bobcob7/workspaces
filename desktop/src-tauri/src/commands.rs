@@ -147,6 +147,9 @@ pub struct NewAgent {
     /// The environment to create the agent in; blank or `local` is this machine.
     #[serde(default)]
     pub environment: Option<String>,
+    /// Environments the agent may start children on (`--env-scope`); None sends no flag (ADR 0083).
+    #[serde(default)]
+    pub env_scope: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -209,6 +212,11 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
         args.extend(claude_args);
     }
     args
+}
+
+/// Checks a requested environment scope (ADR 0083).
+pub fn validate_env_scope(_names: &[String]) -> Result<(), AppError> {
+    Ok(())
 }
 
 /// Creates a workspace with a background agent in it: `ws claude`.
@@ -887,6 +895,7 @@ mod tests {
             runner: None,
             endpoint: None,
             environment: None,
+            env_scope: None,
         }
     }
 
@@ -992,6 +1001,7 @@ mod tests {
             runner: None,
             endpoint: None,
             environment: None,
+            env_scope: None,
         };
         assert_eq!(
             new_agent_args(&req),
@@ -1062,5 +1072,75 @@ mod tests {
             ..request()
         };
         assert_eq!(new_agent_args(&req), ["claude"]);
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn new_agent_args_without_env_scope_sends_no_env_scope_flag() {
+        let req = NewAgent {
+            environment: Some("linux-server".into()),
+            ..request()
+        };
+        assert_eq!(new_agent_args(&req), ["claude", "--env=linux-server"]);
+    }
+
+    #[test]
+    fn new_agent_args_sends_env_scope_as_one_argument() {
+        let req = NewAgent {
+            env_scope: Some(names(&["local", "linux-server"])),
+            ..request()
+        };
+        assert_eq!(
+            new_agent_args(&req),
+            ["claude", "--env-scope=local,linux-server"]
+        );
+    }
+
+    #[test]
+    fn new_agent_args_puts_env_scope_after_env() {
+        let req = NewAgent {
+            environment: Some("linux-server".into()),
+            env_scope: Some(names(&["linux-server"])),
+            ..request()
+        };
+        assert_eq!(
+            new_agent_args(&req),
+            ["claude", "--env=linux-server", "--env-scope=linux-server"]
+        );
+    }
+
+    #[test]
+    fn validate_env_scope_accepts_enrolled_style_names() {
+        assert!(validate_env_scope(&names(&["local", "linux-server", "win-rig.lab_2"])).is_ok());
+    }
+
+    #[test]
+    fn validate_env_scope_refuses_an_empty_list() {
+        let err = validate_env_scope(&[]).unwrap_err();
+        assert_eq!(err.code, "usage");
+    }
+
+    #[test]
+    fn validate_env_scope_refuses_unsafe_names() {
+        for name in ["a,b", "a b", "-x", "a\nb", "", &"x".repeat(65)] {
+            let err = validate_env_scope(&names(&["local", name])).unwrap_err();
+            assert_eq!(err.code, "usage", "{name:?}");
+        }
+    }
+
+    #[test]
+    fn validate_env_scope_refuses_more_than_64() {
+        let many: Vec<String> = (0..65).map(|i| format!("env-{i}")).collect();
+        assert_eq!(validate_env_scope(&many).unwrap_err().code, "usage");
+        assert!(validate_env_scope(&many[..64]).is_ok());
+    }
+
+    #[test]
+    fn validate_env_scope_refuses_duplicates() {
+        let err = validate_env_scope(&names(&["local", "local"])).unwrap_err();
+        assert_eq!(err.code, "usage");
     }
 }

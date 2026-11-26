@@ -207,6 +207,7 @@ fn new_agent(agent: &AgentPlan, message: Option<&str>, settings: &AgentSettings<
         runner: None,
         endpoint: None,
         environment: None,
+        env_scope: None,
     }
 }
 
@@ -484,6 +485,16 @@ mod tests {
         let plan = plan(&report("", false), REVIEW, &findings(), &[], &DEFAULTS).unwrap();
         assert_eq!(plan.target, Target::Agent);
         assert!(plan.requester.is_none());
+    }
+
+    #[test]
+    fn review_fix_agent_never_grants_a_scope() {
+        let plan = plan(&report("", false), REVIEW, &findings(), &[], &DEFAULTS).unwrap();
+        let req = new_agent(&plan.agent, Some("Fix it"), &DEFAULTS);
+        assert_eq!(req.env_scope, None);
+        assert!(!new_agent_args(&req)
+            .iter()
+            .any(|arg| arg.starts_with("--env-scope")));
     }
 
     #[test]
