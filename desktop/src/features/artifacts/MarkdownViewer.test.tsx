@@ -1,5 +1,8 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { ThemeProvider } from "@mui/material";
+import { Provider } from "react-redux";
+import { theme } from "../../theme";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Thread } from "../../api";
 import { testStore } from "../../test/fixtures";
@@ -202,6 +205,23 @@ describe("MarkdownViewer", () => {
       const s = renderActive({ revision: 2, threads: [detached], activeThread: "t1" });
 
       expect(s.getState().ui.notice).toMatchObject({ severity: "info", message: "The text this comment was on has changed" });
+    });
+
+    it("focuses a thread that is activated before its highlight arrives", () => {
+      const shown = anchoredThread("cache is shared", 3);
+      const store = testStore();
+      const { container, rerender } = renderWithStore(<MarkdownViewer {...viewerProps({ activeThread: "t1" })} />, store);
+      expect(container.querySelector("[data-focused]")).toBeNull();
+
+      rerender(
+        <Provider store={store}>
+          <ThemeProvider theme={theme}>
+            <MarkdownViewer {...viewerProps({ activeThread: "t1", highlights: [shown], threads: [shown] })} />
+          </ThemeProvider>
+        </Provider>,
+      );
+
+      expect(container.querySelector('[data-thread="t1"]')).toHaveAttribute("data-focused");
     });
 
     it("says nothing when the thread's text is on screen", () => {

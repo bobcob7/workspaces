@@ -413,14 +413,8 @@ describe("ArtifactsPane", () => {
     expect(await screen.findByText("First draft text")).toBeInTheDocument();
   });
   describe("loading, errors and posting feedback", () => {
-    const newThread = {
-      id: "t9",
-      anchor: null,
-      resolved: false,
-      resolvedAt: null,
-      resolvedBy: null,
-      comments: [{ id: "c9", author: { kind: "person" as const, workspace: null, name: null }, body: "Looks wrong", createdAt: "2026-11-23T18:10:00Z" }],
-    };
+    const newComment = { id: "c9", author: { kind: "person" as const, workspace: null, name: null }, body: "Looks wrong", createdAt: "2026-11-23T18:10:00Z" };
+    const newThread = { id: "t9", anchor: null, resolved: false, resolvedAt: null, resolvedBy: null, comments: [newComment] };
 
     it("says the artifact is loading until it arrives", async () => {
       let finish: (value: Artifact) => void = () => undefined;
@@ -484,7 +478,7 @@ describe("ArtifactsPane", () => {
       vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
       let finish: () => void = () => undefined;
       vi.spyOn(api, "artifactCommentAdd").mockImplementation(
-        () => new Promise((resolve) => (finish = () => resolve({ thread: newThread, comment: newThread.comments[0] }))),
+        () => new Promise((resolve) => (finish = () => resolve({ thread: newThread, comment: newComment }))),
       );
       const store = renderPane([image], image.id);
       await screen.findByRole("img", { name: "login-error.png" });
