@@ -249,9 +249,8 @@ Prints `{"artifact_id": "art-…", "thread": <thread>, "warnings": []}`.
 
 ## ws artifact cite
 
-Records that a person cited artifacts to the agent of workspace `<id>`. It
-is meant for the desktop's reply box, to run after sending a message with
-references (the desktop side lands with the desktop PR of ADR 0084). Each
+Records that a person cited artifacts to the agent of workspace `<id>`: the
+desktop's reply box runs it after sending a message with references. Each
 distinct (artifact, revision) counts once. Every artifact must exist
 (`artifact_unknown`, nothing recorded); a bad `--workspace` is `usage`, and
 one `ws` doesn't list here is `workspace_not_found`. A link that can't be
@@ -261,10 +260,9 @@ Prints `{"workspace": "<id>", "recorded": [{"id": "art-…", "rev": 2}], "warnin
 
 ## ws artifact scan
 
-The store of the desktop's transcript scan (ADR 0084), which is to read
-local transcripts every 30 s and find citations in user messages (without
-the hint line) and agent replies, outside code; `ws` only stores them. The
-scan itself lands with the desktop PR of ADR 0084.
+The store of the desktop's transcript scan (ADR 0084). The desktop reads
+local transcripts every 30 s and finds citations in user messages (without
+the hint line) and agent replies, outside code; `ws` only stores them.
 
 `scan cursors` prints where each workspace's scan stopped:
 `{"cursors": [{"workspace", "transcript", "offset", "updated_at"}], "warnings": []}`.

@@ -342,6 +342,14 @@ The Artifacts section ([ADR 0078](../docs/adrs/0078-artifacts.md), [ADR 0079](..
 | **Attaching to a new agent** | **A Markdown artifact on a phone** |
 | ![](docs/artifacts-new-agent.png) | ![](docs/artifacts-phone.png) |
 
+Artifacts and conversations link both ways ([ADR 0084](../docs/adrs/0084-bidirectional-artifact-links.md)). In an agent's conversation, each `@artifact:` reference outside code opens the artifact in the app at the revision it names, the hint line `ws` appends becomes a row of artifacts, and a strip at the top lists every artifact the conversation created, read, discussed or was handed. An artifact's page lists, under "Conversations", the agents that worked with it; a row opens that agent's conversation. Every 30 s the app scans local agents' transcripts for references in your messages and their replies, and records them with `ws artifact scan record`, once per message.
+
+| **Links and the strip in a conversation** | **Conversations on an artifact's page** |
+| --- | --- |
+| ![](docs/artifact-links-conversation.png) | ![](docs/artifact-links-artifact-page.png) |
+| **The strip on a phone** | **Conversations on a phone** |
+| ![](docs/artifact-links-conversation-phone.png) | ![](docs/artifact-links-artifact-page-phone.png) |
+
 The screenshots use sample data.
 
 ## Workspace Online
