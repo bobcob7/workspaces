@@ -77,6 +77,7 @@ const blockAround = (node: Node | null, article: HTMLElement): HTMLElement | nul
 interface PendingComment {
   readonly anchor: NewAnchor;
   readonly wholeBlock: boolean;
+  readonly block: HTMLElement;
   readonly top: number;
   readonly left: number;
 }
@@ -89,8 +90,8 @@ export interface MarkdownViewerProps {
   /** Threads to highlight. Each must be anchored to `revision`. */
   readonly highlights: readonly Thread[];
   readonly revision: number;
-  /** Starts a comment on the selection; null on an older revision, where nothing can be commented. */
-  readonly onComment: ((anchor: NewAnchor, wholeBlock: boolean) => void) | null;
+  /** Starts a comment on the selection, with the selected block to open beside; null on an older revision. */
+  readonly onComment: ((anchor: NewAnchor, wholeBlock: boolean, anchorEl: HTMLElement | null) => void) | null;
   readonly activeThread: string | null;
   readonly onThreadClick: (thread: string) => void;
 }
@@ -143,6 +144,7 @@ export const MarkdownViewer = ({
     setPending({
       anchor,
       wholeBlock: anchor.quote !== selected.trim(),
+      block,
       top: rect.bottom - box.top,
       left: rect.left - box.left,
     });
@@ -184,7 +186,7 @@ export const MarkdownViewer = ({
           className={styles.comment}
           style={{ top: pending.top, left: pending.left }}
           onClick={() => {
-            onComment(pending.anchor, pending.wholeBlock);
+            onComment(pending.anchor, pending.wholeBlock, pending.block);
             setPending(null);
           }}
         >
