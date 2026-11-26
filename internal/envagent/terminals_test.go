@@ -35,6 +35,8 @@ type fakeProc struct {
 	closed  bool
 	exit    *int
 	gate    atomic.Pointer[chan struct{}]
+	reads   atomic.Int64 // Read calls started.
+	writes  atomic.Int64 // Chunks written through writeOutput.
 }
 
 // blockWrites makes Write wait until the returned func is called or the process ends.
@@ -50,7 +52,25 @@ func newFakeProc() *fakeProc {
 	return &fakeProc{r: r, out: w, ended: make(chan struct{})}
 }
 
-func (p *fakeProc) Read(b []byte) (int, error) { return p.r.Read(b) }
+func (p *fakeProc) Read(b []byte) (int, error) {
+	p.reads.Add(1)
+	return p.r.Read(b)
+}
+
+// writeOutput writes n chunks to the process's output and waits until the
+// agent has queued all of them. The agent pushes a chunk after Read returns
+// and before the next Read starts, so once Read has started one more time than
+// chunks were written, the last push is done; without that the last pushes can
+// land after the test acts.
+func (p *fakeProc) writeOutput(t *testing.T, chunk []byte, n int) {
+	t.Helper()
+	for range n {
+		_, err := p.out.Write(chunk)
+		require.NoError(t, err)
+		p.writes.Add(1)
+	}
+	require.Eventually(t, func() bool { return p.reads.Load() > p.writes.Load() }, 5*time.Second, time.Millisecond)
+}
 
 func (p *fakeProc) Write(b []byte) (int, error) {
 	if gate := p.gate.Load(); gate != nil {
@@ -251,6 +271,32 @@ func isDataFrame(payload []byte) bool {
 }
 
 // open opens an attach terminal and returns its sid and process.
+// queueEmpty reports whether sid's output queue holds nothing: the publisher
+// has taken every chunk, so with data frames blocked it is stuck on the last.
+func (h *termHarness) queueEmpty(sid string) bool {
+	h.m.mu.Lock()
+	term := h.m.byID[sid]
+	h.m.mu.Unlock()
+	if term == nil {
+		return false
+	}
+	term.mu.Lock()
+	defer term.mu.Unlock()
+	return len(term.queue) == 0
+}
+
+// overflowOutput blocks data frames, then writes total bytes of output so the
+// queue overflows. It writes one chunk first and waits for the publisher to
+// take it and stick on the gate, so every drop happens after that and the
+// publisher reports them all in one dropped frame once released.
+func (h *termHarness) overflowOutput(sid string, proc *fakeProc, total int) {
+	h.t.Helper()
+	chunk := bytes.Repeat([]byte("y"), envproto.MaxChunkBytes)
+	proc.writeOutput(h.t, chunk, 1)
+	require.Eventually(h.t, func() bool { return h.queueEmpty(sid) }, 5*time.Second, time.Millisecond)
+	proc.writeOutput(h.t, chunk, total/len(chunk)-1)
+}
+
 func (h *termHarness) open() (string, *fakeProc) {
 	h.t.Helper()
 	raw, err := h.m.open(h.t.Context(), attachArgs())
@@ -336,11 +382,7 @@ func TestTerminal_output(t *testing.T) {
 		release := h.blockData()
 		sid, proc := h.open()
 		const total = 3 << 20
-		chunk := bytes.Repeat([]byte("y"), envproto.MaxChunkBytes)
-		for range total / len(chunk) {
-			_, err := proc.out.Write(chunk)
-			require.NoError(t, err)
-		}
+		h.overflowOutput(sid, proc, total)
 		release()
 		require.Eventually(t, func() bool {
 			var dropped uint64
@@ -365,12 +407,8 @@ func TestTerminal_output(t *testing.T) {
 		t.Parallel()
 		h := newTermHarness(t)
 		release := h.blockData()
-		_, proc := h.open()
-		chunk := bytes.Repeat([]byte("z"), envproto.MaxChunkBytes)
-		for range (3 << 20) / len(chunk) {
-			_, err := proc.out.Write(chunk)
-			require.NoError(t, err)
-		}
+		sid, proc := h.open()
+		h.overflowOutput(sid, proc, 3<<20)
 		release()
 		require.Eventually(t, func() bool { return len(proc.sizes()) == 2 }, 5*time.Second, 5*time.Millisecond)
 		assert.Equal(t, [][2]int{{80, 25}, {80, 24}}, proc.sizes())
