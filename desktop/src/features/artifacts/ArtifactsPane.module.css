@@ -103,7 +103,9 @@
 @media (max-width: 720px) {
   .actions button,
   .revision,
-  .wholeComment {
+  .wholeComment,
+  .notice button,
+  .error button {
     min-height: 40px;
   }
 }

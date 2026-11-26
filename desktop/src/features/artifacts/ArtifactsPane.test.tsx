@@ -542,5 +542,44 @@ describe("ArtifactsPane", () => {
       await waitFor(() => expect(store.getState().ui.notice).toMatchObject({ severity: "success", message: "Comment posted" }));
       await waitFor(() => expect(document.querySelector('[data-thread-item="t9"]')?.className).toMatch(/itemActive/));
     });
+
+    it("shows a failed post inline, keeps the draft, skips the snackbar and clears the error on edit", async () => {
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      vi.spyOn(api, "artifactCommentAdd").mockRejectedValue(new Error("server is down"));
+      const store = renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+      await userEvent.type(await screen.findByRole("textbox", { name: "Comment" }), "Looks wrong");
+
+      await userEvent.click(screen.getByRole("button", { name: "Post" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("server is down");
+      expect(screen.getByRole("textbox", { name: "Comment" })).toHaveValue("Looks wrong");
+      expect(store.getState().ui.notice).toBeNull();
+
+      await userEvent.type(screen.getByRole("textbox", { name: "Comment" }), "!");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("clears the inline error when the next post attempt starts", async () => {
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      let finish: () => void = () => undefined;
+      vi.spyOn(api, "artifactCommentAdd")
+        .mockRejectedValueOnce(new Error("server is down"))
+        .mockImplementationOnce(() => new Promise((resolve) => (finish = () => resolve({ thread: newThread, comment: newComment }))));
+      renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+      await userEvent.type(await screen.findByRole("textbox", { name: "Comment" }), "Looks wrong");
+      await userEvent.click(screen.getByRole("button", { name: "Post" }));
+      await screen.findByRole("alert");
+
+      await userEvent.click(screen.getByRole("button", { name: "Post" }));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      finish();
+    });
   });
 });
