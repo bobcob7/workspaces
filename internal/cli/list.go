@@ -177,7 +177,7 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 			}
 		}
 	default:
-		a.printList(rows, hasEnvColumn(entries))
+		a.printList(a.treeRows(rows, entries), hasEnvColumn(entries)) //nolint:contextcheck // the ledger and environment store reads take no context
 		a.printHiddenNote(hidden)
 	}
 	a.printWarnings()
@@ -315,6 +315,7 @@ func (a *App) localRows(entries []lifetime.Entry, loopRuns map[string]*listLoopR
 			env:     localEnvironmentOf(ws),
 			id:      ws.ID,
 			depth:   depths[k],
+			parent:  ws.Parent,
 			name:    nameText(ws.Name, ws.Hidden, attentionOf(a.cachedLoopRun(loopRuns, e))),
 			created: ago(now.Sub(ws.CreatedAt)),
 			session: sessionText(e.Session),
@@ -674,7 +675,11 @@ func (a *App) printList(rows []listRow, withEnv bool) {
 		r := &rows[i]
 		id := treeID(r.id, r.depth)
 		if withEnv {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", id, r.env, r.name, r.created, r.session, r.repos)
+			env := r.env
+			if r.stale {
+				env += " (offline)"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", id, env, r.name, r.created, r.session, r.repos)
 			continue
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", id, r.name, r.created, r.session, r.repos)

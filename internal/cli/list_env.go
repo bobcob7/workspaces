@@ -242,9 +242,11 @@ func remoteRows(entries []listEntryJSON, now time.Time) []listRow {
 	for k, i := range order {
 		e := &entries[i]
 		rows = append(rows, listRow{
-			env:     envText(e),
+			env:     e.Environment,
 			id:      deref(e.ID),
 			depth:   depths[k],
+			parent:  deref(e.Parent),
+			stale:   e.Stale,
 			name:    nameText(deref(e.Name), e.Hidden, attentionOf(e.LoopRun)),
 			created: createdAgo(e.CreatedAt, now),
 			session: sessionText(sessionOf(e.Session)),
@@ -252,15 +254,6 @@ func remoteRows(entries []listEntryJSON, now time.Time) []listRow {
 		})
 	}
 	return rows
-}
-
-// envText is the ENV column: the environment's name, and "(offline)" after
-// it when the entry is stale.
-func envText(e *listEntryJSON) string {
-	if e.Stale {
-		return e.Environment + " (offline)"
-	}
-	return e.Environment
 }
 
 // createdAgo is the CREATED column for a created_at, "-" when there is none

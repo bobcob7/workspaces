@@ -270,8 +270,8 @@ func TestApp_fillScopeParents(t *testing.T) {
 		e, rec := remoteChildSetup(t)
 		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-1"}})
 		entries := []listEntryJSON{
-			{listWorkspaceJSON: listWorkspaceJSON{ID: new("ip-1")}, Environment: rec.Name},
-			{listWorkspaceJSON: listWorkspaceJSON{ID: new("plan-1")}, Environment: localEnvironment, ScopeParent: &scopeParentJSON{Environment: localEnvironment, Workspace: "stale"}},
+			{ID: new("ip-1"), Environment: rec.Name},
+			{ID: new("plan-1"), Environment: localEnvironment, ScopeParent: &scopeParentJSON{Environment: localEnvironment, Workspace: "stale"}},
 		}
 		e.app.fillScopeParents(entries)
 		assert.Equal(t, &scopeParentJSON{Environment: localEnvironment, Workspace: "plan-1"}, entries[0].ScopeParent)
@@ -281,7 +281,7 @@ func TestApp_fillScopeParents(t *testing.T) {
 		e, rec := remoteChildSetup(t)
 		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-1"}})
 		ln := listenDaemon(t, e.app)
-		e.app.fillScopeParents([]listEntryJSON{{listWorkspaceJSON: listWorkspaceJSON{ID: new("ip-1")}, Environment: rec.Name}})
+		e.app.fillScopeParents([]listEntryJSON{{ID: new("ip-1"), Environment: rec.Name}})
 		assert.Error(t, acceptDialled(t, ln), "the daemon was dialled")
 	})
 }
