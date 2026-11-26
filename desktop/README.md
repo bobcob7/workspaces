@@ -422,7 +422,8 @@ The sample `plan-scope` has an environment scope (local, linux-server,
 win-rig offline, old-rig removed) and three children on other environments
 from `ws machine spawn --env`: `ip-linux` on linux-server (online, done),
 `ip-win` on win-rig (offline), and `ip-probe` on win-rig, started by
-`ip-linux`.
+`ip-linux`. Its root bar shows the merged rollup, `4/8 steps`, with the
+note `Waiting for win-rig`.
 
 For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
 mock. It serves `/api` and a WebSocket from the same handlers, and
