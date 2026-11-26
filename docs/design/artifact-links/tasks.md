@@ -12,22 +12,22 @@ commit. Three stacked PRs; the second and third name the base they stack on.
 
 ## PR 2: CLI and store (Go), base PR 1
 
-- [ ] **T2** `internal/artifact/links.go`: `links.json` (version 1), `Link`,
+- [x] **T2** `internal/artifact/links.go`: `links.json` (version 1), `Link`,
   `RecordLink` under the artifact lock with a 2 s bound, the 500-entry cap,
   a newer version ignored with a warning; `Conversations(rec, threads,
   links)` merging derived and stored actions, one row per workspace, latest
   first. Table tests for merge, cap, eviction, lock timeout, concurrent
   records.
-- [ ] **T3** `internal/artifact/citations.go`: `state/<id>/citations.json`,
+- [x] **T3** `internal/artifact/citations.go`: `state/<id>/citations.json`,
   `RecordCitations` (dedupe by `seen`, 4096 cap, cursor rules, `at`
   clamped, refuses without `workspace.toml`), `Cursors`. Tests as in
   README.md › Tests.
-- [ ] **T4** `internal/cli`: `get` records `read`; `ws claude` and
+- [x] **T4** `internal/cli`: `get` records `read`; `ws claude` and
   `ws machine spawn` record `cited` (with `environment` for `--env`);
   `conversations` on full JSON with `removed`; `conversation_count` on
   summaries; `ws artifact cite`, `ws artifact scan cursors|record`,
   `ws artifact list --conversation`. C2.
-- [ ] **T5** Guides and docs (C2, C6).
+- [x] **T5** Guides and docs (C2, C6).
 
 ## PR 3: desktop (TS and Rust), base PR 2
 

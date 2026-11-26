@@ -531,8 +531,12 @@ Lists artifacts, latest `updated_at` first; `--mine` keeps only those whose
 
 ### ws machine artifact show
 
-Prints one artifact with its revisions. Prints `{"artifact": <artifact>,
-"warnings": []}`.
+Prints one artifact with its revisions and `conversations`: the agents'
+conversations it was part of, one row per workspace, with what each did
+(`created`, `revised`, `commented`, `resolved`, `read`, `cited`); see
+[`ws artifact`](ws-artifact.md#output) ([0084](../adrs/0084-bidirectional-artifact-links.md)).
+Prints `{"artifact": <artifact>, "warnings": []}`. Summaries (`list`, `get`)
+carry `conversation_count`.
 
 ### ws machine artifact get
 
@@ -544,7 +548,9 @@ created 0700 and the file 0600, and an existing file is overwritten. Prints
 {"artifact": {…}, "rev": 1, "path": "/abs/…/login-error.png", "content_type": "image/png", "size": 48213, "warnings": []}
 ```
 
-Read the file at `path` with your Read tool.
+Read the file at `path` with your Read tool. Each `get` records `read` for
+your workspace and the revision; a failure to record is a warning, never an
+error.
 
 ### ws machine artifact put
 
