@@ -240,16 +240,24 @@ func progressTreeOf(store *machine.Store, root string, list []workspace.Workspac
 }
 
 // childProgress is a child's own progress and rollup for ws machine wait and
-// children. The progress is nil when it has no record and the rollup is nil
-// until a step is planned; both are nil when the tree can't be read, with a
-// warning.
-func (a *App) childProgress(store *machine.Store, root string, list []workspace.Workspace, id string) (*progressJSON, *rollupJSON) {
+// children, with the rollups of the remote children under it. The progress is
+// nil when it has no record and the rollup is nil until a step is planned; both
+// are nil when the tree can't be read, with a warning.
+func (a *App) childProgress(store *machine.Store, root string, list []workspace.Workspace, id string, remote []remoteChild) (*progressJSON, *rollupJSON) {
 	tree, err := progressTreeOf(store, root, list, id)
 	if err != nil {
 		a.warned = append(a.warned, fmt.Sprintf("couldn't read %s's progress: %v", id, err))
 		return nil, nil
 	}
+	for i := range remote {
+		tree.AddRemote(remote[i].parent, remoteSteps(&remote[i]))
+	}
 	return nodeProgress(tree)
+}
+
+// addRollup is a plus b, saturated, as ws machine prints rollups.
+func addRollup(a, b rollupJSON) rollupJSON {
+	return rollupInfo(machine.Rollup{Total: a.Total, Done: a.Done}.Add(machine.Rollup{Total: b.Total, Done: b.Done}))
 }
 
 // nodeProgress is the node's own progress, nil when it has no record, and its
