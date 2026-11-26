@@ -207,3 +207,6 @@ func (s *scopeStates) presenceOf(ctx context.Context) map[string]string {
 	}
 	return s.presence
 }
+
+func (a *App) fillScopeParents(entries []listEntryJSON) {
+}

@@ -195,13 +195,16 @@ type envListing struct {
 
 // listRow is one line of ws list's table.
 type listRow struct {
-	env     string
-	id      string
-	depth   int
-	name    string
-	created string
-	session string
-	repos   string
+	env         string
+	id          string
+	depth       int
+	name        string
+	created     string
+	session     string
+	repos       string
+	parent      string // same-environment parent id, "" for none
+	scopeParent string // rowKey of scope_parent, "" for none
+	stale       bool   // the ENV column adds " (offline)"
 }
 
 // listEnvironments lists each of envs in order: local from this machine,
