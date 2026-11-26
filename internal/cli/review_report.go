@@ -502,10 +502,3 @@ func reportComment(c *collect.Comment) reviewCommentJSON {
 	}
 	return out
 }
-
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
-}

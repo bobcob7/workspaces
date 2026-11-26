@@ -26,12 +26,16 @@ Output is always JSON; `--json` changes nothing.
   "title": "Pitch: cache sharing", "kind": "markdown", "content_type": "text/markdown; charset=utf-8",
   "latest": 1, "size": 2048, "created_at": "2026-11-23T18:00:00Z", "updated_at": "2026-11-23T18:00:00Z",
   "created_by": {"kind": "agent", "workspace": "pitch-ab12cd34", "name": "pitch"},
-  "threads": {"open": 0, "resolved": 0, "detached": 0},
+  "threads": {"open": 0, "resolved": 0, "detached": 0}, "conversation_count": 1, "conversation": null,
   "revisions": [{"rev": 1, "content_type": "text/markdown; charset=utf-8", "size": 2048,
     "sha256": "9f86d0…", "created_at": "2026-11-23T18:00:00Z",
-    "created_by": {"kind": "agent", "workspace": "pitch-ab12cd34", "name": "pitch"}, "note": null}]},
+    "created_by": {"kind": "agent", "workspace": "pitch-ab12cd34", "name": "pitch"}, "note": null}],
+  "conversations": [{"workspace": "pitch-ab12cd34", "name": "pitch", "environment": null, "removed": false,
+    "actions": ["created"], "revs": [1], "first_at": "2026-11-23T18:00:00Z", "last_at": "2026-11-23T18:00:00Z"}]},
  "warnings": []}
 ```
+
+`conversations` lists, one row per workspace and latest first, the agents' conversations the artifact was part of: `actions` from `created`, `revised`, `commented`, `resolved`, `read` (a `get`) and `cited` (a prompt or message named it), the revisions involved, and `removed` (`null` for a workspace on another environment). People's actions aren't listed. The rows are self-reported and may lag: citations in transcripts are recorded by the desktop app (ADR 0084).
 
 ## Exit codes
 

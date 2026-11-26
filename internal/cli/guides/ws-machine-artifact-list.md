@@ -25,7 +25,7 @@ Output is always JSON; `--json` changes nothing.
   "title": null, "kind": "image", "content_type": "image/png", "latest": 1, "size": 48213,
   "created_at": "2026-11-23T18:00:00Z", "updated_at": "2026-11-23T18:00:00Z",
   "created_by": {"kind": "person", "workspace": null, "name": null},
-  "threads": {"open": 1, "resolved": 0, "detached": 0}}],
+  "threads": {"open": 1, "resolved": 0, "detached": 0}, "conversation_count": 2, "conversation": null}],
  "warnings": []}
 ```
 

@@ -39,6 +39,9 @@ type claudeOptions struct {
 	started func(ws *workspace.Workspace, session string)
 	// result, when set, is what --json prints instead of r.
 	result func(r claudeResult) any
+	// cited is the artifacts the prompt cites, recorded for the new
+	// workspace once it exists (ADR 0084).
+	cited []artifact.Ref
 }
 
 func (a *App) newClaudeCmd() *cobra.Command {
@@ -156,6 +159,15 @@ func (a *App) artifactHints(args []string, remote string) ([]string, error) {
 	return slices.Concat([]string{prompt}, args[1:]), nil
 }
 
+// promptCitations is the artifacts the prompt, the first argument when it
+// isn't a flag, cites.
+func promptCitations(args []string) []artifact.Ref {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return nil
+	}
+	return artifact.FindCitations(args[0])
+}
+
 // checkArtifactsExist is artifact_unknown for the first of ids that isn't
 // in the store.
 func (a *App) checkArtifactsExist(ids []string) error {
@@ -193,6 +205,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err != nil {
 		return err
 	}
+	opts.cited = promptCitations(opts.claudeArgs)
 	if runOn != "" {
 		return a.runRemoteClaude(ctx, opts, runOn, parentID)
 	}
@@ -222,6 +235,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	}
 	lock.Unlock()
 	a.writeChildScope(ws.ID, scope)
+	a.recordStartCited(ctx, &ws, opts.cited)
 	if opts.started != nil {
 		opts.started(&ws, started.ID)
 	}
@@ -293,6 +307,7 @@ func (a *App) runRemoteClaude(ctx context.Context, opts *claudeOptions, env, par
 	if err != nil {
 		return err
 	}
+	a.recordRemoteCited(ctx, result, env, opts.cited)
 	return a.printRemoteCreated(result, env)
 }
 
@@ -475,6 +490,7 @@ func (a *App) runWSClaude(ctx context.Context, opts *claudeOptions) error {
 		return err
 	}
 	a.writeChildScope(started.Workspace.ID, scope)
+	a.recordStartCited(ctx, &started.Workspace, opts.cited)
 	return a.printClaudeResult(&started.Workspace, started.Session, func(r claudeResult) any {
 		r.Runner = lifetime.RunnerWS
 		r.Model = optional(started.Resolved.ModelID)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bobcob7/workspaces/internal/artifact"
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
@@ -340,6 +341,7 @@ func (a *App) runMachineSpawnRunner(ctx context.Context, opts *machineSpawnOptio
 		return err
 	}
 	a.writeChildScope(started.Workspace.ID, *opts.scope)
+	a.recordStartCited(ctx, &started.Workspace, artifact.FindCitations(prompt))
 	result := func(r claudeResult) any { return runnerSpawnJSON(opts.role, &started, &r) }
 	return a.printClaudeResult(&started.Workspace, started.Session, result)
 }
