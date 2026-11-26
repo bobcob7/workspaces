@@ -39,14 +39,25 @@ interface ThreadItemProps {
   readonly thread: Thread;
   readonly active: boolean;
   readonly readOnly: boolean;
+  /** How many threads the list shows as resolved now, before this item's action. */
+  readonly resolvedCount: number;
   readonly onActivate: (thread: string) => void;
   readonly onChanged: () => void;
 }
 
-const ThreadItem = ({ artifactId, thread, active, readOnly, onActivate, onChanged }: ThreadItemProps): JSX.Element => {
+const ThreadItem = ({
+  artifactId,
+  thread,
+  active,
+  readOnly,
+  resolvedCount,
+  onActivate,
+  onChanged,
+}: ThreadItemProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const itemRef = useRef<HTMLLIElement>(null);
   const [reply, setReply] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (active) {
@@ -54,19 +65,27 @@ const ThreadItem = ({ artifactId, thread, active, readOnly, onActivate, onChange
     }
   }, [active]);
 
-  const perform = async (action: () => Promise<unknown>): Promise<void> => {
+  const resolveNotice = thread.resolved ? "Thread reopened" : `Thread resolved - see Resolved (${resolvedCount + 1})`;
+
+  const perform = async (action: () => Promise<unknown>, success?: string): Promise<void> => {
+    setBusy(true);
     try {
       await action();
+      if (success !== undefined) {
+        dispatch(noticeShown({ severity: "success", message: success }));
+      }
       onChanged();
     } catch (err: unknown) {
       dispatch(noticeShown({ severity: "error", message: toAppError(err).message }));
+    } finally {
+      setBusy(false);
     }
   };
 
   const sendReply = (event: FormEvent): void => {
     event.preventDefault();
     const body = reply.trim();
-    if (body === "") {
+    if (busy || body === "") {
       return;
     }
     void perform(async () => {
@@ -98,14 +117,15 @@ const ThreadItem = ({ artifactId, thread, active, readOnly, onActivate, onChange
               onChange={(event) => setReply(event.target.value)}
               slotProps={{ htmlInput: { "aria-label": `Reply to ${thread.id}` } }}
             />
-            <Button type="submit" size="small" disabled={reply.trim() === ""}>
-              Reply
+            <Button type="submit" size="small" disabled={busy || reply.trim() === ""}>
+              {busy ? "Sending..." : "Reply"}
             </Button>
           </form>
           <Button
             size="small"
+            disabled={busy}
             onClick={() =>
-              void perform(() => api.artifactCommentResolve(artifactId, thread.id, thread.resolved))
+              void perform(() => api.artifactCommentResolve(artifactId, thread.id, thread.resolved), resolveNotice)
             }
           >
             {thread.resolved ? "Reopen" : "Resolve"}
@@ -143,12 +163,14 @@ export const ThreadList = ({
       thread={thread}
       active={thread.id === activeThread}
       readOnly={readOnly}
+      resolvedCount={groups.resolved.length}
       onActivate={onActivate}
       onChanged={onChanged}
     />
   );
   return (
     <div className={styles.root}>
+      {threads.length === 0 && <p className={styles.empty}>No comments yet.</p>}
       <ul className={styles.list} aria-label="Comment threads">
         {groups.open.map(itemFor)}
       </ul>

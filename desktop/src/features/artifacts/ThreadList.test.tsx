@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Thread } from "../../api";
@@ -46,7 +46,13 @@ const renderList = (overrides: Partial<ThreadListProps> = {}) => {
     onChanged: vi.fn(),
     ...overrides,
   };
-  return { ...renderWithStore(<ThreadList {...props} />, testStore()), ...props };
+  const store = testStore();
+  return { ...renderWithStore(<ThreadList {...props} />, store), ...props, store };
+};
+
+const postedReply = {
+  thread: threads[1] as Thread,
+  comment: { id: "c9", author: person, body: "Done", createdAt: "2026-11-23T18:05:00Z" },
 };
 
 const itemOf = (id: string): HTMLElement => {
@@ -117,6 +123,45 @@ describe("ThreadList", () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it("shows Sending... and disables Reply and Resolve while a reply is posting", async () => {
+    let finish = (): void => undefined;
+    vi.spyOn(api, "artifactCommentAdd").mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve(postedReply);
+      }),
+    );
+    renderList();
+    const item = within(itemOf("t1"));
+    await userEvent.type(item.getByRole("textbox", { name: "Reply to t1" }), "Done");
+
+    await userEvent.click(item.getByRole("button", { name: "Reply" }));
+
+    expect(item.getByRole("button", { name: "Sending..." })).toBeDisabled();
+    expect(item.getByRole("button", { name: "Resolve" })).toBeDisabled();
+    await act(async () => {
+      finish();
+    });
+  });
+
+  it("posts one reply when Enter is pressed again while the first is sending", async () => {
+    let finish = (): void => undefined;
+    const reply = vi.spyOn(api, "artifactCommentAdd").mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve(postedReply);
+      }),
+    );
+    renderList();
+    const textbox = within(itemOf("t1")).getByRole("textbox", { name: "Reply to t1" });
+    await userEvent.type(textbox, "Done");
+
+    await userEvent.keyboard("{Enter}{Enter}");
+
+    expect(reply).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finish();
+    });
+  });
+
   it("resolves an open thread", async () => {
     const resolve = vi.spyOn(api, "artifactCommentResolve").mockResolvedValue(threads[1] as Thread);
     renderList();
@@ -126,6 +171,20 @@ describe("ThreadList", () => {
     expect(resolve).toHaveBeenCalledWith("art-00000001", "t1", false);
   });
 
+  it("says where a resolved thread went, counting it in Resolved", async () => {
+    vi.spyOn(api, "artifactCommentResolve").mockResolvedValue(threads[1] as Thread);
+    const { store } = renderList();
+
+    await userEvent.click(within(itemOf("t1")).getByRole("button", { name: "Resolve" }));
+
+    await vi.waitFor(() => {
+      expect(store.getState().ui.notice).toMatchObject({
+        severity: "success",
+        message: "Thread resolved - see Resolved (2)",
+      });
+    });
+  });
+
   it("reopens a resolved thread", async () => {
     const resolve = vi.spyOn(api, "artifactCommentResolve").mockResolvedValue(threads[3] as Thread);
     renderList();
@@ -133,6 +192,23 @@ describe("ThreadList", () => {
     await userEvent.click(within(itemOf("t4")).getByRole("button", { name: "Reopen" }));
 
     expect(resolve).toHaveBeenCalledWith("art-00000001", "t4", true);
+  });
+
+  it("says a thread was reopened", async () => {
+    vi.spyOn(api, "artifactCommentResolve").mockResolvedValue(threads[3] as Thread);
+    const { store } = renderList();
+
+    await userEvent.click(within(itemOf("t4")).getByRole("button", { name: "Reopen" }));
+
+    await vi.waitFor(() => {
+      expect(store.getState().ui.notice).toMatchObject({ severity: "success", message: "Thread reopened" });
+    });
+  });
+
+  it("says there are no comments yet when the artifact has no threads", () => {
+    renderList({ threads: [] });
+
+    expect(screen.getByText("No comments yet.")).toBeInTheDocument();
   });
 
   it("hides reply and resolve on an older revision", () => {

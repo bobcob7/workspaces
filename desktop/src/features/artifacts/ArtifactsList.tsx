@@ -50,6 +50,14 @@ const metaText = (item: ArtifactSummary): string =>
 
 const isFileDrag = (event: DragEvent): boolean => Array.from(event.dataTransfer.types).includes("Files");
 
+/** What the list says when no row shows: the first load, no artifacts yet, or no match. */
+const emptyText = (total: number, firstLoad: boolean): string => {
+  if (firstLoad) {
+    return "Loading...";
+  }
+  return total === 0 ? "No artifacts yet. Upload a file, drop one here, or paste an image." : "No artifacts match.";
+};
+
 /** Artifacts in the section: kind filters, search, uploads by drop or paste, and one row each. */
 export const ArtifactsList = (): JSX.Element => {
   const dispatch = useAppDispatch();
@@ -59,8 +67,10 @@ export const ArtifactsList = (): JSX.Element => {
   const selected = useAppSelector((s) => s.artifacts.selected);
   const uploads = useAppSelector((s) => s.artifacts.uploads);
   const error = useAppSelector((s) => s.artifacts.error);
+  const loading = useAppSelector((s) => s.artifacts.loading);
   const [dragging, setDragging] = useState(false);
   const shown = visibleArtifacts(items, filter, search);
+  const firstLoad = loading && items.length === 0;
 
   useEffect(() => {
     void dispatch(loadArtifacts());
@@ -137,7 +147,9 @@ export const ArtifactsList = (): JSX.Element => {
         </p>
       ))}
       {shown.length === 0 ? (
-        <p className={styles.empty}>{items.length === 0 ? "No artifacts yet." : "No artifacts match."}</p>
+        <p className={styles.empty} role={firstLoad ? "status" : undefined}>
+          {emptyText(items.length, firstLoad)}
+        </p>
       ) : (
         <ul className={styles.list} aria-label="Artifacts">
           {shown.map((item) => (

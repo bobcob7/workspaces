@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type R
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type NewAnchor, type Thread } from "../../api";
+import { useAppDispatch } from "../../store";
+import { noticeShown } from "../ui/uiSlice";
 import { rehypeAnchors, selectionAnchor } from "./anchors";
 import styles from "./MarkdownViewer.module.css";
 
@@ -20,12 +22,26 @@ export const keepUrl = (url: string): string => {
   }
 };
 
-const openLink = (event: MouseEvent<HTMLAnchorElement>, href: string | undefined): void => {
-  event.preventDefault();
-  if (href === undefined || href === "" || href.startsWith("#")) {
-    return;
-  }
-  void api.openExternal(href).catch(() => undefined);
+interface LinkProps {
+  readonly href?: string;
+  readonly children?: ReactNode;
+}
+
+/** A link that opens outside the app, and says so when it can't. */
+const Link = ({ href, children }: LinkProps): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const open = (event: MouseEvent<HTMLAnchorElement>): void => {
+    event.preventDefault();
+    if (href === undefined || href === "" || href.startsWith("#")) {
+      return;
+    }
+    api.openExternal(href).catch(() => dispatch(noticeShown({ severity: "error", message: "Couldn't open the link" })));
+  };
+  return (
+    <a href={href} onClick={open}>
+      {children}
+    </a>
+  );
 };
 
 interface BlockProps extends ExtraProps {
@@ -45,7 +61,7 @@ const blockAttributes = ({ node, className, "data-thread": thread }: BlockProps)
 
 /** Block elements carry their source lines, so a selection can be anchored to them (ADR 0079). */
 const components: Components = {
-  a: ({ href, children }) => <a href={href} onClick={(event) => openLink(event, href)}>{children}</a>,
+  a: ({ href, children }) => <Link href={href}>{children}</Link>,
   img: ({ alt, src }) => <span>{`[image: ${alt ?? ""}](${src ?? ""})`}</span>,
   p: (props: BlockProps) => <p {...blockAttributes(props)}>{props.children}</p>,
   h1: (props: BlockProps) => <h1 {...blockAttributes(props)}>{props.children}</h1>,
@@ -89,6 +105,8 @@ export interface MarkdownViewerProps {
   readonly source: string;
   /** Threads to highlight. Each must be anchored to `revision`. */
   readonly highlights: readonly Thread[];
+  /** Every thread of the artifact, so a click on one with nothing to show can say why. */
+  readonly threads?: readonly Thread[];
   readonly revision: number;
   /** Starts a comment on the selection, with the selected block to open beside; null on an older revision. */
   readonly onComment: ((anchor: NewAnchor, wholeBlock: boolean, anchorEl: HTMLElement | null) => void) | null;
@@ -100,6 +118,7 @@ export interface MarkdownViewerProps {
 export const MarkdownViewer = ({
   source,
   highlights,
+  threads = [],
   revision,
   onComment,
   activeThread,
@@ -107,7 +126,15 @@ export const MarkdownViewer = ({
 }: MarkdownViewerProps): JSX.Element => {
   const rootRef = useRef<HTMLDivElement>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
+  const dispatch = useAppDispatch();
+  const scrolledTo = useRef<HTMLElement | null>(null);
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
   const rehypePlugins = useMemo(() => [() => rehypeAnchors(highlights, revision)], [highlights, revision]);
+
+  useEffect(() => {
+    scrolledTo.current = null;
+  }, [activeThread]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -115,10 +142,29 @@ export const MarkdownViewer = ({
       return;
     }
     const target = threadElement(root, activeThread);
-    target?.scrollIntoView?.({ block: "center" });
+    if (target !== null && scrolledTo.current !== target) {
+      scrolledTo.current = target;
+      target.scrollIntoView?.({ block: "center" });
+    }
     target?.setAttribute("data-focused", "");
     return () => target?.removeAttribute("data-focused");
-  }, [activeThread]);
+  }, [activeThread, highlights]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (activeThread === null || root === null || threadElement(root, activeThread) !== null) {
+      return;
+    }
+    const anchor = threadsRef.current.find((thread) => thread.id === activeThread)?.anchor;
+    if (anchor === undefined || anchor === null) {
+      return;
+    }
+    if (anchor.state === "detached") {
+      dispatch(noticeShown({ severity: "info", message: "The text this comment was on has changed" }));
+    } else if (anchor.rev !== revision) {
+      dispatch(noticeShown({ severity: "info", message: `This comment's text isn't in r${revision}` }));
+    }
+  }, [activeThread, revision, dispatch]);
 
   const captureSelection = (): void => {
     const root = rootRef.current;

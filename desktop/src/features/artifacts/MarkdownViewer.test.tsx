@@ -1,7 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { ThemeProvider } from "@mui/material";
+import { Provider } from "react-redux";
+import { theme } from "../../theme";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { api, type Thread } from "../../api";
+import { testStore } from "../../test/fixtures";
+import { renderWithStore } from "../../test/render";
 import { MarkdownViewer, type MarkdownViewerProps } from "./MarkdownViewer";
 
 const thread = (overrides: Partial<Thread> = {}): Thread => ({
@@ -17,8 +22,7 @@ const thread = (overrides: Partial<Thread> = {}): Thread => ({
 const anchoredThread = (quote: string, lineStart: number): Thread =>
   thread({ id: "t1", anchor: { rev: 2, start: 0, end: quote.length, lineStart, lineEnd: lineStart, quote, prefix: "", suffix: "", state: "anchored" } });
 
-const renderViewer = (overrides: Partial<MarkdownViewerProps> = {}) => {
-  const props: MarkdownViewerProps = {
+const viewerProps = (overrides: Partial<MarkdownViewerProps> = {}): MarkdownViewerProps => ({
     source: "# Pitch\n\nToday the cache is shared.\n",
     highlights: [],
     revision: 2,
@@ -26,9 +30,10 @@ const renderViewer = (overrides: Partial<MarkdownViewerProps> = {}) => {
     activeThread: null,
     onThreadClick: vi.fn(),
     ...overrides,
-  };
-  return render(<MarkdownViewer {...props} />);
-};
+});
+
+const renderViewer = (overrides: Partial<MarkdownViewerProps> = {}) =>
+  renderWithStore(<MarkdownViewer {...viewerProps(overrides)} />, testStore());
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -70,6 +75,18 @@ describe("MarkdownViewer", () => {
     await userEvent.click(screen.getByRole("link", { name: "docs" }));
 
     expect(openExternal).toHaveBeenCalledWith("https://example.com/docs");
+  });
+
+  it("says so when a web link can't be opened", async () => {
+    vi.spyOn(api, "openExternal").mockRejectedValue(new Error("no browser"));
+    const store = testStore();
+    renderWithStore(<MarkdownViewer {...viewerProps({ source: "[docs](https://example.com/docs)\n" })} />, store);
+
+    await userEvent.click(screen.getByRole("link", { name: "docs" }));
+
+    await waitFor(() =>
+      expect(store.getState().ui.notice).toMatchObject({ severity: "error", message: "Couldn't open the link" }),
+    );
   });
 
   it("shows an image as its alt text and address, not as a picture", () => {
@@ -166,5 +183,77 @@ describe("MarkdownViewer", () => {
 
     expect(container.querySelector("p")).toHaveClass("anchoredBlock");
     expect(container.querySelector("p")).toHaveAttribute("data-thread", "t1");
+  });
+
+  describe("activating a thread with nothing to show", () => {
+    const store = () => testStore();
+    const renderActive = (overrides: Partial<MarkdownViewerProps>) => {
+      const s = store();
+      renderWithStore(<MarkdownViewer {...viewerProps(overrides)} />, s);
+      return s;
+    };
+
+    it("says the comment's text isn't in the shown revision", () => {
+      const other = thread({ id: "t1", anchor: { rev: 1, start: 0, end: 4, lineStart: 1, lineEnd: 1, quote: "Pitch", prefix: "", suffix: "", state: "anchored" } });
+      const s = renderActive({ revision: 2, threads: [other], activeThread: "t1" });
+
+      expect(s.getState().ui.notice).toMatchObject({ severity: "info", message: "This comment's text isn't in r2" });
+    });
+
+    it("says the text a detached comment was on has changed", () => {
+      const detached = thread({ id: "t1", anchor: { rev: 2, start: 0, end: 4, lineStart: 1, lineEnd: 1, quote: "gone", prefix: "", suffix: "", state: "detached" } });
+      const s = renderActive({ revision: 2, threads: [detached], activeThread: "t1" });
+
+      expect(s.getState().ui.notice).toMatchObject({ severity: "info", message: "The text this comment was on has changed" });
+    });
+
+    it("focuses a thread that is activated before its highlight arrives", () => {
+      const shown = anchoredThread("cache is shared", 3);
+      const store = testStore();
+      const { container, rerender } = renderWithStore(<MarkdownViewer {...viewerProps({ activeThread: "t1" })} />, store);
+      expect(container.querySelector("[data-focused]")).toBeNull();
+
+      rerender(
+        <Provider store={store}>
+          <ThemeProvider theme={theme}>
+            <MarkdownViewer {...viewerProps({ activeThread: "t1", highlights: [shown], threads: [shown] })} />
+          </ThemeProvider>
+        </Provider>,
+      );
+
+      expect(container.querySelector('[data-thread="t1"]')).toHaveAttribute("data-focused");
+    });
+
+    it("scrolls to the active thread once, not on every threads refresh", () => {
+      const scroll = vi.fn();
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scroll;
+      onTestFinished(() => {
+        Element.prototype.scrollIntoView = original;
+      });
+      const shown = anchoredThread("cache is shared", 3);
+      const store = testStore();
+      const view = (highlights: Thread[]) => (
+        <Provider store={store}>
+          <ThemeProvider theme={theme}>
+            <MarkdownViewer {...viewerProps({ activeThread: "t1", highlights, threads: highlights })} />
+          </ThemeProvider>
+        </Provider>
+      );
+      const { container, rerender } = renderWithStore(<MarkdownViewer {...viewerProps({ activeThread: "t1", highlights: [shown], threads: [shown] })} />, store);
+      expect(scroll).toHaveBeenCalledTimes(1);
+
+      rerender(view([{ ...shown }]));
+
+      expect(scroll).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('[data-thread="t1"]')).toHaveAttribute("data-focused");
+    });
+
+    it("says nothing when the thread's text is on screen", () => {
+      const shown = anchoredThread("cache is shared", 3);
+      const s = renderActive({ highlights: [shown], threads: [shown], activeThread: "t1" });
+
+      expect(s.getState().ui.notice).toBeNull();
+    });
   });
 });

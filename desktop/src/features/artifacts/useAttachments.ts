@@ -66,14 +66,14 @@ export const useAttachments = (
   caretOf: () => HTMLTextAreaElement | null = () => null,
 ): Attachments => {
   const dispatch = useAppDispatch();
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(0);
 
   const attach = async (files: readonly File[]): Promise<void> => {
     if (files.length === 0) {
       return;
     }
     const selection = readSelection(caretOf());
-    setBusy(true);
+    setPending((count) => count + 1);
     try {
       const { stored, failures } = await uploadFiles(files, api);
       if (stored.length > 0) {
@@ -85,13 +85,13 @@ export const useAttachments = (
     } catch (err: unknown) {
       dispatch(noticeShown({ severity: "error", message: toAppError(err).message }));
     } finally {
-      setBusy(false);
+      setPending((count) => count - 1);
       void dispatch(loadArtifacts());
     }
   };
 
   return {
-    busy,
+    busy: pending > 0,
     attach,
     onDragOver: (event) => {
       if (hasFiles(event)) {
@@ -99,6 +99,9 @@ export const useAttachments = (
       }
     },
     onDrop: (event) => {
+      if (!hasFiles(event)) {
+        return;
+      }
       event.preventDefault();
       void attach(Array.from(event.dataTransfer.files));
     },

@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { createElement, useState, type ReactNode } from "react";
+import { createElement, useState, type DragEvent, type ReactNode } from "react";
 import { Provider } from "react-redux";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Artifact } from "../../api";
@@ -61,6 +61,66 @@ describe("useAttachments", () => {
     });
 
     expect(result.current.text).toBe("@artifact:art-a ");
+  });
+
+  it("stays busy until the last of two overlapping uploads settles", async () => {
+    const releases: (() => void)[] = [];
+    vi.spyOn(api, "artifactAdd").mockImplementation(
+      (name: string) =>
+        new Promise<Artifact>((resolve) => {
+          releases.push(() => resolve(stored(`art-${name}`)));
+        }),
+    );
+    const { result } = setup(document.createElement("textarea"), "");
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.attachments.attach([new File(["x"], "a")]);
+    });
+    act(() => {
+      second = result.current.attachments.attach([new File(["x"], "b")]);
+    });
+    await vi.waitFor(() => {
+      expect(releases).toHaveLength(2);
+    });
+
+    await act(async () => {
+      releases[0]?.();
+      await first;
+    });
+
+    expect(result.current.attachments.busy).toBe(true);
+    await act(async () => {
+      releases[1]?.();
+      await second;
+    });
+    expect(result.current.attachments.busy).toBe(false);
+  });
+
+  it("leaves a drop of plain text to the browser", () => {
+    const artifactAdd = vi.spyOn(api, "artifactAdd");
+    const { result } = setup(document.createElement("textarea"), "");
+    const drop = new Event("drop", { cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { types: ["text/plain"], files: [] } });
+
+    result.current.attachments.onDrop(drop as unknown as DragEvent);
+
+    expect(drop.defaultPrevented).toBe(false);
+    expect(artifactAdd).not.toHaveBeenCalled();
+  });
+
+  it("attaches the files of a drop and prevents the browser's default", async () => {
+    vi.spyOn(api, "artifactAdd").mockImplementation(async (name: string) => stored(`art-${name}`));
+    const { result } = setup(document.createElement("textarea"), "");
+    const drop = new Event("drop", { cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { types: ["Files"], files: [new File(["x"], "a")] } });
+
+    result.current.attachments.onDrop(drop as unknown as DragEvent);
+
+    expect(drop.defaultPrevented).toBe(true);
+    await vi.waitFor(() => {
+      expect(result.current.text).toBe("@artifact:art-a ");
+    });
   });
 });
 

@@ -280,6 +280,110 @@ describe("ArtifactsPane", () => {
     await waitFor(() => expect(store.getState().artifacts.selected).toBeNull());
   });
 
+  describe("copy reference", () => {
+    const openImage = async (): Promise<ReturnType<typeof renderPane>> => {
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      const store = renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      return store;
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("says the reference was copied", async () => {
+      const writeText = vi.fn(async () => undefined);
+      vi.stubGlobal("navigator", { clipboard: { writeText } });
+      const store = await openImage();
+
+      await userEvent.click(screen.getByRole("button", { name: "Copy reference" }));
+
+      await waitFor(() =>
+        expect(store.getState().ui.notice).toMatchObject({ severity: "info", message: "Copied @artifact:art-00000002" }),
+      );
+      expect(writeText).toHaveBeenCalledWith("@artifact:art-00000002");
+    });
+
+    it("says the copy failed when the clipboard rejects", async () => {
+      vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) } });
+      const store = await openImage();
+
+      await userEvent.click(screen.getByRole("button", { name: "Copy reference" }));
+
+      await waitFor(() =>
+        expect(store.getState().ui.notice).toMatchObject({ severity: "error", message: "Couldn't copy the reference" }),
+      );
+    });
+
+    it("says the copy failed when there is no clipboard", async () => {
+      vi.stubGlobal("navigator", {});
+      const store = await openImage();
+
+      await userEvent.click(screen.getByRole("button", { name: "Copy reference" }));
+
+      await waitFor(() =>
+        expect(store.getState().ui.notice).toMatchObject({ severity: "error", message: "Couldn't copy the reference" }),
+      );
+    });
+  });
+
+  it("confirms the delete with a notice, returns a narrow screen to the list and shows Deleting... while pending", async () => {
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+    let finish: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const store = renderPane([image], image.id, { artifactRemove: async () => pending });
+    await screen.findByRole("img", { name: "login-error.png" });
+    store.dispatch(artifactSelected(image.id));
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Deleting..." })).toBeDisabled();
+    finish();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(store.getState().ui.notice).toMatchObject({ severity: "success", message: "Deleted login-error.png" });
+    expect(store.getState().ui.narrowPane).toBe("list");
+  });
+
+  it("closes the dialog and shows the error when the delete fails", async () => {
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+    const store = renderPane([image], image.id, {
+      artifactRemove: async () => Promise.reject({ code: "artifact_busy", message: "still in use" }),
+    });
+    await screen.findByRole("img", { name: "login-error.png" });
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(store.getState().ui.notice).toMatchObject({ severity: "error", message: "still in use" });
+    expect(store.getState().artifacts.selected).toBe(image.id);
+  });
+
+  it("says an older revision is read-only and goes back to the latest", async () => {
+    const markdown = "text/markdown; charset=utf-8";
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(pitch, [revision(1, markdown), revision(2, markdown)]));
+    vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+      content({ rev: rev ?? 2, contentType: markdown, dataBase64: btoa("# Pitch\n") }),
+    );
+    renderPane([pitch], pitch.id);
+    await screen.findByRole("button", { name: "Comment on the whole artifact" });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Viewing r1, not the latest. Comments are read-only.");
+    await userEvent.click(screen.getByRole("button", { name: "Go to latest" }));
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(screen.getByRole("combobox", { name: "Revision" })).toHaveValue("2");
+  });
+
   it("shows the error when the artifact can't be read", async () => {
     vi.spyOn(api, "artifactShow").mockRejectedValue({ code: "artifact_not_found", message: "no such artifact" });
     renderPane([image], image.id);
@@ -307,5 +411,175 @@ describe("ArtifactsPane", () => {
     expect(screen.queryByText("Latest draft text")).toBeNull();
     finishRev1(content({ rev: 1, contentType: "text/markdown; charset=utf-8", dataBase64: btoa("First draft text") }));
     expect(await screen.findByText("First draft text")).toBeInTheDocument();
+  });
+  describe("loading, errors and posting feedback", () => {
+    const newComment = { id: "c9", author: { kind: "person" as const, workspace: null, name: null }, body: "Looks wrong", createdAt: "2026-11-23T18:10:00Z" };
+    const newThread = { id: "t9", anchor: null, resolved: false, resolvedAt: null, resolvedBy: null, comments: [newComment] };
+
+    it("says the artifact is loading until it arrives", async () => {
+      let finish: (value: Artifact) => void = () => undefined;
+      vi.spyOn(api, "artifactShow").mockReturnValue(new Promise<Artifact>((resolve) => (finish = resolve)));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      renderPane([image], image.id);
+
+      expect(screen.getByRole("status")).toHaveTextContent("Loading artifact...");
+      finish(asArtifact(image, [revision(1, "image/png")]));
+      await screen.findByRole("img", { name: "login-error.png" });
+      expect(screen.queryByText("Loading artifact...")).not.toBeInTheDocument();
+    });
+
+    it("says the chosen revision is loading", async () => {
+      const revisions = [revision(1, "image/png"), revision(2, "image/png")];
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact({ ...image, latest: 2 }, revisions));
+      const rev1 = new Promise<ArtifactContent>(() => undefined);
+      vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) => (rev === 1 ? rev1 : content({ rev: 2 })));
+      renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+      expect(await screen.findByText("Loading r1...")).toBeInTheDocument();
+    });
+
+    it("offers Retry after the artifact can't be read, and loads it again", async () => {
+      const show = vi
+        .spyOn(api, "artifactShow")
+        .mockRejectedValueOnce({ code: "artifact_busy", message: "try later" })
+        .mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      renderPane([image], image.id);
+      expect(await screen.findByRole("alert")).toHaveTextContent("try later");
+
+      await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+      expect(await screen.findByRole("img", { name: "login-error.png" })).toBeInTheDocument();
+      expect(show).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("goes back to the last revision that loaded when a revision can't be read", async () => {
+      const revisions = [revision(1, "image/png"), revision(2, "image/png")];
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact({ ...image, latest: 2 }, revisions));
+      vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+        rev === 1 ? Promise.reject({ code: "artifact_gone", message: "r1 is gone" }) : content({ rev: 2 }),
+      );
+      renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("r1 is gone");
+      expect(screen.getByRole("combobox", { name: "Revision" })).toHaveValue("2");
+      expect(screen.getByRole("img", { name: "login-error.png" })).toBeInTheDocument();
+    });
+
+    it("goes back to the last revision that loaded, not the latest, when a later choice can't be read", async () => {
+      const revisions = [revision(1, "image/png"), revision(2, "image/png"), revision(3, "image/png")];
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact({ ...image, latest: 3 }, revisions));
+      vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+        rev === 1 ? Promise.reject({ code: "artifact_gone", message: "r1 is gone" }) : content({ rev: rev ?? 3 }),
+      );
+      renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "2");
+      await screen.findByText("Viewing r2, not the latest. Comments are read-only.");
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("r1 is gone");
+      expect(screen.getByRole("combobox", { name: "Revision" })).toHaveValue("2");
+    });
+
+    it("shows no notice when another revision is chosen while a thread is active", async () => {
+      const markdown = "text/markdown; charset=utf-8";
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(pitch, [revision(1, markdown), revision(2, markdown)]));
+      vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+        content({ rev: rev ?? 2, contentType: markdown, dataBase64: btoa("# Pitch\n\nToday the cache is shared.\n") }),
+      );
+      vi.spyOn(api, "artifactComments").mockResolvedValue({
+        artifactId: pitch.id,
+        latest: 2,
+        threads: [
+          {
+            id: "t1",
+            anchor: { rev: 2, start: 0, end: 16, lineStart: 3, lineEnd: 3, quote: "cache is shared", prefix: "", suffix: ".", state: "anchored" },
+            resolved: false,
+            resolvedAt: null,
+            resolvedBy: null,
+            comments: [{ id: "c1", author: { kind: "person", workspace: null, name: null }, body: "Shared how?", createdAt: "2026-11-23T18:20:00Z" }],
+          },
+        ],
+      });
+      const store = renderPane([pitch], pitch.id);
+      await screen.findByText("Shared how?");
+      await userEvent.click(document.querySelector('mark[data-thread="t1"]') as HTMLElement);
+      await waitFor(() => expect(document.querySelector('[data-thread-item="t1"]')?.className).toMatch(/itemActive/));
+      expect(store.getState().ui.notice).toBeNull();
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+      await screen.findByText("Viewing r1, not the latest. Comments are read-only.");
+      expect(store.getState().ui.notice).toBeNull();
+    });
+
+    it("shows Posting... while the comment is sent, then confirms and activates the new thread", async () => {
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      let finish: () => void = () => undefined;
+      vi.spyOn(api, "artifactCommentAdd").mockImplementation(
+        () => new Promise((resolve) => (finish = () => resolve({ thread: newThread, comment: newComment }))),
+      );
+      const store = renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+      await userEvent.type(await screen.findByRole("textbox", { name: "Comment" }), "Looks wrong");
+
+      await userEvent.click(screen.getByRole("button", { name: "Post" }));
+
+      expect(screen.getByRole("button", { name: "Posting..." })).toBeDisabled();
+      vi.spyOn(api, "artifactComments").mockResolvedValue({ artifactId: image.id, latest: 1, threads: [newThread] });
+      finish();
+      await waitFor(() => expect(store.getState().ui.notice).toMatchObject({ severity: "success", message: "Comment posted" }));
+      await waitFor(() => expect(document.querySelector('[data-thread-item="t9"]')?.className).toMatch(/itemActive/));
+    });
+
+    it("shows a failed post inline, keeps the draft, skips the snackbar and clears the error on edit", async () => {
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      vi.spyOn(api, "artifactCommentAdd").mockRejectedValue(new Error("server is down"));
+      const store = renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+      await userEvent.type(await screen.findByRole("textbox", { name: "Comment" }), "Looks wrong");
+
+      await userEvent.click(screen.getByRole("button", { name: "Post" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("server is down");
+      expect(screen.getByRole("textbox", { name: "Comment" })).toHaveValue("Looks wrong");
+      expect(store.getState().ui.notice).toBeNull();
+
+      await userEvent.type(screen.getByRole("textbox", { name: "Comment" }), "!");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("clears the inline error when the next post attempt starts", async () => {
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      let finish: () => void = () => undefined;
+      vi.spyOn(api, "artifactCommentAdd")
+        .mockRejectedValueOnce(new Error("server is down"))
+        .mockImplementationOnce(() => new Promise((resolve) => (finish = () => resolve({ thread: newThread, comment: newComment }))));
+      renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+      await userEvent.type(await screen.findByRole("textbox", { name: "Comment" }), "Looks wrong");
+      await userEvent.click(screen.getByRole("button", { name: "Post" }));
+      await screen.findByRole("alert");
+
+      await userEvent.click(screen.getByRole("button", { name: "Post" }));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      finish();
+    });
   });
 });
