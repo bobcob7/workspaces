@@ -74,6 +74,10 @@ asked, the listing has a warning, and `result` is the copy kept by an earlier
 Remote entries have no `stale` field: the controller's snapshot entry doesn't
 say how old it is. A warning for an offline environment is the only hint.
 
+A remote child's `rollup` counts its steps and its descendants', merged by the
+controller from each environment's last snapshot, each workspace counted once.
+An offline environment counts that last snapshot; a removed one counts nothing.
+
 ## Exit codes
 
 | Situation                 | Error code          | Exit |

@@ -104,6 +104,10 @@ finishes, its result and report are copied into your tree's state, so
 is `local` or the environment's name; for a child whose copy is all that's
 left, it is that environment's id.
 
+A remote child's `rollup` is merged from its environment's last snapshot, as
+`children` does it: an offline environment counts that snapshot, and a removed
+child counts nothing.
+
 ## Exit codes
 
 | Situation                                                | Error code            | Exit |

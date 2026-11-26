@@ -167,7 +167,10 @@ reports it (`name`, `total`, `done`, `note`, `updated_at`), or `null` when it ha
 none. `rollup` is `{"total", "done", "fraction"}` for its steps and those of
 everything it started, hidden ones included, or `null` when no step is planned.
 A started workspace with a result but no record counts as one step, done only if
-it passed ([0077](../adrs/0077-agent-progress-reporting.md)).
+it passed ([0077](../adrs/0077-agent-progress-reporting.md)). Children started
+on another environment count too, from the last snapshot that environment sent
+([0083](../adrs/0083-env-scope-followups.md)); an offline environment counts its
+last snapshot, and a removed one counts nothing.
 
 `session.state` is `working`, `idle`, `starting`, `stopped`, `unknown`, or
 `running` for a shell. It is `ws`'s reading, not Claude Code's own `state`

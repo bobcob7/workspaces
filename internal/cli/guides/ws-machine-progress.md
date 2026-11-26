@@ -37,6 +37,8 @@ your own record and your rollup. Only `show` adds the `tree` of descendants.
 - `0 <= done <= total <= 1000000`. To go past total, raise `--total` first.
 - A rollup is the steps of that workspace and everything below it; `fraction`
   is `null` while no step is planned.
+- `set` and `step` print a local-only rollup: children on other environments
+  are added only by `show`.
 - You write only your own record, and read yours and your descendants'.
 
 ## Exit codes
