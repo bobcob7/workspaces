@@ -127,9 +127,14 @@ export const MarkdownViewer = ({
   const rootRef = useRef<HTMLDivElement>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
   const dispatch = useAppDispatch();
+  const scrolledTo = useRef<HTMLElement | null>(null);
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
   const rehypePlugins = useMemo(() => [() => rehypeAnchors(highlights, revision)], [highlights, revision]);
+
+  useEffect(() => {
+    scrolledTo.current = null;
+  }, [activeThread]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -137,7 +142,10 @@ export const MarkdownViewer = ({
       return;
     }
     const target = threadElement(root, activeThread);
-    target?.scrollIntoView?.({ block: "center" });
+    if (target !== null && scrolledTo.current !== target) {
+      scrolledTo.current = target;
+      target.scrollIntoView?.({ block: "center" });
+    }
     target?.setAttribute("data-focused", "");
     return () => target?.removeAttribute("data-focused");
   }, [activeThread, highlights]);

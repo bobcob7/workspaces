@@ -473,6 +473,55 @@ describe("ArtifactsPane", () => {
       expect(screen.getByRole("img", { name: "login-error.png" })).toBeInTheDocument();
     });
 
+    it("goes back to the last revision that loaded, not the latest, when a later choice can't be read", async () => {
+      const revisions = [revision(1, "image/png"), revision(2, "image/png"), revision(3, "image/png")];
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact({ ...image, latest: 3 }, revisions));
+      vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+        rev === 1 ? Promise.reject({ code: "artifact_gone", message: "r1 is gone" }) : content({ rev: rev ?? 3 }),
+      );
+      renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "2");
+      await screen.findByText("Viewing r2, not the latest. Comments are read-only.");
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("r1 is gone");
+      expect(screen.getByRole("combobox", { name: "Revision" })).toHaveValue("2");
+    });
+
+    it("shows no notice when another revision is chosen while a thread is active", async () => {
+      const markdown = "text/markdown; charset=utf-8";
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(pitch, [revision(1, markdown), revision(2, markdown)]));
+      vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+        content({ rev: rev ?? 2, contentType: markdown, dataBase64: btoa("# Pitch\n\nToday the cache is shared.\n") }),
+      );
+      vi.spyOn(api, "artifactComments").mockResolvedValue({
+        artifactId: pitch.id,
+        latest: 2,
+        threads: [
+          {
+            id: "t1",
+            anchor: { rev: 2, start: 0, end: 16, lineStart: 3, lineEnd: 3, quote: "cache is shared", prefix: "", suffix: ".", state: "anchored" },
+            resolved: false,
+            resolvedAt: null,
+            resolvedBy: null,
+            comments: [{ id: "c1", author: { kind: "person", workspace: null, name: null }, body: "Shared how?", createdAt: "2026-11-23T18:20:00Z" }],
+          },
+        ],
+      });
+      const store = renderPane([pitch], pitch.id);
+      await screen.findByText("Shared how?");
+      await userEvent.click(document.querySelector('mark[data-thread="t1"]') as HTMLElement);
+      await waitFor(() => expect(document.querySelector('[data-thread-item="t1"]')?.className).toMatch(/itemActive/));
+      expect(store.getState().ui.notice).toBeNull();
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+      await screen.findByText("Viewing r1, not the latest. Comments are read-only.");
+      expect(store.getState().ui.notice).toBeNull();
+    });
+
     it("shows Posting... while the comment is sent, then confirms and activates the new thread", async () => {
       vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
       vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));

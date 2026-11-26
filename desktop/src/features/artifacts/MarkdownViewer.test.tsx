@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@mui/material";
 import { Provider } from "react-redux";
 import { theme } from "../../theme";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { api, type Thread } from "../../api";
 import { testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
@@ -221,6 +221,31 @@ describe("MarkdownViewer", () => {
         </Provider>,
       );
 
+      expect(container.querySelector('[data-thread="t1"]')).toHaveAttribute("data-focused");
+    });
+
+    it("scrolls to the active thread once, not on every threads refresh", () => {
+      const scroll = vi.fn();
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scroll;
+      onTestFinished(() => {
+        Element.prototype.scrollIntoView = original;
+      });
+      const shown = anchoredThread("cache is shared", 3);
+      const store = testStore();
+      const view = (highlights: Thread[]) => (
+        <Provider store={store}>
+          <ThemeProvider theme={theme}>
+            <MarkdownViewer {...viewerProps({ activeThread: "t1", highlights, threads: highlights })} />
+          </ThemeProvider>
+        </Provider>
+      );
+      const { container, rerender } = renderWithStore(<MarkdownViewer {...viewerProps({ activeThread: "t1", highlights: [shown], threads: [shown] })} />, store);
+      expect(scroll).toHaveBeenCalledTimes(1);
+
+      rerender(view([{ ...shown }]));
+
+      expect(scroll).toHaveBeenCalledTimes(1);
       expect(container.querySelector('[data-thread="t1"]')).toHaveAttribute("data-focused");
     });
 

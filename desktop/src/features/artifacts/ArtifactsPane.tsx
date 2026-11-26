@@ -156,7 +156,9 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
   const { artifact, content, comments, error, shownRev, chooseRev, reload, retry } = useArtifactDetail(id);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [activeThread, setActiveThread] = useState<string | null>(null);
+  const [active, setActive] = useState<{ readonly thread: string; readonly rev: number | null } | null>(null);
+  const activeThread = active !== null && active.rev === shownRev ? active.thread : null;
+  const setActiveThread = (thread: string): void => setActive({ thread, rev: shownRev });
   const onLatest = artifact !== null && shownRev === artifact.latest;
 
   const copyReference = async (): Promise<void> => {
