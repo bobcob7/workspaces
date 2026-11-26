@@ -1,0 +1,24 @@
+.popover {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface, Canvas);
+  color: inherit;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.anchored {
+  width: min(360px, 100vw - 16px);
+}
+
+.docked {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  max-height: 60vh;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
