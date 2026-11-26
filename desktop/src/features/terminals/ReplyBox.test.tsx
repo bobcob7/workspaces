@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { fakeHost, testStore } from "../../test/fixtures";
+import { fakeApi, fakeHost, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { ReplyBox } from "./ReplyBox";
 import { messageKeys } from "./terminalsSlice";
@@ -79,5 +79,25 @@ describe("ReplyBox", () => {
     renderWithStore(<ReplyBox terminalKey="attach:a" disabled={false} />, testStore());
 
     expect(screen.getByRole("button", { name: "Attach" })).toBeInTheDocument();
+  });
+});
+
+describe("ReplyBox citations", () => {
+  it("records the references a sent message cites for a local agent", async () => {
+    const api = fakeApi();
+    renderWithStore(<ReplyBox terminalKey="attach:a" disabled={false} citeWorkspaceId="fix-1" />, testStore({ api }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "see @artifact:art-1a2b3c4d/r2{Enter}");
+    await vi.waitFor(() => expect(api.artifactCite).toHaveBeenCalledWith("fix-1", ["@artifact:art-1a2b3c4d/r2"]));
+  });
+
+  it("records nothing for a message without references, or without a workspace", async () => {
+    const api = fakeApi();
+    const { unmount } = renderWithStore(<ReplyBox terminalKey="attach:a" disabled={false} citeWorkspaceId="fix-1" />, testStore({ api }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "go on{Enter}");
+    unmount();
+    renderWithStore(<ReplyBox terminalKey="attach:a" disabled={false} />, testStore({ api }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "see @artifact:art-1a2b3c4d{Enter}");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.artifactCite).not.toHaveBeenCalled();
   });
 });

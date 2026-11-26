@@ -19,14 +19,18 @@ export interface ArtifactDetailData {
 /** One artifact's shown data: its summary and revisions, the chosen revision's bytes, and its comment threads. */
 export const useArtifactDetail = (id: string): ArtifactDetailData => {
   const updatedAt = useAppSelector((s) => s.artifacts.items.find((item) => item.id === id)?.updatedAt ?? null);
+  const requestedRev = useAppSelector((s) => (s.artifacts.selected === id ? s.artifacts.requestedRev : null));
   const [reloads, setReloads] = useState(0);
   const [retries, setRetries] = useState(0);
   const loadedRev = useRef<number | null>(null);
   const [artifact, setArtifact] = useState<Artifact | null>(null);
-  const [chosenRev, setChosenRev] = useState<number | null>(null);
+  const [chosenRev, setChosenRev] = useState<number | null>(requestedRev);
   const [content, setContent] = useState<ArtifactContent | null>(null);
   const [comments, setComments] = useState<CommentList | null>(null);
   const [error, setError] = useState<AppError | null>(null);
+  useEffect(() => {
+    setChosenRev(requestedRev);
+  }, [id, requestedRev]);
   const shownRev = chosenRev ?? artifact?.latest ?? null;
   const shownContent = content !== null && content.rev === shownRev ? content : null;
 

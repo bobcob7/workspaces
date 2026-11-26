@@ -1,9 +1,14 @@
 import { Alert, Button, CircularProgress } from "@mui/material";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from "react";
-import Markdown, { type Components } from "react-markdown";
+import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type Status } from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store";
+import { ArtifactRef } from "../artifacts/ArtifactRef";
+import { LinkedText } from "../artifacts/LinkedText";
+import { artifactLinkMark, rehypeArtifactLinks } from "../artifacts/rehypeArtifactLinks";
+import { parseArtifactHref, splitHint } from "../artifacts/references";
+import { ConversationArtifacts } from "./ConversationArtifacts";
 import { conversationClosed, fetchConversation } from "./conversationSlice";
 import { toRows, type Row } from "./rows";
 import styles from "./ConversationView.module.css";
@@ -15,6 +20,8 @@ export interface ConversationViewProps {
   readonly status: Status;
   readonly detail: string | null;
   readonly onShowTerminal: () => void;
+  /** The workspace whose linked artifacts the strip lists; null shows no strip (ADR 0084). */
+  readonly linkWorkspaceId?: string | null;
 }
 
 /** How often the transcript is checked for new lines while it's shown. */
@@ -23,31 +30,74 @@ export const followInterval = 1000;
 /** How close to the bottom, in pixels, still counts as following along. */
 const stickDistance = 48;
 
-// Links open in the browser; navigating the app's own webview would replace it.
+/** Keeps the in-app links the artifact plugin makes; every other URL is react-markdown's default. */
+export const conversationUrl = (url: string): string =>
+  url.startsWith("ws-artifact:") ? (parseArtifactHref(url) === null ? "" : url) : defaultUrlTransform(url);
+
+// Links open in the browser; navigating the app's own webview would replace
+// it. A ws-artifact: link opens the artifact in the app, but only when the
+// plugin made it: one written into the text is shown as plain text.
 const markdownComponents: Components = {
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      onClick={(event) => {
-        event.preventDefault();
-        if (href !== undefined) {
-          void api.openExternal(href);
-        }
-      }}
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children, node }) => {
+    const target = href === undefined ? null : parseArtifactHref(href);
+    if (target !== null && node?.properties[artifactLinkMark] !== undefined) {
+      return <ArtifactRef id={target.id} rev={target.rev} raw={String(children)} />;
+    }
+    if (href?.startsWith("ws-artifact:") === true || href === "") {
+      return <span>{children}</span>;
+    }
+    return (
+      <a
+        href={href}
+        onClick={(event) => {
+          event.preventDefault();
+          if (href !== undefined) {
+            void api.openExternal(href);
+          }
+        }}
+      >
+        {children}
+      </a>
+    );
+  },
 };
 
-/** Markdown as the conversation shows it, with links opening in the browser. */
+/** Markdown as the conversation shows it, with links opening in the browser and artifact references in the app. */
 export const MarkdownText = ({ text }: { readonly text: string }): JSX.Element => (
   <div className={styles.markdown}>
-    <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeArtifactLinks]}
+      urlTransform={conversationUrl}
+      components={markdownComponents}
+    >
       {text}
     </Markdown>
   </div>
 );
+
+/** The hint line `ws` appends to a prompt, shown as a row of the artifacts it names. */
+const HintRow = ({ ids }: { readonly ids: readonly string[] }): JSX.Element => (
+  <div className={styles.hintRow}>
+    <span>Artifacts:</span>
+    {ids.map((id) => (
+      <span key={id} className={styles.hintChip}>
+        <ArtifactRef id={id} rev={null} raw={`@artifact:${id}`} />
+      </span>
+    ))}
+  </div>
+);
+
+/** A user message: its text, references linked, and its hint line as a row. */
+const UserText = ({ text }: { readonly text: string }): JSX.Element => {
+  const { body, ids } = splitHint(text);
+  return (
+    <>
+      <LinkedText text={body} />
+      {ids !== null && <HintRow ids={ids} />}
+    </>
+  );
+};
 
 const toolState = (row: Extract<Row, { kind: "tool" }>): string => {
   if (row.result === null) {
@@ -65,7 +115,11 @@ const RowView = ({ row }: { readonly row: Row }): JSX.Element | null => {
           <span className={styles.toolSummary}>{row.use.summary}</span>
         </summary>
         <pre className={styles.toolInput}>{row.use.input}</pre>
-        {row.result !== null && row.result.text !== "" && <pre className={styles.toolOutput}>{row.result.text}</pre>}
+        {row.result !== null && row.result.text !== "" && (
+          <pre className={styles.toolOutput}>
+            <LinkedText text={row.result.text} />
+          </pre>
+        )}
       </details>
     );
   }
@@ -74,7 +128,7 @@ const RowView = ({ row }: { readonly row: Row }): JSX.Element | null => {
     case "user":
       return (
         <div className={styles.user} aria-label="You">
-          {item.text}
+          <UserText text={item.text} />
         </div>
       );
     case "assistant":
@@ -91,7 +145,11 @@ const RowView = ({ row }: { readonly row: Row }): JSX.Element | null => {
         </details>
       );
     case "notice":
-      return <div className={styles.notice}>{item.text}</div>;
+      return (
+        <div className={styles.notice}>
+          <LinkedText text={item.text} />
+        </div>
+      );
     case "warning":
       return <div className={styles.warning}>{item.text}</div>;
   }
@@ -108,6 +166,7 @@ export const ConversationView = ({
   status,
   detail,
   onShowTerminal,
+  linkWorkspaceId = null,
 }: ConversationViewProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const conversation = useAppSelector((s) => s.conversations.bySession[sessionId]);
@@ -163,6 +222,7 @@ export const ConversationView = ({
   }
   return (
     <div className={styles.root}>
+      {linkWorkspaceId !== null && <ConversationArtifacts workspaceId={linkWorkspaceId} />}
       <div ref={scroller} className={styles.scroller} onScroll={onScroll} role="log" aria-label="Conversation">
         <div className={styles.column}>
           {conversation.error !== null && (

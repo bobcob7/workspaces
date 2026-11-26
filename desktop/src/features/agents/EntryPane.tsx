@@ -622,13 +622,18 @@ export const EntryPane = ({ entry }: EntryPaneProps): JSX.Element => {
             status={entry.status}
             detail={entry.detail}
             onShowTerminal={() => dispatch(agentViewChosen("terminal"))}
+            linkWorkspaceId={remote ? null : entry.workspaceId}
           />
-          {terminal !== undefined && termKey !== null && <ReplyBox terminalKey={termKey} disabled={!attached} />}
+          {terminal !== undefined && termKey !== null && (
+            <ReplyBox terminalKey={termKey} disabled={!attached} citeWorkspaceId={remote ? null : entry.workspaceId} />
+          )}
         </>
       ) : terminal !== undefined && termKey !== null ? (
         <>
           <TerminalView terminalKey={termKey} generation={terminal.generation} />
-          {isAgent && <ReplyBox terminalKey={termKey} disabled={!attached} />}
+          {isAgent && (
+            <ReplyBox terminalKey={termKey} disabled={!attached} citeWorkspaceId={remote ? null : entry.workspaceId} />
+          )}
         </>
       ) : (
         <div className={styles.placeholder}>

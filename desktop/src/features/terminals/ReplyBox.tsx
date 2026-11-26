@@ -1,7 +1,8 @@
 import { Button, TextField, useMediaQuery } from "@mui/material";
 import { useRef, useState, type FormEvent, type JSX } from "react";
 import { AttachmentBar } from "../artifacts/AttachButton";
-import { appendHint } from "../artifacts/references";
+import { appendHint, citationsIn } from "../artifacts/references";
+import { citeArtifacts } from "../conversation/conversationSlice";
 import { insertAtSelection, useAttachments } from "../artifacts/useAttachments";
 import { useAppDispatch } from "../../store";
 import { messageKeys, sendMessage } from "./terminalsSlice";
@@ -10,9 +11,11 @@ import styles from "./ReplyBox.module.css";
 export interface ReplyBoxProps {
   readonly terminalKey: string;
   readonly disabled: boolean;
+  /** The local workspace a sent message's artifact references are recorded for; null records nothing (ADR 0084). */
+  readonly citeWorkspaceId?: string | null;
 }
 
-export const ReplyBox = ({ terminalKey, disabled }: ReplyBoxProps): JSX.Element => {
+export const ReplyBox = ({ terminalKey, disabled, citeWorkspaceId = null }: ReplyBoxProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const phone = useMediaQuery("(max-width:720px)");
   const [message, setMessage] = useState("");
@@ -27,7 +30,13 @@ export const ReplyBox = ({ terminalKey, disabled }: ReplyBoxProps): JSX.Element 
     if (cannotSend) {
       return;
     }
-    void dispatch(sendMessage({ key: terminalKey, text: messageKeys(appendHint(message)) }));
+    const refs = citationsIn(message);
+    void dispatch(sendMessage({ key: terminalKey, text: messageKeys(appendHint(message)) })).then((result) => {
+      if (citeWorkspaceId === null || refs.length === 0 || !sendMessage.fulfilled.match(result)) {
+        return;
+      }
+      void dispatch(citeArtifacts({ workspaceId: citeWorkspaceId, refs }));
+    });
     setMessage("");
   };
   return (

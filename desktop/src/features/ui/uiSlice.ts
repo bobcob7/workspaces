@@ -10,6 +10,8 @@ const pickedTypes: readonly string[] = [
   "reviews/reviewSelected",
   "artifacts/artifactSelected",
 ];
+/** Actions that open a section's detail pane on a phone. */
+const linkTypes: readonly string[] = ["artifacts/artifactLinkOpened"];
 const openedTypes: readonly string[] = ["loops/creatingStarted", "settings/groupChosen", "stats/windowChosen"];
 
 export type Dialog = "agent" | "shell";
@@ -133,6 +135,13 @@ const uiSlice = createSlice({
         (state, action: PayloadAction<string | null | { readonly name: string | null }>) => {
           const picked = typeof action.payload === "object" && action.payload !== null ? action.payload.name : action.payload;
           state.narrowPane = paneFor(picked);
+        },
+      )
+      .addMatcher(
+        (action) => linkTypes.includes(action.type),
+        (state) => {
+          state.section = "artifacts";
+          state.narrowPane = "detail";
         },
       )
       .addMatcher(
