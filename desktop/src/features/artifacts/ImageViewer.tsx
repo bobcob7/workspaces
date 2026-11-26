@@ -22,6 +22,7 @@ interface NaturalSize {
 export const ImageViewer = ({ name, contentType, size, dataBase64, byline }: ImageViewerProps): JSX.Element => {
   const [fit, setFit] = useState(true);
   const [natural, setNatural] = useState<NaturalSize | null>(null);
+  const [broken, setBroken] = useState(false);
   const caption = [contentType, formatSize(size), natural === null ? "" : `${natural.width}×${natural.height}`, byline]
     .filter((part) => part !== "")
     .join(" · ");
@@ -35,16 +36,21 @@ export const ImageViewer = ({ name, contentType, size, dataBase64, byline }: Ima
           100%
         </Button>
       </div>
-      <div className={fit ? styles.frameFit : styles.frameNatural}>
-        <img
-          className={fit ? styles.imageFit : styles.imageNatural}
-          src={dataSource(contentType, dataBase64)}
-          alt={name}
-          onLoad={(event) =>
-            setNatural({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })
-          }
-        />
-      </div>
+      {broken ? (
+        <p role="alert">Couldn't display {name}.</p>
+      ) : (
+        <div className={fit ? styles.frameFit : styles.frameNatural}>
+          <img
+            className={fit ? styles.imageFit : styles.imageNatural}
+            src={dataSource(contentType, dataBase64)}
+            alt={name}
+            onLoad={(event) =>
+              setNatural({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })
+            }
+            onError={() => setBroken(true)}
+          />
+        </div>
+      )}
       <figcaption className={styles.caption}>{caption}</figcaption>
     </figure>
   );

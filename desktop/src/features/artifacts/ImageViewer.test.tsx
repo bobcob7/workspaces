@@ -36,6 +36,16 @@ describe("ImageViewer", () => {
     expect(screen.getByRole("button", { name: "Fit" })).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("says the image could not be displayed in place of the frame, keeping the caption", () => {
+    renderViewer();
+
+    fireEvent.error(screen.getByRole("img", { name: "login-error.png" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't display login-error.png.");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByText(/^image\/png/)).toBeInTheDocument();
+  });
+
   it("captures the natural size in the caption once the image loads", () => {
     renderViewer();
     const image = screen.getByRole("img", { name: "login-error.png" });
