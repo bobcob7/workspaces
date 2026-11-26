@@ -138,4 +138,10 @@ describe("defaultScopeOf", () => {
     expect(defaultScopeOf(withScope([1, "linux-server"]))).toEqual([]);
     expect(defaultScopeOf(configListingWith([]))).toEqual([]);
   });
+
+  it("keeps at most 64 names", () => {
+    const names = Array.from({ length: 65 }, (_, index) => `env-${index}`);
+    const listing = configListingWith([{ key: "environments.default_scope", type: "strings", value: names, default: [], set: true }]);
+    expect(defaultScopeOf(listing)).toEqual(names.slice(0, 64));
+  });
 });
