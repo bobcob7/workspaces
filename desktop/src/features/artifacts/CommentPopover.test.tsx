@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommentPopover } from "./CommentPopover";
@@ -63,6 +63,88 @@ describe("CommentPopover", () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
+  it("calls onDismiss when Escape is pressed while focus is elsewhere on the page", () => {
+    setViewport(1280, 800);
+    const onDismiss = vi.fn();
+    renderPopover(addAnchor({ top: 100, left: 50, width: 200, height: 20 }), onDismiss);
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+
+    fireEvent.keyDown(outside, { key: "Escape" });
+
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("leaves Escape to another dialog that has focus", () => {
+    setViewport(1280, 800);
+    const onDismiss = vi.fn();
+    renderPopover(addAnchor({ top: 100, left: 50, width: 200, height: 20 }), onDismiss);
+    const otherDialog = document.createElement("div");
+    otherDialog.setAttribute("role", "dialog");
+    const field = document.createElement("input");
+    otherDialog.append(field);
+    document.body.append(otherDialog);
+    field.focus();
+
+    fireEvent.keyDown(field, { key: "Escape" });
+
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("ignores keys other than Escape anywhere on the page", () => {
+    setViewport(1280, 800);
+    const onDismiss = vi.fn();
+    renderPopover(addAnchor({ top: 100, left: 50, width: 200, height: 20 }), onDismiss);
+
+    fireEvent.keyDown(document.body, { key: "Enter" });
+
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("keeps the popover above the anchor's top edge as its content grows", () => {
+    setViewport(1280, 800);
+    const anchor = addAnchor({ top: 700, left: 50, width: 200, height: 20 });
+    renderPopover(anchor);
+    const dialog = screen.getByRole("dialog", { name: "New comment" });
+    expect(dialog.style.bottom).toBe("108px");
+    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue(toDomRect({ top: 0, left: 0, width: 360, height: 400 }));
+
+    fireEvent.scroll(window);
+
+    expect(dialog.style.bottom).toBe("108px");
+    expect(dialog.style.top).toBe("");
+  });
+
+  it("flips the popover above when its measured growth no longer fits below", () => {
+    setViewport(1280, 800);
+    const observed: ResizeObserverCallback[] = [];
+    const observedElements: Element[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observed.push(callback);
+        }
+        observe(element: Element): void {
+          observedElements.push(element);
+        }
+        unobserve(): void {}
+        disconnect(): void {}
+      },
+    );
+    renderPopover(addAnchor({ top: 500, left: 50, width: 200, height: 20 }));
+    const dialog = screen.getByRole("dialog", { name: "New comment" });
+    expect(dialog.style.top).toBe("528px");
+    expect(observedElements).toEqual([dialog]);
+    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue(toDomRect({ top: 0, left: 0, width: 360, height: 300 }));
+
+    act(() => observed.forEach((callback) => callback([], {} as ResizeObserver)));
+
+    expect(dialog.style.top).toBe("");
+    expect(dialog.style.bottom).toBe("308px");
+  });
+
   it("returns focus to the anchor when Escape dismisses it", async () => {
     setViewport(1280, 800);
     const anchor = addAnchor({ top: 100, left: 50, width: 200, height: 20 });
@@ -118,7 +200,8 @@ describe("CommentPopover", () => {
     setViewport(1280, 400);
     fireEvent.resize(window);
 
-    expect(dialog.style.top).toBe("92px");
+    expect(dialog.style.top).toBe("");
+    expect(dialog.style.bottom).toBe("108px");
   });
 
   it("docks at the bottom of a narrow viewport", () => {
@@ -142,6 +225,18 @@ describe("CommentPopover", () => {
     renderPopover(anchor);
 
     expect(screen.getByRole("dialog", { name: "New comment" }).style.top).toBe("");
+  });
+
+  it("ignores an Escape that another handler already prevented", () => {
+    setViewport(1280, 800);
+    const onDismiss = vi.fn();
+    const { container } = renderPopover(addAnchor({ top: 100, left: 50, width: 200, height: 20 }), onDismiss);
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.addEventListener("keydown", (event) => event.preventDefault());
+
+    fireEvent.keyDown(textarea, { key: "Escape" });
+
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 
   it("removes its scroll and resize listeners on unmount", () => {
