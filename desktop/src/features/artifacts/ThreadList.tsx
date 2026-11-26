@@ -170,6 +170,7 @@ export const ThreadList = ({
   );
   return (
     <div className={styles.root}>
+      {threads.length === 0 && <p className={styles.empty}>No comments yet.</p>}
       <ul className={styles.list} aria-label="Comment threads">
         {groups.open.map(itemFor)}
       </ul>

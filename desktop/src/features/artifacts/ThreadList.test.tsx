@@ -205,6 +205,12 @@ describe("ThreadList", () => {
     });
   });
 
+  it("says there are no comments yet when the artifact has no threads", () => {
+    renderList({ threads: [] });
+
+    expect(screen.getByText("No comments yet.")).toBeInTheDocument();
+  });
+
   it("hides reply and resolve on an older revision", () => {
     renderList({ readOnly: true });
 

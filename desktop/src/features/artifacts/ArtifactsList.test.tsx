@@ -76,6 +76,22 @@ describe("ArtifactsList", () => {
     expect(artifactList).toHaveBeenCalledWith(null, null);
   });
 
+  it("shows Loading... rather than an empty message during the first load", () => {
+    const artifactList = vi.fn(() => new Promise<ArtifactSummary[]>(() => undefined));
+    renderWithStore(<ArtifactsList />, testStore({ api: fakeApi({ artifactList }) }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading...");
+    expect(screen.queryByText(/No artifacts yet/)).not.toBeInTheDocument();
+  });
+
+  it("explains how to add the first artifact when the list is empty", async () => {
+    renderList([]);
+
+    expect(
+      await screen.findByText("No artifacts yet. Upload a file, drop one here, or paste an image."),
+    ).toBeInTheDocument();
+  });
+
   it("shows each artifact by its title, with its kind, revision and threads", async () => {
     renderList([login, pitch]);
     expect(await screen.findByRole("button", { name: /Pitch: cache sharing/ })).toHaveTextContent("r2");
