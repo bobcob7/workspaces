@@ -894,7 +894,7 @@
       entry({
         workspaceId: "plan-scope-4d5e6f7a", sessionId: "4d5e6f7a", path: "/w/plan-scope-4d5e6f7a",
         status: "working", intent: "Compare each machine's private IP",
-        progress: { name: "compare IPs", total: 3, done: 1, note: "Waiting for win-rig", updatedAt: "2026-11-25T10:00:00Z" },
+        progress: { name: "compare IPs", total: 3, done: 1, note: null, updatedAt: "2026-11-25T10:00:00Z" },
         rollup: { total: 8, done: 4, fraction: 0.5 },
         scope: [
           { id: "local", name: "local", state: "online", current: true },
@@ -917,7 +917,7 @@
       remoteEntry("win-rig", {
         workspaceId: "ip-win-2e3f4a5b", sessionId: "2e3f4a5b", status: "idle",
         environmentOnline: false, snapshotStale: true, intent: "Report the private IP",
-        progress: { name: "private IP", total: 2, done: 1, note: null, updatedAt: "2026-11-25T09:40:00Z" },
+        progress: { name: "private IP", total: 2, done: 1, note: "Waiting for win-rig", updatedAt: "2026-11-25T09:59:00Z" },
         rollup: { total: 2, done: 1, fraction: 0.5 },
         scopeParent: { environment: "local", workspaceId: "plan-scope-4d5e6f7a" },
       }),
