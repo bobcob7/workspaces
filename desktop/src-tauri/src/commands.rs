@@ -12,6 +12,7 @@ use crate::runner::{self, AppError, Runner};
 use crate::transcript::{self, Chunk};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -172,6 +173,9 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
     if let Some(env) = remote_env(req.environment.as_deref()) {
         args.push(format!("--env={env}"));
     }
+    if let Some(names) = &req.env_scope {
+        args.push(format!("--env-scope={}", names.join(",")));
+    }
     if let Some(name) = non_empty(req.name.as_ref()) {
         args.extend(["--name".to_string(), name.to_string()]);
     }
@@ -214,14 +218,53 @@ pub fn new_agent_args(req: &NewAgent) -> Vec<String> {
     args
 }
 
-/// Checks a requested environment scope (ADR 0083).
-pub fn validate_env_scope(_names: &[String]) -> Result<(), AppError> {
+/// Most names in a scope (envscope.MaxEntries).
+const MAX_SCOPE_NAMES: usize = 64;
+/// Longest environment name (config's default_scope rule).
+const MAX_SCOPE_NAME_BYTES: usize = 64;
+
+/// Checks a requested environment scope (ADR 0083): 1-64 names, each 1-64
+/// bytes with no whitespace, comma, control character or leading '-', and
+/// none repeated.
+pub fn validate_env_scope(names: &[String]) -> Result<(), AppError> {
+    if names.is_empty() || names.len() > MAX_SCOPE_NAMES {
+        return Err(AppError::new(
+            "usage",
+            format!("an environment scope needs 1 to {MAX_SCOPE_NAMES} names"),
+        ));
+    }
+    let mut seen = HashSet::new();
+    for name in names {
+        if !valid_scope_name(name) {
+            return Err(AppError::new(
+                "usage",
+                format!("{name:?} isn't a valid environment name"),
+            ));
+        }
+        if !seen.insert(name.as_str()) {
+            return Err(AppError::new(
+                "usage",
+                format!("environment {name:?} is listed twice"),
+            ));
+        }
+    }
     Ok(())
+}
+
+fn valid_scope_name(name: &str) -> bool {
+    (1..=MAX_SCOPE_NAME_BYTES).contains(&name.len())
+        && !name.starts_with('-')
+        && !name
+            .chars()
+            .any(|c| c == ',' || c.is_whitespace() || c.is_control())
 }
 
 /// Creates a workspace with a background agent in it: `ws claude`.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn create_agent(state: State<'_, AppState>, request: NewAgent) -> CmdResult<Created> {
+    if let Some(names) = &request.env_scope {
+        validate_env_scope(names)?;
+    }
     state.runner.ws_json(&new_agent_args(&request)).await
 }
 
