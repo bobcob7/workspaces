@@ -1445,11 +1445,23 @@
     a.updatedAt = new Date().toISOString();
   };
 
+  // Test hooks: delay or fail artifact_read per revision (keys are rev numbers or "latest"),
+  // and fail artifact_comment_add. Set from the page, e.g. window.__artifactMock.commentAddFail = true.
+  window.__artifactMock = { readDelayMs: {}, readFail: {}, commentAddFail: false };
+
   const artifactHandlers = {
     artifact_list: () => artifactStore.map(summaryOf),
     artifact_show: ({ id }) => detailOf(findArtifact(id)),
-    artifact_read: ({ id, rev }) => {
+    artifact_read: async ({ id, rev }) => {
       const found = revisionOf(findArtifact(id), rev);
+      const hooks = window.__artifactMock;
+      const key = String(rev ?? "latest");
+      if (hooks.readDelayMs[key] > 0) {
+        await new Promise((done) => setTimeout(done, hooks.readDelayMs[key]));
+      }
+      if (hooks.readFail[key]) {
+        throw { code: "artifact_read_failed", message: `could not read ${id} r${key}` };
+      }
       return { rev: artifactStore.find((a) => a.id === id).revs.indexOf(found) + 1, contentType: found.contentType, size: sizeOf(found.dataBase64), dataBase64: found.dataBase64 };
     },
     artifact_add: ({ name, title, dataBase64 }) => {
@@ -1477,6 +1489,9 @@
       return { artifactId: a.id, latest: latestRev(a), threads: a.threads };
     },
     artifact_comment_add: ({ id, body, reply, anchor }) => {
+      if (window.__artifactMock.commentAddFail) {
+        throw { code: "artifact_comment_failed", message: "could not post the comment" };
+      }
       const a = findArtifact(id);
       const now = new Date().toISOString();
       const author = person;
