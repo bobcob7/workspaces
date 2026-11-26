@@ -168,6 +168,7 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	switch {
 	case a.global.json:
 		a.annotateScopes(ctx, entries, presence)
+		a.mergeRollups(entries)
 		return a.writeJSON(listJSON{Workspaces: entries, HiddenCount: hidden, Warnings: a.warnings()})
 	case opts.idsOnly:
 		for i := range entries {
