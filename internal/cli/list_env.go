@@ -386,11 +386,8 @@ type parentFilter struct {
 	ledger map[ledgerKey]envscope.Entry // nil without a ledger
 }
 
-// parentFilterOf is the filter --parent applies, or nil without --parent.
+// parentFilterOf is the filter --parent applies; opts names a parent.
 func (a *App) parentFilterOf(opts *listOptions) (*parentFilter, error) {
-	if opts.parent == "" {
-		return nil, nil
-	}
 	env, id, err := a.parentOf(opts)
 	if err != nil {
 		return nil, err
