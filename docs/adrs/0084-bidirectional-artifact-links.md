@@ -94,8 +94,9 @@ without making `ws` read Claude Code's transcripts or slowing any command?
   advisory cursor (`transcript`, `offset`). `scan record` skips pairs in
   `seen`, and adds a pair only after its link write succeeded. So rescans,
   two scanners, retries and restarts never count twice, and a lost cursor
-  costs only a rescan. It refuses a workspace with no `workspace.toml`, so a
-  removal in progress isn't undone.
+  costs only a rescan. The workspace id is checked against the id grammar
+  before any path is built, and a workspace with no `workspace.toml` is
+  refused, so a removal in progress isn't undone.
 - **Cost**: per sweep and workspace, a `stat`; when the file grew, a read of
   at most 4 MiB of whole lines past the cursor, JSON-parsing only lines that
   contain `@artifact:`. A half-written last line waits. A shorter file or a
@@ -107,8 +108,10 @@ without making `ws` read Claude Code's transcripts or slowing any command?
 
 - **Conversation view**: a remark plugin links `@artifact:` references in
   assistant and thinking text (`ws-artifact:<id>[?rev=<n>]`, handled in-app,
-  never `openExternal`), skipping code; user, notice and tool-result text get
-  the same pass; the hint line collapses to a row of chips. A header strip,
+  never `openExternal`), skipping code; user, notice and tool-result text, and
+  comment bodies on the artifact page, get the same pass. Only the plugin
+  mints `ws-artifact:` links (an author-written one is plain text), and the
+  handler re-parses the id and revision strictly; the hint line collapses to a row of chips. A header strip,
   "Artifacts in this conversation", lists the artifacts linked to the
   workspace, from `ws artifact list --conversation <id>` (each summary gains
   that workspace's `conversation` row), refreshed every 15 s while open.
@@ -174,6 +177,23 @@ the transcript, one click away, says who.
 - Citations made in the last sweep interval (up to about 30 s) before a
   workspace is removed are lost; remote transcripts aren't scanned.
 - Indented code blocks aren't treated as code by the scan.
+- `cited` from transcripts is best effort and depends on a desktop running
+  on the machine: a host with only the CLI or Workspace Online records the
+  `cited` rows that `ws claude`, `spawn` and `cite` write, not scanned ones.
+  `conversations` is therefore eventually and partially complete, and agents
+  reading it through `ws machine artifact show` should treat it so.
+- Rows are self-reported: an agent controls its own transcript and can cite
+  any artifact. Counts are advisory, not an audit trail, and `name`, `root`
+  and `environment` from `links.json` are rendered as text only, never as
+  Markdown or a link target.
+- `scan record`'s input carries `version: 1`; the desktop and `ws` change it
+  together, and a Go test reads the JSON the Rust side produces (a fixture
+  in `internal/cli/testdata`).
+- `list --conversation` reads every `links.json`; a per-workspace index is the
+  planned fix if that grows costly (design, The strip).
+- The implementation follows in the stacked PRs listed in
+  [tasks.md](../design/artifact-links/tasks.md); names such as
+  `citations::sweep_forever` and `ws artifact scan` exist once they land.
 - New hidden commands (`ws artifact cite`, `ws artifact scan cursors|record`)
   and a flag (`ws artifact list --conversation`); no new error codes; one new
   Tauri command, `artifact_cite`.

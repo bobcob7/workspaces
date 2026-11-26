@@ -33,8 +33,15 @@ commit. Three stacked PRs; the second and third name the base they stack on.
 
 - [ ] **T6** Rust: `citations.rs` (scanner and sweep), `artifact_cite`,
   `artifact_list`'s `conversation`, `conversations` in `Artifact` (C7).
-- [ ] **T7** TS: the remark linkifier and its use in the conversation view,
+  Tests: code blanking, hint skip, thinking and tools skipped, one count per
+  message, partial last line, 4 MiB steps ending on a line boundary, a
+  shorter file or new path rescanned from 0, the 1 MiB persist rule, and the
+  `scan record` JSON matching the Go fixture.
+- [ ] **T7** TS: the remark linkifier (the only minter of `ws-artifact:`
+  links, strict id and revision parsing) and its use in the conversation view,
   tool results, comment bodies and user text; the hint row; the strip; the
   Conversations section; `ReplyBox` calling `artifact_cite` (C7).
-- [ ] **T8** Mock data and screenshots (`desktop/docs/artifact-links-*.png`),
-  linked from the PR.
+- [ ] **T8** Mock data and screenshots of the built app
+  (`desktop/docs/artifact-links-*.png`, Playwright against Vite and the Tauri
+  mock), linked from the PR. These are distinct from the design mockups in
+  `img/`, which T1 renders from `mockups.html`.

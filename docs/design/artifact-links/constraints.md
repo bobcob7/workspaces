@@ -20,8 +20,8 @@ scan record` reuses `usage` (bad input, a newer `citations.json`) and
 | --- | --- |
 | `internal/cli/artifact.go`, `newArtifactCmd` | add `a.newArtifactCiteCmd()` and `a.newArtifactScanCmd()` (with `cursors` and `record`); all under the hidden `ws artifact`, so `TestGuideTopics` needs no guide and `TestApp_newRootCmd` is unchanged |
 | `artifact.go`, `newArtifactListCmd` | `--conversation <id>`; `--workspace` keeps its meaning |
-| `internal/cli/guides/ws-machine-artifact-{add,show,get,put}.md` `## JSON output` | `conversations` in the sample, one sentence on its rows |
-| `internal/cli/guides/ws-machine-artifact-list.md` `## JSON output` | `conversation_count` |
+| `internal/cli/guides/ws-machine-artifact-{add,show,put}.md` `## JSON output` | `conversations` in the sample, one sentence on its rows |
+| `internal/cli/guides/ws-machine-artifact-{get,list}.md` `## JSON output` | `conversation_count` (their `artifact` is a summary) |
 | `internal/cli/guides/ws.md`, `## Rules for agents`, the `@artifact:` bullet | one clause: `get` records that your conversation read it, and naming it in a reply records a citation |
 | `internal/cli/llm.go` `guideTopicsFromReview()` | unchanged: no new topic |
 
