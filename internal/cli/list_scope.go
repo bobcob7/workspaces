@@ -36,7 +36,7 @@ func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON, prese
 	}
 	recs, err := a.envStore().List()
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read the environments: %v", err))
+		a.warnOnce(fmt.Sprintf("couldn't read the environments: %v", err))
 		return
 	}
 	states := newScopeStates(a, recs, presence)
@@ -60,7 +60,7 @@ func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON, prese
 func (a *App) scopeSelf() envscope.Ref {
 	self, err := a.selfRef()
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("ignoring this machine's identity: %v", err))
+		a.warnOnce(fmt.Sprintf("ignoring this machine's identity: %v", err))
 		return localRef()
 	}
 	return self
@@ -74,7 +74,7 @@ func (a *App) readLedger() map[ledgerKey]envscope.Entry {
 	}
 	entries, err := envscope.NewLedger(a.paths.Environments).List()
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read the scope ledger: %v", err))
+		a.warnOnce(fmt.Sprintf("couldn't read the scope ledger: %v", err))
 		return nil
 	}
 	byKey := make(map[ledgerKey]envscope.Entry, len(entries))
@@ -90,7 +90,7 @@ func (a *App) readLedger() map[ledgerKey]envscope.Entry {
 func (a *App) localScopeOf(ctx context.Context, states *scopeStates, self envscope.Ref, id string) []envproto.ScopeEnv {
 	scope, _, err := envscope.Read(a.paths.State, id, self)
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("ignoring the scope of %s: %v", id, err))
+		a.warnOnce(fmt.Sprintf("ignoring the scope of %s: %v", id, err))
 		return nil
 	}
 	if !scope.WiderThanSelf() {
@@ -234,7 +234,7 @@ func (a *App) fillScopeParents(entries []listEntryJSON) {
 	}
 	recs, err := a.envStore().List()
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read the environments: %v", err))
+		a.warnOnce(fmt.Sprintf("couldn't read the environments: %v", err))
 		return
 	}
 	states := newScopeStates(a, recs, nil)

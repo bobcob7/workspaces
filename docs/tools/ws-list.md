@@ -105,9 +105,9 @@ stays top-level among its environment's rows.
 | --------------- | ---------------------------------------------- |
 | `-a`, `--all`   | Include hidden workspaces                      |
 | `-q`, `--ids`   | Print only workspace IDs (like `docker ps -q`); not with `--json` |
-| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children on every environment, including those it started with `ws machine spawn --env` ([0044](../adrs/0044-workspace-trees.md)); without `--env`, the environment it is in |
+| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children on every environment, including those it started with `ws machine spawn --env` ([0044](../adrs/0044-workspace-trees.md)); without `--env`, the environment it is in. `-q` reads local only; with `--env`, the parent's environment, and children on other environments are still listed |
 | `--repo <SPEC>` | Only workspaces containing this repo, matched by the parts the spec gives (`api` matches any owner and host, `o/api` any host) and its ref, if any, against the ref checked out; no cache lookup |
-| `--env <NAME>`  | Only the workspaces of this environment: `local` or a name from `ws env list`. Repeatable; default every environment (`local`, then enrolled ones by name). `-q` defaults to `local` |
+| `--env <NAME>`  | Only the workspaces of this environment: `local` or a name from `ws env list`. Repeatable; default every environment (`local`, then enrolled ones by name). `-q` defaults to `local`. With `--parent`, `--env` names the parent's environment and doesn't filter: children on other environments are still listed |
 | `--json`        | Print `{"workspaces": [...], "hidden_count", "warnings"}`, with `environment`, `environment_status`, `stale`, `agent_state`, `scope_parent` and `scope` on each entry |
 
 ## Examples

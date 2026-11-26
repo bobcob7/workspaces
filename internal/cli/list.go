@@ -184,12 +184,12 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 // listTargets are the environments ws list reads and, with --parent, the
 // filter it keeps workspaces by.
 func (a *App) listTargets(opts *listOptions) ([]string, *parentFilter, error) {
+	if opts.parent != "" && len(opts.envs) > 1 {
+		return nil, nil, usageErrorf("--parent takes one --env")
+	}
 	envs, err := a.listedEnvironments(opts)
 	if err != nil || opts.parent == "" {
 		return envs, nil, err
-	}
-	if len(opts.envs) > 1 {
-		return nil, nil, usageErrorf("--parent takes one --env")
 	}
 	parent, err := a.parentFilterOf(opts)
 	return envs, parent, err
@@ -555,7 +555,7 @@ func (a *App) listedWorkspaces(entries []lifetime.Entry, unknown []string, loopR
 func (a *App) workspaceProgress(store *machine.Store, list []workspace.Workspace, id string) (*progressJSON, *rollupJSON) {
 	tree, err := progressTreeOf(store, machine.Root(list, id), list, id)
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read %s's progress: %v", id, err))
+		a.warnOnce(fmt.Sprintf("couldn't read %s's progress: %v", id, err))
 		return nil, nil
 	}
 	return nodeProgress(tree)
@@ -613,7 +613,7 @@ func (a *App) reviewRecord(id string) *record.Record {
 		return nil
 	}
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read workspace %s's review record: %v", id, err))
+		a.warnOnce(fmt.Sprintf("couldn't read workspace %s's review record: %v", id, err))
 		return nil
 	}
 	return &rec
@@ -625,7 +625,7 @@ func (a *App) loopRunInfo(e *lifetime.Entry) *listLoopRunJSON {
 	id := e.Workspace.ID
 	mark, found, err := a.loopData.ReadRunMark(id)
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read workspace %s's loop run: %v", id, err))
+		a.warnOnce(fmt.Sprintf("couldn't read workspace %s's loop run: %v", id, err))
 		return nil
 	}
 	if !found {
@@ -635,7 +635,7 @@ func (a *App) loopRunInfo(e *lifetime.Entry) *listLoopRunJSON {
 	rec, err := machine.NewStore(a.paths.State).Read(id, id)
 	switch {
 	case err != nil:
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read workspace %s's machine record: %v", id, err))
+		a.warnOnce(fmt.Sprintf("couldn't read workspace %s's machine record: %v", id, err))
 	case rec.Result != nil:
 		verdict = rec.Result.Verdict
 	}

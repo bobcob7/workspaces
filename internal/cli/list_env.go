@@ -290,7 +290,7 @@ func (a *App) snapshotOld(receivedAt string) bool {
 func (a *App) remoteEnvListing(name string, opts *listOptions, filter *repo.Spec, parent *parentFilter, presence map[string]string) envListing {
 	remote, err := a.remoteEntries(name, presence)
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read environment %s's snapshot: %v", name, err))
+		a.warnOnce(fmt.Sprintf("couldn't read environment %s's snapshot: %v", name, err))
 	}
 	envID := ""
 	if parent != nil {
