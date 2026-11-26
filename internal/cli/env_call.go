@@ -204,7 +204,7 @@ func (a *App) environmentsWith(id string) ([]string, error) {
 	for i := range recs {
 		entries, err := a.remoteEntries(recs[i].Name, nil)
 		if err != nil {
-			a.warned = append(a.warned, fmt.Sprintf("couldn't read environment %s's snapshot: %v", recs[i].Name, err))
+			a.warnOnce(fmt.Sprintf("couldn't read environment %s's snapshot: %v", recs[i].Name, err))
 			continue
 		}
 		for j := range entries.entries {

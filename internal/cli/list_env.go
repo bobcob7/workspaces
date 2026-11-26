@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/envproto"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/repo"
@@ -68,18 +70,105 @@ func (a *App) selectEnvironments(names []string) ([]string, error) {
 }
 
 // listedEnvironments is the environments plain ws list reads (D9): local
-// and every enrolled environment by name. -q reads local alone, and --parent
-// reads the one environment it is in; --env narrows to the names given.
+// and every enrolled environment by name. -q reads local alone, --parent
+// reads the parent's environment and its children's (parentEnvironments),
+// and --env narrows to the names given.
 func (a *App) listedEnvironments(opts *listOptions) ([]string, error) {
 	switch {
+	case opts.parent != "" && !opts.idsOnly && len(opts.envs) < 2:
+		return a.parentEnvironments(opts)
 	case len(opts.envs) > 0:
 		return a.selectEnvironments(opts.envs)
 	case opts.idsOnly:
 		return []string{localEnvironment}, nil
-	case opts.parent != "":
-		return a.parentEnvironment(opts.parent)
 	}
 	return a.enrolledEnvironments()
+}
+
+// parentEnvironments is what --parent reads: the parent's environment, then
+// the environments of its ledger children, local first then by name.
+func (a *App) parentEnvironments(opts *listOptions) ([]string, error) {
+	env, id, err := a.parentOf(opts)
+	if err != nil {
+		return nil, err
+	}
+	names := append([]string{env}, a.childEnvironments(a.envIDOf(env), id)...)
+	return sortEnvironments(names), nil
+}
+
+// parentOf is the environment --parent runs on and the id of the parent
+// workspace there: the environment --env names, else the one the parent is
+// found in. -q reads local alone.
+func (a *App) parentOf(opts *listOptions) (string, string, error) {
+	env := localEnvironment
+	switch {
+	case opts.idsOnly && len(opts.envs) == 0:
+	case len(opts.envs) == 1:
+		env = opts.envs[0]
+	default:
+		envs, err := a.parentEnvironment(opts.parent)
+		if err != nil {
+			return "", "", err
+		}
+		env = envs[0]
+	}
+	if env != localEnvironment {
+		return env, opts.parent, nil
+	}
+	ws, err := a.workspaces.Find(opts.parent)
+	if err != nil {
+		return "", "", domainError(err)
+	}
+	return env, ws.ID, nil
+}
+
+// sortEnvironments is names without repeats, local first, then by name.
+func sortEnvironments(names []string) []string {
+	slices.SortFunc(names, func(a, b string) int {
+		switch {
+		case a == b:
+			return 0
+		case a == localEnvironment:
+			return -1
+		case b == localEnvironment:
+			return 1
+		}
+		return strings.Compare(a, b)
+	})
+	return slices.Compact(names)
+}
+
+// childEnvironments is the environments of the ledger entries whose parent is
+// (envID, id), by name, sorted; nil without a ledger.
+func (a *App) childEnvironments(envID, id string) []string {
+	if !envscope.LedgerExists(a.paths.Environments) {
+		return nil
+	}
+	entries, err := envscope.NewLedger(a.paths.Environments).List()
+	if err != nil {
+		a.warnOnce(fmt.Sprintf("couldn't read the scope ledger: %v", err))
+		return nil
+	}
+	recs, err := a.envStore().List()
+	if err != nil {
+		a.warnOnce(fmt.Sprintf("couldn't read the environments: %v", err))
+		return nil
+	}
+	names := map[string]string{envscope.Local: localEnvironment}
+	for i := range recs {
+		names[recs[i].ID] = recs[i].Name
+	}
+	var out []string
+	for i := range entries {
+		p := entries[i].Parent
+		name, known := names[entries[i].Environment]
+		if p == nil || p.Environment != envID || p.Workspace != id || !known {
+			continue
+		}
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // enrolledEnvironments is local, then every enrolled environment by name. A
@@ -198,10 +287,14 @@ func (a *App) snapshotOld(receivedAt string) bool {
 
 // remoteEnvListing is environment name's part of ws list, filtered as the
 // local listing is. A snapshot that can't be read is a warning.
-func (a *App) remoteEnvListing(name string, opts *listOptions, filter *repo.Spec, presence map[string]string) envListing {
+func (a *App) remoteEnvListing(name string, opts *listOptions, filter *repo.Spec, parent *parentFilter, presence map[string]string) envListing {
 	remote, err := a.remoteEntries(name, presence)
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read environment %s's snapshot: %v", name, err))
+		a.warnOnce(fmt.Sprintf("couldn't read environment %s's snapshot: %v", name, err))
+	}
+	envID := ""
+	if parent != nil {
+		envID = a.envIDOf(name)
 	}
 	var kept []listEntryJSON
 	hidden := 0
@@ -209,7 +302,7 @@ func (a *App) remoteEnvListing(name string, opts *listOptions, filter *repo.Spec
 		e := remote.entries[i]
 		switch {
 		case filter != nil && !remoteHasRepo(e.Repos, filter):
-		case opts.parent != "" && deref(e.Parent) != opts.parent:
+		case parent != nil && !parent.keeps(name, envID, deref(e.Parent), deref(e.ID)):
 		case e.Hidden && !opts.all && attentionOf(e.LoopRun) == loop.AttentionNone:
 			hidden++
 		default:
@@ -242,9 +335,11 @@ func remoteRows(entries []listEntryJSON, now time.Time) []listRow {
 	for k, i := range order {
 		e := &entries[i]
 		rows = append(rows, listRow{
-			env:     envText(e),
+			env:     e.Environment,
 			id:      deref(e.ID),
 			depth:   depths[k],
+			parent:  deref(e.Parent),
+			stale:   e.Stale,
 			name:    nameText(deref(e.Name), e.Hidden, attentionOf(e.LoopRun)),
 			created: createdAgo(e.CreatedAt, now),
 			session: sessionText(sessionOf(e.Session)),
@@ -252,15 +347,6 @@ func remoteRows(entries []listEntryJSON, now time.Time) []listRow {
 		})
 	}
 	return rows
-}
-
-// envText is the ENV column: the environment's name, and "(offline)" after
-// it when the entry is stale.
-func envText(e *listEntryJSON) string {
-	if e.Stale {
-		return e.Environment + " (offline)"
-	}
-	return e.Environment
 }
 
 // createdAgo is the CREATED column for a created_at, "-" when there is none
@@ -289,4 +375,46 @@ func reposOf(repos []listRepoJSON) []workspace.Repo {
 		out = append(out, workspace.Repo{Path: repos[i].Path, Ref: repos[i].Ref})
 	}
 	return out
+}
+
+// parentFilter is what --parent keeps: same-environment children of id, and
+// children on other environments whose ledger entry names id as their parent.
+type parentFilter struct {
+	env    string                       // the parent's environment name
+	envID  string                       // envscope.Local, or the parent environment's id
+	id     string                       // the parent workspace's id
+	ledger map[ledgerKey]envscope.Entry // nil without a ledger
+}
+
+// parentFilterOf is the filter --parent applies; opts names a parent.
+func (a *App) parentFilterOf(opts *listOptions) (*parentFilter, error) {
+	env, id, err := a.parentOf(opts)
+	if err != nil {
+		return nil, err
+	}
+	return &parentFilter{env: env, envID: a.envIDOf(env), id: id, ledger: a.readLedger()}, nil
+}
+
+// keeps is whether workspace id, in environment env (envID) and started from
+// entryParent there, is a child of the filter's parent.
+func (f *parentFilter) keeps(env, envID, entryParent, id string) bool {
+	if env == f.env {
+		return entryParent == f.id
+	}
+	entry, ok := f.ledger[ledgerKey{env: envID, workspace: id}]
+	return ok && entry.Parent != nil && entry.Parent.Environment == f.envID && entry.Parent.Workspace == f.id
+}
+
+// envIDOf is environment env's id, as envIDIn.
+func (a *App) envIDOf(env string) string {
+	return envIDIn(a.environmentIDs(), env)
+}
+
+// envIDIn is environment env's id from ids (environmentIDs): envscope.Local
+// for local, else its record's id ("" when there is none).
+func envIDIn(ids map[string]string, env string) string {
+	if env == localEnvironment {
+		return envscope.Local
+	}
+	return ids[env]
 }

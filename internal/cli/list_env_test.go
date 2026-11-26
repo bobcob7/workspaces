@@ -15,6 +15,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/environment"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -346,5 +347,221 @@ func TestRemoteHasRepo(t *testing.T) {
 	})
 	t.Run("a ref must be the one checked out", func(t *testing.T) {
 		assert.False(t, remoteHasRepo(repos, &repo.Spec{Kind: repo.KindName, Name: "buff-bear", Ref: "dev"}))
+	})
+}
+
+// runParentList runs ws list --json with opts and returns each entry as
+// environment/id, in listing order.
+func runParentList(t *testing.T, e *mockedApp, opts *listOptions) []string {
+	t.Helper()
+	e.app.global.json = true
+	require.NoError(t, e.app.runList(t.Context(), opts))
+	var got listJSON
+	require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+	out := make([]string, 0, len(got.Workspaces))
+	for i := range got.Workspaces {
+		out = append(out, got.Workspaces[i].Environment+"/"+*got.Workspaces[i].ID)
+	}
+	return out
+}
+
+// findsAsGiven is a workspace store whose Find finds every id.
+func findsAsGiven(arg string) (workspace.Workspace, error) {
+	return workspace.Workspace{ID: arg}, nil
+}
+
+func TestApp_runList_parent(t *testing.T) {
+	t.Run("--parent of a local workspace lists its remote children", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		assert.Equal(t, []string{"linux-server/ip-1"}, runParentList(t, e, &listOptions{parent: "plan"}))
+	})
+	t.Run("--parent of a remote workspace lists its children on a third environment", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		linux := linuxWithSnapshot(t, e, remoteWorkspace("deps", "repo", "", false))
+		win := addEnvironment(t, e.app, "win-rig")
+		enrollEnvironment(t, e.app, win)
+		writeRemoteSnapshot(t, e.app, win, testNow(), remoteWorkspaces(remoteWorkspace("deps-test", "repo", "", false)))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: win.ID, Workspace: "deps-test", Scope: []string{envscope.Local, win.ID}, Parent: &envscope.Parent{Environment: linux.ID, Workspace: "deps"}})
+		assert.Equal(t, []string{"win-rig/deps-test"}, runParentList(t, e, &listOptions{parent: "deps"}))
+	})
+	t.Run("--parent with --env names the parent's environment and still lists remote children", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		assert.Equal(t, []string{"linux-server/ip-1"}, runParentList(t, e, &listOptions{envs: []string{"local"}, parent: "plan"}))
+	})
+	t.Run("a ledger child of another workspace is not listed", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-2"}})
+		assert.Empty(t, runParentList(t, e, &listOptions{parent: "plan"}))
+	})
+	t.Run("a remote environment's ledger children of other parents are not listed", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e,
+			remoteWorkspace("ip-1", "repo", "", false),
+			remoteWorkspace("ip-2", "repo", "", false),
+			remoteWorkspace("ip-3", "repo", "", false),
+			remoteWorkspace("ip-4", "repo", "plan", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-2", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-2"}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-3", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: rec.ID, Workspace: "plan"}})
+		assert.Equal(t, []string{"linux-server/ip-1"}, runParentList(t, e, &listOptions{parent: "plan"}))
+	})
+	t.Run("--parent without a ledger reads only the parent's environment", func(t *testing.T) {
+		e := localPlanApp(t, true, false)
+		e.store.FindFunc = findsAsGiven
+		rec := addLinuxServer(t, e.app)
+		enrollEnvironment(t, e.app, rec)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), `{"not":"an array"}`)
+		assert.Equal(t, []string{"local/build"}, runParentList(t, e, &listOptions{parent: "plan"}))
+		assert.Empty(t, e.app.warned, "the enrolled environment's snapshot was read")
+	})
+	t.Run("-q --parent stays local", func(t *testing.T) {
+		e := localPlanApp(t, true, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true, parent: "plan"}))
+		assert.Equal(t, "build\n", e.stdout.String())
+	})
+	t.Run("a remote parent's children on its own environment are listed", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		linuxWithSnapshot(t, e,
+			remoteWorkspace("deps", "repo", "", false),
+			remoteWorkspace("deps-test", "repo", "deps", false),
+			remoteWorkspace("other", "repo", "", false))
+		assert.Equal(t, []string{"linux-server/deps-test"}, runParentList(t, e, &listOptions{parent: "deps"}))
+	})
+	t.Run("a remote parent's ledger child on its own environment is listed once", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		rec := linuxWithSnapshot(t, e,
+			remoteWorkspace("deps", "repo", "", false),
+			remoteWorkspace("deps-test", "repo", "deps", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "deps-test", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: rec.ID, Workspace: "deps"}})
+		assert.Equal(t, []string{"linux-server/deps-test"}, runParentList(t, e, &listOptions{parent: "deps"}))
+	})
+	t.Run("--env of a remote parent's environment lists its children without looking the parent up", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		linuxWithSnapshot(t, e,
+			remoteWorkspace("deps", "repo", "", false),
+			remoteWorkspace("deps-test", "repo", "deps", false))
+		assert.Equal(t, []string{"linux-server/deps-test"}, runParentList(t, e, &listOptions{envs: []string{"linux-server"}, parent: "deps"}))
+	})
+	t.Run("--parent with an unknown --env among two is a usage error", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		linuxWithSnapshot(t, e, remoteWorkspace("deps", "repo", "", false))
+		err := e.app.runList(t.Context(), &listOptions{parent: "deps", envs: []string{"linux-server", "nowhere"}})
+		assert.Equal(t, codeUsage, agentErrorCode(err))
+	})
+	t.Run("an unreadable scope ledger is one warning", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e)
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environments, "scopes.json"), []byte("not json"), 0o600))
+		e.app.global.json = true
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{parent: "plan"}))
+		var got listJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.Len(t, got.Warnings, 1)
+		assert.Contains(t, got.Warnings[0], "couldn't read the scope ledger")
+	})
+}
+
+func TestApp_runList_parentTable(t *testing.T) {
+	t.Run("the table shows a remote child whose filtered-out parent isn't listed, at depth 0 with ENV and offline", func(t *testing.T) {
+		e := localPlanApp(t, true, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{parent: "plan"}))
+		assert.Equal(t, ""+
+			"ID      ENV                      NAME   CREATED   SESSION   REPOS\n"+
+			"build   local                    -      2h ago    -         buff-bear@main\n"+
+			"ip-1    linux-server (offline)   -      2h ago    -         repo@main\n", e.stdout.String())
+	})
+}
+
+func TestApp_parentOf(t *testing.T) {
+	t.Run("-q resolves a local parent by id", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		env, id, err := e.app.parentOf(&listOptions{idsOnly: true, parent: "plan"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"local", "plan"}, []string{env, id})
+	})
+	t.Run("-q looks only at this machine, so a remote parent is not found", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		linuxWithSnapshot(t, e, remoteWorkspace("deps", "repo", "", false))
+		_, _, err := e.app.parentOf(&listOptions{idsOnly: true, parent: "deps"})
+		assert.ErrorIs(t, err, workspace.ErrNotFound)
+	})
+	t.Run("--env of a remote environment takes the id as given, without a lookup", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		env, id, err := e.app.parentOf(&listOptions{envs: []string{"linux-server"}, parent: "deps"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"linux-server", "deps"}, []string{env, id})
+	})
+	t.Run("a parent in no environment is an error", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		_, _, err := e.app.parentOf(&listOptions{parent: "gone"})
+		assert.ErrorIs(t, err, workspace.ErrNotFound)
+	})
+}
+
+func TestSortEnvironments(t *testing.T) {
+	t.Run("local first, then by name, without repeats", func(t *testing.T) {
+		got := sortEnvironments([]string{"win-rig", "local", "build-box", "win-rig", "local"})
+		assert.Equal(t, []string{"local", "build-box", "win-rig"}, got)
+	})
+}
+
+func TestApp_parentEnvironments(t *testing.T) {
+	t.Run("a ledger child on an environment that isn't in the store is skipped", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: "env-00000001", Workspace: "ip-1", Scope: []string{envscope.Local, "env-00000001"}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		got, err := e.app.parentEnvironments(&listOptions{envs: []string{"local"}, parent: "plan"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"local"}, got)
+	})
+	t.Run("an environment store that can't be read is a warning, and the children's environments are left out", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e)
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environments, "broken.toml"), []byte("not = [toml"), 0o600))
+		got, err := e.app.parentEnvironments(&listOptions{envs: []string{"local"}, parent: "plan"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"local"}, got)
+		require.Len(t, e.app.warned, 1)
+		assert.Contains(t, e.app.warned[0], "couldn't read the environments")
+	})
+}
+
+func TestApp_childEnvironments(t *testing.T) {
+	t.Run("an unreadable scope ledger is one warning, and no environments are listed", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		require.NoError(t, os.MkdirAll(e.app.paths.Environments, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environments, "scopes.json"), []byte("not json"), 0o600))
+		assert.Nil(t, e.app.childEnvironments(envscope.Local, "plan"))
+		require.Len(t, e.app.warned, 1)
+		assert.Contains(t, e.app.warned[0], "couldn't read the scope ledger")
 	})
 }

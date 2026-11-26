@@ -36,7 +36,7 @@ func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON, prese
 	}
 	recs, err := a.envStore().List()
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read the environments: %v", err))
+		a.warnOnce(fmt.Sprintf("couldn't read the environments: %v", err))
 		return
 	}
 	states := newScopeStates(a, recs, presence)
@@ -60,7 +60,7 @@ func (a *App) annotateScopes(ctx context.Context, entries []listEntryJSON, prese
 func (a *App) scopeSelf() envscope.Ref {
 	self, err := a.selfRef()
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("ignoring this machine's identity: %v", err))
+		a.warnOnce(fmt.Sprintf("ignoring this machine's identity: %v", err))
 		return localRef()
 	}
 	return self
@@ -74,7 +74,7 @@ func (a *App) readLedger() map[ledgerKey]envscope.Entry {
 	}
 	entries, err := envscope.NewLedger(a.paths.Environments).List()
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("couldn't read the scope ledger: %v", err))
+		a.warnOnce(fmt.Sprintf("couldn't read the scope ledger: %v", err))
 		return nil
 	}
 	byKey := make(map[ledgerKey]envscope.Entry, len(entries))
@@ -90,7 +90,7 @@ func (a *App) readLedger() map[ledgerKey]envscope.Entry {
 func (a *App) localScopeOf(ctx context.Context, states *scopeStates, self envscope.Ref, id string) []envproto.ScopeEnv {
 	scope, _, err := envscope.Read(a.paths.State, id, self)
 	if err != nil {
-		a.warned = append(a.warned, fmt.Sprintf("ignoring the scope of %s: %v", id, err))
+		a.warnOnce(fmt.Sprintf("ignoring the scope of %s: %v", id, err))
 		return nil
 	}
 	if !scope.WiderThanSelf() {
@@ -127,15 +127,22 @@ func newScopeStates(a *App, recs []environment.Record, presence map[string]strin
 // ledger entry for its environment and workspace; nil for both when there is
 // none.
 func (s *scopeStates) ledgerScope(ctx context.Context, ledger map[ledgerKey]envscope.Entry, e *listEntryJSON) (*scopeParentJSON, []envproto.ScopeEnv) {
-	rec, ok := s.byName[e.Environment]
-	if !ok {
-		return nil, nil
-	}
-	entry, ok := ledger[ledgerKey{env: rec.ID, workspace: *e.ID}]
+	entry, rec, ok := s.ledgerEntryOf(ledger, e)
 	if !ok {
 		return nil, nil
 	}
 	return s.parentOf(entry.Parent), s.scopeOf(ctx, entry.Scope, rec.ID)
+}
+
+// ledgerEntryOf is the ledger entry for remote entry e, and the environment
+// record it runs in; false when there is none.
+func (s *scopeStates) ledgerEntryOf(ledger map[ledgerKey]envscope.Entry, e *listEntryJSON) (envscope.Entry, environment.Record, bool) {
+	rec, ok := s.byName[e.Environment]
+	if !ok {
+		return envscope.Entry{}, environment.Record{}, false
+	}
+	entry, ok := ledger[ledgerKey{env: rec.ID, workspace: *e.ID}]
+	return entry, rec, ok
 }
 
 // parentOf is the parent a ledger entry names, with the environment's current
@@ -206,4 +213,56 @@ func (s *scopeStates) presenceOf(ctx context.Context) map[string]string {
 		s.presence = s.app.environmentPresence(ctx)
 	}
 	return s.presence
+}
+
+// treeRows nests the table's rows across environments by the ledger's scope
+// parents. Without a ledger they keep their order.
+func (a *App) treeRows(rows []listRow, entries []listEntryJSON) []listRow {
+	if !envscope.LedgerExists(a.paths.Environments) {
+		return rows
+	}
+	a.fillScopeParents(entries)
+	return crossOrder(attachScopeParents(rows, entries))
+}
+
+// fillScopeParents sets ScopeParent on each remote entry from the ledger, and
+// resets it on every entry. It reads the ledger and the environment store
+// only, so it never asks the daemon.
+func (a *App) fillScopeParents(entries []listEntryJSON) {
+	for i := range entries {
+		entries[i].ScopeParent = nil
+	}
+	recs, err := a.envStore().List()
+	if err != nil {
+		a.warnOnce(fmt.Sprintf("couldn't read the environments: %v", err))
+		return
+	}
+	states := newScopeStates(a, recs, nil)
+	ledger := a.readLedger()
+	for i := range entries {
+		e := &entries[i]
+		if e.ID == nil || e.Environment == localEnvironment {
+			continue
+		}
+		if entry, _, ok := states.ledgerEntryOf(ledger, e); ok {
+			e.ScopeParent = states.parentOf(entry.Parent)
+		}
+	}
+}
+
+// attachScopeParents sets each row's scope parent to the rowKey of the scope
+// parent of the entry it shows.
+func attachScopeParents(rows []listRow, entries []listEntryJSON) []listRow {
+	parents := make(map[string]string, len(entries))
+	for i := range entries {
+		sp := entries[i].ScopeParent
+		if sp == nil || entries[i].ID == nil {
+			continue
+		}
+		parents[rowKey(entries[i].Environment, *entries[i].ID)] = rowKey(sp.Environment, sp.Workspace)
+	}
+	for i := range rows {
+		rows[i].scopeParent = parents[rowKey(rows[i].env, rows[i].id)]
+	}
+	return rows
 }

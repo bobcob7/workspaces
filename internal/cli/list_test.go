@@ -15,6 +15,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/loop"
 	"github.com/bobcob7/workspaces/internal/machine"
@@ -85,6 +86,33 @@ func TestApp_runList(t *testing.T) {
 			"fix-login   Fix login   2h ago    agent e8cdf5d8: stopped   buff-bear@main\n"+
 			"api-bump    -           2h ago    shell                     buff-bear@main\n"+
 			"unknown     -           -         -                         /cfg/workspaces/stray\n", e.stdout.String())
+	})
+	t.Run("nests remote children under their ledger parent", func(t *testing.T) {
+		e := newRemoteListApp(t, []lifetime.Entry{{Workspace: listedWorkspace("plan-1")}})
+		rec := addLinuxServer(t, e.app)
+		enrollEnvironment(t, e.app, rec)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(
+			remoteWorkspace("ip-1", "github.com/bobcob7/buff-bear", "", false),
+			remoteWorkspace("ip-2", "github.com/bobcob7/buff-bear", "ip-1", false),
+		))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-1"}})
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.Equal(t, ""+
+			"ID         ENV                      NAME   CREATED   SESSION   REPOS\n"+
+			"plan-1     local                    -      2h ago    -         buff-bear@main\n"+
+			"└ ip-1     linux-server (offline)   -      2h ago    -         repo@main\n"+
+			"  └ ip-2   linux-server (offline)   -      2h ago    -         repo@main\n", e.stdout.String())
+	})
+	t.Run("without a ledger a remote child stays a root", func(t *testing.T) {
+		e := newRemoteListApp(t, []lifetime.Entry{{Workspace: listedWorkspace("plan-1")}})
+		rec := addLinuxServer(t, e.app)
+		enrollEnvironment(t, e.app, rec)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), remoteWorkspaces(remoteWorkspace("ip-1", "github.com/bobcob7/buff-bear", "", false)))
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{}))
+		assert.Equal(t, ""+
+			"ID       ENV                      NAME   CREATED   SESSION   REPOS\n"+
+			"plan-1   local                    -      2h ago    -         buff-bear@main\n"+
+			"ip-1     linux-server (offline)   -      2h ago    -         repo@main\n", e.stdout.String())
 	})
 	t.Run("-q prints only ids", func(t *testing.T) {
 		e := newListApp([]lifetime.Entry{agentEntry, shell}, []string{"/cfg/workspaces/stray"})

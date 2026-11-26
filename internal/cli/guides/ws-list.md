@@ -25,9 +25,9 @@ reviews from `ws review start` and agents started with `ws claude
 | Flag            | Meaning                                                     |
 | --------------- | ----------------------------------------------------------- |
 | `-a`, `--all`   | Include hidden workspaces                                   |
-| `--parent <id>` | Only the workspaces that workspace started, its direct children |
+| `--parent <id>` | Only the workspaces that workspace started, its direct children on every environment, including those it started with `ws machine spawn --env`; with `-q`, local children only |
 | `--repo <spec>` | Only workspaces holding this repo, matched by the parts the spec gives: `api` matches any owner and host, `o/api` any host, `@ref` the ref checked out. No cache lookup |
-| `--env <name>`  | Only these environments, repeatable: `local` or a name from `ws env list`. Default: every environment, `local` first, then enrolled ones by name. A remote environment lists its last snapshot. `-q` defaults to `local`; `--parent` without `--env` finds the environment its parent is in; `--parent` takes one `--env` |
+| `--env <name>`  | Only these environments, repeatable: `local` or a name from `ws env list`. Default: every environment, `local` first, then enrolled ones by name. A remote environment lists its last snapshot. `-q` defaults to `local`; `--parent` without `--env` finds the environment its parent is in; with `--parent`, `--env` names the parent's environment, and children on other environments are still listed; `--parent` takes one `--env` |
 | `-q`, `--ids`   | Print only workspace ids, one per line; not with `--json`   |
 | `--json`        | Print the result as JSON                                    |
 
@@ -129,6 +129,9 @@ sent, so they can be out of date; see `stale` below.
 
 The table has an `ENV` column after `ID` only when a listed workspace runs
 in a remote environment; a stale remote entry shows as `name (offline)`.
+The table nests a child under its parent even when the child runs in
+another environment; a child whose parent isn't listed is top-level in its
+environment.
 
 If `claude agents` fails, agent sessions are `unknown`, nothing is removed
 but shell workspaces whose shell has exited, and a warning says why.
