@@ -1,0 +1,177 @@
+<!doctype html>
+<!--
+  Static mockups for bidirectional artifact links (docs/design/artifact-links).
+  Open with a hash to pick a screen: mockups.html#artifact-page or
+  mockups.html#conversation-strip. The PNGs in img/ are rendered from this
+  file; see README.md. Colors and type match desktop/src/index.css.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Artifact links mockups</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --panel: #161920;
+  --panel-raised: #1d212a;
+  --border: #2a2f3a;
+  --text: #e3e6ec;
+  --text-muted: #8d94a3;
+  --accent: #58a6ff;
+  --selected: #233047;
+  --danger: #f85149;
+  --status-working: #58a6ff;
+  --status-done: #56c478;
+  --status-idle: #d8b04c;
+  --status-stopped: #6e7681;
+  --font-mono: "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+.screen { display: none; height: 100%; }
+.screen:target { display: flex; }
+.rail { width: 64px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 12px; gap: 10px; }
+.rail .item { width: 44px; height: 40px; border-radius: 8px; display: grid; place-items: center; color: var(--text-muted); font-size: 10px; text-align: center; }
+.rail .item.on { background: var(--selected); color: var(--text); }
+.list { width: 280px; background: var(--panel); border-right: 1px solid var(--border); padding: 10px 0; }
+.list h3 { margin: 4px 14px 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.row { padding: 8px 14px; display: flex; gap: 10px; align-items: center; }
+.row.on { background: var(--selected); }
+.row .meta { color: var(--text-muted); font-size: 12px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.head { padding: 14px 20px 10px; border-bottom: 1px solid var(--border); }
+.head h2 { margin: 0 0 4px; font-size: 17px; }
+.byline { color: var(--text-muted); font-size: 12px; }
+.revbar { display: flex; gap: 6px; margin-top: 10px; }
+.rev { border: 1px solid var(--border); border-radius: 12px; padding: 2px 10px; font-size: 12px; color: var(--text-muted); }
+.rev.on { border-color: var(--accent); color: var(--accent); }
+.convs { border-bottom: 1px solid var(--border); padding: 10px 20px 12px; background: var(--panel); }
+.convs summary { cursor: pointer; font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+.conv { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; }
+.conv:hover { background: var(--panel-raised); }
+.conv .name { color: var(--accent); min-width: 150px; }
+.conv.removed .name { color: var(--text-muted); text-decoration: none; }
+.conv .age { margin-left: auto; color: var(--text-muted); font-size: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--text-muted); background: var(--panel-raised); white-space: nowrap; }
+.chip.act-created { color: var(--status-done); border-color: #2f5d3e; }
+.chip.act-cited { color: var(--accent); border-color: #2a4a70; }
+.chip.act-read { color: var(--status-idle); border-color: #5e5130; }
+.badge { font-size: 10px; border-radius: 4px; padding: 1px 5px; background: #2b2540; color: #b9a6f2; }
+.gone { font-size: 11px; color: var(--text-muted); font-style: italic; }
+.doc { padding: 18px 28px; overflow: hidden; line-height: 1.55; }
+.doc h1 { font-size: 20px; margin: 0 0 10px; }
+.doc code, .msg code { font-family: var(--font-mono); font-size: 12.5px; background: var(--panel-raised); padding: 1px 4px; border-radius: 4px; }
+.tabs { display: flex; gap: 18px; padding: 0 20px; border-bottom: 1px solid var(--border); }
+.tab { padding: 10px 0; color: var(--text-muted); }
+.tab.on { color: var(--text); border-bottom: 2px solid var(--accent); }
+.strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.strip .label { color: var(--text-muted); font-size: 12px; margin-right: 4px; }
+.art { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 14px; padding: 3px 10px; font-size: 12px; background: var(--panel-raised); }
+.art .k { color: var(--text-muted); font-size: 11px; }
+.more { color: var(--accent); font-size: 12px; }
+.conversation { flex: 1; overflow: hidden; padding: 16px 0; }
+.column { max-width: 760px; margin: 0 auto; padding: 0 20px; display: flex; flex-direction: column; gap: 12px; }
+.user { align-self: flex-end; background: var(--selected); border-radius: 10px; padding: 8px 12px; max-width: 80%; }
+.hintrow { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+.msg { line-height: 1.55; }
+.msg a, .user a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+.msg a.missing { color: var(--text-muted); text-decoration: line-through; border: 0; }
+.tool { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.tool b { color: var(--status-done); font-weight: 500; }
+.callout { position: absolute; background: #3a2f12; color: #f3d48a; font-size: 11px; padding: 3px 8px; border-radius: 4px; border: 1px solid #6e5a1f; }
+.phone-only { display: none; }
+@media (max-width: 600px) {
+  .rail, .list { display: none; }
+  .strip .extra { display: none; }
+  .phone-only { display: inline; }
+  .column { padding: 0 12px; }
+  .head { padding: 12px; }
+  .tabs, .strip { padding-left: 12px; padding-right: 12px; }
+  .callout { display: none; }
+}
+</style>
+</head>
+<body>
+
+<section class="screen" id="artifact-page">
+  <nav class="rail">
+    <div class="item">Agents</div><div class="item">Repos</div><div class="item">Reviews</div><div class="item">Loops</div>
+    <div class="item on">Artifacts</div><div class="item">Stats</div>
+  </nav>
+  <aside class="list">
+    <h3>Artifacts</h3>
+    <div class="row on"><span>▤</span><div><div>Pitch: cache sharing</div><div class="meta">markdown · r3 · 2 open</div></div></div>
+    <div class="row"><span>▣</span><div><div>login-error.png</div><div class="meta">image · 48 KB</div></div></div>
+    <div class="row"><span>▤</span><div><div>Design: bidirectional artifact links</div><div class="meta">markdown · r2</div></div></div>
+    <div class="row"><span>▢</span><div><div>bench-results.txt</div><div class="meta">text · 3 KB</div></div></div>
+  </aside>
+  <main class="pane">
+    <div class="head">
+      <h2>Pitch: cache sharing</h2>
+      <div class="byline">pitch.md · markdown · added by <span style="color:var(--accent)">pitch</span>, 2h ago · 2 open threads</div>
+      <div class="revbar"><span class="rev">r1</span><span class="rev">r2</span><span class="rev on">r3 latest</span></div>
+    </div>
+    <details class="convs" open>
+      <summary>Conversations (4)</summary>
+      <div class="conv"><span class="name">pitch</span><span class="chip act-created">created</span><span class="chip">revised r2 r3</span><span class="chip">commented</span><span class="age">12m ago</span></div>
+      <div class="conv"><span class="name">fix-cache-impl</span><span class="chip act-cited">cited</span><span class="chip act-read">read r3 ×2</span><span class="age">5m ago</span></div>
+      <div class="conv"><span class="name">bench-runner</span><span class="badge">win-rig</span><span class="chip act-cited">cited</span><span class="age">40m ago</span></div>
+      <div class="conv removed"><span class="name">cache-spike</span><span class="chip act-read">read r1</span><span class="chip act-cited">cited</span><span class="gone">workspace removed</span><span class="age">yesterday</span></div>
+    </details>
+    <div class="doc">
+      <h1>Pitch: cache sharing</h1>
+      <p>Share the repo cache between environments so a child on <code>win-rig</code> doesn't clone from upstream. Today every environment keeps its own cache, and the first spawn on a fresh machine takes minutes.</p>
+      <p>Three options follow, with measurements from <code>bench-runner</code>.</p>
+    </div>
+  </main>
+</section>
+
+<section class="screen" id="conversation-strip">
+  <nav class="rail">
+    <div class="item on">Agents</div><div class="item">Repos</div><div class="item">Reviews</div><div class="item">Loops</div>
+    <div class="item">Artifacts</div><div class="item">Stats</div>
+  </nav>
+  <aside class="list">
+    <h3>Agents</h3>
+    <div class="row on"><span class="dot" style="background:var(--status-working)"></span><div><div>fix-cache-impl</div><div class="meta">working · 3/6 steps</div></div></div>
+    <div class="row"><span class="dot" style="background:var(--status-done)"></span><div><div>pitch</div><div class="meta">done</div></div></div>
+    <div class="row"><span class="dot" style="background:var(--status-stopped)"></span><div><div>bench-runner</div><div class="meta">win-rig · stopped</div></div></div>
+  </aside>
+  <main class="pane">
+    <div class="head"><h2>fix-cache-impl</h2><div class="byline">workspaces @ feat/cache-sharing · working</div></div>
+    <div class="tabs"><span class="tab on">Conversation</span><span class="tab">Terminal</span><span class="tab">Files</span></div>
+    <div class="strip" aria-label="Artifacts in this conversation">
+      <span class="label">Artifacts in this conversation</span>
+      <span class="art" title="cited, read r3 ×2"><span class="k">▤</span>Pitch: cache sharing</span>
+      <span class="art" title="read r1"><span class="k">▣</span>login-error.png</span>
+      <span class="art extra" title="created r1"><span class="k">▢</span>bench-results.txt</span>
+      <span class="art extra" title="cited"><span class="k">▤</span>Design: bidirectional artifact links</span>
+      <span class="more phone-only">+2 more</span>
+    </div>
+    <div class="conversation" style="position:relative">
+      <div class="column">
+        <div class="user">Implement the pitch in <a>Pitch: cache sharing</a>; the failure looks like <a>login-error.png</a>.
+          <div class="hintrow">Artifacts: <span class="art"><span class="k">▤</span>Pitch: cache sharing</span><span class="art"><span class="k">▣</span>login-error.png</span></div>
+        </div>
+        <div class="tool"><b>Bash</b> ws machine artifact get art-1a2b3c4d</div>
+        <div class="msg">I read <a>Pitch: cache sharing</a> (r3). Option B fits; the benchmark is in <a>bench-results.txt</a>. To fetch it yourself, run <code>ws machine artifact get @artifact:art-5e6f7a8b</code>.</div>
+        <div class="msg">An older draft, <a class="missing" title="not in the store">@artifact:art-00c0ffee</a>, was removed.</div>
+      </div>
+      <span class="callout" style="top:196px;left:800px">a reference in code: not linked, not counted</span>
+    </div>
+  </main>
+</section>
+
+</body>
+</html>
