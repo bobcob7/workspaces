@@ -74,6 +74,9 @@ export const NewAgentDialog = (): JSX.Element => {
   };
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
+    if (scope.pending) {
+      return;
+    }
     const { runner, model, endpoint, permissionMode } = runnerFields;
     const remote = pick.environment === "local" ? {} : { environment: pick.environment };
     const granted = scope.visible ? { envScope: scope.selected } : {};
@@ -142,7 +145,7 @@ export const NewAgentDialog = (): JSX.Element => {
           <Button
             type="submit"
             variant="contained"
-            disabled={creating || promptMissing || pick.claudeMissing || scope.tooMany || attachments.busy}
+            disabled={creating || promptMissing || pick.claudeMissing || scope.pending || scope.tooMany || attachments.busy}
           >
             {creating ? "Starting…" : "Start agent"}
           </Button>

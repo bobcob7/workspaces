@@ -16,25 +16,39 @@ export interface ScopePick {
   readonly leftOut: readonly string[];
   /** Set when default_scope couldn't be read. */
   readonly warning: string | null;
+  /** default_scope is still loading and the own environment is shown: New agent waits for it. */
+  readonly pending: boolean;
   /** More than 64 selected: New agent can't start. */
   readonly tooMany: boolean;
   readonly toggle: (name: string) => void;
 }
 
 interface ScopeLoad {
+  readonly status: "loading" | "loaded" | "failed";
   readonly defaults: readonly string[];
-  /** The names the person has checked, not counting the own environment. */
-  readonly chosen: readonly string[];
+  /** Each name the person checked or unchecked. It wins over default_scope, whenever that lands. */
+  readonly toggles: Readonly<Record<string, boolean>>;
   readonly warning: string | null;
 }
 
-const unloaded: ScopeLoad = { defaults: [], chosen: [], warning: null };
+const unloaded: ScopeLoad = { status: "loading", defaults: [], toggles: {}, warning: null };
 
 const maxSelected = 64;
 
-/** The target first, then the chosen names it can still use, by name. */
-const selectedNames = (target: string, chosen: readonly string[], known: readonly string[]): readonly string[] => {
-  const others = [...new Set(chosen)].filter((name) => name !== target && known.includes(name)).sort((a, b) => a.localeCompare(b));
+/** default_scope's enrolled names besides the target, capped so the target still fits in maxSelected. */
+const preselectedNames = (defaults: readonly string[], target: string, known: readonly string[]): readonly string[] =>
+  defaults.filter((name) => name !== target && known.includes(name)).slice(0, maxSelected - 1);
+
+/** The names checked: default_scope's, with each toggle applied over them. */
+const checkedNames = (load: ScopeLoad, target: string, known: readonly string[]): readonly string[] => {
+  const preselected = preselectedNames(load.defaults, target, known);
+  const named = [...new Set([...preselected, ...Object.keys(load.toggles)])];
+  return named.filter((name) => load.toggles[name] ?? preselected.includes(name));
+};
+
+/** The target first, then the checked names it can still use, by name. */
+const selectedNames = (target: string, checked: readonly string[], known: readonly string[]): readonly string[] => {
+  const others = [...new Set(checked)].filter((name) => name !== target && known.includes(name)).sort((a, b) => a.localeCompare(b));
   return [target, ...others];
 };
 
@@ -58,11 +72,16 @@ export const useScopePick = (open: boolean, target: string): ScopePick => {
       }
       if (fetchConfig.fulfilled.match(result)) {
         const defaults = defaultScopeOf(result.payload);
-        setLoad({ defaults, chosen: defaults, warning: null });
+        setLoad((latest) => ({ ...latest, status: "loaded", defaults }));
         return;
       }
       const reason = result.payload?.message ?? result.error.message ?? "unknown error";
-      setLoad({ defaults: [], chosen: [], warning: `couldn't read default_scope: ${reason}` });
+      setLoad((latest) => ({
+        ...latest,
+        status: "failed",
+        defaults: [],
+        warning: `couldn't read default_scope: ${reason}; the agent will start with its own environment only.`,
+      }));
     });
     return () => {
       current = false;
@@ -71,22 +90,21 @@ export const useScopePick = (open: boolean, target: string): ScopePick => {
   return useMemo((): ScopePick => {
     const choices = scopeChoices(items, target);
     const known = choices.map((choice) => choice.name);
-    const selected = selectedNames(target, load.chosen, known);
+    const selected = selectedNames(target, checkedNames(load, target, known), known);
     return {
       visible: items.some((env) => env.state === "enrolled"),
       choices,
       selected,
       leftOut: splitDefaultScope(load.defaults, items).leftOut,
       warning: load.warning,
+      pending: load.status === "loading",
       tooMany: selected.length > maxSelected,
       toggle: (name: string): void => {
         if (name === target) {
           return;
         }
-        setLoad((current) => ({
-          ...current,
-          chosen: current.chosen.includes(name) ? current.chosen.filter((chosenName) => chosenName !== name) : [...current.chosen, name],
-        }));
+        const checked = selected.includes(name);
+        setLoad((latest) => ({ ...latest, toggles: { ...latest.toggles, [name]: !checked } }));
       },
     };
   }, [items, target, load]);
@@ -144,6 +162,7 @@ export const ScopeField = ({ pick }: { readonly pick: ScopePick }): JSX.Element 
       ))}
       {pick.tooMany && <FormHelperText error>At most 64 environments.</FormHelperText>}
       {pick.leftOut.length > 0 && <Alert severity="warning">{leftOutMessage(pick.leftOut)}</Alert>}
+      {pick.pending && <FormHelperText>Loading default_scope…</FormHelperText>}
       {pick.warning !== null && <Alert severity="warning">{pick.warning}</Alert>}
     </FormControl>
   );
