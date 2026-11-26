@@ -262,10 +262,15 @@ fn valid_scope_name(name: &str) -> bool {
 /// Creates a workspace with a background agent in it: `ws claude`.
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn create_agent(state: State<'_, AppState>, request: NewAgent) -> CmdResult<Created> {
+    start_agent(&state.runner, request).await
+}
+
+/// Checks the request's environment scope, then runs `ws claude` for it.
+async fn start_agent(runner: &Runner, request: NewAgent) -> CmdResult<Created> {
     if let Some(names) = &request.env_scope {
         validate_env_scope(names)?;
     }
-    state.runner.ws_json(&new_agent_args(&request)).await
+    runner.ws_json(&new_agent_args(&request)).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -1156,6 +1161,15 @@ mod tests {
     }
 
     #[test]
+    fn new_agent_args_with_an_empty_env_scope_sends_no_env_scope_flag() {
+        let req = NewAgent {
+            env_scope: Some(vec![]),
+            ..request()
+        };
+        assert_eq!(new_agent_args(&req), ["claude"]);
+    }
+
+    #[test]
     fn validate_env_scope_accepts_enrolled_style_names() {
         assert!(validate_env_scope(&names(&["local", "linux-server", "win-rig.lab_2"])).is_ok());
     }
@@ -1168,9 +1182,23 @@ mod tests {
 
     #[test]
     fn validate_env_scope_refuses_unsafe_names() {
-        for name in ["a,b", "a b", "-x", "a\nb", "", &"x".repeat(65)] {
+        for name in [
+            "a,b",
+            "a b",
+            "-x",
+            "a\nb",
+            "",
+            &"x".repeat(65),
+            "a\u{0}b",
+            "a\u{7f}b",
+        ] {
             let err = validate_env_scope(&names(&["local", name])).unwrap_err();
             assert_eq!(err.code, "usage", "{name:?}");
+            assert_eq!(
+                err.message,
+                format!("{name:?} isn't a valid environment name"),
+                "{name:?}"
+            );
         }
     }
 
@@ -1184,6 +1212,35 @@ mod tests {
     #[test]
     fn validate_env_scope_refuses_duplicates() {
         let err = validate_env_scope(&names(&["local", "local"])).unwrap_err();
+        assert_eq!(err.code, "usage");
+    }
+
+    /// Runs start_agent with a fake ws, and returns its error, asserting ws never ran.
+    async fn refused_before_ws(env_scope: Vec<String>) -> AppError {
+        let dir = fake_programs(
+            r#"[ "$1" = probe ] || touch "$(dirname "$0")/ws-ran"; echo '{}'"#,
+            "exit 1",
+        );
+        let runner = Runner::new(dir.path().display().to_string());
+        let request = NewAgent {
+            env_scope: Some(env_scope),
+            ..request()
+        };
+        let err = start_agent(&runner, request).await.unwrap_err();
+        assert!(!dir.path().join("ws-ran").exists(), "ws must not run");
+        err
+    }
+
+    #[tokio::test]
+    async fn start_agent_refuses_an_empty_env_scope_before_ws_runs() {
+        let err = refused_before_ws(vec![]).await;
+        assert_eq!(err.code, "usage");
+    }
+
+    #[tokio::test]
+    async fn start_agent_refuses_more_than_64_env_scope_names_before_ws_runs() {
+        let many: Vec<String> = (0..65).map(|i| format!("env-{i}")).collect();
+        let err = refused_before_ws(many).await;
         assert_eq!(err.code, "usage");
     }
 }
