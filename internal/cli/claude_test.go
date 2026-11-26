@@ -1186,6 +1186,15 @@ func TestApp_runClaude_scope(t *testing.T) {
 		scope, _ := scopeFileOf(t, e.app.paths.State, "x")
 		assert.Equal(t, []string{"local", linuxRef.Name}, scope.Names())
 	})
+	t.Run("an --env-scope of local alone skips default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		e.app.config.Environments.DefaultScope = []string{linuxRef.Name}
+		require.NoError(t, e.app.runClaude(t.Context(), &claudeOptions{envScope: []string{localEnvironment}}))
+		_, err := os.Stat(envscope.Path(e.app.paths.State, "x"))
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
 	t.Run("--parent none inside a workspace never reads default_scope", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.app.paths = config.NewPaths(t.TempDir())
@@ -1227,6 +1236,49 @@ func TestApp_runClaude_scope(t *testing.T) {
 		err := e.app.runClaude(t.Context(), &claudeOptions{envScope: []string{"nope"}})
 		requireCode(t, codeEnvironmentUnknown, err)
 		assert.Empty(t, e.store.CreateCalls())
+	})
+}
+
+func TestApp_remoteGrant(t *testing.T) {
+	t.Run("its own environment alone grants nothing and skips default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		addEnvironmentForScope(t, e.app, winRef.Name)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		granted, err := e.app.remoteGrant([]string{linuxRef.Name}, linuxRef.Name)
+		require.NoError(t, err)
+		assert.Empty(t, granted)
+	})
+	t.Run("names besides its own are granted", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		addEnvironmentForScope(t, e.app, winRef.Name)
+		granted, err := e.app.remoteGrant([]string{linuxRef.Name, winRef.Name}, linuxRef.Name)
+		require.NoError(t, err)
+		assert.Equal(t, []string{winRef.Name}, granted)
+	})
+	t.Run("empty names use default_scope", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		addEnvironmentForScope(t, e.app, winRef.Name)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		granted, err := e.app.remoteGrant(nil, linuxRef.Name)
+		require.NoError(t, err)
+		assert.Equal(t, []string{winRef.Name}, granted)
+	})
+	t.Run("inside a workspace nothing is granted", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		e.app.paths = config.NewPaths(t.TempDir())
+		addEnvironmentForScope(t, e.app, linuxRef.Name)
+		addEnvironmentForScope(t, e.app, winRef.Name)
+		e.app.config.Environments.DefaultScope = []string{winRef.Name}
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) { return workspace.Workspace{ID: "plan"}, nil }
+		granted, err := e.app.remoteGrant([]string{winRef.Name}, linuxRef.Name)
+		require.NoError(t, err)
+		assert.Empty(t, granted)
 	})
 }
 
