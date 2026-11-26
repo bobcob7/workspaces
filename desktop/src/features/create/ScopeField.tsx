@@ -91,13 +91,14 @@ export const useScopePick = (open: boolean, target: string): ScopePick => {
     const choices = scopeChoices(items, target);
     const known = choices.map((choice) => choice.name);
     const selected = selectedNames(target, checkedNames(load, target, known), known);
+    const visible = items.some((env) => env.state === "enrolled");
     return {
-      visible: items.some((env) => env.state === "enrolled"),
+      visible,
       choices,
       selected,
       leftOut: splitDefaultScope(load.defaults, items).leftOut,
       warning: load.warning,
-      pending: load.status === "loading",
+      pending: visible && load.status === "loading",
       tooMany: selected.length > maxSelected,
       toggle: (name: string): void => {
         if (name === target) {
