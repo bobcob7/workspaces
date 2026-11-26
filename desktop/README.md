@@ -267,6 +267,14 @@ parent does:
 
 ![New agent with the Environment picker](docs/new-agent-environment.png)
 
+New agent also sets the scope: the environments the agent may start children
+on (`ws claude --env-scope`). Only you grant it, and four rules apply: the
+agent's own environment is always in it and can't be unchecked; the field
+starts from `environments.default_scope` in `config.toml`, leaving out names
+that aren't enrolled; a widened scope is never remembered between openings;
+and an offline environment can be checked, since a child can start there once
+it's back online.
+
 The Agents list marks each remote row with its environment, filters by
 environment, and dims an offline environment's rows while keeping their last
 status; their actions are disabled with the reason:
