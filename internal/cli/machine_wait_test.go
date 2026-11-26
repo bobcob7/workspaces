@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/agent"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/runner"
@@ -449,5 +450,98 @@ func TestApp_runMachineWaitProgress(t *testing.T) {
 		require.NotNil(t, item.Rollup)
 		assert.Equal(t, 1, item.Rollup.Total)
 		assert.Equal(t, 1, item.Rollup.Done)
+	})
+}
+
+// relistingHost answers the first children listing with child, and each later
+// one with later.
+func relistingHost(t *testing.T, child envproto.ScopeChild, later func() envproto.Reply) *childHost {
+	t.Helper()
+	listings := 0
+	host := &childHost{}
+	host.answer = func(op string, raw json.RawMessage) envproto.Reply {
+		switch op {
+		case "children":
+			listings++
+			if listings == 1 {
+				return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{child}})
+			}
+			return later()
+		case "child":
+			var args envproto.ScopeChildArgs
+			require.NoError(t, json.Unmarshal(raw, &args))
+			return helperAnswer(t, remoteHelperRecord(t))(args.Op, args)
+		}
+		return envproto.Reply{Error: &envproto.ReplyError{Code: "usage", Message: "unexpected " + op}}
+	}
+	return host
+}
+
+// countScopeOp is how many of calls were scope operation op.
+func countScopeOp(calls []scopeCall, op string) int {
+	n := 0
+	for _, c := range calls {
+		if c.op == op {
+			n++
+		}
+	}
+	return n
+}
+
+func TestApp_printSource(t *testing.T) {
+	t.Run("the timer path prints the rollup from a second listing of the remote children", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateWorking})
+		first := remoteHelperChild(t)
+		first.Parent = "a"
+		first.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		second := first
+		second.Rollup = &envproto.ScopeRollup{Total: 4, Done: 3}
+		serveDaemonWith(t, e.app, relistingHost(t, first, func() envproto.Reply {
+			return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{second}})
+		}))
+		err := e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(20*time.Millisecond))
+		requireCode(t, codeWaitTimeout, err)
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		require.NotNil(t, got.Children[0].Rollup)
+		assert.Equal(t, 4, got.Children[0].Rollup.Total)
+		assert.Equal(t, 3, got.Children[0].Rollup.Done)
+	})
+	t.Run("a refresh that only fails keeps the first list and warns", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateIdle})
+		first := remoteHelperChild(t)
+		first.Parent = "a"
+		first.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		offline := envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
+		serveDaemonWith(t, e.app, relistingHost(t, first, func() envproto.Reply { return offline }))
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		require.NotNil(t, got.Children[0].Rollup)
+		assert.Equal(t, 3, got.Children[0].Rollup.Total)
+		assert.Equal(t, 2, got.Children[0].Rollup.Done)
+		assert.NotEmpty(t, got.Warnings)
+	})
+	t.Run("a caller that can't be read keeps the first list and warns", func(t *testing.T) {
+		e := newWaitApp(t)
+		e.outside()
+		first := []remoteChild{{id: "helper"}}
+		src := e.app.printSource(t.Context(), progressSource{}, first)
+		assert.Equal(t, first, src.remote)
+		assert.NotEmpty(t, e.app.warned)
+	})
+	t.Run("an empty first list asks nothing more", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateIdle})
+		host := serveChildHost(t, e, nil, nil)
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		assert.Equal(t, 1, countScopeOp(host.Calls(), "children"))
 	})
 }
