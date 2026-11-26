@@ -12,6 +12,7 @@ const pickWith = (overrides: Partial<ScopePick> = {}): ScopePick => ({
   ],
   selected: ["local", "win-rig", "lab"],
   leftOut: [],
+  warning: null,
   tooMany: false,
   toggle: vi.fn(),
   ...overrides,
