@@ -42,3 +42,12 @@ Files: `useArtifactDetail.ts`, `ArtifactsPane.tsx`, `CommentComposer.tsx`, `Mark
 - F10: replace the boolean `busy` with a pending counter so "Uploading..." and the disabled Send persist until the last overlapping upload settles.
 - F11: list shows `role="status"` "Loading..." instead of "No artifacts yet." during the first load; empty text becomes "No artifacts yet. Upload a file, drop one here, or paste an image."; the thread list shows "No comments yet." when there are no threads at all.
 - F12: image `onError` shows `role="alert"` "Couldn't display <name>." in place of the frame.
+
+## T7. Post errors inline, phone tap targets (found by the screenshot child)  Depends on: T5
+
+Measured on phone (390x844): after a failed Post the global snackbar (z-index 1400) covers 67% of Cancel in the docked popover (audit D9 / row 39).
+Also "Retry" and "Go to latest" are 31px tall at phone width (rule: >= 40px).
+Files: `CommentComposer.tsx` (+test), `ArtifactsPane.module.css`.
+- A failed post shows the error inside the composer as `<p role="alert">` (message from `toAppError`), keeps the draft text, clears on the next
+  attempt or edit, and does NOT also dispatch the snackbar notice. Failing-first test in `ArtifactsPane.test.tsx`/composer test.
+- At `max-width: 720px` give the "Retry" and "Go to latest" buttons `min-height: 40px` (same pattern as `.wholeComment`).
