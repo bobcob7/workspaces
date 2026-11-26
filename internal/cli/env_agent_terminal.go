@@ -14,20 +14,6 @@ import (
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
-// terminalEnvAllowed reports whether a terminal's program may see the
-// variable key of the agent's environment. Nothing else is passed on: the
-// agent may hold CLAUDE_CODE_OAUTH_TOKEN, forge tokens and other secrets.
-func terminalEnvAllowed(key string) bool {
-	switch key {
-	case "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TMPDIR",
-		"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
-		"LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LC_COLLATE", "LC_TIME", "LC_NUMERIC", "LC_MONETARY",
-		"LC_PAPER", "LC_NAME", "LC_ADDRESS", "LC_TELEPHONE", "LC_MEASUREMENT", "LC_IDENTIFICATION":
-		return true
-	}
-	return false
-}
-
 // TerminalCommand implements envagent's terminalCommands (D6, D8): the
 // program a terminal runs, as an argv with no shell, a scrubbed environment
 // and a session id that comes from the workspace's own record.
@@ -153,21 +139,24 @@ func homeOf(env []string) string {
 }
 
 // lookPathIn finds the claude executable in the absolute directories of the
-// PATH in env, the PATH the child itself will search.
+// search path in env, the path the child itself will search. It tries the
+// file names the platform gives claude (executableNames).
 func lookPathIn(env []string) (string, error) {
 	var pathVar string
 	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-			pathVar = v
+		if key, value, ok := strings.Cut(kv, "="); ok && isPathKey(key) {
+			pathVar = value
 		}
 	}
+	names := executableNames("claude", env)
 	for _, dir := range filepath.SplitList(pathVar) {
 		if !filepath.IsAbs(dir) {
 			continue
 		}
-		candidate := filepath.Join(dir, "claude")
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
-			return candidate, nil
+		for _, name := range names {
+			if info, err := os.Stat(filepath.Join(dir, name)); err == nil && isExecutable(info) {
+				return filepath.Join(dir, name), nil
+			}
 		}
 	}
 	return "", exec.ErrNotFound
