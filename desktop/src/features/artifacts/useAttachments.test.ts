@@ -63,6 +63,40 @@ describe("useAttachments", () => {
     expect(result.current.text).toBe("@artifact:art-a ");
   });
 
+  it("stays busy until the last of two overlapping uploads settles", async () => {
+    const releases: (() => void)[] = [];
+    vi.spyOn(api, "artifactAdd").mockImplementation(
+      (name: string) =>
+        new Promise<Artifact>((resolve) => {
+          releases.push(() => resolve(stored(`art-${name}`)));
+        }),
+    );
+    const { result } = setup(document.createElement("textarea"), "");
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.attachments.attach([new File(["x"], "a")]);
+    });
+    act(() => {
+      second = result.current.attachments.attach([new File(["x"], "b")]);
+    });
+    await vi.waitFor(() => {
+      expect(releases).toHaveLength(2);
+    });
+
+    await act(async () => {
+      releases[0]?.();
+      await first;
+    });
+
+    expect(result.current.attachments.busy).toBe(true);
+    await act(async () => {
+      releases[1]?.();
+      await second;
+    });
+    expect(result.current.attachments.busy).toBe(false);
+  });
+
   it("leaves a drop of plain text to the browser", () => {
     const artifactAdd = vi.spyOn(api, "artifactAdd");
     const { result } = setup(document.createElement("textarea"), "");
