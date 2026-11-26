@@ -677,6 +677,54 @@ func TestApp_runMachineChildren(t *testing.T) {
 		}
 		return ids
 	}
+	t.Run("a local child's rollup includes its remote descendants", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		require.NoError(t, machine.NewStore(e.app.paths.State).WriteProgress("boss", "a", &machine.Progress{Total: 1}))
+		child := remoteHelperChild(t)
+		child.Parent = "a"
+		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		require.NotNil(t, got.Workspaces[0].ID)
+		require.Equal(t, "a", *got.Workspaces[0].ID)
+		require.NotNil(t, got.Workspaces[0].Rollup)
+		assert.Equal(t, 3, got.Workspaces[0].Rollup.Total)
+		assert.Equal(t, 1, got.Workspaces[0].Rollup.Done)
+	})
+	t.Run("a remote child's rollup is the controller's", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		child := remoteHelperChild(t)
+		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		record := remoteHelperRecord(t)
+		record.Rollup = json.RawMessage(`{"total":3,"done":2,"fraction":0.6666666666666666}`)
+		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, record))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		var got machineChildrenJSON
+		require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+		last := got.Workspaces[len(got.Workspaces)-1]
+		require.NotNil(t, last.Rollup)
+		assert.Equal(t, 2, last.Rollup.Total)
+		assert.Equal(t, 1, last.Rollup.Done)
+	})
+	t.Run("without --all only direct remote children are listed", func(t *testing.T) {
+		e := newMachineApp(t)
+		e.app.global.json = true
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		direct := remoteHelperChild(t)
+		deep := remoteHelperChild(t)
+		deep.Workspace = "deep"
+		deep.Parent = "a"
+		deep.Entry = json.RawMessage("null")
+		serveChildHost(t, e, []envproto.ScopeChild{direct, deep}, helperAnswer(t, remoteHelperRecord(t)))
+		require.NoError(t, e.app.runMachineChildren(t.Context(), false))
+		assert.Equal(t, []string{"a", "b", "helper"}, ids(t, e.stdout.String()))
+	})
 	t.Run("lists the direct children, hidden ones included", func(t *testing.T) {
 		e := newMachineApp(t)
 		e.app.global.json = true

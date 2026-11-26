@@ -177,3 +177,32 @@ func TestProgress_Complete(t *testing.T) {
 		assert.False(t, (&Progress{Total: 2, Done: 2}).Complete())
 	})
 }
+
+func TestProgressNode_AddRemote(t *testing.T) {
+	t.Run("adds to the parent and every ancestor", func(t *testing.T) {
+		root := &ProgressNode{ID: "plan", Rollup: Rollup{Total: 3, Done: 1}, Children: []*ProgressNode{
+			{ID: "a", Rollup: Rollup{Total: 2, Done: 1}, Children: []*ProgressNode{
+				{ID: "a1", Rollup: Rollup{Total: 1}},
+			}},
+		}}
+		require.True(t, root.AddRemote("a1", Rollup{Total: 2, Done: 1}))
+		assert.Equal(t, Rollup{Total: 5, Done: 2}, root.Rollup)
+		assert.Equal(t, Rollup{Total: 4, Done: 2}, root.Children[0].Rollup)
+		assert.Equal(t, Rollup{Total: 3, Done: 1}, root.Children[0].Children[0].Rollup)
+	})
+	t.Run("reports false for an unknown parent", func(t *testing.T) {
+		root := &ProgressNode{ID: "plan", Rollup: Rollup{Total: 3, Done: 1}}
+		assert.False(t, root.AddRemote("zz", Rollup{Total: 2, Done: 1}))
+		assert.Equal(t, Rollup{Total: 3, Done: 1}, root.Rollup)
+	})
+	t.Run("leaves other branches alone", func(t *testing.T) {
+		root := &ProgressNode{ID: "plan", Children: []*ProgressNode{
+			{ID: "a"},
+			{ID: "b"},
+		}}
+		require.True(t, root.AddRemote("a", Rollup{Total: 2, Done: 1}))
+		assert.Equal(t, Rollup{Total: 2, Done: 1}, root.Rollup)
+		assert.Equal(t, Rollup{Total: 2, Done: 1}, root.Children[0].Rollup)
+		assert.Equal(t, Rollup{}, root.Children[1].Rollup)
+	})
+}
