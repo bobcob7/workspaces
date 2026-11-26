@@ -157,10 +157,14 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
-	if opts.parent != "" && len(envs) > 1 {
+	if opts.parent != "" && len(opts.envs) > 1 {
 		return usageErrorf("--parent takes one --env")
 	}
-	listings, presence, err := a.listEnvironments(ctx, opts, envs, filter)
+	parent, err := a.parentFilterOf(opts)
+	if err != nil {
+		return err
+	}
+	listings, presence, err := a.listEnvironments(ctx, opts, envs, filter, parent)
 	if err != nil {
 		return err
 	}
@@ -210,12 +214,12 @@ type listRow struct {
 // listEnvironments lists each of envs in order: local from this machine,
 // the others from their snapshots. It also returns the presence it asked the
 // daemon for, nil when no environment was remote.
-func (a *App) listEnvironments(ctx context.Context, opts *listOptions, envs []string, filter *repo.Spec) ([]envListing, map[string]string, error) {
+func (a *App) listEnvironments(ctx context.Context, opts *listOptions, envs []string, filter *repo.Spec, parent *parentFilter) ([]envListing, map[string]string, error) {
 	var presence map[string]string
 	listings := make([]envListing, 0, len(envs))
 	for _, name := range envs {
 		if name == localEnvironment {
-			local, err := a.localListing(ctx, opts, filter)
+			local, err := a.localListing(ctx, opts, filter, parent)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -225,7 +229,7 @@ func (a *App) listEnvironments(ctx context.Context, opts *listOptions, envs []st
 		if presence == nil {
 			presence = a.environmentPresence(ctx)
 		}
-		listings = append(listings, a.remoteEnvListing(name, opts, filter, presence))
+		listings = append(listings, a.remoteEnvListing(name, opts, filter, parent, presence))
 	}
 	return listings, presence, nil
 }
@@ -256,11 +260,7 @@ func hasEnvColumn(entries []listEntryJSON) bool {
 }
 
 // localListing is this machine's part of ws list.
-func (a *App) localListing(ctx context.Context, opts *listOptions, filter *repo.Spec) (envListing, error) {
-	parent, err := a.parentFilter(opts.parent)
-	if err != nil {
-		return envListing{}, err
-	}
+func (a *App) localListing(ctx context.Context, opts *listOptions, filter *repo.Spec, parent *parentFilter) (envListing, error) {
 	listing, err := a.lifetime.List(ctx)
 	if err != nil {
 		return envListing{}, err
@@ -269,9 +269,9 @@ func (a *App) localListing(ctx context.Context, opts *listOptions, filter *repo.
 	raised := func(e *lifetime.Entry) bool {
 		return attentionOf(a.cachedLoopRun(loopRuns, e)) != loop.AttentionNone
 	}
-	entries, hidden := visibleEntries(childrenOf(filterEntries(listing.Workspaces, filter), parent), opts.all, raised)
+	entries, hidden := visibleEntries(a.parentChildren(filterEntries(listing.Workspaces, filter), parent), opts.all, raised)
 	unknown := listing.Unknown
-	if filter != nil || parent != "" {
+	if filter != nil || parent != nil {
 		unknown = nil
 	}
 	rows := append(a.localRows(entries, loopRuns), unknownRows(unknown)...)
@@ -373,17 +373,22 @@ func (a *App) printHiddenNote(hidden int) {
 	fmt.Fprintf(a.stderr, "%d hidden %s not shown; ws list -a shows them\n", hidden, noun)
 }
 
-// parentFilter is the id of the workspace --parent names, or "" without
-// one.
-func (a *App) parentFilter(arg string) (string, error) {
-	if arg == "" {
-		return "", nil
+// parentChildren keeps the entries parent keeps, on any environment, or all
+// of them without a parent.
+func (a *App) parentChildren(entries []lifetime.Entry, parent *parentFilter) []lifetime.Entry {
+	if parent == nil {
+		return entries
 	}
-	ws, err := a.workspaces.Find(arg)
-	if err != nil {
-		return "", domainError(err)
+	ids := a.environmentIDs()
+	var kept []lifetime.Entry
+	for i := range entries {
+		ws := &entries[i].Workspace
+		env := localEnvironmentOf(ws)
+		if parent.keeps(env, envIDIn(ids, env), ws.Parent, ws.ID) {
+			kept = append(kept, entries[i])
+		}
 	}
-	return ws.ID, nil
+	return kept
 }
 
 // childrenOf keeps the direct children of workspace parent, or everything
