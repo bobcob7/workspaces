@@ -455,7 +455,7 @@ func TestApp_runMachineWaitProgress(t *testing.T) {
 
 // relistingHost answers the first children listing with child, and each later
 // one with later.
-func relistingHost(t *testing.T, child envproto.ScopeChild, later func() envproto.Reply) *childHost {
+func relistingHost(t *testing.T, child *envproto.ScopeChild, later func() envproto.Reply) *childHost {
 	t.Helper()
 	listings := 0
 	host := &childHost{}
@@ -464,7 +464,7 @@ func relistingHost(t *testing.T, child envproto.ScopeChild, later func() envprot
 		case "children":
 			listings++
 			if listings == 1 {
-				return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{child}})
+				return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{*child}})
 			}
 			return later()
 		case "child":
@@ -498,7 +498,7 @@ func TestApp_printSource(t *testing.T) {
 		first.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
 		second := first
 		second.Rollup = &envproto.ScopeRollup{Total: 4, Done: 3}
-		serveDaemonWith(t, e.app, relistingHost(t, first, func() envproto.Reply {
+		serveDaemonWith(t, e.app, relistingHost(t, &first, func() envproto.Reply {
 			return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{second}})
 		}))
 		err := e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(20*time.Millisecond))
@@ -518,7 +518,7 @@ func TestApp_printSource(t *testing.T) {
 		first.Parent = "a"
 		first.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
 		offline := envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
-		serveDaemonWith(t, e.app, relistingHost(t, first, func() envproto.Reply { return offline }))
+		serveDaemonWith(t, e.app, relistingHost(t, &first, func() envproto.Reply { return offline }))
 		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
 		got := parseWait(t, e.stdout.String())
 		require.Len(t, got.Children, 1)
