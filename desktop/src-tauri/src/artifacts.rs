@@ -44,6 +44,44 @@ pub struct ArtifactSummary {
     pub updated_at: String,
     pub created_by: Actor,
     pub threads: ThreadCounts,
+    /// How many workspaces' conversations the artifact was part of (ADR 0084).
+    #[serde(default)]
+    pub conversation_count: u32,
+    /// One workspace's row, set only by `list --conversation`.
+    #[serde(default)]
+    pub conversation: Option<ConversationRow>,
+}
+
+/// One workspace's part in an artifact, as `list --conversation` gives it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct ConversationRow {
+    pub actions: Vec<String>,
+    pub revs: Vec<u32>,
+    pub first_at: String,
+    pub last_at: String,
+}
+
+/// A conversation an artifact was part of (ADR 0084).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct Conversation {
+    pub workspace: String,
+    pub name: Option<String>,
+    pub environment: Option<String>,
+    pub removed: Option<bool>,
+    pub actions: Vec<String>,
+    pub revs: Vec<u32>,
+    pub first_at: String,
+    pub last_at: String,
+}
+
+/// A citation `ws artifact cite` recorded.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct CitedRef {
+    pub id: String,
+    pub rev: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -64,6 +102,8 @@ pub struct Artifact {
     #[serde(flatten)]
     pub summary: ArtifactSummary,
     pub revisions: Vec<Revision>,
+    #[serde(default)]
+    pub conversations: Vec<Conversation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -150,6 +190,14 @@ struct ThreadResult {
 }
 
 #[derive(Deserialize)]
+struct CiteResult {
+    recorded: Vec<CitedRef>,
+}
+
+/// Most references one `artifact_cite` takes.
+const MAX_CITE_REFS: usize = 100;
+
+#[derive(Deserialize)]
 struct RemoveList {
     artifacts: Vec<RemoveItem>,
 }
@@ -165,24 +213,37 @@ struct ItemError {
     message: String,
 }
 
-/// Every artifact `ws artifact list` lists, latest first.
+/// Every artifact `ws artifact list` lists, latest first; with
+/// `conversation`, those that workspace's conversation was part of (ADR 0084).
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub async fn artifact_list(
     state: State<'_, AppState>,
     kind: Option<String>,
     workspace: Option<String>,
+    conversation: Option<String>,
 ) -> CmdResult<Vec<ArtifactSummary>> {
-    list(&state.runner, kind.as_deref(), workspace.as_deref()).await
+    list(
+        &state.runner,
+        kind.as_deref(),
+        workspace.as_deref(),
+        conversation.as_deref(),
+    )
+    .await
 }
 
 async fn list(
     runner: &Runner,
     kind: Option<&str>,
     workspace: Option<&str>,
+    conversation: Option<&str>,
 ) -> CmdResult<Vec<ArtifactSummary>> {
+    if let Some(id) = conversation {
+        check_workspace(id)?;
+    }
     let mut args = strings(&["artifact", "list", "--json"]);
     args.extend(flag("--kind", kind));
     args.extend(flag("--workspace", workspace));
+    args.extend(conversation.map(|id| format!("--conversation={id}")));
     args.extend(strings(&["--limit", "1000"]));
     let listing: ArtifactList = runner.ws_json_as_given(&args).await?;
     Ok(listing.artifacts)
@@ -381,6 +442,56 @@ async fn resolve(runner: &Runner, id: &str, thread: &str, reopen: bool) -> CmdRe
     Ok(result.thread)
 }
 
+/// Records that the person cited `refs` to the agent of `workspace`, after
+/// the reply box sent them (ADR 0084).
+#[cfg_attr(feature = "desktop", tauri::command)]
+pub async fn artifact_cite(
+    state: State<'_, AppState>,
+    workspace: String,
+    refs: Vec<String>,
+) -> CmdResult<Vec<CitedRef>> {
+    cite(&state.runner, &workspace, &refs).await
+}
+
+async fn cite(runner: &Runner, workspace: &str, refs: &[String]) -> CmdResult<Vec<CitedRef>> {
+    check_workspace(workspace)?;
+    if refs.is_empty() || refs.len() > MAX_CITE_REFS {
+        return Err(AppError::new(
+            "bad_args",
+            format!("cite 1 to {MAX_CITE_REFS} references"),
+        ));
+    }
+    let mut args = strings(&["artifact", "cite", "--json"]);
+    args.push(format!("--workspace={workspace}"));
+    args.push("--".to_string());
+    for r in refs {
+        let id = r.strip_prefix("@artifact:").unwrap_or(r);
+        check_id(id)?;
+        args.push(id.to_string());
+    }
+    let result: CiteResult = runner.ws_json_as_given(&args).await?;
+    Ok(result.recorded)
+}
+
+/// A workspace id `ws` accepts: one path element, not hidden, at most 128
+/// bytes, no control characters.
+fn valid_workspace(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && !id.starts_with('.')
+        && !id.chars().any(|c| c == '/' || c == '\\' || c.is_control())
+}
+
+fn check_workspace(id: &str) -> CmdResult<()> {
+    if valid_workspace(id) {
+        return Ok(());
+    }
+    Err(AppError::new(
+        "bad_args",
+        format!("{id:?} is not a workspace id"),
+    ))
+}
+
 /// An artifact id, `art-` and 8 lowercase hex digits, with an optional `/r<n>`
 /// revision (1 to 999): what `internal/artifact` accepts as a reference.
 fn valid_id(id: &str) -> bool {
@@ -479,7 +590,7 @@ mod tests {
     #[tokio::test]
     async fn list_passes_kind_workspace_and_the_limit() {
         let (dir, runner) = fake_ws(r#"echo '{"artifacts":[],"warnings":[]}'"#);
-        let listed = list(&runner, Some("image"), Some("pitch-ab12cd34"))
+        let listed = list(&runner, Some("image"), Some("pitch-ab12cd34"), None)
             .await
             .unwrap();
         assert!(listed.is_empty());
@@ -502,11 +613,112 @@ mod tests {
     #[tokio::test]
     async fn list_leaves_out_unset_filters() {
         let (dir, runner) = fake_ws(r#"echo '{"artifacts":[],"warnings":[]}'"#);
-        list(&runner, None, None).await.unwrap();
+        list(&runner, None, None, None).await.unwrap();
         assert_eq!(
             args_of(&dir),
             strings(&["artifact", "list", "--json", "--limit", "1000"])
         );
+    }
+
+    #[tokio::test]
+    async fn list_passes_the_conversation_as_one_argument() {
+        let (dir, runner) = fake_ws(
+            r#"echo '{"artifacts":[{"id":"art-1a2b3c4d","reference":"@artifact:art-1a2b3c4d","name":"a.txt","title":null,"kind":"text","content_type":"text/plain","latest":1,"size":2,"created_at":"2026-11-23T18:00:00Z","updated_at":"2026-11-23T18:00:00Z","created_by":{"kind":"person","workspace":null,"name":null},"threads":{"open":0,"resolved":0,"detached":0},"conversation_count":1,"conversation":{"actions":["read"],"revs":[1],"first_at":"2026-11-23T18:00:00Z","last_at":"2026-11-23T18:00:00Z"}}],"warnings":[]}'"#,
+        );
+        let listed = list(&runner, None, None, Some("fix-1")).await.unwrap();
+        assert_eq!(listed[0].conversation.as_ref().unwrap().actions, ["read"]);
+        assert_eq!(listed[0].conversation_count, 1);
+        assert_eq!(
+            args_of(&dir),
+            strings(&[
+                "artifact",
+                "list",
+                "--json",
+                "--conversation=fix-1",
+                "--limit",
+                "1000"
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn list_refuses_a_conversation_that_isnt_a_workspace_id() {
+        let (dir, runner) = fake_ws("exit 1");
+        for bad in ["", "../x", ".hidden", "a/b", "a\nb"] {
+            let err = list(&runner, None, None, Some(bad)).await.unwrap_err();
+            assert_eq!(err.code, "bad_args");
+        }
+        assert!(!dir.path().join("args").exists());
+    }
+
+    #[tokio::test]
+    async fn cite_passes_ids_after_the_workspace() {
+        let (dir, runner) = fake_ws(
+            r#"echo '{"workspace":"fix-1","recorded":[{"id":"art-1a2b3c4d","rev":2}],"warnings":[]}'"#,
+        );
+        let refs = vec![
+            "@artifact:art-1a2b3c4d/r2".to_string(),
+            "art-5e6f7a8b".to_string(),
+        ];
+        let recorded = cite(&runner, "fix-1", &refs).await.unwrap();
+        assert_eq!(
+            recorded,
+            [CitedRef {
+                id: "art-1a2b3c4d".into(),
+                rev: Some(2)
+            }]
+        );
+        assert_eq!(
+            args_of(&dir),
+            strings(&[
+                "artifact",
+                "cite",
+                "--json",
+                "--workspace=fix-1",
+                "--",
+                "art-1a2b3c4d/r2",
+                "art-5e6f7a8b"
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn cite_refuses_bad_input_before_ws_runs() {
+        let (dir, runner) = fake_ws("exit 1");
+        let one = vec!["art-1a2b3c4d".to_string()];
+        assert_eq!(
+            cite(&runner, "../x", &one).await.unwrap_err().code,
+            "bad_args"
+        );
+        assert_eq!(
+            cite(&runner, "fix-1", &[]).await.unwrap_err().code,
+            "bad_args"
+        );
+        assert_eq!(
+            cite(&runner, "fix-1", &["--rm".to_string()])
+                .await
+                .unwrap_err()
+                .code,
+            "bad_args"
+        );
+        let many = vec!["art-1a2b3c4d".to_string(); MAX_CITE_REFS + 1];
+        assert_eq!(
+            cite(&runner, "fix-1", &many).await.unwrap_err().code,
+            "bad_args"
+        );
+        assert!(!dir.path().join("args").exists());
+    }
+
+    #[tokio::test]
+    async fn show_returns_conversations() {
+        let with = ARTIFACT.replace(
+            r#""revisions":"#,
+            r#""conversations":[{"workspace":"fix-1","name":"fix","environment":null,"removed":false,"actions":["read"],"revs":[1],"first_at":"2026-11-23T18:00:00Z","last_at":"2026-11-23T18:00:00Z"}],"revisions":"#,
+        );
+        let (_dir, runner) = fake_ws(&format!("echo '{with}'"));
+        let shown = show(&runner, "art-1a2b3c4d").await.unwrap();
+        assert_eq!(shown.conversations[0].workspace, "fix-1");
+        assert_eq!(shown.conversations[0].removed, Some(false));
     }
 
     #[tokio::test]

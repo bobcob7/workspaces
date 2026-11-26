@@ -162,7 +162,7 @@ fn read_lines(
 /// The items one transcript line shows. A subagent's messages
 /// (`isSidechain`) and ones Claude Code adds for the model (`isMeta`) show
 /// nothing.
-fn items_of(entry: &Value) -> Vec<Item> {
+pub(crate) fn items_of(entry: &Value) -> Vec<Item> {
     let flag = |k: &str| entry.get(k).and_then(Value::as_bool).unwrap_or(false);
     if flag("isSidechain") || flag("isMeta") {
         return Vec::new();
@@ -493,7 +493,7 @@ fn set_id(item: &mut Item, new_id: String) {
 
 /// The rows one runner event shows, before ids are set. `request` and any
 /// kind not listed here show nothing.
-fn runner_event_items(event: &Value) -> Vec<Item> {
+pub(crate) fn runner_event_items(event: &Value) -> Vec<Item> {
     let at = event
         .get("time")
         .and_then(Value::as_str)
