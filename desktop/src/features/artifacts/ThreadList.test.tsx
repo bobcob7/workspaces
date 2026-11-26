@@ -171,6 +171,20 @@ describe("ThreadList", () => {
     expect(resolve).toHaveBeenCalledWith("art-00000001", "t1", false);
   });
 
+  it("says where a resolved thread went, counting it in Resolved", async () => {
+    vi.spyOn(api, "artifactCommentResolve").mockResolvedValue(threads[1] as Thread);
+    const { store } = renderList();
+
+    await userEvent.click(within(itemOf("t1")).getByRole("button", { name: "Resolve" }));
+
+    await vi.waitFor(() => {
+      expect(store.getState().ui.notice).toMatchObject({
+        severity: "success",
+        message: "Thread resolved - see Resolved (2)",
+      });
+    });
+  });
+
   it("reopens a resolved thread", async () => {
     const resolve = vi.spyOn(api, "artifactCommentResolve").mockResolvedValue(threads[3] as Thread);
     renderList();
@@ -178,6 +192,17 @@ describe("ThreadList", () => {
     await userEvent.click(within(itemOf("t4")).getByRole("button", { name: "Reopen" }));
 
     expect(resolve).toHaveBeenCalledWith("art-00000001", "t4", true);
+  });
+
+  it("says a thread was reopened", async () => {
+    vi.spyOn(api, "artifactCommentResolve").mockResolvedValue(threads[3] as Thread);
+    const { store } = renderList();
+
+    await userEvent.click(within(itemOf("t4")).getByRole("button", { name: "Reopen" }));
+
+    await vi.waitFor(() => {
+      expect(store.getState().ui.notice).toMatchObject({ severity: "success", message: "Thread reopened" });
+    });
   });
 
   it("hides reply and resolve on an older revision", () => {
