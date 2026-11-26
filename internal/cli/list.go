@@ -153,14 +153,7 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 		}
 		filter = &sp
 	}
-	envs, err := a.listedEnvironments(opts)
-	if err != nil {
-		return err
-	}
-	if opts.parent != "" && len(opts.envs) > 1 {
-		return usageErrorf("--parent takes one --env")
-	}
-	parent, err := a.parentFilterOf(opts)
+	envs, parent, err := a.listTargets(opts) //nolint:contextcheck // the ledger and environment store reads take no context
 	if err != nil {
 		return err
 	}
@@ -186,6 +179,20 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	}
 	a.printWarnings()
 	return nil
+}
+
+// listTargets are the environments ws list reads and, with --parent, the
+// filter it keeps workspaces by.
+func (a *App) listTargets(opts *listOptions) ([]string, *parentFilter, error) {
+	envs, err := a.listedEnvironments(opts)
+	if err != nil || opts.parent == "" {
+		return envs, nil, err
+	}
+	if len(opts.envs) > 1 {
+		return nil, nil, usageErrorf("--parent takes one --env")
+	}
+	parent, err := a.parentFilterOf(opts)
+	return envs, parent, err
 }
 
 // envListing is one environment's part of ws list: its entries as JSON in
