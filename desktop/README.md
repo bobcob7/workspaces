@@ -422,6 +422,8 @@ Three loop runs sit beside them: a blocked and a needs-attention run in
 Needs input (shown with a Blocked or Needs attention prefix), and one done
 run that is hidden.
 
+The sample `environments.default_scope` names `linux-server` and `old-rig` (not enrolled), and the pending `lab-pi` is never offered; an agent named `fail-scope` fails with `environment_unknown`.
+
 The sample `plan-scope` has an environment scope (local, linux-server,
 win-rig offline, old-rig removed) and three children on other environments
 from `ws machine spawn --env`: `ip-linux` on linux-server (online, done),
