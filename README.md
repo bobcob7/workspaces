@@ -97,6 +97,8 @@ child on one of those environments with `ws machine spawn --env <name>`. The
 controller checks each request against its own ledger, so an agent on one
 machine can't reach past what was granted to its workspaces. `ws machine wait`
 copies a finished remote child's result and report into the local state.
+`ws list` nests a remote child under its parent in the table, and
+`ws list --parent <id>` lists the children on every environment.
 
 ## Commands
 

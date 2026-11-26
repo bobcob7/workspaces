@@ -80,7 +80,24 @@ children on, when that is wider than its own environment, each with its
 `name`, `id`, `state` (`online`, `offline` or `removed`) and `current`; `null`
 otherwise. Both come from this machine's scope files and the controller's
 ledger, never from a snapshot. The table adds an `ENV` column after `ID` when
-some listed workspace runs on an environment other than `local`.
+some listed workspace runs on an environment other than `local`. It nests
+each child under its parent across environments, so a child that runs on
+another environment sits under its parent:
+
+```console
+$ ws list
+ID                       ENV                 NAME         CREATED   SESSION                    REPOS
+plan-scope-4d5e6f7a      local               plan-scope   5m ago    agent 4d5e6f7a: running
+└ ip-linux-8a9b0c1d      linux-server        -            4m ago    agent 8a9b0c1d: done
+  └ ip-probe-6c7d8e9f    win-rig (offline)   -            3m ago    agent 6c7d8e9f: idle, stale
+└ ip-win-2e3f4a5b        win-rig (offline)   -            4m ago    agent 2e3f4a5b: idle, stale
+api-fix-1a2b3c4d         local               api-fix      2h ago    agent 1a2b3c4d: running    api
+└ api-fix-t1-impl-…      local               -            2h ago    …
+build-rig-9c0d1e2f       win-rig (offline)   -            1d ago    agent 9c0d1e2f: idle
+```
+
+A child whose parent isn't listed (filtered by `--env`, `--repo` or hidden)
+stays top-level among its environment's rows.
 
 ## Options
 
@@ -88,7 +105,7 @@ some listed workspace runs on an environment other than `local`.
 | --------------- | ---------------------------------------------- |
 | `-a`, `--all`   | Include hidden workspaces                      |
 | `-q`, `--ids`   | Print only workspace IDs (like `docker ps -q`); not with `--json` |
-| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children ([0044](../adrs/0044-workspace-trees.md)); without `--env`, the environment it is in |
+| `--parent <WORKSPACE>` | Only the workspaces it started, its direct children on every environment, including those it started with `ws machine spawn --env` ([0044](../adrs/0044-workspace-trees.md)); without `--env`, the environment it is in |
 | `--repo <SPEC>` | Only workspaces containing this repo, matched by the parts the spec gives (`api` matches any owner and host, `o/api` any host) and its ref, if any, against the ref checked out; no cache lookup |
 | `--env <NAME>`  | Only the workspaces of this environment: `local` or a name from `ws env list`. Repeatable; default every environment (`local`, then enrolled ones by name). `-q` defaults to `local` |
 | `--json`        | Print `{"workspaces": [...], "hidden_count", "warnings"}`, with `environment`, `environment_status`, `stale`, `agent_state`, `scope_parent` and `scope` on each entry |
