@@ -273,7 +273,11 @@ agent's own environment is always in it and can't be unchecked; the field
 starts from `environments.default_scope` in `config.toml`, leaving out names
 that aren't enrolled; a widened scope is never remembered between openings;
 and an offline environment can be checked, since a child can start there once
-it's back online.
+it's back online. The list is deduplicated and at most 64 names are kept, so 63
+besides the agent's own environment are preselected; the dialog refuses to start
+above 64, as the Rust validator does. If `default_scope` can't be read, the dialog
+warns and the agent starts with its own environment only; the CLI then skips
+`default_scope`, as an own-environment-only `--env-scope` does.
 
 | Screen | Image |
 | --- | --- |

@@ -92,7 +92,11 @@ See [0009](docs/adrs/0009-workspace-repository-remotes.md).
 ### Remote children and scopes
 
 A person grants an agent a scope with `ws claude --env-scope <name>`, or
-`[environments] default_scope` in `config.toml`. The agent may then start a
+`[environments] default_scope` in `config.toml`. The desktop's New agent
+preselects `default_scope`: duplicates are dropped, at most 64 names are kept
+(63 besides the agent's own environment), and the dialog refuses to start above
+64. If `default_scope` can't be read, the dialog warns and the agent starts with
+its own environment only. The agent may then start a
 child on one of those environments with `ws machine spawn --env <name>`. The
 controller checks each request against its own ledger, so an agent on one
 machine can't reach past what was granted to its workspaces. `ws machine wait`
