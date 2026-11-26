@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type R
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type NewAnchor, type Thread } from "../../api";
+import { useAppDispatch } from "../../store";
+import { noticeShown } from "../ui/uiSlice";
 import { rehypeAnchors, selectionAnchor } from "./anchors";
 import styles from "./MarkdownViewer.module.css";
 
@@ -20,12 +22,26 @@ export const keepUrl = (url: string): string => {
   }
 };
 
-const openLink = (event: MouseEvent<HTMLAnchorElement>, href: string | undefined): void => {
-  event.preventDefault();
-  if (href === undefined || href === "" || href.startsWith("#")) {
-    return;
-  }
-  void api.openExternal(href).catch(() => undefined);
+interface LinkProps {
+  readonly href?: string;
+  readonly children?: ReactNode;
+}
+
+/** A link that opens outside the app, and says so when it can't. */
+const Link = ({ href, children }: LinkProps): JSX.Element => {
+  const dispatch = useAppDispatch();
+  const open = (event: MouseEvent<HTMLAnchorElement>): void => {
+    event.preventDefault();
+    if (href === undefined || href === "" || href.startsWith("#")) {
+      return;
+    }
+    api.openExternal(href).catch(() => dispatch(noticeShown({ severity: "error", message: "Couldn't open the link" })));
+  };
+  return (
+    <a href={href} onClick={open}>
+      {children}
+    </a>
+  );
 };
 
 interface BlockProps extends ExtraProps {
@@ -45,7 +61,7 @@ const blockAttributes = ({ node, className, "data-thread": thread }: BlockProps)
 
 /** Block elements carry their source lines, so a selection can be anchored to them (ADR 0079). */
 const components: Components = {
-  a: ({ href, children }) => <a href={href} onClick={(event) => openLink(event, href)}>{children}</a>,
+  a: ({ href, children }) => <Link href={href}>{children}</Link>,
   img: ({ alt, src }) => <span>{`[image: ${alt ?? ""}](${src ?? ""})`}</span>,
   p: (props: BlockProps) => <p {...blockAttributes(props)}>{props.children}</p>,
   h1: (props: BlockProps) => <h1 {...blockAttributes(props)}>{props.children}</h1>,

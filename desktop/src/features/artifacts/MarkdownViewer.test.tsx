@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Thread } from "../../api";
+import { testStore } from "../../test/fixtures";
+import { renderWithStore } from "../../test/render";
 import { MarkdownViewer, type MarkdownViewerProps } from "./MarkdownViewer";
 
 const thread = (overrides: Partial<Thread> = {}): Thread => ({
@@ -17,8 +19,7 @@ const thread = (overrides: Partial<Thread> = {}): Thread => ({
 const anchoredThread = (quote: string, lineStart: number): Thread =>
   thread({ id: "t1", anchor: { rev: 2, start: 0, end: quote.length, lineStart, lineEnd: lineStart, quote, prefix: "", suffix: "", state: "anchored" } });
 
-const renderViewer = (overrides: Partial<MarkdownViewerProps> = {}) => {
-  const props: MarkdownViewerProps = {
+const viewerProps = (overrides: Partial<MarkdownViewerProps> = {}): MarkdownViewerProps => ({
     source: "# Pitch\n\nToday the cache is shared.\n",
     highlights: [],
     revision: 2,
@@ -26,9 +27,10 @@ const renderViewer = (overrides: Partial<MarkdownViewerProps> = {}) => {
     activeThread: null,
     onThreadClick: vi.fn(),
     ...overrides,
-  };
-  return render(<MarkdownViewer {...props} />);
-};
+});
+
+const renderViewer = (overrides: Partial<MarkdownViewerProps> = {}) =>
+  renderWithStore(<MarkdownViewer {...viewerProps(overrides)} />, testStore());
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -70,6 +72,18 @@ describe("MarkdownViewer", () => {
     await userEvent.click(screen.getByRole("link", { name: "docs" }));
 
     expect(openExternal).toHaveBeenCalledWith("https://example.com/docs");
+  });
+
+  it("says so when a web link can't be opened", async () => {
+    vi.spyOn(api, "openExternal").mockRejectedValue(new Error("no browser"));
+    const store = testStore();
+    renderWithStore(<MarkdownViewer {...viewerProps({ source: "[docs](https://example.com/docs)\n" })} />, store);
+
+    await userEvent.click(screen.getByRole("link", { name: "docs" }));
+
+    await waitFor(() =>
+      expect(store.getState().ui.notice).toMatchObject({ severity: "error", message: "Couldn't open the link" }),
+    );
   });
 
   it("shows an image as its alt text and address, not as a picture", () => {

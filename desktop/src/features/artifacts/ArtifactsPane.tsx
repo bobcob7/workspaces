@@ -3,6 +3,7 @@ import { useState, type JSX } from "react";
 import type { Artifact, ArtifactContent, NewAnchor, Thread } from "../../api";
 import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
+import { noticeShown, narrowBack } from "../ui/uiSlice";
 import { removeArtifact } from "./artifactsSlice";
 import { CommentComposer } from "./CommentComposer";
 import { CommentPopover } from "./CommentPopover";
@@ -38,6 +39,7 @@ interface ArtifactBodyProps {
   readonly activeThread: string | null;
   readonly onActivate: (thread: string) => void;
   readonly onChanged: () => void;
+  readonly onGoToLatest: () => void;
 }
 
 /** The viewer, the margin of threads and the comment popover for the shown revision. */
@@ -50,6 +52,7 @@ const ArtifactBody = ({
   activeThread,
   onActivate,
   onChanged,
+  onGoToLatest,
 }: ArtifactBodyProps): JSX.Element => {
   const [draft, setDraft] = useState<Draft | null>(null);
   const source = decodeText(content.dataBase64);
@@ -88,9 +91,19 @@ const ArtifactBody = ({
     />
   );
 
+  const notice = !onLatest && (
+    <p className={styles.notice} role="status">
+      {`Viewing r${shownRev}, not the latest. Comments are read-only.`}
+      <Button size="small" onClick={onGoToLatest}>
+        Go to latest
+      </Button>
+    </p>
+  );
+
   if (artifact.kind === "markdown") {
     return (
       <>
+        {notice}
         <div className={styles.split}>
           <MarkdownViewer
             source={source}
@@ -112,6 +125,7 @@ const ArtifactBody = ({
 
   return (
     <>
+      {notice}
       {artifact.kind === "image" ? (
         <ImageViewer
           name={artifact.name}
@@ -139,20 +153,32 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
   const dispatch = useAppDispatch();
   const { artifact, content, comments, error, shownRev, chooseRev, reload } = useArtifactDetail(id);
   const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const onLatest = artifact !== null && shownRev === artifact.latest;
 
-  const copyReference = (): void => {
+  const copyReference = async (): Promise<void> => {
     if (artifact === null || shownRev === null) {
       return;
     }
-    const suffix = onLatest ? "" : `/r${shownRev}`;
-    void navigator.clipboard.writeText(`${artifact.reference}${suffix}`).catch(() => undefined);
+    const reference = `${artifact.reference}${onLatest ? "" : `/r${shownRev}`}`;
+    try {
+      await navigator.clipboard.writeText(reference);
+      dispatch(noticeShown({ severity: "info", message: `Copied ${reference}` }));
+    } catch {
+      dispatch(noticeShown({ severity: "error", message: "Couldn't copy the reference" }));
+    }
   };
 
-  const remove = (): void => {
+  const remove = async (): Promise<void> => {
+    setDeleting(true);
+    const result = await dispatch(removeArtifact(id));
+    if (removeArtifact.fulfilled.match(result)) {
+      dispatch(noticeShown({ severity: "success", message: `Deleted ${artifact?.name ?? "the artifact"}` }));
+      dispatch(narrowBack());
+    }
+    setDeleting(false);
     setConfirming(false);
-    void dispatch(removeArtifact(id));
   };
 
   return (
@@ -164,7 +190,7 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
             {artifact.title !== null && <span className={styles.file}>{artifact.name}</span>}
           </div>
           <div className={styles.actions}>
-            <Button size="small" onClick={copyReference}>
+            <Button size="small" onClick={() => void copyReference()}>
               Copy reference
             </Button>
             <select
@@ -202,17 +228,20 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
           activeThread={activeThread}
           onActivate={setActiveThread}
           onChanged={reload}
+          onGoToLatest={() => chooseRev(artifact.latest)}
         />
       )}
-      <Dialog open={confirming} onClose={() => setConfirming(false)}>
+      <Dialog open={confirming} onClose={() => !deleting && setConfirming(false)}>
         <DialogTitle>{`Delete ${artifact?.name ?? "this artifact"}?`}</DialogTitle>
         <DialogContent>
           <DialogContentText>This removes the artifact with all its revisions and comments.</DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirming(false)}>Cancel</Button>
-          <Button color="error" onClick={remove}>
-            Delete
+          <Button disabled={deleting} onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+          <Button color="error" disabled={deleting} onClick={() => void remove()}>
+            {deleting ? "Deleting..." : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>
