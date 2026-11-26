@@ -11,7 +11,8 @@ export interface CommentComposerProps {
   readonly anchor: NewAnchor | null;
   /** The selection wasn't in the block's source, so the block is anchored instead. */
   readonly wholeBlock: boolean;
-  readonly onPosted: () => void;
+  /** Called with the id of the new thread. */
+  readonly onPosted: (thread: string) => void;
   readonly onDismiss: (() => void) | null;
 }
 
@@ -35,9 +36,10 @@ export const CommentComposer = ({
     }
     setPosting(true);
     try {
-      await api.artifactCommentAdd(artifactId, body.trim(), null, anchor);
+      const added = await api.artifactCommentAdd(artifactId, body.trim(), null, anchor);
       setBody("");
-      onPosted();
+      dispatch(noticeShown({ severity: "success", message: "Comment posted" }));
+      onPosted(added.thread.id);
     } catch (err: unknown) {
       dispatch(noticeShown({ severity: "error", message: toAppError(err).message }));
     } finally {
@@ -69,7 +71,7 @@ export const CommentComposer = ({
           </Button>
         )}
         <Button type="submit" size="small" variant="contained" disabled={!canPost}>
-          Post
+          {posting ? "Posting..." : "Post"}
         </Button>
       </div>
     </form>

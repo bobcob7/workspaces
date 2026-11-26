@@ -63,9 +63,10 @@ const ArtifactBody = ({
         artifactId={artifact.id}
         anchor={draft.anchor}
         wholeBlock={draft.wholeBlock}
-        onPosted={() => {
+        onPosted={(thread) => {
           setDraft(null);
           onChanged();
+          onActivate(thread);
         }}
         onDismiss={dismiss}
       />
@@ -108,6 +109,7 @@ const ArtifactBody = ({
           <MarkdownViewer
             source={source}
             highlights={onLatest ? threads : []}
+            threads={threads}
             revision={shownRev}
             onComment={onLatest ? (anchor, wholeBlock, anchorEl) => setDraft({ anchor, wholeBlock, anchorEl }) : null}
             activeThread={activeThread}
@@ -151,7 +153,7 @@ interface ArtifactDetailProps {
 /** One artifact: its header, revision picker, viewer and threads. Remounted for each selection. */
 const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
   const dispatch = useAppDispatch();
-  const { artifact, content, comments, error, shownRev, chooseRev, reload } = useArtifactDetail(id);
+  const { artifact, content, comments, error, shownRev, chooseRev, reload, retry } = useArtifactDetail(id);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
@@ -213,8 +215,16 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
         </header>
       )}
       {error !== null && (
-        <p className={styles.error} role="alert">
+        <div className={styles.error} role="alert">
           {error.message}
+          <Button size="small" onClick={retry}>
+            Retry
+          </Button>
+        </div>
+      )}
+      {error === null && (artifact === null || content === null) && (
+        <p className={styles.loading} role="status">
+          {artifact === null ? "Loading artifact..." : `Loading r${shownRev ?? artifact.latest}...`}
         </p>
       )}
       {artifact !== null && content !== null && comments !== null && shownRev !== null && (

@@ -82,8 +82,22 @@
 }
 
 .error {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   margin: 0;
+  padding: 4px 0;
+  background: var(--background, Canvas);
   color: var(--danger, #c0392b);
+}
+
+.loading {
+  margin: 0;
+  color: var(--muted, inherit);
 }
 
 @media (max-width: 720px) {

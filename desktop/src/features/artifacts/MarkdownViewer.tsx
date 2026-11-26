@@ -105,6 +105,8 @@ export interface MarkdownViewerProps {
   readonly source: string;
   /** Threads to highlight. Each must be anchored to `revision`. */
   readonly highlights: readonly Thread[];
+  /** Every thread of the artifact, so a click on one with nothing to show can say why. */
+  readonly threads?: readonly Thread[];
   readonly revision: number;
   /** Starts a comment on the selection, with the selected block to open beside; null on an older revision. */
   readonly onComment: ((anchor: NewAnchor, wholeBlock: boolean, anchorEl: HTMLElement | null) => void) | null;
@@ -116,6 +118,7 @@ export interface MarkdownViewerProps {
 export const MarkdownViewer = ({
   source,
   highlights,
+  threads = [],
   revision,
   onComment,
   activeThread,
@@ -123,6 +126,9 @@ export const MarkdownViewer = ({
 }: MarkdownViewerProps): JSX.Element => {
   const rootRef = useRef<HTMLDivElement>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
+  const dispatch = useAppDispatch();
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
   const rehypePlugins = useMemo(() => [() => rehypeAnchors(highlights, revision)], [highlights, revision]);
 
   useEffect(() => {
@@ -134,7 +140,23 @@ export const MarkdownViewer = ({
     target?.scrollIntoView?.({ block: "center" });
     target?.setAttribute("data-focused", "");
     return () => target?.removeAttribute("data-focused");
-  }, [activeThread]);
+  }, [activeThread, highlights]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (activeThread === null || root === null || threadElement(root, activeThread) !== null) {
+      return;
+    }
+    const anchor = threadsRef.current.find((thread) => thread.id === activeThread)?.anchor;
+    if (anchor === undefined || anchor === null) {
+      return;
+    }
+    if (anchor.state === "detached") {
+      dispatch(noticeShown({ severity: "info", message: "The text this comment was on has changed" }));
+    } else if (anchor.rev !== revision) {
+      dispatch(noticeShown({ severity: "info", message: `This comment's text isn't in r${revision}` }));
+    }
+  }, [activeThread, revision, dispatch]);
 
   const captureSelection = (): void => {
     const root = rootRef.current;

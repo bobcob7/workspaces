@@ -412,4 +412,92 @@ describe("ArtifactsPane", () => {
     finishRev1(content({ rev: 1, contentType: "text/markdown; charset=utf-8", dataBase64: btoa("First draft text") }));
     expect(await screen.findByText("First draft text")).toBeInTheDocument();
   });
+  describe("loading, errors and posting feedback", () => {
+    const newThread = {
+      id: "t9",
+      anchor: null,
+      resolved: false,
+      resolvedAt: null,
+      resolvedBy: null,
+      comments: [{ id: "c9", author: { kind: "person" as const, workspace: null, name: null }, body: "Looks wrong", createdAt: "2026-11-23T18:10:00Z" }],
+    };
+
+    it("says the artifact is loading until it arrives", async () => {
+      let finish: (value: Artifact) => void = () => undefined;
+      vi.spyOn(api, "artifactShow").mockReturnValue(new Promise<Artifact>((resolve) => (finish = resolve)));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      renderPane([image], image.id);
+
+      expect(screen.getByRole("status")).toHaveTextContent("Loading artifact...");
+      finish(asArtifact(image, [revision(1, "image/png")]));
+      await screen.findByRole("img", { name: "login-error.png" });
+      expect(screen.queryByText("Loading artifact...")).not.toBeInTheDocument();
+    });
+
+    it("says the chosen revision is loading", async () => {
+      const revisions = [revision(1, "image/png"), revision(2, "image/png")];
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact({ ...image, latest: 2 }, revisions));
+      const rev1 = new Promise<ArtifactContent>(() => undefined);
+      vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) => (rev === 1 ? rev1 : content({ rev: 2 })));
+      renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+      expect(await screen.findByText("Loading r1...")).toBeInTheDocument();
+    });
+
+    it("offers Retry after the artifact can't be read, and loads it again", async () => {
+      const show = vi
+        .spyOn(api, "artifactShow")
+        .mockRejectedValueOnce({ code: "artifact_busy", message: "try later" })
+        .mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      renderPane([image], image.id);
+      expect(await screen.findByRole("alert")).toHaveTextContent("try later");
+
+      await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+      expect(await screen.findByRole("img", { name: "login-error.png" })).toBeInTheDocument();
+      expect(show).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("goes back to the last revision that loaded when a revision can't be read", async () => {
+      const revisions = [revision(1, "image/png"), revision(2, "image/png")];
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact({ ...image, latest: 2 }, revisions));
+      vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+        rev === 1 ? Promise.reject({ code: "artifact_gone", message: "r1 is gone" }) : content({ rev: 2 }),
+      );
+      renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("r1 is gone");
+      expect(screen.getByRole("combobox", { name: "Revision" })).toHaveValue("2");
+      expect(screen.getByRole("img", { name: "login-error.png" })).toBeInTheDocument();
+    });
+
+    it("shows Posting... while the comment is sent, then confirms and activates the new thread", async () => {
+      vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+      vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+      let finish: () => void = () => undefined;
+      vi.spyOn(api, "artifactCommentAdd").mockImplementation(
+        () => new Promise((resolve) => (finish = () => resolve({ thread: newThread, comment: newThread.comments[0] }))),
+      );
+      const store = renderPane([image], image.id);
+      await screen.findByRole("img", { name: "login-error.png" });
+      await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+      await userEvent.type(await screen.findByRole("textbox", { name: "Comment" }), "Looks wrong");
+
+      await userEvent.click(screen.getByRole("button", { name: "Post" }));
+
+      expect(screen.getByRole("button", { name: "Posting..." })).toBeDisabled();
+      vi.spyOn(api, "artifactComments").mockResolvedValue({ artifactId: image.id, latest: 1, threads: [newThread] });
+      finish();
+      await waitFor(() => expect(store.getState().ui.notice).toMatchObject({ severity: "success", message: "Comment posted" }));
+      await waitFor(() => expect(document.querySelector('[data-thread-item="t9"]')?.className).toMatch(/itemActive/));
+    });
+  });
 });

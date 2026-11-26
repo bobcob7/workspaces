@@ -181,4 +181,34 @@ describe("MarkdownViewer", () => {
     expect(container.querySelector("p")).toHaveClass("anchoredBlock");
     expect(container.querySelector("p")).toHaveAttribute("data-thread", "t1");
   });
+
+  describe("activating a thread with nothing to show", () => {
+    const store = () => testStore();
+    const renderActive = (overrides: Partial<MarkdownViewerProps>) => {
+      const s = store();
+      renderWithStore(<MarkdownViewer {...viewerProps(overrides)} />, s);
+      return s;
+    };
+
+    it("says the comment's text isn't in the shown revision", () => {
+      const other = thread({ id: "t1", anchor: { rev: 1, start: 0, end: 4, lineStart: 1, lineEnd: 1, quote: "Pitch", prefix: "", suffix: "", state: "anchored" } });
+      const s = renderActive({ revision: 2, threads: [other], activeThread: "t1" });
+
+      expect(s.getState().ui.notice).toMatchObject({ severity: "info", message: "This comment's text isn't in r2" });
+    });
+
+    it("says the text a detached comment was on has changed", () => {
+      const detached = thread({ id: "t1", anchor: { rev: 2, start: 0, end: 4, lineStart: 1, lineEnd: 1, quote: "gone", prefix: "", suffix: "", state: "detached" } });
+      const s = renderActive({ revision: 2, threads: [detached], activeThread: "t1" });
+
+      expect(s.getState().ui.notice).toMatchObject({ severity: "info", message: "The text this comment was on has changed" });
+    });
+
+    it("says nothing when the thread's text is on screen", () => {
+      const shown = anchoredThread("cache is shared", 3);
+      const s = renderActive({ highlights: [shown], threads: [shown], activeThread: "t1" });
+
+      expect(s.getState().ui.notice).toBeNull();
+    });
+  });
 });

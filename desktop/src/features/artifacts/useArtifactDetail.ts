@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, toAppError, type AppError, type Artifact, type ArtifactContent, type CommentList } from "../../api";
 import { useAppSelector } from "../../store";
 
@@ -12,12 +12,16 @@ export interface ArtifactDetailData {
   readonly chooseRev: (rev: number) => void;
   /** Loads the artifact and its comments again, after a comment changed. */
   readonly reload: () => void;
+  /** Loads everything again, after an error. */
+  readonly retry: () => void;
 }
 
 /** One artifact's shown data: its summary and revisions, the chosen revision's bytes, and its comment threads. */
 export const useArtifactDetail = (id: string): ArtifactDetailData => {
   const updatedAt = useAppSelector((s) => s.artifacts.items.find((item) => item.id === id)?.updatedAt ?? null);
   const [reloads, setReloads] = useState(0);
+  const [retries, setRetries] = useState(0);
+  const loadedRev = useRef<number | null>(null);
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [chosenRev, setChosenRev] = useState<number | null>(null);
   const [content, setContent] = useState<ArtifactContent | null>(null);
@@ -46,10 +50,10 @@ export const useArtifactDetail = (id: string): ArtifactDetailData => {
     return () => {
       active = false;
     };
-  }, [id, updatedAt, reloads]);
+  }, [id, updatedAt, reloads, retries]);
 
   useEffect(() => {
-    if (shownRev === null) {
+    if (shownRev === null || loadedRev.current === shownRev) {
       return;
     }
     let active = true;
@@ -57,12 +61,14 @@ export const useArtifactDetail = (id: string): ArtifactDetailData => {
       try {
         const read = await api.artifactRead(id, shownRev);
         if (active) {
+          loadedRev.current = read.rev;
           setContent(read);
           setError(null);
         }
       } catch (err: unknown) {
         if (active) {
           setError(toAppError(err));
+          setChosenRev(loadedRev.current);
         }
       }
     };
@@ -70,7 +76,7 @@ export const useArtifactDetail = (id: string): ArtifactDetailData => {
     return () => {
       active = false;
     };
-  }, [id, shownRev]);
+  }, [id, shownRev, retries]);
 
   return {
     artifact,
@@ -80,5 +86,6 @@ export const useArtifactDetail = (id: string): ArtifactDetailData => {
     shownRev,
     chooseRev: setChosenRev,
     reload: () => setReloads((count) => count + 1),
+    retry: () => setRetries((count) => count + 1),
   };
 };
