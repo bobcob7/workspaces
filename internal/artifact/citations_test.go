@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,15 +79,30 @@ func TestStore_RecordScan(t *testing.T) {
 		s, dir, stateDir, rec := newScanEnv(t)
 		path := filepath.Join(dir, rec.ID, linksFile)
 		require.NoError(t, os.WriteFile(path, []byte(`{"version":9}`), 0o600))
-		scan := &Scan{Workspace: "w1", Citations: []Citation{{Key: "m1", Refs: []Ref{{ID: rec.ID}}}}}
+		scan := &Scan{Workspace: "w1", Transcript: "/t", Offset: 100, Citations: []Citation{{Key: "m1", Refs: []Ref{{ID: rec.ID}}}}}
 		res, err := s.RecordScan(t.Context(), stateDir, scan)
 		require.NoError(t, err)
 		assert.Len(t, res.Warnings, 1)
 		assert.Equal(t, 0, res.Recorded)
+		assert.Equal(t, 1, res.Failed)
+		assert.Equal(t, int64(0), res.Offset, "the cursor stays, so the desktop sends the citation again")
 		require.NoError(t, os.Remove(path))
 		res, err = s.RecordScan(t.Context(), stateDir, scan)
 		require.NoError(t, err)
 		assert.Equal(t, 1, res.Recorded)
+		assert.Equal(t, int64(100), res.Offset)
+	})
+	t.Run("a done context fails the rest without trying them", func(t *testing.T) {
+		t.Parallel()
+		s, dir, _, rec := newScanEnv(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		state := scanState{}
+		res := s.recordPairs(ctx, &Scan{Workspace: "w1", Citations: []Citation{{Key: "m1", Refs: []Ref{{ID: rec.ID}}}}}, &state)
+		assert.Equal(t, 1, res.Failed)
+		assert.Empty(t, state.Seen)
+		_, statErr := os.Stat(filepath.Join(dir, rec.ID, linksFile))
+		assert.ErrorIs(t, statErr, os.ErrNotExist)
 	})
 	t.Run("refuses a workspace with no record, and makes nothing", func(t *testing.T) {
 		t.Parallel()
@@ -153,7 +169,7 @@ func TestAdvanceCursor_seenCap(t *testing.T) {
 			for i := range tt.n {
 				state.Seen = append(state.Seen, fmt.Sprintf("m%d:art-1", i))
 			}
-			advanceCursor(&state, &Scan{}, testBase)
+			advanceCursor(&state, &Scan{}, true, testBase)
 			assert.Len(t, state.Seen, tt.want)
 			assert.Equal(t, fmt.Sprintf("m%d:art-1", tt.n-1), state.Seen[len(state.Seen)-1])
 		})

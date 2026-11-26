@@ -211,12 +211,12 @@ func (a *App) getArtifact(ctx context.Context, c *machineArtifactCaller, id stri
 }
 
 // recordRead records that the caller read revision rev of id; a failure is a
-// warning (ADR 0084).
+// warning (ADR 0084). A caller with no workspace records nothing.
 func (a *App) recordRead(ctx context.Context, c *machineArtifactCaller, id string, rev int) {
-	link := artifact.NewLink{Action: artifact.ActionRead, Rev: rev, Root: c.root}
-	if c.actor.Workspace != nil {
-		link.Workspace = *c.actor.Workspace
+	if c.actor.Workspace == nil {
+		return
 	}
+	link := artifact.NewLink{Workspace: *c.actor.Workspace, Action: artifact.ActionRead, Rev: rev, Root: c.root}
 	if c.actor.Name != nil {
 		link.Name = *c.actor.Name
 	}

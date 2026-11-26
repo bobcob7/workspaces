@@ -92,7 +92,7 @@ func TestStore_RecordLinks(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"version":2,"links":[]}`, string(data))
 	})
-	t.Run("replaces a corrupt links.json", func(t *testing.T) {
+	t.Run("moves a corrupt links.json aside and starts a new one", func(t *testing.T) {
 		t.Parallel()
 		s, dir := newTestStore(t, fixedClock(testBase))
 		rec := addText(t, s, "a.md", "# A\n")
@@ -101,6 +101,19 @@ func TestStore_RecordLinks(t *testing.T) {
 		links, err := readLinks(filepath.Join(dir, rec.ID))
 		require.NoError(t, err)
 		assert.Len(t, links, 1)
+		kept, err := os.ReadFile(filepath.Join(dir, rec.ID, corruptLinksFile))
+		require.NoError(t, err)
+		assert.Equal(t, "{", string(kept))
+	})
+	t.Run("returns a links.json it can't read, and writes nothing", func(t *testing.T) {
+		t.Parallel()
+		s, dir := newTestStore(t, fixedClock(testBase))
+		rec := addText(t, s, "a.md", "# A\n")
+		require.NoError(t, os.Mkdir(filepath.Join(dir, rec.ID, linksFile), 0o700))
+		require.Error(t, s.RecordLinks(t.Context(), rec.ID, NewLink{Workspace: "w1", Action: ActionRead}))
+		info, err := os.Stat(filepath.Join(dir, rec.ID, linksFile))
+		require.NoError(t, err)
+		assert.True(t, info.IsDir())
 	})
 }
 
@@ -202,6 +215,21 @@ func TestConversations(t *testing.T) {
 	assert.Nil(t, got[2].Environment)
 }
 
+func TestConversations_tiesAndNames(t *testing.T) {
+	t.Parallel()
+	rec := &Record{Revisions: []Revision{{Rev: 1, CreatedAt: testBase, CreatedBy: Agent("b-1", "old-name")}}}
+	links := []Link{
+		{Workspace: "a-1", Action: ActionRead, FirstAt: testBase, LastAt: testBase, Count: 1},
+		{Workspace: "b-1", Name: new("new-name"), Action: ActionRead, FirstAt: testBase.Add(time.Minute), LastAt: testBase.Add(time.Minute), Count: 1},
+		{Workspace: "c-1", Action: ActionCited, FirstAt: testBase.Add(time.Minute), LastAt: testBase.Add(time.Minute), Count: 1},
+	}
+	got := Conversations(rec, nil, links)
+	require.Len(t, got, 3)
+	assert.Equal(t, []string{"b-1", "c-1", "a-1"}, []string{got[0].Workspace, got[1].Workspace, got[2].Workspace}, "same last_at: by workspace")
+	assert.Equal(t, "new-name", *got[0].Name, "the latest name wins")
+	assert.Nil(t, got[1].Name)
+}
+
 func TestConversations_personOnly(t *testing.T) {
 	t.Parallel()
 	rec := &Record{Revisions: []Revision{{Rev: 1, CreatedAt: testBase, CreatedBy: Person()}}}
@@ -219,6 +247,11 @@ func TestStore_Show_conversations(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, e.Conversations, 2)
 		assert.Empty(t, e.Warnings)
+		byWorkspace := map[string][]string{}
+		for _, c := range e.Conversations {
+			byWorkspace[c.Workspace] = c.Actions
+		}
+		assert.Equal(t, map[string][]string{"pitch-1": {ActionCreated}, "fix-1": {ActionRead}}, byWorkspace)
 	})
 	t.Run("ignores a newer links.json with a warning", func(t *testing.T) {
 		t.Parallel()

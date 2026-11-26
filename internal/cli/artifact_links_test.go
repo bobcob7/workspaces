@@ -69,6 +69,7 @@ func TestApp_machineArtifactGet_recordsRead(t *testing.T) {
 		links, err := os.ReadFile(filepath.Join(e.app.paths.Artifacts, id, "links.json"))
 		require.NoError(t, err)
 		assert.Contains(t, string(links), `"count":2`)
+		assert.Contains(t, string(links), `"name":"planner","root":"boss"`)
 	})
 	t.Run("summaries count conversations", func(t *testing.T) {
 		e, _ := newMachineArtifactApp(t)
@@ -149,15 +150,71 @@ func TestApp_claude_recordsCited(t *testing.T) {
 		require.Len(t, e.app.warned, 1)
 		assert.Contains(t, e.app.warned[0], "link not recorded")
 	})
-	t.Run("a workspace on an environment is recorded with it", func(t *testing.T) {
-		e, id := hintEnv(t)
+}
+
+func TestApp_recordRemoteCited(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   string
+		wantName string
+		warned   bool
+	}{
+		{name: "records the workspace with its environment", result: `{"id":"far-1","name":"far"}`, wantName: "far"},
+		{name: "an empty name falls back to the id", result: `{"id":"far-1","name":""}`, wantName: "far-1"},
+		{name: "a name with control characters falls back to the id", result: `{"id":"far-1","name":"a\u001bb"}`, wantName: "far-1"},
+		{name: "a result that isn't JSON records nothing", result: `{`, warned: true},
+		{name: "an id that isn't one records nothing", result: `{"id":"../far","name":"far"}`, warned: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, id := hintEnv(t)
+			e.app.recordRemoteCited(t.Context(), []byte(tt.result), "win-rig", []artifact.Ref{{ID: id}})
+			entry, err := e.app.artifactStore().Show(id)
+			require.NoError(t, err)
+			if tt.warned {
+				assert.Empty(t, entry.Conversations)
+				assert.Len(t, e.app.warned, 1)
+				return
+			}
+			require.Len(t, entry.Conversations, 1)
+			assert.Equal(t, "win-rig", *entry.Conversations[0].Environment)
+			assert.Equal(t, tt.wantName, *entry.Conversations[0].Name)
+		})
+	}
+}
+
+func TestApp_conversationsJSON_removed(t *testing.T) {
+	t.Run("a remote row's removed is null", func(t *testing.T) {
+		e, _ := newMachineArtifactApp(t)
+		id := personAdded(t, e)
 		e.app.recordRemoteCited(t.Context(), []byte(`{"id":"far-1","name":"far"}`), "win-rig", []artifact.Ref{{ID: id}})
-		entry, err := e.app.artifactStore().Show(id)
-		require.NoError(t, err)
-		require.Len(t, entry.Conversations, 1)
-		require.NotNil(t, entry.Conversations[0].Environment)
-		assert.Equal(t, "win-rig", *entry.Conversations[0].Environment)
+		row := jsonObject(t, conversationsOf(t, e, id)[0])
+		assert.Nil(t, row["removed"])
+		assert.Equal(t, "win-rig", row["environment"])
 	})
+	t.Run("removed is null, with a warning, when the list fails", func(t *testing.T) {
+		e, _ := newMachineArtifactApp(t)
+		id := personAdded(t, e)
+		require.Equal(t, exitOK, machineCall(t, e, "get", id), e.stderr.String())
+		e.store.ListFunc = func() ([]workspace.Workspace, error) { return nil, errTest }
+		e.stdout.Reset()
+		require.Equal(t, exitOK, runMachine(t, e, "artifact", "show", id, "--json"), e.stderr.String())
+		out := jsonObjectOf(t, e.stdout.String())
+		rows, ok := jsonObject(t, out["artifact"])["conversations"].([]any)
+		require.True(t, ok)
+		row := jsonObject(t, rows[0])
+		assert.Nil(t, row["removed"])
+		assert.NotEmpty(t, out["warnings"])
+	})
+}
+
+func TestApp_recordRead_withoutAWorkspace(t *testing.T) {
+	e, _ := newMachineArtifactApp(t)
+	id := personAdded(t, e)
+	e.app.recordRead(t.Context(), &machineArtifactCaller{actor: artifact.Person()}, id, 1)
+	assert.Empty(t, e.app.warned)
+	_, err := os.Stat(filepath.Join(e.app.paths.Artifacts, id, "links.json"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestApp_runMachineSpawn_recordsCited(t *testing.T) {

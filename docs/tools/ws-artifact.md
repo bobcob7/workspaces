@@ -103,7 +103,8 @@ above 1 is refused with `artifact_invalid` naming the file, and the artifact
 is listed with a warning and never written. Comments and threads are never
 deleted, so ids are never reused. A `links.json` with a newer `version`
 is ignored with a warning (it is never needed to read the artifact) and
-never rewritten; a corrupt one is replaced by the next link.
+never rewritten; a corrupt one is moved aside to `links.corrupt.json` by
+the next link, which starts a new file.
 
 The desktop's transcript scan keeps its state per workspace in
 `state/<id>/citations.json`, under `state/<id>/citations.lock`; see
@@ -248,8 +249,9 @@ Prints `{"artifact_id": "art-…", "thread": <thread>, "warnings": []}`.
 
 ## ws artifact cite
 
-Records that a person cited artifacts to the agent of workspace `<id>`: the
-desktop's reply box runs it after sending a message with references. Each
+Records that a person cited artifacts to the agent of workspace `<id>`. It
+is meant for the desktop's reply box, to run after sending a message with
+references (the desktop side lands with the desktop PR of ADR 0084). Each
 distinct (artifact, revision) counts once. Every artifact must exist
 (`artifact_unknown`, nothing recorded); a bad `--workspace` is `usage`, and
 one `ws` doesn't list here is `workspace_not_found`. A link that can't be
@@ -259,9 +261,10 @@ Prints `{"workspace": "<id>", "recorded": [{"id": "art-…", "rev": 2}], "warnin
 
 ## ws artifact scan
 
-The store of the desktop's transcript scan (ADR 0084). The desktop reads
-local transcripts every 30 s and finds citations in user messages (without
-the hint line) and agent replies, outside code; `ws` only stores them.
+The store of the desktop's transcript scan (ADR 0084), which is to read
+local transcripts every 30 s and find citations in user messages (without
+the hint line) and agent replies, outside code; `ws` only stores them. The
+scan itself lands with the desktop PR of ADR 0084.
 
 `scan cursors` prints where each workspace's scan stopped:
 `{"cursors": [{"workspace", "transcript", "offset", "updated_at"}], "warnings": []}`.
@@ -276,7 +279,10 @@ the hint line) and agent replies, outside code; `ws` only stores them.
 Each (message `key`, artifact) pair is recorded once: pairs already in the
 workspace's `seen` list (its newest 4096) are skipped, and a pair joins it
 only after its link is written, so rescans never count twice. Unknown ids
-are skipped. `at` (optional) is when the message was written, clamped to
+are skipped. If a link can't be written (a busy or unreadable artifact),
+the cursor isn't moved (`offset` is the stored one), so the desktop sends
+those citations again; `seen` keeps the ones that were written from
+counting twice. `at` (optional) is when the message was written, clamped to
 now. The cursor keeps the larger offset of one transcript and is replaced
 for a new one. Anything but a valid version 1 scan (more than 1000
 citations, a key of 0 or over 128 bytes, a bad id) is `usage`; a workspace

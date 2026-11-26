@@ -55,11 +55,13 @@ type Scan struct {
 
 // ScanResult is what RecordScan did: the stored offset, how many
 // (message, artifact) pairs it recorded, and how many it skipped because
-// they were recorded before or name no stored artifact.
+// they were recorded before or name no stored artifact. Failed is how many
+// couldn't be written; then the offset isn't moved, so they're sent again.
 type ScanResult struct {
 	Offset   int64
 	Recorded int
 	Skipped  int
+	Failed   int
 	Warnings []string
 }
 
@@ -133,7 +135,7 @@ func (s *Store) RecordScan(ctx context.Context, stateDir string, scan *Scan) (Sc
 		return ScanResult{}, err
 	}
 	res := s.recordPairs(ctx, scan, &state)
-	advanceCursor(&state, scan, s.now().UTC().Truncate(time.Second))
+	advanceCursor(&state, scan, res.Failed == 0, s.now().UTC().Truncate(time.Second))
 	if err := writeScanState(dir, &state); err != nil {
 		return ScanResult{}, err
 	}
@@ -142,17 +144,23 @@ func (s *Store) RecordScan(ctx context.Context, stateDir string, scan *Scan) (Sc
 }
 
 // recordPairs records the unseen (message, artifact) pairs of scan, one
-// RecordLinks per artifact, and adds the recorded ones to state.Seen.
+// RecordLinks per artifact, and adds the recorded ones to state.Seen. Once
+// ctx is done, the rest count as failed without being tried.
 func (s *Store) recordPairs(ctx context.Context, scan *Scan, state *scanState) ScanResult {
 	var res ScanResult
 	pending, order := unseenPairs(scan, state.Seen, &res)
 	for _, id := range order {
 		p := pending[id]
+		if ctx.Err() != nil {
+			res.Failed += len(p.keys)
+			continue
+		}
 		err := s.RecordLinks(ctx, id, p.links...)
 		switch {
 		case errors.Is(err, ErrNotFound):
 			res.Skipped += len(p.keys)
 		case err != nil:
+			res.Failed += len(p.keys)
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%s: citation not recorded: %v", id, err))
 		default:
 			res.Recorded += len(p.keys)
@@ -227,9 +235,10 @@ func citedLinks(scan *Scan, c *Citation, id string) []NewLink {
 }
 
 // advanceCursor keeps the larger offset for the same transcript, and takes
-// scan's for a new one; seen keeps its newest MaxSeen pairs.
-func advanceCursor(state *scanState, scan *Scan, now time.Time) {
-	if scan.Transcript != state.Transcript || scan.Offset > state.Offset {
+// scan's for a new one, when move is true; seen keeps its newest MaxSeen
+// pairs.
+func advanceCursor(state *scanState, scan *Scan, move bool, now time.Time) {
+	if move && (scan.Transcript != state.Transcript || scan.Offset > state.Offset) {
 		state.Transcript, state.Offset = scan.Transcript, scan.Offset
 	}
 	if over := len(state.Seen) - MaxSeen; over > 0 {

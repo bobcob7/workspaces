@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -24,6 +25,8 @@ const (
 
 const (
 	linksFile = "links.json"
+	// corruptLinksFile is where a links.json that can't be decoded is kept.
+	corruptLinksFile = "links.corrupt.json"
 	// MaxLinks is how many entries links.json keeps; past it the entry with
 	// the oldest last_at is dropped.
 	MaxLinks = 500
@@ -104,8 +107,8 @@ func (s *Store) RecordLinks(ctx context.Context, id string, links ...NewLink) er
 		return fmt.Errorf("recording a link on %s: %w", id, err)
 	}
 	defer unlock()
-	stored, err := readLinks(dir)
-	if errors.Is(err, ErrNewer) {
+	stored, err := usableLinks(dir)
+	if err != nil {
 		return err
 	}
 	now := s.now().UTC().Truncate(time.Second)
@@ -113,6 +116,20 @@ func (s *Store) RecordLinks(ctx context.Context, id string, links ...NewLink) er
 		stored = addLink(stored, &l, now)
 	}
 	return writeLinks(s.tmpDir(), dir, capLinks(stored))
+}
+
+// usableLinks is the links in dir to add to. A corrupt links.json is moved
+// aside to links.corrupt.json, so its history isn't silently lost, and the
+// new links start a fresh file; any other error is returned.
+func usableLinks(dir string) ([]Link, error) {
+	links, err := readLinks(dir)
+	if !errors.Is(err, ErrInvalid) {
+		return links, err
+	}
+	if err := os.Rename(filepath.Join(dir, linksFile), filepath.Join(dir, corruptLinksFile)); err != nil {
+		return nil, fmt.Errorf("moving a corrupt %s aside: %w", linksFile, err)
+	}
+	return nil, nil
 }
 
 // linksOrWarning is the links in dir. A links.json that can't be used is

@@ -105,14 +105,6 @@ func lastWith(e *artifact.Entry, id string) time.Time {
 	return time.Time{}
 }
 
-// nonNil is s, or an empty slice for nil, so JSON prints [] and not null.
-func nonNil[T any](s []T) []T {
-	if s == nil {
-		return []T{}
-	}
-	return s
-}
-
 // linkWarning records err from a link write as a warning: a link never fails
 // the command it came from (ADR 0084).
 func (a *App) linkWarning(id string, err error) {
@@ -190,10 +182,12 @@ func (a *App) recordStartCited(ctx context.Context, ws *workspace.Workspace, ref
 	a.recordCited(ctx, citingWorkspace{id: ws.ID, name: name, root: root}, refs)
 }
 
-// rootOf is the root of id's tree, or id when the list can't be read.
+// rootOf is the root of id's tree, or id, with a warning, when the list
+// can't be read.
 func (a *App) rootOf(id string) string {
 	list, err := a.workspaces.List()
 	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("listing workspaces for %s's tree: %v", id, err))
 		return id
 	}
 	return machine.Root(list, id)
@@ -214,7 +208,7 @@ func (a *App) recordRemoteCited(ctx context.Context, result []byte, env string, 
 		return
 	}
 	name := created.Name
-	if name == "" {
+	if !artifact.ValidWorkspaceID(name) {
 		name = created.ID
 	}
 	a.recordCited(ctx, citingWorkspace{id: created.ID, name: name, root: created.ID, environment: env}, refs)
