@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Thread } from "../../api";
@@ -46,7 +46,13 @@ const renderList = (overrides: Partial<ThreadListProps> = {}) => {
     onChanged: vi.fn(),
     ...overrides,
   };
-  return { ...renderWithStore(<ThreadList {...props} />, testStore()), ...props };
+  const store = testStore();
+  return { ...renderWithStore(<ThreadList {...props} />, store), ...props, store };
+};
+
+const postedReply = {
+  thread: threads[1] as Thread,
+  comment: { id: "c9", author: person, body: "Done", createdAt: "2026-11-23T18:05:00Z" },
 };
 
 const itemOf = (id: string): HTMLElement => {
@@ -115,6 +121,45 @@ describe("ThreadList", () => {
 
     expect(reply).toHaveBeenCalledWith("art-00000001", "Done", "t1", null);
     expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("shows Sending... and disables Reply and Resolve while a reply is posting", async () => {
+    let finish = (): void => undefined;
+    vi.spyOn(api, "artifactCommentAdd").mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve(postedReply);
+      }),
+    );
+    renderList();
+    const item = within(itemOf("t1"));
+    await userEvent.type(item.getByRole("textbox", { name: "Reply to t1" }), "Done");
+
+    await userEvent.click(item.getByRole("button", { name: "Reply" }));
+
+    expect(item.getByRole("button", { name: "Sending..." })).toBeDisabled();
+    expect(item.getByRole("button", { name: "Resolve" })).toBeDisabled();
+    await act(async () => {
+      finish();
+    });
+  });
+
+  it("posts one reply when Enter is pressed again while the first is sending", async () => {
+    let finish = (): void => undefined;
+    const reply = vi.spyOn(api, "artifactCommentAdd").mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve(postedReply);
+      }),
+    );
+    renderList();
+    const textbox = within(itemOf("t1")).getByRole("textbox", { name: "Reply to t1" });
+    await userEvent.type(textbox, "Done");
+
+    await userEvent.keyboard("{Enter}{Enter}");
+
+    expect(reply).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finish();
+    });
   });
 
   it("resolves an open thread", async () => {

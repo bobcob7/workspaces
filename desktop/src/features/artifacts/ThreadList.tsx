@@ -47,6 +47,7 @@ const ThreadItem = ({ artifactId, thread, active, readOnly, onActivate, onChange
   const dispatch = useAppDispatch();
   const itemRef = useRef<HTMLLIElement>(null);
   const [reply, setReply] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (active) {
@@ -55,18 +56,21 @@ const ThreadItem = ({ artifactId, thread, active, readOnly, onActivate, onChange
   }, [active]);
 
   const perform = async (action: () => Promise<unknown>): Promise<void> => {
+    setBusy(true);
     try {
       await action();
       onChanged();
     } catch (err: unknown) {
       dispatch(noticeShown({ severity: "error", message: toAppError(err).message }));
+    } finally {
+      setBusy(false);
     }
   };
 
   const sendReply = (event: FormEvent): void => {
     event.preventDefault();
     const body = reply.trim();
-    if (body === "") {
+    if (busy || body === "") {
       return;
     }
     void perform(async () => {
@@ -98,12 +102,13 @@ const ThreadItem = ({ artifactId, thread, active, readOnly, onActivate, onChange
               onChange={(event) => setReply(event.target.value)}
               slotProps={{ htmlInput: { "aria-label": `Reply to ${thread.id}` } }}
             />
-            <Button type="submit" size="small" disabled={reply.trim() === ""}>
-              Reply
+            <Button type="submit" size="small" disabled={busy || reply.trim() === ""}>
+              {busy ? "Sending..." : "Reply"}
             </Button>
           </form>
           <Button
             size="small"
+            disabled={busy}
             onClick={() =>
               void perform(() => api.artifactCommentResolve(artifactId, thread.id, thread.resolved))
             }
