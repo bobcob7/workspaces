@@ -894,7 +894,8 @@
       entry({
         workspaceId: "plan-scope-4d5e6f7a", sessionId: "4d5e6f7a", path: "/w/plan-scope-4d5e6f7a",
         status: "working", intent: "Compare each machine's private IP",
-        rollup: { total: 3, done: 1, fraction: 1 / 3 },
+        progress: { name: "compare IPs", total: 3, done: 1, note: null, updatedAt: "2026-11-25T10:00:00Z" },
+        rollup: { total: 8, done: 4, fraction: 0.5 },
         scope: [
           { id: "local", name: "local", state: "online", current: true },
           { id: "env_7f3a", name: "linux-server", state: "online", current: false },
@@ -904,7 +905,9 @@
       }),
       remoteEntry("linux-server", {
         workspaceId: "ip-linux-8a9b0c1d", sessionId: "8a9b0c1d", status: "done", result: "PASS",
-        intent: "Report the private IP", rollup: leafRollup(true),
+        intent: "Report the private IP",
+        progress: { name: "private IP", total: 2, done: 2, note: null, updatedAt: "2026-11-25T09:58:00Z" },
+        rollup: { total: 3, done: 2, fraction: 2 / 3 },
         scopeParent: { environment: "local", workspaceId: "plan-scope-4d5e6f7a" },
         scope: [
           { id: "env_7f3a", name: "linux-server", state: "online", current: true },
@@ -914,11 +917,15 @@
       remoteEntry("win-rig", {
         workspaceId: "ip-win-2e3f4a5b", sessionId: "2e3f4a5b", status: "idle",
         environmentOnline: false, snapshotStale: true, intent: "Report the private IP",
+        progress: { name: "private IP", total: 2, done: 1, note: "Waiting for win-rig", updatedAt: "2026-11-25T09:59:00Z" },
+        rollup: { total: 2, done: 1, fraction: 0.5 },
         scopeParent: { environment: "local", workspaceId: "plan-scope-4d5e6f7a" },
       }),
       remoteEntry("win-rig", {
         workspaceId: "ip-probe-6c7d8e9f", sessionId: "6c7d8e9f", status: "idle",
         environmentOnline: false, snapshotStale: true, intent: "Probe the route from win-rig",
+        progress: { name: "route", total: 1, done: 0, note: null, updatedAt: "2026-11-25T09:41:00Z" },
+        rollup: { total: 1, done: 0, fraction: 0 },
         scopeParent: { environment: "linux-server", workspaceId: "ip-linux-8a9b0c1d" },
       }),
     ],

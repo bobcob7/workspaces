@@ -33,6 +33,9 @@ A child you started on another environment (`ws machine spawn --env`) is
 shown as a leaf under its parent, with the progress and rollup its environment
 last reported. A child whose environment can't be asked has no progress.
 
+Its `rollup` counts in its ancestors' rollups too. An offline environment's last
+snapshot counts, and a removed child counts nothing.
+
 ## Exit codes
 
 | Situation               | Error code          | Exit |

@@ -38,6 +38,7 @@ type remoteChild struct {
 	parent string
 	role   *string
 	entry  json.RawMessage
+	rollup *envscope.Steps
 }
 
 // remoteChildren are the caller's children on other environments, from the
@@ -87,9 +88,44 @@ func remoteChildrenOf(raw json.RawMessage, scope envscope.Scope) ([]remoteChild,
 			warnings = append(warnings, fmt.Sprintf("ignoring child %s on %s: that environment isn't in your scope", c.Workspace, c.Environment))
 			continue
 		}
-		children = append(children, remoteChild{env: c.Environment, envID: ref.ID, id: c.Workspace, parent: c.Parent, role: c.Role, entry: c.Entry})
+		if c.Rollup != nil && rollupSteps(c.Rollup) == nil {
+			warnings = append(warnings, fmt.Sprintf("ignoring the rollup of %s on %s: out of range", c.Workspace, c.Environment))
+		}
+		children = append(children, remoteChild{env: c.Environment, envID: ref.ID, id: c.Workspace, parent: c.Parent, role: c.Role, entry: c.Entry, rollup: rollupSteps(c.Rollup)})
 	}
 	return children, warnings
+}
+
+// rollupSteps is the steps of a rollup the controller sent, or nil when it sent
+// none or one that isn't Valid.
+func rollupSteps(r *envproto.ScopeRollup) *envscope.Steps {
+	if r == nil {
+		return nil
+	}
+	steps := envscope.Steps{Total: r.Total, Done: r.Done}
+	if !steps.Valid() {
+		return nil
+	}
+	return &steps
+}
+
+// remoteSteps is rc's rollup from the controller, or the zero Rollup when it
+// sent none.
+func remoteSteps(rc *remoteChild) machine.Rollup {
+	if rc.rollup == nil {
+		return machine.Rollup{}
+	}
+	return machine.Rollup{Total: rc.rollup.Total, Done: rc.rollup.Done}
+}
+
+// remoteRollup is rc's rollup from the controller as ws machine prints it, or
+// nil when the controller sent none.
+func remoteRollup(rc *remoteChild) *rollupJSON {
+	if rc.rollup == nil {
+		return nil
+	}
+	r := rollupInfo(remoteSteps(rc))
+	return &r
 }
 
 // remoteChildOp runs op on child rc through the controller (scope.child). extra
@@ -212,6 +248,9 @@ func (a *App) remoteMachineChild(ctx context.Context, root string, rc *remoteChi
 	out.Result = resultInfo(&rec)
 	if res != nil {
 		out.Progress, out.Rollup = a.remoteProgress(res)
+	}
+	if r := remoteRollup(rc); r != nil {
+		out.Rollup = r
 	}
 	return out
 }
@@ -477,6 +516,9 @@ func (a *App) nestRemoteProgress(ctx context.Context, node *progressNodeJSON) er
 // environment can't say.
 func (a *App) remoteLeaf(ctx context.Context, rc *remoteChild) progressNodeJSON {
 	leaf := progressNodeJSON{ID: rc.id, Children: []progressNodeJSON{}}
+	if r := remoteRollup(rc); r != nil {
+		leaf.Rollup = *r
+	}
 	raw, err := a.remoteChildOp(ctx, rc, "record", nil)
 	if err != nil {
 		a.warned = append(a.warned, fmt.Sprintf("couldn't read the progress of %s on %s: %v", rc.id, rc.env, err))
@@ -489,21 +531,23 @@ func (a *App) remoteLeaf(ctx context.Context, rc *remoteChild) progressNodeJSON 
 	}
 	own, rollup := a.remoteProgress(&res)
 	leaf.Progress = own
-	if rollup != nil {
+	if rc.rollup == nil && rollup != nil {
 		leaf.Rollup = *rollup
 	}
 	return leaf
 }
 
-// addLeaf appends leaf under the node named parent, in n or below it, and
-// reports whether it found one.
+// addLeaf appends leaf under the node named parent, in n or below it, adds its
+// rollup to every node on the way down, and reports whether it found parent.
 func addLeaf(n *progressNodeJSON, parent string, leaf progressNodeJSON) bool {
 	if n.ID == parent {
 		n.Children = append(n.Children, leaf)
+		n.Rollup = addRollup(n.Rollup, leaf.Rollup)
 		return true
 	}
 	for i := range n.Children {
 		if addLeaf(&n.Children[i], parent, leaf) {
+			n.Rollup = addRollup(n.Rollup, leaf.Rollup)
 			return true
 		}
 	}

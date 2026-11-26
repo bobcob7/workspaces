@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -174,6 +175,29 @@ func ProgressTree(list []workspace.Workspace, id string, progress map[string]*Pr
 		return n
 	}
 	return build(id)
+}
+
+// Add is r plus o, saturating like the merged rollups of ADR 0083.
+func (r Rollup) Add(o Rollup) Rollup {
+	sum := envscope.Steps{Total: r.Total, Done: r.Done}.Add(envscope.Steps{Total: o.Total, Done: o.Done})
+	return Rollup{Total: sum.Total, Done: sum.Done}
+}
+
+// AddRemote adds steps to the node with id parent and to each of its ancestors
+// in n, as a child on another environment (ADR 0083). It reports whether it
+// found parent.
+func (n *ProgressNode) AddRemote(parent string, steps Rollup) bool {
+	if n.ID == parent {
+		n.Rollup = n.Rollup.Add(steps)
+		return true
+	}
+	for _, c := range n.Children {
+		if c.AddRemote(parent, steps) {
+			n.Rollup = n.Rollup.Add(steps)
+			return true
+		}
+	}
+	return false
 }
 
 // IDs is every id in the tree, the root first.

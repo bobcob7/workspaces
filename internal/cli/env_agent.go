@@ -288,6 +288,9 @@ func agentError(err error) error {
 type agentSnapshots struct{ app *App }
 
 // Workspaces is the visible workspaces as a JSON array, [] when there are none.
+// Each carries its progress without the note (ADR 0083) and its rollup from this
+// machine alone: the remote children that ws list --json merges in are added by
+// the controller, not here.
 func (s agentSnapshots) Workspaces(ctx context.Context) (json.RawMessage, error) {
 	listing, err := s.app.lifetime.List(ctx)
 	if err != nil {
@@ -298,7 +301,16 @@ func (s agentSnapshots) Workspaces(ctx context.Context) (json.RawMessage, error)
 		return attentionOf(s.app.cachedLoopRun(loopRuns, e)) != loop.AttentionNone
 	}
 	entries, _ := visibleEntries(listing.Workspaces, true, raised)
-	return json.Marshal(s.app.listWorkspaces(entries, nil, loopRuns))
+	workspaces, err := s.app.listedWorkspaces(entries, nil, loopRuns)
+	if err != nil {
+		return nil, err
+	}
+	for i := range workspaces {
+		if workspaces[i].Progress != nil {
+			workspaces[i].Progress.Note = nil
+		}
+	}
+	return json.Marshal(workspaces)
 }
 
 // Agents is this machine's Claude Code sessions, finished ones included, newest

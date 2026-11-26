@@ -27,6 +27,10 @@ const defaultMachinePoll = 5 * time.Second
 // defaultMachineWaitTimeout is ws machine wait's --timeout default.
 const defaultMachineWaitTimeout = 60 * time.Minute
 
+// printRefreshTimeout bounds the second listing of remote children that a wait
+// makes before it prints, so a hung environment can't hold the output back.
+const printRefreshTimeout = 5 * time.Second
+
 type machineWaitOptions struct {
 	any     bool
 	timeout time.Duration
@@ -87,11 +91,13 @@ type machineWaitRunnerJSON struct {
 }
 
 // progressSource is what a child's progress is read from: the records under
-// root, and the workspaces that give the tree its shape.
+// root, the workspaces that give the tree its shape, and the remote children
+// whose rollups count under it.
 type progressSource struct {
-	store *machine.Store
-	root  string
-	list  []workspace.Workspace
+	store  *machine.Store
+	root   string
+	list   []workspace.Workspace
+	remote []remoteChild
 }
 
 // childState is one poll's view of a target.
@@ -150,7 +156,7 @@ func (a *App) runMachineWait(ctx context.Context, args []string, opts *machineWa
 	if err != nil {
 		return err
 	}
-	return a.waitForChildren(ctx, targets, root, store, opts)
+	return a.waitForChildren(ctx, targets, root, store, opts, remote)
 }
 
 // waitTargets resolves args, in order, without duplicates. Each must be a
@@ -199,7 +205,7 @@ func (a *App) waitTargetOf(arg string, below map[string]bool, caller, root strin
 
 // waitForChildren polls every target until they are finished (or one is,
 // with --any), or the timeout passes, then prints them.
-func (a *App) waitForChildren(ctx context.Context, targets []waitTarget, root string, store *machine.Store, opts *machineWaitOptions) error {
+func (a *App) waitForChildren(ctx context.Context, targets []waitTarget, root string, store *machine.Store, opts *machineWaitOptions, remote []remoteChild) error {
 	timer := time.NewTimer(opts.timeout)
 	defer timer.Stop()
 	warnedRead := map[string]bool{}
@@ -216,13 +222,13 @@ func (a *App) waitForChildren(ctx context.Context, targets []waitTarget, root st
 		}
 		src := progressSource{store: store, root: root, list: entryWorkspaces(listing.Workspaces)}
 		if waitDone(states, opts) {
-			return a.printWait(targets, states, opts, src)
+			return a.printWait(targets, states, opts, a.printSource(ctx, src, remote))
 		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("waiting for children: %w", ctx.Err())
 		case <-timer.C:
-			return a.printWait(targets, states, opts, src)
+			return a.printWait(targets, states, opts, a.printSource(ctx, src, remote))
 		case <-time.After(a.machinePoll):
 		}
 	}
@@ -395,11 +401,35 @@ func (a *App) printWait(targets []waitTarget, states []childState, opts *machine
 			Model:       optional(s.model),
 			WSRunner:    s.wsRunner,
 		}
-		item.Progress, item.Rollup = a.childProgress(src.store, src.root, src.list, id)
+		item.Progress, item.Rollup = a.childProgress(src.store, src.root, src.list, id, src.remote)
 		item.Error = items.add(id, waitItemError(id, s, opts, anyFinished))
 		results = append(results, item)
 	}
 	return a.finishItems("children", results, &items)
+}
+
+// printSource is src with the remote children asked again, right before a wait
+// prints its items: the list from the start is stale after a long wait. Nothing
+// is asked when that first list had no children. A refresh that fails keeps the
+// first list; its warnings are still reported.
+func (a *App) printSource(ctx context.Context, src progressSource, first []remoteChild) progressSource {
+	src.remote = first
+	if len(first) == 0 {
+		return src
+	}
+	caller, err := a.caller()
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't ask for children on other environments: %v", err))
+		return src
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, printRefreshTimeout)
+	defer cancel()
+	children, warnings := a.remoteChildren(refreshCtx, caller, descendantIDs(src.list, caller))
+	a.warned = append(a.warned, warnings...)
+	if len(children) > 0 || len(warnings) == 0 {
+		src.remote = children
+	}
+	return src
 }
 
 // waitOutcome is pending until a child finishes, missing when it finished

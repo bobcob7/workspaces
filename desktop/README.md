@@ -303,6 +303,10 @@ it runs. An agent's pane shows its scope, with each environment's state.
 | A child's pane, naming the parent it was started from | ![Child pane](docs/scope-child-pane.png) | ![Child pane on a phone](docs/scope-child-pane-mobile.png) |
 | The Remove dialog with its note | ![Remove dialog](docs/scope-remove.png) | ![Remove dialog on a phone](docs/scope-remove-mobile.png) |
 
+| Screen | Desktop (1100 px) | Phone (360 px) |
+| --- | --- | --- |
+| `plan-scope`'s root bar: the merged rollup, with the latest note | ![Rollup on the root bar](docs/rollup-plan-scope.png) | ![Rollup on the root bar on a phone](docs/rollup-plan-scope-mobile.png) |
+
 Not shown: a refusal for an environment out of scope; it goes to the agent that
 ran `ws machine spawn --env`.
 
@@ -422,7 +426,9 @@ The sample `plan-scope` has an environment scope (local, linux-server,
 win-rig offline, old-rig removed) and three children on other environments
 from `ws machine spawn --env`: `ip-linux` on linux-server (online, done),
 `ip-win` on win-rig (offline), and `ip-probe` on win-rig, started by
-`ip-linux`.
+`ip-linux`. Its root bar shows the merged rollup, `4/8 steps`; the note
+`Waiting for win-rig` is `ip-win`'s, the most recently updated step record
+below `plan-scope`.
 
 For web mode (Workspace Online), load `test/web-mock.js` after the Tauri
 mock. It serves `/api` and a WebSocket from the same handlers, and

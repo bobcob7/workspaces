@@ -450,19 +450,19 @@ func (a *App) runMachineChildren(ctx context.Context, all bool) error {
 	if all {
 		entries = descendantEntries(listing.Workspaces, caller)
 	}
-	root := machine.Root(entryWorkspaces(listing.Workspaces), caller)
+	list := entryWorkspaces(listing.Workspaces)
+	root := machine.Root(list, caller)
 	store := machine.NewStore(a.paths.State)
+	remote := a.listRemoteChildren(ctx, caller, descendantIDs(list, caller))
 	listed := a.listWorkspaces(entries, nil, nil)
-	children := make([]machineChildJSON, 0, len(listed))
+	children := make([]machineChildJSON, 0, len(listed)+len(remote))
 	for i := range listed {
-		children = append(children, a.machineChild(store, root, entryWorkspaces(listing.Workspaces), &listed[i]))
+		children = append(children, a.machineChild(store, root, list, &listed[i], remote))
 	}
-	var remoteDescendants []string
-	if all {
-		remoteDescendants = descendantIDs(entryWorkspaces(listing.Workspaces), caller)
-	}
-	for _, rc := range a.listRemoteChildren(ctx, caller, remoteDescendants) {
-		children = append(children, a.remoteMachineChild(ctx, root, &rc))
+	for i := range remote {
+		if all || remote[i].parent == caller {
+			children = append(children, a.remoteMachineChild(ctx, root, &remote[i]))
+		}
 	}
 	return a.writeJSON(machineChildrenJSON{Workspaces: children, Warnings: a.warnings()})
 }

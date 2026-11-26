@@ -192,6 +192,57 @@ func TestRemoteChildrenOf(t *testing.T) {
 }
 
 func TestApp_runMachineWait_remoteChild(t *testing.T) {
+	t.Run("wait items include remote descendants in a local child's rollup", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateIdle})
+		child := remoteHelperChild(t)
+		child.Parent = "a"
+		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		require.NotNil(t, got.Children[0].Rollup)
+		assert.Equal(t, 3, got.Children[0].Rollup.Total)
+		assert.Equal(t, 2, got.Children[0].Rollup.Done)
+	})
+	t.Run("the printed rollup comes from a second listing of the remote children", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		writePassResult(t, e, "a")
+		scriptListing(e, map[string]lifetime.State{"a": lifetime.StateIdle})
+		first := remoteHelperChild(t)
+		first.Parent = "a"
+		first.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		second := first
+		second.Rollup = &envproto.ScopeRollup{Total: 4, Done: 3}
+		listings := 0
+		host := &childHost{}
+		host.answer = func(op string, raw json.RawMessage) envproto.Reply {
+			switch op {
+			case "children":
+				listings++
+				if listings == 1 {
+					return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{first}})
+				}
+				return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{second}})
+			case "child":
+				var args envproto.ScopeChildArgs
+				require.NoError(t, json.Unmarshal(raw, &args))
+				return helperAnswer(t, remoteHelperRecord(t))(args.Op, args)
+			}
+			return envproto.Reply{Error: &envproto.ReplyError{Code: "usage", Message: "unexpected " + op}}
+		}
+		serveDaemonWith(t, e.app, host)
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"a"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		require.NotNil(t, got.Children[0].Rollup)
+		assert.Equal(t, 5, got.Children[0].Rollup.Total)
+		assert.Equal(t, 4, got.Children[0].Rollup.Done)
+	})
 	t.Run("a finished remote child is copied back and its report kept", func(t *testing.T) {
 		e := newWaitApp(t)
 		writeCallerScope(t, e.app.paths.State, linuxRef)
@@ -453,6 +504,75 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 }
 
 func TestApp_nestRemoteProgress(t *testing.T) {
+	ownSteps := func(t *testing.T, e *mockedApp) {
+		t.Helper()
+		require.NoError(t, machine.NewStore(e.app.paths.State).WriteProgress("boss", "plan", &machine.Progress{Total: 3, Done: 1}))
+	}
+	t.Run("remote leaves raise their ancestors' rollups", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		ownSteps(t, e)
+		child := remoteHelperChild(t)
+		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
+		node, err := e.app.callerProgress()
+		require.NoError(t, err)
+		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
+		assert.Equal(t, 5, node.Rollup.Total)
+		assert.Equal(t, 2, node.Rollup.Done)
+		require.NotNil(t, node.Rollup.Fraction)
+		assert.InDelta(t, 0.4, *node.Rollup.Fraction, 1e-9)
+	})
+	t.Run("remote leaves raise their local parent's and the caller's rollups", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		require.NoError(t, machine.NewStore(e.app.paths.State).WriteProgress("boss", "a", &machine.Progress{Total: 2, Done: 1}))
+		child := remoteHelperChild(t)
+		child.Parent = "a"
+		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
+		node, err := e.app.callerProgress()
+		require.NoError(t, err)
+		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
+		var local *progressNodeJSON
+		for i := range node.Children {
+			if node.Children[i].ID == "a" {
+				local = &node.Children[i]
+			}
+		}
+		require.NotNil(t, local)
+		require.NotEmpty(t, local.Children)
+		assert.Equal(t, "helper", local.Children[len(local.Children)-1].ID)
+		assert.Equal(t, 4, local.Rollup.Total)
+		assert.Equal(t, 2, local.Rollup.Done)
+		assert.Equal(t, 4, node.Rollup.Total)
+		assert.Equal(t, 2, node.Rollup.Done)
+	})
+	t.Run("a remote child with a null rollup adds nothing", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		ownSteps(t, e)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		node, err := e.app.callerProgress()
+		require.NoError(t, err)
+		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
+		assert.Equal(t, 3, node.Rollup.Total)
+		assert.Equal(t, 1, node.Rollup.Done)
+	})
+	t.Run("an out-of-range rollup is ignored with a warning", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		ownSteps(t, e)
+		child := remoteHelperChild(t)
+		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 3}
+		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
+		node, err := e.app.callerProgress()
+		require.NoError(t, err)
+		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
+		assert.Equal(t, 3, node.Rollup.Total)
+		assert.Equal(t, 1, node.Rollup.Done)
+		assert.Contains(t, e.app.warnings(), "ignoring the rollup of helper on "+linuxRef.Name+": out of range")
+	})
 	t.Run("a remote child is a leaf under its parent, with its reported progress", func(t *testing.T) {
 		e := newMachineApp(t)
 		writeCallerScope(t, e.app.paths.State, linuxRef)

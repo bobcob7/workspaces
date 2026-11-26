@@ -211,7 +211,7 @@ func (a *App) readReport(file string) ([]byte, error) {
 
 // machineChild is ws list's workspace with its role and result from store.
 // A record that can't be read is a warning, and leaves both null.
-func (a *App) machineChild(store *machine.Store, root string, list []workspace.Workspace, ws *listWorkspaceJSON) machineChildJSON {
+func (a *App) machineChild(store *machine.Store, root string, list []workspace.Workspace, ws *listWorkspaceJSON, remote []remoteChild) machineChildJSON {
 	out := machineChildJSON{listWorkspaceJSON: *ws}
 	rec, err := store.Read(root, *ws.ID)
 	if err != nil {
@@ -220,7 +220,7 @@ func (a *App) machineChild(store *machine.Store, root string, list []workspace.W
 	}
 	out.Role = optional(rec.Role())
 	out.Result = resultInfo(&rec)
-	out.Progress, out.Rollup = a.childProgress(store, root, list, *ws.ID)
+	out.Progress, out.Rollup = a.childProgress(store, root, list, *ws.ID, remote)
 	return out
 }
 

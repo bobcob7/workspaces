@@ -397,6 +397,7 @@ func (c *Controller) scopeChildren(caller string, a *envproto.ScopeChildrenArgs)
 		return scopeFailure(err)
 	}
 	children := []envproto.ScopeChild{}
+	var found []*envscope.Entry
 	for i := range entries {
 		e := &entries[i]
 		if e.Parent == nil || e.Parent.Environment != caller || !slices.Contains(parents, e.Parent.Workspace) {
@@ -413,8 +414,52 @@ func (c *Controller) scopeChildren(caller string, a *envproto.ScopeChildrenArgs)
 			Role:        e.Role,
 			Entry:       c.childEntry(&rec, e.Workspace),
 		})
+		found = append(found, e)
+	}
+	if len(children) > 0 {
+		merger := c.rollupMerger(entries)
+		for i, e := range found {
+			children[i].Rollup = rollupOf(merger, e)
+		}
 	}
 	return okReply(envproto.ScopeChildrenResult{Children: children})
+}
+
+// rollupMerger merges the snapshots of every enrolled environment with the ledger entries.
+func (c *Controller) rollupMerger(entries []envscope.Entry) *envscope.Merger {
+	recs, err := c.store.List()
+	if err != nil {
+		return envscope.NewMerger(nil, entries)
+	}
+	var listed []envscope.Listed
+	for i := range recs {
+		if recs[i].State == StateEnrolled {
+			listed = append(listed, c.listedWorkspaces(&recs[i])...)
+		}
+	}
+	return envscope.NewMerger(listed, entries)
+}
+
+// listedWorkspaces are the workspaces of rec's snapshot; none when it can't be read or decoded.
+func (c *Controller) listedWorkspaces(rec *Record) []envscope.Listed {
+	_, snap, err := c.store.Snapshot(rec.Name)
+	if err != nil {
+		return nil
+	}
+	listed, _, err := envscope.ListedOf(rec.ID, snap.Workspaces)
+	if err != nil {
+		return nil
+	}
+	return listed
+}
+
+// rollupOf is the merged rollup of a ledger child, or nil when its environment's snapshot doesn't list it.
+func rollupOf(m *envscope.Merger, e *envscope.Entry) *envproto.ScopeRollup {
+	steps, ok := m.Of(e.Environment, e.Workspace)
+	if !ok {
+		return nil
+	}
+	return &envproto.ScopeRollup{Total: steps.Total, Done: steps.Done}
 }
 
 // childEntry is the ws list object for workspace ws in rec's snapshot, or null.

@@ -483,7 +483,9 @@ never reported, and `rollup` is `null` until a step is planned. A passing `ws ma
 `total` when a total was declared, and a finished child with a result but no
 record counts as one step, done only if it passed
 ([0077](../adrs/0077-agent-progress-reporting.md)). Every command prints the same object, and an agent
-writes only its own record.
+writes only its own record. A child on another environment adds to `rollup` as
+that environment's last snapshot reported it: an offline environment counts that
+snapshot, and a removed child counts nothing. `set` and `step` stay local.
 
 ```console
 $ ws machine progress set --name "build auth" --total 4
