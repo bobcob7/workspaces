@@ -321,7 +321,7 @@ agent's `snapshot`, which is `{"at", "protocol", "workspaces", "agents", "loops"
 ([0072](adrs/0072-remote-environments.md)). `at` is when the agent made it;
 `protocol` is the operation protocol the agent speaks (0 from an agent older
 than PR 3); `workspaces` is its `ws list --json --all` array, without unknown
-directories, each with `progress` (its `note` is always `null`) and its `rollup`;
+directories, each with `progress` (its `note` is always `null`) and its `rollup` counting only this machine's children (the controller adds the remote ones);
 `agents` is its Claude Code sessions, `[]` from an agent older
 than PR 3; `loops` is a summary of its loops (name, title, period, paused,
 hidden, runner, next and last run, last gate; at most 100, without prompts,

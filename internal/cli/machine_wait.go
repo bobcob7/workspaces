@@ -27,6 +27,10 @@ const defaultMachinePoll = 5 * time.Second
 // defaultMachineWaitTimeout is ws machine wait's --timeout default.
 const defaultMachineWaitTimeout = 60 * time.Minute
 
+// printRefreshTimeout bounds the second listing of remote children that a wait
+// makes before it prints, so a hung environment can't hold the output back.
+const printRefreshTimeout = 5 * time.Second
+
 type machineWaitOptions struct {
 	any     bool
 	timeout time.Duration
@@ -406,7 +410,8 @@ func (a *App) printWait(targets []waitTarget, states []childState, opts *machine
 
 // printSource is src with the remote children asked again, right before a wait
 // prints its items: the list from the start is stale after a long wait. Nothing
-// is asked when that first list had no children.
+// is asked when that first list had no children. A refresh that fails keeps the
+// first list; its warnings are still reported.
 func (a *App) printSource(ctx context.Context, src progressSource, first []remoteChild) progressSource {
 	src.remote = first
 	if len(first) == 0 {
@@ -414,9 +419,16 @@ func (a *App) printSource(ctx context.Context, src progressSource, first []remot
 	}
 	caller, err := a.caller()
 	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't ask for children on other environments: %v", err))
 		return src
 	}
-	src.remote = a.listRemoteChildren(ctx, caller, descendantIDs(src.list, caller))
+	refreshCtx, cancel := context.WithTimeout(ctx, printRefreshTimeout)
+	defer cancel()
+	children, warnings := a.remoteChildren(refreshCtx, caller, descendantIDs(src.list, caller))
+	a.warned = append(a.warned, warnings...)
+	if len(children) > 0 || len(warnings) == 0 {
+		src.remote = children
+	}
 	return src
 }
 
