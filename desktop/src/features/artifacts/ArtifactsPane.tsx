@@ -5,6 +5,7 @@ import { age } from "../../format";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { removeArtifact } from "./artifactsSlice";
 import { CommentComposer } from "./CommentComposer";
+import { CommentPopover } from "./CommentPopover";
 import { decodeText } from "./content";
 import { ImageViewer } from "./ImageViewer";
 import { MarkdownViewer } from "./MarkdownViewer";
@@ -21,10 +22,11 @@ const bylineOf = (artifact: Artifact): string => {
 const threadsText = (artifact: Artifact): string =>
   `${artifact.threads.open} open · ${artifact.threads.resolved} resolved · ${artifact.threads.detached} detached`;
 
-/** A comment being written: anchored to a selection, or to the whole artifact when `anchor` is null. */
+/** A comment being written: anchored to a selection, or to the whole artifact when `anchor` is null. The popover opens beside `anchorEl`. */
 interface Draft {
   readonly anchor: NewAnchor | null;
   readonly wholeBlock: boolean;
+  readonly anchorEl: HTMLElement | null;
 }
 
 interface ArtifactBodyProps {
@@ -38,7 +40,7 @@ interface ArtifactBodyProps {
   readonly onChanged: () => void;
 }
 
-/** The viewer, the margin of threads and the composer for the shown revision. */
+/** The viewer, the margin of threads and the comment popover for the shown revision. */
 const ArtifactBody = ({
   artifact,
   content,
@@ -51,17 +53,29 @@ const ArtifactBody = ({
 }: ArtifactBodyProps): JSX.Element => {
   const [draft, setDraft] = useState<Draft | null>(null);
   const source = decodeText(content.dataBase64);
-  const composer = (
-    <CommentComposer
-      artifactId={artifact.id}
-      anchor={draft?.anchor ?? null}
-      wholeBlock={draft?.wholeBlock ?? false}
-      onPosted={() => {
-        setDraft(null);
-        onChanged();
-      }}
-      onDismiss={draft === null ? null : () => setDraft(null)}
-    />
+  const dismiss = (): void => setDraft(null);
+  const popover = draft !== null && (
+    <CommentPopover anchorEl={draft.anchorEl} onDismiss={dismiss}>
+      <CommentComposer
+        artifactId={artifact.id}
+        anchor={draft.anchor}
+        wholeBlock={draft.wholeBlock}
+        onPosted={() => {
+          setDraft(null);
+          onChanged();
+        }}
+        onDismiss={dismiss}
+      />
+    </CommentPopover>
+  );
+  const wholeComment = onLatest && (
+    <Button
+      size="small"
+      className={styles.wholeComment}
+      onClick={(event) => setDraft({ anchor: null, wholeBlock: false, anchorEl: event.currentTarget })}
+    >
+      Comment on the whole artifact
+    </Button>
   );
   const threadList = (
     <ThreadList
@@ -76,29 +90,23 @@ const ArtifactBody = ({
 
   if (artifact.kind === "markdown") {
     return (
-      <div className={styles.split}>
-        <MarkdownViewer
-          source={source}
-          highlights={onLatest ? threads : []}
-          revision={shownRev}
-          onComment={onLatest ? (anchor, wholeBlock) => setDraft({ anchor, wholeBlock }) : null}
-          activeThread={activeThread}
-          onThreadClick={onActivate}
-        />
-        <aside className={styles.margin}>
-          {onLatest && draft !== null && composer}
-          {onLatest && draft === null && (
-            <Button
-              size="small"
-              className={styles.wholeComment}
-              onClick={() => setDraft({ anchor: null, wholeBlock: false })}
-            >
-              Comment on the whole artifact
-            </Button>
-          )}
-          {threadList}
-        </aside>
-      </div>
+      <>
+        <div className={styles.split}>
+          <MarkdownViewer
+            source={source}
+            highlights={onLatest ? threads : []}
+            revision={shownRev}
+            onComment={onLatest ? (anchor, wholeBlock, anchorEl) => setDraft({ anchor, wholeBlock, anchorEl }) : null}
+            activeThread={activeThread}
+            onThreadClick={onActivate}
+          />
+          <aside className={styles.margin}>
+            {wholeComment}
+            {threadList}
+          </aside>
+        </div>
+        {popover}
+      </>
     );
   }
 
@@ -115,8 +123,9 @@ const ArtifactBody = ({
       ) : (
         <TextViewer text={source} />
       )}
+      {wholeComment}
       {threadList}
-      {onLatest && composer}
+      {popover}
     </>
   );
 };
@@ -184,6 +193,7 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
       )}
       {artifact !== null && content !== null && comments !== null && shownRev !== null && (
         <ArtifactBody
+          key={shownRev}
           artifact={artifact}
           content={content}
           shownRev={shownRev}

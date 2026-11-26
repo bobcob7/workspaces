@@ -1287,6 +1287,15 @@
     detached: threads.filter((t) => !t.resolved && t.anchor?.state === "detached").length,
   });
 
+  const longPitch = [
+    "# Handbook: long design notes",
+    ...Array.from({ length: 30 }, (_, section) => [
+      `## Section ${section + 1}`,
+      ...Array.from({ length: 5 }, (_, para) => `Paragraph ${section * 5 + para + 1}: the cache keeps one object store per repo, and each workspace reads from it without copying. Readers never block writers, and a force push only invalidates the refs it touched.`),
+    ].join("\n\n")),
+  ].join("\n\n");
+  const longAuthor = workspaceActor("handbook-0a1b2c3d", "handbook");
+
   const artifactStore = [
     {
       id: "art-00000001",
@@ -1360,8 +1369,19 @@
       revs: [{ contentType: "text/plain; charset=utf-8", dataBase64: utf8Base64(buildLog), createdAt: "2026-11-23T16:10:00Z", createdBy: workspaceActor("fix-ci-77aa01bc", "fix-ci"), note: null }],
       threads: [],
     },
+    {
+      id: "art-00000004",
+      name: "long-notes.md",
+      title: "Handbook: long design notes",
+      kind: "markdown",
+      createdAt: "2026-11-23T15:00:00Z",
+      updatedAt: "2026-11-23T15:00:00Z",
+      createdBy: longAuthor,
+      revs: [{ contentType: "text/markdown; charset=utf-8", dataBase64: utf8Base64(longPitch), createdAt: "2026-11-23T15:00:00Z", createdBy: longAuthor, note: null }],
+      threads: [],
+    },
   ];
-  let nextArtifact = 4;
+  let nextArtifact = 5;
   let nextThread = 5;
   let nextComment = 6;
 

@@ -101,6 +101,7 @@ describe("MarkdownViewer", () => {
     expect(onComment).toHaveBeenCalledWith(
       { quote: "Today the cache is shared.", line: 1, prefix: "", suffix: "" },
       false,
+      paragraph,
     );
   });
 
@@ -130,7 +131,11 @@ describe("MarkdownViewer", () => {
     fireEvent.mouseUp(screen.getByRole("article", { name: "Document" }));
     await userEvent.click(screen.getByRole("button", { name: "Comment" }));
 
-    expect(onComment).toHaveBeenCalledWith({ quote: "**Bold** text", line: 1, prefix: "", suffix: "" }, true);
+    expect(onComment).toHaveBeenCalledWith(
+      { quote: "**Bold** text", line: 1, prefix: "", suffix: "" },
+      true,
+      container.querySelector("p"),
+    );
   });
 
   it("marks a quote beside bold text and leaves the bold unmarked", () => {
