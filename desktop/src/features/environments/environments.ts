@@ -1,4 +1,4 @@
-import type { RemoteEnvironment } from "../../api";
+import type { ConfigListing, RemoteEnvironment } from "../../api";
 import type { RootState } from "../../store";
 
 /** An option in the Environment picker. */
@@ -60,3 +60,59 @@ export const selectEnvironmentChoices = (state: RootState, now: number = Date.no
 
 /** The enrolled environments, for Settings. */
 export const selectEnvironments = (state: RootState): readonly RemoteEnvironment[] => state.environments.items;
+
+/** A scope choice in the New agent dialog: an environment the agent may start children on. */
+export interface ScopeChoice {
+  readonly name: string;
+  readonly status: "online" | "offline" | "unknown";
+  /** The agent's own environment: checked and disabled. */
+  readonly own: boolean;
+}
+
+const scopeStatus = (env: RemoteEnvironment): ScopeChoice["status"] => {
+  if (env.status === "online" || env.status === "unknown") {
+    return env.status;
+  }
+  return "offline";
+};
+
+const byOwnThenLocalThenName = (a: ScopeChoice, b: ScopeChoice): number => {
+  if (a.own !== b.own) {
+    return a.own ? -1 : 1;
+  }
+  if (a.name === "local" || b.name === "local") {
+    return a.name === "local" ? -1 : 1;
+  }
+  return a.name.localeCompare(b.name);
+};
+
+/** local and each enrolled environment, as scope choices; pending ones are left out. */
+export const scopeChoices = (items: readonly RemoteEnvironment[], target: string): readonly ScopeChoice[] => {
+  const enrolled = items
+    .filter((env) => env.state === "enrolled")
+    .map((env): ScopeChoice => ({ name: env.name, status: scopeStatus(env), own: env.name === target }));
+  const local: ScopeChoice = { name: "local", status: "online", own: target === "local" };
+  return [local, ...enrolled].sort(byOwnThenLocalThenName);
+};
+
+/** default_scope's names split into the enrolled ones (or local) and the rest. */
+export const splitDefaultScope = (
+  defaults: readonly string[],
+  items: readonly RemoteEnvironment[],
+): { readonly kept: readonly string[]; readonly leftOut: readonly string[] } => {
+  const known = new Set(["local", ...items.filter((env) => env.state === "enrolled").map((env) => env.name)]);
+  const kept = [...new Set(defaults.filter((name) => known.has(name)))];
+  const leftOut = defaults.filter((name) => !known.has(name));
+  return { kept, leftOut };
+};
+
+const maxScopeNames = 64;
+
+/** environments.default_scope from a ws config list; [] when absent or not a list of strings. */
+export const defaultScopeOf = (listing: ConfigListing): readonly string[] => {
+  const setting = listing.settings.find((item) => item.key === "environments.default_scope");
+  if (!Array.isArray(setting?.value) || !setting.value.every((name): name is string => typeof name === "string")) {
+    return [];
+  }
+  return setting.value.slice(0, maxScopeNames);
+};
