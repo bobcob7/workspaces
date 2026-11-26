@@ -139,6 +139,14 @@ describe("defaultScopeOf", () => {
     expect(defaultScopeOf(configListingWith([]))).toEqual([]);
   });
 
+  it("counts a repeated name once before keeping 64", () => {
+    const names = Array.from({ length: 64 }, (_, index) => `env-${index}`);
+    const listing = configListingWith([
+      { key: "environments.default_scope", type: "strings", value: ["env-0", "env-0", ...names.slice(1, 64)], default: [], set: true },
+    ]);
+    expect(defaultScopeOf(listing)).toEqual(names);
+  });
+
   it("keeps at most 64 names", () => {
     const names = Array.from({ length: 65 }, (_, index) => `env-${index}`);
     const listing = configListingWith([{ key: "environments.default_scope", type: "strings", value: names, default: [], set: true }]);
