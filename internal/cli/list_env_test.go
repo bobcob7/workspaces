@@ -553,3 +553,15 @@ func TestApp_parentEnvironments(t *testing.T) {
 		assert.Contains(t, e.app.warned[0], "couldn't read the environments")
 	})
 }
+
+func TestApp_childEnvironments(t *testing.T) {
+	t.Run("an unreadable scope ledger is one warning, and no environments are listed", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		require.NoError(t, os.MkdirAll(e.app.paths.Environments, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environments, "scopes.json"), []byte("not json"), 0o600))
+		assert.Nil(t, e.app.childEnvironments(envscope.Local, "plan"))
+		require.Len(t, e.app.warned, 1)
+		assert.Contains(t, e.app.warned[0], "couldn't read the scope ledger")
+	})
+}
