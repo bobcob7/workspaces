@@ -15,6 +15,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/environment"
+	"github.com/bobcob7/workspaces/internal/envscope"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/repo"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -346,5 +347,67 @@ func TestRemoteHasRepo(t *testing.T) {
 	})
 	t.Run("a ref must be the one checked out", func(t *testing.T) {
 		assert.False(t, remoteHasRepo(repos, &repo.Spec{Kind: repo.KindName, Name: "buff-bear", Ref: "dev"}))
+	})
+}
+
+// runParentList runs ws list --json with opts and returns each entry as
+// environment/id, in listing order.
+func runParentList(t *testing.T, e *mockedApp, opts *listOptions) []string {
+	t.Helper()
+	e.app.global.json = true
+	require.NoError(t, e.app.runList(t.Context(), opts))
+	var got listJSON
+	require.NoError(t, json.Unmarshal(e.stdout.Bytes(), &got))
+	out := make([]string, 0, len(got.Workspaces))
+	for i := range got.Workspaces {
+		out = append(out, got.Workspaces[i].Environment+"/"+*got.Workspaces[i].ID)
+	}
+	return out
+}
+
+// findsAsGiven is a workspace store whose Find finds every id.
+func findsAsGiven(arg string) (workspace.Workspace, error) {
+	return workspace.Workspace{ID: arg}, nil
+}
+
+func TestApp_runList_parent(t *testing.T) {
+	t.Run("--parent of a local workspace lists its remote children", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		assert.Equal(t, []string{"linux-server/ip-1"}, runParentList(t, e, &listOptions{parent: "plan"}))
+	})
+	t.Run("--parent of a remote workspace lists its children on a third environment", func(t *testing.T) {
+		e := newRemoteListApp(t, nil)
+		e.store.FindFunc = notFound
+		linux := linuxWithSnapshot(t, e, remoteWorkspace("deps", "repo", "", false))
+		win := addEnvironment(t, e.app, "win-rig")
+		enrollEnvironment(t, e.app, win)
+		writeRemoteSnapshot(t, e.app, win, testNow(), remoteWorkspaces(remoteWorkspace("deps-test", "repo", "", false)))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: win.ID, Workspace: "deps-test", Scope: []string{envscope.Local, win.ID}, Parent: &envscope.Parent{Environment: linux.ID, Workspace: "deps"}})
+		assert.Equal(t, []string{"win-rig/deps-test"}, runParentList(t, e, &listOptions{parent: "deps"}))
+	})
+	t.Run("--parent with --env names the parent's environment and still lists remote children", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		assert.Equal(t, []string{"linux-server/ip-1"}, runParentList(t, e, &listOptions{envs: []string{"local"}, parent: "plan"}))
+	})
+	t.Run("a ledger child of another workspace is not listed", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-2"}})
+		assert.Empty(t, runParentList(t, e, &listOptions{parent: "plan"}))
+	})
+	t.Run("-q --parent stays local", func(t *testing.T) {
+		e := localPlanApp(t, true, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e, remoteWorkspace("ip-1", "repo", "", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		require.NoError(t, e.app.runList(t.Context(), &listOptions{idsOnly: true, parent: "plan"}))
+		assert.Equal(t, "build\n", e.stdout.String())
 	})
 }
