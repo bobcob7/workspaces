@@ -275,6 +275,14 @@ that aren't enrolled; a widened scope is never remembered between openings;
 and an offline environment can be checked, since a child can start there once
 it's back online.
 
+| Screen | Image |
+| --- | --- |
+| The default scope, from `default_scope`, with a name that isn't enrolled left out | ![](docs/scope-new-agent-default.png) |
+| A remote environment chosen, with the scope it may start children on | ![](docs/scope-new-agent-remote.png) |
+| An offline environment checked, with the note that its children start once it's back | ![](docs/scope-new-agent-offline.png) |
+| An error: a scope name that was removed or never enrolled | ![](docs/scope-new-agent-error.png) |
+| On a phone (360 px) | ![](docs/scope-new-agent-mobile.png) |
+
 The Agents list marks each remote row with its environment, filters by
 environment, and dims an offline environment's rows while keeping their last
 status; their actions are disabled with the reason:
