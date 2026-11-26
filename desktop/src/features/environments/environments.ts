@@ -114,5 +114,5 @@ export const defaultScopeOf = (listing: ConfigListing): readonly string[] => {
   if (!Array.isArray(setting?.value) || !setting.value.every((name): name is string => typeof name === "string")) {
     return [];
   }
-  return setting.value.slice(0, maxScopeNames);
+  return [...new Set(setting.value)].slice(0, maxScopeNames);
 };
