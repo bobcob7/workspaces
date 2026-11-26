@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, type Artifact, type ArtifactContent, type ArtifactSummary, type CommentList } from "../../api";
@@ -121,10 +121,111 @@ describe("ArtifactsPane", () => {
     renderPane([image], image.id);
     await screen.findByRole("img", { name: "login-error.png" });
 
+    await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Comment" }), "Looks wrong");
     await userEvent.click(screen.getByRole("button", { name: "Post" }));
 
     await waitFor(() => expect(post).toHaveBeenCalledWith(image.id, "Looks wrong", null, null));
+  });
+
+  it("opens the whole-artifact comment in a dialog beside its button, focused, for an image", async () => {
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+    renderPane([image], image.id);
+    await screen.findByRole("img", { name: "login-error.png" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "New comment" });
+    expect(within(dialog).getByRole("textbox", { name: "Comment" })).toHaveFocus();
+  });
+
+  it("opens the whole-artifact comment for a text artifact", async () => {
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(log, [revision(1, "text/plain")]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(
+      content({ rev: 1, contentType: "text/plain", dataBase64: btoa("step 1 ok") }),
+    );
+    renderPane([log], log.id);
+    await screen.findByText(/step 1 ok/);
+
+    await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+
+    expect(await screen.findByRole("dialog", { name: "New comment" })).toBeInTheDocument();
+  });
+
+  it("shows no composer until a comment is started on a text artifact", async () => {
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(log, [revision(1, "text/plain")]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(
+      content({ rev: 1, contentType: "text/plain", dataBase64: btoa("step 1 ok") }),
+    );
+    renderPane([log], log.id);
+    await screen.findByText(/step 1 ok/);
+
+    expect(screen.queryByRole("textbox", { name: "Comment" })).toBeNull();
+  });
+
+  it("opens a comment on a selected Markdown block in a dialog, focused", async () => {
+    const markdown = "text/markdown; charset=utf-8";
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(pitch, [revision(1, markdown), revision(2, markdown)]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 2, contentType: markdown, dataBase64: btoa("Today the cache is shared.\n") }));
+    renderPane([pitch], pitch.id);
+    await screen.findByText("Today the cache is shared.");
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector("p") as HTMLParagraphElement);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    fireEvent.mouseUp(screen.getByRole("article", { name: "Document" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Comment" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "New comment" });
+    expect(within(dialog).getByRole("textbox", { name: "Comment" })).toHaveFocus();
+  });
+
+  it("closes the comment dialog when Escape is pressed", async () => {
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+    renderPane([image], image.id);
+    await screen.findByRole("img", { name: "login-error.png" });
+    await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+    await screen.findByRole("dialog", { name: "New comment" });
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "New comment" })).toBeNull();
+  });
+
+  it("closes the comment dialog when another revision is shown", async () => {
+    const markdown = "text/markdown; charset=utf-8";
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(pitch, [revision(1, markdown), revision(2, markdown)]));
+    vi.spyOn(api, "artifactRead").mockImplementation(async (_id, rev) =>
+      content({ rev: rev ?? 2, contentType: markdown, dataBase64: btoa("# Pitch\n") }),
+    );
+    renderPane([pitch], pitch.id);
+    await userEvent.click(await screen.findByRole("button", { name: "Comment on the whole artifact" }));
+    await screen.findByRole("dialog", { name: "New comment" });
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Revision" }), "1");
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New comment" })).toBeNull());
+  });
+
+  it("closes the comment dialog after the comment is posted", async () => {
+    vi.spyOn(api, "artifactShow").mockResolvedValue(asArtifact(image, [revision(1, "image/png")]));
+    vi.spyOn(api, "artifactRead").mockResolvedValue(content({ rev: 1 }));
+    const post = vi.spyOn(api, "artifactCommentAdd").mockResolvedValue({
+      thread: { id: "t5", anchor: null, resolved: false, resolvedAt: null, resolvedBy: null, comments: [] },
+      comment: { id: "c6", author: { kind: "person", workspace: null, name: null }, body: "Looks wrong", createdAt: "2026-11-23T18:10:00Z" },
+    });
+    renderPane([image], image.id);
+    await screen.findByRole("img", { name: "login-error.png" });
+    await userEvent.click(screen.getByRole("button", { name: "Comment on the whole artifact" }));
+    await userEvent.type(await screen.findByRole("textbox", { name: "Comment" }), "Looks wrong");
+
+    await userEvent.click(screen.getByRole("button", { name: "Post" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New comment" })).toBeNull());
+    expect(post).toHaveBeenCalledWith(image.id, "Looks wrong", null, null);
   });
 
   it("highlights an open thread's quote in a Markdown artifact", async () => {
