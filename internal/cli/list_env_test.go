@@ -402,6 +402,28 @@ func TestApp_runList_parent(t *testing.T) {
 		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-2"}})
 		assert.Empty(t, runParentList(t, e, &listOptions{parent: "plan"}))
 	})
+	t.Run("a remote environment's ledger children of other parents are not listed", func(t *testing.T) {
+		e := localPlanApp(t, false, false)
+		e.store.FindFunc = findsAsGiven
+		rec := linuxWithSnapshot(t, e,
+			remoteWorkspace("ip-1", "repo", "", false),
+			remoteWorkspace("ip-2", "repo", "", false),
+			remoteWorkspace("ip-3", "repo", "", false),
+			remoteWorkspace("ip-4", "repo", "plan", false))
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-1", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan"}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-2", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: envscope.Local, Workspace: "plan-2"}})
+		putLedgerEntry(t, e.app, &envscope.Entry{Environment: rec.ID, Workspace: "ip-3", Scope: []string{envscope.Local, rec.ID}, Parent: &envscope.Parent{Environment: rec.ID, Workspace: "plan"}})
+		assert.Equal(t, []string{"linux-server/ip-1"}, runParentList(t, e, &listOptions{parent: "plan"}))
+	})
+	t.Run("--parent without a ledger reads only the parent's environment", func(t *testing.T) {
+		e := localPlanApp(t, true, false)
+		e.store.FindFunc = findsAsGiven
+		rec := addLinuxServer(t, e.app)
+		enrollEnvironment(t, e.app, rec)
+		writeRemoteSnapshot(t, e.app, rec, testNow(), `{"not":"an array"}`)
+		assert.Equal(t, []string{"local/build"}, runParentList(t, e, &listOptions{parent: "plan"}))
+		assert.Empty(t, e.app.warned, "the enrolled environment's snapshot was read")
+	})
 	t.Run("-q --parent stays local", func(t *testing.T) {
 		e := localPlanApp(t, true, false)
 		e.store.FindFunc = findsAsGiven
