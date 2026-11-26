@@ -409,6 +409,7 @@
         certNotAfter: "2027-10-20T16:35:00Z", certCa: "current",
         hello: null, workspaces: 1,
       },
+      { id: "env_5e6f", name: "lab-pi", state: "pending", status: "pending", lastSeen: null, createdAt: "2026-11-24T18:00:00Z", enrolledAt: null, certNotAfter: null, certCa: null, hello: null, workspaces: null },
     ],
     environmentCa: {
       current: { fingerprint: "sha256:4c1e0a7d", notAfter: "2036-10-02T00:00:00Z" },
@@ -950,6 +951,7 @@
         { key: "review.remove_finished", type: "bool", value: true, default: true, set: false },
         { key: "review.profiles.security.when", type: "string", value: "", default: "", set: false },
         { key: "review.profiles.security.model", type: "string", value: "opus", default: "", set: true },
+        { key: "environments.default_scope", type: "strings", value: ["linux-server", "old-rig"], default: [], set: true },
       ],
     },
     versions: {
@@ -1522,7 +1524,13 @@
     }),
     endpoint_token_set: () => null,
     runner_stop: ({ id }) => ({ id, session: "rn-5d2e8b10", stopped: true, warnings: [] }),
-    create_agent: () => ({ id: "new-agent-1a2b3c4d", session: "1a2b3c4d", path: "/w/new-agent-1a2b3c4d" }),
+    create_agent: ({ request }) => {
+      data.lastCreateAgent = request;
+      if (request?.name === "fail-scope") {
+        throw { code: "environment_unknown", message: "no such environment: old-rig (ws env list shows them)", details: { environment: "old-rig" } };
+      }
+      return { id: "new-agent-1a2b3c4d", session: "1a2b3c4d", path: "/w/new-agent-1a2b3c4d" };
+    },
 
     stats_get: ({ sinceMs }) => statsFor(sinceMs),
     cache_repos: () => [buffBear, api, workspaces],

@@ -47,6 +47,10 @@ workspace, inherits its parent's scope instead. Inside a workspace, `--env`
 and `--env-scope` are refused (`usage`): an agent starts children on another
 environment with `ws machine spawn --env`, and never grants a scope.
 
+`--env-scope` naming only the agent's own environment (for example
+`--env=linux-server --env-scope=linux-server`) grants nothing more and skips
+`default_scope`.
+
 Everything before `--` is a repo spec, so the prompt must come after `--`.
 Everything after `--` goes to `claude` unchanged: the prompt, and options
 such as `--model opus` or `--permission-mode`. `--settings` is refused

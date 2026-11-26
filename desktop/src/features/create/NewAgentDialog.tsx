@@ -20,6 +20,7 @@ import { dialogClosed } from "../ui/uiSlice";
 import { EnvironmentField, useEnvironmentPick } from "./EnvironmentField";
 import { RepoSpecsField } from "./RepoSpecsField";
 import { RunnerModelFields, type RunnerModelValues } from "./RunnerModelFields";
+import { ScopeField, useScopePick } from "./ScopeField";
 import { useRunnerSettings } from "./useRunnerSettings";
 import { usePrefilledSpecs } from "./usePrefilledSpecs";
 import styles from "./NewDialog.module.css";
@@ -29,6 +30,12 @@ export { models, permissionModes } from "./RunnerModelFields";
 const emptyRunner: RunnerModelValues = { runner: "claude", model: "", endpoint: "", permissionMode: "" };
 
 const errorHint = (error: AppError): string | null => {
+  if (error.code === "environment_unknown") {
+    return "An environment in the scope was removed or never enrolled; reopen New agent to refresh the list.";
+  }
+  if (error.code === "usage" && error.message.includes("grants a scope")) {
+    return "ws refuses a scope from inside a workspace; start the desktop app outside one.";
+  }
   if (error.code !== "claude_untrusted") {
     return null;
   }
@@ -55,6 +62,7 @@ export const NewAgentDialog = (): JSX.Element => {
   );
   const runnerSettings = useRunnerSettings(open);
   const pick = useEnvironmentPick();
+  const scope = useScopePick(open, pick.environment);
   const promptMissing = runnerFields.runner === "ws" && prompt.trim() === "";
   usePrefilledSpecs(open, setSpecs);
   const close = (): void => {
@@ -66,10 +74,14 @@ export const NewAgentDialog = (): JSX.Element => {
   };
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
+    if (scope.pending) {
+      return;
+    }
     const { runner, model, endpoint, permissionMode } = runnerFields;
     const remote = pick.environment === "local" ? {} : { environment: pick.environment };
+    const granted = scope.visible ? { envScope: scope.selected } : {};
     const result = await dispatch(
-      createAgent({ name, specs, prompt, model, permissionMode, offline, runner, endpoint, ...remote }),
+      createAgent({ name, specs, prompt, model, permissionMode, offline, runner, endpoint, ...remote, ...granted }),
     );
     if (createAgent.fulfilled.match(result)) {
       dispatch(lastChoiceSet(pick.environment));
@@ -93,6 +105,7 @@ export const NewAgentDialog = (): JSX.Element => {
             autoFocus
           />
           <EnvironmentField pick={pick} />
+          <ScopeField pick={scope} />
           {pick.claudeMissing && <Alert severity="warning">claude isn't installed on {pick.environment}.</Alert>}
           <RepoSpecsField value={specs} onChange={setSpecs} />
           <TextField
@@ -129,7 +142,11 @@ export const NewAgentDialog = (): JSX.Element => {
           <Button onClick={close} disabled={creating}>
             Cancel
           </Button>
-          <Button type="submit" variant="contained" disabled={creating || promptMissing || pick.claudeMissing || attachments.busy}>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={creating || promptMissing || pick.claudeMissing || scope.pending || scope.tooMany || attachments.busy}
+          >
             {creating ? "Starting…" : "Start agent"}
           </Button>
         </DialogActions>

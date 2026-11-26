@@ -267,6 +267,26 @@ parent does:
 
 ![New agent with the Environment picker](docs/new-agent-environment.png)
 
+New agent also sets the scope: the environments the agent may start children
+on (`ws claude --env-scope`). Only you grant it, and four rules apply: the
+agent's own environment is always in it and can't be unchecked; the field
+starts from `environments.default_scope` in `config.toml`, leaving out names
+that aren't enrolled; a widened scope is never remembered between openings;
+and an offline environment can be checked, since a child can start there once
+it's back online. The list is deduplicated and at most 64 names are kept, so 63
+besides the agent's own environment are preselected; the dialog refuses to start
+above 64, as the Rust validator does. If `default_scope` can't be read, the dialog
+warns and the agent starts with its own environment only; the CLI then skips
+`default_scope`, as an own-environment-only `--env-scope` does.
+
+| Screen | Image |
+| --- | --- |
+| The default scope, from `default_scope`, with a name that isn't enrolled left out | ![](docs/scope-new-agent-default.png) |
+| A remote environment chosen, with the scope it may start children on | ![](docs/scope-new-agent-remote.png) |
+| An offline environment checked, with the note that its children start once it's back | ![](docs/scope-new-agent-offline.png) |
+| An error: a scope name that was removed or never enrolled | ![](docs/scope-new-agent-error.png) |
+| On a phone (360 px) | ![](docs/scope-new-agent-mobile.png) |
+
 The Agents list marks each remote row with its environment, filters by
 environment, and dims an offline environment's rows while keeping their last
 status; their actions are disabled with the reason:
@@ -421,6 +441,8 @@ child, so it shows as a dimmed context row until Show hidden is on.
 Three loop runs sit beside them: a blocked and a needs-attention run in
 Needs input (shown with a Blocked or Needs attention prefix), and one done
 run that is hidden.
+
+The sample `environments.default_scope` names `linux-server` and `old-rig` (not enrolled), and the pending `lab-pi` is never offered; an agent named `fail-scope` fails with `environment_unknown`.
 
 The sample `plan-scope` has an environment scope (local, linux-server,
 win-rig offline, old-rig removed) and three children on other environments

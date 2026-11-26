@@ -241,3 +241,7 @@ when granted; an unknown name is `environment_unknown`. Inside a workspace,
 `--env-scope` and `--env` are refused with `usage`: an agent never grants a
 scope or picks an environment with `ws claude`; it starts children with
 `ws machine spawn --env`.
+
+`--env-scope` naming only the agent's own environment (for example
+`--env=linux-server --env-scope=linux-server`) grants nothing more and skips
+`default_scope`.

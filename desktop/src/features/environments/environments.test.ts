@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { remoteEnvironment, testStore } from "../../test/fixtures";
-import { offlineReason, selectEnvironmentChoices, statusIsOld } from "./environments";
+import { configListingWith, remoteEnvironment, testStore } from "../../test/fixtures";
+import { defaultScopeOf, offlineReason, scopeChoices, selectEnvironmentChoices, splitDefaultScope, statusIsOld } from "./environments";
 
 const at = (iso: string): number => new Date(iso).getTime();
 const hhmm = (iso: string): string => {
@@ -85,5 +85,71 @@ describe("selectEnvironmentChoices", () => {
       { name: "linux-server", disabled: false },
       { name: "win-rig", disabled: true, reason: offlineReason(remoteEnvironment({ name: "win-rig", status: "offline", lastSeen: seen }), now) },
     ]);
+  });
+});
+
+describe("scopeChoices", () => {
+  it("leaves out pending environments", () => {
+    const pending = remoteEnvironment({ name: "lab-pi", state: "pending", status: "pending", enrolledAt: null, hello: null, workspaces: null });
+    expect(scopeChoices([pending], "local")).toEqual([{ name: "local", status: "online", own: true }]);
+  });
+
+  it("puts its own environment first and marks it", () => {
+    const items = [remoteEnvironment({ name: "linux-server" }), remoteEnvironment({ id: "env_b20d", name: "win-rig", status: "offline" })];
+    expect(scopeChoices(items, "win-rig")).toEqual([
+      { name: "win-rig", status: "offline", own: true },
+      { name: "local", status: "online", own: false },
+      { name: "linux-server", status: "online", own: false },
+    ]);
+  });
+
+  it("keeps an offline or unknown environment selectable", () => {
+    const items = [
+      remoteEnvironment({ name: "win-rig", status: "offline" }),
+      remoteEnvironment({ id: "env_9c1e", name: "lab", status: "unknown" }),
+    ];
+    expect(scopeChoices(items, "local")).toEqual([
+      { name: "local", status: "online", own: true },
+      { name: "lab", status: "unknown", own: false },
+      { name: "win-rig", status: "offline", own: false },
+    ]);
+  });
+});
+
+describe("splitDefaultScope", () => {
+  it("keeps local and enrolled names and leaves out the rest", () => {
+    const items = [
+      remoteEnvironment({ name: "linux-server" }),
+      remoteEnvironment({ id: "env_5e6f", name: "lab-pi", state: "pending", status: "pending" }),
+    ];
+    expect(splitDefaultScope(["linux-server", "old-rig", "local", "linux-server", "lab-pi"], items)).toEqual({
+      kept: ["linux-server", "local"],
+      leftOut: ["old-rig", "lab-pi"],
+    });
+  });
+});
+
+describe("defaultScopeOf", () => {
+  it("reads the strings and ignores anything else", () => {
+    const withScope = (value: unknown) =>
+      configListingWith([{ key: "environments.default_scope", type: "strings", value: value as string[], default: [], set: true }]);
+    expect(defaultScopeOf(withScope(["linux-server", "old-rig"]))).toEqual(["linux-server", "old-rig"]);
+    expect(defaultScopeOf(withScope("linux-server"))).toEqual([]);
+    expect(defaultScopeOf(withScope([1, "linux-server"]))).toEqual([]);
+    expect(defaultScopeOf(configListingWith([]))).toEqual([]);
+  });
+
+  it("counts a repeated name once before keeping 64", () => {
+    const names = Array.from({ length: 64 }, (_, index) => `env-${index}`);
+    const listing = configListingWith([
+      { key: "environments.default_scope", type: "strings", value: ["env-0", "env-0", ...names.slice(1, 64)], default: [], set: true },
+    ]);
+    expect(defaultScopeOf(listing)).toEqual(names);
+  });
+
+  it("keeps at most 64 names", () => {
+    const names = Array.from({ length: 65 }, (_, index) => `env-${index}`);
+    const listing = configListingWith([{ key: "environments.default_scope", type: "strings", value: names, default: [], set: true }]);
+    expect(defaultScopeOf(listing)).toEqual(names.slice(0, 64));
   });
 });

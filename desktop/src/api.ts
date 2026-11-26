@@ -181,6 +181,8 @@ export interface NewAgent {
   readonly endpoint?: string;
   /** The environment to create the agent in; left out for this machine. */
   readonly environment?: string;
+  /** The environments the agent and its children may start on (ADR 0083). */
+  readonly envScope?: readonly string[];
 }
 
 export type EnvironmentState = "pending" | "enrolled";

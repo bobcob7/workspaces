@@ -1,8 +1,8 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type Artifact } from "../../api";
-import { fakeApi, remoteEnvironment, testStore } from "../../test/fixtures";
+import { configListingWith, fakeApi, remoteEnvironment, testStore } from "../../test/fixtures";
 import { renderWithStore } from "../../test/render";
 import { fetchEnvironments, lastChoiceKey } from "../environments/environmentsSlice";
 import { dialogOpened } from "../ui/uiSlice";
@@ -219,6 +219,234 @@ describe("NewAgentDialog", () => {
     expect(screen.getByRole("button", { name: "Start agent" })).toBeDisabled();
     finish(storedArtifact("art-00000009", "shot.png"));
     await waitFor(() => expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled());
+  });
+});
+
+const scopeListing = (value: readonly string[]) =>
+  configListingWith([{ key: "environments.default_scope", type: "strings", value, default: [], set: true }]);
+
+const scopeApi = (value: readonly string[] = []) => fakeApi({ configList: vi.fn(async () => scopeListing(value)) });
+
+/** A config read the test resolves by hand, to play out a slow default_scope load. */
+const deferredConfig = () => {
+  let resolve: (listing: ReturnType<typeof scopeListing>) => void = () => undefined;
+  const configList = vi.fn(() => new Promise<ReturnType<typeof scopeListing>>((done) => (resolve = done)));
+  return { configList, land: (listing: ReturnType<typeof scopeListing>) => resolve(listing) };
+};
+
+const startForm = (): HTMLFormElement => {
+  const form = screen.getByRole("button", { name: "Start agent" }).closest("form");
+  if (form === null) {
+    throw new Error("New agent has no form");
+  }
+  return form;
+};
+
+const enrolledNames = (count: number) =>
+  Array.from({ length: count }, (_, index) => remoteEnvironment({ id: `env_${index}`, name: `env-${index}` }));
+
+describe("NewAgentDialog scope", () => {
+  it("defaults to its own environment when default_scope is empty", async () => {
+    const api = scopeApi();
+    openWithEnvironments([remoteEnvironment()], api);
+    await waitFor(() => expect(api.configList).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local"] }));
+  });
+
+  it("preselects default_scope's enrolled names and warns about the rest", async () => {
+    const api = scopeApi(["linux-server", "old-rig"]);
+    openWithEnvironments([remoteEnvironment()], api);
+    expect(await screen.findByRole("checkbox", { name: "linux-server" })).toBeChecked();
+    expect(screen.getByText("default_scope lists old-rig, which isn't enrolled; it's left out.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local", "linux-server"] }));
+  });
+
+  it("never remembers a widened scope between openings", async () => {
+    const api = scopeApi();
+    const store = openWithEnvironments([remoteEnvironment()], api);
+    await userEvent.click(await screen.findByRole("checkbox", { name: "linux-server" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    act(() => {
+      store.dispatch(dialogOpened("agent"));
+    });
+    expect(await screen.findByRole("checkbox", { name: "linux-server" })).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local"] }));
+  });
+
+  it("prefilled specs never touch the scope", async () => {
+    const api = scopeApi();
+    const store = testStore({
+      api,
+      state: { environments: { items: [remoteEnvironment()], loadedAt: Date.now(), error: null, latestRequestId: null, warnings: [], lastChoice: "local" } },
+    });
+    store.dispatch(dialogOpened("agent", ["acme/app@main"]));
+    renderWithStore(<NewAgentDialog />, store);
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ specs: ["acme/app@main"], envScope: ["local"] }),
+    );
+  });
+
+  it("its own environment is always checked and can't be unchecked", async () => {
+    openWithEnvironments([remoteEnvironment()], scopeApi(), "linux-server");
+    const own = await screen.findByRole("checkbox", { name: "linux-server · its own environment" });
+    expect(own).toBeChecked();
+    expect(own).toBeDisabled();
+  });
+
+  it("switching the target doesn't carry the old target into the scope", async () => {
+    const api = scopeApi();
+    openWithEnvironments([remoteEnvironment()], api);
+    await userEvent.click(await screen.findByRole("combobox", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+    expect(screen.getByRole("checkbox", { name: "local" })).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["linux-server"] }));
+  });
+
+  it("pending environments aren't offered", async () => {
+    const pending = remoteEnvironment({ id: "env_5e6f", name: "lab-pi", state: "pending", status: "pending" });
+    openWithEnvironments([remoteEnvironment(), pending], scopeApi(["lab-pi"]));
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "lab-pi" })).not.toBeInTheDocument());
+  });
+
+  it("offline environments can be chosen with a note", async () => {
+    const api = scopeApi();
+    openWithEnvironments([remoteEnvironment({ name: "win-rig", status: "offline" })], api);
+    await userEvent.click(await screen.findByRole("checkbox", { name: "win-rig · offline" }));
+    expect(screen.getByText("win-rig is offline: a child can start there once it's back online.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local", "win-rig"] }));
+  });
+
+  it("omits envScope when no environment is enrolled", async () => {
+    const api = scopeApi(["linux-server"]);
+    openDialog(api);
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(vi.mocked(api.createAgent).mock.calls[0]?.[0]).not.toHaveProperty("envScope");
+  });
+
+  it("sends envScope with its own environment first", async () => {
+    const api = scopeApi(["local"]);
+    openWithEnvironments([remoteEnvironment()], api);
+    await userEvent.click(await screen.findByRole("combobox", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("option", { name: "linux-server" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["linux-server", "local"] }));
+  });
+
+  it("shows environment_unknown with a hint", async () => {
+    const api = fakeApi({
+      createAgent: vi.fn(async () =>
+        Promise.reject({
+          code: "environment_unknown",
+          message: "no such environment: old-rig (ws env list shows them)",
+          details: { environment: "old-rig" },
+        }),
+      ),
+    });
+    openDialog(api);
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(await screen.findByText("no such environment: old-rig (ws env list shows them)")).toBeInTheDocument();
+    expect(
+      screen.getByText("An environment in the scope was removed or never enrolled; reopen New agent to refresh the list."),
+    ).toBeInTheDocument();
+  });
+
+  it("a failed config read falls back to its own environment with a warning", async () => {
+    const api = fakeApi({
+      configList: vi.fn(async () => Promise.reject({ code: "config", message: "config.toml is unreadable" })),
+    });
+    openWithEnvironments([remoteEnvironment()], api);
+    expect(
+      await screen.findByText(
+        "couldn't read default_scope: config.toml is unreadable; the agent will start with its own environment only.",
+      ),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local"] }));
+  });
+
+  it("opens with Start enabled when default_scope holds 64 names besides its own environment", async () => {
+    const names = enrolledNames(64).map((env) => env.name);
+    const api = scopeApi(names);
+    openWithEnvironments(enrolledNames(64), api);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled());
+    expect(screen.queryByText("At most 64 environments.")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    const kept = names.slice(0, 63).sort((a, b) => a.localeCompare(b));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local", ...kept] }));
+  });
+
+  it("disables Start with more than 64 environments in the scope", async () => {
+    const names = enrolledNames(64).map((env) => env.name);
+    openWithEnvironments(enrolledNames(64), scopeApi(names.slice(0, 63)));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("checkbox", { name: "env-63" }));
+    expect(await screen.findByText("At most 64 environments.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start agent" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("checkbox", { name: "env-0" }));
+    expect(screen.queryByText("At most 64 environments.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled();
+  });
+
+  it("keeps Start disabled until default_scope has loaded, then preselects it", async () => {
+    const config = deferredConfig();
+    const api = fakeApi({ configList: config.configList });
+    openWithEnvironments([remoteEnvironment()], api);
+    await waitFor(() => expect(api.configList).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Start agent" })).toBeDisabled();
+    await act(async () => config.land(scopeListing(["linux-server"])));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local", "linux-server"] }));
+  });
+
+  it("enables Start while default_scope loads with no environment enrolled", async () => {
+    const config = deferredConfig();
+    openDialog(fakeApi({ configList: config.configList }));
+    await waitFor(() => expect(config.configList).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled();
+  });
+
+  it("ignores a submit while default_scope is still loading", async () => {
+    const config = deferredConfig();
+    const api = fakeApi({ configList: config.configList });
+    openWithEnvironments([remoteEnvironment()], api);
+    await waitFor(() => expect(config.configList).toHaveBeenCalledTimes(1));
+    fireEvent.submit(startForm());
+    await act(async () => undefined);
+    expect(api.createAgent).not.toHaveBeenCalled();
+    await act(async () => config.land(scopeListing(["linux-server"])));
+  });
+
+  it("keeps a toggle made before default_scope lands", async () => {
+    const config = deferredConfig();
+    const api = fakeApi({ configList: config.configList });
+    openWithEnvironments([remoteEnvironment(), remoteEnvironment({ id: "env_b20d", name: "win-rig" })], api);
+    await waitFor(() => expect(api.configList).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByRole("checkbox", { name: "win-rig" }));
+    await act(async () => config.land(scopeListing(["linux-server"])));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start agent" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ envScope: ["local", "linux-server", "win-rig"] }));
+  });
+
+  it("hints at starting the app outside a workspace when ws refuses a scope", async () => {
+    const api = fakeApi({
+      createAgent: vi.fn(async () =>
+        Promise.reject({
+          code: "usage",
+          message: "an agent never grants a scope or picks an environment with --env-scope; use ws machine spawn --env",
+        }),
+      ),
+    });
+    openDialog(api);
+    await userEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(await screen.findByText("ws refuses a scope from inside a workspace; start the desktop app outside one.")).toBeInTheDocument();
   });
 });
 
