@@ -168,7 +168,7 @@ func (a *App) runList(ctx context.Context, opts *listOptions) error {
 	switch {
 	case a.global.json:
 		a.annotateScopes(ctx, entries, presence)
-		a.mergeRollups(entries)
+		a.mergeRollups(entries) //nolint:contextcheck // the ledger, snapshot and workspace reads take no context
 		return a.writeJSON(listJSON{Workspaces: entries, HiddenCount: hidden, Warnings: a.warnings()})
 	case opts.idsOnly:
 		for i := range entries {
