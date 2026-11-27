@@ -18,10 +18,12 @@ func TestBaseConfigDir(t *testing.T) {
 		assert.Equal(t, "/cfg", BaseConfigDir([]string{"CLAUDE_CONFIG_DIR=/cfg", "HOME=/home/u"}))
 	})
 	t.Run("HOME/.claude when unset", func(t *testing.T) {
-		assert.Equal(t, filepath.Join("/home/u", ".claude"), BaseConfigDir([]string{"HOME=/home/u"}))
+		home := t.TempDir()
+		assert.Equal(t, filepath.Join(home, ".claude"), BaseConfigDir([]string{"HOME=" + home}))
 	})
 	t.Run("empty CLAUDE_CONFIG_DIR counts as unset", func(t *testing.T) {
-		assert.Equal(t, filepath.Join("/home/u", ".claude"), BaseConfigDir([]string{"CLAUDE_CONFIG_DIR=", "HOME=/home/u"}))
+		home := t.TempDir()
+		assert.Equal(t, filepath.Join(home, ".claude"), BaseConfigDir([]string{"CLAUDE_CONFIG_DIR=", "HOME=" + home}))
 	})
 	t.Run("an overlay's marker names the base", func(t *testing.T) {
 		base := t.TempDir()
@@ -124,9 +126,9 @@ func treeHash(t *testing.T, dir string) map[string]string {
 			return err
 		}
 		if d.Type()&fs.ModeSymlink != 0 {
-			target, err := os.Readlink(path)
+			target, linkErr := os.Readlink(path)
 			hashes[rel] = "link:" + target
-			return err
+			return linkErr
 		}
 		if d.IsDir() {
 			hashes[rel] = "dir"
@@ -252,7 +254,7 @@ func TestSeedOverlay(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(f.overlay, "settings.json"), []byte("{}"), 0o600))
 		f.seed(t)
 		_, err := os.Lstat(filepath.Join(f.overlay, "stale.txt"))
-		assert.ErrorIs(t, err, fs.ErrNotExist)
+		require.ErrorIs(t, err, fs.ErrNotExist)
 		settings, err := os.ReadFile(filepath.Join(f.overlay, "settings.json"))
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"theme":"dark"}`, string(settings))

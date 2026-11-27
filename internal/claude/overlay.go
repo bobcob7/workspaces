@@ -15,16 +15,24 @@ import (
 const OverlayMarker = ".ws-overlay"
 
 // overlayKeys are the top-level .claude.json keys an overlay keeps (ADR 0085).
-var overlayKeys = []string{"userID", "oauthAccount", "hasCompletedOnboarding", "lastOnboardingVersion", "installMethod", "autoUpdates", "mcpServers", "theme"}
+func overlayKeys() []string {
+	return []string{"userID", "oauthAccount", "hasCompletedOnboarding", "lastOnboardingVersion", "installMethod", "autoUpdates", "mcpServers", "theme"}
+}
 
 // overlayCopies are the base's files an overlay copies, so its edits stay private.
-var overlayCopies = []string{"settings.json", "CLAUDE.md", "keybindings.json"}
+func overlayCopies() []string {
+	return []string{"settings.json", "CLAUDE.md", "keybindings.json"}
+}
 
 // overlayLinks are the base's entries an overlay symlinks, the user's sign-in and add-ons.
-var overlayLinks = []string{".credentials.json", "hooks", "agents", "commands", "skills", "plugins", "output-styles"}
+func overlayLinks() []string {
+	return []string{".credentials.json", "hooks", "agents", "commands", "skills", "plugins", "output-styles"}
+}
 
 // overlayDirs are symlinked too, and made in the base first if it lacks them.
-var overlayDirs = []string{"projects", "jobs"}
+func overlayDirs() []string {
+	return []string{"projects", "jobs"}
+}
 
 // BaseConfigDir is the user's Claude Code config directory: the marker's path
 // when $CLAUDE_CONFIG_DIR is an overlay, else $CLAUDE_CONFIG_DIR, else
@@ -99,7 +107,7 @@ func overlayBase(dir string) (string, bool) {
 
 // copyBaseFiles copies overlayCopies that base has into dir.
 func copyBaseFiles(dir, base string) error {
-	for _, name := range overlayCopies {
+	for _, name := range overlayCopies() {
 		data, err := os.ReadFile(filepath.Join(base, name))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -107,7 +115,7 @@ func copyBaseFiles(dir, base string) error {
 		if err != nil {
 			return fmt.Errorf("copying %s: %w", name, err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil { //nolint:gosec // G703: name is from the fixed overlayCopies list.
 			return fmt.Errorf("copying %s: %w", name, err)
 		}
 	}
@@ -117,12 +125,12 @@ func copyBaseFiles(dir, base string) error {
 // linkBaseEntries makes base's overlayDirs, then symlinks every overlay
 // link and directory that base has into dir.
 func linkBaseEntries(dir, base string) error {
-	for _, name := range overlayDirs {
+	for _, name := range overlayDirs() {
 		if err := os.MkdirAll(filepath.Join(base, name), 0o700); err != nil {
 			return fmt.Errorf("making %s in %s: %w", name, base, err)
 		}
 	}
-	for _, name := range slices.Concat(overlayDirs, overlayLinks) {
+	for _, name := range slices.Concat(overlayDirs(), overlayLinks()) {
 		if err := linkIfPresent(dir, base, name); err != nil {
 			return err
 		}
@@ -178,7 +186,7 @@ func overlayConfig(globalConfig, workspacesRoot string) (map[string]any, error) 
 	if err := json.Unmarshal(data, &top); err != nil {
 		return nil, fmt.Errorf("reading %s: %w", globalConfig, err)
 	}
-	for _, key := range overlayKeys {
+	for _, key := range overlayKeys() {
 		if value, ok := top[key]; ok {
 			out[key] = value
 		}
