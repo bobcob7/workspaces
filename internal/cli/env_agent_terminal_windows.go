@@ -21,6 +21,8 @@ var windowsTerminalEnv = []string{
 	"PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES",
 	"TEMP", "TMP", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "NUMBER_OF_PROCESSORS",
 	"PROCESSOR_ARCHITECTURE", "OS", "LANG",
+	"ALLUSERSPROFILE", "PUBLIC", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432",
+	"PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "PSMODULEPATH",
 }
 
 // terminalEnvAllowed reports whether a terminal's program may see the
@@ -77,4 +79,26 @@ func pathExt(env []string) []string {
 // no execute bits; the extension chosen by executableNames is the check.
 func isExecutable(info fs.FileInfo) bool {
 	return info.Mode().IsRegular()
+}
+
+// homeOf is the home directory in env: HOME, else USERPROFILE (Windows
+// rarely sets HOME), either key in any case; "" when neither is set.
+func homeOf(env []string) string {
+	for _, name := range []string{"HOME", "USERPROFILE"} {
+		if home := lastEnv(env, name); home != "" {
+			return home
+		}
+	}
+	return ""
+}
+
+// lastEnv is the last non-empty value of name in env, matched without regard to case.
+func lastEnv(env []string, name string) string {
+	value := ""
+	for _, kv := range env {
+		if key, v, ok := strings.Cut(kv, "="); ok && strings.EqualFold(key, name) && v != "" {
+			value = v
+		}
+	}
+	return value
 }
