@@ -58,9 +58,12 @@ apply (`usage`, `spec_invalid`, `name_invalid`, `repo_not_found`, `repo_ambiguou
 `git_failed`), and `internal` (exit 1) if the shell can't be started.
 With `--env`: `environment_unknown` (exit 3), `environment_offline` and
 `environment_outdated` (exit 1), `platform_unsupported` (exit 1, when the
-environment's OS has no pty support, today Windows), and `terminal_limit` (exit 4).
+environment's OS has no pseudo-terminals: not Linux, macOS, or Windows 10
+1809+), and `terminal_limit` (exit 4).
 Once the shell has started, `ws shell` exits with the shell's exit code, or
 128+N when signal N killed it.
+On a Windows environment the shell is `%COMSPEC%` (normally `cmd.exe`) and
+starts in the agent user's home (`USERPROFILE` when `HOME` is unset).
 
 ## Examples
 
