@@ -450,7 +450,7 @@ func (a *App) pollRemoteTarget(ctx context.Context, t *waitTarget, root string) 
 // askRemote is a live remote child's state from its environment: finished with
 // a result, or with a session that is done or stopped.
 func (a *App) askRemote(ctx context.Context, t *waitTarget, root string) childState {
-	rec, _, err := a.remoteRecord(ctx, root, t.remote)
+	rec, res, err := a.remoteRecord(ctx, root, t.remote)
 	switch {
 	case hasErrorCode(err, codeWorkspaceNotFound):
 		return a.copiedChildState(t, root)
@@ -468,6 +468,7 @@ func (a *App) askRemote(ctx context.Context, t *waitTarget, root string) childSt
 		a.warnRemote(t, err)
 	}
 	st := childState{status: state, session: session, record: rec}
+	st.progress, st.rollup = a.remoteProgress(res)
 	st.finished = rec.Result != nil || state == sessionDone || state == string(lifetime.StateStopped)
 	st.quiet = st.finished
 	return st
