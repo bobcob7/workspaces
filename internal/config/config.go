@@ -98,6 +98,8 @@ type Config struct {
 	Daemon    Daemon              `toml:"daemon"`
 	// Environments is [environments] (ADRs 0074, 0075).
 	Environments Environments `toml:"environments"`
+	// Claude is [claude] (ADR 0085).
+	Claude Claude `toml:"claude"`
 	// RunnerErr is why the runner's tables can't be used, or nil (ADR 0071).
 	RunnerErr error `toml:"-"`
 	// roleRunners is each runner.roles.<role>.runner as written; roleRunnersBad
@@ -150,6 +152,39 @@ type Environments struct {
 	AgentLoopScripts *bool `toml:"agent_loop_scripts" json:"agent_loop_scripts"`
 	// DefaultScope is the environments a parentless agent may start children on (ADR 0082).
 	DefaultScope []string `toml:"default_scope" json:"default_scope"`
+}
+
+// Claude Code config directory modes (ADR 0085).
+const (
+	ClaudeConfigAuto      = "auto"
+	ClaudeConfigWorkspace = "workspace"
+	ClaudeConfigShared    = "shared"
+)
+
+// Claude is [claude] (ADR 0085).
+type Claude struct {
+	ConfigDir string `toml:"config_dir" json:"config_dir"`
+}
+
+// Mode is the Claude Code config directory mode: config_dir, or auto when unset.
+func (c Claude) Mode() string {
+	if c.ConfigDir == "" {
+		return ClaudeConfigAuto
+	}
+	return c.ConfigDir
+}
+
+// ValidClaudeConfigMode is whether s is auto, workspace or shared.
+func ValidClaudeConfigMode(s string) bool {
+	return s == ClaudeConfigAuto || s == ClaudeConfigWorkspace || s == ClaudeConfigShared
+}
+
+// check rejects a config_dir that isn't a mode. The error wraps ErrInvalid and names the key.
+func (c Claude) check() error {
+	if c.ConfigDir == "" || ValidClaudeConfigMode(c.ConfigDir) {
+		return nil
+	}
+	return fmt.Errorf("%w: claude.config_dir must be auto, workspace or shared, not %q", ErrInvalid, c.ConfigDir)
 }
 
 // LoopScriptsAllowed is [environments] agent_loop_scripts, true when it isn't set.
@@ -358,6 +393,7 @@ type coreFile struct {
 	Hosts        []Host       `toml:"hosts"`
 	Review       Review       `toml:"review"`
 	Environments Environments `toml:"environments"`
+	Claude       Claude       `toml:"claude"`
 }
 
 // withoutRunnerTables is data with the runner's sections cut out, so a
@@ -402,7 +438,7 @@ func parseCore(data []byte) (Config, error) {
 	if keys := undecodedNames(meta.Undecoded(), false); len(keys) > 0 {
 		return Config{}, fmt.Errorf("%w: unknown keys %s%s", ErrInvalid, strings.Join(keys, ", "), tokenHint(keys))
 	}
-	cfg := Config{Defaults: core.Defaults, Hosts: core.Hosts, Review: core.Review, Environments: core.Environments}
+	cfg := Config{Defaults: core.Defaults, Hosts: core.Hosts, Review: core.Review, Environments: core.Environments, Claude: core.Claude}
 	return cfg.normalize(meta.IsDefined("defaults", "host"))
 }
 
@@ -445,7 +481,10 @@ func (c Config) normalize(hostSet bool) (Config, error) { //nolint:gocritic // h
 	if err := c.Environments.check(); err != nil {
 		return Config{}, err
 	}
-	return Config{Defaults: Defaults{Host: host, Owners: owners}, Hosts: hosts, Review: c.Review, Environments: c.Environments}, nil
+	if err := c.Claude.check(); err != nil {
+		return Config{}, err
+	}
+	return Config{Defaults: Defaults{Host: host, Owners: owners}, Hosts: hosts, Review: c.Review, Environments: c.Environments, Claude: c.Claude}, nil
 }
 
 // normalizeHosts lowercases names, fills an empty kind with "auto", and

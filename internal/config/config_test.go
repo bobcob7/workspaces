@@ -394,3 +394,23 @@ func TestParse_environments(t *testing.T) {
 		assert.ErrorContains(t, err, "environments.listen_addr")
 	})
 }
+
+func TestConfig_Claude(t *testing.T) {
+	t.Run("defaults to auto", func(t *testing.T) {
+		cfg, err := parse([]byte(defaultFile))
+		require.NoError(t, err)
+		assert.Equal(t, ClaudeConfigAuto, cfg.Claude.Mode())
+	})
+	for _, mode := range []string{ClaudeConfigAuto, ClaudeConfigWorkspace, ClaudeConfigShared} {
+		t.Run("reads "+mode, func(t *testing.T) {
+			cfg, err := parse([]byte("[claude]\nconfig_dir = \"" + mode + "\"\n"))
+			require.NoError(t, err)
+			assert.Equal(t, mode, cfg.Claude.Mode())
+		})
+	}
+	t.Run("an invalid mode is ErrInvalid", func(t *testing.T) {
+		_, err := parse([]byte("[claude]\nconfig_dir = \"bogus\"\n"))
+		require.ErrorIs(t, err, ErrInvalid)
+		assert.ErrorContains(t, err, `claude.config_dir must be auto, workspace or shared, not "bogus"`)
+	})
+}
