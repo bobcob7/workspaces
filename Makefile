@@ -4,7 +4,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 # The packages whose tests run on windows-latest (ADR 0081), and the tests
 # filtered from packages that also have unix-only tests.
-WINDOWS_TESTS := ./internal/ptyproc ./internal/lockfile ./internal/privfile ./internal/procgroup ./internal/envproto ./internal/redact ./internal/power ./internal/llm ./internal/telemetry
+WINDOWS_TESTS := ./internal/lockfile ./internal/privfile ./internal/procgroup ./internal/envproto ./internal/redact ./internal/power ./internal/llm ./internal/telemetry
 
 .PHONY: build windows-exe test test-windows fakes e2e-runner lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
 
@@ -26,13 +26,14 @@ test:
 # exits nonzero if any failed.
 test-windows:
 	rc=0; \
+	go test -p 2 -v ./internal/ptyproc || rc=1; \
 	go test -p 2 $(WINDOWS_TESTS) || rc=1; \
 	go test -p 2 -run 'TestSocketBaseDir|TestPrepareSocketDir' ./internal/daemon || rc=1; \
-	go test -p 2 -run 'TestHasPathPrefix|TestTerminals_conpty' ./internal/envagent || rc=1; \
+	go test -p 2 -v -run 'TestHasPathPrefix|TestTerminals_conpty' ./internal/envagent || rc=1; \
 	go test -p 2 -run TestFindSh ./internal/gate || rc=1; \
 	go test -p 2 -run TestUserBaseDir ./internal/config || rc=1; \
 	go test -p 2 -run TestRunner_program ./internal/shell || rc=1; \
-	go test -p 2 -run 'TestUserHome|TestClient_Send_windows' ./internal/claude || rc=1; \
+	go test -p 2 -v -run 'TestUserHome|TestClient_Send_windows|TestIsBatchFile' ./internal/claude || rc=1; \
 	go test -p 2 -run TestTerminalSignals ./internal/cli || rc=1; \
 	go test -p 2 -run 'TestTerminalEnvAllowed_windows|TestExecutableNames|TestLookPathIn_windows|TestAgentOperations_TerminalCommand_windows|TestHomeOf_windows' ./internal/cli || rc=1; \
 	exit $$rc
