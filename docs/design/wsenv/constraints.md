@@ -36,11 +36,11 @@ Node 20.19.2, Claude Code 2.1.332, installed `ws` v0.5.0).
 | Value | Where | Touched by |
 | ----- | ----- | ---------- |
 | `envproto.Protocol = 4`, `ProtocolReviewsLoops = 3`, `ProtocolScopes = 4` | `internal/envproto/payloads.go:9-15` | No task bumps the protocol. A fix that needs a new operation or field is out of scope (see Follow-ups in tasks.md) |
-| `ws config list` fixed keys: `defaults.host`, `defaults.owners`, `hosts`, `review.timeout`, `review.remove_finished`, listed always | `internal/config/edit.go:395` `fixedRules`, pinned by `internal/cli/config_test.go:87` and `internal/config/edit_test.go:43`, and by the desktop's Settings fixtures (`desktop/src/test/fixtures.ts`) | T3 adds `claude.config_dir` as a **conditional** key, listed only when config.toml has a `[claude]` table (like `runnerFixedRules`), so these pins and the desktop fixtures don't change |
-| `runner.roles.implementer.runner` is `keys[len(keys)-9]` | `internal/config/runner_test.go:511` | T3 must not add keys after the runner role keys |
+| `ws config list` fixed keys: `defaults.host`, `defaults.owners`, `hosts`, `review.timeout`, `review.remove_finished`, listed always | `internal/config/edit.go:395` `fixedRules`, pinned by `internal/cli/config_test.go:87` and `internal/config/edit_test.go:43`, and by the desktop's Settings fixtures (`desktop/src/test/fixtures.ts`) | T1 adds `claude.config_dir` as a **conditional** key, listed only when config.toml has a `[claude]` table (like `runnerFixedRules`), so these pins and the desktop fixtures don't change |
+| `runner.roles.implementer.runner` is `keys[len(keys)-9]` | `internal/config/runner_test.go:511` | T1 must not add keys before the runner role keys' end (it appends `claude.config_dir` after `[environments]`, only with a `[claude]` table) |
 | Claude Code minimum version 2.1.302 | `internal/claude/version.go` (ADR 0024) | unchanged |
-| Claude Code's config lock: a `.claude.json.lock` directory, stale after 10 s | `internal/claude/trust.go:25-30` | T2 writes the overlay's `.claude.json` under the same lock |
-| Workspace state is deleted with `os.RemoveAll(state/<id>)` | `internal/workspace/remove.go:40`, `create.go:256`, `leftovers.go:34` | T2 puts the overlay in `state/<id>/claude/`. `os.RemoveAll` removes symlinks, not their targets, so the shared `projects/`, `plugins/` and the rest survive |
+| Claude Code's config lock: a `.claude.json.lock` directory, stale after 10 s | `internal/claude/trust.go:25-30` | T2's `Pool.Trust` writes an overlay's `.claude.json` through the same locked code |
+| Workspace state is deleted with `os.RemoveAll(state/<id>)` | `internal/workspace/remove.go:40`, `create.go:256`, `leftovers.go:34` | T3 puts the overlay in `state/<id>/claude/`. `os.RemoveAll` removes symlinks, not their targets, so the shared `projects/`, `plugins/` and the rest survive |
 
 ## Facts about Claude Code measured here (2026-11-27)
 
