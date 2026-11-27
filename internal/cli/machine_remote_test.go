@@ -261,6 +261,40 @@ func TestApp_runMachineWait_remoteChild(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "the helper's report", string(report))
 	})
+	t.Run("a finished remote child's progress and rollup are its environment's", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		record := remoteHelperRecord(t)
+		record.Progress = json.RawMessage(`{"name":"helper steps","total":3,"done":2,"note":null,"updated_at":null}`)
+		record.Rollup = json.RawMessage(`{"total":3,"done":2,"fraction":0.6666666666666666}`)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, record))
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		item := got.Children[0]
+		require.NotNil(t, item.Progress)
+		assert.Equal(t, 3, item.Progress.Total)
+		assert.Equal(t, 2, item.Progress.Done)
+		require.NotNil(t, item.Rollup)
+		assert.Equal(t, 3, item.Rollup.Total)
+		assert.Equal(t, 2, item.Rollup.Done)
+	})
+	t.Run("an unreachable environment with a copied result finishes", func(t *testing.T) {
+		e := newWaitApp(t)
+		e.app.remotePoll = time.Millisecond
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		writeCopy(t, e, []string{"plan", "boss"})
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
+		})
+		start := time.Now()
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(5*time.Second)))
+		assert.Less(t, time.Since(start), 3*time.Second)
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		assert.True(t, got.Children[0].Finished)
+		assert.Equal(t, "pass", got.Children[0].Outcome)
+	})
 	t.Run("after the child is removed its copy is still read", func(t *testing.T) {
 		e := newWaitApp(t)
 		writeCopy(t, e, []string{"plan", "boss"})
