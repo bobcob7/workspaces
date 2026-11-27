@@ -5,8 +5,10 @@ found and checked. The decisions behind this are in
 [0011](adrs/0011-config-dir.md) (locations),
 [0007](adrs/0007-repo-spec-syntax-and-resolution.md) (what the keys do),
 [0019](adrs/0019-https-upstream-urls.md) (why there's no protocol key), and
-[0054](adrs/0054-settings-all.md) (changing it with `ws config`), and
-[0061](adrs/0061-hosts-in-config-toml.md) (the `[[hosts]]` list).
+[0054](adrs/0054-settings-all.md) (changing it with `ws config`),
+[0061](adrs/0061-hosts-in-config-toml.md) (the `[[hosts]]` list), and
+[0085](adrs/0085-per-workspace-claude-config.md) (each agent's Claude Code
+config directory).
 
 ## The config directory
 
@@ -44,6 +46,7 @@ CONFIG_DIR/
   workspaces/          one directory per workspace, your repos only (0012)
     CLAUDE.md          tells agents to run `ws llm` (0014)
   state/<id>/          ws's records and locks per workspace
+    claude/            the agent's own Claude Code config directory (0085)
   reviews/             submitted reviews, by repo and commit (0039)
   review/profiles/     your review profiles, <name>.md (0038, 0042)
   loops/               agent loops, <name>.toml (0048)
@@ -274,6 +277,51 @@ model = "opus"
 when = "auto"
 ```
 
+### `[claude]`
+
+Where each agent's Claude Code session keeps its config
+([0085](adrs/0085-per-workspace-claude-config.md)).
+
+| Key | Type | Default | Used for |
+| --- | ---- | ------- | -------- |
+| `config_dir` | string | `"auto"` | `auto`: give each workspace's session its own Claude Code config directory, `state/<id>/claude/`, when Claude Code is signed in there, else share yours with a warning; `workspace`: the same, but fail with `claude_signed_out` instead of sharing; `shared`: every session uses your Claude Code config directory, as before |
+
+The mode is the first set of: `--claude-config-dir <mode>` on `ws claude`
+or `ws machine spawn`, the `WS_CLAUDE_CONFIG_DIR` environment variable, this
+key, then `auto`. Loop ticks and `ws review start` use the variable and
+the key. `ws config list` shows the key only once config.toml has a
+`[claude]` table.
+
+**What a separate directory holds.** It is made when the session starts,
+from your Claude Code config directory (`$CLAUDE_CONFIG_DIR`, else
+`~/.claude`):
+
+- **copied**, so an agent's changes stay its own: `settings.json`,
+  `CLAUDE.md`, `keybindings.json`, and `.claude.json` cut down to your
+  account, onboarding, `mcpServers`, theme and the trust of the workspace
+  root;
+- **linked to yours**: `.credentials.json`, `hooks/`, `agents/`,
+  `commands/`, `skills/`, `plugins/`, `output-styles/`, and `projects/`
+  and `jobs/`, so transcripts stay where the desktop app and `ws` read
+  them;
+- **private and new**: history, todos, shell snapshots, file history,
+  caches and Claude Code's daemon files.
+
+A change you make to `settings.json` or `CLAUDE.md` reaches agents started
+after it, not running ones. A plugin installed by any agent is installed
+for all. The directory is deleted with the workspace.
+
+**Sign-in.** Each separate directory runs its own Claude Code background
+service (about 170 MiB while the agent runs), started by `ws` with its
+environment. A token given only to your shared service, as in Workspace
+Online, isn't in an agent's environment, so the children an agent spawns
+can't sign in on their own: `auto` then shares your directory and says so in
+`warnings`. Put the token in `secrets.env` as `CLAUDE_CODE_OAUTH_TOKEN` (or
+`ANTHROPIC_API_KEY`) and `ws` passes it to the agent's service.
+
+On a remote environment the remote's own config.toml and `secrets.env`
+decide; `--claude-config-dir` can't be combined with `--env`.
+
 ### `[runner]`
 
 | Key | Type | Default | Used for |
@@ -370,7 +418,8 @@ role, only once the file has those tables.
 
 | Situation | Error code | Exit |
 | --------- | ---------- | ---- |
-| `config.toml` isn't valid TOML, has a value of the wrong type, an unknown key, or a value that breaks the rules above | `config_invalid` | 1 |
+| `config.toml` isn't valid TOML, has a value of the wrong type, an unknown key, or a value that breaks the rules above (including a `claude.config_dir` that isn't `auto`, `workspace` or `shared`) | `config_invalid` | 1 |
+| `claude.config_dir = "workspace"` and Claude Code isn't signed in in the agent's own directory | `claude_signed_out` | 1 |
 | `CONFIG_DIR` can't be found, created, or read, or the default file can't be written | `internal` | 1 |
 | `ws config`: an unknown key, a bad value, or a key set in a form it can't edit | `config_key_unknown`, `config_value_invalid` (exit 2), `config_uneditable` | 1 or 2 |
 
