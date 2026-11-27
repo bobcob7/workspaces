@@ -139,7 +139,8 @@ type claudeRepo struct {
 // artifactHints appends the hint line for the @artifact: references in the
 // prompt, the first argument when it isn't a flag (ADR 0078). Every
 // referenced artifact must exist. On a remote environment, which can't reach
-// the store, the prompt goes unchanged with a warning.
+// the store, the prompt goes unchanged with a warning. An enrolled agent
+// can't reach the store either, so it gets the same warning, with no check.
 func (a *App) artifactHints(args []string, remote string) ([]string, error) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return args, nil
@@ -150,6 +151,9 @@ func (a *App) artifactHints(args []string, remote string) ([]string, error) {
 		return args, nil
 	case remote != "":
 		a.warned = append(a.warned, fmt.Sprintf("artifacts aren't reachable from %s yet; @artifact references were sent as plain text", remote))
+		return args, nil
+	case a.enrolledAgent():
+		a.warned = append(a.warned, "artifacts aren't reachable on an environment's agent; @artifact references were sent as plain text")
 		return args, nil
 	}
 	if err := a.checkArtifactsExist(ids); err != nil {

@@ -245,6 +245,11 @@ func (a *App) runRemoteSpawn(ctx context.Context, opts *machineSpawnOptions, cal
 	if _, err := scopeIDsOf(scope, opts.narrow); err != nil {
 		return err
 	}
+	claudeArgs, err := a.artifactHints(opts.claudeArgs, opts.target)
+	if err != nil {
+		return err
+	}
+	opts.claudeArgs = claudeArgs
 	create, spawn, err := a.remoteSpawnArgs(opts)
 	if err != nil {
 		return err
