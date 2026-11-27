@@ -12,7 +12,7 @@ build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN)/ws ./cmd/ws
 
 # windows-exe builds ws.exe for one Windows architecture with the release
-# flags, for trying a branch on Windows (ADR 0085):
+# flags, for trying a branch on Windows (ADR 0086):
 # make windows-exe WINARCH=arm64 -> dist/windows-arm64/ws.exe
 WINARCH ?= amd64
 windows-exe:

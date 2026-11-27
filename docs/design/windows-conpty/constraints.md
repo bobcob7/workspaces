@@ -5,7 +5,7 @@ what this pod can and can't check. Measured 2026-11-27 on
 `feat/windows-conpty` at `566af23` (same tree as `main`) with Go 1.27.3
 linux/amd64. Every task in [tasks.md](tasks.md) names the rows here that it
 touches. The decisions are in [design.md](design.md) (D1-D10) and, once T6
-lands, ADR 0085.
+lands, ADR 0086.
 
 ## Environment limits (read first)
 
@@ -62,7 +62,7 @@ user, no Claude Code sign-in):
 | `internal/ptyproc/supported_test.go` (no tag) | wants `Supported()` only on linux, darwin | add windows | T2 |
 | `internal/ptyproc/ptyproc_test.go` (`linux \|\| darwin`) | unix tests; `TestCloseAfterExit` sets `p.signal` | unchanged: the unix struct keeps its fields | none |
 | `internal/envagent/interfaces.go` | `ptyProcess`: `io.ReadWriter`, `Resize`, `Close`, `Wait() *int`; `ptyprocStarter` returns `*ptyproc.Proc` as it | unchanged | none |
-| `internal/envagent/terminals.go:223-247` | `errPlatformUnsupported` "terminals aren't supported on <goos> agents yet (ADR 0081)"; refuses when `!m.supported()` or `Start` returns `ErrUnsupported` | message only: "terminals aren't supported on <goos> agents: no pseudo-terminals (ADR 0085)" | T4 |
+| `internal/envagent/terminals.go:223-247` | `errPlatformUnsupported` "terminals aren't supported on <goos> agents yet (ADR 0081)"; refuses when `!m.supported()` or `Start` returns `ErrUnsupported` | message only: "terminals aren't supported on <goos> agents: no pseudo-terminals (ADR 0086)" | T4 |
 | `internal/envagent/terminals.go:525,655` | `read` loop ends on any `Read` error → `exited`; `finish` does `Close`, `Wait`, then `<-readDone` | needs `Read` to return after the process exits **and** after `Close` (D3, D4) | T2 |
 | `internal/claude/send.go` | `openPTY()` → `*os.File`s, `exec.CommandContext` with `attachProcAttr()`, `typeMessage(… *os.File …)`, `watchPrompt(*os.File)`, `Client.hangUp(cmd, control)` | split per D7 | T3 |
 | `internal/claude/pty_unix.go` (`darwin \|\| linux`) | `attachProcAttr`, `ptyRows`/`ptyCols`, `ptyControl`, `openTTY` | gains `startAttach`/`unixAttach.hangUp` (moved code); loses `ptyRows`/`ptyCols` to `send.go` | T3 |
@@ -90,7 +90,7 @@ user, no Claude Code sign-in):
 | `.github/workflows/ci.yml` jobs `windows-cross`, `windows` | build/vet/test -c/lint from Linux; `make test-windows` on `windows-latest` | T5 adds a `windows-exe` job; don't rename the existing jobs |
 | `Makefile` `dist`, `release.yml` | `ws-windows-<arch>.zip` in `dist/`, in `SHA256SUMS` | T5's `windows-exe` must write under `dist/windows-<arch>/`, not `dist/ws-*`, and is a separate target |
 | `go.mod` | `golang.org/x/sys v0.50.0` has `CreatePseudoConsole`, `ResizePseudoConsole`, `ClosePseudoConsole`, `CreatePipe`, `NewProcThreadAttributeList`/`Update`/`List`/`Delete`, `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`, `StartupInfoEx`, `STARTF_USESTDHANDLES`, `EXTENDED_STARTUPINFO_PRESENT`, `CREATE_UNICODE_ENVIRONMENT`, `CreateProcess`, `ComposeCommandLine`, `EscapeArg`, `Coord`, `CreateToolhelp32Snapshot`, `Process32First/Next`, `OpenProcess`, `WaitForSingleObject`, `NewLazySystemDLL`, `DLLError` (checked in the module cache). It has **no** helper that builds an environment block from strings (`CreateEnvBlock` is the user-token one): T2 writes `envBlock` | **no** `go.mod`/`go.sum` change; `git diff --exit-code origin/feat/windows-conpty -- go.mod go.sum` |
-| `docs/adrs/README.md` index | one row per ADR, numbers never reused | 0085 is the next free number (0084 is the last) |
+| `docs/adrs/README.md` index | one row per ADR, numbers never reused | 0086 is the next free number (0084 is the last) |
 
 ## Rules for every task
 

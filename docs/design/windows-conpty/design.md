@@ -3,7 +3,7 @@
 Follow-up to [ADR 0081](../../adrs/0081-windows-environment-agent.md) D5,
 which shipped the Windows environment agent with `terminal.open` (attach and
 shell) and `agent.send` refusing with `platform_unsupported`. This design
-builds them on ConPTY. The decision record is **ADR 0085** (written by T6
+builds them on ConPTY. The decision record is **ADR 0086** (written by T6
 from the "Decisions" section below). The work is split in
 [tasks.md](tasks.md); what this pod can and can't check is in
 [constraints.md](constraints.md).
@@ -100,7 +100,7 @@ period. ADR 0081 rejected job objects for `procgroup` for a related reason
 `Start` wraps a `*windows.DLLError` as `ErrUnsupported`. So
 `platform_unsupported` stays for systems without pseudo-terminals: any OS
 other than linux, darwin and windows (FreeBSD, …), and Windows older than
-1809. The refusal messages lose "yet" and cite ADR 0085.
+1809. The refusal messages lose "yet" and cite ADR 0086.
 
 **D7. `claude.Send` on a terminal abstraction.** `send.go` gets
 
@@ -146,12 +146,12 @@ user can run `pwsh` from it. There is no shell setting in `config.toml`.
 resize events (`internal/cli/rawterm_other.go`); not trivial, so not here.
 The test flow uses a Linux or macOS controller and a Windows environment.
 
-**D10. ADR: a new ADR 0085, not an amendment section in 0081.** The repo's
+**D10. ADR: a new ADR 0086, not an amendment section in 0081.** The repo's
 rule (`docs/adrs/README.md`, Lifecycle) is that a decision is changed by a
 new ADR that says what it supersedes. ConPTY is its own decision with its
 own rejected alternatives (job objects, a third-party pty library,
 `STARTF_USESTDHANDLES` or not), and 0081 is already merged. 0081's status
-line gains "D5 superseded by 0085"; 0076's "Amendments (ADR 0081, Windows)"
+line gains "D5 superseded by 0086"; 0076's "Amendments (ADR 0081, Windows)"
 bullet gains one sentence. No error code is added or removed, so ADR 0016
 and the `errorCode` tables don't change, and the protocol number doesn't
 either.

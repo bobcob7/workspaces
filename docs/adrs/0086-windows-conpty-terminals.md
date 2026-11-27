@@ -1,4 +1,4 @@
-# 0085. `terminal.open` and `agent.send` run on ConPTY on Windows: one `ptyproc.Proc` API, the console closed on exit and on Close, no job object; `platform_unsupported` only without pseudo-terminals
+# 0086. `terminal.open` and `agent.send` run on ConPTY on Windows: one `ptyproc.Proc` API, the console closed on exit and on Close, no job object; `platform_unsupported` only without pseudo-terminals
 
 - Status: Proposed
 - Date: 2026-11-27

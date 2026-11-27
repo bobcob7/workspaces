@@ -1,6 +1,6 @@
 # Tasks: ConPTY terminals and `agent.send` on Windows
 
-Implements [design.md](design.md) (D1-D10; ADR 0085 once T6 lands). Every
+Implements [design.md](design.md) (D1-D10; ADR 0086 once T6 lands). Every
 task must first read [constraints.md](constraints.md): it lists what this
 pod can't run (no Windows, no wine: Windows tests are compile-checked here
 and run only in CI's `windows` job on `windows-latest`), the pinned values a
@@ -28,7 +28,7 @@ T6 (docs) ∥ all
   `internal/claude` / `internal/cli` + `internal/envagent`). T3's and T4's
   Windows tests only pass in CI once T2 is merged too; that's expected.
 - **T5** (CI, Makefile) after T2, T3, T4: it names their tests.
-- **T6** (docs, ADR 0085) is `∥` with every task (only `.md` files).
+- **T6** (docs, ADR 0086) is `∥` with every task (only `.md` files).
 
 Common verify block (each task runs it, plus its own lines):
 
@@ -189,7 +189,7 @@ const (
 var errConsoleStuck = errors.New("the pseudoconsole didn't close")
 
 // Supported reports whether this system has pseudo-terminals: ConPTY,
-// which kernel32 has on Windows 10 1809 and Server 2019 and later (ADR 0085).
+// which kernel32 has on Windows 10 1809 and Server 2019 and later (ADR 0086).
 func Supported() bool {
 	return windows.NewLazySystemDLL("kernel32.dll").NewProc("CreatePseudoConsole").Find() == nil
 }
@@ -1034,7 +1034,7 @@ type windowsAttach struct {
 	*ptyproc.Proc
 }
 
-// startAttach runs claude attach id on a new pseudoconsole (ConPTY, ADR 0085).
+// startAttach runs claude attach id on a new pseudoconsole (ConPTY, ADR 0086).
 func (c *Client) startAttach(_ context.Context, id string) (attachTerm, error) {
 	path, err := exec.LookPath(c.path)
 	if err != nil {
@@ -1225,8 +1225,8 @@ Depends on: T1. Parallel with T2, T3, T6. Constraints rows: "Code today"
 | `internal/cli/env_agent_terminal.go` | **remove** `homeOf` (lines 131-139 today) |
 | `internal/cli/env_agent_terminal_unix.go` | add today's `homeOf`, verbatim (it needs `"strings"`) |
 | `internal/cli/env_agent_terminal_windows_test.go` | `TestTerminalEnvAllowed_windows` gains the 8 names in mixed case (`AllUsersProfile`, `PSModulePath`, `CommonProgramFiles(x86)`…); new `TestHomeOf_windows` (below); `TestAgentOperations_TerminalCommand_windows` gains "shell uses USERPROFILE when HOME is unset" |
-| `internal/envagent/terminals.go` | `errPlatformUnsupported`'s doc: "refuses a terminal on a system without pseudo-terminals (ADR 0085: any OS but linux, darwin and Windows 10 1809+)"; message `"terminals aren't supported on " + runtime.GOOS + " agents: no pseudo-terminals (ADR 0085)"` |
-| `internal/cli/env_agent_sessions.go` | message `"sending to an agent isn't supported on " + runtime.GOOS + " environments: no pseudo-terminals (ADR 0085)"` |
+| `internal/envagent/terminals.go` | `errPlatformUnsupported`'s doc: "refuses a terminal on a system without pseudo-terminals (ADR 0086: any OS but linux, darwin and Windows 10 1809+)"; message `"terminals aren't supported on " + runtime.GOOS + " agents: no pseudo-terminals (ADR 0086)"` |
+| `internal/cli/env_agent_sessions.go` | message `"sending to an agent isn't supported on " + runtime.GOOS + " environments: no pseudo-terminals (ADR 0086)"` |
 | `internal/envagent/terminals_windows_test.go` (new) | real-ConPTY tests through the terminal manager (below) |
 
 ```go
@@ -1384,7 +1384,7 @@ rows: pinned `Makefile test-windows`, `ci.yml`, `dist`/`release.yml`.
 
 ```make
 # windows-exe builds ws.exe for one Windows architecture with the release
-# flags, for trying a branch on Windows (ADR 0085):
+# flags, for trying a branch on Windows (ADR 0086):
 # make windows-exe WINARCH=arm64 -> dist/windows-arm64/ws.exe
 WINARCH ?= amd64
 windows-exe:
@@ -1403,7 +1403,7 @@ windows-exe:
 `.github/workflows/ci.yml`: add after the `windows` job:
 
 ```yaml
-  # ADR 0085: a ws.exe for every push and PR, to try the branch on Windows.
+  # ADR 0086: a ws.exe for every push and PR, to try the branch on Windows.
   # Download it from the run's Artifacts, or gh run download <id> -n ws-windows-amd64.
   windows-exe:
     strategy:
@@ -1488,7 +1488,7 @@ artifact upload (CI only).
 
 ---
 
-## T6. ADR 0085 and the docs (`small`, docs only)
+## T6. ADR 0086 and the docs (`small`, docs only)
 
 Depends on: none (no code). Parallel with T1-T5. Constraints: pinned ADR index row. Design: all of D1-D10,
 "Rejected", "Risks", "How to test on Windows".
@@ -1497,17 +1497,17 @@ Depends on: none (no code). Parallel with T1-T5. Constraints: pinned ADR index r
 
 | File | Change |
 | --- | --- |
-| `docs/adrs/0085-windows-conpty-terminals.md` (new, from `docs/adrs/template.md`) | Title: "`terminal.open` and `agent.send` run on ConPTY on Windows: one `ptyproc.Proc` API, the console closed on exit and on Close, no job object; `platform_unsupported` only without pseudo-terminals". `Status: Proposed`, `Date: 2026-11-27`. Context (problem: 0081 D5 refused; criteria: same API and behaviour as unix, Close never hangs, nothing outlives a hang-up that wouldn't on unix, provable in CI; facts: the ConPTY pitfalls with citations, below). Decision: design.md D1-D9 condensed, saying where each is weak. Alternatives: design.md "Rejected". Consequences: supersedes 0081 D5; amends 0076's Windows amendment; no new error code (0016 unchanged); new CI job `windows-exe`; unverified items from design.md "Risks"; follow-up: a Windows controller (D9). Footnote citations (accessed 2026-11-27): Microsoft, "Creating a Pseudoconsole session" <https://learn.microsoft.com/windows/console/creating-a-pseudoconsole-session>; "ClosePseudoConsole function" <https://learn.microsoft.com/windows/console/closepseudoconsole>; "CreateProcessW", `STARTF_USESTDHANDLES` <https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw>; libuv `src/win/process.c` on `CREATE_BREAKAWAY_FROM_JOB` for detached children; Go `internal/poll/fd_windows.go` (`ERROR_BROKEN_PIPE`→`io.EOF`, `CancelIoEx` on pipe `Close`). Keep it to two screens |
-| `docs/adrs/0081-windows-environment-agent.md` | `- Status: Proposed` → `- Status: Proposed; D5 superseded by [0085](0085-windows-conpty-terminals.md)` (nothing else; ADRs are immutable apart from status lines) |
-| `docs/adrs/0076-environment-platforms-and-phasing.md` | in "## Amendments (ADR 0081, Windows)", the first bullet gains: "[0085](0085-windows-conpty-terminals.md) then built terminals and `agent.send` on ConPTY; they refuse only on systems without pseudo-terminals." Status line: append "; Windows terminals by [0085](0085-windows-conpty-terminals.md) (proposed)" |
-| `docs/adrs/README.md` | index row for 0085 after 0084 (one-sentence summary as in the title), status `Proposed`; 0081's row: replace "terminals and `agent.send` refuse with `platform_unsupported` until ConPTY" with "terminals and `agent.send` on ConPTY since [0085](0085-windows-conpty-terminals.md)" and its status cell becomes "Proposed; D5 superseded by [0085](0085-windows-conpty-terminals.md)" |
+| `docs/adrs/0086-windows-conpty-terminals.md` (new, from `docs/adrs/template.md`) | Title: "`terminal.open` and `agent.send` run on ConPTY on Windows: one `ptyproc.Proc` API, the console closed on exit and on Close, no job object; `platform_unsupported` only without pseudo-terminals". `Status: Proposed`, `Date: 2026-11-27`. Context (problem: 0081 D5 refused; criteria: same API and behaviour as unix, Close never hangs, nothing outlives a hang-up that wouldn't on unix, provable in CI; facts: the ConPTY pitfalls with citations, below). Decision: design.md D1-D9 condensed, saying where each is weak. Alternatives: design.md "Rejected". Consequences: supersedes 0081 D5; amends 0076's Windows amendment; no new error code (0016 unchanged); new CI job `windows-exe`; unverified items from design.md "Risks"; follow-up: a Windows controller (D9). Footnote citations (accessed 2026-11-27): Microsoft, "Creating a Pseudoconsole session" <https://learn.microsoft.com/windows/console/creating-a-pseudoconsole-session>; "ClosePseudoConsole function" <https://learn.microsoft.com/windows/console/closepseudoconsole>; "CreateProcessW", `STARTF_USESTDHANDLES` <https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw>; libuv `src/win/process.c` on `CREATE_BREAKAWAY_FROM_JOB` for detached children; Go `internal/poll/fd_windows.go` (`ERROR_BROKEN_PIPE`→`io.EOF`, `CancelIoEx` on pipe `Close`). Keep it to two screens |
+| `docs/adrs/0081-windows-environment-agent.md` | `- Status: Proposed` → `- Status: Proposed; D5 superseded by [0086](0086-windows-conpty-terminals.md)` (nothing else; ADRs are immutable apart from status lines) |
+| `docs/adrs/0076-environment-platforms-and-phasing.md` | in "## Amendments (ADR 0081, Windows)", the first bullet gains: "[0086](0086-windows-conpty-terminals.md) then built terminals and `agent.send` on ConPTY; they refuse only on systems without pseudo-terminals." Status line: append "; Windows terminals by [0086](0086-windows-conpty-terminals.md) (proposed)" |
+| `docs/adrs/README.md` | index row for 0086 after 0084 (one-sentence summary as in the title), status `Proposed`; 0081's row: replace "terminals and `agent.send` refuse with `platform_unsupported` until ConPTY" with "terminals and `agent.send` on ConPTY since [0086](0086-windows-conpty-terminals.md)" and its status cell becomes "Proposed; D5 superseded by [0086](0086-windows-conpty-terminals.md)" |
 | `internal/cli/guides/ws-attach.md:51`, `docs/tools/ws-attach.md:55` | row text → "The environment's OS has no pseudo-terminals (not Linux, macOS, or Windows 10 1809+)" |
 | `internal/cli/guides/ws-shell.md:60`, `docs/tools/ws-shell.md:107` | "(exit 1, when the environment's OS has no pty support, today Windows)" → "(exit 1, when the environment's OS has no pseudo-terminals: not Linux, macOS, or Windows 10 1809+)"; add one sentence: "On a Windows environment the shell is `%COMSPEC%` (normally `cmd.exe`) and starts in the agent user's home (`USERPROFILE` when `HOME` is unset)." Mind the guide's line wrapping |
 | `internal/cli/guides/ws-claude.md:141`, `docs/tools/ws-claude.md:223` | "The environment's OS has no pty support (today Windows), so `agent.send` is refused" → "The environment's OS has no pseudo-terminals (not Linux, macOS, or Windows 10 1809+), so `agent.send` is refused" |
-| `docs/tools/ws-env.md:183-190, 430` | replace "Terminals and `agent.send` are refused … until ConPTY is built. WSL2 is the alternative…" with "Terminals and `agent.send` run on ConPTY (Windows 10 1809 or later; ADR 0085). `ws attach` and `ws shell --env` work from a Linux or macOS controller; a Windows controller can't attach yet. WSL2 remains an alternative." Drop the "`claude attach` in a terminal, since ConPTY isn't built;" bullet and add "`claude attach` on native Windows in a remote terminal (built on ConPTY, tested in CI only with cmd.exe and a fake claude);". Line 430: "(today Windows)" → "(not Linux, macOS, or Windows 10 1809+)" and "(ADR 0081)" → "(ADR 0081, 0085)". Add a "### Trying a branch build on Windows" subsection with design.md's artifact bullets |
-| `README.md:293-298` (roadmap) | the Windows line: "`ws env agent run` built natively for Windows, with terminals and `agent.send` on ConPTY ([0085](docs/adrs/0085-windows-conpty-terminals.md))"; keep "not yet run on a Windows machine with Claude Code" |
-| `docs/design/env-windows/tasks.md` "Not in these tasks" | first bullet gains "Done in [windows-conpty](../windows-conpty/tasks.md) (ADR 0085)." |
-| `docs/design/env-windows/constraints.md` | in "Cannot be verified at all", the ConPTY bullet → "ConPTY with `claude attach` (built by ADR 0085; CI tests cmd.exe and a fake claude only);" |
+| `docs/tools/ws-env.md:183-190, 430` | replace "Terminals and `agent.send` are refused … until ConPTY is built. WSL2 is the alternative…" with "Terminals and `agent.send` run on ConPTY (Windows 10 1809 or later; ADR 0086). `ws attach` and `ws shell --env` work from a Linux or macOS controller; a Windows controller can't attach yet. WSL2 remains an alternative." Drop the "`claude attach` in a terminal, since ConPTY isn't built;" bullet and add "`claude attach` on native Windows in a remote terminal (built on ConPTY, tested in CI only with cmd.exe and a fake claude);". Line 430: "(today Windows)" → "(not Linux, macOS, or Windows 10 1809+)" and "(ADR 0081)" → "(ADR 0081, 0086)". Add a "### Trying a branch build on Windows" subsection with design.md's artifact bullets |
+| `README.md:293-298` (roadmap) | the Windows line: "`ws env agent run` built natively for Windows, with terminals and `agent.send` on ConPTY ([0086](docs/adrs/0086-windows-conpty-terminals.md))"; keep "not yet run on a Windows machine with Claude Code" |
+| `docs/design/env-windows/tasks.md` "Not in these tasks" | first bullet gains "Done in [windows-conpty](../windows-conpty/tasks.md) (ADR 0086)." |
+| `docs/design/env-windows/constraints.md` | in "Cannot be verified at all", the ConPTY bullet → "ConPTY with `claude attach` (built by ADR 0086; CI tests cmd.exe and a fake claude only);" |
 
 `grep -rn "today Windows\|until ConPTY\|ConPTY isn't built" --include=*.md . | grep -v docs/design/windows-conpty`
 must print nothing afterwards (ADR 0081's own text excepted: it is immutable;
@@ -1517,7 +1517,7 @@ filter it with `| grep -v 0081-windows`).
 
 - `go test -count=1 ./internal/cli -run 'TestGuideTopics|TestGuide'` passes
   (guides are embedded; codes unchanged).
-- ADR 0085 follows `docs/adrs/README.md` "Writing each section"; every
+- ADR 0086 follows `docs/adrs/README.md` "Writing each section"; every
   claim about Windows behaviour has a citation or says "unverified".
 
 ### Verify
@@ -1525,7 +1525,7 @@ filter it with `| grep -v 0081-windows`).
 ```bash
 go test -p 2 -count=1 -run 'TestGuide' ./internal/cli
 grep -rn "today Windows\|until ConPTY\|ConPTY isn't built" --include=*.md . | grep -v 'docs/design/windows-conpty\|0081-windows' ; test $? = 1
-grep -n 0085 docs/adrs/README.md docs/adrs/0081-windows-environment-agent.md docs/adrs/0076-environment-platforms-and-phasing.md
+grep -n 0086 docs/adrs/README.md docs/adrs/0081-windows-environment-agent.md docs/adrs/0076-environment-platforms-and-phasing.md
 ```
 
 Not run here: nothing (docs only).

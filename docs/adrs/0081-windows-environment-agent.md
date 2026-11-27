@@ -1,6 +1,6 @@
 # 0081. `ws env agent run` builds and runs natively on Windows: per-OS files for processes, locks, key ACLs and the daemon socket; terminals and `agent.send` refuse with `platform_unsupported` until ConPTY
 
-- Status: Proposed; D5 superseded by [0085](0085-windows-conpty-terminals.md)
+- Status: Proposed; D5 superseded by [0086](0086-windows-conpty-terminals.md)
 - Date: 2026-11-24
 
 ## Context

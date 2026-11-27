@@ -21,7 +21,7 @@ type windowsAttach struct {
 	*ptyproc.Proc
 }
 
-// startAttach runs claude attach id on a new pseudoconsole (ConPTY, ADR 0085).
+// startAttach runs claude attach id on a new pseudoconsole (ConPTY, ADR 0086).
 func (c *Client) startAttach(ctx context.Context, id string) (attachTerm, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

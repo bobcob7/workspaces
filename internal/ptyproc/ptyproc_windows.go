@@ -29,7 +29,7 @@ const (
 var errConsoleStuck = errors.New("the pseudoconsole didn't close")
 
 // Supported reports whether this system has pseudo-terminals: ConPTY,
-// which kernel32 has on Windows 10 1809 and Server 2019 and later (ADR 0085).
+// which kernel32 has on Windows 10 1809 and Server 2019 and later (ADR 0086).
 func Supported() bool {
 	return windows.NewLazySystemDLL("kernel32.dll").NewProc("CreatePseudoConsole").Find() == nil
 }

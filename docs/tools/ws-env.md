@@ -180,7 +180,7 @@ in Command Prompt:
 schtasks /Create /SC ONLOGON /TN ws-env-agent /TR "\"%LocalAppData%\Programs\ws\ws.exe\" env agent run"
 ```
 
-Terminals and `agent.send` run on ConPTY (Windows 10 1809 or later; ADR 0085).
+Terminals and `agent.send` run on ConPTY (Windows 10 1809 or later; ADR 0086).
 `ws attach` and `ws shell --env` work from a Linux or macOS controller; a
 Windows controller can't attach yet. WSL2 remains an alternative.
 
@@ -444,7 +444,7 @@ the fallback.
 | A name already taken, an enrollment on a machine already enrolled | `environment_exists` | 4 |
 | A code already used | `enrollment_used` | 4 |
 | The agent already has 8 terminals open | `terminal_limit` | 4 |
-| The agent's OS has no pseudo-terminals (not Linux, macOS, or Windows 10 1809+): terminals and `agent.send` are refused (ADR 0081, 0085) | `platform_unsupported` | 1 |
+| The agent's OS has no pseudo-terminals (not Linux, macOS, or Windows 10 1809+): terminals and `agent.send` are refused (ADR 0081, 0086) | `platform_unsupported` | 1 |
 | `--finish` while environments hold old-CA certificates | `ca_in_use` | 4 |
 | Enrollment refused, or a certificate has expired | `enrollment_failed` | 1 |
 
