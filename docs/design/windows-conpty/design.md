@@ -201,7 +201,7 @@ either.
   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
     -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)" \
     -o ws.exe ./cmd/ws
-  # or: make windows-exe GOARCH=amd64   -> dist/windows-amd64/ws.exe
+  # or: make windows-exe WINARCH=amd64   -> dist/windows-amd64/ws.exe
   ```
 
 ## How to test on Windows (smoke steps for the PR body)
