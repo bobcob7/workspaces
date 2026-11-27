@@ -91,7 +91,9 @@ func SeedOverlay(dir, base, globalConfig, workspacesRoot string) error {
 	return seedGlobalConfig(dir, globalConfig, workspacesRoot)
 }
 
-// overlayBase is the base directory that dir's marker names, and whether dir is an overlay.
+// overlayBase is the base directory that dir's marker names, and whether dir
+// is an overlay. A marker whose path isn't absolute and cleaned is ignored,
+// as the agent can edit the marker.
 func overlayBase(dir string) (string, bool) {
 	if dir == "" {
 		return "", false
@@ -102,7 +104,10 @@ func overlayBase(dir string) (string, bool) {
 	}
 	line, _, _ := strings.Cut(string(data), "\n")
 	base := strings.TrimSpace(line)
-	return base, base != ""
+	if !filepath.IsAbs(base) || filepath.Clean(base) != base {
+		return "", false
+	}
+	return base, true
 }
 
 // copyBaseFiles copies overlayCopies that base has into dir.

@@ -31,6 +31,13 @@ func TestBaseConfigDir(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(overlay, OverlayMarker), []byte(base+"\n"), 0o600))
 		assert.Equal(t, base, BaseConfigDir([]string{"CLAUDE_CONFIG_DIR=" + overlay, "HOME=/home/u"}))
 	})
+	t.Run("a marker path that is relative or not cleaned is not an overlay", func(t *testing.T) {
+		for _, path := range []string{"relative/base", "/base/../etc", "/base/", "/a//b"} {
+			overlay := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(overlay, OverlayMarker), []byte(path+"\n"), 0o600))
+			assert.Equal(t, overlay, BaseConfigDir([]string{"CLAUDE_CONFIG_DIR=" + overlay}), path)
+		}
+	})
 	t.Run("neither set is empty", func(t *testing.T) {
 		assert.Empty(t, BaseConfigDir(nil))
 	})
