@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"math"
 	"runtime"
 	"sort"
@@ -11,16 +13,18 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
 // agentSession resolves a workspace reference to its workspace and Claude
 // Code session: workspaces.Find(ref), then lifetime.List for its entry.
-// No session, a shell, or a ws runner session: usage "<ref> has no Claude
-// Code agent". Not found: workspace_not_found.
+// No session or a shell: usage "<ref> has no Claude Code agent". Not found:
+// workspace_not_found.
 func (o *agentOperations) agentSession(ctx context.Context, ref string) (workspace.Workspace, *lifetime.Session, error) {
 	ws, err := o.app.workspaces.Find(ref)
 	if errors.Is(err, workspace.ErrNotFound) {
@@ -38,12 +42,25 @@ func (o *agentOperations) agentSession(ctx context.Context, ref string) (workspa
 		if entry.Workspace.ID != ws.ID {
 			continue
 		}
-		if s := entry.Session; s != nil && s.Kind == lifetime.KindAgent && s.Runner != lifetime.RunnerWS {
+		if s := entry.Session; s != nil && s.Kind == lifetime.KindAgent {
 			return ws, s, nil
 		}
 		break
 	}
 	return workspace.Workspace{}, nil, &envproto.ReplyError{Code: string(codeUsage), Message: ref + " has no Claude Code agent"}
+}
+
+// claudeAgentSession is agentSession for the ops that talk to Claude Code
+// (send, stop): a ws runner session is no Claude Code agent.
+func (o *agentOperations) claudeAgentSession(ctx context.Context, ref string) (workspace.Workspace, *lifetime.Session, error) {
+	ws, s, err := o.agentSession(ctx, ref)
+	if err != nil {
+		return ws, nil, err
+	}
+	if s.Runner == lifetime.RunnerWS {
+		return workspace.Workspace{}, nil, &envproto.ReplyError{Code: string(codeUsage), Message: ref + " has no Claude Code agent"}
+	}
+	return ws, s, nil
 }
 
 // agentSessions lists Claude Code's sessions, finished ones included.
@@ -61,47 +78,95 @@ func findAgent(sessions []claude.Session, id string) *claude.Session {
 	return nil
 }
 
-// agentStatus is the workspace's session and its Claude Code agent, which is
-// null when Claude Code doesn't list it.
+// agentStatus is the workspace's session and its agent. A Claude Code agent
+// is null when Claude Code doesn't list it; a ws runner reports its lifetime
+// state.
 func (o *agentOperations) agentStatus(ctx context.Context, args *envproto.WorkspaceArgs) (json.RawMessage, error) {
 	ws, s, err := o.agentSession(ctx, args.Workspace)
 	if err != nil {
 		return nil, err
 	}
+	result := envproto.AgentStatusResult{Workspace: ws.ID, Session: s.ID}
+	if s.Runner == lifetime.RunnerWS {
+		result.Agent = runnerSnapshot(ws.ID, s)
+		return json.Marshal(result)
+	}
 	sessions, err := o.agentSessions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := envproto.AgentStatusResult{Workspace: ws.ID, Session: s.ID}
-	if agent := findAgent(sessions, s.ID); agent != nil {
-		snap := snapshotAgent(agent)
-		result.Agent = &snap
+	if found := findAgent(sessions, s.ID); found != nil {
+		result.Agent = new(snapshotAgent(found))
 	}
 	return json.Marshal(result)
 }
 
-// agentLogs keeps the last Tail lines (DefaultTail for 0) of claude.Logs,
-// then drops lines from the front until the JSON fits MaxLogBytes, setting
-// truncated.
+// runnerSnapshot is a ws runner's agent: its lifetime state, under the
+// workspace's name, with its process when it has one.
+func runnerSnapshot(name string, s *lifetime.Session) *envproto.SnapshotAgent {
+	snap := envproto.SnapshotAgent{ID: s.ID, Name: name, State: string(s.State)}
+	if s.PID > 0 {
+		snap.PID = new(s.PID)
+	}
+	return &snap
+}
+
+// agentLogs keeps the last Tail lines (DefaultTail for 0) of the agent's log,
+// then drops lines from the front until the JSON fits MaxLogBytes. A ws
+// runner's log is its transcript events, one JSON line each. Truncated is
+// set when lines were cut, by the tail or the size limit.
 func (o *agentOperations) agentLogs(ctx context.Context, args *envproto.LogsArgs) (json.RawMessage, error) {
 	ws, s, err := o.agentSession(ctx, args.Workspace)
 	if err != nil {
 		return nil, err
 	}
+	if s.Runner == lifetime.RunnerWS {
+		return o.runnerLogs(ws.ID, s, args.Tail)
+	}
 	text, err := o.app.claude.Logs(ctx, s.ID)
 	if err != nil {
 		return nil, err
 	}
-	result := envproto.AgentLogsResult{Workspace: ws.ID, Session: s.ID, Lines: tailLines(text, args.Tail)}
+	lines, cut := tailLines(text, args.Tail)
+	result := envproto.AgentLogsResult{Workspace: ws.ID, Session: s.ID, Lines: lines}
 	fitLogs(&result)
+	result.Truncated = result.Truncated || cut
+	return json.Marshal(result)
+}
+
+// runnerLogs is the last tail transcript events of the ws runner session s
+// of workspace id, one JSON line each. A transcript that doesn't exist yet
+// has no events.
+func (o *agentOperations) runnerLogs(id string, s *lifetime.Session, tail int) (json.RawMessage, error) {
+	if tail == 0 {
+		tail = envproto.DefaultTail
+	}
+	events, more, err := agent.Tail(runner.FilesFor(o.app.paths.State, id).Transcript(), tail)
+	if errors.Is(err, fs.ErrNotExist) {
+		events, more, err = nil, false, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading %s's transcript: %w", id, err)
+	}
+	lines := make([]string, 0, len(events))
+	for _, ev := range events {
+		line, err := json.Marshal(ev)
+		if err != nil {
+			return nil, fmt.Errorf("encoding %s's transcript event: %w", id, err)
+		}
+		lines = append(lines, string(line))
+	}
+	result := envproto.AgentLogsResult{Workspace: id, Session: s.ID, Lines: lines, Truncated: more}
+	fitLogs(&result)
+	result.Truncated = result.Truncated || more
 	return json.Marshal(result)
 }
 
 // tailLines is the last tail lines of text without their carriage returns,
-// DefaultTail when tail is 0.
-func tailLines(text string, tail int) []string {
+// DefaultTail when tail is 0, and whether it dropped any lines.
+func tailLines(text string, tail int) ([]string, bool) {
 	if text == "" {
-		return []string{}
+		return []string{}, false
 	}
 	if tail == 0 {
 		tail = envproto.DefaultTail
@@ -111,7 +176,7 @@ func tailLines(text string, tail int) []string {
 	for i := range kept {
 		kept[i] = strings.TrimSuffix(kept[i], "\r")
 	}
-	return kept
+	return kept, len(lines) > tail
 }
 
 // fitLogs drops the fewest lines from the front of result that bring its
@@ -158,7 +223,7 @@ func encodedLen(result envproto.AgentLogsResult) int {
 // agentSend types the message into the workspace's Claude Code session.
 // A session Claude Code doesn't list, or a message it doesn't record, is claude_failed.
 func (o *agentOperations) agentSend(ctx context.Context, args *envproto.SendArgs) (json.RawMessage, error) {
-	ws, s, err := o.agentSession(ctx, args.Workspace)
+	ws, s, err := o.claudeAgentSession(ctx, args.Workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +274,7 @@ func (o *agentOperations) sessionLock(id string) *sync.Mutex {
 // agentStop stops the workspace's Claude Code session. One that has already
 // ended is stopped false, not an error.
 func (o *agentOperations) agentStop(ctx context.Context, args *envproto.WorkspaceArgs) (json.RawMessage, error) {
-	ws, s, err := o.agentSession(ctx, args.Workspace)
+	ws, s, err := o.claudeAgentSession(ctx, args.Workspace)
 	if err != nil {
 		return nil, err
 	}
