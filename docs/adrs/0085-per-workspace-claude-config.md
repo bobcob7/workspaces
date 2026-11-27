@@ -31,14 +31,15 @@ the sessions `ws` lists and supervises, or the desktop's transcript view?
 
 ### Relevant facts
 
-- `ws` starts every session with `claude --bg` in one place,
-  `App.startAgent` (`internal/cli/claude.go:518-534`), used by `ws claude`,
-  `ws machine spawn`, loop ticks and `ws review start`. Its environment is
-  `ws`'s own (`claude.New(log, "claude", environ)`, `internal/cli/app.go:159`).
+- Before this change, `ws` started every session with `claude --bg` in
+  one place, `App.startAgent` (`internal/cli/claude.go`), used by `ws
+  claude`, `ws machine spawn`, loop ticks and `ws review start`. Its
+  environment was `ws`'s own (the `claude.New(log, "claude", environ)` call
+  in `newApp`, `internal/cli/app.go`).
 - `ws` reads Claude Code's directories from the environment:
   `$CLAUDE_CONFIG_DIR/{jobs,projects,.claude.json}`, else under `$HOME`
-  (`internal/claude/client.go:51-62`, `transcript.go:244-253`,
-  `trust.go:35-46`). It writes `.claude.json` itself, under Claude Code's
+  (`configDir` in `internal/claude/client.go`, the transcript path in
+  `transcript.go`, `configFile` in `trust.go`). It writes `.claude.json` itself, under Claude Code's
   lock, to trust a one-repo workspace's repo (ADR 0028).
 - Claude Code's background daemon and `claude agents` are per config
   directory: another `CLAUDE_CONFIG_DIR` has its own daemon socket
@@ -86,7 +87,9 @@ bad value is `config_invalid` (key), or `usage` (flag, variable).
 **The base directory** is what the overlay is seeded from:
 `$CLAUDE_CONFIG_DIR`, else `$HOME/.claude`. When `$CLAUDE_CONFIG_DIR` is
 itself an overlay (it holds the marker file `.ws-overlay`, whose one line
-is the base's absolute path), the base is the marker's path. So an agent's
+is the base's absolute path), the base is the marker's path. The agent can
+write the marker, so a path that isn't absolute and cleaned is ignored and
+the directory counts as no overlay. So an agent's
 own `ws machine spawn` seeds its child from the user's directory, not from
 its parent's overlay. `ws`'s Claude Code client always works against the
 base, never an overlay it was started in.
@@ -125,9 +128,11 @@ mode too (audit bug 11). Because the overlay's daemon is started by this
 - `Start` uses the overlay in `StartOptions.ConfigDir`; `Attach`, `Stop`,
   `Remove`, `Respawn`, `Send` and `Logs` use the remembered directory of the
   session id, listing again once on a miss, and the base when it's still
-  unknown.
+  unknown. A route to an overlay that no longer exists is dropped.
 - `Trust` and `Untrust` write the `.claude.json` of the overlay whose
-  workspace holds the directory, else the base's.
+  workspace holds the directory, else the base's. The overlays are found by
+  listing `state/*/claude/`, so `Store.Remove` untrusts before it deletes
+  `state/<id>/`; after that `Untrust` would reach the base.
 - `StopDaemon` stops the base's daemon and each overlay's; `RunDaemon` and
   `DaemonStatus` act on the base (`ws restart`, ADR 0018). Overlay daemons
   start again on `claude respawn`.
@@ -136,8 +141,8 @@ mode too (audit bug 11). Because the overlay's daemon is started by this
   change.
 
 **Cleanup.** The overlay is inside `state/<id>/`, which every removal path
-deletes (`internal/workspace/remove.go:40`, `create.go:256`,
-`leftovers.go:34`). `os.RemoveAll` unlinks the symlinks without following
+deletes (`Store.Remove`, the failed-create cleanup and the leftovers pass
+in `internal/workspace`). `os.RemoveAll` unlinks the symlinks without following
 them, so the base's `projects/`, `plugins/` and the rest stay. The removal
 pass stops and removes the session through the pool before deleting the
 state, so the right daemon is asked. The overlay's daemon exits by itself
@@ -154,7 +159,13 @@ refused, and `config.set` doesn't allow the key.
 **What stays shared, on purpose.** `ws`'s `CONFIG_DIR` (trees, results,
 progress, artifacts, roles, loop memory: each already keyed per workspace,
 per loop with `--expect-rev`, or a store meant to be shared), and the
-symlinked entries above.
+symlinked entries above. Those are links, not copies, and an agent runs
+as the user: a write through `hooks/`, `skills/`, `agents/`, `commands/`,
+`plugins/` or `.credentials.json` changes the user's own files, and so
+every later session, overlay or not. The overlay isolates Claude Code's
+mutable state and settings, not these entries; it is not a sandbox. Copying
+them instead would stop the write-through but go stale when the user
+changes them, and plugins and credentials need links anyway.
 
 ### Why this option
 
@@ -222,6 +233,11 @@ doesn't touch the config directory. Rejected.
   `pool_test.go` checks routing with a fake `claude` that records its
   `CLAUDE_CONFIG_DIR`; `internal/cli` tests check the mode precedence, the
   fallback warning and `claude_signed_out`.
+- Follow-up, not done: `claudeStart` and `overlayStart` in `internal/cli`
+  mix the mode decision with its effects (seed, sign-in probe, removal,
+  warnings). Moving the effects into one `claude.Prepare(mode)` would make
+  the fallback rules testable without `App` and give new spawn paths one
+  entry point.
 - **Unverified here** (no signed-in session can be started in the test
   pod): macOS, where credentials are in the Keychain and Claude Code may
   key them by config directory (the sign-in check then fails and `auto`

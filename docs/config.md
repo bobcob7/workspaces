@@ -300,7 +300,7 @@ from your Claude Code config directory (`$CLAUDE_CONFIG_DIR`, else
   `CLAUDE.md`, `keybindings.json`, and `.claude.json` cut down to your
   account, onboarding, `mcpServers`, theme and the trust of the workspace
   root;
-- **linked to yours**: `.credentials.json`, `hooks/`, `agents/`,
+- **linked to yours, shared read-write**: `.credentials.json`, `hooks/`, `agents/`,
   `commands/`, `skills/`, `plugins/`, `output-styles/`, and `projects/`
   and `jobs/`, so transcripts stay where the desktop app and `ws` read
   them;
@@ -309,7 +309,12 @@ from your Claude Code config directory (`$CLAUDE_CONFIG_DIR`, else
 
 A change you make to `settings.json` or `CLAUDE.md` reaches agents started
 after it, not running ones. A plugin installed by any agent is installed
-for all. The directory is deleted with the workspace.
+for all. The linked entries are your own files, not copies: an agent
+(which runs as you) that writes to `hooks/`, `skills/`, `agents/`,
+`commands/` or `plugins/` through the overlay changes them for every
+session, including ones that don't use an overlay. The overlay isolates
+Claude Code's settings and state, not these entries. The directory is
+deleted with the workspace.
 
 **Sign-in.** Each separate directory runs its own Claude Code background
 service (about 170 MiB while the agent runs), started by `ws` with its
