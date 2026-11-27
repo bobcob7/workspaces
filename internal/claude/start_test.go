@@ -52,6 +52,25 @@ func TestClient_Start(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"--bg", "--settings", `{"worktree":{"bgIsolation":"none"}}`}, args())
 	})
+	t.Run("passes the extra environment to claude", func(t *testing.T) {
+		t.Parallel()
+		environ, read := argsFile(t)
+		body := `printf '%s' "$FROM_OPTS" > "$ARGS"; printf '%s' '` + backgroundedOutput + `'`
+		c := New(discardLogger(), fakeClaude(t, body), environ)
+		_, err := c.Start(t.Context(), StartOptions{Dir: t.TempDir(), Env: []string{"FROM_OPTS=set"}})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"set"}, read())
+	})
+	t.Run("runs under the overlay's config directory", func(t *testing.T) {
+		t.Parallel()
+		environ, read := argsFile(t)
+		overlay := t.TempDir()
+		body := `printf '%s' "$CLAUDE_CONFIG_DIR" > "$ARGS"; printf '%s' '` + backgroundedOutput + `'`
+		c := New(discardLogger(), fakeClaude(t, body), environ)
+		_, err := c.Start(t.Context(), StartOptions{Dir: t.TempDir(), ConfigDir: overlay})
+		require.NoError(t, err)
+		assert.Equal(t, []string{overlay}, read())
+	})
 	t.Run("runs in the directory", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()

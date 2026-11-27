@@ -53,6 +53,9 @@ type Session struct {
 	// StartedAt is when the session's current process started, or when
 	// the session was created while it has none (ADR 0024).
 	StartedAt time.Time
+	// ConfigDir is the overlay config directory the session was listed
+	// under (ADR 0085), or "" when listed by the base config.
+	ConfigDir string
 }
 
 // HasProcess reports whether the session is running in a process.
