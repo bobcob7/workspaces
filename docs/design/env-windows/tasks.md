@@ -489,6 +489,6 @@ make lint && go test -p 2 ./...
   `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`, `ResizePseudoConsole`; then
   `claude.Send` on Windows and the terminal environment allow-list's
   Windows variables (case-insensitive). Its own task once `claude attach`
-  is known to work on Windows.
+  is known to work on Windows. Done in [windows-conpty](../windows-conpty/tasks.md) (ADR 0085).
 - Named-pipe daemon transport; DPAPI for the key; a controller on Windows
   (`rawterm_windows.go`, console resize events).
