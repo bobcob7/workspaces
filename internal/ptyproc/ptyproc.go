@@ -11,6 +11,6 @@ type Spec struct {
 	Path       string   // absolute program path
 	Args       []string // argv[1:]
 	Dir        string
-	Env        []string // the whole environment; nil or empty gives an empty one
+	Env        []string // the whole environment; nil or empty gives an empty one (on Windows, only SYSTEMROOT)
 	Cols, Rows int
 }
