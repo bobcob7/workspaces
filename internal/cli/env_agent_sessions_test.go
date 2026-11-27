@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,9 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/agent"
 	"github.com/bobcob7/workspaces/internal/claude"
+	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
+	"github.com/bobcob7/workspaces/internal/runner"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -100,12 +104,11 @@ func TestAgentOperations_agentStatus(t *testing.T) {
 		assert.Equal(t, "usage", re.Code)
 		assert.Equal(t, agentWS+" has no Claude Code agent", re.Message)
 	})
-	t.Run("a ws runner workspace has no Claude Code agent", func(t *testing.T) {
-		runner := &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS}
-		_, err := agentTestOps(agentEntries(runner), listingAgents()).Run(t.Context(), envproto.OpAgentStatus, &envproto.WorkspaceArgs{Workspace: agentWS})
-		re, ok := errors.AsType[*envproto.ReplyError](err)
-		require.True(t, ok)
-		assert.Equal(t, "usage", re.Code)
+	t.Run("a ws runner reports its lifetime state", func(t *testing.T) {
+		runnerSession := &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS, State: lifetime.StateStopped}
+		got, err := agentTestOps(agentEntries(runnerSession), listingAgents()).Run(t.Context(), envproto.OpAgentStatus, &envproto.WorkspaceArgs{Workspace: agentWS})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"workspace":"fix-login-d8efb24f","session":"rn-1","agent":{"id":"rn-1","session_id":"","name":"fix-login-d8efb24f","state":"stopped","status":"","pid":null,"started_at":null}}`, string(got))
 	})
 	t.Run("an unknown workspace is workspace_not_found", func(t *testing.T) {
 		_, err := agentTestOps(nil, listingAgents()).Run(t.Context(), envproto.OpAgentStatus, &envproto.WorkspaceArgs{Workspace: "gone"})
@@ -140,6 +143,36 @@ func TestAgentOperations_agentLogs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 200, lineCount(t, got))
 		assert.Contains(t, string(got), "line 2999")
+	})
+	t.Run("tail 0 keeps 200 lines and says truncated", func(t *testing.T) {
+		ops := agentTestOps(agentEntries(claudeSession()), logsOf(numbered(250)))
+		got, err := ops.Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS, Tail: 0})
+		require.NoError(t, err)
+		assert.Equal(t, 200, lineCount(t, got))
+		var result envproto.AgentLogsResult
+		require.NoError(t, json.Unmarshal(got, &result))
+		assert.True(t, result.Truncated)
+	})
+	t.Run("a ws runner returns its transcript events", func(t *testing.T) {
+		runnerSession := &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS, State: lifetime.StateStopped}
+		ops := agentTestOps(agentEntries(runnerSession), listingAgents())
+		ops.app.paths = config.NewPaths(t.TempDir())
+		files := runner.FilesFor(ops.app.paths.State, agentWS)
+		require.NoError(t, os.MkdirAll(files.Dir, 0o700))
+		tr, err := agent.OpenTranscript(files.Transcript(), nil)
+		require.NoError(t, err)
+		for i := range 2 {
+			require.NoError(t, tr.Write(agent.Event{Step: i + 1, Kind: "nudge", Payload: agent.NudgeEvent{Reason: "repeat"}}))
+		}
+		require.NoError(t, tr.Close())
+		got, err := ops.Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS, Tail: 0})
+		require.NoError(t, err)
+		var result envproto.AgentLogsResult
+		require.NoError(t, json.Unmarshal(got, &result))
+		assert.Equal(t, "rn-1", result.Session)
+		require.Len(t, result.Lines, 2)
+		assert.Contains(t, result.Lines[1], "nudge")
+		assert.False(t, result.Truncated)
 	})
 	t.Run("a tail keeps that many lines", func(t *testing.T) {
 		ops := agentTestOps(agentEntries(claudeSession()), logsOf(numbered(3000)))
@@ -220,6 +253,13 @@ func TestAgentOperations_agentSend(t *testing.T) {
 			})
 		}
 	})
+	t.Run("a ws runner session is never sent to", func(t *testing.T) {
+		runnerSession := &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS}
+		client := listingAgents(claudeAgent())
+		_, err := agentTestOps(agentEntries(runnerSession), client).Run(t.Context(), envproto.OpAgentSend, &envproto.SendArgs{Workspace: agentWS, Message: "hi"})
+		requireNoAgent(t, err)
+		assert.Empty(t, client.SendCalls())
+	})
 	t.Run("sends to one session take turns", func(t *testing.T) {
 		release := make(chan struct{})
 		typed := make(chan string, 2)
@@ -287,7 +327,6 @@ func notAgentCases() []struct {
 	}{
 		{name: "no session", session: nil},
 		{name: "a shell", session: &lifetime.Session{Kind: lifetime.KindShell}},
-		{name: "a ws runner session", session: &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS}},
 	}
 }
 
@@ -327,6 +366,13 @@ func TestAgentOperations_agentStop(t *testing.T) {
 		got, err := agentTestOps(agentEntries(claudeSession()), client).Run(t.Context(), envproto.OpAgentStop, &envproto.WorkspaceArgs{Workspace: agentWS})
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"workspace":"fix-login-d8efb24f","session":"ab12cd34","stopped":false}`, string(got))
+	})
+	t.Run("a ws runner session is never stopped", func(t *testing.T) {
+		runnerSession := &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS}
+		client := listingAgents(claudeAgent())
+		_, err := agentTestOps(agentEntries(runnerSession), client).Run(t.Context(), envproto.OpAgentStop, &envproto.WorkspaceArgs{Workspace: agentWS})
+		requireNoAgent(t, err)
+		assert.Empty(t, client.StopCalls())
 	})
 	t.Run("a workspace with no Claude Code agent is never stopped", func(t *testing.T) {
 		for _, c := range notAgentCases() {
