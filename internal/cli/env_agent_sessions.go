@@ -242,7 +242,7 @@ func (o *agentOperations) agentSend(ctx context.Context, args *envproto.SendArgs
 		return nil, &envproto.ReplyError{Code: string(codeClaudeFailed), Message: err.Error()}
 	}
 	if errors.Is(err, errors.ErrUnsupported) {
-		return nil, &envproto.ReplyError{Code: string(codePlatformUnsupported), Message: "sending to an agent isn't supported on " + runtime.GOOS + " environments yet (ADR 0081)"}
+		return nil, &envproto.ReplyError{Code: string(codePlatformUnsupported), Message: "sending to an agent isn't supported on " + runtime.GOOS + " environments: no pseudo-terminals (ADR 0085)"}
 	}
 	if err != nil {
 		return nil, err
