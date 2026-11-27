@@ -384,7 +384,7 @@ func (a *App) startLoopRun(ctx context.Context, l *loop.Loop, prompt string) (lo
 	}
 	defer lock.Unlock()
 	a.writeRunMark(ws.ID, l.Name)
-	started, err := a.startAgent(ctx, &ws, loopClaudeArgs(l, prompt))
+	started, err := a.startAgent(ctx, &ws, loopClaudeArgs(l, prompt), "")
 	if err != nil {
 		return failedRun(a.now(), err), ws, err
 	}

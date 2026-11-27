@@ -90,6 +90,10 @@ type fakeClaude struct {
 
 // newFakeClaude is a Claude Code that is installed and starts every session
 // working.
+// conformanceSharedClaude keeps the agent on the base config directory, so
+// no overlay is seeded and no sign-in is checked.
+const conformanceSharedClaude = "[claude]\nconfig_dir = \"shared\"\n"
+
 func newFakeClaude() *fakeClaude {
 	f := &fakeClaude{}
 	f.claudeClientMock = &claudeClientMock{
@@ -195,6 +199,7 @@ func newConformanceEvery(t *testing.T, startAgent bool, snapshotCheck time.Durat
 		snapshotCheck: snapshotCheck,
 	}
 	c.loader = config.NewLoader(func(string) string { return "" }, func() (string, error) { return "", errors.New("no user config dir") })
+	require.NoError(t, os.WriteFile(filepath.Join(c.agentDir, "config.toml"), []byte(conformanceSharedClaude), 0o600))
 	c.ctrlClaude = &claudeClientMock{
 		CheckFunc:  func(context.Context) error { return nil },
 		AgentsFunc: func(context.Context, claude.ListOptions) ([]claude.Session, error) { return nil, nil },
@@ -799,7 +804,7 @@ func TestConformance_EnvOps(t *testing.T) {
 	})
 	t.Run("a script is refused when the remote turned scripts off", func(t *testing.T) {
 		c := newConformance(t, false)
-		require.NoError(t, os.WriteFile(filepath.Join(c.agentDir, "config.toml"), []byte("[environments]\nagent_loop_scripts = false\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(c.agentDir, "config.toml"), []byte("[environments]\nagent_loop_scripts = false\n"+conformanceSharedClaude), 0o600))
 		c.runAgent()
 		_, err := c.call(envproto.OpLoopAdd, &envproto.LoopSpec{Name: "gated", Every: new("1h"), Prompt: new("Do it"), Script: new("true"), Confirm: true})
 		require.Error(t, err)

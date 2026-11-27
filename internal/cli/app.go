@@ -156,7 +156,6 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
 	a := &App{
 		shell:          shell.New(log, environ, stdin, stdout, stderr),
-		claude:         claude.New(log, "claude", environ),
 		gh:             gh.New(log, "gh", environ),
 		version:        version,
 		stdin:          stdin,
@@ -184,6 +183,7 @@ func New(version string, stdin io.Reader, stdout, stderr io.Writer, configs conf
 		notify:         signal.Notify,
 		stopNotify:     signal.Stop,
 	}
+	a.claude = claude.NewPool(claude.New(log, "claude", claude.BaseEnviron(environ)), a.claudeOverlays)
 	a.dialDaemon = a.dialDaemonClient
 	a.dialEnvironments = a.dialEnvironmentCaller
 	a.presence = a.environmentPresence

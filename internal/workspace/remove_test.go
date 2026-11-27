@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bobcob7/workspaces/internal/claude"
 )
 
 func TestStore_Remove(t *testing.T) {
@@ -27,6 +29,22 @@ func TestStore_Remove(t *testing.T) {
 		require.NoError(t, os.RemoveAll(ws.Path))
 		require.NoError(t, s.Remove("x", RemoveOptions{}))
 		assert.NoDirExists(t, s.stateOf("x"))
+	})
+	t.Run("an overlay's config goes and the base it links to stays", func(t *testing.T) {
+		t.Parallel()
+		s := newTestStore(t, nil, nil)
+		putWorkspace(t, s, "x", testNow())
+		base := t.TempDir()
+		writeFile(t, filepath.Join(base, "projects", "keep.txt"), "kept")
+		overlay := filepath.Join(s.stateOf("x"), "claude")
+		require.NoError(t, claude.SeedOverlay(overlay, base, filepath.Join(base, ".claude.json"), s.root))
+		require.FileExists(t, filepath.Join(overlay, claude.OverlayMarker))
+		require.NoError(t, s.Remove("x", RemoveOptions{}))
+		assert.NoDirExists(t, overlay)
+		assert.NoDirExists(t, s.stateOf("x"))
+		kept, err := os.ReadFile(filepath.Join(base, "projects", "keep.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "kept", string(kept))
 	})
 	t.Run("unknown workspace", func(t *testing.T) {
 		t.Parallel()

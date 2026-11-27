@@ -110,6 +110,9 @@ type childState struct {
 	quiet    bool // idle or stopped, and no descendant working or starting
 	finished bool
 	record   machine.Record
+	// progress and rollup are a remote child's, as its environment reported them.
+	progress *progressJSON
+	rollup   *rollupJSON
 }
 
 func (a *App) newMachineWaitCmd() *cobra.Command {
@@ -401,7 +404,11 @@ func (a *App) printWait(targets []waitTarget, states []childState, opts *machine
 			Model:       optional(s.model),
 			WSRunner:    s.wsRunner,
 		}
-		item.Progress, item.Rollup = a.childProgress(src.store, src.root, src.list, id, src.remote)
+		if targets[i].remote != nil {
+			item.Progress, item.Rollup = s.progress, s.rollup
+		} else {
+			item.Progress, item.Rollup = a.childProgress(src.store, src.root, src.list, id, src.remote)
+		}
 		item.Error = items.add(id, waitItemError(id, s, opts, anyFinished))
 		results = append(results, item)
 	}

@@ -417,3 +417,75 @@ func TestClient_Version(t *testing.T) {
 		assert.ErrorIs(t, err, ErrNotInstalled)
 	})
 }
+
+func TestClient_WithConfigDir(t *testing.T) {
+	t.Parallel()
+	t.Run("sets CLAUDE_CONFIG_DIR and appends the extra environment", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		base := New(discardLogger(), fakeClaude(t, `echo "$CLAUDE_CONFIG_DIR $B"`), []string{"A=1", "CLAUDE_CONFIG_DIR=/base"})
+		out, err := base.WithConfigDir(dir, []string{"B=2"}).run(t.Context(), "env")
+		require.NoError(t, err)
+		assert.Equal(t, dir+" 2\n", string(out))
+	})
+	t.Run("leaves the original client unchanged", func(t *testing.T) {
+		t.Parallel()
+		base := New(discardLogger(), "claude", []string{"CLAUDE_CONFIG_DIR=/base"})
+		_ = base.WithConfigDir(t.TempDir(), []string{"B=2"})
+		assert.Equal(t, []string{"CLAUDE_CONFIG_DIR=/base"}, base.environ)
+		assert.Equal(t, filepath.Join(string(filepath.Separator), "base", ".claude.json"), base.configFile)
+	})
+	t.Run("follows the new environment for its files", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		c := New(discardLogger(), "claude", []string{"CLAUDE_CONFIG_DIR=/base"}).WithConfigDir(dir, nil)
+		assert.Equal(t, filepath.Join(dir, ".claude.json"), c.configFile)
+		assert.Equal(t, filepath.Join(dir, "jobs"), c.jobsDir)
+		assert.Equal(t, filepath.Join(dir, "projects"), c.projectsDir)
+	})
+}
+
+func TestClient_SignedIn(t *testing.T) {
+	t.Parallel()
+	t.Run("reports loggedIn true", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, `echo '{"loggedIn":true}'`), nil)
+		signed, reason, err := c.SignedIn(t.Context(), t.TempDir(), nil)
+		require.NoError(t, err)
+		assert.True(t, signed)
+		assert.Empty(t, reason)
+	})
+	t.Run("reports loggedIn false with a reason", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, `echo '{"loggedIn":false}'`), nil)
+		signed, reason, err := c.SignedIn(t.Context(), t.TempDir(), nil)
+		require.NoError(t, err)
+		assert.False(t, signed)
+		assert.NotEmpty(t, reason)
+	})
+	t.Run("reports output without JSON as not signed in", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, `echo 'not json'`), nil)
+		signed, reason, err := c.SignedIn(t.Context(), t.TempDir(), nil)
+		require.NoError(t, err)
+		assert.False(t, signed)
+		assert.Contains(t, reason, "no JSON")
+	})
+	t.Run("reports a failed run as not signed in", func(t *testing.T) {
+		t.Parallel()
+		c := New(discardLogger(), fakeClaude(t, "echo boom >&2; exit 1"), nil)
+		signed, reason, err := c.SignedIn(t.Context(), t.TempDir(), nil)
+		require.NoError(t, err)
+		assert.False(t, signed)
+		assert.Contains(t, reason, "boom")
+	})
+	t.Run("runs with the config directory and extra environment", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		body := `if [ "$CLAUDE_CONFIG_DIR" = "` + dir + `" ] && [ "$B" = 2 ]; then echo '{"loggedIn":true}'; else echo '{"loggedIn":false}'; fi`
+		c := New(discardLogger(), fakeClaude(t, body), nil)
+		signed, _, err := c.SignedIn(t.Context(), dir, []string{"B=2"})
+		require.NoError(t, err)
+		assert.True(t, signed)
+	})
+}

@@ -80,6 +80,9 @@ func Settings(data []byte) ([]Setting, error) {
 	if meta.IsDefined("environments") {
 		rules = append(rules, environmentRules()...)
 	}
+	if meta.IsDefined("claude") {
+		rules = append(rules, claudeRules()...)
+	}
 	settings := make([]Setting, 0, len(rules))
 	for _, rule := range rules {
 		settings = append(settings, settingFor(rule, &cfg, meta))
@@ -425,6 +428,13 @@ func environmentRules() []keyRule {
 	}
 }
 
+// claudeRules is [claude]'s key, listed only when config.toml has the table (ADR 0085).
+func claudeRules() []keyRule {
+	return []keyRule{
+		{key: "claude.config_dir", typ: TypeString, table: "claude", leaf: "config_dir"},
+	}
+}
+
 // profileRule is review.profiles.<name>.<leaf>.
 func profileRule(name, leaf string) keyRule {
 	table := "review.profiles." + name
@@ -444,7 +454,7 @@ func parseUnsetKey(key string) (keyRule, error) {
 
 // parseKeyWith is parseKey with the rule for profile names passed in.
 func parseKeyWith(key string, nameOK func(string) bool) (keyRule, error) {
-	for _, rule := range slices.Concat(fixedRules(), runnerFixedRules(), environmentRules()) {
+	for _, rule := range slices.Concat(fixedRules(), runnerFixedRules(), environmentRules(), claudeRules()) {
 		if rule.key == key {
 			return rule, nil
 		}
@@ -528,6 +538,8 @@ func settingFor(rule keyRule, cfg *Config, meta *toml.MetaData) Setting {
 // valueOf is rule's effective value in cfg.
 func valueOf(rule keyRule, cfg *Config) any {
 	switch rule.key {
+	case "claude.config_dir":
+		return cfg.Claude.Mode()
 	case "defaults.host":
 		return cfg.EffectiveHosts()[0].Name
 	case "defaults.owners":
@@ -688,6 +700,8 @@ func nonNilStrings(values []string) []string {
 // defaultOf is rule's value when the file doesn't set it.
 func defaultOf(rule keyRule) any {
 	switch rule.key {
+	case "claude.config_dir":
+		return ClaudeConfigAuto
 	case "defaults.host":
 		return defaultHost
 	case "defaults.owners", "environments.default_scope":
@@ -795,6 +809,9 @@ func normalizeOne(rule keyRule, value string) (any, error) {
 	if rule.table == "environments" {
 		return normalizeEnvironment(rule, value)
 	}
+	if rule.table == "claude" {
+		return normalizeClaudeConfigDir(value)
+	}
 	switch rule.typ {
 	case TypeBool:
 		return normalizeBool(rule.key, value)
@@ -844,6 +861,14 @@ func normalizeEnvironment(rule keyRule, value string) (any, error) {
 		return nil, fmt.Errorf("%w: %w", ErrValueInvalid, err)
 	}
 	return out, nil
+}
+
+// normalizeClaudeConfigDir checks claude.config_dir is a mode (ADR 0085).
+func normalizeClaudeConfigDir(value string) (any, error) {
+	if !ValidClaudeConfigMode(value) {
+		return nil, fmt.Errorf("%w: claude.config_dir must be auto, workspace or shared, not %q", ErrValueInvalid, value)
+	}
+	return value, nil
 }
 
 func normalizeProfileValue(rule keyRule, value string) (any, error) {

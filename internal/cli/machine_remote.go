@@ -372,12 +372,20 @@ func attachRemote(targets []rmTarget, children []remoteChild) []rmTarget {
 }
 
 // removeRemote removes child rc on its environment, or under --dry-run only
-// lists it. An environment that can't be reached keeps the child.
-func (a *App) removeRemote(ctx context.Context, rc *remoteChild, opts *rmOptions, items *itemResults) rmJSON {
+// lists it. An environment that can't be reached keeps the child. Its verdict
+// is copied under root first, so it stays readable after the removal; when
+// the copy fails the child is kept and the failure reported. A child its
+// environment no longer has, or an environment that can't be reached, skips
+// the copy and goes on to the removal, which reports what it finds.
+func (a *App) removeRemote(ctx context.Context, root string, rc *remoteChild, opts *rmOptions, items *itemResults) rmJSON {
 	env := rc.env
 	out := rmJSON{ID: rc.id, Parent: optional(rc.parent), Environment: &env}
 	if opts.dryRun {
 		items.add(rc.id, nil)
+		return out
+	}
+	if _, _, err := a.remoteRecord(ctx, root, rc); err != nil && !controllerUnreachable(err) && !hasErrorCode(err, codeWorkspaceNotFound) {
+		out.Error = items.add(rc.id, err)
 		return out
 	}
 	_, err := a.remoteChildOp(ctx, rc, "rm", map[string]any{"keep_children": opts.keepChildren})
@@ -450,7 +458,7 @@ func (a *App) pollRemoteTarget(ctx context.Context, t *waitTarget, root string) 
 // askRemote is a live remote child's state from its environment: finished with
 // a result, or with a session that is done or stopped.
 func (a *App) askRemote(ctx context.Context, t *waitTarget, root string) childState {
-	rec, _, err := a.remoteRecord(ctx, root, t.remote)
+	rec, res, err := a.remoteRecord(ctx, root, t.remote)
 	switch {
 	case hasErrorCode(err, codeWorkspaceNotFound):
 		return a.copiedChildState(t, root)
@@ -460,13 +468,15 @@ func (a *App) askRemote(ctx context.Context, t *waitTarget, root string) childSt
 	case err != nil:
 		a.warnRemote(t, err)
 		rec, _ = machine.NewStore(a.paths.State).ReadRemote(root, t.remote.envID, t.id)
-		return childState{status: unknownSession, record: rec}
+		finished := rec.Result != nil
+		return childState{status: unknownSession, record: rec, finished: finished, quiet: finished}
 	}
 	session, state, err := a.remoteStatus(ctx, t.remote)
 	if err != nil {
 		a.warnRemote(t, err)
 	}
 	st := childState{status: state, session: session, record: rec}
+	st.progress, st.rollup = a.remoteProgress(res)
 	st.finished = rec.Result != nil || state == sessionDone || state == string(lifetime.StateStopped)
 	st.quiet = st.finished
 	return st

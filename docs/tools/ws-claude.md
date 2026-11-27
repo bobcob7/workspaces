@@ -131,6 +131,7 @@ doesn't create a second workspace
 | `--env <name>`  | Create and run it on this environment (`ws env list`), not here; `local` is this machine. See [Environments](#environments) |
 | `--runner claude\|ws` | Which agent runs it: Claude Code (the default), or `ws`'s own runner ([0070](../adrs/0070-runner-agents-for-people-and-loops.md)) |
 | `--endpoint <name>` | With `--runner ws`, another endpoint from `config.toml`; `usage` without it |
+| `--claude-config-dir <mode>` | auto, workspace or shared: the Claude Code config directory the session runs under ([0085](../adrs/0085-per-workspace-claude-config.md)); default: `WS_CLAUDE_CONFIG_DIR`, then `[claude] config_dir`, then `auto`. `usage` with `--env` or `--runner ws` |
 | `--json`        | Print `{"id", "session", "path", "parent", "repos", "warnings", "runner", "model", "ws_runner"}`, plus `"environment"` with `--env` |
 
 ## Runner agents

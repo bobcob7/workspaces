@@ -384,7 +384,7 @@ func (a *App) startReview(ctx context.Context, rec *record.Record, target *revie
 		return domainError(err)
 	}
 	defer lock.Unlock()
-	started, _, err := a.handOff(ctx, &ws, args)
+	started, _, err := a.handOff(ctx, &ws, args, "")
 	if err != nil {
 		a.dropRun(runs, ws.ID, rec)
 		return err

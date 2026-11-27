@@ -8,6 +8,7 @@ package claude
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -59,6 +60,52 @@ func jobsDir(environ []string) string {
 		return filepath.Join(home, ".claude", "jobs")
 	}
 	return ""
+}
+
+// WithConfigDir is a copy of c that runs claude with CLAUDE_CONFIG_DIR=dir
+// and extra appended to its environment. jobsDir, projectsDir and
+// configFile follow the new environment.
+func (c *Client) WithConfigDir(dir string, extra []string) *Client {
+	environ := append(append([]string{}, c.environ...), "CLAUDE_CONFIG_DIR="+dir)
+	environ = append(environ, extra...)
+	return &Client{
+		log:         c.log,
+		path:        c.path,
+		environ:     environ,
+		jobsDir:     jobsDir(environ),
+		projectsDir: projectsDir(environ),
+		configFile:  configFile(environ),
+		sendTimings: c.sendTimings,
+		replace:     c.replace,
+	}
+}
+
+// SignedIn runs `claude auth status` with CLAUDE_CONFIG_DIR=dir and extra,
+// and reports its JSON "loggedIn". A run that fails or prints no JSON is
+// (false, reason, nil); reason is one short line for the warning.
+func (c *Client) SignedIn(ctx context.Context, dir string, extra []string) (bool, string, error) {
+	out, err := c.execWith(ctx, "", []string{"auth", "status"}, nil, append([]string{"CLAUDE_CONFIG_DIR=" + dir}, extra...)...)
+	if err != nil {
+		return false, "claude auth status failed: " + firstLine(err.Error()), nil
+	}
+	var status struct {
+		//nolint:tagliatelle // Claude Code's field name.
+		LoggedIn bool `json:"loggedIn"`
+	}
+	if err := json.Unmarshal(out, &status); err != nil {
+		//nolint:nilerr // the parse error is the reason, not a failure.
+		return false, "claude auth status printed no JSON", nil
+	}
+	if !status.LoggedIn {
+		return false, "not signed in", nil
+	}
+	return true, "", nil
+}
+
+// firstLine is the first line of s, without surrounding space.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return line
 }
 
 // run runs `claude args...` in ws's working directory and returns its
@@ -152,13 +199,14 @@ func (c *Client) exec(ctx context.Context, dir string, args []string) ([]byte, e
 }
 
 // execWith is exec with the process attributes attrs, such as a process
-// group of its own.
-func (c *Client) execWith(ctx context.Context, dir string, args []string, attrs *syscall.SysProcAttr) ([]byte, error) {
+// group of its own. extra entries follow the client's environment, so a
+// repeated key takes the extra value.
+func (c *Client) execWith(ctx context.Context, dir string, args []string, attrs *syscall.SysProcAttr, extra ...string) ([]byte, error) {
 	//nolint:gosec // G204: running claude with arguments is this package's purpose.
 	cmd := exec.CommandContext(ctx, c.path, args...)
 	cmd.Dir = dir
 	cmd.SysProcAttr = attrs
-	cmd.Env = append([]string{}, c.environ...)
+	cmd.Env = append(append(make([]string, 0, len(c.environ)+len(extra)), c.environ...), extra...)
 	cmd.WaitDelay = pipeWait
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

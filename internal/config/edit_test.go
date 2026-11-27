@@ -618,3 +618,35 @@ func TestEnvironmentKeys(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalid)
 	})
 }
+
+func TestClaudeKey(t *testing.T) {
+	t.Run("no [claude] table doesn't list the key", func(t *testing.T) {
+		settings, err := Settings([]byte(defaultFile))
+		require.NoError(t, err)
+		assert.Len(t, settings, 5)
+	})
+	t.Run("the [claude] table lists the key last", func(t *testing.T) {
+		settings, err := Settings([]byte(defaultFile + "[claude]\nconfig_dir = \"shared\"\n"))
+		require.NoError(t, err)
+		require.Len(t, settings, 6)
+		assert.Equal(t, Setting{Key: "claude.config_dir", Type: TypeString, Value: "shared", Default: "auto", Set: true}, settings[5])
+	})
+	t.Run("lookup finds the key without the table", func(t *testing.T) {
+		setting, err := Lookup([]byte(defaultFile), "claude.config_dir")
+		require.NoError(t, err)
+		assert.Equal(t, Setting{Key: "claude.config_dir", Type: TypeString, Value: "auto", Default: "auto", Set: false}, setting)
+	})
+	t.Run("set writes a valid mode and round-trips", func(t *testing.T) {
+		out, changed, err := Set([]byte(defaultFile), "claude.config_dir", []string{"workspace"})
+		require.NoError(t, err)
+		require.True(t, changed)
+		setting, err := Lookup(out, "claude.config_dir")
+		require.NoError(t, err)
+		assert.Equal(t, "workspace", setting.Value)
+		assert.True(t, setting.Set)
+	})
+	t.Run("set refuses a bad mode", func(t *testing.T) {
+		_, _, err := Set([]byte(defaultFile), "claude.config_dir", []string{"bogus"})
+		require.ErrorIs(t, err, ErrValueInvalid)
+	})
+}

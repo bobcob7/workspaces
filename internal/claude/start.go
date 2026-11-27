@@ -38,6 +38,12 @@ type StartOptions struct {
 	// Args go to claude unchanged after ws's own options: the prompt, and
 	// options such as --model.
 	Args []string
+	// ConfigDir, if set, is the overlay config directory the session runs
+	// under (ADR 0085); empty means the base config.
+	ConfigDir string
+	// Env are extra KEY=value entries for claude's environment; a later
+	// entry wins.
+	Env []string
 }
 
 // Started is a background session Start started.
@@ -58,6 +64,8 @@ type Started struct {
 // claude runs in a process group of its own and isn't stopped when ctx
 // ends: interrupting `claude --bg` can leave a session behind that its
 // caller never hears of, so Start always waits for its answer (ADR 0025).
+//
+//nolint:gocritic // hugeParam: StartOptions is passed by value throughout (ADR 0024).
 func (c *Client) Start(ctx context.Context, opts StartOptions) (Started, error) {
 	if err := CheckArgs(opts.Args); err != nil {
 		return Started{}, err
@@ -71,7 +79,11 @@ func (c *Client) Start(ctx context.Context, opts StartOptions) (Started, error) 
 		args = append(args, "-n", opts.Name)
 	}
 	args = append(args, "--settings", noWorktreeSettings)
-	out, err := c.execWith(ctx, opts.Dir, append(args, opts.Args...), procgroup.OwnGroup())
+	runner, extra := c, opts.Env
+	if opts.ConfigDir != "" {
+		runner, extra = c.WithConfigDir(opts.ConfigDir, opts.Env), nil
+	}
+	out, err := runner.execWith(ctx, opts.Dir, append(args, opts.Args...), procgroup.OwnGroup(), extra...)
 	if err != nil {
 		return Started{}, err
 	}
@@ -79,7 +91,7 @@ func (c *Client) Start(ctx context.Context, opts StartOptions) (Started, error) 
 		return started, nil
 	}
 	c.log.DebugContext(ctx, "no session id in claude --bg output; looking it up", slog.String("output", string(out)))
-	id, err := c.findStarted(ctx, opts.Dir)
+	id, err := runner.findStarted(ctx, opts.Dir)
 	return Started{ID: id}, err
 }
 

@@ -361,14 +361,35 @@ func TestApp_waitRemoteReview(t *testing.T) {
 		assert.Equal(t, "review-r-42", asCLIError(err).details["workspace"])
 		assert.EqualValues(t, "working", asCLIError(err).details["status"])
 	})
-	t.Run("offline is environment_offline", func(t *testing.T) {
+	t.Run("offline until the timeout is review_timeout", func(t *testing.T) {
 		e, caller, _ := newEnvOpApp(t, "")
 		e.app.reviewPoll = time.Millisecond
 		caller.CallEnvironmentFunc = func(context.Context, string, daemon.CallRequest) (daemon.CallReply, error) {
 			return daemon.CallReply{}, &daemon.RemoteError{Code: string(codeEnvironmentOffline), Message: "offline"}
 		}
-		err := e.app.waitRemoteReview(t.Context(), "linux-server", "review-r-42", time.Minute)
-		requireCode(t, codeEnvironmentOffline, err)
+		err := e.app.waitRemoteReview(t.Context(), "linux-server", "review-r-42", 20*time.Millisecond)
+		requireCode(t, codeReviewTimeout, err)
+		assert.Contains(t, e.stderr.String(), "ws: linux-server unreachable, still waiting:")
+	})
+	t.Run("an offline blip doesn't end the wait", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, "")
+		e.app.reviewPoll = time.Millisecond
+		reports := pagedCaller(reportPages)
+		var statusCalls int
+		caller := &environmentCallerMock{CallEnvironmentFunc: func(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error) {
+			if req.Op == envproto.OpReviewReport {
+				return reports.CallEnvironment(ctx, name, req)
+			}
+			statusCalls++
+			if statusCalls == 1 {
+				return daemon.CallReply{}, &daemon.RemoteError{Code: string(codeEnvironmentOffline), Message: "offline"}
+			}
+			return daemon.CallReply{Reply: json.RawMessage(statusReply("idle", true))}, nil
+		}}
+		useCaller(e.app, caller)
+		require.NoError(t, e.app.waitRemoteReview(t.Context(), "linux-server", "review-r-42", time.Minute))
+		assert.Equal(t, 2, statusCalls)
+		assert.Contains(t, e.stderr.String(), "ws: linux-server unreachable, still waiting:")
 	})
 	t.Run("a non-positive timeout is usage", func(t *testing.T) {
 		e, _, _ := newEnvOpApp(t, statusReply("idle", true))

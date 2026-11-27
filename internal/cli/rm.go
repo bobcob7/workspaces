@@ -20,7 +20,10 @@ type rmOptions struct {
 	// caller is the workspace ws machine rm removes for, which is never
 	// removed and adopts --keep-children's children; "" for ws rm (ADR
 	// 0046).
-	caller     string
+	caller string
+	// root is the machine root of caller, where the copies of removed remote
+	// children are kept; "" for ws rm.
+	root       string
 	workspaces []string
 }
 
@@ -100,7 +103,7 @@ func (a *App) removeTargets(ctx context.Context, targets []rmTarget, opts *rmOpt
 	for i := range targets {
 		t := &targets[i]
 		if t.remote != nil {
-			results = append(results, a.removeRemote(ctx, t.remote, opts, &items))
+			results = append(results, a.removeRemote(ctx, opts.root, t.remote, opts, &items))
 			continue
 		}
 		if t.err != nil || t.swept != nil {

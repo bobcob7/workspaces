@@ -6,7 +6,8 @@ ws config list [--json]
 
 Prints every setting in `config.toml`, in the order of the keys table, with
 its value and default. A `when` and a `model` row is listed for each review
-profile table in the file, sorted by name.
+profile table in the file, sorted by name. `claude.config_dir` is listed last,
+and only when the file has a `[claude]` table.
 
 ## When to use it
 

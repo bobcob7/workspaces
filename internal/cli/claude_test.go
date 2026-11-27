@@ -118,6 +118,16 @@ func TestApp_artifactHints(t *testing.T) {
 		assert.Equal(t, []string{"fix it @artifact:" + id}, args)
 		assert.Equal(t, []string{"artifacts aren't reachable from vega yet; @artifact references were sent as plain text"}, e.app.warned)
 	})
+	t.Run("an enrolled agent passes references with a warning", func(t *testing.T) {
+		e, _ := hintEnv(t)
+		require.NoError(t, os.MkdirAll(e.app.paths.Environment, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environment, "agent.toml"), []byte("x"), 0o600))
+		prompt := "fix it @artifact:art-00000000"
+		args, err := e.app.artifactHints([]string{prompt}, "")
+		require.NoError(t, err)
+		assert.Equal(t, []string{prompt}, args)
+		assert.Equal(t, []string{"artifacts aren't reachable on an environment's agent; @artifact references were sent as plain text"}, e.app.warned)
+	})
 }
 
 func TestApp_runClaude_parent(t *testing.T) {
@@ -190,6 +200,12 @@ func TestApp_runClaude(t *testing.T) {
 		assert.Equal(t, workspace.SessionClaude, rec.Kind)
 		assert.Equal(t, "e8cdf5d8", rec.ClaudeSessionID)
 		assert.Empty(t, e.store.RemoveCalls())
+	})
+	t.Run("the session gets WS_CONFIG_DIR", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		require.NoError(t, e.run(t, "fix it"))
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Contains(t, e.claude.StartCalls()[0].Opts.Env, "WS_CONFIG_DIR=/cfg")
 	})
 	t.Run("prints the workspace id, the session id, and the path", func(t *testing.T) {
 		e := newClaudeEnv(t)
@@ -401,7 +417,7 @@ func TestApp_handOff(t *testing.T) {
 			assert.NotNil(t, watching, "while the session is recorded")
 			return nil
 		}
-		_, hungUp, err := e.app.handOff(t.Context(), &e.ws, nil)
+		_, hungUp, err := e.app.handOff(t.Context(), &e.ws, nil, "")
 		require.NoError(t, err)
 		assert.False(t, hungUp)
 		assert.Equal(t, []os.Signal{syscall.SIGHUP}, caught)
@@ -415,7 +431,7 @@ func TestApp_handOff(t *testing.T) {
 		e.claude.StartFunc = func(context.Context, claude.StartOptions) (claude.Started, error) {
 			return claude.Started{}, claude.ErrUntrusted
 		}
-		_, _, err := e.app.handOff(t.Context(), &e.ws, nil)
+		_, _, err := e.app.handOff(t.Context(), &e.ws, nil, "")
 		requireCode(t, codeClaudeUntrusted, err)
 		assert.True(t, stopped)
 	})
@@ -426,7 +442,7 @@ func TestApp_handOff(t *testing.T) {
 			hangup()
 			return claude.Started{ID: "e8cdf5d8"}, nil
 		}
-		started, hungUp, err := e.app.handOff(t.Context(), &e.ws, nil)
+		started, hungUp, err := e.app.handOff(t.Context(), &e.ws, nil, "")
 		require.NoError(t, err)
 		assert.True(t, hungUp)
 		assert.Equal(t, "e8cdf5d8", started.ID)
@@ -449,7 +465,7 @@ func TestApp_handOff(t *testing.T) {
 func TestApp_startAgent(t *testing.T) {
 	t.Run("trusts the one repo's directory below the workspace root", func(t *testing.T) {
 		e := newClaudeEnv(t)
-		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil, "")
 		require.NoError(t, err)
 		require.Len(t, e.claude.TrustCalls(), 1)
 		assert.Equal(t, "/cfg/workspaces/x/buff-bear", e.claude.TrustCalls()[0].Dir)
@@ -460,7 +476,7 @@ func TestApp_startAgent(t *testing.T) {
 		e.claude.TrustFunc = func(context.Context, string, string, func(string, bool) error) error {
 			return claude.ErrParentUntrusted
 		}
-		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil, "")
 		require.NoError(t, err)
 		require.Len(t, e.claude.StartCalls(), 1)
 		assert.Equal(t, "/cfg/workspaces/x", e.claude.StartCalls()[0].Opts.Dir)
@@ -469,7 +485,7 @@ func TestApp_startAgent(t *testing.T) {
 	t.Run("starts in the workspace, with a warning, when trusting fails", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.claude.TrustFunc = func(context.Context, string, string, func(string, bool) error) error { return errTest }
-		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil, "")
 		require.NoError(t, err)
 		require.Len(t, e.claude.StartCalls(), 1)
 		assert.Equal(t, "/cfg/workspaces/x", e.claude.StartCalls()[0].Opts.Dir)
@@ -479,16 +495,16 @@ func TestApp_startAgent(t *testing.T) {
 	t.Run("starts the session in the one repo's directory under the workspace's id", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.ws.Name = "Fix Login"
-		started, err := e.app.startAgent(t.Context(), &e.ws, []string{"fix it"})
+		started, err := e.app.startAgent(t.Context(), &e.ws, []string{"fix it"}, "")
 		require.NoError(t, err)
 		assert.Equal(t, "e8cdf5d8", started.ID)
 		require.Len(t, e.claude.StartCalls(), 1)
-		assert.Equal(t, claude.StartOptions{Dir: "/cfg/workspaces/x/buff-bear", Name: "x", Args: []string{"fix it"}}, e.claude.StartCalls()[0].Opts)
+		assert.Equal(t, claude.StartOptions{Dir: "/cfg/workspaces/x/buff-bear", Name: "x", Args: []string{"fix it"}, Env: []string{"WS_CONFIG_DIR=/cfg"}}, e.claude.StartCalls()[0].Opts)
 	})
 	t.Run("starts the session in the workspace with several repos", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.ws.Repos = append(e.ws.Repos, workspace.Repo{ID: "github.com/bobcob7/api", Path: "api"})
-		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil, "")
 		require.NoError(t, err)
 		require.Len(t, e.claude.StartCalls(), 1)
 		assert.Equal(t, "/cfg/workspaces/x", e.claude.StartCalls()[0].Opts.Dir)
@@ -496,7 +512,7 @@ func TestApp_startAgent(t *testing.T) {
 	t.Run("starts the session in an empty workspace", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		e.ws.Repos = nil
-		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil, "")
 		require.NoError(t, err)
 		require.Len(t, e.claude.StartCalls(), 1)
 		assert.Equal(t, "/cfg/workspaces/x", e.claude.StartCalls()[0].Opts.Dir)
@@ -506,7 +522,7 @@ func TestApp_startAgent(t *testing.T) {
 		e.claude.StartFunc = func(context.Context, claude.StartOptions) (claude.Started, error) {
 			return claude.Started{}, claude.ErrUnexpectedOutput
 		}
-		_, err := e.app.startAgent(t.Context(), &e.ws, nil)
+		_, err := e.app.startAgent(t.Context(), &e.ws, nil, "")
 		requireCode(t, codeClaudeFailed, err)
 		assert.Len(t, e.store.RemoveCalls(), 1)
 		assert.Empty(t, e.store.RecordSessionCalls())
@@ -516,7 +532,7 @@ func TestApp_startAgent(t *testing.T) {
 		e := newClaudeEnv(t)
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		_, err := e.app.startAgent(ctx, &e.ws, []string{"fix it"})
+		_, err := e.app.startAgent(ctx, &e.ws, []string{"fix it"}, "")
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Empty(t, e.claude.StartCalls())
 		assert.Len(t, e.store.RemoveCalls(), 1)
@@ -529,7 +545,7 @@ func TestApp_startAgent(t *testing.T) {
 			cancel()
 			return claude.Started{ID: "e8cdf5d8"}, nil
 		}
-		_, err := e.app.startAgent(ctx, &e.ws, []string{"fix it"})
+		_, err := e.app.startAgent(ctx, &e.ws, []string{"fix it"}, "")
 		require.NoError(t, err)
 		require.Len(t, e.store.RecordSessionCalls(), 1)
 		assert.Empty(t, e.store.RemoveCalls())

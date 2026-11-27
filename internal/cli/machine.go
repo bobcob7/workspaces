@@ -129,6 +129,7 @@ func (a *App) newMachineSpawnCmd() *cobra.Command {
 	}
 	addCreateFlags(cmd, &opts.name, &opts.offline)
 	cmd.Flags().BoolVar(&opts.hidden, "hidden", false, "hide the workspace from ws list and the desktop app's default views (off by default)")
+	cmd.Flags().StringVar(&opts.claudeConfigDir, "claude-config-dir", "", "auto, workspace or shared: the Claude Code config the session runs under (ADR 0085); default: WS_CLAUDE_CONFIG_DIR, then [claude] config_dir, then auto")
 	cmd.Flags().StringVar(&opts.role, "role", "", "start the child from this role (ws machine roles)")
 	cmd.Flags().StringArrayVar(&opts.vars, "var", nil, "KEY=VALUE for the role's prompt; repeatable, with --role")
 	cmd.Flags().StringVar(&opts.runner, "runner", "", "claude or ws: which agent runs the child (default: the role's runner, else claude)")
@@ -249,12 +250,17 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 	if err != nil {
 		return err
 	}
+	opts.runner = which
 	self, err := a.selfRef()
 	if err != nil {
 		return newError(codeInternal, err)
 	}
 	remote, err := spawnsRemotely(opts.target, self)
 	if err != nil {
+		return err
+	}
+	// Only the flag is checked here; its mode value is validated later, in startAgent.
+	if err = checkClaudeConfigDirFlag(opts.claudeConfigDir, remote, which); err != nil {
 		return err
 	}
 	if remote {
@@ -533,6 +539,7 @@ func (a *App) runMachineRm(ctx context.Context, opts *machineRmOptions) error {
 		opts.workspaces = append(directChildren(list, caller), directRemoteIDs(remote, caller)...)
 	}
 	opts.caller = caller
+	opts.root = machine.Root(list, caller)
 	targets := attachRemote(a.rmTargets(opts.workspaces), remote)
 	refuseOutside(targets, descendants(list, caller))
 	return a.removeTargets(ctx, targets, &opts.rmOptions)

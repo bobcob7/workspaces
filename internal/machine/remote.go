@@ -29,16 +29,25 @@ func (s *Store) RemoteDir(root, envID, child string) (string, error) {
 
 // WriteRemote copies a finished child's record from environment envID into
 // its remote directory: spawn.toml when sp is set, then report.md, then
-// result.toml last, so a result file means the copy is complete. An existing
-// result.toml leaves everything as it is, so the first copy wins.
+// result.toml last, so a result file means the copy is complete. A copy is
+// replaced only by a result recorded after it; an older or equal one leaves
+// everything as it is. A replaced or damaged copy loses its result file
+// first, so a write that stops midway leaves no result rather than an old
+// result beside a new report.
 func (s *Store) WriteRemote(root, envID, child string, sp *Spawn, r *Result, report []byte) error {
+	if r == nil {
+		return fmt.Errorf("%w: no result to copy for %s", ErrInvalid, child)
+	}
 	dir, err := s.remoteDirMade(root, envID, child)
 	if err != nil {
 		return err
 	}
-	exists, err := fileExists(filepath.Join(dir, resultFile))
-	if err != nil || exists {
-		return err
+	current, readErr := s.ReadRemote(root, envID, child)
+	if readErr == nil && current.Result != nil && !r.RecordedAt.After(current.Result.RecordedAt) {
+		return nil
+	}
+	if err := os.Remove(filepath.Join(dir, resultFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("removing the old result of %s: %w", child, err)
 	}
 	if sp != nil {
 		if err := writeTOML(filepath.Join(dir, spawnFile), sp); err != nil {

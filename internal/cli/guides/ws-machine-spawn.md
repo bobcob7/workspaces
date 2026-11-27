@@ -1,7 +1,7 @@
 # ws machine spawn
 
 ```
-ws machine spawn [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden]
+ws machine spawn [--runner claude|ws] [--endpoint <name>] [--claude-config-dir auto|workspace|shared] [--name <name>] [--offline] [--hidden]
                  [--env <name>] [--env-scope <name>[,<name>...]]
                  [--role <name> [--var KEY=VALUE]...] [<spec>...] -- "<prompt>" [<claude args>... | --model <m>]
 ```
@@ -102,6 +102,7 @@ can't be attached to or sent messages.
 | `--var KEY=VALUE`   | A value for the role's prompt; repeatable; only with `--role` |
 | `--runner claude\|ws` | Which agent runs the child; default from `config.toml` for the role, else `claude` |
 | `--endpoint <name>` | An endpoint from `config.toml` instead of the model's own; only with the `ws` runner |
+| `--claude-config-dir <mode>` | The Claude Code config the child runs under: `auto`, `workspace` or `shared` (ADR 0085). `usage` with `--env` or `--runner ws` |
 | `--env <name>` | Start the child on this environment (`ws machine envs` lists yours); default: this machine. See Environments |
 | `--env-scope <name>[,<name>...]` | Narrow the child's scope to these environments; repeatable. Each must be in your scope. See Environments |
 
@@ -158,6 +159,7 @@ default), and `ws_runner` the model's endpoint for a `ws` child, else
 | Fetch or clone failed                                  | `fetch_failed`, `clone_failed`, `git_failed` | 1 |
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root           | `claude_untrusted` | 1    |
+| Claude Code isn't signed in, with `--claude-config-dir workspace` | `claude_signed_out` | 1 |
 | `claude --bg` failed; `details.stderr` has its output  | `claude_failed`    | 1    |
 | `--env` or `--env-scope` names an environment outside your scope | `environment_out_of_scope` | 4 |
 | `--env` or `--env-scope` names an enrolled environment that `ws env rm` removed, or not enrolled, within the scope | `environment_unknown` | 3 |

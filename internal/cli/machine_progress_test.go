@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/machine"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
@@ -58,6 +59,19 @@ func TestApp_machineProgress(t *testing.T) {
 			assert.ElementsMatch(t, []string{"id", "progress", "rollup", "warnings"}, mapKeys(out))
 			assert.InDelta(t, 4, jsonObject(t, out["rollup"])["total"], 0)
 		}
+	})
+	t.Run("step counts remote children in the rollup", func(t *testing.T) {
+		e := newProgressApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		child := remoteHelperChild(t)
+		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
+		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "set", "--name", "build", "--total", "4"), e.stderr.String())
+		e.stdout.Reset()
+		require.Equal(t, exitOK, runMachine(t, e, "machine", "progress", "step"), e.stderr.String())
+		rollup := jsonObject(t, jsonObjectOf(t, e.stdout.String())["rollup"])
+		assert.InDelta(t, 6, rollup["total"], 0)
+		assert.InDelta(t, 2, rollup["done"], 0)
 	})
 	t.Run("set --total leaves done alone, and --done leaves total alone", func(t *testing.T) {
 		e := newProgressApp(t)

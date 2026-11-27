@@ -526,6 +526,36 @@ func TestApp_runMachineSpawn(t *testing.T) {
 		assert.Equal(t, "linux", out["environment"])
 		assert.Equal(t, []any{"local", "linux"}, out["scope"])
 	})
+	t.Run("an @artifact prompt warns that it can't be reached from the environment", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		serveScopeHost(t, e.app, scopeOK(t, map[string]any{
+			"id": "x", "session": "e8cdf5d8", "path": "/cfg/workspaces/x", "parent": nil, "repos": []any{},
+			"warnings": []string{}, "runner": "claude", "model": nil, "ws_runner": nil, "scope": []string{"local", "linux"},
+		}))
+		opts := spawnOptions("fix @artifact:art-00000000")
+		opts.target = linuxRef.Name
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+		assert.Contains(t, decodeJSONObject(t, e.stdout)["warnings"], "artifacts aren't reachable from linux yet; @artifact references were sent as plain text")
+	})
+	t.Run("a role routed to ws by config creates a runner on the environment", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.config = loadRunnerConfig(t, runnerToml+"\n[runner.roles.implementer]\nrunner = \"ws\"\n")
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveScopeHost(t, e.app, scopeOK(t, map[string]any{
+			"id": "x", "session": "e8cdf5d8", "path": "/cfg/workspaces/x", "parent": nil, "repos": []any{},
+			"warnings": []string{}, "runner": "ws", "model": nil, "ws_runner": nil, "scope": []string{"local", "linux"},
+		}))
+		opts := roleSpawnOptions()
+		opts.target = linuxRef.Name
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
+		calls := host.Calls()
+		require.Len(t, calls, 1)
+		var args envproto.ScopeSpawnArgs
+		require.NoError(t, json.Unmarshal(calls[0].args, &args))
+		assert.Equal(t, envproto.KindRunner, args.Create.Kind)
+	})
 	t.Run("scope a local child inherits the caller's scope", func(t *testing.T) {
 		e := roleSpawnEnv(t)
 		writeCallerScope(t, e.app.paths.State, linuxRef, winRef)

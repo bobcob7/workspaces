@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -261,6 +262,40 @@ func TestApp_runMachineWait_remoteChild(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "the helper's report", string(report))
 	})
+	t.Run("a finished remote child's progress and rollup are its environment's", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		record := remoteHelperRecord(t)
+		record.Progress = json.RawMessage(`{"name":"helper steps","total":3,"done":2,"note":null,"updated_at":null}`)
+		record.Rollup = json.RawMessage(`{"total":3,"done":2,"fraction":0.6666666666666666}`)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, record))
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		item := got.Children[0]
+		require.NotNil(t, item.Progress)
+		assert.Equal(t, 3, item.Progress.Total)
+		assert.Equal(t, 2, item.Progress.Done)
+		require.NotNil(t, item.Rollup)
+		assert.Equal(t, 3, item.Rollup.Total)
+		assert.Equal(t, 2, item.Rollup.Done)
+	})
+	t.Run("an unreachable environment with a copied result finishes", func(t *testing.T) {
+		e := newWaitApp(t)
+		e.app.remotePoll = time.Millisecond
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		writeCopy(t, e, []string{"plan", "boss"})
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
+		})
+		start := time.Now()
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(5*time.Second)))
+		assert.Less(t, time.Since(start), 3*time.Second)
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		assert.True(t, got.Children[0].Finished)
+		assert.Equal(t, "pass", got.Children[0].Outcome)
+	})
 	t.Run("after the child is removed its copy is still read", func(t *testing.T) {
 		e := newWaitApp(t)
 		writeCopy(t, e, []string{"plan", "boss"})
@@ -438,7 +473,7 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 		writeCallerScope(t, e.app.paths.State, linuxRef)
 		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
 		require.NoError(t, e.app.runMachineRm(t.Context(), removeHelper()))
-		assert.Equal(t, []string{"rm"}, childOpsOf(t, host.Calls()))
+		assert.Equal(t, []string{"record", "rm"}, childOpsOf(t, host.Calls()))
 	})
 	t.Run("--all selects the remote child with no id given", func(t *testing.T) {
 		e := newMachineApp(t)
@@ -501,6 +536,81 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, kept.Result)
 	})
+	t.Run("a failing record keeps the child and reports the error", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeInternal), Message: "record broke"}}
+		})
+		requireCode(t, codeInternal, e.app.runMachineRm(t.Context(), removeHelper()))
+		assert.Equal(t, []string{"record"}, childOpsOf(t, host.Calls()))
+	})
+	t.Run("a child its environment no longer has is still removed", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(op string, args envproto.ScopeChildArgs) envproto.Reply {
+			if op == "record" {
+				return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeWorkspaceNotFound), Message: "gone"}}
+			}
+			return helperAnswer(t, remoteHelperRecord(t))(op, args)
+		})
+		require.NoError(t, e.app.runMachineRm(t.Context(), removeHelper()))
+		assert.Equal(t, []string{"record", "rm"}, childOpsOf(t, host.Calls()))
+	})
+	t.Run("an unreachable environment still gets the rm", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
+		})
+		requireCode(t, codeEnvironmentOffline, e.app.runMachineRm(t.Context(), removeHelper()))
+		assert.Equal(t, []string{"record", "rm"}, childOpsOf(t, host.Calls()))
+	})
+	t.Run("--dry-run writes no copy", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		opts := removeHelper()
+		opts.dryRun = true
+		require.NoError(t, e.app.runMachineRm(t.Context(), opts))
+		_, found, err := machine.NewStore(e.app.paths.State).FindRemote("boss", "helper")
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
+	t.Run("a finished child's verdict stays readable after rm", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		var removed atomic.Bool
+		host := &childHost{}
+		host.answer = func(op string, raw json.RawMessage) envproto.Reply {
+			switch op {
+			case "children":
+				if removed.Load() {
+					return scopeOK(t, envproto.ScopeChildrenResult{})
+				}
+				return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{remoteHelperChild(t)}})
+			case "child":
+				var args envproto.ScopeChildArgs
+				require.NoError(t, json.Unmarshal(raw, &args))
+				if args.Op == "rm" {
+					removed.Store(true)
+				}
+				return helperAnswer(t, remoteHelperRecord(t))(args.Op, args)
+			}
+			return envproto.Reply{Error: &envproto.ReplyError{Code: "usage", Message: "unexpected " + op}}
+		}
+		serveDaemonWith(t, e.app, host)
+		require.NoError(t, e.app.runMachineRm(t.Context(), removeHelper()))
+		kept, err := machine.NewStore(e.app.paths.State).ReadRemote("boss", linuxRef.ID, "helper")
+		require.NoError(t, err)
+		require.NotNil(t, kept.Result)
+		assert.Equal(t, "PASS", kept.Result.Verdict)
+		e.stdout.Reset()
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		assert.Equal(t, "pass", got.Children[0].Outcome)
+	})
 }
 
 func TestApp_nestRemoteProgress(t *testing.T) {
@@ -515,9 +625,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		child := remoteHelperChild(t)
 		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
 		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		assert.Equal(t, 5, node.Rollup.Total)
 		assert.Equal(t, 2, node.Rollup.Done)
 		require.NotNil(t, node.Rollup.Fraction)
@@ -531,9 +640,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		child.Parent = "a"
 		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
 		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		var local *progressNodeJSON
 		for i := range node.Children {
 			if node.Children[i].ID == "a" {
@@ -553,9 +661,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		writeCallerScope(t, e.app.paths.State, linuxRef)
 		ownSteps(t, e)
 		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		assert.Equal(t, 3, node.Rollup.Total)
 		assert.Equal(t, 1, node.Rollup.Done)
 	})
@@ -566,9 +673,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		child := remoteHelperChild(t)
 		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 3}
 		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		assert.Equal(t, 3, node.Rollup.Total)
 		assert.Equal(t, 1, node.Rollup.Done)
 		assert.Contains(t, e.app.warnings(), "ignoring the rollup of helper on "+linuxRef.Name+": out of range")
@@ -580,9 +686,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		record.Progress = json.RawMessage(`{"name":"login","total":3,"done":2,"note":null,"updated_at":"2026-11-24T10:00:00Z"}`)
 		record.Rollup = json.RawMessage(`{"total":3,"done":2,"fraction":0.6666666666666666}`)
 		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, record))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		require.Len(t, node.Children, 3)
 		leaf := node.Children[len(node.Children)-1]
 		assert.Equal(t, "helper", leaf.ID)

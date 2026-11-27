@@ -49,6 +49,7 @@ pass.
 | `environments.public_name` | string | `""` | an IP address or a DNS name, without a port; `""` leaves the daemon off |
 | `environments.renew_before_days` | int | `30` | a whole number from 1 to 60 |
 | `environments.agent_loop_scripts` | bool | `true` | `false` makes the environment agent refuse a loop script sent by the controller |
+| `claude.config_dir` | string | `"auto"` | `auto`, `workspace` or `shared` ([0085](../adrs/0085-per-workspace-claude-config.md)); listed only once config.toml has a `[claude]` table |
 
 `unset endpoints.<name>`, `unset models.<alias>` and `unset runner.roles.<role>`
 remove the whole table. `set` refuses a write that leaves `config.toml`'s

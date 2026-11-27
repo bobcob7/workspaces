@@ -103,6 +103,7 @@ instead, as described under [Runners](#runners).
 | `--env-scope <name>` | Narrow the child's scope to these environments, a subset of yours; repeatable |
 | `--runner claude\|ws` | Which agent runs the child. Default: the role's `runner` in `[runner.roles]`, else `claude` |
 | `--endpoint <name>` | With `--runner ws`: another endpoint from `config.toml`, instead of the model's. `usage` with `claude` |
+| `--claude-config-dir <mode>` | `auto`, `workspace` or `shared`: the Claude Code config the child runs under ([0085](../adrs/0085-per-workspace-claude-config.md)); `usage` with `--env` or `--runner ws` |
 
 Without `--role`, the prompt after `--` is required (`usage`).
 
@@ -280,7 +281,9 @@ others:
 Prints a descendant's log as JSON: a `ws` child's transcript events, or a
 Claude child's `claude logs` text. Use it instead of `claude logs`, which
 doesn't know runner sessions (`rn-…`). A remote child's reply has
-`environment` and its log as `text`.
+`environment` and its log as `text`. A remote child's `--tail` is at most
+2000 lines, and 0 means 200; `truncated` is true when lines were cut, by the
+tail or to fit the reply.
 
 ## ws machine rm
 
@@ -452,6 +455,9 @@ Output is always JSON, in the same shapes as `ws loop memory`, with
 id. There's no `clear`. Keys follow the same rules, and `--expect-rev` and
 `--file` work as they do for `ws loop memory`.
 
+A child on another environment is its own root, so it can't use its parent
+loop run's memory: it gets `not_loop_run` even when its parent is a loop run.
+
 ```console
 $ ws machine memory get seen
 {"loop":"deps-bump","entry":{"key":"seen","value":"#412 #415","rev":3,"updated_at":"2026-11-10T08:14:00Z","updated_by":"loop-deps-bump-1a2b3c4d"},"warnings":[]}
@@ -593,6 +599,7 @@ Marks the thread resolved, or with `--reopen` open again. Prints
 | `roles add` and `edit`: an invalid name, description, verdict, var name, or `claude_args`, the same verdict in `pass` and `fail`, an empty `pass` or `fail`, or a prompt that is blank, doesn't parse, or doesn't render with its `vars` | `role_invalid` | 2 |
 | `spawn --role`, `roles show`, `edit`, `rm`: no role has the name | `role_unknown` | 3 |
 | `spawn`: `--runner` isn't `claude` or `ws`; `--endpoint` with `claude`; after a `ws` child's prompt, anything but `--model <m>` | `usage` | 2 |
+| `spawn`: `--claude-config-dir` with `--env` or `--runner ws` | `usage` | 2 |
 | `spawn --runner ws`: no model is configured, or a `[runner]` table is broken | `config_invalid` | 1 |
 | `spawn --runner ws`: the endpoint isn't in `config.toml` | `endpoint_unknown` | 3 |
 | `spawn --runner ws`: the endpoint is unreachable, or the model has no tools | `endpoint_unreachable`, `model_without_tools` | 1 |

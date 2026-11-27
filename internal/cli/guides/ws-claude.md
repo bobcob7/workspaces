@@ -1,7 +1,7 @@
 # ws claude
 
 ```
-ws claude [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--env <name>] [--env-scope <name>[,<name>...]] [--json] [<spec>...] [-- <claude args>...]
+ws claude [--runner claude|ws] [--endpoint <name>] [--claude-config-dir auto|workspace|shared] [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--env <name>] [--env-scope <name>[,<name>...]] [--json] [<spec>...] [-- <claude args>...]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, then
@@ -81,6 +81,7 @@ Its workspace stays, even after it finishes, until the session is deleted
 | `--env-scope <name>[,<name>...]` | The environments it may start children on (`ws env list`, or `local`); repeatable. See above |
 | `--runner claude\|ws` | Which agent runs it: Claude Code (the default) or `ws`'s own runner (see `ws llm machine spawn`). A `ws` agent needs a prompt and can't be attached; after the prompt only `--model <alias or id>` is accepted |
 | `--endpoint <name>` | With `--runner ws`, another endpoint from config.toml   |
+| `--claude-config-dir <mode>` | The Claude Code config directory the session runs under: `auto` (own directory when signed in there, else shared with a warning), `workspace` (own directory, else `claude_signed_out`) or `shared` (yours). Default: `WS_CLAUDE_CONFIG_DIR`, then `[claude] config_dir`, then `auto`. Linked entries (hooks, skills, agents, commands, plugins, credentials) are shared read-write with your config |
 | `--json`        | Print the result as JSON                                    |
 
 ## JSON output
@@ -119,6 +120,7 @@ added for an environment.
 | An unparsable spec, the same repo twice, or two repos with the same name | `usage`, `spec_invalid` | 2 |
 | `--settings` after `--`                                | `usage`            | 2    |
 | `--runner ws` with no prompt after `--`, or other arguments after it; `--endpoint` without `--runner ws` | `usage` | 2 |
+| `--claude-config-dir` with `--env` or `--runner ws`, or a value other than `auto`, `workspace` or `shared` | `usage` | 2 |
 | `--endpoint` not in config.toml                        | `endpoint_unknown` | 3    |
 | `--model` not served by the endpoint                   | `model_not_served` | 3    |
 | Endpoint unreachable, or the model can't use tools     | `endpoint_unreachable`, `model_without_tools` | 1 |
@@ -132,6 +134,7 @@ added for an environment.
 | Fetch or clone failed                                  | `fetch_failed`, `clone_failed`, `git_failed` | 1 |
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root; `details.directory` is the directory a person must trust | `claude_untrusted` | 1 |
+| Claude Code isn't signed in for the workspace's own config directory, with `--claude-config-dir workspace` (or `claude.config_dir = "workspace"`) | `claude_signed_out` | 1 |
 | `--env` or `--env-scope` names no environment          | `environment_unknown` | 3 |
 | `--env` or `--env-scope` inside a workspace            | `usage`            | 2    |
 | `--env` with a `--parent` found nowhere                | `workspace_not_found` | 3 |
