@@ -249,6 +249,7 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 	if err != nil {
 		return err
 	}
+	opts.runner = which
 	self, err := a.selfRef()
 	if err != nil {
 		return newError(codeInternal, err)
