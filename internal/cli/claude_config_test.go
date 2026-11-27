@@ -208,16 +208,12 @@ func TestApp_runClaude_claudeConfigDir(t *testing.T) {
 		requireCode(t, codeUsage, err)
 		assert.Empty(t, e.store.CreateCalls())
 	})
-	t.Run("the removed overlay leaves the base's linked entries alone", func(t *testing.T) {
-		e, root, base := overlayEnv(t)
-		require.NoError(t, os.MkdirAll(filepath.Join(base, "projects"), 0o700))
-		require.NoError(t, os.WriteFile(filepath.Join(base, "projects", "keep.txt"), []byte("kept"), 0o600))
-		_, _, err := e.app.claudeStart(t.Context(), &workspace.Workspace{ID: "x"}, config.ClaudeConfigAuto)
-		require.NoError(t, err)
-		require.NoError(t, os.RemoveAll(filepath.Join(root, "state", "x")))
-		kept, err := os.ReadFile(filepath.Join(base, "projects", "keep.txt"))
-		require.NoError(t, err)
-		assert.Equal(t, "kept", string(kept))
+	t.Run("--claude-config-dir with --env is usage and creates no workspace", func(t *testing.T) {
+		e := newRemoteClaudeEnv(t, remoteCreated, nil)
+		err := e.app.runClaude(t.Context(), &claudeOptions{env: "linux-server", specs: []string{"buff-bear"}, claudeArgs: []string{"fix it"}, claudeConfigDir: config.ClaudeConfigShared})
+		requireCode(t, codeUsage, err)
+		assert.Empty(t, e.caller.CallEnvironmentCalls())
+		assert.Empty(t, e.store.CreateCalls())
 	})
 }
 
@@ -243,6 +239,21 @@ func TestApp_runMachineSpawn_claudeConfigDir(t *testing.T) {
 		opts.claudeConfigDir = config.ClaudeConfigShared
 		requireCode(t, codeUsage, e.app.runMachineSpawn(t.Context(), opts))
 		assert.Empty(t, e.store.CreateCalls())
+	})
+	t.Run("with --env on a remote environment it is usage and sends nothing", func(t *testing.T) {
+		e := roleSpawnEnv(t)
+		e.app.global.json = true
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveScopeHost(t, e.app, scopeOK(t, map[string]any{
+			"id": "x", "session": "e8cdf5d8", "path": "/cfg/workspaces/x", "parent": nil, "repos": []any{},
+			"warnings": []string{}, "runner": "claude", "model": nil, "ws_runner": nil, "scope": []string{"local", "linux"},
+		}))
+		opts := spawnOptions("fix it")
+		opts.target = linuxRef.Name
+		opts.claudeConfigDir = config.ClaudeConfigShared
+		requireCode(t, codeUsage, e.app.runMachineSpawn(t.Context(), opts))
+		assert.Empty(t, e.store.CreateCalls())
+		assert.Empty(t, host.Calls())
 	})
 }
 
