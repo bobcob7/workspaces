@@ -68,10 +68,41 @@ func (p *Pool) route(id string) (string, bool) {
 	return dir, ok
 }
 
-// clientFor is the Client that runs session id. An unknown id is looked up
-// once by listing every session; one still unknown is the base's.
+// overlayListed reports whether config directory dir is the base or an
+// overlay that still exists. A route to one that is gone is evicted, so the
+// id is looked up again and falls to the base. When the overlays can't be
+// listed, the route is kept.
+func (p *Pool) overlayListed(dir string) bool {
+	if dir == "" {
+		return true
+	}
+	overlays, err := p.overlays()
+	if err != nil {
+		return true
+	}
+	if slices.ContainsFunc(overlays, func(o Overlay) bool { return o.ConfigDir == dir }) {
+		return true
+	}
+	p.dropRoutesTo(dir)
+	return false
+}
+
+// dropRoutesTo forgets the routes to config directory dir.
+func (p *Pool) dropRoutesTo(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for id, d := range p.routes {
+		if d == dir {
+			delete(p.routes, id)
+		}
+	}
+}
+
+// clientFor is the Client that runs session id. An unknown id, or one routed
+// to an overlay that is gone, is looked up once by listing every session;
+// one still unknown is the base's.
 func (p *Pool) clientFor(ctx context.Context, id string) *Client {
-	if dir, ok := p.route(id); ok {
+	if dir, ok := p.route(id); ok && p.overlayListed(dir) {
 		return p.client(dir)
 	}
 	if _, err := p.Agents(ctx, ListOptions{All: true}); err != nil {
@@ -132,6 +163,7 @@ func (p *Pool) Agents(ctx context.Context, opts ListOptions) ([]Session, error) 
 	if err != nil {
 		return nil, err
 	}
+	p.dropRoutesExcept(overlays)
 	listed := make([][]Session, len(overlays))
 	runLimited(len(overlays), maxAgentLists, func(i int) {
 		listed[i] = p.listOverlay(ctx, overlays[i].ConfigDir, opts)
@@ -140,6 +172,17 @@ func (p *Pool) Agents(ctx context.Context, opts ListOptions) ([]Session, error) 
 		sessions = append(sessions, group...)
 	}
 	return sessions, nil
+}
+
+// dropRoutesExcept forgets the routes to overlays missing from overlays.
+func (p *Pool) dropRoutesExcept(overlays []Overlay) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for id, dir := range p.routes {
+		if dir != "" && !slices.ContainsFunc(overlays, func(o Overlay) bool { return o.ConfigDir == dir }) {
+			delete(p.routes, id)
+		}
+	}
 }
 
 // listOverlay lists the sessions of the config directory dir, each marked

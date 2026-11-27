@@ -222,6 +222,32 @@ func TestPool_Routing(t *testing.T) {
 		}
 		assert.Equal(t, 3, agents)
 	})
+	t.Run("a route to an overlay that is gone is dropped and the call goes to the base", func(t *testing.T) {
+		t.Parallel()
+		f := newPoolFixture(t, listings)
+		_, err := f.pool.Agents(t.Context(), ListOptions{})
+		require.NoError(t, err)
+		f.pool.overlays = func() ([]Overlay, error) { return []Overlay{f.overlayB}, nil }
+		require.NoError(t, f.pool.Stop(t.Context(), "a1"))
+		calls := f.calls(t)
+		assert.Equal(t, f.base+" stop a1", calls[len(calls)-1])
+		_, routed := f.pool.route("a1")
+		assert.False(t, routed, "the stale route to the removed overlay is evicted")
+	})
+	t.Run("listing drops the routes of overlays that are no longer listed", func(t *testing.T) {
+		t.Parallel()
+		f := newPoolFixture(t, listings)
+		_, err := f.pool.Agents(t.Context(), ListOptions{})
+		require.NoError(t, err)
+		f.pool.overlays = func() ([]Overlay, error) { return []Overlay{f.overlayB}, nil }
+		_, err = f.pool.Agents(t.Context(), ListOptions{})
+		require.NoError(t, err)
+		_, routed := f.pool.route("a1")
+		assert.False(t, routed)
+		dir, routed := f.pool.route("b2")
+		assert.True(t, routed)
+		assert.Equal(t, f.overlayB.ConfigDir, dir)
+	})
 	t.Run("send goes to the config dir the session carries", func(t *testing.T) {
 		t.Parallel()
 		f := newPoolFixture(t, listings)
