@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -83,7 +84,7 @@ func (a *App) newMachineProgressSetCmd() *cobra.Command {
 			if !flags.Changed("name") && !flags.Changed("total") && !flags.Changed("done") && !flags.Changed("note") {
 				return usageErrorf("%s needs at least one of --name, --total, --done, --note", commandName(cmd))
 			}
-			return a.updateProgress(func(p *machine.Progress) {
+			return a.updateProgress(cmd.Context(), func(p *machine.Progress) {
 				if flags.Changed("name") {
 					p.Name = opts.name
 				}
@@ -117,7 +118,7 @@ func (a *App) newMachineProgressStepCmd() *cobra.Command {
 			if by < 1 {
 				return usageErrorf("--by must be at least 1")
 			}
-			return a.updateProgress(func(p *machine.Progress) {
+			return a.updateProgress(cmd.Context(), func(p *machine.Progress) {
 				p.Done += by
 				if cmd.Flags().Changed("note") {
 					p.Note = note
@@ -136,11 +137,8 @@ func (a *App) newMachineProgressShowCmd() *cobra.Command {
 		Short: "Show your progress and your descendants' progress",
 		Args:  noArgs,
 		RunE: runE(a.withConfig(func(cmd *cobra.Command, _ []string) error {
-			node, err := a.callerProgress()
+			node, err := a.callerProgress(cmd.Context())
 			if err != nil {
-				return err
-			}
-			if err := a.nestRemoteProgress(cmd.Context(), &node); err != nil {
 				return err
 			}
 			return a.writeJSON(machineProgressJSON{progressUpdateJSON: a.progressUpdate(&node), Tree: node})
@@ -164,7 +162,7 @@ func (a *App) progressCaller() (caller, root string, err error) {
 // updateProgress applies change to the caller's progress, checks it, writes
 // it, and prints the tree. A record that is invalid is replaced, so an agent
 // can recover by writing again.
-func (a *App) updateProgress(change func(*machine.Progress)) error {
+func (a *App) updateProgress(ctx context.Context, change func(*machine.Progress)) error {
 	caller, root, err := a.progressCaller()
 	if err != nil {
 		return err
@@ -185,7 +183,7 @@ func (a *App) updateProgress(change func(*machine.Progress)) error {
 	if err = store.WriteProgress(root, caller, p); err != nil {
 		return fmt.Errorf("recording %s's progress: %w", caller, err)
 	}
-	node, err := a.callerProgress()
+	node, err := a.callerProgress(ctx)
 	if err != nil {
 		return err
 	}
@@ -193,8 +191,8 @@ func (a *App) updateProgress(change func(*machine.Progress)) error {
 }
 
 // callerProgress is the caller's own progress node, with the tree of its
-// descendants below it.
-func (a *App) callerProgress() (progressNodeJSON, error) {
+// descendants below it and its remote children nested under their parents.
+func (a *App) callerProgress(ctx context.Context) (progressNodeJSON, error) {
 	caller, root, err := a.progressCaller()
 	if err != nil {
 		return progressNodeJSON{}, err
@@ -207,7 +205,11 @@ func (a *App) callerProgress() (progressNodeJSON, error) {
 	if err != nil {
 		return progressNodeJSON{}, err
 	}
-	return progressNode(tree), nil
+	node := progressNode(tree)
+	if err := a.nestRemoteProgress(ctx, &node); err != nil {
+		return progressNodeJSON{}, err
+	}
+	return node, nil
 }
 
 // progressUpdate is the caller's own record and rollup from its node.

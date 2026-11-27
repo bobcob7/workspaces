@@ -584,9 +584,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		child := remoteHelperChild(t)
 		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
 		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		assert.Equal(t, 5, node.Rollup.Total)
 		assert.Equal(t, 2, node.Rollup.Done)
 		require.NotNil(t, node.Rollup.Fraction)
@@ -600,9 +599,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		child.Parent = "a"
 		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 1}
 		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		var local *progressNodeJSON
 		for i := range node.Children {
 			if node.Children[i].ID == "a" {
@@ -622,9 +620,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		writeCallerScope(t, e.app.paths.State, linuxRef)
 		ownSteps(t, e)
 		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		assert.Equal(t, 3, node.Rollup.Total)
 		assert.Equal(t, 1, node.Rollup.Done)
 	})
@@ -635,9 +632,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		child := remoteHelperChild(t)
 		child.Rollup = &envproto.ScopeRollup{Total: 2, Done: 3}
 		serveChildHost(t, e, []envproto.ScopeChild{child}, helperAnswer(t, remoteHelperRecord(t)))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		assert.Equal(t, 3, node.Rollup.Total)
 		assert.Equal(t, 1, node.Rollup.Done)
 		assert.Contains(t, e.app.warnings(), "ignoring the rollup of helper on "+linuxRef.Name+": out of range")
@@ -649,9 +645,8 @@ func TestApp_nestRemoteProgress(t *testing.T) {
 		record.Progress = json.RawMessage(`{"name":"login","total":3,"done":2,"note":null,"updated_at":"2026-11-24T10:00:00Z"}`)
 		record.Rollup = json.RawMessage(`{"total":3,"done":2,"fraction":0.6666666666666666}`)
 		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, record))
-		node, err := e.app.callerProgress()
+		node, err := e.app.callerProgress(t.Context())
 		require.NoError(t, err)
-		require.NoError(t, e.app.nestRemoteProgress(t.Context(), &node))
 		require.Len(t, node.Children, 3)
 		leaf := node.Children[len(node.Children)-1]
 		assert.Equal(t, "helper", leaf.ID)
