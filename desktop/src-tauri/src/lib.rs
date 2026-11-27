@@ -9,6 +9,7 @@ compile_error!("the desktop and online features can't be enabled together");
 mod about;
 mod artifacts;
 mod cache;
+mod citations;
 mod commands;
 mod daemon_host;
 mod env;
@@ -81,6 +82,10 @@ pub fn run() {
             };
             tauri::async_runtime::spawn(state.reviews.clone().run(deps));
             tauri::async_runtime::spawn(loops::tick_forever(state.runner.clone()));
+            tauri::async_runtime::spawn(citations::sweep_forever(
+                state.runner.clone(),
+                state.jobs_dir.clone(),
+            ));
             tauri::async_runtime::spawn(daemon_host::keep_running(
                 state.runner.clone(),
                 daemon_host::Host::App,
@@ -196,6 +201,7 @@ pub fn run() {
             artifacts::artifact_comments,
             artifacts::artifact_comment_add,
             artifacts::artifact_comment_resolve,
+            artifacts::artifact_cite,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app")

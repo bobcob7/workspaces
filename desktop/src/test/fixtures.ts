@@ -728,6 +728,7 @@ export const fakeApi = (overrides: Partial<Api> = {}): Api => ({
   rolesEdit: vi.fn(async (name: string) => roleDetail({ name, source: "override", path: `/c/machine/roles/${name}.md` })),
   rolesRemove: vi.fn(async (name: string) => ({ name, path: `/c/machine/roles/${name}.md`, restored: false })),
   artifactList: vi.fn(async () => []),
+  artifactCite: vi.fn(async () => []),
   artifactShow: vi.fn(async () => {
     throw { code: "artifact_unknown", message: "no such artifact" };
   }),

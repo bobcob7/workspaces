@@ -290,9 +290,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   Not yet: a remote agent's conversation view, stopping a `ws` runner agent
   on a remote, and Windows
 - [x] **Artifacts** ([0078](docs/adrs/0078-artifacts.md), [0079](docs/adrs/0079-artifact-comments-and-anchors.md)): done
-- [ ] **Artifact links** ([0084](docs/adrs/0084-bidirectional-artifact-links.md)): `ws` records reads and citations
-  and lists each artifact's conversations (done); the desktop's in-app links, transcript scan, strip and
-  Conversations section ([tasks](docs/design/artifact-links/tasks.md))
+- [x] **Artifact links** ([0084](docs/adrs/0084-bidirectional-artifact-links.md)): done
 - [ ] **Windows environment agent** ([0081](docs/adrs/0081-windows-environment-agent.md),
   proposed): `ws env agent run` built natively for Windows, with terminals and
   `agent.send` refused (`platform_unsupported`) until ConPTY

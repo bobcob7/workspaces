@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import { toAppError, type AppError, type ConversationItem, type TranscriptChunk } from "../../api";
+import { toAppError, type AppError, type ArtifactSummary, type ConversationItem, type TranscriptChunk } from "../../api";
 import { createAppThunk } from "../../thunk";
 
 export interface Conversation {
@@ -13,11 +13,36 @@ export interface Conversation {
   readonly error: AppError | null;
 }
 
-export interface ConversationsState {
-  readonly bySession: Readonly<Record<string, Conversation>>;
+/** The artifacts a workspace's conversation was part of, for the strip (ADR 0084). */
+export interface LinkedArtifacts {
+  readonly items: ArtifactSummary[];
+  readonly loaded: boolean;
+  /** A read is in flight, so another isn't started and an older answer can't replace a newer one. */
+  readonly loading: boolean;
 }
 
-const initialState: ConversationsState = { bySession: {} };
+export interface ConversationsState {
+  readonly bySession: Readonly<Record<string, Conversation>>;
+  readonly artifactsByWorkspace: Readonly<Record<string, LinkedArtifacts>>;
+}
+
+const initialState: ConversationsState = { bySession: {}, artifactsByWorkspace: {} };
+
+/** How often the strip's list is read again while the conversation is shown. */
+export const linkedArtifactsInterval = 15_000;
+
+/** Reads the artifacts linked to a workspace's conversation. A failure keeps the last list. */
+export const fetchLinkedArtifacts = createAppThunk<readonly ArtifactSummary[], string>(
+  "conversations/linkedArtifacts",
+  async (workspaceId, { extra, rejectWithValue }) => {
+    try {
+      return await extra.api.artifactList(null, null, workspaceId);
+    } catch (err: unknown) {
+      return rejectWithValue(toAppError(err));
+    }
+  },
+  { condition: (workspaceId, { getState }) => getState().conversations.artifactsByWorkspace[workspaceId]?.loading !== true },
+);
 
 /** Most items kept per conversation; older ones are dropped as new ones come. */
 export const maxItems = 2000;
@@ -54,6 +79,23 @@ export const fetchConversation = createAppThunk<Read, TranscriptSource>(
   },
 );
 
+/**
+ * Records that a message sent to a workspace's agent cited artifacts, then
+ * reads the strip again. A failure is dropped: the transcript scan records
+ * the citation later (ADR 0084).
+ */
+export const citeArtifacts = createAppThunk<void, { readonly workspaceId: string; readonly refs: readonly string[] }>(
+  "conversations/cite",
+  async ({ workspaceId, refs }, { extra, dispatch }) => {
+    try {
+      await extra.api.artifactCite(workspaceId, refs);
+    } catch {
+      return;
+    }
+    await dispatch(fetchLinkedArtifacts(workspaceId));
+  },
+);
+
 /** Adds a chunk to what was read before, keeping at most maxItems. */
 export const appendChunk = (current: Conversation, chunk: TranscriptChunk): Conversation => {
   const base = chunk.reset ? empty : current;
@@ -74,6 +116,7 @@ const put = (
   sessionId: string,
   update: (current: Conversation) => Conversation,
 ): ConversationsState => ({
+  ...state,
   bySession: { ...state.bySession, [sessionId]: update(state.bySession[sessionId] ?? empty) },
 });
 
@@ -99,6 +142,19 @@ const conversationsSlice = createSlice({
             : { ...current, loading: false },
         ),
       )
+      .addCase(fetchLinkedArtifacts.pending, (state, action) => {
+        const current = state.artifactsByWorkspace[action.meta.arg];
+        state.artifactsByWorkspace[action.meta.arg] = { items: current?.items ?? [], loaded: current?.loaded ?? false, loading: true };
+      })
+      .addCase(fetchLinkedArtifacts.fulfilled, (state, action) => {
+        state.artifactsByWorkspace[action.meta.arg] = { items: [...action.payload], loaded: true, loading: false };
+      })
+      .addCase(fetchLinkedArtifacts.rejected, (state, action) => {
+        const current = state.artifactsByWorkspace[action.meta.arg];
+        if (current !== undefined) {
+          state.artifactsByWorkspace[action.meta.arg] = { ...current, loading: false };
+        }
+      })
       .addCase(fetchConversation.rejected, (state, action) => {
         const error = action.payload ?? { code: "internal", message: action.error.message ?? "reading failed" };
         return put(state, action.meta.arg.sessionId, (current) => ({

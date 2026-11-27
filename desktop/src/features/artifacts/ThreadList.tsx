@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent, type JSX } from "react";
 import { api, toAppError, type Actor, type Thread } from "../../api";
 import { useAppDispatch } from "../../store";
 import { noticeShown } from "../ui/uiSlice";
+import { LinkedText } from "./LinkedText";
 import styles from "./ThreadList.module.css";
 
 export const actorName = (actor: Actor): string => (actor.kind === "person" ? "you" : (actor.workspace ?? actor.name ?? ""));
@@ -102,7 +103,7 @@ const ThreadItem = ({
       <ul className={styles.comments}>
         {thread.comments.map((comment) => (
           <li key={comment.id}>
-            <span className={styles.author}>{actorName(comment.author)}:</span> {comment.body}
+            <span className={styles.author}>{actorName(comment.author)}:</span> <LinkedText text={comment.body} />
           </li>
         ))}
       </ul>

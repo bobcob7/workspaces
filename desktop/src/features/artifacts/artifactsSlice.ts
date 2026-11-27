@@ -14,8 +14,18 @@ export interface ArtifactsState {
   readonly filter: ArtifactFilter;
   readonly search: string;
   readonly selected: string | null;
+  /** The revision a link asked to show for the selected artifact, null for the latest (ADR 0084). */
+  readonly requestedRev: number | null;
+  /** Whether the list has loaded once, so a missing id means "not in the store". */
+  readonly loaded: boolean;
   /** Files being uploaded, one row each until their upload settles. */
   uploads: { name: string }[];
+}
+
+/** An in-app link to an artifact, and the revision it names. */
+export interface ArtifactLink {
+  readonly id: string;
+  readonly rev: number | null;
 }
 
 const initialState: ArtifactsState = {
@@ -26,6 +36,8 @@ const initialState: ArtifactsState = {
   filter: "all",
   search: "",
   selected: null,
+  requestedRev: null,
+  loaded: false,
   uploads: [],
 };
 
@@ -45,6 +57,7 @@ export const loadArtifacts = createAppThunk<readonly ArtifactSummary[], void>(
       return rejectWithValue(toAppError(err));
     }
   },
+  { condition: (_, { getState }) => !getState().artifacts.loading },
 );
 
 /** Uploads files, then loads the list again, even when a file fails. Resolves to the artifacts made, which stay when a later file fails. */
@@ -93,6 +106,12 @@ const artifactsSlice = createSlice({
     },
     artifactSelected: (state, action: PayloadAction<string | null>) => {
       state.selected = action.payload;
+      state.requestedRev = null;
+    },
+    /** Shows an artifact a conversation linked to, at the revision it named. */
+    artifactLinkOpened: (state, action: PayloadAction<ArtifactLink>) => {
+      state.selected = action.payload.id;
+      state.requestedRev = action.payload.rev;
     },
   },
   extraReducers: (builder) => {
@@ -103,6 +122,7 @@ const artifactsSlice = createSlice({
       })
       .addCase(loadArtifacts.fulfilled, (state, action) => {
         state.loading = false;
+        state.loaded = true;
         state.items = [...action.payload];
       })
       .addCase(loadArtifacts.rejected, (state, action) => {
@@ -126,5 +146,5 @@ const artifactsSlice = createSlice({
   },
 });
 
-export const { artifactFilterChosen, artifactSearchChanged, artifactSelected } = artifactsSlice.actions;
+export const { artifactFilterChosen, artifactSearchChanged, artifactSelected, artifactLinkOpened } = artifactsSlice.actions;
 export const artifactsReducer = artifactsSlice.reducer;

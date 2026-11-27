@@ -182,6 +182,7 @@ pub const COMMANDS: &[&str] = &[
     "artifact_comments",
     "artifact_comment_add",
     "artifact_comment_resolve",
+    "artifact_cite",
 ];
 
 /// Runs `command` with Tauri-style camelCase `args` (`Value::Null` = `{}`).
@@ -754,9 +755,15 @@ pub async fn dispatch(
             )
         }
         "artifact_list" => {
-            let (kind, workspace) =
-                args!(args, { kind: Option<String>, workspace: Option<String> });
-            result(artifacts::artifact_list(State::new(&ctx.state), kind, workspace).await)
+            let (kind, workspace, conversation) = args!(args, {
+                kind: Option<String>,
+                workspace: Option<String>,
+                conversation: Option<String>,
+            });
+            result(
+                artifacts::artifact_list(State::new(&ctx.state), kind, workspace, conversation)
+                    .await,
+            )
         }
         "artifact_show" => {
             let id = args!(args, { id: String });
@@ -797,6 +804,10 @@ pub async fn dispatch(
                 artifacts::artifact_comment_resolve(State::new(&ctx.state), id, thread, reopen)
                     .await,
             )
+        }
+        "artifact_cite" => {
+            let (workspace, refs) = args!(args, { workspace: String, refs: Vec<String> });
+            result(artifacts::artifact_cite(State::new(&ctx.state), workspace, refs).await)
         }
         _ => Err(DispatchError::UnknownCommand(command.to_string())),
     }
@@ -1455,6 +1466,7 @@ list) echo '{{"artifact_id":"art-1a2b3c4d","latest":1,"threads":[{thread}],"warn
 add) echo '{{"artifact_id":"art-1a2b3c4d","thread":{thread},"comment":{comment},"warnings":[]}}' ;;
 resolve) echo '{{"artifact_id":"art-1a2b3c4d","thread":{thread},"warnings":[]}}' ;;
 esac ;;
+cite) echo '{{"workspace":"w-1","recorded":[],"warnings":[]}}' ;;
 esac"#,
             log = log.display()
         )
@@ -1492,8 +1504,16 @@ esac"#,
                 "artifact_comment_resolve",
                 serde_json::json!({"id": id, "thread": "t1", "reopen": true}),
             ),
+            (
+                "artifact_cite",
+                serde_json::json!({"workspace": "w-1", "refs": ["@artifact:art-1a2b3c4d/r2"]}),
+            ),
+            (
+                "artifact_list",
+                serde_json::json!({"kind": null, "workspace": null, "conversation": "w-1"}),
+            ),
         ];
-        assert_eq!(calls.len(), 8);
+        assert_eq!(calls.len(), 10);
         for (command, args) in calls {
             dispatch(&ctx, command, args, None)
                 .await
@@ -1513,6 +1533,8 @@ esac"#,
                 "artifact comment list --json -- art-1a2b3c4d",
                 "artifact comment add --json --body-file - --reply t1 --quote q --line 7 --prefix p --suffix s -- art-1a2b3c4d",
                 "artifact comment resolve --json --reopen -- art-1a2b3c4d t1",
+                "artifact cite --json --workspace=w-1 -- art-1a2b3c4d/r2",
+                "artifact list --json --conversation=w-1 --limit 1000",
             ]
         );
         let stdin = std::fs::read_to_string(log.path().join("calls.stdin")).unwrap();

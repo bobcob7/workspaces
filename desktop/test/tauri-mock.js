@@ -1381,6 +1381,22 @@
       threads: [],
     },
   ];
+  // Conversations each artifact was part of (ADR 0084), as ws artifact show merges them.
+  const conversationRow = (workspace, name, environment, removed, actions, revs, firstAt, lastAt) => ({ workspace, name, environment, removed, actions, revs, firstAt, lastAt });
+  const conversationsById = {
+    "art-00000001": [
+      conversationRow("fix-login-d8efb24f", "fix-login", null, false, ["read", "cited"], [2], "2026-11-23T18:35:00Z", "2026-11-23T18:50:00Z"),
+      conversationRow("build-rig-9c0d1e2f", "build-rig", "win-rig", null, ["cited"], [], "2026-11-23T18:45:00Z", "2026-11-23T18:45:00Z"),
+      conversationRow("pitch-ab12cd34", "pitch", null, false, ["created", "revised", "commented"], [1, 2], "2026-11-23T18:00:00Z", "2026-11-23T18:38:00Z"),
+      conversationRow("cache-spike-0c1d2e3f", "cache-spike", null, true, ["read", "cited"], [1], "2026-11-23T18:05:00Z", "2026-11-23T18:10:00Z"),
+    ],
+    "art-00000002": [conversationRow("fix-login-d8efb24f", "fix-login", null, false, ["read", "cited"], [1], "2026-11-23T17:55:00Z", "2026-11-23T18:40:00Z")],
+    "art-00000003": [
+      conversationRow("fix-login-d8efb24f", "fix-login", null, false, ["cited"], [], "2026-11-23T18:20:00Z", "2026-11-23T18:20:00Z"),
+      conversationRow("fix-ci-77aa01bc", "fix-ci", null, true, ["created"], [1], "2026-11-23T16:10:00Z", "2026-11-23T16:10:00Z"),
+    ],
+  };
+  const conversationsOf = (a) => conversationsById[a.id] ?? (a.createdBy.kind === "agent" ? [conversationRow(a.createdBy.workspace, a.createdBy.name, null, false, ["created"], [1], a.createdAt, a.createdAt)] : []);
   let nextArtifact = 5;
   let nextThread = 5;
   let nextComment = 6;
@@ -1415,6 +1431,8 @@
       updatedAt: a.updatedAt,
       createdBy: a.createdBy,
       threads: threadCounts(a.threads),
+      conversationCount: conversationsOf(a).length,
+      conversation: null,
     };
   };
   const detailOf = (a) => ({
@@ -1428,6 +1446,7 @@
       createdBy: r.createdBy,
       note: r.note,
     })),
+    conversations: conversationsOf(a),
   });
   const kindOfName = (name) => {
     const ext = name.split(".").pop().toLowerCase();
@@ -1450,7 +1469,20 @@
   window.__artifactMock = { readDelayMs: {}, readFail: {}, commentAddFail: false };
 
   const artifactHandlers = {
-    artifact_list: () => artifactStore.map(summaryOf),
+    artifact_list: ({ conversation } = {}) => {
+      if (!conversation) {
+        return artifactStore.map(summaryOf);
+      }
+      return artifactStore
+        .map((a) => ({ a, row: conversationsOf(a).find((c) => c.workspace === conversation) }))
+        .filter(({ row }) => row !== undefined)
+        .sort((x, y) => y.row.lastAt.localeCompare(x.row.lastAt))
+        .map(({ a, row }) => ({ ...summaryOf(a), conversation: { actions: row.actions, revs: row.revs, firstAt: row.firstAt, lastAt: row.lastAt } }));
+    },
+    artifact_cite: ({ refs }) => refs.map((ref) => {
+      const [id, rev] = ref.replace("@artifact:", "").split("/r");
+      return { id, rev: rev === undefined ? null : Number(rev) };
+    }),
     artifact_show: ({ id }) => detailOf(findArtifact(id)),
     artifact_read: async ({ id, rev }) => {
       const found = revisionOf(findArtifact(id), rev);
@@ -1865,6 +1897,12 @@
         { id: "r4", at: "2026-10-24T09:30:31Z", kind: "toolResult", toolUseId: "t1", text: "package auth\n\n// Limiter is a token bucket per IP.", isError: false },
         { id: "r5", at: "2026-10-24T09:31:10Z", kind: "toolUse", toolUseId: "t2", name: "run", summary: "make test", input: "{\"cmd\":\"make test\"}" },
         { id: "r6", at: "2026-10-24T09:31:40Z", kind: "toolResult", toolUseId: "t2", text: "FAIL internal/auth TestThrottle", isError: true },
+      ] : sessionId === "e8cdf5d8" ? [
+        { id: "u1", at: "2026-11-23T18:34:00Z", kind: "user", text: "Implement the pitch in @artifact:art-00000001; the failure looks like @artifact:art-00000002.\n\n(Artifacts art-00000001, art-00000002: run \"ws machine artifact get <id>\" for each, then read the file at the \"path\" it prints.)" },
+        { id: "c1", at: "2026-11-23T18:34:10Z", kind: "toolUse", toolUseId: "g1", name: "Bash", summary: "ws machine artifact get art-00000001", input: "ws machine artifact get art-00000001" },
+        { id: "c2", at: "2026-11-23T18:34:11Z", kind: "toolResult", toolUseId: "g1", text: "{\"artifact\": {\"id\": \"art-00000001\", \"reference\": \"@artifact:art-00000001\"}, \"rev\": 2, \"path\": \"/w/fix-login-d8efb24f/.ws-artifacts/art-00000001/r2/pitch.md\"}", isError: false },
+        { id: "a1", at: "2026-11-23T18:35:00Z", kind: "assistant", text: "I read @artifact:art-00000001/r2. Option B fits; the failing build is in @artifact:art-00000003. To fetch it yourself, run `ws machine artifact get @artifact:art-00000003`." },
+        { id: "a2", at: "2026-11-23T18:36:00Z", kind: "assistant", text: "An older draft, @artifact:art-00c0ffee, was removed." },
       ] : [
         { id: "u1", at: "2026-10-24T09:01:00Z", kind: "user", text: "Check the login rate limit." },
         { id: "a1", at: "2026-10-24T09:01:20Z", kind: "assistant", text: "The limiter is per-IP; I'll look at the middleware." },

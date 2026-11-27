@@ -645,6 +645,34 @@ export interface ArtifactSummary {
   readonly updatedAt: string;
   readonly createdBy: Actor;
   readonly threads: ThreadCounts;
+  /** How many workspaces' conversations the artifact was part of (ADR 0084); absent from an older ws. */
+  readonly conversationCount?: number;
+  /** One workspace's row, only from `artifactList(…, conversation)`. */
+  readonly conversation?: ConversationRow | null;
+}
+
+/** What one workspace did with an artifact (ADR 0084). */
+export type ConversationAction = "created" | "revised" | "commented" | "resolved" | "read" | "cited";
+
+export interface ConversationRow {
+  readonly actions: ConversationAction[];
+  readonly revs: number[];
+  readonly firstAt: string;
+  readonly lastAt: string;
+}
+
+/** A conversation an artifact was part of; `removed` is null for a workspace on another environment. */
+export interface ArtifactConversation extends ConversationRow {
+  readonly workspace: string;
+  readonly name: string | null;
+  readonly environment: string | null;
+  readonly removed: boolean | null;
+}
+
+/** A citation `artifactCite` recorded. */
+export interface CitedRef {
+  readonly id: string;
+  readonly rev: number | null;
 }
 
 export interface Revision {
@@ -659,6 +687,7 @@ export interface Revision {
 
 export interface Artifact extends ArtifactSummary {
   readonly revisions: readonly Revision[];
+  readonly conversations?: readonly ArtifactConversation[];
 }
 
 export interface ArtifactContent {
@@ -1575,8 +1604,13 @@ export const api = {
   rolesAdd: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_add", { name, draft }),
   rolesEdit: async (name: string, draft: RoleDraft): Promise<RoleDetail> => call<RoleDetail>("roles_edit", { name, draft }),
   rolesRemove: async (name: string): Promise<RoleRemoved> => call<RoleRemoved>("roles_remove", { name }),
-  artifactList: async (kind: ArtifactKind | null, workspace: string | null): Promise<readonly ArtifactSummary[]> =>
-    call<ArtifactSummary[]>("artifact_list", { kind, workspace }),
+  artifactList: async (
+    kind: ArtifactKind | null,
+    workspace: string | null,
+    conversation: string | null = null,
+  ): Promise<readonly ArtifactSummary[]> => call<ArtifactSummary[]>("artifact_list", { kind, workspace, conversation }),
+  artifactCite: async (workspace: string, refs: readonly string[]): Promise<readonly CitedRef[]> =>
+    call<CitedRef[]>("artifact_cite", { workspace, refs }),
   artifactShow: async (id: string): Promise<Artifact> => call<Artifact>("artifact_show", { id }),
   artifactRead: async (id: string, rev: number | null): Promise<ArtifactContent> =>
     call<ArtifactContent>("artifact_read", { id, rev }),

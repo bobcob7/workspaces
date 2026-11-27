@@ -13,6 +13,7 @@ import { MarkdownViewer } from "./MarkdownViewer";
 import { TextViewer } from "./TextViewer";
 import { ThreadList } from "./ThreadList";
 import { useArtifactDetail } from "./useArtifactDetail";
+import { ConversationsSection } from "./ConversationsSection";
 import styles from "./ArtifactsPane.module.css";
 
 const bylineOf = (artifact: Artifact): string => {
@@ -214,6 +215,7 @@ const ArtifactDetail = ({ id }: ArtifactDetailProps): JSX.Element => {
               Delete
             </Button>
           </div>
+          <ConversationsSection rows={artifact.conversations ?? []} />
         </header>
       )}
       {error !== null && (
