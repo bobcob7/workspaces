@@ -103,6 +103,7 @@ instead, as described under [Runners](#runners).
 | `--env-scope <name>` | Narrow the child's scope to these environments, a subset of yours; repeatable |
 | `--runner claude\|ws` | Which agent runs the child. Default: the role's `runner` in `[runner.roles]`, else `claude` |
 | `--endpoint <name>` | With `--runner ws`: another endpoint from `config.toml`, instead of the model's. `usage` with `claude` |
+| `--claude-config-dir <mode>` | `auto`, `workspace` or `shared`: the Claude Code config the child runs under ([0085](../adrs/0085-per-workspace-claude-config.md)); `usage` with `--env` or `--runner ws` |
 
 Without `--role`, the prompt after `--` is required (`usage`).
 
@@ -598,6 +599,7 @@ Marks the thread resolved, or with `--reopen` open again. Prints
 | `roles add` and `edit`: an invalid name, description, verdict, var name, or `claude_args`, the same verdict in `pass` and `fail`, an empty `pass` or `fail`, or a prompt that is blank, doesn't parse, or doesn't render with its `vars` | `role_invalid` | 2 |
 | `spawn --role`, `roles show`, `edit`, `rm`: no role has the name | `role_unknown` | 3 |
 | `spawn`: `--runner` isn't `claude` or `ws`; `--endpoint` with `claude`; after a `ws` child's prompt, anything but `--model <m>` | `usage` | 2 |
+| `spawn`: `--claude-config-dir` with `--env` or `--runner ws` | `usage` | 2 |
 | `spawn --runner ws`: no model is configured, or a `[runner]` table is broken | `config_invalid` | 1 |
 | `spawn --runner ws`: the endpoint isn't in `config.toml` | `endpoint_unknown` | 3 |
 | `spawn --runner ws`: the endpoint is unreachable, or the model has no tools | `endpoint_unreachable`, `model_without_tools` | 1 |

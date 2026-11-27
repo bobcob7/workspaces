@@ -1,7 +1,7 @@
 # ws claude
 
 ```
-ws claude [--runner claude|ws] [--endpoint <name>] [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--env <name>] [--env-scope <name>[,<name>...]] [--json] [<spec>...] [-- <claude args>...]
+ws claude [--runner claude|ws] [--endpoint <name>] [--claude-config-dir auto|workspace|shared] [--name <name>] [--offline] [--hidden] [--parent <id>|none] [--env <name>] [--env-scope <name>[,<name>...]] [--json] [<spec>...] [-- <claude args>...]
 ```
 
 Creates a workspace from the repo specs, or an empty one with none, then
@@ -132,6 +132,7 @@ added for an environment.
 | Fetch or clone failed                                  | `fetch_failed`, `clone_failed`, `git_failed` | 1 |
 | `claude` isn't on `PATH`                               | `claude_missing`   | 1    |
 | Claude Code doesn't trust the workspace root; `details.directory` is the directory a person must trust | `claude_untrusted` | 1 |
+| Claude Code isn't signed in for the workspace's own config directory, with `--claude-config-dir workspace` (or `claude.config_dir = "workspace"`) | `claude_signed_out` | 1 |
 | `--env` or `--env-scope` names no environment          | `environment_unknown` | 3 |
 | `--env` or `--env-scope` inside a workspace            | `usage`            | 2    |
 | `--env` with a `--parent` found nowhere                | `workspace_not_found` | 3 |
