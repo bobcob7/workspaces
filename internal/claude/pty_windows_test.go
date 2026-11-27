@@ -103,3 +103,21 @@ func TestClient_Send_windows(t *testing.T) {
 		require.ErrorIs(t, c.Send(t.Context(), s, testMessage), ErrNotInstalled)
 	})
 }
+
+func TestIsBatchFile(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{`C:\nodejs\claude.cmd`, true},
+		{`C:\nodejs\claude.CMD`, true},
+		{`C:\bin\claude.bat`, true},
+		{`C:\bin\Claude.Bat`, true},
+		{`C:\bin\claude.exe`, false},
+		{`C:\bin\claude.cmd.exe`, false},
+		{`C:\bin\claude`, false},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, isBatchFile(tc.path), tc.path)
+	}
+}
