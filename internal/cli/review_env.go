@@ -378,18 +378,22 @@ func (a *App) waitRemoteReview(ctx context.Context, env, id string, timeout time
 			Finished bool             `json:"finished"`
 		}
 		object, err := a.callRemoteObject(ctx, env, envproto.OpReviewStatus, envproto.ReviewRef{Review: id})
-		if err != nil {
+		switch {
+		case hasErrorCode(err, codeEnvironmentOffline):
+			fmt.Fprintf(a.stderr, "ws: %s unreachable, still waiting: %v\n", env, err)
+		case err != nil:
 			return err
-		}
-		if err := decodeRemote(object, env, &status); err != nil {
-			return err
-		}
-		if status.Finished {
-			report, err := a.remoteReport(ctx, env, id)
-			if err != nil {
+		default:
+			if err := decodeRemote(object, env, &status); err != nil {
 				return err
 			}
-			return a.printRemoteReport(&report, env, format, "")
+			if status.Finished {
+				report, err := a.remoteReport(ctx, env, id)
+				if err != nil {
+					return err
+				}
+				return a.printRemoteReport(&report, env, format, "")
+			}
 		}
 		select {
 		case <-ctx.Done():

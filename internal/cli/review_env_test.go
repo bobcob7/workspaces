@@ -361,14 +361,15 @@ func TestApp_waitRemoteReview(t *testing.T) {
 		assert.Equal(t, "review-r-42", asCLIError(err).details["workspace"])
 		assert.EqualValues(t, "working", asCLIError(err).details["status"])
 	})
-	t.Run("offline is environment_offline", func(t *testing.T) {
+	t.Run("offline until the timeout is review_timeout", func(t *testing.T) {
 		e, caller, _ := newEnvOpApp(t, "")
 		e.app.reviewPoll = time.Millisecond
 		caller.CallEnvironmentFunc = func(context.Context, string, daemon.CallRequest) (daemon.CallReply, error) {
 			return daemon.CallReply{}, &daemon.RemoteError{Code: string(codeEnvironmentOffline), Message: "offline"}
 		}
-		err := e.app.waitRemoteReview(t.Context(), "linux-server", "review-r-42", time.Minute)
-		requireCode(t, codeEnvironmentOffline, err)
+		err := e.app.waitRemoteReview(t.Context(), "linux-server", "review-r-42", 20*time.Millisecond)
+		requireCode(t, codeReviewTimeout, err)
+		assert.Contains(t, e.stderr.String(), "ws: linux-server unreachable, still waiting:")
 	})
 	t.Run("an offline blip doesn't end the wait", func(t *testing.T) {
 		e, _, _ := newEnvOpApp(t, "")
