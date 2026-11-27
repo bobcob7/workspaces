@@ -131,6 +131,20 @@ func TestApp_claudeStart(t *testing.T) {
 		assert.NoDirExists(t, filepath.Join(root, "state", "x", "claude"))
 		assert.Empty(t, e.app.warnings())
 	})
+	t.Run("a cancelled start is the context error, not claude_signed_out", func(t *testing.T) {
+		for _, mode := range []string{config.ClaudeConfigWorkspace, config.ClaudeConfigAuto} {
+			e, root, _ := overlayEnv(t)
+			ctx, cancel := context.WithCancel(t.Context())
+			e.claude.SignedInFunc = func(context.Context, string, []string) (bool, string, error) {
+				cancel()
+				return false, "", ctx.Err()
+			}
+			_, _, err := e.app.claudeStart(ctx, ws, mode)
+			require.ErrorIs(t, err, context.Canceled, mode)
+			assert.NoDirExists(t, filepath.Join(root, "state", "x", "claude"))
+			assert.Empty(t, e.app.warnings(), mode)
+		}
+	})
 	t.Run("secrets.env token is passed when the environment lacks it", func(t *testing.T) {
 		e, root, _ := overlayEnv(t)
 		writeSecretsFile(t, root, "CLAUDE_CODE_OAUTH_TOKEN=from-file\n")

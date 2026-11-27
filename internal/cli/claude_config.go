@@ -82,7 +82,8 @@ func (a *App) checkClaudeConfigFlag(flag string, remote bool, runner string) err
 // shared: ("", extra). Otherwise it seeds CONFIG_DIR/state/<id>/claude from
 // the base, adds the sign-in token from secrets.env, and checks sign-in. Not
 // signed in removes the overlay: workspace mode fails claude_signed_out,
-// auto warns and shares the base.
+// auto warns and shares the base. A cancelled ctx removes it and returns the
+// context's error instead.
 func (a *App) claudeStart(ctx context.Context, ws *workspace.Workspace, mode string) (configDir string, extra []string, err error) {
 	shared := []string{"WS_CONFIG_DIR=" + a.paths.Root}
 	if mode == config.ClaudeConfigShared {
@@ -95,6 +96,9 @@ func (a *App) claudeStart(ctx context.Context, ws *workspace.Workspace, mode str
 	}
 	if rmErr := os.RemoveAll(dir); rmErr != nil {
 		a.warned = append(a.warned, fmt.Sprintf("removing the overlay %s: %v", dir, rmErr))
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", nil, ctxErr
 	}
 	if mode == config.ClaudeConfigWorkspace {
 		return "", nil, newError(codeClaudeSignedOut, err)
