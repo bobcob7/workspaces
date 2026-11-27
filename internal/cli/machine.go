@@ -533,6 +533,7 @@ func (a *App) runMachineRm(ctx context.Context, opts *machineRmOptions) error {
 		opts.workspaces = append(directChildren(list, caller), directRemoteIDs(remote, caller)...)
 	}
 	opts.caller = caller
+	opts.root = machine.Root(list, caller)
 	targets := attachRemote(a.rmTargets(opts.workspaces), remote)
 	refuseOutside(targets, descendants(list, caller))
 	return a.removeTargets(ctx, targets, &opts.rmOptions)

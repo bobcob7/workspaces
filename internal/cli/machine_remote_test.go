@@ -473,7 +473,7 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 		writeCallerScope(t, e.app.paths.State, linuxRef)
 		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
 		require.NoError(t, e.app.runMachineRm(t.Context(), removeHelper()))
-		assert.Equal(t, []string{"rm"}, childOpsOf(t, host.Calls()))
+		assert.Equal(t, []string{"record", "rm"}, childOpsOf(t, host.Calls()))
 	})
 	t.Run("--all selects the remote child with no id given", func(t *testing.T) {
 		e := newMachineApp(t)
