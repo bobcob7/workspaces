@@ -93,7 +93,9 @@ func (a *App) claudeStart(ctx context.Context, ws *workspace.Workspace, mode str
 	if err == nil {
 		return dir, extra, nil
 	}
-	_ = os.RemoveAll(dir)
+	if rmErr := os.RemoveAll(dir); rmErr != nil {
+		a.warned = append(a.warned, fmt.Sprintf("removing the overlay %s: %v", dir, rmErr))
+	}
 	if mode == config.ClaudeConfigWorkspace {
 		return "", nil, newError(codeClaudeSignedOut, err)
 	}
