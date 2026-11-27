@@ -1,18 +1,14 @@
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package claude
 
 import (
+	"context"
 	"errors"
-	"os"
-	"syscall"
+	"fmt"
 )
 
-// attachProcAttr has no pty to attach to here: openPTY fails first.
-func attachProcAttr() *syscall.SysProcAttr {
-	return nil
-}
-
-func openPTY() (control, tty *os.File, err error) {
-	return nil, nil, errors.ErrUnsupported
+// startAttach fails: this system has no pseudo-terminals.
+func (c *Client) startAttach(_ context.Context, id string) (attachTerm, error) {
+	return nil, fmt.Errorf("opening a terminal for claude attach %s: %w", id, errors.ErrUnsupported)
 }
