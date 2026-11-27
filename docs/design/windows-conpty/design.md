@@ -183,7 +183,7 @@ either.
 
 ## Getting a `ws.exe` for the branch
 
-- **Every PR and push** (T5): CI job `windows-exe` builds `ws.exe` for
+- **Every pull request and every push to main** (T5): CI job `windows-exe` builds `ws.exe` for
   windows/amd64 and windows/arm64 with `make windows-exe` (the `dist`
   ldflags: `-s -w -X main.version=$(git describe --tags --always --dirty)`,
   `-trimpath`, `CGO_ENABLED=0`) and uploads each with

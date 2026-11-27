@@ -3,7 +3,8 @@ package ptyproc
 
 import "errors"
 
-// ErrUnsupported is returned on systems without the pty ioctls.
+// ErrUnsupported is returned on systems with no pseudo-terminal support: no
+// ptys on the system, or no ConPTY before Windows 1809.
 var ErrUnsupported = errors.New("pseudo-terminals aren't supported on this system")
 
 // Spec is what to run.

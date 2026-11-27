@@ -114,7 +114,7 @@ jobs:
         continue-on-error: true
         run: go test -p 2 ./...
 
-  # ADR 0085: a ws.exe for every push and PR, to try the branch on Windows.
+  # ADR 0085: a ws.exe for every pull request and every push to main, to try the branch on Windows.
   # Download it from the run's Artifacts, or gh run download <id> -n ws-windows-amd64.
   windows-exe:
     strategy:

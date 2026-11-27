@@ -197,7 +197,7 @@ Not verified on Windows, here or in CI:
 
 ### Trying a branch build on Windows
 
-Each pull request and push builds `ws.exe` for Windows in CI. Download
+CI builds `ws.exe` for Windows on every pull request and every push to main. Download
 `ws-windows-amd64` (or `ws-windows-arm64`) from the PR's Checks tab (CI, then
 Summary, then Artifacts), or with `gh run download <run-id> -n ws-windows-amd64`.
 Artifacts are kept for 14 days. To build one yourself, from any OS:
