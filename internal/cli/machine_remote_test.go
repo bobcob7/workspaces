@@ -536,6 +536,47 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, kept.Result)
 	})
+	t.Run("a failing record keeps the child and reports the error", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeInternal), Message: "record broke"}}
+		})
+		requireCode(t, codeInternal, e.app.runMachineRm(t.Context(), removeHelper()))
+		assert.Equal(t, []string{"record"}, childOpsOf(t, host.Calls()))
+	})
+	t.Run("a child its environment no longer has is still removed", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(op string, args envproto.ScopeChildArgs) envproto.Reply {
+			if op == "record" {
+				return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeWorkspaceNotFound), Message: "gone"}}
+			}
+			return helperAnswer(t, remoteHelperRecord(t))(op, args)
+		})
+		require.NoError(t, e.app.runMachineRm(t.Context(), removeHelper()))
+		assert.Equal(t, []string{"record", "rm"}, childOpsOf(t, host.Calls()))
+	})
+	t.Run("an unreachable environment still gets the rm", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		host := serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, func(string, envproto.ScopeChildArgs) envproto.Reply {
+			return envproto.Reply{Error: &envproto.ReplyError{Code: string(codeEnvironmentOffline), Message: "linux is offline"}}
+		})
+		requireCode(t, codeEnvironmentOffline, e.app.runMachineRm(t.Context(), removeHelper()))
+		assert.Equal(t, []string{"record", "rm"}, childOpsOf(t, host.Calls()))
+	})
+	t.Run("--dry-run writes no copy", func(t *testing.T) {
+		e := newMachineApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		serveChildHost(t, e, []envproto.ScopeChild{remoteHelperChild(t)}, helperAnswer(t, remoteHelperRecord(t)))
+		opts := removeHelper()
+		opts.dryRun = true
+		require.NoError(t, e.app.runMachineRm(t.Context(), opts))
+		_, found, err := machine.NewStore(e.app.paths.State).FindRemote("boss", "helper")
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
 	t.Run("a finished child's verdict stays readable after rm", func(t *testing.T) {
 		e := newWaitApp(t)
 		writeCallerScope(t, e.app.paths.State, linuxRef)
