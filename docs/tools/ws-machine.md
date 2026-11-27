@@ -280,7 +280,9 @@ others:
 Prints a descendant's log as JSON: a `ws` child's transcript events, or a
 Claude child's `claude logs` text. Use it instead of `claude logs`, which
 doesn't know runner sessions (`rn-…`). A remote child's reply has
-`environment` and its log as `text`.
+`environment` and its log as `text`. A remote child's `--tail` is at most
+2000 lines, and 0 means 200; `truncated` is true when lines were cut, by the
+tail or to fit the reply.
 
 ## ws machine rm
 
@@ -451,6 +453,9 @@ Output is always JSON, in the same shapes as `ws loop memory`, with
 `"loop"` set to the caller's loop. `updated_by` is the caller's workspace
 id. There's no `clear`. Keys follow the same rules, and `--expect-rev` and
 `--file` work as they do for `ws loop memory`.
+
+A child on another environment is its own root, so it can't use its parent
+loop run's memory: it gets `not_loop_run` even when its parent is a loop run.
 
 ```console
 $ ws machine memory get seen
