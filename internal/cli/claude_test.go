@@ -201,6 +201,12 @@ func TestApp_runClaude(t *testing.T) {
 		assert.Equal(t, "e8cdf5d8", rec.ClaudeSessionID)
 		assert.Empty(t, e.store.RemoveCalls())
 	})
+	t.Run("the session gets WS_CONFIG_DIR", func(t *testing.T) {
+		e := newClaudeEnv(t)
+		require.NoError(t, e.run(t, "fix it"))
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Contains(t, e.claude.StartCalls()[0].Opts.Env, "WS_CONFIG_DIR=/cfg")
+	})
 	t.Run("prints the workspace id, the session id, and the path", func(t *testing.T) {
 		e := newClaudeEnv(t)
 		require.NoError(t, e.run(t, "fix it"))
