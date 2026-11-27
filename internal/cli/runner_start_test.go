@@ -82,13 +82,17 @@ func newRunnerEnv(t *testing.T, toml string) *runnerEnv {
 	return &runnerEnv{mockedApp: e, daemon: d}
 }
 
-// loadRunnerConfig reads toml as config.toml.
+// loadRunnerConfig reads toml as config.toml. Without a [claude] table the
+// session shares the base config directory, as the App tests do.
 func loadRunnerConfig(t *testing.T, toml string) config.Config {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
 	require.NoError(t, os.WriteFile(path, []byte(toml), 0o600))
 	cfg, err := config.ReadFile(path)
 	require.NoError(t, err)
+	if cfg.Claude.ConfigDir == "" {
+		cfg.Claude.ConfigDir = config.ClaudeConfigShared
+	}
 	return cfg
 }
 

@@ -41,7 +41,7 @@ func testPaths() config.Paths {
 }
 
 func testConfig() config.Config {
-	return config.Config{Defaults: config.Defaults{Host: "github.com", Owners: []string{"bobcob7"}}}
+	return config.Config{Defaults: config.Defaults{Host: "github.com", Owners: []string{"bobcob7"}}, Claude: config.Claude{ConfigDir: config.ClaudeConfigShared}}
 }
 
 // newTestApp returns an App whose config loader and repo cache succeed
@@ -54,6 +54,7 @@ func newTestApp() (app *App, stdout, stderr *bytes.Buffer) {
 		},
 	}
 	app = New("test", nil, stdout, stderr, configs, nil)
+	app.config.Claude.ConfigDir = config.ClaudeConfigShared
 	s := stores{cache: stubCache(), workspaces: stubWorkspaces(), lifetime: stubLifetime(), loopData: loop.NewDataStore(testPaths().State)}
 	app.newStores = func(config.Paths, config.Config) stores { return s }
 	app.lifetime = s.lifetime
@@ -238,7 +239,7 @@ func TestNew(t *testing.T) {
 	assert.NotNil(t, app.configs)
 	assert.NotNil(t, app.shell)
 	t.Run("builds a real claude client", func(t *testing.T) {
-		_, ok := app.claude.(*claude.Client)
+		_, ok := app.claude.(*claude.Pool)
 		assert.True(t, ok)
 	})
 	t.Run("logging starts off", func(t *testing.T) {
@@ -960,7 +961,7 @@ func newClaudeE2E(t *testing.T, bgBody string) *claudeE2E {
 	e.trustRoot(t, true)
 	environ := append(slices.Clone(up.Environ), "CLAUDE_CONFIG_DIR="+filepath.Dir(e.claudeJSON))
 	configs := &configLoaderMock{LoadFunc: func(string) (config.Paths, config.Config, error) {
-		return e.paths, config.Config{Defaults: config.Defaults{Host: gittest.Host, Owners: []string{"o"}}}, nil
+		return e.paths, config.Config{Defaults: config.Defaults{Host: gittest.Host, Owners: []string{"o"}}, Claude: config.Claude{ConfigDir: config.ClaudeConfigShared}}, nil
 	}}
 	e.app = New("test", nil, e.stdout, e.stderr, configs, environ)
 	e.app.claude = claude.New(slog.New(slog.NewJSONHandler(io.Discard, nil)), fakeClaudeScript(t, e.scratch, bgBody), environ)
