@@ -110,6 +110,12 @@ func TestAgentOperations_agentStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"workspace":"fix-login-d8efb24f","session":"rn-1","agent":{"id":"rn-1","session_id":"","name":"fix-login-d8efb24f","state":"stopped","status":"","pid":null,"started_at":null}}`, string(got))
 	})
+	t.Run("a ws runner with a process reports its pid", func(t *testing.T) {
+		runnerSession := &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS, State: lifetime.StateWorking, PID: 777}
+		got, err := agentTestOps(agentEntries(runnerSession), listingAgents()).Run(t.Context(), envproto.OpAgentStatus, &envproto.WorkspaceArgs{Workspace: agentWS})
+		require.NoError(t, err)
+		assert.Contains(t, string(got), `"pid":777`)
+	})
 	t.Run("an unknown workspace is workspace_not_found", func(t *testing.T) {
 		_, err := agentTestOps(nil, listingAgents()).Run(t.Context(), envproto.OpAgentStatus, &envproto.WorkspaceArgs{Workspace: "gone"})
 		re, ok := errors.AsType[*envproto.ReplyError](err)
@@ -173,6 +179,37 @@ func TestAgentOperations_agentLogs(t *testing.T) {
 		require.Len(t, result.Lines, 2)
 		assert.Contains(t, result.Lines[1], "nudge")
 		assert.False(t, result.Truncated)
+	})
+	t.Run("a ws runner with no transcript yet has no lines and no error", func(t *testing.T) {
+		runnerSession := &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS, State: lifetime.StateStopped}
+		ops := agentTestOps(agentEntries(runnerSession), listingAgents())
+		ops.app.paths = config.NewPaths(t.TempDir())
+		got, err := ops.Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"workspace":"fix-login-d8efb24f","session":"rn-1","lines":[],"truncated":false}`, string(got))
+	})
+	t.Run("a ws runner's tail keeps the last events and says truncated", func(t *testing.T) {
+		runnerSession := &lifetime.Session{Kind: lifetime.KindAgent, ID: "rn-1", Runner: lifetime.RunnerWS, State: lifetime.StateStopped}
+		ops := agentTestOps(agentEntries(runnerSession), listingAgents())
+		ops.app.paths = config.NewPaths(t.TempDir())
+		files := runner.FilesFor(ops.app.paths.State, agentWS)
+		require.NoError(t, os.MkdirAll(files.Dir, 0o700))
+		tr, err := agent.OpenTranscript(files.Transcript(), nil)
+		require.NoError(t, err)
+		for i := range 250 {
+			require.NoError(t, tr.Write(agent.Event{Step: i + 1, Kind: "nudge", Payload: agent.NudgeEvent{Reason: "repeat"}}))
+		}
+		require.NoError(t, tr.Close())
+		got, err := ops.Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS})
+		require.NoError(t, err)
+		var result envproto.AgentLogsResult
+		require.NoError(t, json.Unmarshal(got, &result))
+		assert.Len(t, result.Lines, 200)
+		assert.True(t, result.Truncated)
+		got, err = ops.Run(t.Context(), envproto.OpAgentLogs, &envproto.LogsArgs{Workspace: agentWS, Tail: 1})
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(got, &result))
+		assert.Len(t, result.Lines, 1)
 	})
 	t.Run("a tail keeps that many lines", func(t *testing.T) {
 		ops := agentTestOps(agentEntries(claudeSession()), logsOf(numbered(3000)))
