@@ -36,6 +36,8 @@ func (s *Store) Remove(id string, opts RemoveOptions) error {
 			return fmt.Errorf("removing %s: %w", target, err)
 		}
 	}
+	// Untrust first: the Claude pool finds the workspace's overlay config
+	// from state, so it must still exist (ADR 0085).
 	s.untrust(ws.ID)
 	if err := os.RemoveAll(s.stateOf(ws.ID)); err != nil {
 		return fmt.Errorf("removing state for %s: %w", ws.ID, err)

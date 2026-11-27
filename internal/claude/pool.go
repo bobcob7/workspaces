@@ -271,7 +271,9 @@ func (p *Pool) Trust(ctx context.Context, dir, parent string, record func(dir st
 	return c.Trust(ctx, dir, parent, record)
 }
 
-// Untrust undoes Trust for dir in the same config Trust used.
+// Untrust undoes Trust for dir in the same config Trust used. It finds the
+// overlay by listing them, so callers must untrust before they remove the
+// workspace's overlay; after that it reaches the base's config instead.
 func (p *Pool) Untrust(dir string, created bool) error {
 	c, err := p.clientForWorkspace(dir)
 	if err != nil {
