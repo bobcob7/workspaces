@@ -154,6 +154,38 @@ func TestApp_claudeStart(t *testing.T) {
 		require.Len(t, e.claude.SignedInCalls(), 1)
 		assert.Equal(t, extra, e.claude.SignedInCalls()[0].Extra)
 	})
+	t.Run("secrets.env API key is passed too", func(t *testing.T) {
+		e, root, _ := overlayEnv(t)
+		writeSecretsFile(t, root, "ANTHROPIC_API_KEY=key-from-file\n")
+		_, extra, err := e.app.claudeStart(t.Context(), ws, config.ClaudeConfigAuto)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"ANTHROPIC_API_KEY=key-from-file", "WS_CONFIG_DIR=" + root}, extra)
+	})
+	t.Run("an unreadable secrets.env warns and the start goes on without it", func(t *testing.T) {
+		e, root, _ := overlayEnv(t)
+		writeSecretsFile(t, root, "not a secret line\n")
+		dir, extra, err := e.app.claudeStart(t.Context(), ws, config.ClaudeConfigAuto)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(root, "state", "x", "claude"), dir)
+		assert.Equal(t, []string{"WS_CONFIG_DIR=" + root}, extra)
+		require.Len(t, e.app.warnings(), 1)
+		assert.Contains(t, e.app.warnings()[0], config.SecretsFile)
+	})
+	t.Run("an overlay that can't be removed is a warning and the fallback still happens", func(t *testing.T) {
+		e, root, _ := overlayEnv(t)
+		stateDir := filepath.Join(root, "state", "x")
+		e.claude.SignedInFunc = func(context.Context, string, []string) (bool, string, error) {
+			require.NoError(t, os.Chmod(stateDir, 0o500))
+			t.Cleanup(func() { _ = os.Chmod(stateDir, 0o700) })
+			return false, "not signed in", nil
+		}
+		dir, _, err := e.app.claudeStart(t.Context(), ws, config.ClaudeConfigAuto)
+		require.NoError(t, err)
+		assert.Empty(t, dir)
+		require.Len(t, e.app.warnings(), 2)
+		assert.Contains(t, e.app.warnings()[0], "removing the overlay")
+		assert.Contains(t, e.app.warnings()[1], "isn't signed in")
+	})
 	t.Run("the environment's token is not duplicated", func(t *testing.T) {
 		e, root, base := overlayEnv(t)
 		e.app.environ = []string{"CLAUDE_CONFIG_DIR=" + base, "CLAUDE_CODE_OAUTH_TOKEN=from-env"}
