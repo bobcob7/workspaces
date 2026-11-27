@@ -233,11 +233,11 @@ func (o *agentOperations) agentSend(ctx context.Context, args *envproto.SendArgs
 	if err != nil {
 		return nil, err
 	}
-	agent := findAgent(sessions, s.ID)
-	if agent == nil {
+	found := findAgent(sessions, s.ID)
+	if found == nil {
 		return nil, &envproto.ReplyError{Code: string(codeClaudeFailed), Message: "Claude Code doesn't list session " + s.ID}
 	}
-	err = o.app.claude.Send(ctx, agent, args.Message)
+	err = o.app.claude.Send(ctx, found, args.Message)
 	if errors.Is(err, claude.ErrNotDelivered) {
 		return nil, &envproto.ReplyError{Code: string(codeClaudeFailed), Message: err.Error()}
 	}
@@ -289,7 +289,7 @@ func (o *agentOperations) agentStop(ctx context.Context, args *envproto.Workspac
 
 // snapshotAgent converts a claude.Session; PID 0 and a zero StartedAt are null.
 func snapshotAgent(s *claude.Session) envproto.SnapshotAgent {
-	agent := envproto.SnapshotAgent{
+	snap := envproto.SnapshotAgent{
 		ID:        s.ID,
 		SessionID: s.SessionID,
 		Name:      s.Name,
@@ -297,10 +297,10 @@ func snapshotAgent(s *claude.Session) envproto.SnapshotAgent {
 		Status:    s.Status,
 	}
 	if s.PID != 0 {
-		agent.PID = new(s.PID)
+		snap.PID = new(s.PID)
 	}
 	if !s.StartedAt.IsZero() {
-		agent.StartedAt = new(s.StartedAt.UTC())
+		snap.StartedAt = new(s.StartedAt.UTC())
 	}
-	return agent
+	return snap
 }
