@@ -139,6 +139,8 @@ type shellRunner interface {
 type claudeClient interface {
 	Check(ctx context.Context) error
 	Start(ctx context.Context, opts claude.StartOptions) (claude.Started, error)
+	// SignedIn reports whether claude is signed in with dir and extra (ADR 0085).
+	SignedIn(ctx context.Context, dir string, extra []string) (bool, string, error)
 	Trust(ctx context.Context, dir, parent string, record func(dir string, created bool) error) error
 	Untrust(dir string, created bool) error
 	Attach(ctx context.Context, id string) error

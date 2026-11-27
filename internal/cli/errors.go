@@ -25,6 +25,7 @@ const (
 	codeGitFailed         errorCode = "git_failed"
 	codeClaudeMissing     errorCode = "claude_missing"
 	codeClaudeUntrusted   errorCode = "claude_untrusted"
+	codeClaudeSignedOut   errorCode = "claude_signed_out"
 	codeClaudeFailed      errorCode = "claude_failed"
 	codeInternal          errorCode = "internal"
 	codeConfigInvalid     errorCode = "config_invalid"
@@ -162,7 +163,7 @@ func (e *cliError) exitCode() int {
 func (c errorCode) exitCode() int {
 	switch c {
 	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing,
-		codeClaudeUntrusted, codeClaudeFailed, codeInternal, codeConfigInvalid,
+		codeClaudeUntrusted, codeClaudeSignedOut, codeClaudeFailed, codeInternal, codeConfigInvalid,
 		codeReviewInvalid, codeReviewUnverifiable, codeReviewTimeout, codeGhMissing, codeGhAuth,
 		codeLoopScriptFailed, codeChildFailed, codeWaitTimeout, codeConfigUneditable, codeDaemonUnavailable,
 		codeEndpointUnreachable, codeModelWithoutTools, codeRunnerFailed, codeEnrollmentFailed,
@@ -191,7 +192,7 @@ func (c errorCode) exitCode() int {
 // newer remote ws answered with.
 func (c errorCode) known() bool {
 	switch c {
-	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing, codeClaudeUntrusted,
+	case codeFetchFailed, codeCloneFailed, codeGitFailed, codeClaudeMissing, codeClaudeUntrusted, codeClaudeSignedOut,
 		codeClaudeFailed, codeInternal, codeConfigInvalid, codeUsage, codeSpecInvalid, codeNameInvalid,
 		codeRepoNotFound, codeRepoAmbiguous, codeRefNotFound, codeWorkspaceNotFound, codeWorkspaceExists,
 		codeShellRunning, codeWorkspaceBusy, codeSessionMismatch, codeReviewInvalid, codeReviewUnverifiable,

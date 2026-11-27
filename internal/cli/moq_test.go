@@ -1926,6 +1926,9 @@ var _ claudeClient = &claudeClientMock{}
 //			SendFunc: func(ctx context.Context, s *claude.Session, message string) error {
 //				panic("mock out the Send method")
 //			},
+//			SignedInFunc: func(ctx context.Context, dir string, extra []string) (bool, string, error) {
+//				panic("mock out the SignedIn method")
+//			},
 //			StartFunc: func(ctx context.Context, opts claude.StartOptions) (claude.Started, error) {
 //				panic("mock out the Start method")
 //			},
@@ -1983,6 +1986,9 @@ type claudeClientMock struct {
 
 	// SendFunc mocks the Send method.
 	SendFunc func(ctx context.Context, s *claude.Session, message string) error
+
+	// SignedInFunc mocks the SignedIn method.
+	SignedInFunc func(ctx context.Context, dir string, extra []string) (bool, string, error)
 
 	// StartFunc mocks the Start method.
 	StartFunc func(ctx context.Context, opts claude.StartOptions) (claude.Started, error)
@@ -2073,6 +2079,15 @@ type claudeClientMock struct {
 			// Message is the message argument value.
 			Message string
 		}
+		// SignedIn holds details about calls to the SignedIn method.
+		SignedIn []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Dir is the dir argument value.
+			Dir string
+			// Extra is the extra argument value.
+			Extra []string
+		}
 		// Start holds details about calls to the Start method.
 		Start []struct {
 			// Ctx is the ctx argument value.
@@ -2129,6 +2144,7 @@ type claudeClientMock struct {
 	lockRespawn      sync.RWMutex
 	lockRunDaemon    sync.RWMutex
 	lockSend         sync.RWMutex
+	lockSignedIn     sync.RWMutex
 	lockStart        sync.RWMutex
 	lockStop         sync.RWMutex
 	lockStopDaemon   sync.RWMutex
@@ -2514,6 +2530,46 @@ func (mock *claudeClientMock) SendCalls() []struct {
 	mock.lockSend.RLock()
 	calls = mock.calls.Send
 	mock.lockSend.RUnlock()
+	return calls
+}
+
+// SignedIn calls SignedInFunc.
+func (mock *claudeClientMock) SignedIn(ctx context.Context, dir string, extra []string) (bool, string, error) {
+	if mock.SignedInFunc == nil {
+		panic("claudeClientMock.SignedInFunc: method is nil but claudeClient.SignedIn was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Dir   string
+		Extra []string
+	}{
+		Ctx:   ctx,
+		Dir:   dir,
+		Extra: extra,
+	}
+	mock.lockSignedIn.Lock()
+	mock.calls.SignedIn = append(mock.calls.SignedIn, callInfo)
+	mock.lockSignedIn.Unlock()
+	return mock.SignedInFunc(ctx, dir, extra)
+}
+
+// SignedInCalls gets all the calls that were made to SignedIn.
+// Check the length with:
+//
+//	len(mockedclaudeClient.SignedInCalls())
+func (mock *claudeClientMock) SignedInCalls() []struct {
+	Ctx   context.Context
+	Dir   string
+	Extra []string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Dir   string
+		Extra []string
+	}
+	mock.lockSignedIn.RLock()
+	calls = mock.calls.SignedIn
+	mock.lockSignedIn.RUnlock()
 	return calls
 }
 

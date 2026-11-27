@@ -21,16 +21,18 @@ import (
 )
 
 type claudeOptions struct {
-	name       string
-	offline    bool
-	hidden     bool
-	parent     string
-	env        string
-	runner     string
-	endpoint   string
-	envScope   []string
-	specs      []string
-	claudeArgs []string
+	name     string
+	offline  bool
+	hidden   bool
+	parent   string
+	env      string
+	runner   string
+	endpoint string
+	envScope []string
+	// claudeConfigDir is --claude-config-dir: the mode, "" for the variable and key (ADR 0085).
+	claudeConfigDir string
+	specs           []string
+	claudeArgs      []string
 	// scope, when set, is the scope the new workspace gets; ws machine spawn
 	// sets it. Otherwise it comes from the parent or the person's grant (ADR 0082).
 	scope *childScope
@@ -62,6 +64,7 @@ func (a *App) newClaudeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.parent, "parent", "", "the workspace this one is removed with, or none; default: the one ws runs in")
 	cmd.Flags().StringVar(&opts.env, "env", "", "run it on this environment (ws env list); default: local, or the parent's")
 	cmd.Flags().StringVar(&opts.runner, "runner", config.RunnerClaude, "claude or ws: which agent runs it; a ws agent needs a prompt and can't be attached")
+	cmd.Flags().StringVar(&opts.claudeConfigDir, "claude-config-dir", "", "auto, workspace or shared: the Claude Code config the session runs under (ADR 0085); default: WS_CLAUDE_CONFIG_DIR, then [claude] config_dir, then auto")
 	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "with --runner ws, another endpoint from config.toml")
 	cmd.Flags().StringSliceVar(&opts.envScope, "env-scope", nil, "environments the new workspace may start children on (ws env list, or local); repeatable")
 	return cmd
@@ -205,11 +208,9 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err = a.refuseRemoteInWorkspace(runOn); err != nil {
 		return err
 	}
-	opts.claudeArgs, err = a.artifactHints(opts.claudeArgs, runOn)
-	if err != nil {
+	if err = a.prepareClaude(opts, runOn); err != nil {
 		return err
 	}
-	opts.cited = promptCitations(opts.claudeArgs)
 	if runOn != "" {
 		return a.runRemoteClaude(ctx, opts, runOn, parentID)
 	}
@@ -233,7 +234,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 		return domainError(err)
 	}
 	defer lock.Unlock()
-	started, hungUp, err := a.handOff(ctx, &ws, opts.claudeArgs)
+	started, hungUp, err := a.handOff(ctx, &ws, opts.claudeArgs, opts.claudeConfigDir)
 	if err != nil {
 		return err
 	}
@@ -247,6 +248,18 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 		return nil
 	}
 	return a.printClaudeResult(&ws, started.ID, opts.result)
+}
+
+// prepareClaude fills in the prompt's artifact hints and citations, and
+// refuses a --claude-config-dir that the remote or the ws runner decides.
+func (a *App) prepareClaude(opts *claudeOptions, runOn string) error {
+	var err error
+	opts.claudeArgs, err = a.artifactHints(opts.claudeArgs, runOn)
+	if err != nil {
+		return err
+	}
+	opts.cited = promptCitations(opts.claudeArgs)
+	return a.checkClaudeConfigFlag(opts.claudeConfigDir, runOn != "", opts.runner)
 }
 
 // refuseRemoteInWorkspace refuses a start on environment runOn from inside a
@@ -507,10 +520,10 @@ func (a *App) runWSClaude(ctx context.Context, opts *claudeOptions) error {
 // can't kill ws between starting `claude --bg` and writing the session
 // record (ADR 0025). hungUp reports whether SIGHUP arrived meanwhile.
 // SIGQUIT isn't caught: it stays the way out of a `claude --bg` that hangs.
-func (a *App) handOff(ctx context.Context, ws *workspace.Workspace, args []string) (started claude.Started, hungUp bool, err error) {
+func (a *App) handOff(ctx context.Context, ws *workspace.Workspace, args []string, mode string) (started claude.Started, hungUp bool, err error) {
 	hangups := make(chan os.Signal, 1)
 	a.notify(hangups, syscall.SIGHUP)
-	started, err = a.startAgent(ctx, ws, args)
+	started, err = a.startAgent(ctx, ws, args, mode)
 	a.stopNotify(hangups)
 	return started, len(hangups) > 0, err
 }
@@ -520,12 +533,22 @@ func (a *App) handOff(ctx context.Context, ws *workspace.Workspace, args []strin
 // session that started but couldn't be recorded, are removed. Once
 // started, `claude --bg` runs to its end whatever happens to ctx, so an
 // interruption before then removes the workspace instead of starting it.
-func (a *App) startAgent(ctx context.Context, ws *workspace.Workspace, args []string) (claude.Started, error) {
+func (a *App) startAgent(ctx context.Context, ws *workspace.Workspace, args []string, mode string) (claude.Started, error) {
 	if err := ctx.Err(); err != nil {
 		a.removeWorkspace(ws.ID)
 		return claude.Started{}, fmt.Errorf("creating workspace %s: %w", ws.ID, err)
 	}
-	started, err := a.claude.Start(ctx, claude.StartOptions{Dir: a.agentDir(ctx, ws), Name: ws.ID, Args: args})
+	configMode, err := a.claudeConfigMode(mode)
+	if err != nil {
+		a.removeWorkspace(ws.ID)
+		return claude.Started{}, err
+	}
+	configDir, extra, err := a.claudeStart(ctx, ws, configMode)
+	if err != nil {
+		a.removeWorkspace(ws.ID)
+		return claude.Started{}, err
+	}
+	started, err := a.claude.Start(ctx, claude.StartOptions{Dir: a.agentDir(ctx, ws), Name: ws.ID, Args: args, ConfigDir: configDir, Env: extra})
 	if err != nil {
 		a.removeWorkspace(ws.ID)
 		return claude.Started{}, a.startError(err)
