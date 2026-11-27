@@ -180,18 +180,35 @@ in Command Prompt:
 schtasks /Create /SC ONLOGON /TN ws-env-agent /TR "\"%LocalAppData%\Programs\ws\ws.exe\" env agent run"
 ```
 
-Terminals and `agent.send` are refused with `platform_unsupported` until
-ConPTY is built. WSL2 is the alternative: run the Linux agent inside WSL2.
+Terminals and `agent.send` run on ConPTY (Windows 10 1809 or later; ADR 0085).
+`ws attach` and `ws shell --env` work from a Linux or macOS controller; a
+Windows controller can't attach yet. WSL2 remains an alternative.
 
 Not verified on Windows, here or in CI:
 
 - whether the `claude` background commands (`--bg`, `agents`, `logs`,
   `attach`, `stop`, `daemon run`) exist and behave on native Windows;
-- `claude attach` in a terminal, since ConPTY isn't built;
+- `claude attach` on native Windows in a remote terminal (built on ConPTY,
+  tested in CI only with cmd.exe and a fake claude);
 - a real Task Scheduler run, including ending it and logging off;
 - that another local user can't read the agent's key or the daemon socket;
 - paths over 260 characters without `LongPathsEnabled`, and antivirus or
   sharing violations on files the agent writes.
+
+### Trying a branch build on Windows
+
+Each pull request and push builds `ws.exe` for Windows in CI. Download
+`ws-windows-amd64` (or `ws-windows-arm64`) from the PR's Checks tab (CI, then
+Summary, then Artifacts), or with `gh run download <run-id> -n ws-windows-amd64`.
+Artifacts are kept for 14 days. To build one yourself, from any OS:
+
+```bash
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+  -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)" \
+  -o ws.exe ./cmd/ws
+```
+
+Then `ws.exe --version` prints the branch's `git describe`.
 
 ## Agent commands
 
@@ -427,7 +444,7 @@ the fallback.
 | A name already taken, an enrollment on a machine already enrolled | `environment_exists` | 4 |
 | A code already used | `enrollment_used` | 4 |
 | The agent already has 8 terminals open | `terminal_limit` | 4 |
-| The agent's OS has no pty support (today Windows): terminals and `agent.send` are refused (ADR 0081) | `platform_unsupported` | 1 |
+| The agent's OS has no pseudo-terminals (not Linux, macOS, or Windows 10 1809+): terminals and `agent.send` are refused (ADR 0081, 0085) | `platform_unsupported` | 1 |
 | `--finish` while environments hold old-CA certificates | `ca_in_use` | 4 |
 | Enrollment refused, or a certificate has expired | `enrollment_failed` | 1 |
 
