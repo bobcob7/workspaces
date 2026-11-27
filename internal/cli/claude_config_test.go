@@ -219,7 +219,7 @@ func TestApp_runClaude_claudeConfigDir(t *testing.T) {
 
 func TestApp_runMachineSpawn_claudeConfigDir(t *testing.T) {
 	t.Run("the flag reaches the child's start", func(t *testing.T) {
-		e := newClaudeEnv(t)
+		e, root, _ := overlayEnv(t)
 		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
 			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
 		}
@@ -228,6 +228,16 @@ func TestApp_runMachineSpawn_claudeConfigDir(t *testing.T) {
 		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
 		require.Len(t, e.claude.StartCalls(), 1)
 		assert.Empty(t, e.claude.StartCalls()[0].Opts.ConfigDir)
+		assert.Equal(t, []string{"WS_CONFIG_DIR=" + root}, e.claude.StartCalls()[0].Opts.Env)
+	})
+	t.Run("without the flag the child runs under the workspace's directory", func(t *testing.T) {
+		e, root, _ := overlayEnv(t)
+		e.store.ContainingFunc = func(string) (workspace.Workspace, error) {
+			return workspace.Workspace{ID: "fix-login-d8efb24f"}, nil
+		}
+		require.NoError(t, e.app.runMachineSpawn(t.Context(), spawnOptions("fix it")))
+		require.Len(t, e.claude.StartCalls(), 1)
+		assert.Equal(t, filepath.Join(root, "state", "x", "claude"), e.claude.StartCalls()[0].Opts.ConfigDir)
 	})
 	t.Run("with --runner ws it is usage", func(t *testing.T) {
 		e := newClaudeEnv(t)
