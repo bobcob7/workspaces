@@ -370,6 +370,26 @@ func TestApp_waitRemoteReview(t *testing.T) {
 		err := e.app.waitRemoteReview(t.Context(), "linux-server", "review-r-42", time.Minute)
 		requireCode(t, codeEnvironmentOffline, err)
 	})
+	t.Run("an offline blip doesn't end the wait", func(t *testing.T) {
+		e, _, _ := newEnvOpApp(t, "")
+		e.app.reviewPoll = time.Millisecond
+		reports := pagedCaller(reportPages)
+		var statusCalls int
+		caller := &environmentCallerMock{CallEnvironmentFunc: func(ctx context.Context, name string, req daemon.CallRequest) (daemon.CallReply, error) {
+			if req.Op == envproto.OpReviewReport {
+				return reports.CallEnvironment(ctx, name, req)
+			}
+			statusCalls++
+			if statusCalls == 1 {
+				return daemon.CallReply{}, &daemon.RemoteError{Code: string(codeEnvironmentOffline), Message: "offline"}
+			}
+			return daemon.CallReply{Reply: json.RawMessage(statusReply("idle", true))}, nil
+		}}
+		useCaller(e.app, caller)
+		require.NoError(t, e.app.waitRemoteReview(t.Context(), "linux-server", "review-r-42", time.Minute))
+		assert.Equal(t, 2, statusCalls)
+		assert.Contains(t, e.stderr.String(), "ws: linux-server unreachable, still waiting:")
+	})
 	t.Run("a non-positive timeout is usage", func(t *testing.T) {
 		e, _, _ := newEnvOpApp(t, statusReply("idle", true))
 		err := e.app.waitRemoteReview(t.Context(), "linux-server", "review-r-42", 0)
