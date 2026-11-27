@@ -204,9 +204,9 @@ func TestSeedOverlay(t *testing.T) {
 			"mcpServers":   map[string]any{"docs": map[string]any{"command": "docs-mcp"}},
 			"oauthAccount": map[string]any{"emailAddress": "a@example.test"},
 			"projects": map[string]any{
-				f.root:                 map[string]any{"hasTrustDialogAccepted": true, "allowedTools": []any{}},
-				parent:                 map[string]any{"hasTrustDialogAccepted": true, "lastCost": 0.25},
-				"/unrelated":           map[string]any{"hasTrustDialogAccepted": true},
+				f.root:       map[string]any{"hasTrustDialogAccepted": true, "allowedTools": []any{}},
+				parent:       map[string]any{"hasTrustDialogAccepted": true, "lastCost": 0.25},
+				"/unrelated": map[string]any{"hasTrustDialogAccepted": true},
 				filepath.Join(f.root, "x", "api", "deeper"): map[string]any{"hasTrustDialogAccepted": true},
 			},
 		})
