@@ -259,6 +259,7 @@ func (a *App) runMachineSpawn(ctx context.Context, opts *machineSpawnOptions) er
 	if err != nil {
 		return err
 	}
+	// Only the flag is checked here; its mode value is validated later, in startAgent.
 	if err = checkClaudeConfigDirFlag(opts.claudeConfigDir, remote, which); err != nil {
 		return err
 	}
