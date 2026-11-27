@@ -104,8 +104,11 @@ the session can't be recorded or the shell can't be started, the
 workspace is removed and `ws` fails with `internal` (exit 1). Otherwise
 `ws shell` exits with the shell's exit code. With `--env`: `environment_unknown`
 (exit 3), `environment_offline` and `environment_outdated` (exit 1),
-`platform_unsupported` (exit 1, when the environment's OS has no pty support,
-today Windows), and `terminal_limit` (exit 4).
+`platform_unsupported` (exit 1, when the environment's OS has no pseudo-terminals:
+not Linux, macOS, or Windows 10 1809+), and `terminal_limit` (exit 4).
+
+On a Windows environment the shell is `%COMSPEC%` (normally `cmd.exe`) and
+starts in the agent user's home (`USERPROFILE` when `HOME` is unset).
 
 ## See also
 
