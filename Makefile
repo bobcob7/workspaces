@@ -6,10 +6,17 @@ PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 win
 # filtered from packages that also have unix-only tests.
 WINDOWS_TESTS := ./internal/lockfile ./internal/privfile ./internal/procgroup ./internal/envproto ./internal/redact ./internal/power ./internal/llm ./internal/telemetry
 
-.PHONY: build test test-windows fakes e2e-runner lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
+.PHONY: build windows-exe test test-windows fakes e2e-runner lint fmt generate dist clean desktop desktop-dev desktop-test online online-image online-smoke
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN)/ws ./cmd/ws
+
+# windows-exe builds ws.exe for one Windows architecture with the release
+# flags, for trying a branch on Windows (ADR 0086):
+# make windows-exe WINARCH=arm64 -> dist/windows-arm64/ws.exe
+WINARCH ?= amd64
+windows-exe:
+	CGO_ENABLED=0 GOOS=windows GOARCH=$(WINARCH) go build -trimpath -ldflags "$(LDFLAGS)" -o dist/windows-$(WINARCH)/ws.exe ./cmd/ws
 
 test:
 	go test ./...
@@ -19,15 +26,16 @@ test:
 # exits nonzero if any failed.
 test-windows:
 	rc=0; \
+	go test -p 2 -v ./internal/ptyproc || rc=1; \
 	go test -p 2 $(WINDOWS_TESTS) || rc=1; \
 	go test -p 2 -run 'TestSocketBaseDir|TestPrepareSocketDir' ./internal/daemon || rc=1; \
-	go test -p 2 -run TestHasPathPrefix ./internal/envagent || rc=1; \
+	go test -p 2 -v -run 'TestHasPathPrefix|TestTerminals_conpty' ./internal/envagent || rc=1; \
 	go test -p 2 -run TestFindSh ./internal/gate || rc=1; \
 	go test -p 2 -run TestUserBaseDir ./internal/config || rc=1; \
 	go test -p 2 -run TestRunner_program ./internal/shell || rc=1; \
-	go test -p 2 -run TestUserHome ./internal/claude || rc=1; \
+	go test -p 2 -v -run 'TestUserHome|TestClient_Send_windows|TestIsBatchFile' ./internal/claude || rc=1; \
 	go test -p 2 -run TestTerminalSignals ./internal/cli || rc=1; \
-	go test -p 2 -run 'TestTerminalEnvAllowed_windows|TestExecutableNames|TestLookPathIn_windows|TestAgentOperations_TerminalCommand_windows' ./internal/cli || rc=1; \
+	go test -p 2 -run 'TestTerminalEnvAllowed_windows|TestExecutableNames|TestLookPathIn_windows|TestAgentOperations_TerminalCommand_windows|TestHomeOf_windows' ./internal/cli || rc=1; \
 	exit $$rc
 
 # The fakes (ADR 0067) are test tools, built here and never shipped.

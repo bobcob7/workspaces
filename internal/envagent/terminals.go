@@ -220,9 +220,10 @@ func (m *terminals) open(ctx context.Context, args *envproto.TerminalOpenArgs) (
 	return json.Marshal(envproto.TerminalOpenResult{SID: t.sid, Workspace: cmd.Workspace, Session: cmd.Session})
 }
 
-// errPlatformUnsupported refuses a terminal on a system without pseudo-terminals.
+// errPlatformUnsupported refuses a terminal on a system without pseudo-terminals
+// (ADR 0086: any OS but linux, darwin and Windows 10 1809+).
 func errPlatformUnsupported() *envproto.ReplyError {
-	return &envproto.ReplyError{Code: "platform_unsupported", Message: "terminals aren't supported on " + runtime.GOOS + " agents yet (ADR 0081)"}
+	return &envproto.ReplyError{Code: "platform_unsupported", Message: "terminals aren't supported on " + runtime.GOOS + " agents: no pseudo-terminals (ADR 0086)"}
 }
 
 // start builds the command and starts it on a pty, without registering it.

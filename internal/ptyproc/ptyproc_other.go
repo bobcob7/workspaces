@@ -1,8 +1,6 @@
-//go:build !linux && !darwin
+//go:build !linux && !darwin && !windows
 
 package ptyproc
-
-import "os"
 
 // Supported reports whether this system has pseudo-terminals.
 func Supported() bool { return false }
@@ -12,6 +10,20 @@ func Start(Spec) (*Proc, error) {
 	return nil, ErrUnsupported
 }
 
-func setWinsize(*os.File, int, int) error {
-	return ErrUnsupported
-}
+// Proc is never created on this system; its methods exist so callers build.
+type Proc struct{}
+
+// Read fails: there is no process.
+func (*Proc) Read([]byte) (int, error) { return 0, ErrUnsupported }
+
+// Write fails: there is no process.
+func (*Proc) Write([]byte) (int, error) { return 0, ErrUnsupported }
+
+// Resize fails: there is no terminal.
+func (*Proc) Resize(int, int) error { return ErrUnsupported }
+
+// Close does nothing.
+func (*Proc) Close() error { return nil }
+
+// Wait returns nil: there is no exit code.
+func (*Proc) Wait() *int { return nil }

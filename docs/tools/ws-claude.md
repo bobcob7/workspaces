@@ -221,7 +221,7 @@ See also the [workspace creation errors](README.md#creating-a-workspace).
 | `--env` names no environment                     | `environment_unknown` | 3 |
 | `--env` names an environment that is offline, or didn't answer in time | `environment_offline` | 1 |
 | The environment's `ws` is older than this one needs | `environment_outdated` | 1 |
-| The environment's OS has no pty support (today Windows), so `agent.send` is refused | `platform_unsupported` | 1 |
+| The environment's OS has no pseudo-terminals (not Linux, macOS, or Windows 10 1809+), so `agent.send` is refused | `platform_unsupported` | 1 |
 | `--parent` is on another environment than `--env`, or a local parent with a remote `--env` | `environment_mismatch` | 4 |
 | After `--` anything but a prompt and `--model <m>` with `--env`, or a prompt starting with `-` | `usage` | 2 |
 

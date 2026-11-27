@@ -293,7 +293,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
 - [x] **Artifact links** ([0084](docs/adrs/0084-bidirectional-artifact-links.md)): done
 - [ ] **Windows environment agent** ([0081](docs/adrs/0081-windows-environment-agent.md),
   proposed): `ws env agent run` built natively for Windows, with terminals and
-  `agent.send` refused (`platform_unsupported`) until ConPTY
+  `agent.send` on ConPTY ([0086](docs/adrs/0086-windows-conpty-terminals.md))
   ([design](docs/design/env-windows/tasks.md)). Cross-built, vetted and linted for
   amd64 and arm64; an allow-list of packages tested on windows-latest; not yet
   run on a Windows machine with Claude Code

@@ -28,7 +28,7 @@ Server image, one user, no Claude Code sign-in):
 - whether `claude --bg`, `claude agents`, `claude logs`, `claude attach`,
   `claude stop` and `claude daemon run` exist and behave on native Windows
   (ADR 0076's spike question 1 is still open);
-- ConPTY behaviour with `claude attach` (terminals are refused, see D5);
+- ConPTY with `claude attach` (built by ADR 0086; CI tests cmd.exe and a fake claude only);
 - a real Windows Service or Task Scheduler run of `ws env agent run`;
 - that another local user can't open the agent's key or the daemon socket
   (CI has one user; the ACL test only reads the DACL back);

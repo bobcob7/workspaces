@@ -5,15 +5,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
-	"os"
-	"os/exec"
 	"time"
 )
 
 // ErrNotDelivered means a message typed into a session wasn't recorded in
 // its transcript in time (ADR 0047).
 var ErrNotDelivered = errors.New("Claude Code didn't record the message") //nolint:staticcheck // ST1005: "Claude Code" is a name.
+
+// ptyRows and ptyCols are the terminal's size: room for Claude Code to
+// draw its prompt.
+const (
+	ptyRows = 40
+	ptyCols = 120
+)
+
+// attachTerm is claude attach running on a terminal: Read is what it draws,
+// Write types into it.
+type attachTerm interface {
+	io.ReadWriter
+	// hangUp closes the terminal, which detaches claude attach, and waits
+	// for it to exit, killing it if it takes longer than grace.
+	hangUp(ctx context.Context, log *slog.Logger, grace time.Duration)
+}
 
 // promptGlyph is what Claude Code draws at its prompt; once it's on the
 // terminal, typed text reaches the prompt (ADR 0047).
@@ -59,32 +74,18 @@ func (c *Client) Send(ctx context.Context, s *Session, message string) error {
 	if err := c.ensureVersion(ctx); err != nil {
 		return err
 	}
-	control, tty, err := openPTY()
+	term, err := c.startAttach(ctx, s.ID)
 	if err != nil {
-		return fmt.Errorf("opening a terminal for claude attach %s: %w", s.ID, err)
-	}
-	//nolint:gosec // G204: running claude with arguments is this package's purpose.
-	cmd := exec.CommandContext(ctx, c.path, "attach", s.ID)
-	cmd.Env = append(append([]string{}, c.environ...), "TERM=xterm-256color")
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
-	cmd.SysProcAttr = attachProcAttr()
-	err = cmd.Start()
-	tty.Close()
-	if err != nil {
-		control.Close()
-		if notInstalled(err) {
-			return fmt.Errorf("%w: %w", ErrNotInstalled, err)
-		}
-		return fmt.Errorf("running claude attach %s: %w", s.ID, err)
+		return err
 	}
 	c.log.DebugContext(ctx, "claude", slog.Any("args", []string{"attach", s.ID}), slog.String("via", "pty"))
-	defer c.hangUp(ctx, cmd, control)
-	return c.typeMessage(ctx, s, control, message)
+	defer term.hangUp(ctx, c.log, c.sendTimings.hangUp)
+	return c.typeMessage(ctx, s, term, message)
 }
 
 // typeMessage waits for the prompt on control, types message and Enter,
 // and waits for s's transcript to record it.
-func (c *Client) typeMessage(ctx context.Context, s *Session, control *os.File, message string) error {
+func (c *Client) typeMessage(ctx context.Context, s *Session, control io.ReadWriter, message string) error {
 	t := c.sendTimings
 	select {
 	case <-watchPrompt(control):
@@ -98,7 +99,7 @@ func (c *Client) typeMessage(ctx context.Context, s *Session, control *os.File, 
 		if err := pause(ctx, t.settle); err != nil {
 			return err
 		}
-		if _, err := control.WriteString(step); err != nil {
+		if _, err := io.WriteString(control, step); err != nil {
 			return fmt.Errorf("typing into claude attach %s: %w", s.ID, err)
 		}
 	}
@@ -123,7 +124,7 @@ func (c *Client) typeMessage(ctx context.Context, s *Session, control *os.File, 
 // watchPrompt reads everything claude attach draws on control, and closes
 // the channel it returns once the prompt glyph has been drawn. It keeps
 // reading, so the terminal never fills, until control is closed.
-func watchPrompt(control *os.File) <-chan struct{} {
+func watchPrompt(control io.Reader) <-chan struct{} {
 	drawn := make(chan struct{})
 	go func() {
 		var seen []byte
@@ -144,22 +145,6 @@ func watchPrompt(control *os.File) <-chan struct{} {
 		}
 	}()
 	return drawn
-}
-
-// hangUp closes the terminal, which detaches claude attach, and waits for
-// it to exit, killing it if it takes longer than the hang-up timing.
-func (c *Client) hangUp(ctx context.Context, cmd *exec.Cmd, control *os.File) {
-	control.Close()
-	done := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(done) }()
-	select {
-	case <-done:
-		return
-	case <-time.After(c.sendTimings.hangUp):
-	}
-	c.log.DebugContext(ctx, "claude attach didn't exit on hang-up; killing it")
-	_ = cmd.Process.Kill()
-	<-done
 }
 
 // pause waits for d, or until ctx is done.

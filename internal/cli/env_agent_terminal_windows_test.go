@@ -15,7 +15,7 @@ import (
 
 func TestTerminalEnvAllowed_windows(t *testing.T) {
 	t.Run("the system variables pass whatever their case", func(t *testing.T) {
-		for _, key := range []string{"PATH", "Path", "path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "ProgramFiles(x86)", "USERPROFILE", "TEMP"} {
+		for _, key := range []string{"PATH", "Path", "path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "ProgramFiles(x86)", "USERPROFILE", "TEMP", "AllUsersProfile", "Public", "CommonProgramFiles(x86)", "CommonProgramW6432", "Processor_Identifier", "processor_level", "Processor_Revision", "PSModulePath"} {
 			assert.True(t, terminalEnvAllowed(key), key)
 		}
 	})
@@ -116,5 +116,28 @@ func TestAgentOperations_TerminalCommand_windows(t *testing.T) {
 		assertSamePath(t, filepath.Join(dir, "claude.exe"), cmd.Path)
 		assert.Equal(t, "attach", cmd.Args[0])
 		assert.Contains(t, cmd.Env, "Path="+dir)
+	})
+	t.Run("shell uses USERPROFILE when HOME is unset", func(t *testing.T) {
+		ops := terminalOps(t, claudeSession())
+		dir := t.TempDir()
+		ops.app.environ = []string{"Path=C:\\Windows\\System32", "USERPROFILE=" + dir}
+		cmd, err := ops.TerminalCommand(t.Context(), shellArgs())
+		require.NoError(t, err)
+		assert.Equal(t, dir, cmd.Dir)
+	})
+}
+
+func TestHomeOf_windows(t *testing.T) {
+	t.Run("HOME wins over USERPROFILE", func(t *testing.T) {
+		assert.Equal(t, `C:\h`, homeOf([]string{`HOME=C:\h`, `USERPROFILE=C:\u`}))
+	})
+	t.Run("USERPROFILE is used alone, whatever its case", func(t *testing.T) {
+		assert.Equal(t, `C:\u`, homeOf([]string{`UserProfile=C:\u`}))
+	})
+	t.Run("an empty HOME falls back to USERPROFILE", func(t *testing.T) {
+		assert.Equal(t, `C:\u`, homeOf([]string{"HOME=", `USERPROFILE=C:\u`}))
+	})
+	t.Run("neither set is empty", func(t *testing.T) {
+		assert.Empty(t, homeOf([]string{"Path=C:\\bin"}))
 	})
 }

@@ -128,16 +128,6 @@ func terminalEnv(environ []string) []string {
 	return append(env, "TERM=xterm-256color")
 }
 
-// homeOf is HOME in env, or "" when it is unset or empty.
-func homeOf(env []string) string {
-	for _, kv := range env {
-		if home, ok := strings.CutPrefix(kv, "HOME="); ok {
-			return home
-		}
-	}
-	return ""
-}
-
 // lookPathIn finds the claude executable in the absolute directories of the
 // search path in env, the path the child itself will search. It tries the
 // file names the platform gives claude (executableNames).

@@ -141,7 +141,7 @@ added for an environment.
 | `--parent` found on several environments without `--env` | `usage`          | 2    |
 | The environment is offline, or the daemon hasn't heard from it; `details.environment` | `environment_offline` | 1 |
 | The environment's `ws` is too old for the operation    | `environment_outdated` | 1  |
-| The environment's OS has no pty support (today Windows), so `agent.send` is refused | `platform_unsupported` | 1 |
+| The environment's OS has no pseudo-terminals (not Linux, macOS, or Windows 10 1809+), so `agent.send` is refused | `platform_unsupported` | 1 |
 | `--parent` is local or on another environment than `--env`, or a remote `--parent` with `--env local` | `environment_mismatch` | 4 |
 | An error on the environment (for example `repo_not_found`) keeps its code, with `details.environment`; a code this `ws` doesn't know is `internal` with `details.remote_code` | as the remote's | |
 | `claude` is older than 2.1.302, or `claude --bg` failed; `details.stderr` has its output | `claude_failed` | 1 |
