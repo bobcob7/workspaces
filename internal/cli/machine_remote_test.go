@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -534,6 +535,40 @@ func TestApp_runMachineRm_remoteChild(t *testing.T) {
 		kept, err := machine.NewStore(e.app.paths.State).ReadRemote("boss", linuxRef.ID, "helper")
 		require.NoError(t, err)
 		require.NotNil(t, kept.Result)
+	})
+	t.Run("a finished child's verdict stays readable after rm", func(t *testing.T) {
+		e := newWaitApp(t)
+		writeCallerScope(t, e.app.paths.State, linuxRef)
+		var removed atomic.Bool
+		host := &childHost{}
+		host.answer = func(op string, raw json.RawMessage) envproto.Reply {
+			switch op {
+			case "children":
+				if removed.Load() {
+					return scopeOK(t, envproto.ScopeChildrenResult{})
+				}
+				return scopeOK(t, envproto.ScopeChildrenResult{Children: []envproto.ScopeChild{remoteHelperChild(t)}})
+			case "child":
+				var args envproto.ScopeChildArgs
+				require.NoError(t, json.Unmarshal(raw, &args))
+				if args.Op == "rm" {
+					removed.Store(true)
+				}
+				return helperAnswer(t, remoteHelperRecord(t))(args.Op, args)
+			}
+			return envproto.Reply{Error: &envproto.ReplyError{Code: "usage", Message: "unexpected " + op}}
+		}
+		serveDaemonWith(t, e.app, host)
+		require.NoError(t, e.app.runMachineRm(t.Context(), removeHelper()))
+		kept, err := machine.NewStore(e.app.paths.State).ReadRemote("boss", linuxRef.ID, "helper")
+		require.NoError(t, err)
+		require.NotNil(t, kept.Result)
+		assert.Equal(t, "PASS", kept.Result.Verdict)
+		e.stdout.Reset()
+		require.NoError(t, e.app.runMachineWait(t.Context(), []string{"helper"}, waitOptions(time.Minute)))
+		got := parseWait(t, e.stdout.String())
+		require.Len(t, got.Children, 1)
+		assert.Equal(t, "pass", got.Children[0].Outcome)
 	})
 }
 
