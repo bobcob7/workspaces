@@ -373,7 +373,10 @@ func attachRemote(targets []rmTarget, children []remoteChild) []rmTarget {
 
 // removeRemote removes child rc on its environment, or under --dry-run only
 // lists it. An environment that can't be reached keeps the child. Its verdict
-// is copied under root first, so it stays readable after the removal.
+// is copied under root first, so it stays readable after the removal; when
+// the copy fails the child is kept and the failure reported. A child its
+// environment no longer has, or an environment that can't be reached, skips
+// the copy and goes on to the removal, which reports what it finds.
 func (a *App) removeRemote(ctx context.Context, root string, rc *remoteChild, opts *rmOptions, items *itemResults) rmJSON {
 	env := rc.env
 	out := rmJSON{ID: rc.id, Parent: optional(rc.parent), Environment: &env}
@@ -381,7 +384,10 @@ func (a *App) removeRemote(ctx context.Context, root string, rc *remoteChild, op
 		items.add(rc.id, nil)
 		return out
 	}
-	_, _, _ = a.remoteRecord(ctx, root, rc)
+	if _, _, err := a.remoteRecord(ctx, root, rc); err != nil && !controllerUnreachable(err) && !hasErrorCode(err, codeWorkspaceNotFound) {
+		out.Error = items.add(rc.id, err)
+		return out
+	}
 	_, err := a.remoteChildOp(ctx, rc, "rm", map[string]any{"keep_children": opts.keepChildren})
 	out.Removed = err == nil
 	out.Error = items.add(rc.id, err)
