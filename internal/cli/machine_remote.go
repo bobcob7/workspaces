@@ -460,7 +460,8 @@ func (a *App) askRemote(ctx context.Context, t *waitTarget, root string) childSt
 	case err != nil:
 		a.warnRemote(t, err)
 		rec, _ = machine.NewStore(a.paths.State).ReadRemote(root, t.remote.envID, t.id)
-		return childState{status: unknownSession, record: rec}
+		finished := rec.Result != nil
+		return childState{status: unknownSession, record: rec, finished: finished, quiet: finished}
 	}
 	session, state, err := a.remoteStatus(ctx, t.remote)
 	if err != nil {
