@@ -4,6 +4,7 @@ package cli
 
 import (
 	"io/fs"
+	"strings"
 )
 
 // terminalEnvAllowed reports whether a terminal's program may see the
@@ -31,4 +32,14 @@ func executableNames(program string, _ []string) []string {
 // isExecutable reports whether a file found by name can be run.
 func isExecutable(info fs.FileInfo) bool {
 	return info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+}
+
+// homeOf is HOME in env, or "" when it is unset or empty.
+func homeOf(env []string) string {
+	for _, kv := range env {
+		if home, ok := strings.CutPrefix(kv, "HOME="); ok {
+			return home
+		}
+	}
+	return ""
 }
