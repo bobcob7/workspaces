@@ -36,6 +36,11 @@ type artifactSummaryJSON struct {
 	UpdatedAt   string                `json:"updated_at"`
 	CreatedBy   artifact.Actor        `json:"created_by"`
 	Threads     artifact.ThreadCounts `json:"threads"`
+	// ConversationCount is how many workspaces' conversations the artifact
+	// was part of (ADR 0084).
+	ConversationCount int `json:"conversation_count"`
+	// Conversation is one workspace's row, set only by list --conversation.
+	Conversation *conversationRowJSON `json:"conversation"`
 }
 
 // revisionJSON is one revision of an artifact, oldest first in artifactJSON.
@@ -49,10 +54,11 @@ type revisionJSON struct {
 	Note        *string        `json:"note"`
 }
 
-// artifactJSON is an artifact with its revisions.
+// artifactJSON is an artifact with its revisions and conversations.
 type artifactJSON struct {
 	artifactSummaryJSON
-	Revisions []revisionJSON `json:"revisions"`
+	Revisions     []revisionJSON     `json:"revisions"`
+	Conversations []conversationJSON `json:"conversations"`
 }
 
 // artifactResultJSON is the output of add, show and put: one artifact.
@@ -80,23 +86,25 @@ func summaryJSON(e *artifact.Entry) artifactSummaryJSON {
 	rec := &e.Record
 	latest := rec.Latest()
 	return artifactSummaryJSON{
-		ID:          rec.ID,
-		Reference:   "@artifact:" + rec.ID,
-		Name:        rec.Name,
-		Title:       rec.Title,
-		Kind:        string(rec.Kind),
-		ContentType: latest.ContentType,
-		Latest:      latest.Rev,
-		Size:        latest.Size,
-		CreatedAt:   formatTime(rec.CreatedAt),
-		UpdatedAt:   formatTime(latest.CreatedAt),
-		CreatedBy:   rec.CreatedBy,
-		Threads:     e.Threads,
+		ID:                rec.ID,
+		Reference:         "@artifact:" + rec.ID,
+		Name:              rec.Name,
+		Title:             rec.Title,
+		Kind:              string(rec.Kind),
+		ContentType:       latest.ContentType,
+		Latest:            latest.Rev,
+		Size:              latest.Size,
+		CreatedAt:         formatTime(rec.CreatedAt),
+		UpdatedAt:         formatTime(latest.CreatedAt),
+		CreatedBy:         rec.CreatedBy,
+		Threads:           e.Threads,
+		ConversationCount: len(e.Conversations),
 	}
 }
 
-// fullJSON is e with every revision, oldest first.
-func fullJSON(e *artifact.Entry) artifactJSON {
+// fullJSON is e with every revision, oldest first, and its conversations;
+// removed says whether a local workspace is gone (nil: unknown).
+func fullJSON(e *artifact.Entry, removed func(string) *bool) artifactJSON {
 	revisions := make([]revisionJSON, 0, len(e.Record.Revisions))
 	for i := range e.Record.Revisions {
 		r := &e.Record.Revisions[i]
@@ -110,7 +118,7 @@ func fullJSON(e *artifact.Entry) artifactJSON {
 			Note:        r.Note,
 		})
 	}
-	return artifactJSON{artifactSummaryJSON: summaryJSON(e), Revisions: revisions}
+	return artifactJSON{artifactSummaryJSON: summaryJSON(e), Revisions: revisions, Conversations: conversationsJSON(e, removed)}
 }
 
 // artifactStore is the store over a.paths.Artifacts (ADR 0078).
@@ -218,6 +226,14 @@ func checkArtifactKind(kind string) error {
 	return usageErrorf("--kind must be image, markdown or text, not %q", kind)
 }
 
+// checkConversation accepts no --conversation, or a workspace id.
+func checkConversation(cmd *cobra.Command, id string) error {
+	if !cmd.Flags().Changed("conversation") || artifact.ValidWorkspaceID(id) {
+		return nil
+	}
+	return usageErrorf("--conversation must be a workspace id, not %q", id)
+}
+
 // checkListLimit accepts a --limit from 1 to maxListLimit.
 func checkListLimit(limit int) error {
 	if limit < 1 || limit > maxListLimit {
@@ -238,7 +254,8 @@ func (a *App) artifactWarnings(store []string) []string {
 
 // writeArtifactResult prints e as the output of add, show and put.
 func (a *App) writeArtifactResult(e *artifact.Entry) error {
-	return a.writeJSON(artifactResultJSON{Artifact: fullJSON(e), Warnings: a.artifactWarnings(nil)})
+	full := fullJSON(e, a.liveWorkspaces())
+	return a.writeJSON(artifactResultJSON{Artifact: full, Warnings: a.artifactWarnings(e.Warnings)})
 }
 
 // artifactLine is one artifact for text output: its id, kind, size and its
@@ -253,19 +270,23 @@ func artifactLine(e *artifact.Entry) string {
 }
 
 // artifactFilter is which artifacts a list keeps, up to limit: those of one
-// kind, those a workspace created or whose tree it is in, or with mine
-// those whose tree is root.
+// kind, those a workspace created or whose tree it is in, with mine those
+// whose tree is root, or those whose conversations include conversation.
 type artifactFilter struct {
-	kind      string
-	workspace string
-	mine      bool
-	root      string
-	limit     int
+	kind         string
+	workspace    string
+	mine         bool
+	root         string
+	conversation string
+	limit        int
 }
 
-// keep reports whether rec passes every filter the list sets.
-func (f *artifactFilter) keep(rec *artifact.Record) bool {
+// keep reports whether e passes every filter the list sets.
+func (f *artifactFilter) keep(e *artifact.Entry) bool {
+	rec := &e.Record
 	switch {
+	case f.conversation != "" && lastWith(e, f.conversation).IsZero():
+		return false
 	case f.kind != "" && string(rec.Kind) != f.kind:
 		return false
 	case f.workspace != "" && !createdIn(rec, f.workspace):
@@ -288,12 +309,17 @@ func (a *App) listArtifacts(f *artifactFilter) error {
 	if err != nil {
 		return artifactError(err)
 	}
+	if f.conversation != "" {
+		slices.SortStableFunc(entries, func(x, y artifact.Entry) int {
+			return lastWith(&y, f.conversation).Compare(lastWith(&x, f.conversation))
+		})
+	}
 	kept := make([]*artifact.Entry, 0, f.limit)
 	for i := range entries {
 		if len(kept) == f.limit {
 			break
 		}
-		if f.keep(&entries[i].Record) {
+		if f.keep(&entries[i]) {
 			kept = append(kept, &entries[i])
 		}
 	}
@@ -302,7 +328,11 @@ func (a *App) listArtifacts(f *artifactFilter) error {
 	}
 	summaries := make([]artifactSummaryJSON, 0, len(kept))
 	for _, e := range kept {
-		summaries = append(summaries, summaryJSON(e))
+		s := summaryJSON(e)
+		if f.conversation != "" {
+			s.Conversation = conversationRow(e, f.conversation)
+		}
+		summaries = append(summaries, s)
 	}
 	return a.writeJSON(artifactListJSON{Artifacts: summaries, Warnings: a.artifactWarnings(warnings)})
 }
@@ -408,7 +438,7 @@ func (a *App) newArtifactCmd() *cobra.Command {
 			return cmd.Help()
 		}),
 	}
-	cmd.AddCommand(a.newArtifactAddCmd(), a.newArtifactListCmd(), a.newArtifactShowCmd(), a.newArtifactCatCmd(), a.newArtifactRmCmd(), a.newArtifactCommentCmd(true))
+	cmd.AddCommand(a.newArtifactAddCmd(), a.newArtifactListCmd(), a.newArtifactShowCmd(), a.newArtifactCatCmd(), a.newArtifactRmCmd(), a.newArtifactCommentCmd(true), a.newArtifactCiteCmd(), a.newArtifactScanCmd())
 	return cmd
 }
 
@@ -437,11 +467,11 @@ func (a *App) newArtifactAddCmd() *cobra.Command {
 func (a *App) newArtifactListCmd() *cobra.Command {
 	var f artifactFilter
 	cmd := &cobra.Command{
-		Use:   "list [--kind image|markdown|text] [--workspace <id>] [--limit <n>]",
+		Use:   "list [--kind image|markdown|text] [--workspace <id>] [--conversation <id>] [--limit <n>]",
 		Short: "List artifacts, latest first",
 		Args:  noArgs,
-		RunE: runE(a.withConfig(func(_ *cobra.Command, _ []string) error {
-			if err := errors.Join(checkArtifactKind(f.kind), checkListLimit(f.limit)); err != nil {
+		RunE: runE(a.withConfig(func(cmd *cobra.Command, _ []string) error {
+			if err := errors.Join(checkArtifactKind(f.kind), checkListLimit(f.limit), checkConversation(cmd, f.conversation)); err != nil {
 				return err
 			}
 			return a.listArtifacts(&f)
@@ -449,6 +479,7 @@ func (a *App) newArtifactListCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&f.kind, "kind", "", "only artifacts of this kind: image, markdown or text")
 	cmd.Flags().StringVar(&f.workspace, "workspace", "", "only artifacts this workspace created, or in its tree")
+	cmd.Flags().StringVar(&f.conversation, "conversation", "", "only artifacts this workspace's conversation was part of, latest first")
 	cmd.Flags().IntVar(&f.limit, "limit", defaultListLimit, "how many to list, from 1 to 1000")
 	return cmd
 }

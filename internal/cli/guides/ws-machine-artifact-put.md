@@ -30,11 +30,13 @@ Output is always JSON; `--json` changes nothing.
   "title": "Pitch: cache sharing", "kind": "markdown", "content_type": "text/markdown; charset=utf-8",
   "latest": 2, "size": 2311, "created_at": "2026-11-23T18:00:00Z", "updated_at": "2026-11-23T19:10:00Z",
   "created_by": {"kind": "agent", "workspace": "pitch-ab12cd34", "name": "pitch"},
-  "threads": {"open": 2, "resolved": 1, "detached": 1}, "revisions": []},
+  "threads": {"open": 2, "resolved": 1, "detached": 1}, "conversation_count": 1, "conversation": null,
+  "revisions": [], "conversations": []},
  "anchors": {"anchored": 3, "detached": 1}, "warnings": []}
 ```
 
-The `revisions` list in `artifact` is every revision, as in `show`.
+The `revisions` and `conversations` lists in `artifact` are every
+revision and every conversation, as in `show`.
 
 ## Exit codes
 

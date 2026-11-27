@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "workspace": "fix-login-d8efb24f",
+  "transcript": "/home/me/.claude/projects/-data-ws-workspaces-fix-login-d8efb24f/9b1c2d3e-0000-4000-8000-000000000001.jsonl",
+  "offset": 482133,
+  "citations": [
+    {"key": "7f0e1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b", "at": "2026-11-26T18:00:00Z", "refs": ["@artifact:art-00c0ffee/r2", "@artifact:art-00c0ffee"]},
+    {"key": "r9120", "at": null, "refs": ["@artifact:art-0badf00d"]}
+  ]
+}

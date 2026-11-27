@@ -93,3 +93,10 @@ func TestAppendHint(t *testing.T) {
 		assert.Equal(t, first, second)
 	})
 }
+
+func TestFindCitations(t *testing.T) {
+	t.Parallel()
+	text := "see @artifact:art-1a2b3c4d and @artifact:art-1a2b3c4d/r2, again @artifact:art-1a2b3c4d, and @artifact:art-5e6f7a8b/r1"
+	assert.Equal(t, []Ref{{ID: "art-1a2b3c4d"}, {ID: "art-1a2b3c4d", Rev: 2}, {ID: "art-5e6f7a8b", Rev: 1}}, FindCitations(text))
+	assert.Empty(t, FindCitations("no references"))
+}

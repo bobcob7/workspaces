@@ -21,7 +21,9 @@ sessions, so Claude Code's own commands work on them: `claude agents`,
   and workspace once every reviewer has reported; its report stays
   readable.
 - `@artifact:<id>` in a prompt names a file a person shared: run
-  `ws machine artifact get <id>` and read the `path` it prints.
+  `ws machine artifact get <id>` and read the `path` it prints. `get`
+  records that your conversation read it, and naming it in a reply
+  records a citation.
 - If a `ws machine` command can't do what you need, stop and tell a
   person what you wanted to run, rather than reaching for another `ws`
   command. Above all never run `ws restart`: it interrupts every

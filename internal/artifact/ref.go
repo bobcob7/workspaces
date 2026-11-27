@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -59,6 +60,19 @@ func FindRefs(text string) []string {
 		ids = append(ids, m[1])
 	}
 	return ids
+}
+
+// FindCitations is the distinct (artifact, revision) pairs text names, in
+// first-seen order; Rev is 0 for a reference with no /r<n>.
+func FindCitations(text string) []Ref {
+	var refs []Ref
+	for _, m := range inTextPattern.FindAllStringSubmatch(text, -1) {
+		r := Ref{ID: m[1], Rev: revisionOf(m[2])}
+		if !slices.Contains(refs, r) {
+			refs = append(refs, r)
+		}
+	}
+	return refs
 }
 
 // HintLine tells an agent how to fetch the artifacts ids.

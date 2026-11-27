@@ -166,12 +166,12 @@ func (a *App) newMachineArtifactGetCmd() *cobra.Command {
 		Use:   "get <ID> [--rev <n>] [--out <dir>]",
 		Short: "Copy an artifact's file into your workspace, and print its path",
 		Args:  artifactArgs(1, "an artifact id"),
-		RunE: a.withMachineCaller(func(_ context.Context, c machineArtifactCaller, args []string, cmd *cobra.Command) error {
+		RunE: a.withMachineCaller(func(ctx context.Context, c machineArtifactCaller, args []string, cmd *cobra.Command) error {
 			id, r, err := artifactRef(args[0], opts.rev, cmd.Flags().Changed("rev"))
 			if err != nil {
 				return err
 			}
-			return a.getArtifact(&c, id, r, opts.out)
+			return a.getArtifact(ctx, &c, id, r, opts.out)
 		}),
 	}
 	cmd.Flags().IntVar(&opts.rev, "rev", 0, "the revision to copy, default the latest")
@@ -179,9 +179,9 @@ func (a *App) newMachineArtifactGetCmd() *cobra.Command {
 	return cmd
 }
 
-// getArtifact copies revision rev of id (0 for the latest) into dir and
-// prints where it went.
-func (a *App) getArtifact(c *machineArtifactCaller, id string, rev int, out string) error {
+// getArtifact copies revision rev of id (0 for the latest) into dir, records
+// that the caller read it, and prints where it went.
+func (a *App) getArtifact(ctx context.Context, c *machineArtifactCaller, id string, rev int, out string) error {
 	store := a.artifactStore()
 	entry, err := store.Show(id)
 	if err != nil {
@@ -199,14 +199,28 @@ func (a *App) getArtifact(c *machineArtifactCaller, id string, rev int, out stri
 	if err != nil {
 		return err
 	}
+	a.recordRead(ctx, c, id, revision.Rev)
 	return a.writeJSON(machineGetJSON{
 		Artifact:    summaryJSON(&entry),
 		Rev:         revision.Rev,
 		Path:        path,
 		ContentType: revision.ContentType,
 		Size:        revision.Size,
-		Warnings:    a.artifactWarnings(nil),
+		Warnings:    a.artifactWarnings(entry.Warnings),
 	})
+}
+
+// recordRead records that the caller read revision rev of id; a failure is a
+// warning (ADR 0084). A caller with no workspace records nothing.
+func (a *App) recordRead(ctx context.Context, c *machineArtifactCaller, id string, rev int) {
+	if c.actor.Workspace == nil {
+		return
+	}
+	link := artifact.NewLink{Workspace: *c.actor.Workspace, Action: artifact.ActionRead, Rev: rev, Root: c.root}
+	if c.actor.Name != nil {
+		link.Name = *c.actor.Name
+	}
+	a.linkWarning(id, a.artifactStore().RecordLinks(ctx, id, link))
 }
 
 // machineGetJSON is get's output: the artifact, and the file it copied to.
@@ -302,9 +316,9 @@ func (a *App) putArtifact(ctx context.Context, c *machineArtifactCaller, arg, pa
 		return artifactError(err)
 	}
 	return a.writeJSON(machinePutJSON{
-		Artifact: fullJSON(&updated),
+		Artifact: fullJSON(&updated, a.liveWorkspaces()),
 		Anchors:  anchorCountsJSON{Anchored: res.Anchored, Detached: res.Detached},
-		Warnings: a.artifactWarnings(nil),
+		Warnings: a.artifactWarnings(updated.Warnings),
 	})
 }
 

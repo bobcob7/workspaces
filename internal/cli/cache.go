@@ -717,6 +717,14 @@ func optional(s string) *string {
 	return &s
 }
 
+// nonNil is s, or an empty slice for nil, so JSON prints [] and not null.
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}
+
 // withRef appends "@ref" to id when there is a ref.
 func withRef(id, ref string) string {
 	if ref == "" {

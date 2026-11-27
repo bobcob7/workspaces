@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/artifact"
 	"github.com/bobcob7/workspaces/internal/cache"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
@@ -989,4 +990,21 @@ func fakeClaudeScript(t *testing.T, dir, bgBody string) string {
 		bgBody + "\n"
 	exectest.WriteScript(t, path, script)
 	return path
+}
+
+func (e *claudeEnv) run(t *testing.T, args ...string) error {
+	t.Helper()
+	return e.app.runClaude(t.Context(), &claudeOptions{specs: []string{"buff-bear"}, claudeArgs: args})
+}
+
+// hintEnv is a claude test env whose artifact store is a temp dir, holding
+// one artifact, whose id it returns.
+func hintEnv(t *testing.T) (*claudeEnv, string) {
+	t.Helper()
+	e := newClaudeEnv(t)
+	e.app.paths = config.NewPaths(t.TempDir())
+	e.app.now = testNow
+	rec, err := e.app.artifactStore().Add(t.Context(), &artifact.NewArtifact{Name: "login.txt", Data: []byte("hi"), By: artifact.Person()})
+	require.NoError(t, err)
+	return e, rec.ID
 }
