@@ -118,6 +118,16 @@ func TestApp_artifactHints(t *testing.T) {
 		assert.Equal(t, []string{"fix it @artifact:" + id}, args)
 		assert.Equal(t, []string{"artifacts aren't reachable from vega yet; @artifact references were sent as plain text"}, e.app.warned)
 	})
+	t.Run("an enrolled agent passes references with a warning", func(t *testing.T) {
+		e, _ := hintEnv(t)
+		require.NoError(t, os.MkdirAll(e.app.paths.Environment, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environment, "agent.toml"), []byte("x"), 0o600))
+		prompt := "fix it @artifact:art-00000000"
+		args, err := e.app.artifactHints([]string{prompt}, "")
+		require.NoError(t, err)
+		assert.Equal(t, []string{prompt}, args)
+		assert.Equal(t, []string{"artifacts aren't reachable on an environment's agent; @artifact references were sent as plain text"}, e.app.warned)
+	})
 }
 
 func TestApp_runClaude_parent(t *testing.T) {
