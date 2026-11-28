@@ -56,6 +56,11 @@ func (a *App) liveWorkspaces() func(string) *bool {
 		a.warned = append(a.warned, fmt.Sprintf("listing workspaces for conversations: %v", err))
 		return nil
 	}
+	return removedFunc(list)
+}
+
+// removedFunc reports, for a workspace id, whether it is missing from list.
+func removedFunc(list []workspace.Workspace) func(string) *bool {
 	ids := make(map[string]bool, len(list))
 	for i := range list {
 		ids[list[i].ID] = true
