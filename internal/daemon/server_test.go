@@ -270,7 +270,7 @@ func TestServe_environments(t *testing.T) {
 			WarningsFunc: func() []string { return []string{"the CA expires soon"} },
 			StatusFunc: func() EnvironmentsStatus {
 				return EnvironmentsStatus{
-					Listening: true, Listen: "127.0.0.1:8883", EnrollListen: "127.0.0.1:8884",
+					Listening: true, Listen: "127.0.0.1:8883", EnrollListen: "127.0.0.1:8884", APIListen: "127.0.0.1:8885",
 					Environments: []EnvironmentPresence{{ID: "env-1a2b3c4d", Name: "linux", State: "enrolled", Status: "offline"}},
 				}
 			},

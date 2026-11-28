@@ -57,7 +57,7 @@ With `--reply`, `thread` is the thread and `comment` is the new comment in it.
 | No artifact with that id, or no thread `--reply` names          | `artifact_unknown`     | 3    |
 | The quote isn't in the latest revision, or occurs more than once without a `--line` that picks one | `anchor_not_found` | 3 |
 | The artifact has 200 threads, or the thread 50 comments         | `artifact_full`        | 4    |
-| Run on an enrolled environment's agent machine                   | `artifact_unreachable` | 1    |
+| Run on an enrolled environment's agent machine, if it can't reach the controller's artifact API | `artifact_unreachable` | 1    |
 
 ## Examples
 

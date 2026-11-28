@@ -303,11 +303,12 @@ func createdIn(rec *artifact.Record, id string) bool {
 	return byWorkspace || (rec.Root != nil && *rec.Root == id)
 }
 
-// listArtifacts prints the artifacts f keeps: as JSON, or a line each.
-func (a *App) listArtifacts(f *artifactFilter) error {
+// keptArtifacts is the artifacts f keeps, up to its limit, latest first, and
+// the store's warnings.
+func (a *App) keptArtifacts(f *artifactFilter) ([]*artifact.Entry, []string, error) {
 	entries, warnings, err := a.artifactStore().List()
 	if err != nil {
-		return artifactError(err)
+		return nil, nil, artifactError(err)
 	}
 	if f.conversation != "" {
 		slices.SortStableFunc(entries, func(x, y artifact.Entry) int {
@@ -322,6 +323,15 @@ func (a *App) listArtifacts(f *artifactFilter) error {
 		if f.keep(&entries[i]) {
 			kept = append(kept, &entries[i])
 		}
+	}
+	return kept, warnings, nil
+}
+
+// listArtifacts prints the artifacts f keeps: as JSON, or a line each.
+func (a *App) listArtifacts(f *artifactFilter) error {
+	kept, warnings, err := a.keptArtifacts(f)
+	if err != nil {
+		return err
 	}
 	if !a.global.json {
 		return a.printArtifactLines(kept)

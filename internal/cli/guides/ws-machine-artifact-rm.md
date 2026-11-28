@@ -34,7 +34,7 @@ The exit code is the first failure's.
 | Run outside a workspace                        | `outside_workspace`    | 2    |
 | No artifact with that id                       | `artifact_unknown`     | 3    |
 | An artifact another workspace tree created     | `artifact_forbidden`   | 4    |
-| Run on an enrolled environment's agent machine | `artifact_unreachable` | 1    |
+| Run on an enrolled environment's agent machine, if it can't reach the controller's artifact API | `artifact_unreachable` | 1    |
 
 ## Examples
 

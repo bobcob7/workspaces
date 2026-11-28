@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
+	"github.com/bobcob7/workspaces/internal/envagent"
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -69,6 +71,52 @@ func TestApp_daemonEnvironments(t *testing.T) {
 		envs, ok := decodeJSONObject(t, stdout)["environments"].(map[string]any)
 		require.True(t, ok)
 		assert.Equal(t, true, envs["listening"])
+	})
+}
+
+func TestApp_daemonEnvironments_artifactAPI(t *testing.T) {
+	t.Run("serves the artifact API with the app's handler to an enrolled agent", func(t *testing.T) {
+		ctl := newArtifactApp(t)
+		ctl.app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
+		ctl.app.config.Environments = config.Environments{
+			Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", APIListen: new("127.0.0.1:0"), PublicName: "127.0.0.1",
+		}
+		host, ok := ctl.app.daemonEnvironments(discardDaemonLog()).(envHost)
+		require.True(t, ok)
+		t.Cleanup(func() { _ = host.Close() })
+		_, _, _, err := ctl.app.envStore().Add(t.Context(), "linux-server", "127.0.0.1:1")
+		require.NoError(t, err)
+		require.NoError(t, host.Start(t.Context()))
+		_, code, _, err := ctl.app.envStore().Rotate(t.Context(), "linux-server", host.ctrl.Status().EnrollListen)
+		require.NoError(t, err)
+		agent, _ := newMachineArtifactApp(t)
+		require.NoError(t, agent.app.runEnvAgentEnroll(t.Context(), code))
+		files := envagent.NewFiles(agent.app.paths.Environment)
+		require.NoError(t, files.SaveAPIEndpoint(host.ctrl.APIEndpoint(), time.Now()))
+		client, err := envagent.NewAPIClient(files)
+		require.NoError(t, err)
+		resp, err := client.Do(t.Context(), http.MethodGet, envproto.ArtifactsPath, nil, nil, nil, 0)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.NotEqual(t, http.StatusNotFound, resp.StatusCode, "the controller has no artifact handler")
+	})
+	t.Run("starts no API listener when api_listen is off", func(t *testing.T) {
+		for _, value := range []string{"off", ""} {
+			app, _, _ := newDaemonTestApp(t)
+			app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
+			app.config.Environments = config.Environments{
+				Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", APIListen: new(value), PublicName: "127.0.0.1",
+			}
+			host, ok := app.daemonEnvironments(discardDaemonLog()).(envHost)
+			require.True(t, ok)
+			_, _, _, err := app.envStore().Add(t.Context(), "linux", "127.0.0.1:8884")
+			require.NoError(t, err)
+			require.NoError(t, host.Start(t.Context()))
+			assert.True(t, host.ctrl.Status().Listening, value)
+			assert.Empty(t, host.ctrl.Status().APIListen, value)
+			assert.Empty(t, host.ctrl.APIEndpoint(), value)
+			require.NoError(t, host.Close())
+		}
 	})
 }
 
@@ -138,21 +186,23 @@ func TestEnvironmentsStatus(t *testing.T) {
 	t.Run("converts each environment and its hello", func(t *testing.T) {
 		seen := time.Date(2026, 11, 22, 14, 2, 0, 0, time.UTC)
 		version := "2.4.1"
-		st := environmentsStatus(environment.Status{
+		st := environmentsStatus(&environment.Status{
 			Listening:    true,
 			Listen:       "0.0.0.0:8883",
 			EnrollListen: "0.0.0.0:8884",
+			APIListen:    "0.0.0.0:8885",
 			Environments: []environment.Presence{{
 				ID: "env-1a2b3c4d", Name: "linux-server", State: environment.StateEnrolled, Status: envproto.StatusOnline,
 				LastSeen: &seen,
 				Hello: &envproto.Hello{
 					WSVersion: "v0.31.0", OS: "linux", Arch: "amd64", Claude: "present", ClaudeVersion: &version,
-					CertNotAfter: time.Date(2027, 2, 20, 14, 5, 11, 0, time.UTC),
+					CertNotAfter: time.Date(2027, 2, 20, 14, 5, 11, 0, time.UTC), Protocol: 5,
 				},
 			}},
 		})
 		assert.True(t, st.Listening)
 		assert.Equal(t, "0.0.0.0:8883", st.Listen)
+		assert.Equal(t, "0.0.0.0:8885", st.APIListen)
 		require.Len(t, st.Environments, 1)
 		env := st.Environments[0]
 		assert.Equal(t, "enrolled", env.State)
@@ -161,9 +211,10 @@ func TestEnvironmentsStatus(t *testing.T) {
 		require.NotNil(t, env.Hello)
 		assert.Equal(t, "2027-02-20T14:05:11Z", env.Hello.CertNotAfter)
 		assert.Equal(t, "2.4.1", *env.Hello.ClaudeVersion)
+		assert.Equal(t, 5, env.Hello.Protocol)
 	})
 	t.Run("no environments is an empty list, and no hello is null", func(t *testing.T) {
-		st := environmentsStatus(environment.Status{})
+		st := environmentsStatus(&environment.Status{})
 		require.NotNil(t, st.Environments)
 		assert.Empty(t, st.Environments)
 		data, err := json.Marshal(daemon.EnvironmentPresence{})

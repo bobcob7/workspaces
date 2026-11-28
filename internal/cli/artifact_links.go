@@ -56,6 +56,11 @@ func (a *App) liveWorkspaces() func(string) *bool {
 		a.warned = append(a.warned, fmt.Sprintf("listing workspaces for conversations: %v", err))
 		return nil
 	}
+	return removedFunc(list)
+}
+
+// removedFunc reports, for a workspace id, whether it is missing from list.
+func removedFunc(list []workspace.Workspace) func(string) *bool {
 	ids := make(map[string]bool, len(list))
 	for i := range list {
 		ids[list[i].ID] = true
@@ -272,7 +277,7 @@ func (a *App) cite(ctx context.Context, id string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err = a.checkArtifactsExist(refIDs(refs)); err != nil {
+	if err = a.checkArtifactsExist(ctx, refIDs(refs)); err != nil {
 		return err
 	}
 	w, err := a.citingLocal(id)

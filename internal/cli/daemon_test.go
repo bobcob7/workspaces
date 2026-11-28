@@ -211,15 +211,15 @@ func TestEnvironValue(t *testing.T) {
 
 func TestEnvironmentsSummary(t *testing.T) {
 	t.Run("off when the listeners are closed", func(t *testing.T) {
-		assert.Equal(t, "environments: off", environmentsSummary(daemon.EnvironmentsStatus{}))
+		assert.Equal(t, "environments: off", environmentsSummary(&daemon.EnvironmentsStatus{}))
 	})
 	t.Run("counts the environments by status", func(t *testing.T) {
 		env := daemon.EnvironmentsStatus{
-			Listening: true, Listen: "0.0.0.0:8883", EnrollListen: "0.0.0.0:8884",
+			Listening: true, Listen: "0.0.0.0:8883", EnrollListen: "0.0.0.0:8884", APIListen: "0.0.0.0:8885",
 			Environments: []daemon.EnvironmentPresence{
 				{Status: "online"}, {Status: "offline"}, {Status: "pending"},
 			},
 		}
-		assert.Equal(t, "environments: listening on 0.0.0.0:8883, enroll on 0.0.0.0:8884; 1 online, 1 offline, 1 pending", environmentsSummary(env))
+		assert.Equal(t, "environments: listening on 0.0.0.0:8883, enroll on 0.0.0.0:8884, api on 0.0.0.0:8885; 1 online, 1 offline, 1 pending", environmentsSummary(&env))
 	})
 }

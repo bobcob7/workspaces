@@ -15,6 +15,7 @@ func TestLookupOp(t *testing.T) {
 		specs := map[string]OpSpec{
 			OpCertRenew:       {Name: OpCertRenew, Caller: CallerAgent, Timeout: 30 * time.Second},
 			OpCAUpdate:        {Name: OpCAUpdate, Caller: CallerInternal, Timeout: 30 * time.Second},
+			OpAPIUpdate:       {Name: OpAPIUpdate, Caller: CallerInternal, Since: ProtocolArtifacts, Timeout: 30 * time.Second},
 			OpWorkspaceCreate: {Name: OpWorkspaceCreate, Caller: CallerController, Since: 1, Timeout: 10 * time.Minute, Changes: true},
 			OpWorkspaceList:   {Name: OpWorkspaceList, Caller: CallerController, Since: 1, Timeout: 30 * time.Second},
 			OpWorkspaceRm:     {Name: OpWorkspaceRm, Caller: CallerController, Since: 1, Timeout: 2 * time.Minute, Changes: true},

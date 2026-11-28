@@ -38,9 +38,20 @@ $ ws config set environments.public_name ws.example.com
 
 `public_name` is a DNS name or IP address. Without it, `ws env add` refuses
 with `usage`, and the daemon doesn't open the environment listeners. The
-listeners are on 8883 (the broker, MQTT over TLS) and 8884 (enrollment, HTTPS),
-and the remote machine must reach both. Forward them if you're behind a
-router: `8883` and `8884`.
+listeners are on 8883 (the broker, MQTT over TLS), 8884 (enrollment, HTTPS)
+and 8885 (the artifact API, HTTPS with mutual TLS, `[environments] api_listen`,
+[0087](../adrs/0087-artifacts-from-remote-environments.md)), and the remote
+machine must reach all three. Forward them if you're behind a router: `8883`,
+`8884` and `8885`. `ws daemon status` shows the artifact API's address as
+`api on <addr>`.
+
+The daemon sends each online agent its address as an `api.update` request,
+whenever an agent at protocol 5 or later names a different one in its
+hello, so a remote needs no configuration for it. An agent keeps the address in `environment/api.toml`.
+
+**Deployment:** port 8885 must be reachable from remotes like 8883 and 8884.
+On Kubernetes it is a plain TCP port on the LoadBalancer Service, never an
+HTTP ingress, and the pod's NetworkPolicy must allow it.
 
 ## Enrolling
 

@@ -144,10 +144,11 @@ func (c Config) SpecDefaults() SpecDefaults { //nolint:gocritic // hugeParam: th
 
 // Environments is [environments] (ADRs 0074, 0075).
 type Environments struct {
-	Listen          string `toml:"listen" json:"listen"`
-	EnrollListen    string `toml:"enroll_listen" json:"enroll_listen"`
-	PublicName      string `toml:"public_name" json:"public_name"`
-	RenewBeforeDays *int   `toml:"renew_before_days" json:"renew_before_days"`
+	Listen          string  `toml:"listen" json:"listen"`
+	EnrollListen    string  `toml:"enroll_listen" json:"enroll_listen"`
+	APIListen       *string `toml:"api_listen" json:"api_listen"`
+	PublicName      string  `toml:"public_name" json:"public_name"`
+	RenewBeforeDays *int    `toml:"renew_before_days" json:"renew_before_days"`
 	// AgentLoopScripts false refuses a loop script sent by the controller.
 	AgentLoopScripts *bool `toml:"agent_loop_scripts" json:"agent_loop_scripts"`
 	// DefaultScope is the environments a parentless agent may start children on (ADR 0082).
@@ -197,6 +198,8 @@ func (e *Environments) LoopScriptsAllowed() bool {
 const (
 	defaultEnvListen       = "0.0.0.0:8883"
 	defaultEnvEnrollListen = "0.0.0.0:8884"
+	defaultEnvAPIListen    = "0.0.0.0:8885"
+	apiListenOff           = "off"
 	defaultRenewBeforeDays = 30
 )
 
@@ -217,6 +220,19 @@ func (e *Environments) EnrollAddr() string {
 		return defaultEnvEnrollListen
 	}
 	return e.EnrollListen
+}
+
+// APIAddr is the address the controller's artifact API listens on (ADR 0087).
+// The default applies only when api_listen is unset; "off" or "" returns ""
+// and starts no listener.
+func (e *Environments) APIAddr() string {
+	if e.APIListen == nil {
+		return defaultEnvAPIListen
+	}
+	if *e.APIListen == apiListenOff {
+		return ""
+	}
+	return *e.APIListen
 }
 
 // RenewDays is how many days before expiry an agent renews its certificate.
@@ -256,6 +272,7 @@ func (e *Environments) check() error {
 	for _, listen := range []struct{ key, addr string }{
 		{"environments.listen", e.Listen},
 		{"environments.enroll_listen", e.EnrollListen},
+		{"environments.api_listen", e.APIAddr()},
 	} {
 		if listen.addr == "" {
 			continue

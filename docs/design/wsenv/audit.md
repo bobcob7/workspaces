@@ -45,8 +45,8 @@ for Claude sessions.
 | `envs` | A, B | scope file or controller | same (`machine_envs.go:38-59`) | OK |
 | `memory` | A | a loop run and its descendants | a loop run on the remote works (its run mark is local to it) | OK |
 | `memory` | B | any descendant of a loop run | a remote child of a loop run is its own root, so it gets `not_loop_run` (`machine_memory.go`, `callerLoop`) | limitation: **Follow-up F1** |
-| `artifact add/get/put/list/show/rm` | A | the store in `CONFIG_DIR/artifacts` | refused with `artifact_unreachable`, exit 1 (`machine_artifact.go:32-34`, test `machine_artifact_test.go:186`) | OK (as ADR 0078 decided) |
-| `@artifact:` in a prompt | B | checked, and a hint appended (`claude.go:143-160`) | `ws claude --env`: the controller warns "sent as plain text", then the remote's own `ws claude` runs `artifactHints(args, "")` against its empty store and fails with `artifact_unknown`, so the workspace is never made. `ws machine spawn --env` skips the check and the warning. A spawn **on** a remote (sc. A, `machine.go:323`) also fails with `artifact_unknown`, not `artifact_unreachable` | **Bug 1** |
+| `artifact add/get/put/list/show/rm` | A | the store in `CONFIG_DIR/artifacts` | refused with `artifact_unreachable`, exit 1 (`machine_artifact.go:32-34`, test `machine_artifact_test.go:186`) | **Bug 12 (was marked OK in error)**: refused with `artifact_unreachable` until ADR 0087; then reached over the controller's artifact API |
+| `@artifact:` in a prompt | B | checked, and a hint appended (`claude.go:143-160`) | **Bug 1 (resolved by ADR 0087)**: was a "sent as plain text" warning and an `artifact_unknown` from the remote's empty store. Now `ws claude --env` and `ws machine spawn --env` (`runRemoteSpawn` calls `artifactHints` with the target) check the reference and warn when the target agent runs protocol below 5; a spawn or `ws claude` **on** a remote checks it through the controller's API, and warns and passes the prompt on when the API is unreachable | resolved |
 | `review start/wait` | A | in-process; `--env` refused inside a workspace (`review_env.go:23-38`) | same, with the remote's `gh` sign-in | OK |
 | `review --env ... wait` | B (a person) | polls to the deadline | the first transport error ends the wait (`review_env.go:380-383`); `machine wait` tolerates the same errors (`warnRemote`) | **Bug 10** |
 | `CONFIG_DIR` seen by the session | A, local | the session's `ws` must find its workspace under the same `CONFIG_DIR` | `ws` never passes `WS_CONFIG_DIR` (or `--config-dir`) to `claude --bg` (`app.go:159`; the only `WS_CONFIG_DIR` set anywhere is the runner's, `daemon/env.go:16-25`). With `ws --config-dir X claude` or `ws --config-dir X env agent run`, the session's `ws machine` uses the default `CONFIG_DIR` and fails with `outside_workspace` (or, on a remote, also skips the artifact refusal) | **Bug 11** |
@@ -58,7 +58,7 @@ for Claude sessions.
 
 Each bug has a fix in [tasks.md](tasks.md) with a test that fails first.
 
-1. **`@artifact:` references break or are lost on a remote.**
+1. **`@artifact:` references break or are lost on a remote (resolved by ADR 0087).**
    `internal/cli/claude.go:149-152` warns and sends the prompt on; the remote's
    `ws claude` then runs `artifactHints(args, "")` → `checkArtifactsExist`
    against its own empty store (`claude.go:173-181`) and fails
@@ -109,6 +109,14 @@ Each bug has a fix in [tasks.md](tasks.md) with a test that fails first.
     existing daemon is **unverified**, constraints.md); through a
     per-workspace daemon (ADR 0085) it does, because that daemon is started
     by this `claude --bg`. **T3.**
+
+12. **`ws machine artifact` is refused on every enrolled remote.**
+    `machine_artifact.go:32-34` returns `artifact_unreachable` for every
+    subcommand, so an agent on a remote can't read a screenshot a person
+    shared or share a document back. The audit marked this OK by mistake.
+    Fix: ADR 0087. The controller serves `/v1/artifacts` over mutual TLS on
+    `api_listen` (8885), the agent learns the address by `api.update`, and
+    `ws machine artifact` reaches the store through it. **T1-T4.**
 
 ## Follow-ups (not fixed here)
 

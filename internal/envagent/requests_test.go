@@ -162,6 +162,71 @@ func TestAgent_handle(t *testing.T) {
 	})
 }
 
+// apiUpdateRequest is an api.update request carrying endpoint.
+func apiUpdateRequest(t *testing.T, args any) []byte {
+	t.Helper()
+	return marshalTo(t, envproto.Request{Op: envproto.OpAPIUpdate, Args: marshalTo(t, args)})
+}
+
+func TestAgent_updateAPI(t *testing.T) {
+	t.Parallel()
+	t.Run("saves a good endpoint, replies with it and reports it in the hello", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runAgent(t, newFixtureAgent(fx, testOptions(), "[]"))
+		awaitOnline(t, fx)
+		res := envproto.Topic(fx.id.ID, envproto.LeafRes, "a91")
+		replies := captureMessages(t, fx.broker, res)
+		sendToAgent(t, fx, apiUpdateRequest(t, envproto.APIUpdateArgs{Endpoint: "127.0.0.1:8885"}), res, "a91")
+		require.Eventually(t, func() bool { return len(replies.all()) == 1 }, 5*time.Second, 10*time.Millisecond)
+		var reply envproto.Reply
+		require.NoError(t, json.Unmarshal(replies.all()[0].Payload, &reply))
+		require.True(t, reply.OK)
+		var result envproto.APIUpdateResult
+		require.NoError(t, json.Unmarshal(reply.Result, &result))
+		assert.Equal(t, "127.0.0.1:8885", result.Endpoint)
+		endpoint, err := fx.files.APIEndpoint()
+		require.NoError(t, err)
+		assert.Equal(t, "127.0.0.1:8885", endpoint)
+		require.Eventually(t, func() bool {
+			hello := fx.hello()
+			return hello != nil && hello.APIEndpoint == "127.0.0.1:8885"
+		}, 5*time.Second, 10*time.Millisecond)
+	})
+	t.Run("refuses an endpoint without a port with a usage error and saves nothing", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runAgent(t, newFixtureAgent(fx, testOptions(), "[]"))
+		awaitOnline(t, fx)
+		res := envproto.Topic(fx.id.ID, envproto.LeafRes, "a92")
+		replies := captureMessages(t, fx.broker, res)
+		sendToAgent(t, fx, apiUpdateRequest(t, envproto.APIUpdateArgs{Endpoint: "127.0.0.1"}), res, "a92")
+		require.Eventually(t, func() bool { return len(replies.all()) == 1 }, 5*time.Second, 10*time.Millisecond)
+		var reply envproto.Reply
+		require.NoError(t, json.Unmarshal(replies.all()[0].Payload, &reply))
+		assert.False(t, reply.OK)
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "usage", reply.Error.Code)
+		_, err := fx.files.APIEndpoint()
+		assert.ErrorIs(t, err, ErrNoAPIEndpoint)
+	})
+	t.Run("answers malformed arguments with a usage error", func(t *testing.T) {
+		t.Parallel()
+		fx := startAgentFixture(t)
+		runAgent(t, newFixtureAgent(fx, testOptions(), "[]"))
+		awaitOnline(t, fx)
+		res := envproto.Topic(fx.id.ID, envproto.LeafRes, "a93")
+		replies := captureMessages(t, fx.broker, res)
+		sendToAgent(t, fx, apiUpdateRequest(t, "not an object"), res, "a93")
+		require.Eventually(t, func() bool { return len(replies.all()) == 1 }, 5*time.Second, 10*time.Millisecond)
+		var reply envproto.Reply
+		require.NoError(t, json.Unmarshal(replies.all()[0].Payload, &reply))
+		require.NotNil(t, reply.Error)
+		assert.Equal(t, "usage", reply.Error.Code)
+		assert.Equal(t, "malformed api.update arguments", reply.Error.Message)
+	})
+}
+
 func TestAgent_hello(t *testing.T) {
 	t.Parallel()
 	t.Run("reports the agent's platform, Claude and certificate", func(t *testing.T) {

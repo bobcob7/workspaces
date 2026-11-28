@@ -45,7 +45,7 @@ Output is always JSON; `--json` changes nothing.
 | Empty, a type that isn't allowed, over its size, a bad name, title or note | `artifact_invalid` | 2 |
 | `-` without `--name`, or other flag errors             | `usage`                | 2    |
 | The store or the tree is at a limit                    | `artifact_full`        | 4    |
-| Run on an enrolled environment's agent machine         | `artifact_unreachable` | 1    |
+| Run on an enrolled environment's agent machine, if it can't reach the controller's artifact API | `artifact_unreachable` | 1    |
 
 ## Examples
 

@@ -153,3 +153,19 @@ func TestHello_Protocol(t *testing.T) {
 		assert.Equal(t, 0, hello.Protocol)
 	})
 }
+
+func TestHello_APIEndpoint(t *testing.T) {
+	t.Run("is the api_endpoint key, and is left out when empty", func(t *testing.T) {
+		body, err := json.Marshal(Hello{Status: StatusOnline, APIEndpoint: "ws.example.com:8885"})
+		require.NoError(t, err)
+		assert.Contains(t, string(body), `"api_endpoint":"ws.example.com:8885"`)
+		body, err = json.Marshal(Hello{Status: StatusOnline})
+		require.NoError(t, err)
+		assert.NotContains(t, string(body), "api_endpoint")
+	})
+	t.Run("an agent older than protocol 5 decodes with no endpoint", func(t *testing.T) {
+		var hello Hello
+		require.NoError(t, json.Unmarshal([]byte(`{"status":"online","protocol":4}`), &hello))
+		assert.Empty(t, hello.APIEndpoint)
+	})
+}

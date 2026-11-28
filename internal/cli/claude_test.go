@@ -111,22 +111,105 @@ func TestApp_artifactHints(t *testing.T) {
 		require.NoError(t, e.run(t, "fix it"))
 		assert.Equal(t, []string{"fix it"}, e.claude.StartCalls()[0].Opts.Args)
 	})
-	t.Run("on a remote environment the prompt is unchanged, with a warning", func(t *testing.T) {
+	t.Run("a prompt for a remote environment is checked and gets the hint", func(t *testing.T) {
 		e, id := hintEnv(t)
-		args, err := e.app.artifactHints([]string{"fix it @artifact:" + id}, "vega")
+		args, err := e.app.artifactHints(t.Context(), []string{"fix it @artifact:" + id}, "vega")
 		require.NoError(t, err)
-		assert.Equal(t, []string{"fix it @artifact:" + id}, args)
-		assert.Equal(t, []string{"artifacts aren't reachable from vega yet; @artifact references were sent as plain text"}, e.app.warned)
+		assert.Equal(t, []string{"fix it @artifact:" + id + "\n\n" + artifact.HintLine([]string{id})}, args)
+		assert.Empty(t, e.app.warned)
 	})
-	t.Run("an enrolled agent passes references with a warning", func(t *testing.T) {
+	t.Run("an unknown reference for a remote environment is artifact_unknown", func(t *testing.T) {
 		e, _ := hintEnv(t)
+		_, err := e.app.artifactHints(t.Context(), []string{"fix it @artifact:art-00000000"}, "vega")
+		requireCode(t, codeArtifactUnknown, err)
+	})
+	t.Run("an enrolled agent that can't reach the controller warns and still appends the hint", func(t *testing.T) {
+		e, id := hintEnv(t)
 		require.NoError(t, os.MkdirAll(e.app.paths.Environment, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environment, "agent.toml"), []byte("x"), 0o600))
-		prompt := "fix it @artifact:art-00000000"
-		args, err := e.app.artifactHints([]string{prompt}, "")
+		prompt := "fix it @artifact:" + id
+		args, err := e.app.artifactHints(t.Context(), []string{prompt}, "")
 		require.NoError(t, err)
-		assert.Equal(t, []string{prompt}, args)
-		assert.Equal(t, []string{"artifacts aren't reachable on an environment's agent; @artifact references were sent as plain text"}, e.app.warned)
+		assert.Equal(t, []string{prompt + "\n\n" + artifact.HintLine([]string{id})}, args)
+		require.Len(t, e.app.warned, 1)
+		assert.True(t, strings.HasPrefix(e.app.warned[0], "couldn't check the @artifact references: "), e.app.warned[0])
+	})
+}
+
+// presenceHost is a daemon environment host whose status lists envs.
+type presenceHost struct {
+	daemon.NopEnvironments
+	envs []daemon.EnvironmentPresence
+}
+
+func (h *presenceHost) Status() daemon.EnvironmentsStatus {
+	return daemon.EnvironmentsStatus{Environments: h.envs}
+}
+
+// presence is environment vega as the daemon reports it.
+func presence(status string, hello *daemon.EnvironmentHello) daemon.EnvironmentPresence {
+	return daemon.EnvironmentPresence{ID: "env-1", Name: "vega", State: "enrolled", Status: status, Hello: hello}
+}
+
+func TestApp_warnOldAgent(t *testing.T) {
+	serve := func(t *testing.T, envs ...daemon.EnvironmentPresence) *App {
+		t.Helper()
+		app, _, _ := newDaemonTestApp(t)
+		serveDaemonWith(t, app, &presenceHost{envs: envs})
+		return app
+	}
+	t.Run("an online environment on protocol 4 warns that its agents can't read artifacts", func(t *testing.T) {
+		app := serve(t, presence(envproto.StatusOnline, &daemon.EnvironmentHello{Protocol: 4}))
+		app.warnOldAgent(t.Context(), "vega")
+		assert.Equal(t, []string{"vega runs ws with protocol 4; its agents can't read artifacts until ws there is upgraded (protocol 5)"}, app.warned)
+	})
+	t.Run("protocol 5 doesn't warn", func(t *testing.T) {
+		app := serve(t, presence(envproto.StatusOnline, &daemon.EnvironmentHello{Protocol: envproto.ProtocolArtifacts}))
+		app.warnOldAgent(t.Context(), "vega")
+		assert.Empty(t, app.warned)
+	})
+	t.Run("an offline environment doesn't warn", func(t *testing.T) {
+		app := serve(t, presence("offline", &daemon.EnvironmentHello{Protocol: 4}))
+		app.warnOldAgent(t.Context(), "vega")
+		assert.Empty(t, app.warned)
+	})
+	t.Run("an online environment with no hello doesn't warn", func(t *testing.T) {
+		app := serve(t, presence(envproto.StatusOnline, nil))
+		app.warnOldAgent(t.Context(), "vega")
+		assert.Empty(t, app.warned)
+	})
+	t.Run("an environment the daemon doesn't list doesn't warn", func(t *testing.T) {
+		app := serve(t, presence(envproto.StatusOnline, &daemon.EnvironmentHello{Protocol: 4}))
+		app.warnOldAgent(t.Context(), "other")
+		assert.Empty(t, app.warned)
+	})
+	t.Run("with no daemon it doesn't warn", func(t *testing.T) {
+		app, _, _ := newDaemonTestApp(t)
+		app.warnOldAgent(t.Context(), "vega")
+		assert.Empty(t, app.warned)
+	})
+	t.Run("an enrolled agent machine doesn't know, even with a daemon that lists it", func(t *testing.T) {
+		app := serve(t, presence(envproto.StatusOnline, &daemon.EnvironmentHello{Protocol: 4}))
+		require.NoError(t, os.MkdirAll(app.paths.Environment, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(app.paths.Environment, "agent.toml"), []byte("x"), 0o600))
+		protocol, known := app.environmentProtocol(t.Context(), "vega")
+		assert.False(t, known)
+		assert.Zero(t, protocol)
+		app.warnOldAgent(t.Context(), "vega")
+		assert.Empty(t, app.warned)
+	})
+	t.Run("artifactHints for a remote environment warns, and still checks and hints", func(t *testing.T) {
+		app, _, _ := newDaemonTestApp(t)
+		app.now = testNow
+		rec, err := app.artifactStore().Add(t.Context(), &artifact.NewArtifact{Name: "login.txt", Data: []byte("hi"), By: artifact.Person()})
+		require.NoError(t, err)
+		serveDaemonWith(t, app, &presenceHost{envs: []daemon.EnvironmentPresence{presence(envproto.StatusOnline, &daemon.EnvironmentHello{Protocol: 4})}})
+		prompt := "fix it @artifact:" + rec.ID
+		args, err := app.artifactHints(t.Context(), []string{prompt}, "vega")
+		require.NoError(t, err)
+		assert.Equal(t, []string{prompt + "\n\n" + artifact.HintLine([]string{rec.ID})}, args)
+		require.Len(t, app.warned, 1)
+		assert.Contains(t, app.warned[0], "vega runs ws with protocol 4")
 	})
 }
 

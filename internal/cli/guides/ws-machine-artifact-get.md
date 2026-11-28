@@ -8,7 +8,9 @@ Copies a revision of an artifact (the latest, unless `--rev`) into a file in
 your workspace, and prints its absolute `path`. Read that path with your Read
 tool. The default directory is `<workspace>/.ws-artifacts/<id>/r<n>`. The file
 keeps the artifact's name and is written 0600 in a 0700 directory; an existing
-file is replaced.
+file is replaced. On an enrolled remote environment the file is written on
+that machine, at the same path under your workspace, and the path printed is
+the remote one.
 
 A reference's revision works too: `@artifact:art-1a2b3c4d/r1` is the same as
 `--rev 1`. Giving both a reference revision and a different `--rev` is `usage`.
@@ -45,7 +47,7 @@ Output is always JSON; `--json` changes nothing.
 | Run outside a workspace                        | `outside_workspace`    | 2    |
 | `--rev` under 1, or a reference and `--rev` disagree | `usage`          | 2    |
 | No artifact with that id, or no such revision  | `artifact_unknown`     | 3    |
-| Run on an enrolled environment's agent machine | `artifact_unreachable` | 1    |
+| Run on an enrolled environment's agent machine, if it can't reach the controller's artifact API | `artifact_unreachable` | 1    |
 
 ## Examples
 

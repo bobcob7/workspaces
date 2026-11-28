@@ -61,7 +61,7 @@ Each takes an `<ID>` or a reference `@artifact:<id>` with an optional `/r<n>`.
 | `put --base-rev` isn't the latest revision                      | `artifact_conflict`    | 4    |
 | An artifact or the store is at a limit                           | `artifact_full`        | 4    |
 | `rm` of an artifact another workspace tree created               | `artifact_forbidden`   | 4    |
-| Run on an enrolled environment's agent machine                   | `artifact_unreachable` | 1    |
+| Run on an enrolled environment's agent machine, if it can't reach the controller's artifact API | `artifact_unreachable` | 1    |
 
 ## Examples
 

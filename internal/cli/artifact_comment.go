@@ -141,15 +141,15 @@ func (a *App) newArtifactCommentCmd(people bool) *cobra.Command {
 
 // commentRun is a comment subcommand's RunE: fn runs after config loads, with
 // the actor it writes as. An agent's actor comes after the checks of ws
-// machine artifact.
-func (a *App) commentRun(people bool, fn func(ctx context.Context, by artifact.Actor, args []string, cmd *cobra.Command) error) func(*cobra.Command, []string) error {
+// machine artifact, with its caller; for people the caller is nil.
+func (a *App) commentRun(people bool, fn func(ctx context.Context, by artifact.Actor, c *machineArtifactCaller, args []string, cmd *cobra.Command) error) func(*cobra.Command, []string) error {
 	if people {
 		return runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
-			return fn(cmd.Context(), artifact.Person(), args, cmd)
+			return fn(cmd.Context(), artifact.Person(), nil, args, cmd)
 		}))
 	}
 	return a.withMachineCaller(func(ctx context.Context, c machineArtifactCaller, args []string, cmd *cobra.Command) error {
-		return fn(ctx, c.actor, args, cmd)
+		return fn(ctx, c.actor, &c, args, cmd)
 	})
 }
 
@@ -159,7 +159,10 @@ func (a *App) newCommentListCmd(people bool) *cobra.Command {
 		Use:   "list <ID> [--open]",
 		Short: "List an artifact's comment threads",
 		Args:  artifactArgs(1, "an artifact id"),
-		RunE: a.commentRun(people, func(_ context.Context, _ artifact.Actor, args []string, _ *cobra.Command) error {
+		RunE: a.commentRun(people, func(ctx context.Context, _ artifact.Actor, c *machineArtifactCaller, args []string, _ *cobra.Command) error {
+			if c.onRemote() {
+				return a.remoteCommentList(ctx, c, args[0], openOnly)
+			}
 			return a.listComments(args[0], openOnly)
 		}),
 	}
@@ -197,7 +200,10 @@ func (a *App) newCommentAddCmd(people bool) *cobra.Command {
 		Use:   "add <ID> (--body <text> | --body-file <path|->) [--reply <thread> | --quote <text> [--line <n>]]",
 		Short: "Start a comment thread on an artifact, or reply to one",
 		Args:  artifactArgs(1, "an artifact id"),
-		RunE: a.commentRun(people, func(ctx context.Context, by artifact.Actor, args []string, cmd *cobra.Command) error {
+		RunE: a.commentRun(people, func(ctx context.Context, by artifact.Actor, c *machineArtifactCaller, args []string, cmd *cobra.Command) error {
+			if c.onRemote() {
+				return a.remoteCommentAdd(ctx, c, args[0], &opts, cmd)
+			}
 			return a.addComment(ctx, args[0], by, &opts, cmd)
 		}),
 	}
@@ -319,7 +325,10 @@ func (a *App) newCommentResolveCmd(people bool) *cobra.Command {
 		Use:   "resolve <ID> <THREAD> [--reopen]",
 		Short: "Resolve a comment thread, or open it again",
 		Args:  artifactArgs(2, "an artifact id and a thread id"),
-		RunE: a.commentRun(people, func(ctx context.Context, by artifact.Actor, args []string, _ *cobra.Command) error {
+		RunE: a.commentRun(people, func(ctx context.Context, by artifact.Actor, c *machineArtifactCaller, args []string, _ *cobra.Command) error {
+			if c.onRemote() {
+				return a.remoteCommentResolve(ctx, c, args, reopen)
+			}
 			return a.resolveComment(ctx, args, by, reopen)
 		}),
 	}

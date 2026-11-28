@@ -1,6 +1,6 @@
 # 0078. Artifacts: files people and agents share, kept in one store under `CONFIG_DIR/artifacts/` that outlives workspaces, reached by agents through `ws machine artifact` and by the desktop app through a hidden `ws artifact`
 
-- Status: Accepted (2026-11-23)
+- Status: Accepted (2026-11-23); the "Remote environments" paragraph superseded by [0087](0087-artifacts-from-remote-environments.md): agents on a remote reach the controller's store over mutual-TLS HTTPS instead of getting `artifact_unreachable`
 - Date: 2026-11-23
 
 ## Context
@@ -175,7 +175,7 @@ Rust and piped to `ws artifact add -` on stdin; `artifact_read` returns
 `{contentType, dataBase64}`. Workspace Online raises the body limit of
 `/api/invoke/{command}` to 16 MiB, enough for a 10 MiB file in base64.
 
-**Remote environments.** The store is the controller's, the machine the
+**Remote environments.** (Superseded by [0087](0087-artifacts-from-remote-environments.md).) The store is the controller's, the machine the
 desktop app and Workspace Online run on. An agent on a remote environment
 runs its own `ws`, whose store nobody looks at, so on an enrolled agent
 machine (`environment/agent.toml` exists) every `ws machine artifact`

@@ -425,6 +425,7 @@ func environmentRules() []keyRule {
 		{key: "environments.renew_before_days", typ: TypeInt, table: "environments", leaf: "renew_before_days"},
 		{key: "environments.agent_loop_scripts", typ: TypeBool, table: "environments", leaf: "agent_loop_scripts"},
 		{key: "environments.default_scope", typ: TypeStrings, table: "environments", leaf: "default_scope"},
+		{key: "environments.api_listen", typ: TypeString, table: "environments", leaf: "api_listen"},
 	}
 }
 
@@ -580,6 +581,11 @@ func environmentValue(rule keyRule, cfg *Config) (any, bool) {
 		return cfg.Environments.ListenAddr(), true
 	case "environments.enroll_listen":
 		return cfg.Environments.EnrollAddr(), true
+	case "environments.api_listen":
+		if addr := cfg.Environments.APIAddr(); addr != "" {
+			return addr, true
+		}
+		return apiListenOff, true
 	case "environments.public_name":
 		return cfg.Environments.PublicName, true
 	case "environments.renew_before_days":
@@ -718,6 +724,8 @@ func defaultOf(rule keyRule) any {
 		return defaultEnvListen
 	case "environments.enroll_listen":
 		return defaultEnvEnrollListen
+	case "environments.api_listen":
+		return defaultEnvAPIListen
 	case "environments.public_name":
 		return ""
 	case "environments.renew_before_days":
@@ -842,6 +850,8 @@ func normalizeEnvironment(rule keyRule, value string) (any, error) {
 		env.Listen = value
 	case "environments.enroll_listen":
 		env.EnrollListen = value
+	case "environments.api_listen":
+		env.APIListen = &value
 	case "environments.public_name":
 		env.PublicName = value
 	case "environments.renew_before_days":

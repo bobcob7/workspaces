@@ -39,6 +39,7 @@ const (
 type Settings struct {
 	Listen          string // "0.0.0.0:8883"
 	EnrollListen    string // "0.0.0.0:8884"
+	APIListen       string // "0.0.0.0:8885"; "" starts no artifact API listener
 	PublicName      string
 	RenewBeforeDays int
 }
@@ -58,6 +59,7 @@ type Status struct {
 	Listening    bool
 	Listen       string // the bound address, "" when not listening
 	EnrollListen string
+	APIListen    string     // the artifact API's bound address, "" when not listening
 	Environments []Presence // sorted by name; [] when none
 }
 
@@ -99,16 +101,29 @@ type Controller struct {
 	mu             sync.Mutex
 	presence       map[string]heard
 	calls          map[string]*pendingCall
-	updates        map[string]string // ca.update request id to the environment it waits on
+	updates        map[string]pendingUpdate // update request id to the environment it waits on
 	terminals      map[termKey]*Terminal
 	listening      bool
 	listenAddr     string
 	enrollAddr     string
 	enrollServer   *http.Server
 	brokerEndpoint string // host:port that enrollment answers give agents
-	unsubscribe    []func()
-	cancel         context.CancelFunc // ends the context the handlers run on
-	startWarnings  []string
+	artifactAPI    http.Handler
+	apiAddr        string
+	apiEndpoint    string
+	apiServer      *http.Server
+	// apiPosts holds one slot per POST the artifact API runs (ADR 0087).
+	apiPosts      chan struct{}
+	unsubscribe   []func()
+	cancel        context.CancelFunc // ends the context the handlers run on
+	startWarnings []string
+}
+
+// pendingUpdate is an update request the controller sent and is waiting on: op
+// is what it asked the environment env to do.
+type pendingUpdate struct {
+	env string
+	op  string
 }
 
 // NewController returns a controller that isn't listening. It has no side
@@ -122,7 +137,8 @@ func NewController(log *slog.Logger, store *Store, b broker, settings Settings, 
 		now:                now,
 		presence:           map[string]heard{},
 		calls:              map[string]*pendingCall{},
-		updates:            map[string]string{},
+		updates:            map[string]pendingUpdate{},
+		apiPosts:           make(chan struct{}, apiMaxInFlight),
 		terminals:          map[termKey]*Terminal{},
 		newTicker:          realTicker,
 		enrollTimeout:      enrollReadTimeout,
@@ -180,19 +196,30 @@ func (c *Controller) listenAll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listening for enrollment: %w", err)
 	}
+	var apiLn net.Listener
+	if c.settings.APIListen != "" {
+		apiLn, err = c.listenAPI(ctx, &lc)
+		if err != nil {
+			return errors.Join(err, closeListeners(enrollLn))
+		}
+	}
 	brokerAddr, err := c.broker.Start(ctx, c.settings.Listen, brokerTLS(c.currentState), c.policy.rules())
 	if err != nil {
-		return errors.Join(fmt.Errorf("starting the broker: %w", err), enrollLn.Close())
+		return errors.Join(fmt.Errorf("starting the broker: %w", err), closeListeners(enrollLn, apiLn))
 	}
 	endpoint, err := brokerEndpoint(c.settings.PublicName, brokerAddr)
 	if err != nil {
-		return errors.Join(err, c.broker.Close(), enrollLn.Close())
+		return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
+	}
+	apiAddr, apiEndpoint, err := c.apiEndpointOf(apiLn)
+	if err != nil {
+		return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
 	}
 	life, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	unsubscribe, err := c.subscribe(ctx, life)
 	if err != nil {
 		cancel()
-		return errors.Join(err, c.broker.Close(), enrollLn.Close())
+		return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
 	}
 	srv := &http.Server{
 		Handler:           newEnrollHandler(c.log, c.enroll),
@@ -202,17 +229,43 @@ func (c *Controller) listenAll(ctx context.Context) error {
 		IdleTimeout:       c.enrollTimeout,
 		MaxHeaderBytes:    enrollMaxHeaderBytes,
 	}
-	c.publishListeners(&listeners{
+	l := &listeners{
 		cancel:      cancel,
 		srv:         srv,
 		enrollAddr:  enrollLn.Addr().String(),
 		brokerAddr:  brokerAddr,
 		endpoint:    endpoint,
 		unsubscribe: unsubscribe,
-	})
+		apiAddr:     apiAddr,
+		apiEndpoint: apiEndpoint,
+		apiServer:   c.apiServerFor(apiLn),
+	}
+	c.publishListeners(l)
 	go c.serveEnrollment(life, srv, tls.NewListener(enrollLn, enrollTLS(c.currentState)))
+	if apiLn != nil {
+		go c.serveAPI(life, l.apiServer, apiLn)
+	}
 	go c.sweepEvery(life, sweepInterval)
 	return nil
+}
+
+// apiEndpointOf is the bound address of apiLn and the host:port agents
+// reach it on; both are "" when apiLn is nil.
+func (c *Controller) apiEndpointOf(apiLn net.Listener) (addr, endpoint string, err error) {
+	if apiLn == nil {
+		return "", "", nil
+	}
+	addr = apiLn.Addr().String()
+	endpoint, err = brokerEndpoint(c.settings.PublicName, addr)
+	return addr, endpoint, err
+}
+
+// apiServerFor is the artifact API's server for apiLn, nil when there is none.
+func (c *Controller) apiServerFor(apiLn net.Listener) *http.Server {
+	if apiLn == nil {
+		return nil
+	}
+	return c.newAPIServer()
 }
 
 // listeners is what Start records once its listeners are up.
@@ -222,6 +275,9 @@ type listeners struct {
 	enrollAddr  string
 	brokerAddr  string
 	endpoint    string
+	apiAddr     string
+	apiEndpoint string
+	apiServer   *http.Server
 	unsubscribe []func()
 }
 
@@ -235,6 +291,9 @@ func (c *Controller) publishListeners(l *listeners) {
 	c.enrollAddr = l.enrollAddr
 	c.enrollServer = l.srv
 	c.brokerEndpoint = l.endpoint
+	c.apiAddr = l.apiAddr
+	c.apiEndpoint = l.apiEndpoint
+	c.apiServer = l.apiServer
 	c.unsubscribe = l.unsubscribe
 	c.cancel = l.cancel
 	c.startWarnings = nil
@@ -377,7 +436,7 @@ func (c *Controller) missingRoot(have []string) bool {
 // Status reports the listeners and every environment.
 func (c *Controller) Status() Status {
 	c.mu.Lock()
-	status := Status{Listening: c.listening, Listen: c.listenAddr, EnrollListen: c.enrollAddr}
+	status := Status{Listening: c.listening, Listen: c.listenAddr, EnrollListen: c.enrollAddr, APIListen: c.apiAddr}
 	c.mu.Unlock()
 	status.Environments = c.presences()
 	return status
@@ -451,12 +510,15 @@ func (c *Controller) Close() error {
 		c.mu.Unlock()
 		return nil
 	}
-	srv, unsubscribe, cancel := c.enrollServer, c.unsubscribe, c.cancel
+	srv, apiSrv, unsubscribe, cancel := c.enrollServer, c.apiServer, c.unsubscribe, c.cancel
 	c.listening = false
 	c.listenAddr = ""
 	c.enrollAddr = ""
 	c.enrollServer = nil
 	c.brokerEndpoint = ""
+	c.apiAddr = ""
+	c.apiEndpoint = ""
+	c.apiServer = nil
 	c.unsubscribe = nil
 	c.cancel = nil
 	c.mu.Unlock()
@@ -465,7 +527,7 @@ func (c *Controller) Close() error {
 	for _, unsub := range unsubscribe {
 		unsub()
 	}
-	return errors.Join(srv.Close(), c.broker.Close())
+	return errors.Join(srv.Close(), closeAPIServer(apiSrv), c.broker.Close())
 }
 
 // isListening reports whether the listeners are up.
@@ -517,6 +579,16 @@ func (c *Controller) onStatus(ctx context.Context, msg *envproto.Message) {
 	if c.missingRoot(hello.CAFingerprints) {
 		c.requestCAUpdate(ctx, id)
 	}
+	if c.missingAPIEndpoint(&hello) {
+		c.requestAPIUpdate(ctx, id)
+	}
+}
+
+// missingAPIEndpoint reports whether an agent at protocol 5 or later holds an
+// artifact API address other than the controller's, while the controller has one.
+func (c *Controller) missingAPIEndpoint(hello *envproto.Hello) bool {
+	endpoint := c.APIEndpoint()
+	return hello.Protocol >= envproto.ProtocolArtifacts && endpoint != "" && hello.APIEndpoint != endpoint
 }
 
 // recordStatus stores what a status message says about the environment id,
@@ -639,7 +711,7 @@ func (c *Controller) publishReply(ctx context.Context, topic string, correlation
 }
 
 // onRes delivers a reply to the call waiting for it, and otherwise logs
-// whether an environment acknowledged a ca.update.
+// whether an environment acknowledged an update it was sent.
 func (c *Controller) onRes(ctx context.Context, msg *envproto.Message) {
 	id, _, ok := envproto.ParseTopic(msg.Topic)
 	if !ok {
@@ -654,19 +726,25 @@ func (c *Controller) onRes(ctx context.Context, msg *envproto.Message) {
 	if c.deliver(id, reqID, reply) {
 		return
 	}
-	if !c.takeUpdate(id, reqID) {
+	op, ok := c.takeUpdate(id, reqID)
+	if !ok {
 		c.log.DebugContext(ctx, "reply for no pending call", "id", id)
 		return
 	}
+	c.logUpdateReply(ctx, id, op, reply)
+}
+
+// logUpdateReply logs whether environment id acknowledged op.
+func (c *Controller) logUpdateReply(ctx context.Context, id, op string, reply envproto.Reply) {
 	if reply.OK {
-		c.log.InfoContext(ctx, "ca.update acknowledged", "id", id)
+		c.log.InfoContext(ctx, "update acknowledged", "op", op, "id", id)
 		return
 	}
 	code := ""
 	if reply.Error != nil {
 		code = reply.Error.Code
 	}
-	c.log.WarnContext(ctx, "ca.update refused", "id", id, "code", code)
+	c.log.WarnContext(ctx, "update refused", "op", op, "id", id, "code", code)
 }
 
 // requestCAUpdate sends a ca.update to id and logs a failure.
@@ -676,20 +754,36 @@ func (c *Controller) requestCAUpdate(ctx context.Context, id string) {
 	}
 }
 
-// sendCAUpdate asks id to trust every root the controller trusts. The reply
-// comes back on env/<id>/res/<req>.
+// sendCAUpdate asks id to trust every root the controller trusts.
 func (c *Controller) sendCAUpdate(ctx context.Context, id string) error {
+	return c.sendUpdate(ctx, id, envproto.OpCAUpdate, envproto.CAUpdateArgs{
+		CABundle: string(c.currentTrust().bundlePEM()),
+	})
+}
+
+// requestAPIUpdate sends an api.update to id and logs a failure.
+func (c *Controller) requestAPIUpdate(ctx context.Context, id string) {
+	if err := c.sendAPIUpdate(ctx, id); err != nil {
+		c.log.WarnContext(ctx, "api.update not sent", "id", id, "error", err)
+	}
+}
+
+// sendAPIUpdate tells id the controller's artifact API address (ADR 0087).
+func (c *Controller) sendAPIUpdate(ctx context.Context, id string) error {
+	return c.sendUpdate(ctx, id, envproto.OpAPIUpdate, envproto.APIUpdateArgs{Endpoint: c.APIEndpoint()})
+}
+
+// sendUpdate sends op with args to id. The reply comes back on env/<id>/res/<req>.
+func (c *Controller) sendUpdate(ctx context.Context, id, op string, args any) error {
 	reqID, err := newRequestID()
 	if err != nil {
 		return err
 	}
-	payload, err := marshalRequest(envproto.OpCAUpdate, envproto.CAUpdateArgs{
-		CABundle: string(c.currentTrust().bundlePEM()),
-	}, reqID)
+	payload, err := marshalRequest(op, args, reqID)
 	if err != nil {
 		return err
 	}
-	c.addUpdate(id, reqID)
+	c.addUpdate(id, reqID, op)
 	time.AfterFunc(caUpdateExpiry, func() { c.takeUpdate(id, reqID) })
 	return c.broker.Publish(ctx, envproto.Message{
 		Topic:           envproto.Topic(id, envproto.LeafReq),
@@ -701,22 +795,24 @@ func (c *Controller) sendCAUpdate(ctx context.Context, id string) error {
 	})
 }
 
-// addUpdate records that the ca.update request reqID waits for a reply from id.
-func (c *Controller) addUpdate(id, reqID string) {
+// addUpdate records that the update request reqID, which asks op, waits for a reply from id.
+func (c *Controller) addUpdate(id, reqID, op string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.updates[reqID] = id
+	c.updates[reqID] = pendingUpdate{env: id, op: op}
 }
 
-// takeUpdate forgets the ca.update request reqID to id, and reports whether it was waiting.
-func (c *Controller) takeUpdate(id, reqID string) bool {
+// takeUpdate forgets the update request reqID to id, and returns the operation
+// it asked and whether it was waiting.
+func (c *Controller) takeUpdate(id, reqID string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if owner, ok := c.updates[reqID]; !ok || owner != id {
-		return false
+	pending, ok := c.updates[reqID]
+	if !ok || pending.env != id {
+		return "", false
 	}
 	delete(c.updates, reqID)
-	return true
+	return pending.op, true
 }
 
 // marshalRequest encodes {"op": op, "args": args, "request_id": requestID, "deadline": null}.

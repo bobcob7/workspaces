@@ -14,6 +14,7 @@ type EnvironmentsStatus struct {
 	Listening    bool                  `json:"listening"`
 	Listen       string                `json:"listen"`
 	EnrollListen string                `json:"enroll_listen"`
+	APIListen    string                `json:"api_listen"`
 	Environments []EnvironmentPresence `json:"environments"`
 }
 
@@ -35,6 +36,7 @@ type EnvironmentHello struct {
 	Claude        string  `json:"claude"`
 	ClaudeVersion *string `json:"claude_version"`
 	CertNotAfter  string  `json:"cert_not_after"`
+	Protocol      int     `json:"protocol"`
 }
 
 // reloadResponse is POST /v1/environments/reload's answer.

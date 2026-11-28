@@ -44,6 +44,10 @@ func (a *Agent) dispatch(ctx context.Context, id *Identity, msg *envproto.Messag
 		a.reply(ctx, id, msg, a.updateRoots(ctx, id, req.Args))
 		return
 	}
+	if req.Op == envproto.OpAPIUpdate {
+		a.reply(ctx, id, msg, a.updateAPI(ctx, id, req.Args))
+		return
+	}
 	spec, args, err := a.admit(&req)
 	if err != nil {
 		a.reply(ctx, id, msg, refusalReply(err))

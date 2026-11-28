@@ -29,9 +29,15 @@ func scopeTestCaller() ScopeCallerArgs {
 }
 
 func TestProtocol_scopes(t *testing.T) {
-	t.Run("protocol 4 carries scopes", func(t *testing.T) {
-		assert.Equal(t, 4, Protocol)
+	t.Run("protocol 5 carries scopes", func(t *testing.T) {
+		assert.Equal(t, 5, Protocol)
 		assert.Equal(t, 4, ProtocolScopes)
+	})
+}
+
+func TestProtocol_artifacts(t *testing.T) {
+	t.Run("the artifact API is protocol 5", func(t *testing.T) {
+		assert.Equal(t, 5, ProtocolArtifacts)
 	})
 }
 

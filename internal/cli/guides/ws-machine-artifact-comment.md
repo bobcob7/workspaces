@@ -46,7 +46,7 @@ stderr. Run inside your workspace: outside one, every command fails with
 | No artifact, or no thread with that id                           | `artifact_unknown`     | 3    |
 | A quote that isn't in the latest revision, or is ambiguous       | `anchor_not_found`     | 3    |
 | The artifact or thread is at a limit                             | `artifact_full`        | 4    |
-| Run on an enrolled environment's agent machine                   | `artifact_unreachable` | 1    |
+| Run on an enrolled environment's agent machine, if it can't reach the controller's artifact API | `artifact_unreachable` | 1    |
 
 ## Examples
 

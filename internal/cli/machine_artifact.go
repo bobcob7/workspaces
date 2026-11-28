@@ -17,20 +17,26 @@ import (
 // machineArtifactCaller is who a ws machine artifact command acts for: the
 // actor it writes as, its tree's root, and its workspace's path.
 type machineArtifactCaller struct {
-	actor artifact.Actor
-	root  string
-	path  string
+	actor  artifact.Actor
+	root   string
+	path   string
+	remote *remoteArtifacts // nil on the controller (ADR 0087)
 }
 
-// machineCaller is the caller of a ws machine artifact command. It refuses
-// on an enrolled environment's agent machine first (ADR 0078).
+// onRemote reports whether the caller reaches the store through the
+// controller's API, which is what an enrolled agent machine does.
+func (c *machineArtifactCaller) onRemote() bool {
+	return c != nil && c.remote != nil
+}
+
+// machineCaller is the caller of a ws machine artifact command. On an
+// enrolled environment's agent machine the store is the controller's, reached
+// through its artifact API (ADR 0087); an unreadable identity or API endpoint
+// is artifact_unreachable.
 func (a *App) machineCaller() (machineArtifactCaller, error) {
 	caller, err := a.caller()
 	if err != nil {
 		return machineArtifactCaller{}, err
-	}
-	if a.enrolledAgent() {
-		return machineArtifactCaller{}, newError(codeArtifactUnreachable, errors.New("artifacts live on the machine this environment is enrolled with, and this ws can't reach them yet (ADR 0078)"))
 	}
 	list, err := a.workspaces.List()
 	if err != nil {
@@ -41,7 +47,14 @@ func (a *App) machineCaller() (machineArtifactCaller, error) {
 	if name == "" {
 		name = caller
 	}
-	return machineArtifactCaller{actor: artifact.Agent(caller, name), root: machine.Root(list, caller), path: ws.Path}, nil
+	c := machineArtifactCaller{actor: artifact.Agent(caller, name), root: machine.Root(list, caller), path: ws.Path}
+	if a.enrolledAgent() {
+		c.remote, err = a.newRemoteArtifacts()
+		if err != nil {
+			return machineArtifactCaller{}, err
+		}
+	}
+	return c, nil
 }
 
 // workspaceByID is the workspace in list with id, or the zero Workspace.
@@ -55,8 +68,8 @@ func workspaceByID(list []workspace.Workspace, id string) workspace.Workspace {
 }
 
 // enrolledAgent reports whether this CONFIG_DIR is an enrolled environment's
-// agent, which has agent.toml (ADR 0075). Artifacts there aren't this
-// ws's to reach (ADR 0078).
+// agent, which has agent.toml (ADR 0075). Its artifacts are the controller's,
+// reached through the artifact API (ADR 0087).
 func (a *App) enrolledAgent() bool {
 	_, err := os.Stat(filepath.Join(a.paths.Environment, "agent.toml"))
 	return err == nil
@@ -64,7 +77,7 @@ func (a *App) enrolledAgent() bool {
 
 // checkOwner is removeArtifacts' check for agents: an artifact is removed
 // only by the tree that created it.
-func (c machineArtifactCaller) checkOwner(e *artifact.Entry) error {
+func (c *machineArtifactCaller) checkOwner(e *artifact.Entry) error {
 	if e.Record.Root != nil && *e.Record.Root == c.root {
 		return nil
 	}
@@ -93,14 +106,21 @@ func (a *App) newMachineArtifactCmd() *cobra.Command {
 	return cmd
 }
 
-// withMachineCaller runs fn with the caller, after config is loaded.
+// withMachineCaller runs fn with the caller, after config is loaded. A remote
+// command is bounded by artifactRequestTimeout.
 func (a *App) withMachineCaller(fn func(ctx context.Context, c machineArtifactCaller, args []string, cmd *cobra.Command) error) func(*cobra.Command, []string) error {
 	return runE(a.withConfig(func(cmd *cobra.Command, args []string) error {
 		c, err := a.machineCaller()
 		if err != nil {
 			return err
 		}
-		return fn(cmd.Context(), c, args, cmd)
+		ctx := cmd.Context()
+		if c.onRemote() {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, artifactRequestTimeout)
+			defer cancel()
+		}
+		return fn(ctx, c, args, cmd)
 	}))
 }
 
@@ -111,6 +131,9 @@ func (a *App) newMachineArtifactAddCmd() *cobra.Command {
 		Short: "Store a file as a new artifact, for people to read",
 		Args:  artifactArgs(1, "a file to add, or - for stdin"),
 		RunE: a.withMachineCaller(func(ctx context.Context, c machineArtifactCaller, args []string, _ *cobra.Command) error {
+			if c.onRemote() {
+				return a.remoteAdd(ctx, &c, args[0], &opts)
+			}
 			rec, err := a.addArtifact(ctx, args[0], &opts, c.actor, c.root)
 			if err != nil {
 				return err
@@ -129,9 +152,12 @@ func (a *App) newMachineArtifactListCmd() *cobra.Command {
 		Use:   "list [--kind image|markdown|text] [--mine] [--limit <n>]",
 		Short: "List artifacts, latest first",
 		Args:  noArgs,
-		RunE: a.withMachineCaller(func(_ context.Context, c machineArtifactCaller, _ []string, _ *cobra.Command) error {
+		RunE: a.withMachineCaller(func(ctx context.Context, c machineArtifactCaller, _ []string, _ *cobra.Command) error {
 			if err := errors.Join(checkArtifactKind(f.kind), checkListLimit(f.limit)); err != nil {
 				return err
+			}
+			if c.onRemote() {
+				return a.remoteList(ctx, &c, f.kind, mine, f.limit)
 			}
 			f.mine, f.root = mine, c.root
 			return a.listArtifacts(&f)
@@ -148,7 +174,10 @@ func (a *App) newMachineArtifactShowCmd() *cobra.Command {
 		Use:   "show <ID>",
 		Short: "Show an artifact and its revisions",
 		Args:  artifactArgs(1, "an artifact id"),
-		RunE: a.withMachineCaller(func(_ context.Context, _ machineArtifactCaller, args []string, _ *cobra.Command) error {
+		RunE: a.withMachineCaller(func(ctx context.Context, c machineArtifactCaller, args []string, _ *cobra.Command) error {
+			if c.onRemote() {
+				return a.remoteShow(ctx, &c, args[0])
+			}
 			return a.showArtifact(args[0])
 		}),
 	}
@@ -170,6 +199,9 @@ func (a *App) newMachineArtifactGetCmd() *cobra.Command {
 			id, r, err := artifactRef(args[0], opts.rev, cmd.Flags().Changed("rev"))
 			if err != nil {
 				return err
+			}
+			if c.onRemote() {
+				return a.remoteGet(ctx, &c, id, r, opts.out)
 			}
 			return a.getArtifact(ctx, &c, id, r, opts.out)
 		}),
@@ -283,6 +315,9 @@ func (a *App) newMachineArtifactPutCmd() *cobra.Command {
 			if cmd.Flags().Changed("base-rev") && opts.baseRev < 1 {
 				return usageErrorf("--base-rev must be at least 1, not %d", opts.baseRev)
 			}
+			if c.onRemote() {
+				return a.remotePut(ctx, &c, args[0], args[1], &opts)
+			}
 			return a.putArtifact(ctx, &c, args[0], args[1], &opts)
 		}),
 	}
@@ -341,6 +376,9 @@ func (a *App) newMachineArtifactRmCmd() *cobra.Command {
 		Short: "Remove artifacts your workspace tree created",
 		Args:  atLeastOneArg("an artifact"),
 		RunE: a.withMachineCaller(func(ctx context.Context, c machineArtifactCaller, args []string, _ *cobra.Command) error {
+			if c.onRemote() {
+				return a.remoteRemove(ctx, &c, args)
+			}
 			return a.removeArtifacts(ctx, args, c.checkOwner)
 		}),
 	}

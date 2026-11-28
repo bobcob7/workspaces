@@ -177,7 +177,7 @@ func (a *App) printDaemonStatus(st daemon.Status) {
 	fmt.Fprintf(a.stdout, "running: pid %d, %s origin, since %s, ws %s\n", *st.PID, *st.Origin, formatTime(*st.StartedAt), *st.WSVersion)
 	fmt.Fprintf(a.stdout, "socket: %s\n", st.Socket)
 	if st.Environments != nil {
-		fmt.Fprintln(a.stdout, environmentsSummary(*st.Environments))
+		fmt.Fprintln(a.stdout, environmentsSummary(st.Environments))
 	}
 	for _, r := range st.Runners {
 		fmt.Fprintf(a.stdout, "runner %s: %s (pid %d)\n", r.Session, r.State, r.PID)
@@ -185,7 +185,7 @@ func (a *App) printDaemonStatus(st daemon.Status) {
 }
 
 // environmentsSummary is the environments line of ws daemon status.
-func environmentsSummary(env daemon.EnvironmentsStatus) string {
+func environmentsSummary(env *daemon.EnvironmentsStatus) string {
 	if !env.Listening {
 		return "environments: off"
 	}
@@ -200,7 +200,11 @@ func environmentsSummary(env daemon.EnvironmentsStatus) string {
 			pending++
 		}
 	}
-	return fmt.Sprintf("environments: listening on %s, enroll on %s; %d online, %d offline, %d pending", env.Listen, env.EnrollListen, online, offline, pending)
+	api := env.APIListen
+	if api == "" {
+		api = "off"
+	}
+	return fmt.Sprintf("environments: listening on %s, enroll on %s, api on %s; %d online, %d offline, %d pending", env.Listen, env.EnrollListen, api, online, offline, pending)
 }
 
 func (a *App) newDaemonStopCmd() *cobra.Command {

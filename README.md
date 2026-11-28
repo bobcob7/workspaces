@@ -132,7 +132,7 @@ children on other environments are still listed.
 | [`ws machine`](docs/tools/ws-machine.md) | For agents: start, list, and remove their child workspaces |
 | [`ws llm`](docs/tools/ws-llm.md)         | Print guidance for AI agents                         |
 
-Share screenshots and documents with agents: people use the desktop app's Artifacts section or the hidden `ws artifact` command (it is not in `ws --help`; see [`ws artifact`](docs/tools/ws-artifact.md)), and agents use `ws machine artifact`.
+Share screenshots and documents with agents: people use the desktop app's Artifacts section or the hidden `ws artifact` command (it is not in `ws --help`; see [`ws artifact`](docs/tools/ws-artifact.md)), and agents use `ws machine artifact`, on this machine or on a remote environment: the same commands, with the remote's agent reaching this controller's store ([0087](docs/adrs/0087-artifacts-from-remote-environments.md)).
 
 Commands are non-interactive, write results to stdout and diagnostics to
 stderr, and take `--json` for machine-readable output
@@ -289,7 +289,7 @@ its page in [`docs/tools`](docs/tools/README.md), with unit tests.
   terminal on a remote workspace ([design](docs/design/remote-environments/tasks-ui.md)).
   Not yet: a remote agent's conversation view, stopping a `ws` runner agent
   on a remote, and Windows
-- [x] **Artifacts** ([0078](docs/adrs/0078-artifacts.md), [0079](docs/adrs/0079-artifact-comments-and-anchors.md)): done
+- [x] **Artifacts** ([0078](docs/adrs/0078-artifacts.md), [0079](docs/adrs/0079-artifact-comments-and-anchors.md), [0087](docs/adrs/0087-artifacts-from-remote-environments.md)): done
 - [x] **Artifact links** ([0084](docs/adrs/0084-bidirectional-artifact-links.md)): done
 - [ ] **Windows environment agent** ([0081](docs/adrs/0081-windows-environment-agent.md),
   proposed): `ws env agent run` built natively for Windows, with terminals and

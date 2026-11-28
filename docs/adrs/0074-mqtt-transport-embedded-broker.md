@@ -1,6 +1,6 @@
 # 0074. Controller and agents talk MQTT 5 over mutual TLS through a broker embedded in the `ws` daemon, one topic tree per environment, enforced by certificate
 
-- Status: Accepted (2026-11-22), amended the same day (see Amendments)
+- Status: Accepted (2026-11-22), amended the same day (see Amendments); a third listener, `api_listen` (8885, HTTPS with mutual TLS, artifacts only), and the `api.update` request added by [0087](0087-artifacts-from-remote-environments.md); topics and ACLs unchanged
 - Date: 2026-11-22
 
 ## Context

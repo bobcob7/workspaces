@@ -35,7 +35,7 @@ Output is always JSON; `--json` changes nothing.
 | ---------------------------------------------- | ---------------------- | ---- |
 | Run outside a workspace                        | `outside_workspace`    | 2    |
 | An unknown `--kind`, or `--limit` outside 1 to 1000 | `usage`           | 2    |
-| Run on an enrolled environment's agent machine | `artifact_unreachable` | 1    |
+| Run on an enrolled environment's agent machine, if it can't reach the controller's artifact API | `artifact_unreachable` | 1    |
 
 ## Examples
 

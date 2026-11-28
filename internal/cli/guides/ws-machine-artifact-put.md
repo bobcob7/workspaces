@@ -48,7 +48,7 @@ revision and every conversation, as in `show`.
 | No artifact with that id                       | `artifact_unknown`     | 3    |
 | `--base-rev` isn't the latest revision         | `artifact_conflict`    | 4    |
 | The artifact has 100 revisions, or the store is full | `artifact_full`  | 4    |
-| Run on an enrolled environment's agent machine | `artifact_unreachable` | 1    |
+| Run on an enrolled environment's agent machine, if it can't reach the controller's artifact API | `artifact_unreachable` | 1    |
 
 ## Examples
 
