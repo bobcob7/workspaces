@@ -507,7 +507,9 @@ $ ws machine progress show
 Shares files with the person who started you, and reads what they comment
 on. Every subcommand prints JSON and runs inside your workspace
 (`outside_workspace` otherwise). On an enrolled remote environment's agent
-machine every subcommand fails with `artifact_unreachable`. Artifacts,
+machine the same subcommands reach the controller's store over its artifact
+API ([0087](../adrs/0087-artifacts-from-remote-environments.md)), and print
+the same JSON; both machines need protocol 5. Artifacts,
 revisions and comments are described in [`ws artifact`](ws-artifact.md),
 which people and the desktop app use; the lifecycle is:
 
@@ -629,10 +631,18 @@ Marks the thread resolved, or with `--reopen` open again. Prints
 | `artifact put --base-rev`: the latest revision isn't that one; `details: {"latest": <n>}` | `artifact_conflict` | 4 |
 | `artifact`: a revision, thread, comment or store limit | `artifact_full` | 4 |
 | `artifact rm` of an artifact another tree or a person created | `artifact_forbidden` | 4 |
-| any `artifact` command on an enrolled environment agent's machine | `artifact_unreachable` | 1 |
+| any `artifact` command on an enrolled environment agent's machine that can't reach the controller's artifact API; `details.reason` is `identity`, `no_endpoint`, `offline`, `certificate` or `refused` | `artifact_unreachable` | 1 |
 
 `spawn` fails as [`ws claude`](ws-claude.md) does, and `rm`'s items as
 [`ws rm`](ws-rm.md)'s do.
+
+An `artifact_unreachable` on an agent's machine has a `details.reason`:
+
+- `identity`: the agent's `environment/agent.toml` or key can't be read. Run `ws env agent enroll` again, or `ws env agent status`.
+- `no_endpoint`: no address for the controller's API yet. Upgrade `ws` on the controller, and keep `ws env agent run` connected so it can learn the address.
+- `offline`: the address is set but can't be dialed. Check that the controller's artifact API port (8885) is reachable from this machine.
+- `certificate`: the TLS handshake refused this machine's certificate or the controller's. Check the clock, or run `ws env agent status` to see whether the certificate has expired.
+- `refused`: the controller refused this environment (revoked, removed, or pending). Ask the person to check `ws env list`.
 
 ## Examples
 
