@@ -138,7 +138,7 @@ func TestEnvironmentsStatus(t *testing.T) {
 	t.Run("converts each environment and its hello", func(t *testing.T) {
 		seen := time.Date(2026, 11, 22, 14, 2, 0, 0, time.UTC)
 		version := "2.4.1"
-		st := environmentsStatus(environment.Status{
+		st := environmentsStatus(&environment.Status{
 			Listening:    true,
 			Listen:       "0.0.0.0:8883",
 			EnrollListen: "0.0.0.0:8884",
@@ -163,7 +163,7 @@ func TestEnvironmentsStatus(t *testing.T) {
 		assert.Equal(t, "2.4.1", *env.Hello.ClaudeVersion)
 	})
 	t.Run("no environments is an empty list, and no hello is null", func(t *testing.T) {
-		st := environmentsStatus(environment.Status{})
+		st := environmentsStatus(&environment.Status{})
 		require.NotNil(t, st.Environments)
 		assert.Empty(t, st.Environments)
 		data, err := json.Marshal(daemon.EnvironmentPresence{})

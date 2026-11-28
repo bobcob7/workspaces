@@ -93,7 +93,10 @@ func (l localScopes) Exists(id string) (bool, error) {
 }
 
 // Status is the controller's listeners and environments.
-func (h envHost) Status() daemon.EnvironmentsStatus { return environmentsStatus(h.ctrl.Status()) }
+func (h envHost) Status() daemon.EnvironmentsStatus {
+	st := h.ctrl.Status()
+	return environmentsStatus(&st)
+}
 
 // Warnings are the controller's warnings.
 func (h envHost) Warnings() []string { return h.ctrl.Warnings() }
@@ -178,7 +181,7 @@ func offlineDetails(offline *environment.OfflineError) map[string]any {
 }
 
 // environmentsStatus is the daemon's view of st.
-func environmentsStatus(st environment.Status) daemon.EnvironmentsStatus {
+func environmentsStatus(st *environment.Status) daemon.EnvironmentsStatus {
 	out := daemon.EnvironmentsStatus{
 		Listening:    st.Listening,
 		Listen:       st.Listen,
