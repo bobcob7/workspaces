@@ -74,15 +74,12 @@ func TestApp_daemonEnvironments(t *testing.T) {
 	})
 }
 
-// strPtr is a pointer to s.
-func strPtr(s string) *string { return &s }
-
 func TestApp_daemonEnvironments_artifactAPI(t *testing.T) {
 	t.Run("serves the artifact API with the app's handler to an enrolled agent", func(t *testing.T) {
 		ctl := newArtifactApp(t)
 		ctl.app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
 		ctl.app.config.Environments = config.Environments{
-			Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", APIListen: strPtr("127.0.0.1:0"), PublicName: "127.0.0.1",
+			Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", APIListen: new("127.0.0.1:0"), PublicName: "127.0.0.1",
 		}
 		host, ok := ctl.app.daemonEnvironments(discardDaemonLog()).(envHost)
 		require.True(t, ok)
@@ -108,7 +105,7 @@ func TestApp_daemonEnvironments_artifactAPI(t *testing.T) {
 			app, _, _ := newDaemonTestApp(t)
 			app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
 			app.config.Environments = config.Environments{
-				Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", APIListen: strPtr(value), PublicName: "127.0.0.1",
+				Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", APIListen: new(value), PublicName: "127.0.0.1",
 			}
 			host, ok := app.daemonEnvironments(discardDaemonLog()).(envHost)
 			require.True(t, ok)

@@ -479,6 +479,7 @@ func TestApp_machineArtifactRemote(t *testing.T) {
 			f := newRemoteArtifactFixtureWith(t, tap.wrap)
 			assert.Equal(t, exitFailed, machineCall(t, f.agent, "list"), name)
 			assert.Equal(t, string(codeInternal), errorCodeOf(t, f.agent.stderr), name)
+			assert.Contains(t, f.agent.stderr.String(), "without an error", name)
 		}
 	})
 	t.Run("a 503 operation_limited envelope keeps its code", func(t *testing.T) {

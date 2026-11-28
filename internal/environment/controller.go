@@ -211,13 +211,9 @@ func (c *Controller) listenAll(ctx context.Context) error {
 	if err != nil {
 		return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
 	}
-	var apiAddr, apiEndpoint string
-	if apiLn != nil {
-		apiAddr = apiLn.Addr().String()
-		apiEndpoint, err = brokerEndpoint(c.settings.PublicName, apiAddr)
-		if err != nil {
-			return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
-		}
+	apiAddr, apiEndpoint, err := c.apiEndpointOf(apiLn)
+	if err != nil {
+		return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
 	}
 	life, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	unsubscribe, err := c.subscribe(ctx, life)
@@ -242,9 +238,7 @@ func (c *Controller) listenAll(ctx context.Context) error {
 		unsubscribe: unsubscribe,
 		apiAddr:     apiAddr,
 		apiEndpoint: apiEndpoint,
-	}
-	if apiLn != nil {
-		l.apiServer = c.newAPIServer()
+		apiServer:   c.apiServerFor(apiLn),
 	}
 	c.publishListeners(l)
 	go c.serveEnrollment(life, srv, tls.NewListener(enrollLn, enrollTLS(c.currentState)))
@@ -253,6 +247,25 @@ func (c *Controller) listenAll(ctx context.Context) error {
 	}
 	go c.sweepEvery(life, sweepInterval)
 	return nil
+}
+
+// apiEndpointOf is the bound address of apiLn and the host:port agents
+// reach it on; both are "" when apiLn is nil.
+func (c *Controller) apiEndpointOf(apiLn net.Listener) (addr, endpoint string, err error) {
+	if apiLn == nil {
+		return "", "", nil
+	}
+	addr = apiLn.Addr().String()
+	endpoint, err = brokerEndpoint(c.settings.PublicName, addr)
+	return addr, endpoint, err
+}
+
+// apiServerFor is the artifact API's server for apiLn, nil when there is none.
+func (c *Controller) apiServerFor(apiLn net.Listener) *http.Server {
+	if apiLn == nil {
+		return nil
+	}
+	return c.newAPIServer()
 }
 
 // listeners is what Start records once its listeners are up.
