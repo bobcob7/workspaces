@@ -128,6 +128,9 @@ func TestApp_machineArtifactRemote(t *testing.T) {
 	t.Run("list and show print the artifact, and put adds a revision that get --rev 1 still reads", func(t *testing.T) {
 		f := newRemoteArtifactFixture(t)
 		id := remoteAddedID(t, f, "pitch.md", []byte("# Pitch\n"))
+		f.ctl.stdout.Reset()
+		person := writeTestFile(t, "person.txt", []byte("hi"))
+		require.Equal(t, exitOK, runMachine(t, f.ctl, "artifact", "add", person, "--json"), f.ctl.stderr.String())
 		require.Equal(t, exitOK, machineCall(t, f.agent, "list", "--mine"), f.agent.stderr.String())
 		listed := artifactsOf(t, f.agent.stdout.String())
 		require.Len(t, listed, 1)
@@ -281,7 +284,7 @@ func TestWriteArtifactStream(t *testing.T) {
 	})
 	t.Run("a name with a slash is refused", func(t *testing.T) {
 		_, err := writeArtifactStream(t.TempDir(), "a/b.txt", bytes.NewReader(data), int64(len(data)), goodSum)
-		require.Error(t, err)
+		requireCode(t, codeInternal, err)
 	})
 }
 
