@@ -189,9 +189,10 @@ func TestController_apiHandler(t *testing.T) {
 	})
 	t.Run("answers 503 operation_limited to a POST beyond the in-flight cap and still serves a GET", func(t *testing.T) {
 		t.Parallel()
+		const artifactAPIPostsInFlight = 4 // ADR 0087: the cap the test holds full
 		store := newTestStore(t)
 		_, cert := enrollAgent(t, store, "linux-server")
-		entered := make(chan struct{}, apiMaxInFlight)
+		entered := make(chan struct{}, artifactAPIPostsInFlight)
 		release := make(chan struct{})
 		stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost {
@@ -208,7 +209,7 @@ func TestController_apiHandler(t *testing.T) {
 			close(release)
 			wg.Wait()
 		}()
-		for range apiMaxInFlight {
+		for range artifactAPIPostsInFlight {
 			wg.Go(func() {
 				req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+envproto.ArtifactsPath, strings.NewReader("x"))
 				if err != nil {
@@ -223,7 +224,7 @@ func TestController_apiHandler(t *testing.T) {
 				_ = resp.Body.Close() // the POSTs in flight are not checked: the test checks the one beyond the cap
 			})
 		}
-		for range apiMaxInFlight {
+		for range artifactAPIPostsInFlight {
 			select {
 			case <-entered:
 			case <-time.After(10 * time.Second):
