@@ -277,7 +277,7 @@ func (a *App) cite(ctx context.Context, id string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err = a.checkArtifactsExist(refIDs(refs)); err != nil {
+	if err = a.checkArtifactsExist(ctx, refIDs(refs)); err != nil {
 		return err
 	}
 	w, err := a.citingLocal(id)

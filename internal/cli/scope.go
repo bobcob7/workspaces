@@ -245,7 +245,7 @@ func (a *App) runRemoteSpawn(ctx context.Context, opts *machineSpawnOptions, cal
 	if _, err := scopeIDsOf(scope, opts.narrow); err != nil {
 		return err
 	}
-	claudeArgs, err := a.artifactHints(opts.claudeArgs, opts.target)
+	claudeArgs, err := a.artifactHints(ctx, opts.claudeArgs, opts.target)
 	if err != nil {
 		return err
 	}

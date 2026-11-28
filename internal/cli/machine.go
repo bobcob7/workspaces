@@ -326,7 +326,7 @@ func (a *App) runMachineSpawnRunner(ctx context.Context, opts *machineSpawnOptio
 	if len(after) > 0 {
 		prompt, after = after[0], after[1:]
 	}
-	hinted, err := a.artifactHints([]string{prompt}, "")
+	hinted, err := a.artifactHints(ctx, []string{prompt}, "")
 	if err != nil {
 		return err
 	}

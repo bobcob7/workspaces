@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/bobcob7/workspaces/internal/artifact"
 	"github.com/bobcob7/workspaces/internal/claude"
 	"github.com/bobcob7/workspaces/internal/config"
+	"github.com/bobcob7/workspaces/internal/daemon"
 	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/lifetime"
 	"github.com/bobcob7/workspaces/internal/workspace"
@@ -141,29 +143,93 @@ type claudeRepo struct {
 
 // artifactHints appends the hint line for the @artifact: references in the
 // prompt, the first argument when it isn't a flag (ADR 0078). Every
-// referenced artifact must exist. On a remote environment, which can't reach
-// the store, the prompt goes unchanged with a warning. An enrolled agent
-// can't reach the store either, so it gets the same warning, with no check.
-func (a *App) artifactHints(args []string, remote string) ([]string, error) {
+// referenced artifact must exist (artifact_unknown). For a prompt bound for an
+// environment remote, that environment's agent is warned when it runs a
+// protocol below 5, since it can't read artifacts (ADR 0087).
+func (a *App) artifactHints(ctx context.Context, args []string, remote string) ([]string, error) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return args, nil
 	}
 	ids := artifact.FindRefs(args[0])
-	switch {
-	case len(ids) == 0:
-		return args, nil
-	case remote != "":
-		a.warned = append(a.warned, fmt.Sprintf("artifacts aren't reachable from %s yet; @artifact references were sent as plain text", remote))
-		return args, nil
-	case a.enrolledAgent():
-		a.warned = append(a.warned, "artifacts aren't reachable on an environment's agent; @artifact references were sent as plain text")
+	if len(ids) == 0 {
 		return args, nil
 	}
-	if err := a.checkArtifactsExist(ids); err != nil {
+	if remote != "" {
+		a.warnOldAgent(ctx, remote)
+	}
+	if err := a.checkArtifactsExist(ctx, ids); err != nil {
 		return nil, err
 	}
 	prompt, _ := artifact.AppendHint(args[0])
 	return slices.Concat([]string{prompt}, args[1:]), nil
+}
+
+// warnOldAgent warns that environment name's agent can't read artifacts
+// when it is known to run a protocol below ProtocolArtifacts.
+func (a *App) warnOldAgent(ctx context.Context, name string) {
+	protocol, known := a.environmentProtocol(ctx, name)
+	if !known || protocol >= envproto.ProtocolArtifacts {
+		return
+	}
+	a.warned = append(a.warned, fmt.Sprintf("%s runs ws with protocol %d; its agents can't read artifacts until ws there is upgraded (protocol %d)", name, protocol, envproto.ProtocolArtifacts))
+}
+
+// environmentProtocol is the protocol of environment name's last hello, from
+// the daemon's status. known is false when it isn't known: no daemon, the
+// environment offline, not enrolled, or on an agent machine. It never warns.
+func (a *App) environmentProtocol(ctx context.Context, name string) (protocol int, known bool) {
+	if a.enrolledAgent() {
+		return 0, false
+	}
+	st, err := daemon.Dial(a.daemonPaths()).Status(ctx)
+	if err != nil || st.Environments == nil {
+		return 0, false
+	}
+	for _, p := range st.Environments.Environments {
+		if p.Name == name && p.Status == "online" && p.Hello != nil {
+			return p.Hello.Protocol, true
+		}
+	}
+	return 0, false
+}
+
+// checkArtifactsExist is artifact_unknown for the first of ids that isn't
+// in the store. On an enrolled agent machine the store is the controller's,
+// asked through its API; when that can't be reached, it warns and passes
+// (ADR 0087).
+func (a *App) checkArtifactsExist(ctx context.Context, ids []string) error {
+	if a.enrolledAgent() {
+		return a.checkRemoteArtifactsExist(ctx, ids)
+	}
+	store := a.artifactStore()
+	for _, id := range ids {
+		if _, err := store.Show(id); err != nil {
+			return artifactError(err)
+		}
+	}
+	return nil
+}
+
+// checkRemoteArtifactsExist asks the controller's API whether each of ids
+// exists. An artifact_unreachable answer is a warning, and nil.
+func (a *App) checkRemoteArtifactsExist(ctx context.Context, ids []string) error {
+	c, err := a.machineCaller()
+	if err != nil {
+		a.warned = append(a.warned, fmt.Sprintf("couldn't check the @artifact references: %v", err))
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, artifactRequestTimeout)
+	defer cancel()
+	for _, id := range ids {
+		if _, err = c.remote.call(ctx, &c, http.MethodGet, artifactPath(id), nil, nil, 0); err != nil {
+			if asCLIError(err).code == codeArtifactUnreachable {
+				a.warned = append(a.warned, fmt.Sprintf("couldn't check the @artifact references: %v", err))
+				return nil
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 // promptCitations is the artifacts the prompt, the first argument when it
@@ -173,18 +239,6 @@ func promptCitations(args []string) []artifact.Ref {
 		return nil
 	}
 	return artifact.FindCitations(args[0])
-}
-
-// checkArtifactsExist is artifact_unknown for the first of ids that isn't
-// in the store.
-func (a *App) checkArtifactsExist(ids []string) error {
-	store := a.artifactStore()
-	for _, id := range ids {
-		if _, err := store.Show(id); err != nil {
-			return artifactError(err)
-		}
-	}
-	return nil
 }
 
 // runClaude creates the workspace and hands it to a new Claude Code
@@ -208,7 +262,7 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 	if err = a.refuseRemoteInWorkspace(runOn); err != nil {
 		return err
 	}
-	if err = a.prepareClaude(opts, runOn); err != nil {
+	if err = a.prepareClaude(ctx, opts, runOn); err != nil {
 		return err
 	}
 	if runOn != "" {
@@ -252,9 +306,9 @@ func (a *App) runClaude(ctx context.Context, opts *claudeOptions) error {
 
 // prepareClaude fills in the prompt's artifact hints and citations, and
 // refuses a --claude-config-dir that the remote or the ws runner decides.
-func (a *App) prepareClaude(opts *claudeOptions, runOn string) error {
+func (a *App) prepareClaude(ctx context.Context, opts *claudeOptions, runOn string) error {
 	var err error
-	opts.claudeArgs, err = a.artifactHints(opts.claudeArgs, runOn)
+	opts.claudeArgs, err = a.artifactHints(ctx, opts.claudeArgs, runOn)
 	if err != nil {
 		return err
 	}

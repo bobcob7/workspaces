@@ -526,7 +526,7 @@ func TestApp_runMachineSpawn(t *testing.T) {
 		assert.Equal(t, "linux", out["environment"])
 		assert.Equal(t, []any{"local", "linux"}, out["scope"])
 	})
-	t.Run("an @artifact prompt warns that it can't be reached from the environment", func(t *testing.T) {
+	t.Run("an @artifact prompt for the environment is checked, and an unknown reference is artifact_unknown", func(t *testing.T) {
 		e := roleSpawnEnv(t)
 		e.app.global.json = true
 		writeCallerScope(t, e.app.paths.State, linuxRef)
@@ -536,8 +536,7 @@ func TestApp_runMachineSpawn(t *testing.T) {
 		}))
 		opts := spawnOptions("fix @artifact:art-00000000")
 		opts.target = linuxRef.Name
-		require.NoError(t, e.app.runMachineSpawn(t.Context(), opts))
-		assert.Contains(t, decodeJSONObject(t, e.stdout)["warnings"], "artifacts aren't reachable from linux yet; @artifact references were sent as plain text")
+		requireCode(t, codeArtifactUnknown, e.app.runMachineSpawn(t.Context(), opts))
 	})
 	t.Run("a role routed to ws by config creates a runner on the environment", func(t *testing.T) {
 		e := roleSpawnEnv(t)

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bobcob7/workspaces/internal/envproto"
 	"github.com/bobcob7/workspaces/internal/workspace"
 )
 
@@ -183,7 +184,7 @@ func TestApp_machineArtifactOutside(t *testing.T) {
 		assert.Equal(t, exitUsage, machineCall(t, e, "list"))
 		assert.Equal(t, string(codeOutsideWorkspace), errorCodeOf(t, e.stderr))
 	})
-	t.Run("on an enrolled environment's agent every command is artifact_unreachable", func(t *testing.T) {
+	t.Run("an unreadable identity on an enrolled agent is artifact_unreachable with reason identity", func(t *testing.T) {
 		e, _ := newMachineArtifactApp(t)
 		require.NoError(t, os.MkdirAll(e.app.paths.Environment, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environment, "agent.toml"), []byte("x"), 0o600))
@@ -191,6 +192,7 @@ func TestApp_machineArtifactOutside(t *testing.T) {
 		for _, args := range [][]string{{"add", path}, {"list"}, {"show", "art-1a2b3c4d"}, {"get", "art-1a2b3c4d"}, {"put", "art-1a2b3c4d", path}, {"rm", "art-1a2b3c4d"}} {
 			assert.Equal(t, exitFailed, machineCall(t, e, args...), args)
 			assert.Equal(t, string(codeArtifactUnreachable), errorCodeOf(t, e.stderr), args)
+			assert.Equal(t, envproto.ReasonIdentity, errorDetailsOf(t, e.stderr)["reason"], args)
 		}
 	})
 }

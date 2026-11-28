@@ -111,22 +111,28 @@ func TestApp_artifactHints(t *testing.T) {
 		require.NoError(t, e.run(t, "fix it"))
 		assert.Equal(t, []string{"fix it"}, e.claude.StartCalls()[0].Opts.Args)
 	})
-	t.Run("on a remote environment the prompt is unchanged, with a warning", func(t *testing.T) {
+	t.Run("a prompt for a remote environment is checked and gets the hint", func(t *testing.T) {
 		e, id := hintEnv(t)
-		args, err := e.app.artifactHints([]string{"fix it @artifact:" + id}, "vega")
+		args, err := e.app.artifactHints(t.Context(), []string{"fix it @artifact:" + id}, "vega")
 		require.NoError(t, err)
-		assert.Equal(t, []string{"fix it @artifact:" + id}, args)
-		assert.Equal(t, []string{"artifacts aren't reachable from vega yet; @artifact references were sent as plain text"}, e.app.warned)
+		assert.Equal(t, []string{"fix it @artifact:" + id + "\n\n" + artifact.HintLine([]string{id})}, args)
+		assert.Empty(t, e.app.warned)
 	})
-	t.Run("an enrolled agent passes references with a warning", func(t *testing.T) {
+	t.Run("an unknown reference for a remote environment is artifact_unknown", func(t *testing.T) {
 		e, _ := hintEnv(t)
+		_, err := e.app.artifactHints(t.Context(), []string{"fix it @artifact:art-00000000"}, "vega")
+		requireCode(t, codeArtifactUnknown, err)
+	})
+	t.Run("an enrolled agent that can't reach the controller warns and still appends the hint", func(t *testing.T) {
+		e, id := hintEnv(t)
 		require.NoError(t, os.MkdirAll(e.app.paths.Environment, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(e.app.paths.Environment, "agent.toml"), []byte("x"), 0o600))
-		prompt := "fix it @artifact:art-00000000"
-		args, err := e.app.artifactHints([]string{prompt}, "")
+		prompt := "fix it @artifact:" + id
+		args, err := e.app.artifactHints(t.Context(), []string{prompt}, "")
 		require.NoError(t, err)
-		assert.Equal(t, []string{prompt}, args)
-		assert.Equal(t, []string{"artifacts aren't reachable on an environment's agent; @artifact references were sent as plain text"}, e.app.warned)
+		assert.Equal(t, []string{prompt + "\n\n" + artifact.HintLine([]string{id})}, args)
+		require.Len(t, e.app.warned, 1)
+		assert.True(t, strings.HasPrefix(e.app.warned[0], "couldn't check the @artifact references: "), e.app.warned[0])
 	})
 }
 
