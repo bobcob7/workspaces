@@ -142,17 +142,19 @@ func TestEnvironmentsStatus(t *testing.T) {
 			Listening:    true,
 			Listen:       "0.0.0.0:8883",
 			EnrollListen: "0.0.0.0:8884",
+			APIListen:    "0.0.0.0:8885",
 			Environments: []environment.Presence{{
 				ID: "env-1a2b3c4d", Name: "linux-server", State: environment.StateEnrolled, Status: envproto.StatusOnline,
 				LastSeen: &seen,
 				Hello: &envproto.Hello{
 					WSVersion: "v0.31.0", OS: "linux", Arch: "amd64", Claude: "present", ClaudeVersion: &version,
-					CertNotAfter: time.Date(2027, 2, 20, 14, 5, 11, 0, time.UTC),
+					CertNotAfter: time.Date(2027, 2, 20, 14, 5, 11, 0, time.UTC), Protocol: 5,
 				},
 			}},
 		})
 		assert.True(t, st.Listening)
 		assert.Equal(t, "0.0.0.0:8883", st.Listen)
+		assert.Equal(t, "0.0.0.0:8885", st.APIListen)
 		require.Len(t, st.Environments, 1)
 		env := st.Environments[0]
 		assert.Equal(t, "enrolled", env.State)
@@ -161,6 +163,7 @@ func TestEnvironmentsStatus(t *testing.T) {
 		require.NotNil(t, env.Hello)
 		assert.Equal(t, "2027-02-20T14:05:11Z", env.Hello.CertNotAfter)
 		assert.Equal(t, "2.4.1", *env.Hello.ClaudeVersion)
+		assert.Equal(t, 5, env.Hello.Protocol)
 	})
 	t.Run("no environments is an empty list, and no hello is null", func(t *testing.T) {
 		st := environmentsStatus(&environment.Status{})
