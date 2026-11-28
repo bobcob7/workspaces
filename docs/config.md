@@ -390,6 +390,7 @@ The daemon itself is described in [`ws daemon`](tools/ws-daemon.md).
 | --- | ---- | ------- | -------- |
 | `listen` | string | `"0.0.0.0:8883"` | Where the daemon listens for agents over MQTT with mutual TLS (0074) |
 | `enroll_listen` | string | `"0.0.0.0:8884"` | Where the daemon listens for an agent's first contact, enrollment (0075) |
+| `api_listen` | string | `"0.0.0.0:8885"` | Where the daemon serves the artifact API to enrolled agents over mutual TLS (0087) |
 | `public_name` | string | `""` | The DNS name or IP address agents reach this ws at, in the server certificate and in enrollment codes; the daemon listens only when it's set |
 | `renew_before_days` | int | `30` | How many days before expiry an agent renews its certificate, from 1 to 60 |
 | `default_scope` | strings | `[]` | Environments every agent a person starts may also start children on (ADR 0082); a person overrides it with `ws claude --env-scope`. The desktop's New agent preselects it, leaving out names that aren't enrolled; duplicates are dropped and at most 64 names are kept, so 63 besides the agent's own environment are preselected, and the dialog and the Rust validator refuse to start above 64. If it can't be read, the dialog warns and the agent starts with its own environment only; the CLI then skips `default_scope`, as an own-environment-only `--env-scope` does |
