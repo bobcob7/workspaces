@@ -83,12 +83,6 @@ type OpSpec struct {
 // A switch, not a map, so the table has no package variable.
 func LookupOp(name string) (OpSpec, bool) {
 	switch name {
-	case OpCertRenew:
-		return OpSpec{Name: name, Caller: CallerAgent, Timeout: 30 * time.Second}, true
-	case OpCAUpdate:
-		return OpSpec{Name: name, Caller: CallerInternal, Timeout: 30 * time.Second}, true
-	case OpAPIUpdate:
-		return OpSpec{Name: name, Caller: CallerInternal, Since: ProtocolArtifacts, Timeout: 30 * time.Second}, true
 	case OpWorkspaceCreate:
 		return OpSpec{Name: name, Caller: CallerController, Since: 1, Timeout: 10 * time.Minute, Changes: true}, true
 	case OpWorkspaceList:
@@ -112,10 +106,27 @@ func LookupOp(name string) (OpSpec, bool) {
 	case OpTerminalClose:
 		return OpSpec{Name: name, Caller: CallerTerminal, Since: 2, Timeout: 30 * time.Second}, true
 	}
+	if spec, ok := internalOpSpec(name); ok {
+		return spec, true
+	}
 	if spec, ok := scopeOpSpec(name); ok {
 		return spec, true
 	}
 	return loopOpSpec(name)
+}
+
+// internalOpSpec is the spec of the operations an agent doesn't send, or the
+// certificate renewal it does, on env/<id>/req and env/<id>/up.
+func internalOpSpec(name string) (OpSpec, bool) {
+	switch name {
+	case OpCertRenew:
+		return OpSpec{Name: name, Caller: CallerAgent, Timeout: 30 * time.Second}, true
+	case OpCAUpdate:
+		return OpSpec{Name: name, Caller: CallerInternal, Timeout: 30 * time.Second}, true
+	case OpAPIUpdate:
+		return OpSpec{Name: name, Caller: CallerInternal, Since: ProtocolArtifacts, Timeout: 30 * time.Second}, true
+	}
+	return OpSpec{}, false
 }
 
 // CreateArgs are the arguments of workspace.create.

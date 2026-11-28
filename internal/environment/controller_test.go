@@ -57,6 +57,25 @@ func newController(t *testing.T, store *Store, b broker, log *slog.Logger, setti
 	return c
 }
 
+// apiTestSettings are testSettings with the artifact API on a loopback port.
+func apiTestSettings() Settings {
+	settings := testSettings()
+	settings.APIListen = "127.0.0.1:0"
+	return settings
+}
+
+// startAPIController starts a controller over store and b with the artifact
+// API on, and stub (when not nil) as its artifact handler.
+func startAPIController(t *testing.T, store *Store, b broker, stub http.Handler) *Controller {
+	t.Helper()
+	c := newController(t, store, b, discardLog(), apiTestSettings())
+	if stub != nil {
+		c.SetArtifactAPI(stub)
+	}
+	require.NoError(t, c.Start(t.Context()))
+	return c
+}
+
 // startController starts a controller with testSettings over store's CA.
 func startController(t *testing.T, store *Store, b broker) *Controller {
 	t.Helper()
@@ -211,6 +230,25 @@ func TestController_Start(t *testing.T) {
 		assert.NotEmpty(t, status.Listen)
 		assert.NotEmpty(t, status.EnrollListen)
 		assert.Empty(t, c.Warnings())
+	})
+	t.Run("listens on the artifact API address and stops it on Close", func(t *testing.T) {
+		store := newTestStore(t)
+		addEnvironment(t, store, "linux-server")
+		c := newController(t, store, envtest.NewBroker(), discardLog(), apiTestSettings())
+		require.NoError(t, c.Start(t.Context()))
+		status := c.Status()
+		require.NotEmpty(t, status.APIListen)
+		_, port, err := net.SplitHostPort(status.APIListen)
+		require.NoError(t, err)
+		assert.Equal(t, "127.0.0.1:"+port, c.APIEndpoint())
+		require.NoError(t, c.Close())
+		assert.Empty(t, c.APIEndpoint())
+		assert.Empty(t, c.Status().APIListen)
+		conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", status.APIListen)
+		if err == nil {
+			require.NoError(t, conn.Close())
+		}
+		require.Error(t, err)
 	})
 	t.Run("reports a broker start error", func(t *testing.T) {
 		store := newTestStore(t)
@@ -547,6 +585,56 @@ func TestController_onStatus(t *testing.T) {
 		})
 		assert.Empty(t, *updates)
 	})
+	t.Run("asks a protocol 5 environment without the controller's API address for api.update", func(t *testing.T) {
+		store := newTestStore(t)
+		b := envtest.NewBroker()
+		rec, _ := enrollAgent(t, store, "linux-server")
+		c := startAPIController(t, store, b, nil)
+		updates := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
+		c.onStatus(t.Context(), &envproto.Message{
+			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
+			Payload: helloWithAPI(t, store, envproto.Protocol, ""),
+		})
+		require.Len(t, *updates, 1)
+		update := (*updates)[0]
+		req := requestOf(t, &update)
+		assert.Equal(t, envproto.OpAPIUpdate, req.Op)
+		assert.JSONEq(t, `{"endpoint":"`+c.APIEndpoint()+`"}`, string(req.Args))
+	})
+	t.Run("doesn't ask an environment that already holds the controller's API address", func(t *testing.T) {
+		store := newTestStore(t)
+		b := envtest.NewBroker()
+		rec, _ := enrollAgent(t, store, "linux-server")
+		c := startAPIController(t, store, b, nil)
+		updates := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
+		c.onStatus(t.Context(), &envproto.Message{
+			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
+			Payload: helloWithAPI(t, store, envproto.Protocol, c.APIEndpoint()),
+		})
+		assert.Empty(t, *updates)
+	})
+	t.Run("doesn't ask an environment older than protocol 5 for api.update", func(t *testing.T) {
+		store := newTestStore(t)
+		b := envtest.NewBroker()
+		rec, _ := enrollAgent(t, store, "linux-server")
+		c := startAPIController(t, store, b, nil)
+		updates := captureMessages(t, b, envproto.Topic(rec.ID, envproto.LeafReq))
+		c.onStatus(t.Context(), &envproto.Message{
+			Topic:   envproto.Topic(rec.ID, envproto.LeafStatus),
+			Payload: helloWithAPI(t, store, 4, ""),
+		})
+		assert.Empty(t, *updates)
+	})
+}
+
+// helloWithAPI is an online hello at protocol that trusts every root and holds endpoint.
+func helloWithAPI(t *testing.T, store *Store, protocol int, endpoint string) []byte {
+	t.Helper()
+	tr, err := store.trust()
+	require.NoError(t, err)
+	payload, err := json.Marshal(envproto.Hello{Status: envproto.StatusOnline, At: store.now().UTC(), Protocol: protocol, APIEndpoint: endpoint, CAFingerprints: tr.fingerprints()})
+	require.NoError(t, err)
+	return payload
 }
 
 func TestController_onSnapshot(t *testing.T) {
@@ -773,24 +861,41 @@ func TestController_onRes(t *testing.T) {
 	t.Run("logs an acknowledged ca.update", func(t *testing.T) {
 		logs := &syncBuffer{}
 		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, nil)), testSettings())
-		c.addUpdate("env-0a1b2c3d", "0123456789abcdef")
+		c.addUpdate("env-0a1b2c3d", "0123456789abcdef", envproto.OpCAUpdate)
 		c.onRes(t.Context(), &envproto.Message{
 			Topic:           envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
 			Payload:         []byte(`{"ok":true,"result":{"fingerprints":[]},"error":null}`),
 			CorrelationData: []byte("0123456789abcdef"),
 		})
-		assert.Contains(t, logs.String(), "ca.update acknowledged")
+		assert.Contains(t, logs.String(), `"msg":"update acknowledged"`)
+		assert.Contains(t, logs.String(), `"op":"ca.update"`)
+	})
+	t.Run("logs an acknowledged api.update once and no longer waits for it", func(t *testing.T) {
+		logs := &syncBuffer{}
+		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})), testSettings())
+		c.addUpdate("env-0a1b2c3d", "0123456789abcdef", envproto.OpAPIUpdate)
+		reply := &envproto.Message{
+			Topic:           envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
+			Payload:         []byte(`{"ok":true,"result":{"endpoint":"ws.example.com:8885"},"error":null}`),
+			CorrelationData: []byte("0123456789abcdef"),
+		}
+		c.onRes(t.Context(), reply)
+		c.onRes(t.Context(), reply)
+		assert.Contains(t, logs.String(), `"op":"api.update"`)
+		assert.Contains(t, logs.String(), `"msg":"update acknowledged"`)
+		assert.Contains(t, logs.String(), "reply for no pending call")
 	})
 	t.Run("logs a refused ca.update with its code", func(t *testing.T) {
 		logs := &syncBuffer{}
 		c := newController(t, newTestStore(t), envtest.NewBroker(), slog.New(slog.NewJSONHandler(logs, nil)), testSettings())
-		c.addUpdate("env-0a1b2c3d", "0123456789abcdef")
+		c.addUpdate("env-0a1b2c3d", "0123456789abcdef", envproto.OpCAUpdate)
 		c.onRes(t.Context(), &envproto.Message{
 			Topic:           envproto.Topic("env-0a1b2c3d", envproto.LeafRes, "0123456789abcdef"),
 			Payload:         []byte(`{"ok":false,"result":null,"error":{"code":"usage","message":"bad","details":null}}`),
 			CorrelationData: []byte("0123456789abcdef"),
 		})
-		assert.Contains(t, logs.String(), "ca.update refused")
+		assert.Contains(t, logs.String(), `"msg":"update refused"`)
+		assert.Contains(t, logs.String(), `"op":"ca.update"`)
 		assert.Contains(t, logs.String(), "usage")
 	})
 	t.Run("a late reply for no pending call is not logged as a ca.update", func(t *testing.T) {

@@ -87,7 +87,12 @@ func enrollFailure(err error) (int, string, string) {
 
 // writeError answers with the {"error": …} envelope.
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, envproto.ErrorEnvelope{Error: envproto.ReplyError{Code: code, Message: message}})
+	writeErrorDetails(w, status, code, message, nil)
+}
+
+// writeErrorDetails answers with the {"error": …} envelope and its details.
+func writeErrorDetails(w http.ResponseWriter, status int, code, message string, details map[string]any) {
+	writeJSON(w, status, envproto.ErrorEnvelope{Error: envproto.ReplyError{Code: code, Message: message, Details: details}})
 }
 
 // writeJSON answers with v as JSON.
