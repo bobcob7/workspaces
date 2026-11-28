@@ -46,8 +46,8 @@ machine must reach all three. Forward them if you're behind a router: `8883`,
 `api on <addr>`.
 
 The daemon sends each online agent its address as an `api.update` request,
-whenever the agent's hello names a different one, so a remote needs no
-configuration for it. An agent keeps the address in `environment/api.toml`.
+whenever an agent at protocol 5 or later names a different one in its
+hello, so a remote needs no configuration for it. An agent keeps the address in `environment/api.toml`.
 
 **Deployment:** port 8885 must be reachable from remotes like 8883 and 8884.
 On Kubernetes it is a plain TCP port on the LoadBalancer Service, never an
