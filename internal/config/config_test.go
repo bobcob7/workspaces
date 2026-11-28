@@ -350,6 +350,11 @@ func TestParse_environments(t *testing.T) {
 		assert.Equal(t, Environments{Listen: "0.0.0.0:9001", EnrollListen: "0.0.0.0:9002", PublicName: "ws.example.com", RenewBeforeDays: cfg.Environments.RenewBeforeDays}, cfg.Environments)
 		assert.Equal(t, 14, cfg.Environments.RenewDays())
 	})
+	t.Run("reads api_listen", func(t *testing.T) {
+		cfg, err := parse([]byte("[environments]\napi_listen = \"0.0.0.0:9003\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, "0.0.0.0:9003", cfg.Environments.APIAddr())
+	})
 	t.Run("accepts an IP public_name", func(t *testing.T) {
 		_, err := parse([]byte("[environments]\npublic_name = \"192.0.2.10\"\n"))
 		require.NoError(t, err)
@@ -369,6 +374,8 @@ func TestParse_environments(t *testing.T) {
 		{"listen port 70000", `listen = "0.0.0.0:70000"`, "environments.listen"},
 		{"listen port with a sign", `listen = "0.0.0.0:+80"`, "environments.listen"},
 		{"enroll without a port", `enroll_listen = "0.0.0.0"`, "environments.enroll_listen"},
+		{"api without a port", `api_listen = "0.0.0.0"`, "environments.api_listen"},
+		{"api port 70000", `api_listen = "0.0.0.0:70000"`, "environments.api_listen"},
 		{"public_name with a port", `public_name = "ws.example.com:8884"`, "environments.public_name"},
 		{"public_name with a leading hyphen", `public_name = "-ws.example.com"`, "environments.public_name"},
 		{"public_name with an empty label", `public_name = "ws..example.com"`, "environments.public_name"},

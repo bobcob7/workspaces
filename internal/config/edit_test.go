@@ -543,7 +543,7 @@ func TestEnvironmentKeys(t *testing.T) {
 	t.Run("the five keys come last when the table is set", func(t *testing.T) {
 		settings, err := Settings([]byte(defaultFile + table))
 		require.NoError(t, err)
-		require.Len(t, settings, 11)
+		require.Len(t, settings, 12)
 		assert.Equal(t, "environments.listen", settings[5].Key)
 		assert.Equal(t, "0.0.0.0:9001", settings[5].Value)
 		assert.True(t, settings[5].Set)
@@ -554,6 +554,8 @@ func TestEnvironmentKeys(t *testing.T) {
 		assert.Equal(t, 30, settings[8].Default)
 		assert.Equal(t, "environments.agent_loop_scripts", settings[9].Key)
 		assert.Equal(t, Setting{Key: "environments.default_scope", Type: TypeStrings, Value: []string{}, Default: []string{}, Set: false}, settings[10])
+		assert.Equal(t, "environments.api_listen", settings[11].Key)
+		assert.Equal(t, "0.0.0.0:8885", settings[11].Default)
 	})
 	t.Run("the default file has none of them", func(t *testing.T) {
 		settings, err := Settings([]byte(defaultFile))
@@ -607,6 +609,8 @@ func TestEnvironmentKeys(t *testing.T) {
 			{"environments.renew_before_days", "soon"},
 			{"environments.listen", "8883"},
 			{"environments.enroll_listen", "0.0.0.0:70000"},
+			{"environments.api_listen", "0.0.0.0"},
+			{"environments.api_listen", "0.0.0.0:70000"},
 			{"environments.public_name", "ws.example.com:8884"},
 		} {
 			_, _, err := Set([]byte(defaultFile), tt.key, []string{tt.value})

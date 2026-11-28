@@ -146,6 +146,7 @@ func (c Config) SpecDefaults() SpecDefaults { //nolint:gocritic // hugeParam: th
 type Environments struct {
 	Listen          string `toml:"listen" json:"listen"`
 	EnrollListen    string `toml:"enroll_listen" json:"enroll_listen"`
+	APIListen       string `toml:"api_listen" json:"api_listen"`
 	PublicName      string `toml:"public_name" json:"public_name"`
 	RenewBeforeDays *int   `toml:"renew_before_days" json:"renew_before_days"`
 	// AgentLoopScripts false refuses a loop script sent by the controller.
@@ -197,6 +198,7 @@ func (e *Environments) LoopScriptsAllowed() bool {
 const (
 	defaultEnvListen       = "0.0.0.0:8883"
 	defaultEnvEnrollListen = "0.0.0.0:8884"
+	defaultEnvAPIListen    = "0.0.0.0:8885"
 	defaultRenewBeforeDays = 30
 )
 
@@ -217,6 +219,14 @@ func (e *Environments) EnrollAddr() string {
 		return defaultEnvEnrollListen
 	}
 	return e.EnrollListen
+}
+
+// APIAddr is the address the controller's artifact API listens on (ADR 0087).
+func (e *Environments) APIAddr() string {
+	if e.APIListen == "" {
+		return defaultEnvAPIListen
+	}
+	return e.APIListen
 }
 
 // RenewDays is how many days before expiry an agent renews its certificate.
@@ -256,6 +266,7 @@ func (e *Environments) check() error {
 	for _, listen := range []struct{ key, addr string }{
 		{"environments.listen", e.Listen},
 		{"environments.enroll_listen", e.EnrollListen},
+		{"environments.api_listen", e.APIListen},
 	} {
 		if listen.addr == "" {
 			continue
