@@ -137,7 +137,9 @@ func TestApp_artifactAPI(t *testing.T) {
 		e := newArtifactApp(t)
 		h := e.app.artifactAPI()
 		data := []byte("the pitch")
-		id := apiAddFile(t, h, "pitch.txt", data)
+		person, err := e.app.artifactStore().Add(t.Context(), &artifact.NewArtifact{Name: "pitch.txt", Data: data, By: artifact.Person()})
+		require.NoError(t, err)
+		id := person.ID
 		rec := serveAPI(h, apiReq(t, http.MethodGet, "/v1/artifacts/"+id+"/content", nil))
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		assert.Equal(t, data, rec.Body.Bytes())
