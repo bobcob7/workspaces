@@ -232,6 +232,9 @@ func (a *App) remoteGet(ctx context.Context, c *machineArtifactCaller, id string
 	if !ok {
 		return newError(codeArtifactUnknown, fmt.Errorf("%s has no revision %d", id, want))
 	}
+	if revision.Size < 0 || revision.Size > artifact.MaxImageSize {
+		return newError(codeInternal, fmt.Errorf("the controller says revision %d is %d bytes, over the %d byte limit", revision.Rev, revision.Size, artifact.MaxImageSize))
+	}
 	dir, err := artifactDir(c, out, id, revision.Rev)
 	if err != nil {
 		return err

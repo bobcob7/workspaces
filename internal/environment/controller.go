@@ -211,6 +211,14 @@ func (c *Controller) listenAll(ctx context.Context) error {
 	if err != nil {
 		return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
 	}
+	var apiAddr, apiEndpoint string
+	if apiLn != nil {
+		apiAddr = apiLn.Addr().String()
+		apiEndpoint, err = brokerEndpoint(c.settings.PublicName, apiAddr)
+		if err != nil {
+			return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
+		}
+	}
 	life, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	unsubscribe, err := c.subscribe(ctx, life)
 	if err != nil {
@@ -232,13 +240,10 @@ func (c *Controller) listenAll(ctx context.Context) error {
 		brokerAddr:  brokerAddr,
 		endpoint:    endpoint,
 		unsubscribe: unsubscribe,
+		apiAddr:     apiAddr,
+		apiEndpoint: apiEndpoint,
 	}
 	if apiLn != nil {
-		l.apiAddr = apiLn.Addr().String()
-		l.apiEndpoint, err = brokerEndpoint(c.settings.PublicName, l.apiAddr)
-		if err != nil {
-			return errors.Join(err, c.broker.Close(), closeListeners(enrollLn, apiLn))
-		}
 		l.apiServer = c.newAPIServer()
 	}
 	c.publishListeners(l)

@@ -1,6 +1,6 @@
 # 0078. Artifacts: files people and agents share, kept in one store under `CONFIG_DIR/artifacts/` that outlives workspaces, reached by agents through `ws machine artifact` and by the desktop app through a hidden `ws artifact`
 
-- Status: Accepted (2026-11-23); the "Remote environments" paragraph superseded by [0087](0087-artifacts-from-remote-environments.md) (proposed): agents on a remote reach the controller's store over mutual-TLS HTTPS instead of getting `artifact_unreachable`
+- Status: Accepted (2026-11-23); the "Remote environments" paragraph superseded by [0087](0087-artifacts-from-remote-environments.md): agents on a remote reach the controller's store over mutual-TLS HTTPS instead of getting `artifact_unreachable`
 - Date: 2026-11-23
 
 ## Context

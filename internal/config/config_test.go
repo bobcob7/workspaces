@@ -355,6 +355,16 @@ func TestParse_environments(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "0.0.0.0:9003", cfg.Environments.APIAddr())
 	})
+	t.Run("api_listen defaults when unset and turns off with off or empty", func(t *testing.T) {
+		cfg, err := parse([]byte("[environments]\npublic_name = \"ws.example.com\"\n"))
+		require.NoError(t, err)
+		assert.Equal(t, "0.0.0.0:8885", cfg.Environments.APIAddr())
+		for _, v := range []string{"off", ""} {
+			cfg, err = parse([]byte("[environments]\napi_listen = \"" + v + "\"\n"))
+			require.NoError(t, err)
+			assert.Empty(t, cfg.Environments.APIAddr(), v)
+		}
+	})
 	t.Run("accepts an IP public_name", func(t *testing.T) {
 		_, err := parse([]byte("[environments]\npublic_name = \"192.0.2.10\"\n"))
 		require.NoError(t, err)

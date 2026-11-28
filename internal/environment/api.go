@@ -102,9 +102,14 @@ func (c *Controller) apiHandler() http.Handler {
 		}
 		caller, err := c.identify(r)
 		if err != nil {
+			if !errors.Is(err, errAPIRefused) {
+				c.log.ErrorContext(r.Context(), "artifact api identity check failed", "remote", r.RemoteAddr, "cn", peerName(r.TLS), "error", err)
+				writeError(w, http.StatusInternalServerError, "internal", "the controller could not check this machine's certificate; try again")
+				return
+			}
 			c.log.WarnContext(r.Context(), "artifact api refused", "remote", r.RemoteAddr, "cn", peerName(r.TLS), "error", err)
 			writeErrorDetails(w, http.StatusForbidden, "artifact_unreachable",
-				"the controller refused this machine's certificate: it is revoked or its environment was removed; enroll it again",
+				"the controller refused this machine's certificate: its environment is revoked, removed, or pending; ask the person to check `ws env list`",
 				map[string]any{"reason": envproto.ReasonRefused})
 			return
 		}
@@ -153,7 +158,8 @@ func (c *Controller) releaseAPIPost() {
 
 // identify is r's caller, from its verified client certificate. It runs
 // policy.connect on envproto.PeerFromState(r.TLS) (ClientID = CN), then
-// reads the record by id for its name. Any failure is errAPIRefused.
+// reads the record by id for its name. A certificate problem or an unknown
+// record is errAPIRefused; a store failure is returned as it is.
 func (c *Controller) identify(r *http.Request) (APICaller, error) {
 	peer, err := envproto.PeerFromState(r.TLS)
 	if err != nil {
@@ -164,8 +170,11 @@ func (c *Controller) identify(r *http.Request) (APICaller, error) {
 		return APICaller{}, fmt.Errorf("%w: %w", errAPIRefused, err)
 	}
 	rec, err := c.store.ByID(peer.CN)
-	if err != nil {
+	if errors.Is(err, ErrUnknown) {
 		return APICaller{}, fmt.Errorf("%w: %w", errAPIRefused, err)
+	}
+	if err != nil {
+		return APICaller{}, fmt.Errorf("reading the environment %s: %w", peer.CN, err)
 	}
 	return APICaller{EnvironmentID: rec.ID, EnvironmentName: rec.Name}, nil
 }

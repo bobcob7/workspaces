@@ -1,6 +1,6 @@
 # 0075. An environment is enrolled with a one-time code that pins `ws`'s CA and buys a short-lived client certificate; certificates renew over the live connection and are revoked by `ws env rm`
 
-- Status: Accepted (2026-11-22), amended the same day (see Amendments); the client certificate also authenticates the artifact API listener, by [0087](0087-artifacts-from-remote-environments.md) (proposed); enrolment unchanged
+- Status: Accepted (2026-11-22), amended the same day (see Amendments); the client certificate also authenticates the artifact API listener, by [0087](0087-artifacts-from-remote-environments.md); enrolment unchanged
 - Date: 2026-11-22
 
 ## Context

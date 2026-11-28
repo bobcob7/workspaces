@@ -143,7 +143,9 @@ type claudeRepo struct {
 
 // artifactHints appends the hint line for the @artifact: references in the
 // prompt, the first argument when it isn't a flag (ADR 0078). Every
-// referenced artifact must exist (artifact_unknown). For a prompt bound for an
+// referenced artifact must exist (artifact_unknown), except on an enrolled
+// agent machine whose controller's API can't be reached: there it warns and
+// the prompt goes on unchecked (ADR 0087). For a prompt bound for an
 // environment remote, that environment's agent is warned when it runs a
 // protocol below 5, since it can't read artifacts (ADR 0087).
 func (a *App) artifactHints(ctx context.Context, args []string, remote string) ([]string, error) {

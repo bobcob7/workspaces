@@ -1,6 +1,6 @@
 # 0087. An agent on a remote environment reaches the controller's artifact store over HTTPS with mutual TLS, authenticated by its enrolment certificate, on a third controller listener whose address the controller sends over MQTT
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-27
 - Supersedes: the "Remote environments" paragraph of [0078](0078-artifacts.md) (the refusal with `artifact_unreachable` and the out-of-scope note)
 - Amends: [0074](0074-mqtt-transport-embedded-broker.md) (a third listener beside the broker and enrolment), [0075](0075-environment-enrollment-and-certificates.md) (the client certificate also authenticates that listener)
@@ -87,7 +87,8 @@ local agent, and fail clearly when it can't?
 
 The controller's daemon gains **`[environments] api_listen`**, default
 `"0.0.0.0:8885"`, started and stopped with the broker and the enrolment
-listener, and off until the first `ws env add` like them. It serves HTTP/1.1
+listener, and off until the first `ws env add` like them. `api_listen = "off"` (or `""`)
+starts no API listener; the default applies only when the key is unset. It serves HTTP/1.1
 over TLS 1.3 with the broker's TLS configuration (`brokerTLS`): a client
 certificate signed by a trusted root is required, the server certificate is
 the one for `public_name`, and both are read at each handshake, so CA
@@ -192,7 +193,7 @@ the remote need the new `ws`:**
 `artifact_unreachable` (exit 1) keeps its code and gains
 `details.reason`: `no_endpoint`, `offline` (dial failure or timeout),
 `certificate` (the TLS handshake refused this machine's certificate, or
-the controller's didn't verify), `refused` (403 from the identity check)
+the controller's didn't verify), `refused` (403 from the identity check: the environment is revoked, removed, or pending)
 and `busy` is not a reason (it is `operation_limited`). No new error code.
 
 ### References in prompts
