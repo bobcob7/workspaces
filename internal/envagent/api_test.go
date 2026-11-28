@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"io"
@@ -130,6 +131,7 @@ func TestNewAPIClient(t *testing.T) {
 		var apiErr *APIError
 		require.ErrorAs(t, err, &apiErr)
 		assert.Equal(t, envproto.ReasonNoEndpoint, apiErr.Reason)
+		assert.Contains(t, apiErr.Error(), "upgrade ws on the controller")
 	})
 	t.Run("an enrolled machine with api.toml knows the endpoint", func(t *testing.T) {
 		t.Parallel()
@@ -147,7 +149,7 @@ func TestAPIClient_Do(t *testing.T) {
 		seen := make(chan seenRequest, 1)
 		stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			caller, ok := environment.APICallerFrom(r.Context())
-			seen <- seenRequest{caller: caller, ok: ok, method: r.Method, mine: r.URL.Query().Get("mine")}
+			seen <- seenRequest{caller: caller, ok: ok, method: r.Method, mine: r.URL.Query().Get("mine"), workspace: r.Header.Get("Ws-Workspace")}
 			w.WriteHeader(http.StatusOK)
 		})
 		_, _, files := startAPIFixture(t, stub)
@@ -155,13 +157,15 @@ func TestAPIClient_Do(t *testing.T) {
 		require.NoError(t, err)
 		client, err := NewAPIClient(files)
 		require.NoError(t, err)
-		resp, err := client.Do(t.Context(), http.MethodGet, "/v1/artifacts", url.Values{"mine": {"true"}}, nil, nil, 0)
+		header := http.Header{"Ws-Workspace": {"ws-0a1b2c3d"}}
+		resp, err := client.Do(t.Context(), http.MethodGet, "/v1/artifacts", url.Values{"mine": {"true"}}, header, nil, 0)
 		require.NoError(t, err)
 		require.NoError(t, resp.Body.Close())
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		got := <-seen
 		assert.Equal(t, http.MethodGet, got.method)
 		assert.Equal(t, "true", got.mine)
+		assert.Equal(t, "ws-0a1b2c3d", got.workspace)
 		require.True(t, got.ok)
 		assert.Equal(t, id.ID, got.caller.EnvironmentID)
 	})
@@ -202,6 +206,7 @@ func TestAPIClient_Do(t *testing.T) {
 		assert.Equal(t, envproto.ReasonOffline, apiErr.Reason)
 		assert.Equal(t, client.Endpoint(), apiErr.Endpoint)
 		assert.Contains(t, apiErr.Error(), client.Endpoint())
+		assert.Contains(t, apiErr.Error(), "is reachable from this machine")
 	})
 	t.Run("roots without the controller's CA are a certificate error", func(t *testing.T) {
 		t.Parallel()
@@ -210,6 +215,24 @@ func TestAPIClient_Do(t *testing.T) {
 		require.NoError(t, files.SaveRoots([]*x509.Certificate{other}))
 		client, err := NewAPIClient(files)
 		require.NoError(t, err)
+		_, err = client.Do(t.Context(), http.MethodGet, "/v1/artifacts", nil, nil, nil, 0)
+		var apiErr *APIError
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, envproto.ReasonCertificate, apiErr.Reason)
+	})
+	t.Run("a client without a certificate is refused as a certificate error", func(t *testing.T) {
+		t.Parallel()
+		_, _, files := startAPIFixture(t, http.NotFoundHandler())
+		id, err := files.Load()
+		require.NoError(t, err)
+		endpoint, err := files.APIEndpoint()
+		require.NoError(t, err)
+		pool := x509.NewCertPool()
+		for _, root := range id.Roots {
+			pool.AddCert(root)
+		}
+		transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, ServerName: id.ServerName}}
+		client := &APIClient{endpoint: endpoint, client: &http.Client{Transport: transport}}
 		_, err = client.Do(t.Context(), http.MethodGet, "/v1/artifacts", nil, nil, nil, 0)
 		var apiErr *APIError
 		require.ErrorAs(t, err, &apiErr)
@@ -231,8 +254,9 @@ func TestAPIClient_Do(t *testing.T) {
 
 // seenRequest is what a stub artifact API saw of one request.
 type seenRequest struct {
-	caller environment.APICaller
-	ok     bool
-	method string
-	mine   string
+	caller    environment.APICaller
+	ok        bool
+	method    string
+	mine      string
+	workspace string
 }

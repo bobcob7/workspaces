@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -175,9 +176,7 @@ func (c *APIClient) Do(ctx context.Context, method, path string, query url.Value
 	if err != nil {
 		return nil, fmt.Errorf("building the request: %w", err)
 	}
-	for name, values := range header {
-		req.Header[name] = values
-	}
+	maps.Copy(req.Header, header)
 	if size >= 0 {
 		req.ContentLength = size
 	}
