@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/bobcob7/workspaces/internal/config"
 	"github.com/bobcob7/workspaces/internal/daemon"
+	"github.com/bobcob7/workspaces/internal/envagent"
 	"github.com/bobcob7/workspaces/internal/environment"
 	"github.com/bobcob7/workspaces/internal/environment/envtest"
 	"github.com/bobcob7/workspaces/internal/envproto"
@@ -69,6 +71,55 @@ func TestApp_daemonEnvironments(t *testing.T) {
 		envs, ok := decodeJSONObject(t, stdout)["environments"].(map[string]any)
 		require.True(t, ok)
 		assert.Equal(t, true, envs["listening"])
+	})
+}
+
+// strPtr is a pointer to s.
+func strPtr(s string) *string { return &s }
+
+func TestApp_daemonEnvironments_artifactAPI(t *testing.T) {
+	t.Run("serves the artifact API with the app's handler to an enrolled agent", func(t *testing.T) {
+		ctl := newArtifactApp(t)
+		ctl.app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
+		ctl.app.config.Environments = config.Environments{
+			Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", APIListen: strPtr("127.0.0.1:0"), PublicName: "127.0.0.1",
+		}
+		host, ok := ctl.app.daemonEnvironments(discardDaemonLog()).(envHost)
+		require.True(t, ok)
+		t.Cleanup(func() { _ = host.Close() })
+		_, _, _, err := ctl.app.envStore().Add(t.Context(), "linux-server", "127.0.0.1:1")
+		require.NoError(t, err)
+		require.NoError(t, host.Start(t.Context()))
+		_, code, _, err := ctl.app.envStore().Rotate(t.Context(), "linux-server", host.ctrl.Status().EnrollListen)
+		require.NoError(t, err)
+		agent, _ := newMachineArtifactApp(t)
+		require.NoError(t, agent.app.runEnvAgentEnroll(t.Context(), code))
+		files := envagent.NewFiles(agent.app.paths.Environment)
+		require.NoError(t, files.SaveAPIEndpoint(host.ctrl.APIEndpoint(), time.Now()))
+		client, err := envagent.NewAPIClient(files)
+		require.NoError(t, err)
+		resp, err := client.Do(t.Context(), http.MethodGet, envproto.ArtifactsPath, nil, nil, nil, 0)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		assert.NotEqual(t, http.StatusNotFound, resp.StatusCode, "the controller has no artifact handler")
+	})
+	t.Run("starts no API listener when api_listen is off", func(t *testing.T) {
+		for _, value := range []string{"off", ""} {
+			app, _, _ := newDaemonTestApp(t)
+			app.newEnvBroker = func(*slog.Logger) (envBroker, error) { return envtest.NewBroker(), nil }
+			app.config.Environments = config.Environments{
+				Listen: "127.0.0.1:0", EnrollListen: "127.0.0.1:0", APIListen: strPtr(value), PublicName: "127.0.0.1",
+			}
+			host, ok := app.daemonEnvironments(discardDaemonLog()).(envHost)
+			require.True(t, ok)
+			_, _, _, err := app.envStore().Add(t.Context(), "linux", "127.0.0.1:8884")
+			require.NoError(t, err)
+			require.NoError(t, host.Start(t.Context()))
+			assert.True(t, host.ctrl.Status().Listening, value)
+			assert.Empty(t, host.ctrl.Status().APIListen, value)
+			assert.Empty(t, host.ctrl.APIEndpoint(), value)
+			require.NoError(t, host.Close())
+		}
 	})
 }
 

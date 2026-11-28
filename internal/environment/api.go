@@ -167,7 +167,10 @@ func (c *Controller) identify(r *http.Request) (APICaller, error) {
 	}
 	peer.ClientID = peer.CN
 	if err = c.policy.connect(peer); err != nil {
-		return APICaller{}, fmt.Errorf("%w: %w", errAPIRefused, err)
+		if isPolicyRefusal(err) {
+			return APICaller{}, fmt.Errorf("%w: %w", errAPIRefused, err)
+		}
+		return APICaller{}, fmt.Errorf("checking the environment %s: %w", peer.CN, err)
 	}
 	rec, err := c.store.ByID(peer.CN)
 	if errors.Is(err, ErrUnknown) {
@@ -177,6 +180,13 @@ func (c *Controller) identify(r *http.Request) (APICaller, error) {
 		return APICaller{}, fmt.Errorf("reading the environment %s: %w", peer.CN, err)
 	}
 	return APICaller{EnvironmentID: rec.ID, EnvironmentName: rec.Name}, nil
+}
+
+// isPolicyRefusal reports whether err is policy.connect refusing the peer, as
+// against failing to read the store.
+func isPolicyRefusal(err error) bool {
+	return errors.Is(err, errClientIDMismatch) || errors.Is(err, errInvalidID) || errors.Is(err, ErrUnknown) ||
+		errors.Is(err, errNotEnrolled) || errors.Is(err, errRevoked) || errors.Is(err, errUntrustedCA)
 }
 
 // peerName is the common name of the certificate a client presented, for logs; "" without one.

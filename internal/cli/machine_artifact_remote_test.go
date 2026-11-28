@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -463,6 +464,57 @@ func TestApp_machineArtifactRemote(t *testing.T) {
 		assert.NotEqual(t, exitOK, machineCall(t, f.agent, "list"))
 		assert.Equal(t, string(codeInternal), errorCodeOf(t, f.agent.stderr))
 		assert.Contains(t, f.agent.stderr.String(), "too large")
+	})
+	t.Run("a non-JSON error answer is internal with a non-empty code", func(t *testing.T) {
+		for name, body := range map[string]string{"html": "<html>502 Bad Gateway</html>", "empty": "", "no code": `{"error":{"message":"x"}}`} {
+			tap := &apiTap{tweak: func(r *http.Request, rec *httptest.ResponseRecorder) {
+				if r.Method != http.MethodGet || r.URL.Path != envproto.ArtifactsPath {
+					return
+				}
+				rec.Code = http.StatusBadGateway
+				rec.Body.Reset()
+				rec.Body.WriteString(body)
+				rec.Header().Del("Content-Length")
+			}}
+			f := newRemoteArtifactFixtureWith(t, tap.wrap)
+			assert.Equal(t, exitFailed, machineCall(t, f.agent, "list"), name)
+			assert.Equal(t, string(codeInternal), errorCodeOf(t, f.agent.stderr), name)
+		}
+	})
+	t.Run("a 503 operation_limited envelope keeps its code", func(t *testing.T) {
+		tap := &apiTap{tweak: func(r *http.Request, rec *httptest.ResponseRecorder) {
+			if r.Method != http.MethodGet || r.URL.Path != envproto.ArtifactsPath {
+				return
+			}
+			rec.Code = http.StatusServiceUnavailable
+			rec.Body.Reset()
+			rec.Body.WriteString(`{"error":{"code":"operation_limited","message":"the controller is busy with other uploads; try again"}}`)
+			rec.Header().Del("Content-Length")
+		}}
+		f := newRemoteArtifactFixtureWith(t, tap.wrap)
+		assert.Equal(t, exitFailed, machineCall(t, f.agent, "list"))
+		assert.Equal(t, string(codeOperationLimited), errorCodeOf(t, f.agent.stderr))
+	})
+	t.Run("get refuses a revision the controller says is over the size limit, and asks for no content", func(t *testing.T) {
+		var contentAsked bool
+		tap := &apiTap{tweak: func(r *http.Request, rec *httptest.ResponseRecorder) {
+			if strings.HasSuffix(r.URL.Path, "/content") {
+				contentAsked = true
+				return
+			}
+			if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, envproto.ArtifactsPath+"/") {
+				body := regexp.MustCompile(`"size":\s*8\b`).ReplaceAllString(rec.Body.String(), `"size":`+strconv.Itoa(artifact.MaxImageSize+1))
+				rec.Body.Reset()
+				rec.Body.WriteString(body)
+				rec.Header().Del("Content-Length")
+			}
+		}}
+		f := newRemoteArtifactFixtureWith(t, tap.wrap)
+		id := remoteAddedID(t, f, "pitch.md", []byte("# Pitch\n"))
+		assert.NotEqual(t, exitOK, machineCall(t, f.agent, "get", id))
+		assert.Equal(t, string(codeInternal), errorCodeOf(t, f.agent.stderr))
+		assert.False(t, contentAsked)
+		assert.NoDirExists(t, filepath.Join(f.dir, ".ws-artifacts", id, "r1"))
 	})
 	t.Run("get refuses an answer for another revision, and writes no file", func(t *testing.T) {
 		tap := &apiTap{tweak: func(r *http.Request, rec *httptest.ResponseRecorder) {

@@ -250,6 +250,14 @@ func TestController_Start(t *testing.T) {
 		}
 		require.Error(t, err)
 	})
+	t.Run("starts no artifact API listener when the address is empty", func(t *testing.T) {
+		store := newTestStore(t)
+		addEnvironment(t, store, "linux-server")
+		c := startController(t, store, envtest.NewBroker())
+		assert.True(t, c.Status().Listening)
+		assert.Empty(t, c.Status().APIListen)
+		assert.Empty(t, c.APIEndpoint())
+	})
 	t.Run("reports a broker start error", func(t *testing.T) {
 		store := newTestStore(t)
 		addEnvironment(t, store, "linux-server")

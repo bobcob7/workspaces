@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -171,10 +172,50 @@ func TestController_apiHandler(t *testing.T) {
 		c := startAPIController(t, store, envtest.NewBroker(), callerStub(nil))
 		srv := apiTestServer(t, c)
 		client := apiClient(t, store, &cert)
-		for _, path := range []string{"/v1/enroll", "/"} {
+		for _, path := range []string{"/v1/enroll", "/", envproto.ArtifactsPath + "X", "/v1/artifactsX/", "/v1/artifact"} {
 			status, _, err := apiDo(t, client, http.MethodGet, srv.URL+path, nil)
 			require.NoError(t, err, path)
 			assert.Equal(t, http.StatusNotFound, status, path)
+		}
+	})
+	t.Run("serves the artifact route's sub-paths", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		_, cert := enrollAgent(t, store, "linux-server")
+		c := startAPIController(t, store, envtest.NewBroker(), callerStub(nil))
+		srv := apiTestServer(t, c)
+		client := apiClient(t, store, &cert)
+		for _, path := range []string{envproto.ArtifactsPath, envproto.ArtifactsPath + "/", envproto.ArtifactsPath + "/art-1/content"} {
+			status, _, err := apiDo(t, client, http.MethodGet, srv.URL+path, nil)
+			require.NoError(t, err, path)
+			assert.Equal(t, http.StatusOK, status, path)
+		}
+	})
+	t.Run("answers 500, not a refusal, when the store can't be read", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		_, cert := enrollAgent(t, store, "linux-server")
+		var ran atomic.Bool
+		c := startAPIController(t, store, envtest.NewBroker(), callerStub(&ran))
+		srv := apiTestServer(t, c)
+		require.NoError(t, os.WriteFile(filepath.Join(store.dir, "broken"+recordSuffix), []byte("{"), 0o600))
+		status, body, err := apiDo(t, apiClient(t, store, &cert), http.MethodGet, srv.URL+envproto.ArtifactsPath, nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusInternalServerError, status)
+		assert.NotContains(t, string(body), "artifact_unreachable")
+		assert.False(t, ran.Load())
+	})
+	t.Run("frees a POST slot when a POST finishes", func(t *testing.T) {
+		t.Parallel()
+		store := newTestStore(t)
+		_, cert := enrollAgent(t, store, "linux-server")
+		c := startAPIController(t, store, envtest.NewBroker(), callerStub(nil))
+		srv := apiTestServer(t, c)
+		client := apiClient(t, store, &cert)
+		for i := range apiMaxInFlight + 2 {
+			status, _, err := apiDo(t, client, http.MethodPost, srv.URL+envproto.ArtifactsPath, strings.NewReader("x"))
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, status, "POST %d", i)
 		}
 	})
 	t.Run("answers 404 when no artifact handler is set", func(t *testing.T) {
@@ -189,7 +230,7 @@ func TestController_apiHandler(t *testing.T) {
 	})
 	t.Run("answers 503 operation_limited to a POST beyond the in-flight cap and still serves a GET", func(t *testing.T) {
 		t.Parallel()
-		const artifactAPIPostsInFlight = 4 // ADR 0087: the cap the test holds full
+		const artifactAPIPostsInFlight = apiMaxInFlight
 		store := newTestStore(t)
 		_, cert := enrollAgent(t, store, "linux-server")
 		entered := make(chan struct{}, artifactAPIPostsInFlight)
