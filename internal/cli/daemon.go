@@ -200,7 +200,7 @@ func environmentsSummary(env daemon.EnvironmentsStatus) string {
 			pending++
 		}
 	}
-	return fmt.Sprintf("environments: listening on %s, enroll on %s; %d online, %d offline, %d pending", env.Listen, env.EnrollListen, online, offline, pending)
+	return fmt.Sprintf("environments: listening on %s, enroll on %s, api on %s; %d online, %d offline, %d pending", env.Listen, env.EnrollListen, env.APIListen, online, offline, pending)
 }
 
 func (a *App) newDaemonStopCmd() *cobra.Command {
