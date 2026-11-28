@@ -63,6 +63,32 @@ func (a *Agent) updateRoots(ctx context.Context, id *Identity, args json.RawMess
 	return reply
 }
 
+// updateAPI saves the controller's artifact API endpoint in args, republishes
+// the hello so the controller sees it, and answers with it (ADR 0087).
+func (a *Agent) updateAPI(ctx context.Context, id *Identity, args json.RawMessage) []byte {
+	var in envproto.APIUpdateArgs
+	if err := json.Unmarshal(args, &in); err != nil {
+		return envproto.ErrorReply("usage", "malformed api.update arguments")
+	}
+	if err := envproto.CheckEndpoint(in.Endpoint); err != nil {
+		return envproto.ErrorReply("usage", err.Error())
+	}
+	if err := a.files.SaveAPIEndpoint(in.Endpoint, a.opts.Now()); err != nil {
+		a.log.ErrorContext(ctx, "artifact api endpoint not saved", "id", id.ID, "error", err)
+		return envproto.ErrorReply("internal", "the endpoint wasn't saved")
+	}
+	reply, err := envproto.OKReply(envproto.APIUpdateResult{Endpoint: in.Endpoint})
+	if err != nil {
+		a.log.ErrorContext(ctx, "reply not encoded", "id", id.ID, "error", err)
+		return envproto.ErrorReply("internal", "reply not encoded")
+	}
+	if err := a.publishHello(ctx, id); err != nil {
+		a.log.WarnContext(ctx, "hello not published", "error", err)
+	}
+	a.log.InfoContext(ctx, "artifact api endpoint updated", "id", id.ID)
+	return reply
+}
+
 // reply publishes payload to msg's response topic with its correlation data.
 // A response topic outside env/<id>/res is never published to.
 func (a *Agent) reply(ctx context.Context, id *Identity, msg *envproto.Message, payload []byte) {
@@ -90,6 +116,8 @@ func replyTopicOK(id, topic string) bool {
 // state from the probe, the certificate and the roots' fingerprints (ADR 0073).
 func (a *Agent) hello(ctx context.Context, id *Identity) envproto.Hello {
 	state, version := a.claude.Probe(ctx)
+	// APIEndpoint is "" when api.toml is missing or unreadable: the controller then sends api.update.
+	apiEndpoint, _ := a.files.APIEndpoint()
 	return envproto.Hello{
 		Status:         envproto.StatusOnline,
 		At:             a.opts.Now().UTC(),
@@ -102,6 +130,7 @@ func (a *Agent) hello(ctx context.Context, id *Identity) envproto.Hello {
 		CertSerial:     id.Cert.SerialNumber.Text(16),
 		CertNotAfter:   id.Cert.NotAfter.UTC(),
 		CAFingerprints: id.Fingerprints(),
+		APIEndpoint:    apiEndpoint,
 		Conn:           a.connID,
 	}
 }
