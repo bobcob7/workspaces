@@ -5,14 +5,17 @@ import (
 	"time"
 )
 
-// Protocol is the newest operation protocol this ws speaks (ADR 0073). Reviews and loops make it 3; scopes and machine.record make it 4.
-const Protocol = 4
+// Protocol is the newest operation protocol this ws speaks (ADR 0073). Reviews and loops make it 3; scopes and machine.record 4; the artifact API 5.
+const Protocol = 5
 
 // ProtocolReviewsLoops is the protocol review.* and loop.* need (ADR 0080).
 const ProtocolReviewsLoops = 3
 
 // ProtocolScopes is the protocol scopes and machine.record need (ADR 0082).
 const ProtocolScopes = 4
+
+// ProtocolArtifacts is the protocol api.update and the artifact API need (ADR 0087).
+const ProtocolArtifacts = 5
 
 // Statuses an agent reports in its hello and its last will.
 const (
@@ -31,6 +34,7 @@ const (
 const (
 	OpCertRenew = "cert.renew"
 	OpCAUpdate  = "ca.update"
+	OpAPIUpdate = "api.update"
 )
 
 // EnrollPath is the enrollment listener's route.
@@ -57,6 +61,9 @@ type Hello struct {
 	// hello of that connection. A controller that sees it change knows the
 	// agent's terminals died with the old connection. Empty from an older agent.
 	Conn string `json:"conn,omitempty"`
+	// APIEndpoint is the controller's artifact API address the agent holds
+	// (ADR 0087); "" when it has none, and from an agent older than protocol 5.
+	APIEndpoint string `json:"api_endpoint,omitempty"`
 }
 
 // OfflinePayload is the Last Will: exactly {"status":"offline"}.
@@ -168,6 +175,16 @@ type CAUpdateArgs struct {
 // CAUpdateResult is the result of ca.update.
 type CAUpdateResult struct {
 	Fingerprints []string `json:"fingerprints"`
+}
+
+// APIUpdateArgs are the arguments of api.update.
+type APIUpdateArgs struct {
+	Endpoint string `json:"endpoint"` // host:port, CheckEndpoint
+}
+
+// APIUpdateResult is the result of api.update.
+type APIUpdateResult struct {
+	Endpoint string `json:"endpoint"`
 }
 
 // EnrollRequest is POST /v1/enroll's body.

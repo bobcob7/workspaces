@@ -87,6 +87,8 @@ func LookupOp(name string) (OpSpec, bool) {
 		return OpSpec{Name: name, Caller: CallerAgent, Timeout: 30 * time.Second}, true
 	case OpCAUpdate:
 		return OpSpec{Name: name, Caller: CallerInternal, Timeout: 30 * time.Second}, true
+	case OpAPIUpdate:
+		return OpSpec{Name: name, Caller: CallerInternal, Since: ProtocolArtifacts, Timeout: 30 * time.Second}, true
 	case OpWorkspaceCreate:
 		return OpSpec{Name: name, Caller: CallerController, Since: 1, Timeout: 10 * time.Minute, Changes: true}, true
 	case OpWorkspaceList:
