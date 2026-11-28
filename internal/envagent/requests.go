@@ -77,7 +77,7 @@ func (a *Agent) updateAPI(ctx context.Context, id *Identity, args json.RawMessag
 		a.log.ErrorContext(ctx, "artifact api endpoint not saved", "id", id.ID, "error", err)
 		return envproto.ErrorReply("internal", "the endpoint wasn't saved")
 	}
-	reply, err := envproto.OKReply(envproto.APIUpdateResult{Endpoint: in.Endpoint})
+	reply, err := envproto.OKReply(envproto.APIUpdateResult(in))
 	if err != nil {
 		a.log.ErrorContext(ctx, "reply not encoded", "id", id.ID, "error", err)
 		return envproto.ErrorReply("internal", "reply not encoded")
