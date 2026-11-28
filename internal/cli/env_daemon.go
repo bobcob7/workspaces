@@ -36,11 +36,13 @@ func (a *App) daemonEnvironments(log *slog.Logger) daemon.EnvironmentHost {
 	settings := environment.Settings{
 		Listen:          env.ListenAddr(),
 		EnrollListen:    env.EnrollAddr(),
+		APIListen:       env.APIAddr(),
 		PublicName:      env.PublicName,
 		RenewBeforeDays: env.RenewDays(),
 	}
 	ctrl := environment.NewController(log, a.envStore(), broker, settings, a.now)
 	ctrl.SetLocalScopes(localScopes{workspaces: a.workspaces, state: a.paths.State}, envscope.NewLedger(a.paths.Environments))
+	ctrl.SetArtifactAPI(a.artifactAPI())
 	return envHost{ctrl: ctrl}
 }
 
@@ -186,6 +188,7 @@ func environmentsStatus(st *environment.Status) daemon.EnvironmentsStatus {
 		Listening:    st.Listening,
 		Listen:       st.Listen,
 		EnrollListen: st.EnrollListen,
+		APIListen:    st.APIListen,
 		Environments: make([]daemon.EnvironmentPresence, 0, len(st.Environments)),
 	}
 	for _, p := range st.Environments {
@@ -214,6 +217,7 @@ func environmentHello(h *envproto.Hello) *daemon.EnvironmentHello {
 		Claude:        h.Claude,
 		ClaudeVersion: h.ClaudeVersion,
 		CertNotAfter:  h.CertNotAfter.UTC().Format(time.RFC3339),
+		Protocol:      h.Protocol,
 	}
 }
 
