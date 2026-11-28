@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,17 +19,17 @@ import (
 // the JSON those commands print.
 func (a *App) artifactAPI() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("GET /v1/artifacts", withAPICaller(a.apiList))
-	mux.Handle("POST /v1/artifacts", withAPICaller(a.apiAdd))
-	mux.Handle("GET /v1/artifacts/{id}", withAPICaller(a.apiShow))
-	mux.Handle("GET /v1/artifacts/{id}/content", withAPICaller(a.apiContent))
-	mux.Handle("POST /v1/artifacts/{id}/revisions", withAPICaller(a.apiPut))
-	mux.Handle("DELETE /v1/artifacts/{id}", withAPICaller(a.apiRemove))
-	mux.Handle("GET /v1/artifacts/{id}/threads", withAPICaller(a.apiThreads))
-	mux.Handle("POST /v1/artifacts/{id}/threads", withAPICaller(a.apiAddThread))
-	mux.Handle("POST /v1/artifacts/{id}/threads/{thread}/resolve", withAPICaller(a.apiResolveThread))
+	mux.Handle("GET /v1/artifacts", a.withAPICaller(a.apiList))
+	mux.Handle("POST /v1/artifacts", a.withAPICaller(a.apiAdd))
+	mux.Handle("GET /v1/artifacts/{id}", a.withAPICaller(a.apiShow))
+	mux.Handle("GET /v1/artifacts/{id}/content", a.withAPICaller(a.apiContent))
+	mux.Handle("POST /v1/artifacts/{id}/revisions", a.withAPICaller(a.apiPut))
+	mux.Handle("DELETE /v1/artifacts/{id}", a.withAPICaller(a.apiRemove))
+	mux.Handle("GET /v1/artifacts/{id}/threads", a.withAPICaller(a.apiThreads))
+	mux.Handle("POST /v1/artifacts/{id}/threads", a.withAPICaller(a.apiAddThread))
+	mux.Handle("POST /v1/artifacts/{id}/threads/{thread}/resolve", a.withAPICaller(a.apiResolveThread))
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeAPIError(w, usageErrorf("no such artifact route"))
+		a.writeAPIError(w, usageErrorf("no such artifact route"))
 	}))
 	return mux
 }
@@ -48,11 +47,11 @@ type remoteAPICaller struct {
 type apiHandlerFunc func(w http.ResponseWriter, r *http.Request, c *remoteAPICaller)
 
 // withAPICaller runs fn with the request's caller, or answers the error reading it.
-func withAPICaller(fn apiHandlerFunc) http.Handler {
+func (a *App) withAPICaller(fn apiHandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := apiCaller(r)
 		if err != nil {
-			writeAPIError(w, err)
+			a.writeAPIError(w, err)
 			return
 		}
 		fn(w, r, &c)
@@ -107,15 +106,15 @@ func (c *remoteAPICaller) storedRoot() string {
 // writeAPIError answers err: a *cliError keeps its code, message and details;
 // anything else is 500 "internal" with the message "internal error" (logged,
 // not sent).
-func writeAPIError(w http.ResponseWriter, err error) {
+func (a *App) writeAPIError(w http.ResponseWriter, err error) {
 	ce := asCLIError(err)
 	status := apiStatus(ce.code)
 	if status == http.StatusInternalServerError {
-		slog.Default().Error("artifact api", "error", err)
-		writeAPIFailure(w, status, codeInternal, "internal error", nil)
+		a.log.Error("artifact api", "error", err)
+		a.writeAPIFailure(w, status, codeInternal, "internal error", nil)
 		return
 	}
-	writeAPIFailure(w, status, ce.code, ce.Error(), ce.details)
+	a.writeAPIFailure(w, status, ce.code, ce.Error(), ce.details)
 }
 
 // apiStatus is the HTTP status for a code: usage 400, artifact_invalid 400
@@ -139,15 +138,15 @@ func apiStatus(code errorCode) int {
 }
 
 // writeAPIFailure answers with the {"error": …} envelope.
-func writeAPIFailure(w http.ResponseWriter, status int, code errorCode, message string, details map[string]any) {
-	writeAPIJSON(w, status, envproto.ErrorEnvelope{Error: envproto.ReplyError{Code: string(code), Message: message, Details: details}})
+func (a *App) writeAPIFailure(w http.ResponseWriter, status int, code errorCode, message string, details map[string]any) {
+	a.writeAPIJSON(w, status, envproto.ErrorEnvelope{Error: envproto.ReplyError{Code: string(code), Message: message, Details: details}})
 }
 
 // writeAPIJSON answers with v as JSON.
-func writeAPIJSON(w http.ResponseWriter, status int, v any) {
+func (a *App) writeAPIJSON(w http.ResponseWriter, status int, v any) {
 	body, err := json.Marshal(v)
 	if err != nil {
-		writeAPIError(w, fmt.Errorf("encoding the answer: %w", err))
+		a.writeAPIError(w, fmt.Errorf("encoding the answer: %w", err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -229,20 +228,20 @@ func apiPositiveQuery(values url.Values, key string, def int) (int, error) {
 
 // readAPIFile reads a request's file body, at most artifact.MaxImageSize
 // bytes. A larger one is answered 413 artifact_invalid, and false is returned.
-func readAPIFile(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+func (a *App) readAPIFile(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	message := fmt.Sprintf("the file is over %d bytes", artifact.MaxImageSize)
 	if r.ContentLength > artifact.MaxImageSize {
-		writeAPIFailure(w, http.StatusRequestEntityTooLarge, codeArtifactInvalid, message, nil)
+		a.writeAPIFailure(w, http.StatusRequestEntityTooLarge, codeArtifactInvalid, message, nil)
 		return nil, false
 	}
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, artifact.MaxImageSize))
 	var tooLarge *http.MaxBytesError
 	switch {
 	case errors.As(err, &tooLarge):
-		writeAPIFailure(w, http.StatusRequestEntityTooLarge, codeArtifactInvalid, message, nil)
+		a.writeAPIFailure(w, http.StatusRequestEntityTooLarge, codeArtifactInvalid, message, nil)
 		return nil, false
 	case err != nil:
-		writeAPIError(w, newError(codeArtifactInvalid, fmt.Errorf("reading the file: %w", err)))
+		a.writeAPIError(w, newError(codeArtifactInvalid, fmt.Errorf("reading the file: %w", err)))
 		return nil, false
 	}
 	return data, true
@@ -283,30 +282,30 @@ func (a *App) apiList(w http.ResponseWriter, r *http.Request, c *remoteAPICaller
 	q := r.URL.Query()
 	mine, err := apiFlag(q, "mine")
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	limit, err := apiPositiveQuery(q, "limit", defaultListLimit)
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	kind := q.Get("kind")
 	if err = errors.Join(checkArtifactKind(kind), checkListLimit(limit)); err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	f := artifactFilter{kind: kind, mine: mine, root: c.storedRoot(), limit: limit}
 	kept, warnings, err := a.keptArtifacts(&f)
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	summaries := make([]artifactSummaryJSON, 0, len(kept))
 	for _, e := range kept {
 		summaries = append(summaries, summaryJSON(e))
 	}
-	writeAPIJSON(w, http.StatusOK, artifactListJSON{Artifacts: summaries, Warnings: apiWarnings(warnings)})
+	a.writeAPIJSON(w, http.StatusOK, artifactListJSON{Artifacts: summaries, Warnings: apiWarnings(warnings)})
 }
 
 // apiAdd answers POST /v1/artifacts: the file in the body, stored as a new
@@ -315,10 +314,10 @@ func (a *App) apiAdd(w http.ResponseWriter, r *http.Request, c *remoteAPICaller)
 	q := r.URL.Query()
 	name := q.Get("name")
 	if name == "" {
-		writeAPIError(w, usageErrorf("adding an artifact needs a name"))
+		a.writeAPIError(w, usageErrorf("adding an artifact needs a name"))
 		return
 	}
-	data, ok := readAPIFile(w, r)
+	data, ok := a.readAPIFile(w, r)
 	if !ok {
 		return
 	}
@@ -326,10 +325,10 @@ func (a *App) apiAdd(w http.ResponseWriter, r *http.Request, c *remoteAPICaller)
 		Name: name, Title: q.Get("title"), Note: q.Get("note"), Data: data, By: c.actor(), Root: c.storedRoot(),
 	})
 	if err != nil {
-		writeAPIError(w, artifactError(err))
+		a.writeAPIError(w, artifactError(err))
 		return
 	}
-	writeAPIJSON(w, http.StatusCreated, artifactResultJSON{
+	a.writeAPIJSON(w, http.StatusCreated, artifactResultJSON{
 		Artifact: fullJSON(&artifact.Entry{Record: rec}, a.apiRemoved()),
 		Warnings: apiWarnings(nil),
 	})
@@ -339,10 +338,10 @@ func (a *App) apiAdd(w http.ResponseWriter, r *http.Request, c *remoteAPICaller)
 func (a *App) apiShow(w http.ResponseWriter, r *http.Request, _ *remoteAPICaller) {
 	entry, err := a.apiEntry(r.PathValue("id"))
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
-	writeAPIJSON(w, http.StatusOK, artifactResultJSON{Artifact: fullJSON(&entry, a.apiRemoved()), Warnings: apiWarnings(entry.Warnings)})
+	a.writeAPIJSON(w, http.StatusOK, artifactResultJSON{Artifact: fullJSON(&entry, a.apiRemoved()), Warnings: apiWarnings(entry.Warnings)})
 }
 
 // apiContent answers GET /v1/artifacts/{id}/content: the revision's bytes,
@@ -350,17 +349,17 @@ func (a *App) apiShow(w http.ResponseWriter, r *http.Request, _ *remoteAPICaller
 func (a *App) apiContent(w http.ResponseWriter, r *http.Request, c *remoteAPICaller) {
 	rev, err := apiRevQuery(r.URL.Query())
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	id, rev, err := artifactRef(r.PathValue("id"), rev, rev != 0)
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	_, revision, data, err := a.artifactStore().Read(id, rev)
 	if err != nil {
-		writeAPIError(w, artifactError(err))
+		a.writeAPIError(w, artifactError(err))
 		return
 	}
 	a.recordAPIRead(r, c, id, revision.Rev)
@@ -392,30 +391,30 @@ func (a *App) apiPut(w http.ResponseWriter, r *http.Request, c *remoteAPICaller)
 	q := r.URL.Query()
 	id, err := apiID(r.PathValue("id"))
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	baseRev, err := apiBaseRevQuery(q)
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
-	data, ok := readAPIFile(w, r)
+	data, ok := a.readAPIFile(w, r)
 	if !ok {
 		return
 	}
 	store := a.artifactStore()
 	res, err := store.Put(r.Context(), id, &artifact.NewRevision{Data: data, Note: q.Get("note"), By: c.actor(), BaseRev: baseRev})
 	if err != nil {
-		writeAPIError(w, artifactError(err))
+		a.writeAPIError(w, artifactError(err))
 		return
 	}
 	updated, err := store.Show(id)
 	if err != nil {
-		writeAPIError(w, artifactError(err))
+		a.writeAPIError(w, artifactError(err))
 		return
 	}
-	writeAPIJSON(w, http.StatusOK, machinePutJSON{
+	a.writeAPIJSON(w, http.StatusOK, machinePutJSON{
 		Artifact: fullJSON(&updated, a.apiRemoved()),
 		Anchors:  anchorCountsJSON{Anchored: res.Anchored, Detached: res.Detached},
 		Warnings: apiWarnings(updated.Warnings),
@@ -427,38 +426,38 @@ func (a *App) apiPut(w http.ResponseWriter, r *http.Request, c *remoteAPICaller)
 func (a *App) apiRemove(w http.ResponseWriter, r *http.Request, c *remoteAPICaller) {
 	entry, err := a.apiEntry(r.PathValue("id"))
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	if entry.Record.Root == nil || *entry.Record.Root != c.storedRoot() {
-		writeAPIError(w, newError(codeArtifactForbidden, fmt.Errorf("%s was created by another workspace tree; ask a person to remove it", entry.Record.ID)))
+		a.writeAPIError(w, newError(codeArtifactForbidden, fmt.Errorf("%s was created by another workspace tree; ask a person to remove it", entry.Record.ID)))
 		return
 	}
 	if err = a.artifactStore().Remove(r.Context(), entry.Record.ID); err != nil {
-		writeAPIError(w, artifactError(err))
+		a.writeAPIError(w, artifactError(err))
 		return
 	}
-	writeAPIJSON(w, http.StatusOK, envproto.ArtifactRemoved{ID: entry.Record.ID, Removed: true})
+	a.writeAPIJSON(w, http.StatusOK, envproto.ArtifactRemoved{ID: entry.Record.ID, Removed: true})
 }
 
 // apiThreads answers GET /v1/artifacts/{id}/threads: the comment list's JSON.
 func (a *App) apiThreads(w http.ResponseWriter, r *http.Request, _ *remoteAPICaller) {
 	openOnly, err := apiFlag(r.URL.Query(), "open")
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	entry, err := a.apiEntry(r.PathValue("id"))
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	threads, err := a.artifactStore().Threads(entry.Record.ID)
 	if err != nil {
-		writeAPIError(w, artifactError(err))
+		a.writeAPIError(w, artifactError(err))
 		return
 	}
-	writeAPIJSON(w, http.StatusOK, commentListJSON{
+	a.writeAPIJSON(w, http.StatusOK, commentListJSON{
 		ArtifactID: entry.Record.ID,
 		Latest:     entry.Record.Latest().Rev,
 		Threads:    threadsJSON(threads, openOnly),
@@ -471,16 +470,16 @@ func (a *App) apiThreads(w http.ResponseWriter, r *http.Request, _ *remoteAPICal
 func (a *App) apiAddThread(w http.ResponseWriter, r *http.Request, c *remoteAPICaller) {
 	id, err := apiID(r.PathValue("id"))
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	var body envproto.CommentAddBody
 	if err = decodeAPIJSON(w, r, &body); err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	if err = checkAPIComment(&body); err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	store := a.artifactStore()
@@ -492,10 +491,10 @@ func (a *App) apiAddThread(w http.ResponseWriter, r *http.Request, c *remoteAPIC
 		thread, comment, err = store.AddThread(r.Context(), id, &artifact.NewThread{Body: body.Body, By: c.actor(), Anchor: apiAnchorRequest(&body)})
 	}
 	if err != nil {
-		writeAPIError(w, artifactError(err))
+		a.writeAPIError(w, artifactError(err))
 		return
 	}
-	writeAPIJSON(w, http.StatusCreated, commentAddedJSON{
+	a.writeAPIJSON(w, http.StatusCreated, commentAddedJSON{
 		ArtifactID: id,
 		Thread:     threadToJSON(&thread),
 		Comment:    commentToJSON(&comment),
@@ -517,18 +516,18 @@ func apiAnchorRequest(body *envproto.CommentAddBody) *artifact.AnchorRequest {
 func (a *App) apiResolveThread(w http.ResponseWriter, r *http.Request, c *remoteAPICaller) {
 	id, err := apiID(r.PathValue("id"))
 	if err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	var body envproto.CommentResolveBody
 	if err = decodeAPIJSON(w, r, &body); err != nil {
-		writeAPIError(w, err)
+		a.writeAPIError(w, err)
 		return
 	}
 	thread, err := a.artifactStore().Resolve(r.Context(), id, r.PathValue("thread"), c.actor(), body.Reopen)
 	if err != nil {
-		writeAPIError(w, artifactError(err))
+		a.writeAPIError(w, artifactError(err))
 		return
 	}
-	writeAPIJSON(w, http.StatusOK, commentResolvedJSON{ArtifactID: id, Thread: threadToJSON(&thread), Warnings: apiWarnings(nil)})
+	a.writeAPIJSON(w, http.StatusOK, commentResolvedJSON{ArtifactID: id, Thread: threadToJSON(&thread), Warnings: apiWarnings(nil)})
 }

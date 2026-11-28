@@ -320,15 +320,17 @@ func TestApiStatus(t *testing.T) {
 
 func TestWriteAPIError(t *testing.T) {
 	t.Run("a full store answers 409 artifact_full", func(t *testing.T) {
+		e := newArtifactApp(t)
 		rec := httptest.NewRecorder()
-		writeAPIError(rec, artifactError(fmt.Errorf("%w: x", artifact.ErrFull)))
+		e.app.writeAPIError(rec, artifactError(fmt.Errorf("%w: x", artifact.ErrFull)))
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		code, _ := apiErrorOf(t, rec)
 		assert.Equal(t, string(codeArtifactFull), code)
 	})
 	t.Run("an error that isn't a ws error is 500 internal, not sent", func(t *testing.T) {
+		e := newArtifactApp(t)
 		rec := httptest.NewRecorder()
-		writeAPIError(rec, errors.New("disk on fire at /secret/path"))
+		e.app.writeAPIError(rec, errors.New("disk on fire at /secret/path"))
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 		code, _ := apiErrorOf(t, rec)
 		assert.Equal(t, string(codeInternal), code)
