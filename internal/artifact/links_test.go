@@ -267,3 +267,15 @@ func TestStore_Show_conversations(t *testing.T) {
 		assert.Len(t, warnings, 1)
 	})
 }
+
+func TestConversations_remoteAgent(t *testing.T) {
+	t.Parallel()
+	remote := RemoteAgent("plan", "planner", "linux-server")
+	rec := &Record{Revisions: []Revision{{Rev: 1, CreatedAt: testBase, CreatedBy: remote}}}
+	got := Conversations(rec, nil, nil)
+	require.Len(t, got, 1)
+	assert.Equal(t, "plan", got[0].Workspace)
+	require.NotNil(t, got[0].Environment)
+	assert.Equal(t, "linux-server", *got[0].Environment)
+	assert.Equal(t, []string{ActionCreated}, got[0].Actions)
+}

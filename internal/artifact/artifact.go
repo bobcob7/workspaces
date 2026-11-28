@@ -66,6 +66,9 @@ type Actor struct {
 	Kind      string  `json:"kind"`
 	Workspace *string `json:"workspace"`
 	Name      *string `json:"name"`
+	// Environment is the name of the remote environment the agent runs on;
+	// nil for a local actor (ADR 0087).
+	Environment *string `json:"environment,omitempty"`
 }
 
 // Person is the actor for every people command and the desktop app.
@@ -76,6 +79,14 @@ func Person() Actor {
 // Agent is the actor for a ws machine command run in workspace id.
 func Agent(workspace, name string) Actor {
 	return Actor{Kind: "agent", Workspace: &workspace, Name: &name}
+}
+
+// RemoteAgent is the actor for a ws machine command run in workspace id on
+// the remote environment named environment (ADR 0087).
+func RemoteAgent(workspace, name, environment string) Actor {
+	a := Agent(workspace, name)
+	a.Environment = &environment
+	return a
 }
 
 // Revision is one immutable version of an artifact's bytes.

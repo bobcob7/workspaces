@@ -242,7 +242,7 @@ func appendActor(events []event, a Actor, action string, rev int, at time.Time) 
 	if a.Kind != "agent" || a.Workspace == nil || *a.Workspace == "" {
 		return events
 	}
-	return append(events, event{workspace: *a.Workspace, name: a.Name, action: action, rev: rev, first: at, last: at})
+	return append(events, event{workspace: *a.Workspace, name: a.Name, environment: a.Environment, action: action, rev: rev, first: at, last: at})
 }
 
 // addEvent folds e into its workspace's row.
