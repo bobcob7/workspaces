@@ -299,10 +299,13 @@ Prints `{"workspace": "<id>", "offset": 482133, "recorded": 1, "skipped": 0, "wa
 | No artifact, revision or thread with that id | `artifact_unknown` | 3 |
 | The quote isn't in the latest revision, or occurs more than once and `--line` doesn't pick one; `details: {"occurrences": <n>, "lines": [<n>…]}` | `anchor_not_found` | 3 |
 | A revision, thread, comment or store limit | `artifact_full` | 4 |
-| `ws machine artifact` on an enrolled environment agent's machine | `artifact_unreachable` | 1 |
+| `ws machine artifact` on an enrolled environment agent's machine that can't reach the controller's artifact API (`details.reason`, see [`ws machine`](ws-machine.md)) | `artifact_unreachable` | 1 |
 
-On a remote agent machine `ws artifact` is not refused: a person there sees
-their own store, which isn't the controller's.
+On a remote agent machine `ws machine artifact` reaches the controller's
+store over its artifact API ([0087](../adrs/0087-artifacts-from-remote-environments.md)),
+so an agent there shares and reads the same artifacts as a local one. `ws
+artifact` is not refused there: a person on that machine sees their own
+store, which isn't the controller's.
 
 ## Examples
 
